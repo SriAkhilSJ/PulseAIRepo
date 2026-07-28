@@ -1,0 +1,1 @@
+print("STATUS CHECKPOINT WORKS")
