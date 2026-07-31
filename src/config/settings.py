@@ -21,6 +21,9 @@ CUSTOM_BASE_URL: str | None = os.getenv("CUSTOM_BASE_URL")
 # DEFAULT LLM
 # =========================================================
 
+# LLM_PROVIDER / LLM_MODEL are the single source of truth for model selection.
+# Set them in .env; code should import these settings instead of hardcoding models.
+
 LLM_PROVIDER: str = os.getenv(
     "LLM_PROVIDER",
     "groq",
@@ -29,4 +32,15 @@ LLM_PROVIDER: str = os.getenv(
 LLM_MODEL: str = os.getenv(
     "LLM_MODEL",
     "qwen/qwen3.6-27b",
+)
+
+# =========================================================
+# CONTEXT / TOKEN COUNTING
+# =========================================================
+
+# Model name used by the ContextEngine/token counter.
+# Defaults to the active LLM model so context accounting follows .env settings.
+CONTEXT_MODEL: str = os.getenv(
+    "CONTEXT_MODEL",
+    LLM_MODEL,
 )

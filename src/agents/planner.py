@@ -5,6 +5,60 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.llm.factory import get_llm
 from src.models.plan_models import TaskPlan, TaskPlanStep
 from src.prompts.planner_prompt import PLANNER_PROMPT
+from src.context.context_engine import ContextEngine
+from src.config.settings import CONTEXT_MODEL
+
+# Planner context engine: no summarizer needed (planners don't see tool output history)
+plan_context_engine = ContextEngine(max_tokens=4000, model=CONTEXT_MODEL, llm=None)
+
+
+def _invoke_and_track(
+    llm,
+    messages: list,
+    model: str,
+    usage_list: list | None = None,
+):
+    """
+    Call llm.invoke() and optionally record token usage.
+
+    usage_list: If provided, appends a TokenUsage object for this call.
+    """
+    result = llm.invoke(messages)
+
+    if usage_list is not None:
+        from src.context.token_tracker import TokenTracker
+
+        usage = TokenTracker.record_call(messages, result, model)
+        usage_list.append(usage)
+
+    return result
+
+
+def _looks_like_plan_task(task: str) -> bool:
+    """Deterministic fallback for obvious multi-step coding tasks."""
+    text = task.lower()
+
+    creation_words = (
+        "create",
+        "build",
+        "add",
+        "implement",
+        "write",
+        "fix",
+        "update",
+    )
+    execution_words = (
+        "run",
+        "verify",
+        "test",
+        "execute",
+        "confirm",
+    )
+
+    return (
+        any(word in text for word in creation_words)
+        and any(word in text for word in execution_words)
+    )
 
 
 def _extract_decision(response_content: object) -> str:
@@ -20,13 +74,14 @@ def should_create_plan(
     task: str,
     provider: str,
     model: str,
+    usage_list: list | None = None,
 ) -> bool:
     llm = get_llm(
         provider=provider,
         model=model,
     )
 
-    response = llm.invoke([
+    messages = [
         SystemMessage(
             content=(
                 "Classify the coding request as PLAN or DIRECT.\n\n"
@@ -49,7 +104,9 @@ def should_create_plan(
             )
         ),
         HumanMessage(content=task),
-    ])
+    ]
+
+    response = _invoke_and_track(llm, messages, model, usage_list)
 
     decision = _extract_decision(response.content)
 
@@ -57,47 +114,119 @@ def should_create_plan(
         return True
 
     if decision == "DIRECT":
-        return False
+        return _looks_like_plan_task(task)
 
-    # Safe fallback: don't create a plan.
-    return False
+    # Safe fallback: use deterministic heuristic for obvious multi-step tasks.
+    return _looks_like_plan_task(task)
 
 
 def create_plan(
     task: str,
     provider: str,
     model: str,
+    usage_list: list | None = None,
 ) -> TaskPlan:
-    llm = get_llm(
-        provider=provider,
-        model=model,
+    """
+    Create a plan from scratch.
+    """
+    messages = plan_context_engine.build_planner_messages(
+        task=task,
+        planner_prompt=PLANNER_PROMPT,
     )
 
-    result = llm.invoke(
-        [
-            SystemMessage(
-                content=(
-                    PLANNER_PROMPT
-                    + "\n\nReturn ONLY the final plan as a numbered list."
-                    + "\nDo not include analysis, reasoning, headings, examples, "
-                    "commentary, or duplicate steps."
-                )
-            ),
-            HumanMessage(content=task),
-        ]
+    return _execute_plan_llm(messages, provider, model, task, usage_list=usage_list)
+
+
+def create_replan(
+    task: str,
+    plan: list[dict],
+    failed_steps: list[str],
+    provider: str,
+    model: str,
+    prior_attempts: list[dict] | None = None,
+    usage_list: list | None = None,
+) -> TaskPlan:
+    """
+    Create a new plan when the old one failed.
+    Now includes lessons from past attempts!
+    """
+    messages = plan_context_engine.build_replanner_messages(
+        task=task,
+        plan=plan,
+        failed_steps=failed_steps,
+        planner_prompt=PLANNER_PROMPT,
+        prior_attempts=prior_attempts,
     )
-    
+
+    return _execute_plan_llm(messages, provider, model, task, usage_list=usage_list)
+
+
+def revise_plan(
+    task: str,
+    plan: list[dict],
+    revision: str,
+    provider: str,
+    model: str,
+    usage_list: list | None = None,
+) -> TaskPlan:
+    """Revise an existing user-visible plan without executing it."""
+    messages = plan_context_engine.build_reviser_messages(
+        task=task,
+        plan=plan,
+        revision=revision,
+        planner_prompt=PLANNER_PROMPT,
+    )
+
+    return _execute_plan_llm(messages, provider, model, task, usage_list=usage_list)
+
+
+def _execute_plan_llm(
+    messages: list,
+    provider: str,
+    model: str,
+    task: str,
+    usage_list: list | None = None,
+) -> TaskPlan:
+    """
+    Shared helper: Send messages to LLM and parse the plan.
+    """
+    llm = get_llm(provider=provider, model=model)
+
+    result = _invoke_and_track(llm, messages, model, usage_list)
 
     content = str(result.content).strip()
 
-    # Reasoning models may include internal <think>...</think>
-    # content before the actual plan.
-    if "</think>" in content.lower():
+    # Reasoning models may include internal text before the actual plan
+    if "</think" in content.lower():
         lower_content = content.lower()
-        end_index = lower_content.rfind("</think>")
-        content = content[end_index + len("</think>"):].strip()
+        end_index = lower_content.rfind("</think")
+        if end_index != -1:
+            closing_index = content.find(">", end_index)
+            if closing_index != -1:
+                content = content[closing_index + 1:].strip()
+            else:
+                content = content[end_index + len("</think"):].strip()
 
     descriptions = []
+    seen_descriptions = set()
+
+    skip_phrases = (
+        "analyze the request",
+        "determine steps",
+        "refine steps",
+        "final polish",
+        "output generation",
+        "final output construction",
+        "thinking process",
+        "reasoning",
+        "final plan formulation",
+        "analyze the current plan",
+        "apply constraints",
+        "drafting the revised plan",
+        "refining the steps",
+        "double check",
+        "check constraints",
+    )
 
     for line in content.splitlines():
         line = line.strip()
@@ -107,11 +236,35 @@ def create_plan(
             line,
         )
 
-        if match:
-            description = match.group(1).strip()
+        if not match:
+            continue
 
-            if description:
-                descriptions.append(description)
+        description = match.group(1).strip()
+        description = description.strip(" -*`")
+
+        lowered = description.lower().strip()
+
+        if not description or lowered.endswith(":"):
+            continue
+
+        if any(phrase in lowered for phrase in skip_phrases):
+            continue
+
+        if lowered in {"eat apple", "eat orange"}:
+            continue
+
+        normalized = re.sub(r"[^a-z0-9]+", " ", lowered).strip()
+
+        if normalized in seen_descriptions:
+            continue
+
+        seen_descriptions.add(normalized)
+        descriptions.append(description)
+
+        # Plans should stay concise. This also prevents runaway reasoning output
+        # from becoming a 50+ step plan.
+        if len(descriptions) >= 12:
+            break
 
     if not descriptions:
         raise ValueError(
@@ -135,86 +288,13 @@ def create_plan(
         steps=steps,
     )
 
-
-def create_replan(
-    task: str,
-    plan: list[dict],
-    failed_steps: list[str],
-    provider: str,
-    model: str,
-) -> TaskPlan:
-    completed = [
-        step["description"]
-        for step in plan
-        if step.get("status") == "completed"
-    ]
-
-    remaining = [
-        step["description"]
-        for step in plan
-        if step.get("status") != "completed"
-    ]
-
-    context = (
-        f"Original task:\n{task}\n\n"
-        f"Already completed:\n"
-        + "\n".join(f"- {step}" for step in completed)
-        + "\n\n"
-        f"Remaining or blocked work:\n"
-        + "\n".join(f"- {step}" for step in remaining)
-        + "\n\n"
-        f"Failures:\n"
-        + "\n".join(f"- {failure}" for failure in failed_steps[-3:])
-        + "\n\n"
-        "Create a revised plan for ONLY the remaining work. "
-        "Do not repeat completed work."
-    )
-
-    return create_plan(
-        task=context,
-        provider=provider,
-        model=model,
-    )
-
-
-def revise_plan(
-    task: str,
-    plan: list[dict],
-    revision: str,
-    provider: str,
-    model: str,
-) -> TaskPlan:
-    """Revise an existing user-visible plan without executing it."""
-
-    plan_text = "\n".join(
-        f"{step.get('id', index)}. {step.get('description', '')}"
-        for index, step in enumerate(plan, start=1)
-    )
-
-    context = (
-        f"Original task:\n{task}\n\n"
-        f"Current plan:\n{plan_text}\n\n"
-        f"User requested this plan change:\n{revision}\n\n"
-        "Revise the current plan according to the user's request.\n"
-        "Preserve steps that do not need to change.\n"
-        "Return the complete revised plan.\n"
-        "Do not execute anything."
-    )
-
-    return create_plan(
-        task=context,
-        provider=provider,
-        model=model,
-    )
-
-
-
 def should_replan(
     task: str,
     plan: list[dict],
     failure: str,
     provider: str,
     model: str,
+    usage_list: list | None = None,
 ) -> bool:
     """Decide whether a failure invalidates the plan (REPLAN) or can be recovered within the plan (KEEP)."""
     llm = get_llm(
@@ -229,7 +309,7 @@ def should_replan(
         )
     plan_text = "\n".join(plan_lines)
 
-    response = llm.invoke([
+    messages = [
         SystemMessage(
             content=(
                 "Decide whether an existing execution plan should be kept "
@@ -268,7 +348,9 @@ def should_replan(
                 f"Recent failure:\n{failure}"
             )
         ),
-    ])
+    ]
+
+    response = _invoke_and_track(llm, messages, model, usage_list)
     decision = _extract_decision(response.content)
 
     if decision == "REPLAN":
