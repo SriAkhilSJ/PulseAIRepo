@@ -258,7 +258,23 @@ def run_terminal(
     command: str,
     config: RunnableConfig
 ) -> str:
-    """Run a short terminal command inside the active workspace."""
+    """
+    Run a short terminal command inside the active workspace.
+
+    WHEN TO USE:
+    - Running Python scripts: python script.py
+    - Running quick tests or checks.
+    - Inspecting environment state with short commands.
+    - Verifying generated code works.
+
+    WHEN NOT TO USE:
+    - Do not use for long installs, builds, servers, or commands that keep running; use start_terminal.
+    - Do not use for reading known files; use read_file for accuracy.
+    - Do not run destructive commands unless explicitly requested and safe.
+
+    RETURNS:
+    - stdout/stderr plus exit code. Always inspect non-zero exit codes.
+    """
 
     workspace = config["configurable"]["workspace"]
 

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Consistency Tracker - track daily work habits, streaks, and progress." />
+  <title>Consistency Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">🔥</span>
+        <div>
+          <h1>Consistency Tracker</h1>
+          <p class="tagline">Small daily actions, compounding results.</p>
+        </div>
+      </div>
+      <p class="today-label" id="today-label"></p>
+    </header>
+
+    <main>
+      <!-- Overview stats -->
+      <section class="stats-grid" aria-label="Overview statistics">
+        <article class="stat-card">
+          <span class="stat-value" id="stat-best-streak">0</span>
+          <span class="stat-label">Best Streak</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-value" id="stat-current-streak">0</span>
+          <span class="stat-label">Current Streak</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-value" id="stat-today">0%</span>
+          <span class="stat-label">Completed Today</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-value" id="stat-week">0%</span>
+          <span class="stat-label">This Week</span>
+        </article>
+      </section>
+
+      <!-- Add habit form -->
+      <section class="card add-habit-card" aria-labelledby="add-habit-heading">
+        <h2 id="add-habit-heading">Add a habit or task</h2>
+        <form id="add-habit-form" class="add-habit-form" autocomplete="off">
+          <label class="sr-only" for="habit-name">Habit name</label>
+          <input
+            type="text"
+            id="habit-name"
+            name="habit-name"
+            placeholder="e.g. Deep work for 2 hours"
+            maxlength="80"
+            required
+          />
+          <button type="submit" class="btn btn-primary">Add Habit</button>
+        </form>
+      </section>
+
+      <!-- Habit list -->
+      <section class="card habits-card" aria-labelledby="habits-heading">
+        <div class="section-title-row">
+          <h2 id="habits-heading">Today's Habits</h2>
+          <p class="hint" id="habits-hint">Mark what you completed today.</p>
+        </div>
+        <ul id="habit-list" class="habit-list"></ul>
+        <p id="empty-state" class="empty-state">
+          No habits yet. Add your first habit above to start building momentum. 💪
+        </p>
+      </section>
+
+      <!-- Weekly progress -->
+      <section class="card weekly-card" aria-labelledby="weekly-heading">
+        <h2 id="weekly-heading">Weekly Progress</h2>
+        <div class="week-row">
+          <span id="weekday-labels" class="weekday-labels" aria-hidden="true"></span>
+          <span id="week-bars" class="week-bars" aria-hidden="true"></span>
+        </div>
+        <p class="week-summary" id="week-summary"></p>
+      </section>
+
+      <!-- Notes -->
+      <section class="card notes-card" aria-labelledby="notes-heading">
+        <h2 id="notes-heading">Notes</h2>
+        <textarea
+          id="notes-input"
+          rows="5"
+          placeholder="Capture reflections, blockers, or wins for the day…"
+          aria-label="Daily notes"
+        ></textarea>
+        <p class="notes-saved" id="notes-saved" role="status">Saved ✓</p>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>Data is stored locally in your browser via localStorage.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

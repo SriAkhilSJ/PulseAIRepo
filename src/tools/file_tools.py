@@ -27,7 +27,24 @@ def read_file(
     path: str,
     config: RunnableConfig
 ) -> str:
-    """Read and return the contents of a file inside the current workspace."""
+    """
+    Read and return the contents of a file inside the current workspace.
+
+    WHEN TO USE:
+    - Before editing any existing file, read it first to see current contents.
+    - To inspect configuration files, code, data, prompts, or tests.
+    - To verify that write_file or edit_file produced the expected content.
+
+    WHEN NOT TO USE:
+    - Do not use for directories; use list_files instead.
+    - Do not repeatedly read the same unchanged file in one task unless needed.
+
+    Args:
+        path: Workspace-relative path to the file.
+
+    Returns:
+        File contents as text, or a tool error if reading fails.
+    """
 
     workspace = config["configurable"]["workspace"]
 
@@ -48,7 +65,18 @@ def list_files(
     path: str,
     config: RunnableConfig
 ) -> str:
-    """List files and directories inside a workspace directory."""
+    """
+    List files and directories inside a workspace directory.
+
+    WHEN TO USE:
+    - To inspect a directory when the repo map is insufficient.
+    - To verify whether a file or folder exists.
+    - To explore a small part of the workspace.
+
+    WHEN NOT TO USE:
+    - Do not recursively list the entire repo unless necessary.
+    - Prefer the repo map or search_code when looking for known symbols.
+    """
 
     workspace = config["configurable"]["workspace"]
 
@@ -76,7 +104,18 @@ def write_file(
     content: str,
     config: RunnableConfig
 ) -> str:
-    """Create or overwrite a file inside the current workspace."""
+    """
+    Create or overwrite a file inside the current workspace.
+
+    WHEN TO USE:
+    - Creating a new file.
+    - Replacing an entire file intentionally.
+    - Writing generated content where no current content needs preservation.
+
+    WHEN NOT TO USE:
+    - Do not use for small edits to existing files; use edit_file instead.
+    - Do not overwrite important files without inspecting them first.
+    """
 
     workspace = config["configurable"]["workspace"]
 
@@ -103,7 +142,18 @@ def search_code(
     path: str,
     config: RunnableConfig
 ) -> str:
-    """Search recursively for text within files inside the current workspace."""
+    """
+    Search recursively for text within files inside the current workspace.
+
+    WHEN TO USE:
+    - To find functions, classes, imports, config keys, errors, or examples.
+    - To locate where a file, symbol, or message appears.
+    - Before editing code when you need to understand usages.
+
+    WHEN NOT TO USE:
+    - Do not use for reading a known file; use read_file.
+    - Do not search the whole repo with vague queries if the repo map points to a file.
+    """
 
     workspace = config["configurable"]["workspace"]
 
@@ -165,7 +215,23 @@ def edit_file(
     new_text: str,
     config: RunnableConfig
 ) -> str:
-    """Replace specific text in an existing file inside the current workspace."""
+    """
+    Replace specific text in an existing file inside the current workspace.
+
+    WHEN TO USE:
+    - Changing a small or precise part of an existing file.
+    - Fixing bugs, imports, config values, or individual functions.
+    - Preserving the rest of the file exactly.
+
+    WHEN NOT TO USE:
+    - Do not use for creating new files; use write_file.
+    - Do not use before reading the file when current content matters.
+
+    IMPORTANT:
+    - old_text must match existing content exactly.
+    - Prefer small, targeted replacements.
+    - Verify the edit afterward with read_file or a test command.
+    """
 
     workspace = config["configurable"]["workspace"]
 
