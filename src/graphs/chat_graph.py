@@ -272,30 +272,6 @@ tools = [
 
 system_message = SystemMessage(content=CLAUDE_SYSTEM_PERSONA)
 
-Before finalizing, verify:
-- All plan steps are completed or the direct task is done
-- Code runs without errors when runnable
-- Output matches what the user asked for
-- Relevant edge cases are handled: missing files, empty input, invalid data, bad paths
-- Any changed files contain the intended content
-
-=== CONTEXT AWARENESS ===
-
-def _zero_token_usage() -> dict[str, Any]:
-    """Return an empty token usage snapshot."""
-    return TokenUsage().to_dict()
-
-
-def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsage]) -> dict[str, Any]:
-    """Merge a list of TokenUsage records into an existing state snapshot."""
-    total = TokenUsage.from_dict(existing)
-
-    for usage in additions:
-        total = total + usage
-
-    return total.to_dict()
-
-
 
 def _zero_token_usage() -> dict[str, Any]:
     """Return an empty token usage snapshot."""
