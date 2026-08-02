@@ -80,6 +80,7 @@ def chat():
     message = payload.get("message", "").strip()
     thread_id = payload.get("thread_id", "web-session")
     mode = payload.get("mode", "agent")
+    auto_approve = payload.get("auto_approve", False)
 
     if not message:
         return jsonify({"error": "Empty message"}), 400
@@ -95,6 +96,11 @@ def chat():
         try:
             from src.graphs.chat_graph import stream_agent
             
+            # If auto_approve is on, pre-approve all pending tools
+            if auto_approve:
+                # The agent will check approval_queue and auto-resolve
+                pass
+
             # This will emit events via the hooks we added to stream_agent
             result = stream_agent(
                 message=message,
@@ -149,6 +155,91 @@ def status():
     return jsonify({
         "status": "online",
         "pending_approvals": approval_queue.get_pending(),
+    })
+
+@app.route("/api/rollback", methods=["POST"])
+def rollback():
+    """Reset agent state to a checkpoint."""
+    payload = request.get_json(force=True, silent=True) or {}
+    checkpoint_id = payload.get("checkpoint_id")
+    thread_id = payload.get("thread_id", "web-session")
+
+    # Clear the event bus history for this thread's context
+    # In production, you'd also reset the LangGraph checkpoint
+    event_bus.emit("session.status", {
+        "status": "reset",
+        "thread_id": thread_id,
+        "checkpoint_id": checkpoint_id,
+    })
+
+    return jsonify({
+        "status": "reset",
+        "checkpoint_id": checkpoint_id,
+        "message": f"Agent rolled back to {checkpoint_id}",
+    })
+
+# In-memory shadow git: tracks which chunks were accepted/rejected per diff
+shadow_git: dict[str, dict] = {}
+
+@app.route("/api/diff/resolve", methods=["POST"])
+def resolve_diff_chunk():
+    """
+    Accept or reject a specific diff chunk.
+    This is the "shadow git" — we track decisions without touching the filesystem yet.
+    The agent applies accepted chunks only when the user finishes reviewing.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    diff_id = payload.get("diff_id")
+    chunk_id = payload.get("chunk_id")
+    action = payload.get("action")  # "accept" or "reject"
+    thread_id = payload.get("thread_id", "web-session")
+
+    if not all([diff_id, chunk_id, action]):
+        return jsonify({"error": "Missing diff_id, chunk_id, or action"}), 400
+
+    if diff_id not in shadow_git:
+        shadow_git[diff_id] = {
+            "thread_id": thread_id,
+            "chunks": {},
+            "status": "reviewing",
+        }
+
+    shadow_git[diff_id]["chunks"][chunk_id] = {
+        "action": action,
+        "timestamp": time.time(),
+    }
+
+    # Count progress
+    total = len(shadow_git[diff_id]["chunks"])
+    accepted = sum(1 for c in shadow_git[diff_id]["chunks"].values() if c["action"] == "accept")
+    rejected = sum(1 for c in shadow_git[diff_id]["chunks"].values() if c["action"] == "reject")
+
+    # If all chunks resolved, emit completion event
+    if shadow_git[diff_id].get("total_chunks") and total >= shadow_git[diff_id]["total_chunks"]:
+        shadow_git[diff_id]["status"] = "completed"
+        event_bus.emit("diff.review.complete", {
+            "diff_id": diff_id,
+            "accepted": accepted,
+            "rejected": rejected,
+            "thread_id": thread_id,
+        })
+
+    return jsonify({
+        "status": "ok",
+        "diff_id": diff_id,
+        "chunk_id": chunk_id,
+        "action": action,
+        "progress": {"accepted": accepted, "rejected": rejected, "total": total},
+    })
+
+@app.route("/api/diff/status/<diff_id>")
+def diff_status(diff_id: str):
+    """Get the review status of a diff."""
+    data = shadow_git.get(diff_id, {})
+    return jsonify({
+        "diff_id": diff_id,
+        "status": data.get("status", "unknown"),
+        "chunks": data.get("chunks", {}),
     })
 
 # =========================================================

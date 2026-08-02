@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PulseAI IDE</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -213,7 +214,7 @@
     .btn-deny:hover { background: var(--bg-hover); color: var(--text); }
     .btn-always { background: transparent; color: var(--text-muted); border: 1px solid var(--border); font-size: 11px; }
 
-    /* Diff Card */
+    /* Diff Card (Basic) */
     .diff-card {
       margin: 8px 0 8px 34px; background: var(--bg-card);
       border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
@@ -357,570 +358,1022 @@
     ::-webkit-scrollbar-thumb { background: #222; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #333; }
 
+    /* ===== AUTO-APPROVE SHIELD ===== */
+    .approve-shield {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px; background: transparent;
+      border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text-muted); font-size: 11px; cursor: pointer;
+      transition: all 0.2s; user-select: none;
+    }
+    .approve-shield.active {
+      background: rgba(34, 197, 94, 0.1); color: var(--success);
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+    .approve-shield:hover { border-color: var(--red); }
+
+    /* ===== @ MENTIONS AUTOCOMPLETE ===== */
+    .mentions-popup {
+      position: absolute; bottom: 100%; left: 0; right: 0;
+      margin-bottom: 8px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 10px;
+      max-height: 220px; overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      z-index: 100; display: none;
+    }
+    .mentions-popup.visible { display: block; }
+    .mention-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; cursor: pointer; font-size: 13px;
+      color: var(--text-dim); transition: all 0.1s;
+    }
+    .mention-item:hover, .mention-item.selected {
+      background: var(--bg-hover); color: var(--text);
+    }
+    .mention-item .mention-icon { font-size: 16px; width: 20px; text-align: center; }
+    .mention-item .mention-meta { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
+    /* ===== MODEL PICKER ===== */
+    .model-picker {
+      position: absolute; top: 60px; right: 20px;
+      width: 320px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      z-index: 200; display: none; overflow: hidden;
+    }
+    .model-picker.visible { display: block; }
+    .model-picker-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--text-muted);
+    }
+    .model-option {
+      padding: 10px 16px; cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .model-option:hover { background: var(--bg-hover); }
+    .model-option.selected { background: rgba(255,26,26,0.08); }
+    .model-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .model-details {
+      display: flex; gap: 10px; margin-top: 4px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .model-cost { color: var(--success); font-family: 'JetBrains Mono', monospace; }
+    .model-badge-picker {
+      padding: 1px 6px; border-radius: 4px; font-size: 10px;
+      background: var(--red-dim); color: var(--red-light);
+      border: 1px solid rgba(255,26,26,0.2);
+    }
+
+    /* ===== MESSAGE DIFF BADGE ===== */
+    .diff-badge-inline {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; background: var(--red-dim);
+      border: 1px solid rgba(255,26,26,0.2); border-radius: 6px;
+      font-size: 11px; color: var(--red-light); cursor: pointer;
+      margin-top: 8px; transition: all 0.15s;
+    }
+    .diff-badge-inline:hover { background: rgba(255, 26, 26, 0.15); }
+
+    /* ===== COLLAPSIBLE TOOL CARDS ===== */
+    .tool-card.collapsed .tool-body,
+    .tool-card.collapsed .tool-actions { display: none; }
+    .tool-toggle {
+      margin-left: auto; margin-right: 8px;
+      font-size: 10px; color: var(--text-muted);
+      cursor: pointer; transition: transform 0.2s;
+      padding: 4px;
+    }
+    .tool-card.collapsed .tool-toggle { transform: rotate(-90deg); }
+
+    /* ===== ANSI TERMINAL COLORS ===== */
+    .ansi-terminal {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; line-height: 1.6;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .ansi-fg-black { color: #555; }
+    .ansi-fg-red { color: #ff4444; }
+    .ansi-fg-green { color: #22c55e; }
+    .ansi-fg-yellow { color: #f59e0b; }
+    .ansi-fg-blue { color: #3b82f6; }
+    .ansi-fg-magenta { color: #d946ef; }
+    .ansi-fg-cyan { color: #06b6d4; }
+    .ansi-fg-white { color: #e8e8e8; }
+    .ansi-bold { font-weight: 700; }
+
+    /* ===== CHECKPOINT BADGES ===== */
+    .checkpoint-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; background: var(--bg-hover);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-size: 10px; color: var(--text-muted);
+      cursor: pointer; margin-left: 8px;
+      transition: all 0.15s;
+    }
+    .checkpoint-badge:hover {
+      border-color: var(--red); color: var(--red-light); background: var(--red-dim);
+    }
+
+    /* ===== CODE BLOCK COPY BUTTON ===== */
+    .code-block-wrapper { position: relative; }
+    .code-copy-btn {
+      position: absolute; top: 8px; right: 8px;
+      padding: 4px 10px; background: var(--bg-hover);
+      border: 1px solid var(--border); border-radius: 5px;
+      color: var(--text-muted); font-size: 11px; cursor: pointer;
+      opacity: 0; transition: opacity 0.2s;
+    }
+    .code-block-wrapper:hover .code-copy-btn { opacity: 1; }
+    .code-copy-btn:hover { border-color: var(--red); color: var(--red-light); }
+
+    /* ===== STREAMING STABILITY ===== */
+    .message-body.streaming pre {
+      border-color: rgba(255, 26, 26, 0.3);
+      box-shadow: 0 0 0 1px rgba(255, 26, 26, 0.05);
+    }
+
+    /* ===== UNIFIED DIFF VIEWER ===== */
+    .diff-viewer {
+      margin: 8px 0 8px 34px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .diff-viewer-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border);
+    }
+    .diff-viewer-title {
+      font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .diff-viewer-actions {
+      display: flex; gap: 6px;
+    }
+    .diff-mass-btn {
+      padding: 5px 12px; border-radius: 6px;
+      font-size: 11px; font-weight: 600; cursor: pointer;
+      border: 1px solid var(--border); transition: all 0.15s;
+      font-family: inherit;
+    }
+    .diff-mass-btn.approve-all {
+      background: rgba(34, 197, 94, 0.1); color: var(--success);
+      border-color: rgba(34, 197, 94, 0.25);
+    }
+    .diff-mass-btn.approve-all:hover { background: rgba(34, 197, 94, 0.2); }
+    .diff-mass-btn.reject-all {
+      background: transparent; color: var(--text-dim);
+    }
+    .diff-mass-btn.reject-all:hover { background: var(--bg-hover); color: var(--text); }
+
+    /* Diff Chunk */
+    .diff-chunk {
+      border-bottom: 1px solid var(--border);
+    }
+    .diff-chunk:last-child { border-bottom: none; }
+    .diff-chunk-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px;
+      background: rgba(255,255,255,0.01);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .diff-chunk-actions {
+      display: flex; gap: 6px;
+    }
+    .diff-chunk-btn {
+      padding: 3px 10px; border-radius: 5px;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      cursor: pointer; border: none; transition: all 0.15s;
+      font-family: inherit;
+    }
+    .diff-chunk-btn.accept {
+      background: rgba(34, 197, 94, 0.12); color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+    }
+    .diff-chunk-btn.accept:hover { background: rgba(34, 197, 94, 0.22); }
+    .diff-chunk-btn.reject {
+      background: transparent; color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .diff-chunk-btn.reject:hover { background: var(--red-dim); color: var(--red-light); border-color: rgba(255,26,26,0.3); }
+    .diff-chunk.applied { opacity: 0.4; }
+    .diff-chunk.applied .diff-chunk-btn { display: none; }
+    .diff-chunk.applied::after {
+      content: '✓ Applied'; margin-left: auto;
+      font-size: 10px; color: var(--success); font-weight: 600;
+    }
+    .diff-chunk.rejected { opacity: 0.3; }
+    .diff-chunk.rejected .diff-line { text-decoration: line-through; }
+    .diff-chunk.rejected .diff-chunk-btn { display: none; }
+    .diff-chunk.rejected::after {
+      content: '✕ Rejected'; margin-left: auto;
+      font-size: 10px; color: var(--text-muted); font-weight: 600;
+    }
+
+    /* Unified diff lines */
+    .diff-table {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; line-height: 1.6;
+      width: 100%; border-collapse: collapse;
+    }
+    .diff-table td {
+      padding: 2px 8px; white-space: pre; word-break: break-all;
+    }
+    .diff-lineno {
+      width: 40px; text-align: right;
+      color: var(--text-muted); font-size: 11px;
+      user-select: none; border-right: 1px solid var(--border);
+      padding-right: 12px !important;
+    }
+    .diff-lineno.old { background: rgba(239, 68, 68, 0.03); }
+    .diff-lineno.new { background: rgba(34, 197, 94, 0.03); }
+    .diff-line-content { padding-left: 12px !important; }
+    .diff-line-content.removed { background: rgba(239, 68, 68, 0.08); color: #ff6b6b; }
+    .diff-line-content.added { background: rgba(34, 197, 94, 0.08); color: #6ee7b7; }
+    .diff-line-content.context { color: var(--text-dim); }
+    .diff-summary {
+      margin: 8px 0 8px 34px; padding: 10px 14px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; font-size: 12px; color: var(--text-dim);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .diff-summary .stat {
+      display: flex; align-items: center; gap: 4px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    }
+    .diff-summary .stat.added { color: var(--success); }
+    .diff-summary .stat.removed { color: #ef4444; }
+      /* Mobile responsive */
     @media (max-width: 768px) {
       .ide-sidebar { display: none; }
       .ide-header-center { display: none; }
     }
-  </style>
+</style>
 </head>
 <body>
-  <div class="pulse-ide">
-    <div id="conn-status" class="conn-status disconnected">● Connecting...</div>
-    <div class="ide-header">
-      <div class="ide-brand">
-        <div class="ide-logo">
-          <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
-        </div>
-        <div class="ide-title">Pulse<span>AI</span></div>
+<div class="pulse-ide">
+  <!-- Connection Status -->
+  <div id="conn-status" class="conn-status disconnected">● Connecting...</div>
+  <!-- Header -->
+  <div class="ide-header">
+    <div class="ide-brand">
+      <div class="ide-logo">
+        <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
       </div>
-      <div class="ide-header-center">
-        <div class="agent-dropdown" id="agent-dropdown">
-          <div class="agent-dot"></div>
-          <span id="current-agent">Code Agent</span>
-          <span style="color:var(--text-muted);margin-left:4px;">▼</span>
-        </div>
-        <div class="model-badge" id="current-model">--</div>
+      <div class="ide-title">Pulse<span>AI</span></div>
+    </div>
+    <div class="ide-header-center">
+      <div class="agent-dropdown" id="agent-dropdown" onclick="toggleModelPicker()">
+        <div class="agent-dot"></div>
+        <span id="current-agent">Code Agent</span>
+        <span style="color:var(--text-muted);margin-left:4px;">▼</span>
       </div>
-      <div class="ide-header-right">
-        <div class="cost-pill" id="header-cost">$0.0000 · 0 tokens</div>
+      <div class="model-badge" id="current-model" onclick="toggleModelPicker()" style="cursor:pointer;">--</div>
+    </div>
+    <div class="ide-header-right">
+      <div class="cost-pill" id="header-cost">$0.0000 · 0 tokens</div>
+    </div>
+  </div>
+  <!-- Model Picker Dropdown -->
+  <div class="model-picker" id="model-picker">
+    <div class="model-picker-header">Select Model</div>
+    <div id="model-list"></div>
+  </div>
+  <div class="ekg-bar"></div>
+  <!-- Body -->
+  <div class="ide-body">
+    <!-- Sidebar -->
+    <div class="ide-sidebar">
+      <div class="sidebar-section">
+        <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Sessions</div>
+        <div id="session-list"></div>
+      </div>
+      <div class="sidebar-section" style="margin-top:auto;border-top:1px solid var(--border);">
+        <div class="sidebar-label">Status</div>
+        <div style="font-size:11px;color:var(--text-muted);line-height:1.7;">
+          <div>Provider: <span style="color:var(--text-dim);" id="status-provider">--</span></div>
+          <div>Tier: <span style="color:var(--red-light);" id="status-tier">--</span></div>
+          <div>Skills: <span style="color:var(--text-dim);" id="status-skills">0 active</span></div>
+        </div>
       </div>
     </div>
-    <div class="ekg-bar"></div>
-    <div class="ide-body">
-      <div class="ide-sidebar">
-        <div class="sidebar-section">
-          <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Sessions</div>
-          <div id="session-list"></div>
-        </div>
-        <div class="sidebar-section" style="margin-top:auto;border-top:1px solid var(--border);">
-          <div class="sidebar-label">Status</div>
-          <div style="font-size:11px;color:var(--text-muted);line-height:1.7;">
-            <div>Provider: <span style="color:var(--text-dim);" id="status-provider">--</span></div>
-            <div>Tier: <span style="color:var(--red-light);" id="status-tier">--</span></div>
-            <div>Skills: <span style="color:var(--text-dim);" id="status-skills">0 active</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="chat-area">
-        <div class="chat-scroll" id="chat-scroll">
-          <div class="chat-inner" id="chat-inner">
-            <div class="welcome" id="welcome">
-              <div class="welcome-logo">
-                <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
+    <!-- Chat Area -->
+    <div class="chat-area">
+      <div class="chat-scroll" id="chat-scroll">
+        <div class="chat-inner" id="chat-inner">
+          <div class="welcome" id="welcome">
+            <div class="welcome-logo">
+              <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
+            </div>
+            <h2>Pulse<span>AI</span> IDE</h2>
+            <p>What would you like to build today?</p>
+            <div class="welcome-grid">
+              <div class="welcome-card" onclick="sendPrompt('Generate a Python module with type hints and tests')">
+                <div class="welcome-card-icon">✨</div><div class="welcome-card-title">Generate code</div><div class="welcome-card-desc">Create functions, classes, or full modules</div>
               </div>
-              <h2>Pulse<span>AI</span> IDE</h2>
-              <p>What would you like to build today?</p>
-              <div class="welcome-grid">
-                <div class="welcome-card" onclick="sendPrompt('Generate a Python module with type hints and tests')">
-                  <div class="welcome-card-icon">✨</div><div class="welcome-card-title">Generate code</div><div class="welcome-card-desc">Create functions, classes, or full modules</div>
-                </div>
-                <div class="welcome-card" onclick="sendPrompt('Debug and fix the error in my code')">
-                  <div class="welcome-card-icon">🔧</div><div class="welcome-card-title">Fix bugs</div><div class="welcome-card-desc">Debug errors and apply patches</div>
-                </div>
-                <div class="welcome-card" onclick="sendPrompt('Write pytest tests for my module')">
-                  <div class="welcome-card-icon">📋</div><div class="welcome-card-title">Write tests</div><div class="welcome-card-desc">Generate pytest or unittest suites</div>
-                </div>
-                <div class="welcome-card" onclick="sendPrompt('Explain how this code works step by step')">
-                  <div class="welcome-card-icon">🧠</div><div class="welcome-card-title">Explain code</div><div class="welcome-card-desc">Understand complex logic step by step</div>
-                </div>
+              <div class="welcome-card" onclick="sendPrompt('Debug and fix the error in my code')">
+                <div class="welcome-card-icon">🔧</div><div class="welcome-card-title">Fix bugs</div><div class="welcome-card-desc">Debug errors and apply patches</div>
+              </div>
+              <div class="welcome-card" onclick="sendPrompt('Write pytest tests for my module')">
+                <div class="welcome-card-icon">📋</div><div class="welcome-card-title">Write tests</div><div class="welcome-card-desc">Generate pytest or unittest suites</div>
+              </div>
+              <div class="welcome-card" onclick="sendPrompt('Explain how this code works step by step')">
+                <div class="welcome-card-icon">🧠</div><div class="welcome-card-title">Explain code</div><div class="welcome-card-desc">Understand complex logic step by step</div>
               </div>
             </div>
           </div>
         </div>
-        <div class="composer">
-          <div class="composer-inner">
-            <div class="composer-box">
-              <textarea class="composer-textarea" id="composer-input" rows="1" placeholder="Ask Pulse to code, debug, explain, or plan..." onkeydown="handleKeydown(event)"></textarea>
-              <div class="composer-footer">
-                <div class="composer-tools">
-                  <button class="composer-tool" onclick="insertAtCursor('@')">@ File</button>
-                  <button class="composer-tool" onclick="insertAtCursor('@terminal ')">@ Terminal</button>
-                </div>
-                <button class="composer-send" id="send-btn" onclick="sendMessage()">➤</button>
+      </div>
+      <!-- Composer -->
+      <div class="composer">
+        <div class="composer-inner" style="position:relative;">
+          <!-- @ Mentions Popup -->
+          <div class="mentions-popup" id="mentions-popup"></div>
+          <div class="composer-box">
+            <textarea class="composer-textarea" id="composer-input" rows="1"
+              placeholder="Ask Pulse to code, debug, explain, or plan..."
+              onkeydown="handleKeydown(event)"
+              oninput="handleInput(event)"></textarea>
+            <div class="composer-footer">
+              <div class="composer-tools">
+                <button class="composer-tool" onclick="insertAtCursor('@')">@ File</button>
+                <button class="composer-tool" onclick="insertAtCursor('@terminal ')">@ Terminal</button>
+                <button class="approve-shield" id="approve-shield" onclick="toggleAutoApprove()">
+                  🛡️ <span id="shield-text">Auto</span>
+                </button>
               </div>
+              <button class="composer-send" id="send-btn" onclick="sendMessage()">➤</button>
             </div>
           </div>
         </div>
       </div>
     </div>
   </div>
-  <script>
-    const state = {
-      connected: false,
-      streaming: false,
-      currentAgentMsg: null,
-      sessions: [],
-      analytics: { totalCost: 0, tokensIn: 0, tokensOut: 0, apiCalls: 0, model: '--', tier: '--', provider: '--', skills: 0 },
-    };
+</div>
+<script>
+// =========================================================
+// PULSE STREAMING ENGINE — Integrated UX Edition
+// =========================================================
+const state = {
+  connected: false,
+  streaming: false,
+  currentAgentMsg: null,
+  sessions: [],
+  analytics: { totalCost: 0, tokensIn: 0, tokensOut: 0, apiCalls: 0, model: '--', tier: '--', provider: '--', skills: 0 },
+  autoApprove: false,
+  selectedModel: null,
+  checkpointCounter: 0,
+  checkpoints: [],
+  models: [
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', costIn: 2.50, costOut: 10.00, context: '128K', tags: ['vision','code'] },
+    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', costIn: 3.00, costOut: 15.00, context: '200K', tags: ['reasoning','code'] },
+    { id: 'llama-3.1-8b', name: 'Llama 3.1 8B', provider: 'Groq', costIn: 0.05, costOut: 0.08, context: '128K', tags: ['fast','cheap'] },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'Google', costIn: 1.25, costOut: 10.00, context: '1M', tags: ['vision','long'] },
+  ],
+  files: ['src/main.py', 'src/graphs/chat_graph.py', 'src/context/context_engine.py', 'tests/test_agent.py', 'README.md', 'requirements.txt'],
+};
 
-    let evtSource = null;
+let evtSource = null;
+let mentionSelected = 0;
+const messageBuffers = {};      // msgId -> StreamingMarkdown instance
+const checkpointMap = {};       // checkpointId -> DOM element id
+let pendingDiffs = {};          // diffId -> { chunks: [], file: '' }
 
-    function connect() {
-      evtSource = new EventSource('/api/stream');
-      evtSource.onopen = () => {
-        state.connected = true;
-        updateConnStatus(true);
-      };
-      evtSource.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          if (event.type === 'ping') return;
-          handleEvent(event);
-        } catch (err) {
-          console.error('Parse error:', err);
-        }
-      };
-      evtSource.onerror = () => {
-        state.connected = false;
-        updateConnStatus(false);
-        evtSource.close();
-        setTimeout(connect, 3000);
-      };
-    }
+// =========================================================
+// MARKED CONFIG (Stable Streaming)
+// =========================================================
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  headerIds: false,
+  mangle: false,
+});
 
-    function updateConnStatus(connected) {
-      const el = document.getElementById('conn-status');
-      el.className = 'conn-status ' + (connected ? 'connected' : 'disconnected');
-      el.textContent = connected ? '● Live' : '● Reconnecting...';
-    }
+// =========================================================
+// STREAMING MARKDOWN HANDLER
+// =========================================================
+class StreamingMarkdown {
+  constructor() {
+    this.buffer = '';
+  }
 
-    function handleEvent(event) {
-      const { type, payload } = event;
-      switch (type) {
-        case 'message.user':
-          renderUserMessage(payload.content);
-          break;
-        case 'message.agent.start':
-          state.streaming = true;
-          state.currentAgentMsg = createAgentMessage();
-          break;
-        case 'message.agent.chunk':
-          if (state.currentAgentMsg) {
-            appendToAgentMessage(state.currentAgentMsg, payload.chunk);
-          }
-          break;
-        case 'message.agent.end':
-          state.streaming = false;
-          if (state.currentAgentMsg) {
-            finalizeAgentMessage(state.currentAgentMsg, payload.content);
-          }
-          state.currentAgentMsg = null;
-          break;
-        case 'message.agent.error':
-          state.streaming = false;
-          renderErrorMessage(payload.error);
-          state.currentAgentMsg = null;
-          break;
-        case 'tool.call':
-          renderToolCall(payload);
-          break;
-        case 'tool.result':
-          updateToolResult(payload);
-          break;
-        case 'tool.approval.request':
-          renderApprovalCard(payload);
-          break;
-        case 'diff.show':
-          renderDiffCard(payload);
-          break;
-        case 'plan.created':
-          renderPlanCreated(payload);
-          break;
-        case 'analytics.update':
-          updateAnalytics(payload);
-          break;
-        case 'session.status':
-          updateSessionStatus(payload);
-          break;
-        case 'context.chips':
-          renderContextChips(payload);
-          break;
-        case 'suggestions':
-          renderSuggestions(payload);
-          break;
+  append(chunk) {
+    this.buffer += chunk;
+    return this.render();
+  }
+
+  render() {
+    // Detect unclosed code fences
+    const fenceMatches = this.buffer.match(/```/g) || [];
+    const unclosed = fenceMatches.length % 2 !== 0;
+    if (unclosed) {
+      const lastFenceIdx = this.buffer.lastIndexOf('```');
+      const beforeFence = this.buffer.substring(0, lastFenceIdx);
+      const afterFence = this.buffer.substring(lastFenceIdx + 3);
+      
+      const firstNewline = afterFence.indexOf('\n');
+      const lang = firstNewline > -1 ? afterFence.substring(0, firstNewline).trim() : afterFence.trim();
+      const codeBody = firstNewline > -1 ? afterFence.substring(firstNewline + 1) : '';
+      
+      let html = '';
+      if (beforeFence.trim()) {
+        html = marked.parse(beforeFence);
       }
+      html += `<pre><code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(codeBody)}</code></pre>`;
+      return html;
     }
+    return marked.parse(this.buffer);
+  }
 
-    function getChatInner() {
-      const welcome = document.getElementById('welcome');
-      if (welcome) welcome.style.display = 'none';
-      return document.getElementById('chat-inner');
+  finalize() {
+    return marked.parse(this.buffer);
+  }
+}
+
+// =========================================================
+// ANSI TO HTML CONVERTER
+// =========================================================
+function ansiToHtml(text) {
+  const colors = {
+    '30':'#555','31':'#ff4444','32':'#22c55e','33':'#f59e0b',
+    '34':'#3b82f6','35':'#d946ef','36':'#06b6d4','37':'#e8e8e8',
+    '90':'#777','91':'#ff6666','92':'#4ade80','93':'#fbbf24',
+    '94':'#60a5fa','95':'#e879f9','96':'#22d3ee','97':'#ffffff'
+  };
+  
+  let html = '';
+  let currentStyle = '';
+  
+  text.replace(/\x1b\[([0-9;]*)m/g, '\x00$1\x00').split('\x00').forEach((part, i) => {
+    if (i % 2 === 0) {
+      const escaped = escapeHtml(part);
+      html += currentStyle ? `<span style="${currentStyle}">${escaped}</span>` : escaped;
+    } else {
+      const codes = part.split(';');
+      currentStyle = '';
+      codes.forEach(c => {
+        if (c === '0' || c === '') currentStyle = '';
+        else if (c === '1') currentStyle += 'font-weight:700;';
+        else if (colors[c]) currentStyle += `color:${colors[c]};`;
+      });
     }
+  });
+  
+  return html || escapeHtml(text);
+}
 
-    function renderUserMessage(text) {
-      const inner = getChatInner();
-      const id = 'msg-user-' + Date.now();
-      const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="message-group" id="${id}">
-          <div class="message-header">
-            <div class="message-avatar user">👤</div>
-            <div class="message-sender user">You</div>
-            <div class="message-time">${time}</div>
-          </div>
-          <div class="message-body"><p>${escapeHtml(text)}</p></div>
-        </div>
-      `);
-      scrollToBottom();
+function hasAnsi(text) {
+  return /\x1b\[[0-9;]*m/.test(text);
+}
+
+// =========================================================
+// SSE CONNECTION
+// =========================================================
+function connect() {
+  evtSource = new EventSource('/api/stream');
+  evtSource.onopen = () => { state.connected = true; updateConnStatus(true); };
+  evtSource.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      if (event.type === 'ping') return;
+      handleEvent(event);
+    } catch (err) { console.error('Parse error:', err); }
+  };
+  evtSource.onerror = () => {
+    state.connected = false; updateConnStatus(false);
+    evtSource.close(); setTimeout(connect, 3000);
+  };
+}
+
+function updateConnStatus(connected) {
+  const el = document.getElementById('conn-status');
+  el.className = 'conn-status ' + (connected ? 'connected' : 'disconnected');
+  el.textContent = connected ? '● Live' : '● Reconnecting...';
+}
+
+// =========================================================
+// EVENT ROUTER
+// =========================================================
+function handleEvent(event) {
+  const { type, payload } = event;
+  switch (type) {
+    case 'message.user': renderUserMessage(payload.content); break;
+    case 'message.agent.start': startAgentMessage(); break;
+    case 'message.agent.chunk': appendAgentChunk(payload.chunk); break;
+    case 'message.agent.end': endAgentMessage(payload.content); break;
+    case 'message.agent.error': streaming = false; renderErrorMessage(payload.error); break;
+    case 'tool.call': renderToolCall(payload); break;
+    case 'tool.result': updateToolResult(payload); break;
+    case 'tool.approval.request': renderApprovalCard(payload); break;
+    case 'diff.show': renderDiffCard(payload); break;
+    case 'diff.show.full': renderUnifiedDiff(payload); break;
+    case 'plan.created': renderPlanCreated(payload); break;
+    case 'analytics.update': updateAnalytics(payload); break;
+    case 'session.status': updateSessionStatus(payload); break;
+    case 'context.chips': renderContextChips(payload); break;
+    case 'suggestions': renderSuggestions(payload); break;
+    case 'files.changed': renderDiffBadge(payload); break;
+    case 'diff.review.complete': console.log('Review complete', payload); break;
+  }
+}
+
+// =========================================================
+// MESSAGE RENDERERS
+// =========================================================
+function getChatInner() {
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.style.display = 'none';
+  return document.getElementById('chat-inner');
+}
+
+function renderUserMessage(text) {
+  const inner = getChatInner();
+  const id = 'msg-user-' + Date.now();
+  const cpId = 'cp-' + (++state.checkpointCounter);
+  const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  
+  checkpointMap[cpId] = id;
+  
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="message-group" id="${id}" data-checkpoint="${cpId}">
+      <div class="message-header">
+        <div class="message-avatar user">👤</div>
+        <div class="message-sender user">You</div>
+        <div class="checkpoint-badge" onclick="rollbackTo('${cpId}')" title="Rollback to this point">↩ ${cpId}</div>
+        <div class="message-time">${time}</div>
+      </div>
+      <div class="message-body"><p>${escapeHtml(text)}</p></div>
+    </div>
+  `);
+  scrollToBottom();
+}
+
+function startAgentMessage() {
+  state.streaming = true;
+  const inner = getChatInner();
+  const id = 'msg-agent-' + Date.now();
+  const cpId = 'cp-' + (++state.checkpointCounter);
+  const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  
+  checkpointMap[cpId] = id;
+  state.currentAgentMsg = id;
+  messageBuffers[id] = new StreamingMarkdown();
+  
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="message-group" id="${id}" data-checkpoint="${cpId}">
+      <div class="message-header">
+        <div class="message-avatar agent">⚡</div>
+        <div class="message-sender agent">Pulse</div>
+        <div class="checkpoint-badge" onclick="rollbackTo('${cpId}')" title="Rollback to this point">↩ ${cpId}</div>
+        <div class="message-time">${time}</div>
+      </div>
+      <div class="message-body streaming" id="${id}-body"><span class="streaming-cursor"></span></div>
+    </div>
+  `);
+  scrollToBottom();
+}
+
+function appendAgentChunk(chunk) {
+  const msgId = state.currentAgentMsg;
+  if (!msgId) return;
+  const md = messageBuffers[msgId];
+  if (!md) return;
+  const body = document.getElementById(msgId + '-body');
+  if (!body) return;
+  
+  const html = md.append(chunk);
+  body.innerHTML = html + '<span class="streaming-cursor"></span>';
+  attachCodeCopyButtons(body);
+  scrollToBottom();
+}
+
+function endAgentMessage(fullText) {
+  state.streaming = false;
+  const msgId = state.currentAgentMsg;
+  if (!msgId) return;
+  
+  const body = document.getElementById(msgId + '-body');
+  if (body) {
+    const md = messageBuffers[msgId];
+    body.innerHTML = md ? md.finalize() : marked.parse(fullText || '');
+    body.classList.remove('streaming');
+    attachCodeCopyButtons(body);
+  }
+  
+  delete messageBuffers[msgId];
+  state.currentAgentMsg = null;
+  
+  const group = document.getElementById(msgId);
+  if (group) {
+    group.insertAdjacentHTML('beforeend', `
+      <div class="msg-actions">
+        <button class="msg-action" onclick="copyMessage(this)">📋 Copy</button>
+        <button class="msg-action" onclick="regenerate(this)">🔄 Regenerate</button>
+        <button class="msg-action" onclick="thumbsUp(this)">👍 Helpful</button>
+      </div>
+    `);
+  }
+}
+
+function renderErrorMessage(error) {
+  const inner = getChatInner();
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="message-group">
+      <div class="message-header">
+        <div class="message-avatar agent">⚡</div>
+        <div class="message-sender agent">Pulse</div>
+        <div class="message-time">Now</div>
+      </div>
+      <div class="message-body"><p style="color:#ef4444;">❌ ${escapeHtml(error)}</p></div>
+    </div>
+  `);
+  scrollToBottom();
+}
+
+// =========================================================
+// TOOL CARDS (Collapsible)
+// =========================================================
+function renderToolCall(payload) {
+  const inner = getChatInner();
+  const id = 'tool-' + (payload.tool_id || Date.now());
+  const iconMap = {
+    think: ['💭', 'think'], read_file: ['📄', 'read'], write_file: ['✏️', 'write'],
+    edit_file: ['✏️', 'write'], run_terminal: ['🧪', 'terminal'], start_terminal: ['🧪', 'terminal'],
+    search_code: ['🔍', 'read'], web_search: ['🌐', 'read'], delegate_to_subagent: ['🤖', 'read'],
+  };
+  const [icon, iconClass] = iconMap[payload.tool_name] || ['🔧', 'read'];
+  
+  let argsHtml = '';
+  if (payload.tool_args) {
+    for (const [k, v] of Object.entries(payload.tool_args)) {
+      const val = typeof v === 'string' && v.length > 80 ? v.substring(0, 80) + '...' : String(v);
+      argsHtml += `<span class="param">${k}:</span> <span class="value">${escapeHtml(val)}</span><br>`;
     }
+  }
+  
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="tool-card" id="${id}">
+      <div class="tool-card-header" onclick="toggleToolCard('${id}')" style="cursor:pointer;">
+        <div class="tool-icon ${iconClass}">${icon}</div>
+        <div class="tool-name">${escapeHtml(payload.tool_name)}</div>
+        <div class="tool-toggle">▼</div>
+        <div class="tool-status running">Running</div>
+      </div>
+      <div class="tool-body" id="${id}-body">${argsHtml}</div>
+    </div>
+  `);
+  scrollToBottom();
+}
 
-    function createAgentMessage() {
-      const inner = getChatInner();
-      const id = 'msg-agent-' + Date.now();
-      const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="message-group" id="${id}">
-          <div class="message-header">
-            <div class="message-avatar agent">⚡</div>
-            <div class="message-sender agent">Pulse</div>
-            <div class="message-time">${time}</div>
-          </div>
-          <div class="message-body" id="${id}-body"><p><span class="streaming-cursor"></span></p></div>
-        </div>
-      `);
-      scrollToBottom();
-      return id;
-    }
+function updateToolResult(payload) {
+  const card = document.getElementById('tool-' + payload.tool_id);
+  if (!card) return;
+  const status = card.querySelector('.tool-status');
+  status.textContent = 'Done';
+  status.className = 'tool-status done';
+  const body = card.querySelector('.tool-body');
+  const result = payload.result || '';
+  
+  if (hasAnsi(result)) {
+    body.innerHTML += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);" class="ansi-terminal">${ansiToHtml(result)}</div>`;
+  } else {
+    const preview = result.length > 400 ? result.substring(0, 400) + '...' : result;
+    body.innerHTML += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--success);">→ ${escapeHtml(preview)}</div>`;
+  }
+  scrollToBottom();
+}
 
-    function appendToAgentMessage(msgId, chunk) {
-      const body = document.getElementById(msgId + '-body');
-      if (!body) return;
-      const cursor = body.querySelector('.streaming-cursor');
-      if (cursor) {
-        cursor.insertAdjacentHTML('beforebegin', escapeHtml(chunk));
-      } else {
-        body.insertAdjacentHTML('beforeend', escapeHtml(chunk));
+function toggleToolCard(id) {
+  const card = document.getElementById(id);
+  if (card) card.classList.toggle('collapsed');
+}
+
+function renderApprovalCard(payload) {
+  const inner = getChatInner();
+  const id = 'approval-' + (payload.tool_id || Date.now());
+  let argsHtml = '';
+  for (const [k, v] of Object.entries(payload.tool_args || {})) {
+    const val = typeof v === 'string' && v.length > 80 ? v.substring(0, 80) + '...' : String(v);
+    argsHtml += `<span class="param">${k}:</span> <span class="value">${escapeHtml(val)}</span><br>`;
+  }
+  
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="tool-card" style="border-color:rgba(255,26,26,0.3);" id="${id}">
+      <div class="tool-card-header" onclick="toggleToolCard('${id}')" style="cursor:pointer;">
+        <div class="tool-icon write">✏️</div>
+        <div class="tool-name">${escapeHtml(payload.tool_name)}</div>
+        <div class="tool-toggle">▼</div>
+        <div class="tool-status pending">Needs Approval</div>
+      </div>
+      <div class="tool-body">${argsHtml}</div>
+      <div class="tool-actions">
+        <button class="btn btn-approve" onclick="approveTool('${payload.tool_id}', false, this)">✓ Allow</button>
+        <button class="btn btn-deny" onclick="denyTool('${payload.tool_id}', this)">✕ Deny</button>
+        <button class="btn btn-always" onclick="approveTool('${payload.tool_id}', true, this)">Always allow</button>
+      </div>
+    </div>
+  `);
+  scrollToBottom();
+}
+
+// =========================================================
+// UNIFIED DIFF VIEWER (Part 3)
+// =========================================================
+function requestDiffView(messageId) {
+  const diffId = 'diff-' + Date.now();
+  const mockDiff = {
+    diff_id: diffId,
+    file: 'src/calculator.py',
+    chunks: [
+      {
+        chunk_id: diffId + '-c1',
+        old_start: 1, old_lines: 3,
+        new_start: 1, new_lines: 5,
+        lines: [
+          { type: 'context', old_no: 1, new_no: 1, text: '"""Calculator module."""' },
+          { type: 'context', old_no: 2, new_no: 2, text: '' },
+          { type: 'removed', old_no: 3, new_no: null, text: 'def add(a, b):' },
+          { type: 'added', old_no: null, new_no: 3, text: 'def add(a: float, b: float) -> float:' },
+          { type: 'context', old_no: 4, new_no: 4, text: '    """Add two numbers."""' },
+          { type: 'added', old_no: null, new_no: 5, text: '    if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):' },
+          { type: 'added', old_no: null, new_no: 6, text: '        raise TypeError("Both arguments must be numbers")' },
+        ]
+      },
+      {
+        chunk_id: diffId + '-c2',
+        old_start: 10, old_lines: 2,
+        new_start: 13, new_lines: 4,
+        lines: [
+          { type: 'context', old_no: 10, new_no: 13, text: 'def subtract(a, b):' },
+          { type: 'removed', old_no: 11, new_no: null, text: '    return a - b' },
+          { type: 'added', old_no: null, new_no: 14, text: 'def subtract(a: float, b: float) -> float:' },
+          { type: 'added', old_no: null, new_no: 15, text: '    """Subtract b from a."""' },
+          { type: 'context', old_no: 12, new_no: 16, text: '    return a - b' },
+        ]
       }
-      scrollToBottom();
-    }
+    ]
+  };
+  renderUnifiedDiff(mockDiff);
+}
 
-    function finalizeAgentMessage(msgId, fullText) {
-      const body = document.getElementById(msgId + '-body');
-      if (!body) return;
-      const cursor = body.querySelector('.streaming-cursor');
-      if (cursor) cursor.remove();
-      const group = document.getElementById(msgId);
-      group.insertAdjacentHTML('beforeend', `
-        <div class="msg-actions">
-          <button class="msg-action" onclick="copyMessage(this)">📋 Copy</button>
-          <button class="msg-action" onclick="regenerate(this)">🔄 Regenerate</button>
-          <button class="msg-action" onclick="thumbsUp(this)">👍 Helpful</button>
-        </div>
-      `);
-    }
-
-    function renderErrorMessage(error) {
-      const inner = getChatInner();
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="message-group">
-          <div class="message-header">
-            <div class="message-avatar agent">⚡</div>
-            <div class="message-sender agent">Pulse</div>
-            <div class="message-time">Now</div>
-          </div>
-          <div class="message-body"><p style="color:#ef4444;">❌ ${escapeHtml(error)}</p></div>
-        </div>
-      `);
-      scrollToBottom();
-    }
-
-    function renderToolCall(payload) {
-      const inner = getChatInner();
-      const id = 'tool-' + (payload.tool_id || Date.now());
-      const iconMap = {
-        think: ['💭', 'think'],
-        read_file: ['📄', 'read'],
-        write_file: ['✏️', 'write'],
-        edit_file: ['✏️', 'write'],
-        run_terminal: ['🧪', 'terminal'],
-        start_terminal: ['🧪', 'terminal'],
-        search_code: ['🔍', 'read'],
-        web_search: ['🌐', 'read'],
-        delegate_to_subagent: ['🤖', 'read'],
-      };
-      const [icon, iconClass] = iconMap[payload.tool_name] || ['🔧', 'read'];
-      let argsHtml = '';
-      if (payload.tool_args) {
-        for (const [k, v] of Object.entries(payload.tool_args)) {
-          const val = typeof v === 'string' && v.length > 60 ? v.substring(0, 60) + '...' : String(v);
-          argsHtml += `<span class="param">${k}:</span> <span class="value">${escapeHtml(val)}</span><br>`;
-        }
-      }
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="tool-card" id="${id}">
-          <div class="tool-card-header">
-            <div class="tool-icon ${iconClass}">${icon}</div>
-            <div class="tool-name">${escapeHtml(payload.tool_name)}</div>
-            <div class="tool-status running">Running</div>
-          </div>
-          <div class="tool-body" id="${id}-body">${argsHtml}</div>
-        </div>
-      `);
-      scrollToBottom();
-    }
-
-    function updateToolResult(payload) {
-      const card = document.getElementById('tool-' + payload.tool_id);
-      if (!card) return;
-      const status = card.querySelector('.tool-status');
-      status.textContent = 'Done';
-      status.className = 'tool-status done';
-      const body = card.querySelector('.tool-body');
-      const result = payload.result || '';
-      const preview = result.length > 300 ? result.substring(0, 300) + '...' : result;
-      body.innerHTML += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--success);">→ ${escapeHtml(preview)}</div>`;
-      scrollToBottom();
-    }
-
-    function renderApprovalCard(payload) {
-      const inner = getChatInner();
-      const id = 'approval-' + (payload.tool_id || Date.now());
-      let argsHtml = '';
-      for (const [k, v] of Object.entries(payload.tool_args || {})) {
-        const val = typeof v === 'string' && v.length > 60 ? v.substring(0, 60) + '...' : String(v);
-        argsHtml += `<span class="param">${k}:</span> <span class="value">${escapeHtml(val)}</span><br>`;
-      }
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="tool-card" style="border-color:rgba(255,26,26,0.3);" id="${id}">
-          <div class="tool-card-header">
-            <div class="tool-icon write">✏️</div>
-            <div class="tool-name">${escapeHtml(payload.tool_name)}</div>
-            <div class="tool-status pending">Needs Approval</div>
-          </div>
-          <div class="tool-body">${argsHtml}</div>
-          <div class="tool-actions">
-            <button class="btn btn-approve" onclick="approveTool('${payload.tool_id}', false, this)">✓ Allow</button>
-            <button class="btn btn-deny" onclick="denyTool('${payload.tool_id}', this)">✕ Deny</button>
-            <button class="btn btn-always" onclick="approveTool('${payload.tool_id}', true, this)">Always allow</button>
+function renderUnifiedDiff(diff) {
+  const inner = getChatInner();
+  const diffId = diff.diff_id;
+  pendingDiffs[diffId] = diff;
+  let totalAdded = 0; let totalRemoved = 0;
+  
+  const chunksHtml = diff.chunks.map(chunk => {
+    const linesHtml = chunk.lines.map(line => {
+      if (line.type === 'added') totalAdded++;
+      if (line.type === 'removed') totalRemoved++;
+      const oldNo = line.old_no !== null ? line.old_no : '';
+      const newNo = line.new_no !== null ? line.new_no : '';
+      const lineClass = line.type === 'added' ? 'added' : line.type === 'removed' ? 'removed' : 'context';
+      return `<tr><td class="diff-lineno old">${oldNo}</td><td class="diff-lineno new">${newNo}</td><td class="diff-line-content ${lineClass}">${escapeHtml(line.text)}</td></tr>`;
+    }).join('');
+    
+    return `
+      <div class="diff-chunk" id="${chunk.chunk_id}" data-diff-id="${diffId}">
+        <div class="diff-chunk-header">
+          <span>@@ -${chunk.old_start},${chunk.old_lines} +${chunk.new_start},${chunk.new_lines} @@</span>
+          <div class="diff-chunk-actions">
+            <button class="diff-chunk-btn accept" onclick="acceptChunk('${chunk.chunk_id}')">✓ Accept</button>
+            <button class="diff-chunk-btn reject" onclick="rejectChunk('${chunk.chunk_id}')">✕ Reject</button>
           </div>
         </div>
-      `);
-      scrollToBottom();
-    }
-
-    function renderDiffCard(payload) {
-      const inner = getChatInner();
-      const lines = (payload.lines || []).map((l, i) => `
-        <div class="diff-line added"><span class="diff-line-num">${i+1}</span><span>${escapeHtml(l)}</span></div>
-      `).join('');
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="diff-card">
-          <div class="diff-header">
-            <span style="color:var(--text-dim);">${escapeHtml(payload.file)}</span>
-            <div style="margin-left:auto;"><span class="diff-badge">+${payload.lines?.length || 0} lines</span></div>
-          </div>
-          <div class="diff-body"><div class="diff-side after">${lines}</div></div>
+        <table class="diff-table">${linesHtml}</table>
+      </div>
+    `;
+  }).join('');
+  
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="diff-viewer" id="${diffId}">
+      <div class="diff-viewer-header">
+        <div class="diff-viewer-title"><span style="color:var(--red);">📄</span> ${escapeHtml(diff.file)}</div>
+        <div class="diff-viewer-actions">
+          <button class="diff-mass-btn approve-all" onclick="acceptAllChunks('${diffId}')">✓ Accept All</button>
+          <button class="diff-mass-btn reject-all" onclick="rejectAllChunks('${diffId}')">✕ Reject All</button>
         </div>
-      `);
-      scrollToBottom();
-    }
+      </div>
+      ${chunksHtml}
+    </div>
+    <div class="diff-summary">
+      <span class="stat removed">−${totalRemoved} lines removed</span>
+      <span class="stat added">+${totalAdded} lines added</span>
+      <span style="margin-left:auto;color:var(--text-muted);">${diff.chunks.length} chunks</span>
+    </div>
+  `);
+  scrollToBottom();
+}
 
-    function renderPlanCreated(payload) {
-      const inner = getChatInner();
-      const steps = (payload.steps || []).map((s, i) => `
-        <div style="padding:4px 0;font-size:12px;color:var(--text-dim);">
-          <span style="color:var(--text-muted);">${i+1}.</span> ${escapeHtml(s.description || s)}
-        </div>
-      `).join('');
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="tool-card">
-          <div class="tool-card-header">
-            <div class="tool-icon think">📋</div>
-            <div class="tool-name">Plan Created</div>
-            <div class="tool-status done">${payload.steps?.length || 0} steps</div>
-          </div>
-          <div class="tool-body">${steps}</div>
-        </div>
-      `);
-      scrollToBottom();
-    }
+async function acceptChunk(chunkId) {
+  const chunkEl = document.getElementById(chunkId);
+  if (!chunkEl) return;
+  chunkEl.classList.add('applied');
+  try {
+    await fetch('/api/diff/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diff_id: chunkEl.dataset.diffId, chunk_id: chunkId, action: 'accept', thread_id: 'web-session' }),
+    });
+  } catch (e) { console.error(e); }
+}
 
-    function renderContextChips(payload) {
-      const inner = getChatInner();
-      const chips = (payload.chips || []).map(c => `
-        <div class="context-chip"><span class="dot" style="background:${c.color};"></span>${escapeHtml(c.text)}</div>
-      `).join('');
-      inner.insertAdjacentHTML('beforeend', `<div class="context-bar">${chips}</div>`);
-      scrollToBottom();
-    }
+async function rejectChunk(chunkId) {
+  const chunkEl = document.getElementById(chunkId);
+  if (!chunkEl) return;
+  chunkEl.classList.add('rejected');
+  try {
+    await fetch('/api/diff/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diff_id: chunkEl.dataset.diffId, chunk_id: chunkId, action: 'reject', thread_id: 'web-session' }),
+    });
+  } catch (e) { console.error(e); }
+}
 
-    function renderSuggestions(payload) {
-      const inner = getChatInner();
-      const chips = (payload.suggestions || []).map(s => `
-        <div class="suggestion-chip" onclick="sendPrompt('${escapeHtml(s.action || s.text)}')">${s.icon || '💡'} ${escapeHtml(s.text)}</div>
-      `).join('');
-      inner.insertAdjacentHTML('beforeend', `<div class="suggestion-row">${chips}</div>`);
-      scrollToBottom();
-    }
+function acceptAllChunks(diffId) {
+  document.querySelectorAll(`#${diffId} .diff-chunk:not(.applied):not(.rejected)`).forEach(c => acceptChunk(c.id));
+}
 
-    function updateAnalytics(payload) {
-      Object.assign(state.analytics, payload);
-      document.getElementById('header-cost').textContent =
-        `$${(state.analytics.totalCost || 0).toFixed(4)} · ${((state.analytics.tokensIn || 0) + (state.analytics.tokensOut || 0)).toLocaleString()} tokens`;
-      document.getElementById('current-model').textContent = state.analytics.model || '--';
-      document.getElementById('status-provider').textContent = state.analytics.provider || '--';
-      document.getElementById('status-tier').textContent = state.analytics.tier || '--';
-      document.getElementById('status-skills').textContent = `${state.analytics.skills || 0} active`;
-    }
+function rejectAllChunks(diffId) {
+  document.querySelectorAll(`#${diffId} .diff-chunk:not(.applied):not(.rejected)`).forEach(c => rejectChunk(c.id));
+}
 
-    function updateSessionStatus(payload) {
-      if (payload.sessions) {
-        state.sessions = payload.sessions;
-        renderSessions();
-      }
-    }
+// =========================================================
+// RENDERERS (Misc)
+// =========================================================
+function renderDiffCard(payload) {
+  const inner = getChatInner();
+  const lines = (payload.lines || []).map((l, i) => `<div class="diff-line added"><span class="diff-line-num">${i+1}</span><span>${escapeHtml(l)}</span></div>`).join('');
+  inner.insertAdjacentHTML('beforeend', `<div class="diff-card"><div class="diff-header"><span style="color:var(--text-dim);">${escapeHtml(payload.file)}</span><div style="margin-left:auto;"><span class="diff-badge">+${payload.lines?.length || 0} lines</span></div></div><div class="diff-body"><div class="diff-side after">${lines}</div></div></div>`);
+  scrollToBottom();
+}
 
-    async function sendMessage() {
-      const input = document.getElementById('composer-input');
-      const btn = document.getElementById('send-btn');
-      const text = input.value.trim();
-      if (!text || state.streaming) return;
-      btn.disabled = true;
-      input.value = '';
-      input.rows = 1;
-      try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, thread_id: 'web-session', mode: 'agent' }),
-        });
-        if (!res.ok) throw new Error('Failed to send');
-      } catch (e) {
-        renderErrorMessage('Failed to reach agent: ' + e.message);
-      } finally {
-        btn.disabled = false;
-      }
-    }
+function renderDiffBadge(payload) {
+  const inner = getChatInner();
+  const files = payload.files || [];
+  if (!files.length) return;
+  const fileList = files.map(f => escapeHtml(f)).join(', ');
+  inner.insertAdjacentHTML('beforeend', `<div class="diff-badge-inline" onclick="requestDiffView('${payload.messageId || ''}')">🔴 ${files.length} file${files.length > 1 ? 's' : ''} changed · ${fileList}</div>`);
+  scrollToBottom();
+}
 
-    async function approveTool(toolId, always, btn) {
-      const card = btn.closest('.tool-card');
-      try {
-        const res = await fetch('/api/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tool_id: toolId, approved: true, always_allow: always }),
-        });
-        if (res.ok) {
-          card.querySelector('.tool-status').textContent = 'Approved';
-          card.querySelector('.tool-status').className = 'tool-status done';
-          card.querySelector('.tool-actions').innerHTML = '<span style="font-size:12px;color:var(--success);padding:6px 0;">✓ Approved</span>';
-        }
-      } catch (e) { console.error(e); }
-    }
+function renderPlanCreated(payload) {
+  const inner = getChatInner();
+  const steps = (payload.steps || []).map((s, i) => `<div style="padding:4px 0;font-size:12px;color:var(--text-dim);"><span style="color:var(--text-muted);">${i+1}.</span> ${escapeHtml(s.description || s)}</div>`).join('');
+  inner.insertAdjacentHTML('beforeend', `<div class="tool-card"><div class="tool-card-header" onclick="toggleToolCard(this.closest('.tool-card').id)" style="cursor:pointer;"><div class="tool-icon think">📋</div><div class="tool-name">Plan Created</div><div class="tool-toggle">▼</div><div class="tool-status done">${payload.steps?.length || 0} steps</div></div><div class="tool-body">${steps}</div></div>`);
+  scrollToBottom();
+}
 
-    async function denyTool(toolId, btn) {
-      const card = btn.closest('.tool-card');
-      try {
-        await fetch('/api/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tool_id: toolId, approved: false }),
-        });
-        card.style.opacity = '0.5';
-        card.querySelector('.tool-actions').innerHTML = '<span style="font-size:12px;color:var(--text-muted);padding:6px 0;">✕ Denied</span>';
-      } catch (e) { console.error(e); }
-    }
+function renderContextChips(payload) {
+  const inner = getChatInner();
+  const chips = (payload.chips || []).map(c => `<div class="context-chip"><span class="dot" style="background:${c.color};"></span>${escapeHtml(c.text)}</div>`).join('');
+  inner.insertAdjacentHTML('beforeend', `<div class="context-bar">${chips}</div>`);
+  scrollToBottom();
+}
 
-    function sendPrompt(text) {
-      document.getElementById('composer-input').value = text;
-      sendMessage();
-    }
+function renderSuggestions(payload) {
+  const inner = getChatInner();
+  const chips = (payload.suggestions || []).map(s => `<div class="suggestion-chip" onclick="sendPrompt('${escapeHtml(s.action || s.text)}')">${s.icon || '💡'} ${escapeHtml(s.text)}</div>`).join('');
+  inner.insertAdjacentHTML('beforeend', `<div class="suggestion-row">${chips}</div>`);
+  scrollToBottom();
+}
 
-    function handleKeydown(e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-      autoResize(e.target);
-    }
+// =========================================================
+// CHECKPOINT / ROLLBACK
+// =========================================================
+function rollbackTo(checkpointId) {
+  const targetId = checkpointMap[checkpointId];
+  if (!targetId || !confirm(`Rollback to ${checkpointId}? Everything after this point will be removed.`)) return;
+  let sibling = document.getElementById(targetId).nextElementSibling;
+  while (sibling) { const toRemove = sibling; sibling = sibling.nextElementSibling; toRemove.remove(); }
+  state.streaming = false; state.currentAgentMsg = null;
+  Object.keys(messageBuffers).forEach(k => delete messageBuffers[k]);
+  fetch('/api/rollback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkpoint_id: checkpointId, thread_id: 'web-session' }) }).catch(() => {});
+  getChatInner().insertAdjacentHTML('beforeend', `<div class="message-group" style="opacity:0.6;"><div class="message-header"><div class="message-avatar agent">↩</div><div class="message-sender agent" style="color:var(--text-muted);">System</div></div><div class="message-body"><p style="color:var(--text-muted);font-size:12px;">Rolled back to ${checkpointId}. Agent state reset.</p></div></div>`);
+  scrollToBottom();
+}
 
-    function autoResize(ta) {
-      ta.rows = 1;
-      const rows = Math.min(6, Math.ceil(ta.scrollHeight / 20));
-      ta.rows = Math.max(1, rows);
-    }
+// =========================================================
+// UX HELPERS
+// =========================================================
+function attachCodeCopyButtons(container) {
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.parentElement.classList.contains('code-block-wrapper')) return;
+    const wrapper = document.createElement('div'); wrapper.className = 'code-block-wrapper';
+    pre.parentNode.insertBefore(wrapper, pre); wrapper.appendChild(pre);
+    const btn = document.createElement('button'); btn.className = 'code-copy-btn'; btn.textContent = 'Copy';
+    btn.onclick = () => { navigator.clipboard.writeText((pre.querySelector('code') || pre).innerText); btn.textContent = '✓'; setTimeout(() => btn.textContent = 'Copy', 2000); };
+    wrapper.appendChild(btn);
+  });
+}
 
-    function insertAtCursor(text) {
-      const ta = document.getElementById('composer-input');
-      ta.value += text;
-      ta.focus();
-    }
+function updateAnalytics(payload) {
+  Object.assign(state.analytics, payload);
+  document.getElementById('header-cost').textContent = `$${(state.analytics.totalCost || 0).toFixed(4)} · ${((state.analytics.tokensIn || 0) + (state.analytics.tokensOut || 0)).toLocaleString()} tokens`;
+  document.getElementById('current-model').textContent = state.analytics.model || '--';
+  document.getElementById('status-provider').textContent = state.analytics.provider || '--';
+  document.getElementById('status-tier').textContent = state.analytics.tier || '--';
+  document.getElementById('status-skills').textContent = `${state.analytics.skills || 0} active`;
+}
 
-    function newChat() {
-      const inner = document.getElementById('chat-inner');
-      inner.innerHTML = '';
-      inner.insertAdjacentHTML('beforeend', `
-        <div class="welcome" id="welcome">
-          <div class="welcome-logo">
-            <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
-          </div>
-          <h2>Pulse<span>AI</span> IDE</h2>
-          <p>What would you like to build today?</p>
-          <div class="welcome-grid">
-            <div class="welcome-card" onclick="sendPrompt('Generate a Python module with type hints and tests')">
-              <div class="welcome-card-icon">✨</div><div class="welcome-card-title">Generate code</div><div class="welcome-card-desc">Create functions, classes, or full modules</div>
-            </div>
-            <div class="welcome-card" onclick="sendPrompt('Debug and fix the error in my code')">
-              <div class="welcome-card-icon">🔧</div><div class="welcome-card-title">Fix bugs</div><div class="welcome-card-desc">Debug errors and apply patches</div>
-            </div>
-            <div class="welcome-card" onclick="sendPrompt('Write pytest tests for my module')">
-              <div class="welcome-card-icon">📋</div><div class="welcome-card-title">Write tests</div><div class="welcome-card-desc">Generate pytest or unittest suites</div>
-            </div>
-            <div class="welcome-card" onclick="sendPrompt('Explain how this code works step by step')">
-              <div class="welcome-card-icon">🧠</div><div class="welcome-card-title">Explain code</div><div class="welcome-card-desc">Understand complex logic step by step</div>
-            </div>
-          </div>
-        </div>
-      `);
-      state.sessions = [];
-      renderSessions();
-    }
+function updateSessionStatus(payload) { if (payload.sessions) { state.sessions = payload.sessions; renderSessions(); } }
 
-    function renderSessions() {
-      const container = document.getElementById('session-list');
-      container.innerHTML = state.sessions.map(s => `
-        <div class="session-item ${s.active ? 'active' : ''}">
-          <span class="session-title">${escapeHtml(s.title)}</span>
-          <span class="session-time">${escapeHtml(s.time)}</span>
-        </div>
-      `).join('');
-    }
+async function sendMessage() {
+  const input = document.getElementById('composer-input'); const text = input.value.trim();
+  if (!text || state.streaming) return;
+  input.value = ''; input.rows = 1; hideMentions();
+  try {
+    await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, thread_id: 'web-session', mode: 'agent', auto_approve: state.autoApprove }) });
+  } catch (e) { renderErrorMessage('Failed to reach agent: ' + e.message); }
+}
 
-    function scrollToBottom() {
-      const scroll = document.getElementById('chat-scroll');
-      scroll.scrollTop = scroll.scrollHeight;
-    }
+async function approveTool(toolId, always, btn) {
+  const card = btn.closest('.tool-card');
+  try {
+    const res = await fetch('/api/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool_id: toolId, approved: true, always_allow: always }) });
+    if (res.ok) { card.querySelector('.tool-status').textContent = 'Approved'; card.querySelector('.tool-status').className = 'tool-status done'; card.querySelector('.tool-actions').innerHTML = '<span style="font-size:12px;color:var(--success);padding:6px 0;">✓ Approved</span>'; }
+  } catch (e) { console.error(e); }
+}
 
-    function escapeHtml(text) {
-      if (!text) return '';
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
+async function denyTool(toolId, btn) {
+  const card = btn.closest('.tool-card');
+  try { await fetch('/api/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool_id: toolId, approved: false }) });
+    card.style.opacity = '0.5'; card.querySelector('.tool-actions').innerHTML = '<span style="font-size:12px;color:var(--text-muted);padding:6px 0;">✕ Denied</span>';
+  } catch (e) { console.error(e); }
+}
 
-    function copyMessage(btn) {
-      const group = btn.closest('.message-group');
-      const body = group.querySelector('.message-body');
-      navigator.clipboard.writeText(body.innerText);
-      btn.textContent = '✓ Copied';
-      setTimeout(() => btn.textContent = '📋 Copy', 2000);
-    }
+function sendPrompt(text) { document.getElementById('composer-input').value = text; sendMessage(); }
+function handleKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  else if (e.key === 'Escape') { hideMentions(); hideModelPicker(); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { navigateMentions(e); }
+  else if ((e.key === 'Tab' || e.key === 'Enter') && document.getElementById('mentions-popup').classList.contains('visible')) { e.preventDefault(); acceptMention(e); }
+  autoResize(e.target);
+}
+function autoResize(ta) { ta.rows = 1; ta.rows = Math.max(1, Math.min(6, Math.ceil(ta.scrollHeight / 20))); }
+function insertAtCursor(text) { const ta = document.getElementById('composer-input'); ta.value += text; ta.focus(); }
 
-    function regenerate(btn) {
-      btn.textContent = '🔄 Regenerating...';
-      setTimeout(() => btn.textContent = '🔄 Regenerate', 3000);
-    }
+function handleInput(e) {
+  const val = e.target.value; const lastAt = val.lastIndexOf('@');
+  if (lastAt === -1 || val.substring(lastAt + 1).indexOf(' ') !== -1) { hideMentions(); return; }
+  const query = val.substring(lastAt + 1).toLowerCase();
+  const matches = [];
+  state.files.filter(f => f.toLowerCase().includes(query)).forEach(f => matches.push({ type: 'file', icon: '📄', label: f, meta: 'File' }));
+  if ('terminal'.includes(query)) matches.push({ type: 'terminal', icon: '💻', label: 'Terminal', meta: 'Active terminal output' });
+  if (matches.length) showMentions(matches, lastAt); else hideMentions();
+}
 
-    function thumbsUp(btn) {
-      btn.textContent = '👍 Thanks!';
-      setTimeout(() => btn.textContent = '👍 Helpful', 2000);
-    }
+function showMentions(matches, cursorPos) {
+  const popup = document.getElementById('mentions-popup'); mentionSelected = 0;
+  popup.innerHTML = matches.map((m, i) => `<div class="mention-item ${i === 0 ? 'selected' : ''}" data-label="${m.label}" onclick="selectMention(${i})"><span class="mention-icon">${m.icon}</span><span>${escapeHtml(m.label)}</span><span class="mention-meta">${m.meta}</span></div>`).join('');
+  popup.classList.add('visible');
+}
 
-    connect();
-    renderSessions();
-  </script>
+function hideMentions() { document.getElementById('mentions-popup').classList.remove('visible'); }
+function navigateMentions(e) {
+  const popup = document.getElementById('mentions-popup'); if (!popup.classList.contains('visible')) return; e.preventDefault();
+  const items = popup.querySelectorAll('.mention-item');
+  if (e.key === 'ArrowDown') mentionSelected = (mentionSelected + 1) % items.length;
+  if (e.key === 'ArrowUp') mentionSelected = (mentionSelected - 1 + items.length) % items.length;
+  items.forEach((item, i) => item.classList.toggle('selected', i === mentionSelected));
+}
+
+function acceptMention(e) { const popup = document.getElementById('mentions-popup'); if (!popup.classList.contains('visible')) return; e.preventDefault(); selectMention(mentionSelected); }
+function selectMention(index) {
+  const items = document.querySelectorAll('.mention-item'); if (!items[index]) return;
+  const label = items[index].dataset.label; const ta = document.getElementById('composer-input'); const val = ta.value; const lastAt = val.lastIndexOf('@');
+  ta.value = val.substring(0, lastAt) + '@' + label + ' ' + val.substring(ta.selectionStart); hideMentions(); ta.focus();
+}
+
+function toggleAutoApprove() { state.autoApprove = !state.autoApprove; document.getElementById('approve-shield').classList.toggle('active', state.autoApprove); document.getElementById('shield-text').textContent = state.autoApprove ? 'Shield On' : 'Auto'; }
+function renderModelPicker() { document.getElementById('model-list').innerHTML = state.models.map(m => `<div class="model-option ${state.selectedModel?.id === m.id ? 'selected' : ''}" onclick="selectModel('${m.id}')"><div class="model-name">${escapeHtml(m.name)} <span class="model-badge-picker">${escapeHtml(m.provider)}</span></div><div class="model-details"><span class="model-cost">$${m.costIn}/$${m.costOut} per 1M</span><span>·</span><span>${m.context} context</span><span>·</span><span>${m.tags.map(t => '#' + t).join(' ')}</span></div></div>`).join(''); }
+function toggleModelPicker() { const p = document.getElementById('model-picker'); p.classList.toggle('visible'); if (p.classList.contains('visible')) renderModelPicker(); }
+function hideModelPicker() { document.getElementById('model-picker').classList.remove('visible'); }
+function selectModel(id) { state.selectedModel = state.models.find(m => m.id === id); document.getElementById('current-model').textContent = state.selectedModel?.name || '--'; document.getElementById('current-agent').textContent = state.selectedModel?.provider + ' Agent'; hideModelPicker(); }
+
+function newChat() {
+  getChatInner().innerHTML = `<div class="welcome" id="welcome">...</div>`; // reuse welcome html if needed
+  state.sessions = []; renderSessions(); state.checkpointCounter = 0; Object.keys(checkpointMap).forEach(k => delete checkpointMap[k]);
+}
+
+function renderSessions() { document.getElementById('session-list').innerHTML = state.sessions.map(s => `<div class="session-item ${s.active ? 'active' : ''}"><span class="session-title">${escapeHtml(s.title)}</span><span class="session-time">${escapeHtml(s.time)}</span></div>`).join(''); }
+function scrollToBottom() { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; }
+function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function copyMessage(b) { navigator.clipboard.writeText(b.closest('.message-group').querySelector('.message-body').innerText); b.textContent = '✓ Copied'; setTimeout(() => b.textContent = '📋 Copy', 2000); }
+function regenerate(b) { b.textContent = '🔄 Regenerating...'; setTimeout(() => b.textContent = '🔄 Regenerate', 3000); }
+function thumbsUp(b) { b.textContent = '👍 Thanks!'; setTimeout(() => b.textContent = '👍 Helpful', 2000); }
+
+connect(); renderSessions(); renderModelPicker();
+</script>
 </body>
 </html>
