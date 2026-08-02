@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Consistency Tracker — track daily work habits, streaks, completion rates, and weekly progress." />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Consistency Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- ======== Header ======== -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">🔥</span>
+        <div>
+          <h1>Consistency Tracker</h1>
+          <p class="tagline">Small daily actions, compounding results.</p>
+        </div>
+      </div>
+      <p class="today-label" id="today-label" aria-live="polite"></p>
+    </header>
+
+    <!-- ======== Storage warning (hidden by default) ======== -->
+    <div class="storage-warning" id="storage-warning" role="alert" hidden>
+      <span aria-hidden="true">⚠️</span>
+      <p><strong>Storage unavailable.</strong> Your browser is blocking localStorage, so changes won't be saved between visits.</p>
+    </div>
+
+    <!-- ======== Stats dashboard ======== -->
+    <section class="stats-grid" aria-label="Your consistency stats">
+      <article class="stat-card">
+        <span class="stat-icon" aria-hidden="true">⚡</span>
+        <p class="stat-value" id="stat-current-streak">0</p>
+        <p class="stat-label">Current streak</p>
+        <p class="stat-sub" id="stat-current-streak-sub">days of progress in a row</p>
+      </article>
+
+      <article class="stat-card">
+        <span class="stat-icon" aria-hidden="true">🏆</span>
+        <p class="stat-value" id="stat-best-streak">0</p>
+        <p class="stat-label">Best streak</p>
+        <p class="stat-sub" id="stat-best-streak-sub">your longest run ever</p>
+      </article>
+
+      <article class="stat-card">
+        <span class="stat-icon" aria-hidden="true">✅</span>
+        <p class="stat-value" id="stat-today-percent">0%</p>
+        <p class="stat-label">Today's completion</p>
+        <p class="stat-sub" id="stat-today-percent-sub">0 of 0 habits done</p>
+      </article>
+
+      <article class="stat-card">
+        <span class="stat-icon" aria-hidden="true">📅</span>
+        <p class="stat-value" id="stat-week-active">0</p>
+        <p class="stat-label">Active this week</p>
+        <p class="stat-sub" id="stat-week-active-sub">days with progress in last 7</p>
+      </article>
+    </section>
+
+    <!-- ======== Weekly progress ======== -->
+    <section class="panel" aria-labelledby="weekly-title">
+      <div class="panel-header">
+        <h2 id="weekly-title">Weekly progress</h2>
+        <span class="panel-hint" id="weekly-note">Last 7 days</span>
+      </div>
+      <div class="weekly-chart" id="weekly-chart" aria-label="Weekly completion chart"></div>
+    </section>
+
+    <!-- ======== Add habit ======== -->
+    <section class="panel" aria-labelledby="add-title">
+      <div class="panel-header">
+        <h2 id="add-title">Add a work habit</h2>
+      </div>
+      <form class="add-form" id="habit-form" novalidate>
+        <label class="sr-only" for="habit-input">Habit name</label>
+        <input
+          type="text"
+          id="habit-input"
+          name="habit"
+          placeholder="e.g. Deep work 2h, Morning planning, Review code…"
+          maxlength="60"
+          autocomplete="off"
+        />
+        <button type="submit" class="btn btn-primary" id="habit-add-btn">Add habit</button>
+      </form>
+      <p class="error-msg" id="habit-error" role="alert" hidden></p>
+    </section>
+
+    <!-- ======== Habit list ======== -->
+    <section class="panel" aria-labelledby="habits-title">
+      <div class="panel-header">
+        <h2 id="habits-title">Your habits</h2>
+        <span class="panel-hint" id="habit-count">0 habits</span>
+      </div>
+
+      <ul class="habit-list" id="habit-list"></ul>
+
+      <!-- Empty state (shown when no habits exist) -->
+      <div class="empty-state" id="empty-state">
+        <span class="empty-icon" aria-hidden="true">🌱</span>
+        <h3>No habits yet</h3>
+        <p>Add your first work habit above and start building momentum today.</p>
+      </div>
+    </section>
+
+    <!-- ======== Daily notes ======== -->
+    <section class="panel notes-panel" aria-labelledby="notes-title">
+      <div class="panel-header">
+        <h2 id="notes-title">Daily notes</h2>
+        <span class="notes-status" id="notes-status" aria-live="polite">Autosaved</span>
+      </div>
+      <label class="sr-only" for="notes-textarea">Today's notes</label>
+      <textarea
+        id="notes-textarea"
+        rows="5"
+        placeholder="What did you work on today? Wins, blockers, reflections… (saved automatically)"
+      ></textarea>
+    </section>
+
+    <!-- ======== Footer ======== -->
+    <footer class="app-footer">
+      <p>Your data never leaves this device — everything is stored locally via <code>localStorage</code>.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

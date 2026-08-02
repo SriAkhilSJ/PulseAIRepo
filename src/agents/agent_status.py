@@ -3,6 +3,7 @@ from typing import Any
 
 def build_agent_status(
     state: dict[str, Any],
+    memory_count: int = 0,
 ) -> dict[str, Any]:
     """Build a read-only snapshot of the current agent state."""
 
@@ -95,4 +96,10 @@ def build_agent_status(
         },
 
         "trace_count": len(trace),
+
+        "memory": {
+            "stored_memories": memory_count,
+        },
+
+        "cost": state.get("token_usage", {}),
     }

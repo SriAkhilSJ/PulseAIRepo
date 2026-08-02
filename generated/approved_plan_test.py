@@ -1,1 +1,0 @@
-print('APPROVED PLAN WORKS')

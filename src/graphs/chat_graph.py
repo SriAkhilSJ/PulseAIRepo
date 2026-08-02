@@ -13,6 +13,7 @@ from typing import Literal,cast,Any
 from pydantic import BaseModel, Field, AliasChoices
 # pyrefly: ignore [missing-import]
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
 
 # pyrefly: ignore [missing-import]
 from langgraph.checkpoint.memory import MemorySaver
@@ -21,10 +22,13 @@ from langgraph.graph import StateGraph, START, END
 # pyrefly: ignore [missing-import]
 from langgraph.graph.message import add_messages
 # pyrefly: ignore [missing-import]
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import ToolNode, InjectedState
 
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
 from src.llm.factory import get_llm
+from src.context.context_engine import ContextEngine
+from src.context.memory_manager import MemoryManager
+from src.context.token_tracker import TokenTracker, TokenUsage
 from src.agents.planner import (
     create_plan,
     create_replan,
@@ -34,6 +38,7 @@ from src.agents.planner import (
     start_next_plan_step,
     update_plan_from_tool,
     finalize_plan,
+    check_ambiguity,
 )
 from src.tools.file_tools import (
     read_file,
@@ -54,6 +59,13 @@ from src.tools.terminal_tools import (
     cleanup_terminal_processes,
     read_terminal_output
 )
+from src.tools.web_tools import web_search, web_fetch
+from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
+
+from src.agents.cost_router import cost_router
+from src.agents.skill_manager import skill_manager
+from src.agents.sub_agent import subagent_coordinator
+from src.dashboard.event_bus import event_bus
 
 # ==========================================
 # TASK MANAGER STRUCTURED OUTPUT
@@ -109,11 +121,127 @@ class AgentState(TypedDict, total=False):
     replan_count: int
     execution_trace: list[dict[str, Any]]
     task_completed: bool
+    prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
+    token_usage: dict[str, Any]  # Tracks tokens and cost for this task
+    workspace: str  # Root path of the active project
 # =========================================================
 # TOOLS
 # =========================================================
 
+@tool
+def think(reasoning: str) -> str:
+    """
+    Record your reasoning before taking a meaningful action.
+
+    WHEN TO USE:
+    - Before reading, writing, editing, running commands, searching code, or using web tools.
+    - When deciding the next step in a plan.
+    - When diagnosing an error or choosing a recovery strategy.
+
+    Include what you are trying to do, why this approach is appropriate,
+    what could go wrong, and how you will verify success.
+    """
+    formatted = (
+        f"💭 **Thinking:**\n\n"
+        f"{reasoning[:1000]}\n\n"
+        f"---\n"
+        f"*Proceeding with the approach above.*"
+    )
+    return formatted
+
+
+@tool
+def verify(
+    step_description: str,
+    expected_result: str,
+    actual_result: str,
+    success: bool,
+) -> str:
+    """
+    Verify the result of the previous meaningful action.
+
+    WHEN TO USE:
+    - After read_file, write_file, edit_file, run_terminal, search_code, web_search, or web_fetch.
+    - Before moving to the next plan step after a tool result.
+    - When deciding whether to continue, retry, fix, or replan.
+
+    Do not call verify to verify another verify call.
+    """
+    if success:
+        return "✅ That step checks out. On to the next one."
+
+    return (
+        f"❌ That didn't match what I expected for '{step_description}'. "
+        f"I was looking for:\n\n{expected_result!r}\n\n"
+        f"But got:\n\n{actual_result!r}\n\n"
+        "Let me diagnose what went wrong before moving on."
+    )
+
+
+@tool
+def ask_user(question: str) -> str:
+    """
+    Ask the user a clarifying question when the request is ambiguous.
+
+    WHEN TO USE:
+    - The user did not specify a required file name, library, format, or approach.
+    - Multiple valid interpretations exist and choosing one would be risky.
+    - You are about to make an irreversible or destructive change.
+
+    WHEN NOT TO USE:
+    - Do not ask for errors you can diagnose with tools.
+    - Do not ask if the repo map, files, or tests provide enough information.
+    """
+    return (
+        f"❓ **I need a bit more clarity:**\n\n"
+        f"{question}\n\n"
+        f"*Once you reply, I'll get right back to work.*"
+    )
+
+
+@tool
+def delegate_to_subagent(
+    mode: Literal["research", "code", "test", "review"],
+    task: str,
+) -> str:
+    """
+    Delegate a focused sub-task to a specialized sub-agent.
+
+    WHEN TO USE:
+    - The task has a clear separable piece (research, coding, testing, review)
+    - You want parallel exploration of different approaches
+    - The sub-task is complex enough to benefit from focused attention
+
+    WHEN NOT TO USE:
+    - Trivial one-step tasks
+    - Tasks that depend on your immediate previous action
+    """
+    from src.config.settings import LLM_PROVIDER, LLM_MODEL
+
+    agent_id = subagent_coordinator.spawn(
+        mode=mode,
+        task=task,
+        parent_thread_id="main",
+        provider=LLM_PROVIDER,
+        model=LLM_MODEL,
+    )
+
+    result = subagent_coordinator.get_result(agent_id)
+
+    return (
+        f"🤖 Sub-agent ({mode}) completed.\n\n"
+        f"**Task:** {task}\n\n"
+        f"**Result:**\n{result[:2000]}\n\n"
+        f"*Agent ID: {agent_id}*"
+    )
+
+
 tools = [
+    think,
+    verify,
+    ask_user,
+    delegate_to_subagent,
+
     add,
 
     # File tools
@@ -130,7 +258,11 @@ tools = [
     stop_terminal,
     list_terminal_processes,
     cleanup_terminal_processes,
-    read_terminal_output
+    read_terminal_output,
+
+    # Web tools
+    web_search,
+    web_fetch,
 ]
 
 
@@ -138,161 +270,27 @@ tools = [
 # SYSTEM PROMPT
 # =========================================================
 
-system_message = SystemMessage(
-    content="""
-You are PulseCodeAI, an autonomous AI coding agent operating inside the user's active project workspace.
-
-Your goal is to complete the user's programming task by inspecting the project, reasoning about the problem, using tools when necessary, making changes, and verifying the result.
-
-CORE BEHAVIOR
-
-- Act like a coding agent, not a general chatbot.
-- When the user asks you to perform an action, use the appropriate tools instead of merely explaining how they could do it.
-- Inspect relevant files before making changes when their current contents matter.
-- Never claim that you read, wrote, edited, executed, tested, built, installed, stopped, or verified something unless the corresponding tool actually succeeded.
-- Use tool results as the source of truth.
-- Do not invent file contents, terminal output, process status, or tool results.
-- Do not repeat a failed action unchanged. Inspect the error and choose a better next step.
-- Continue through reasonable intermediate steps when they are necessary to complete the user's task.
-- When the task is complete, give a concise summary of what was actually done.
-
-FILE TOOLS
-
-- Use list_files to inspect directories.
-- Use read_file before modifying an existing file when you need its current contents.
-- Use search_code to locate symbols, functions, classes, imports, errors, or relevant code.
-- Use write_file when creating a new file or intentionally replacing an entire file.
-- Use edit_file for precise modifications to existing files.
-- Prefer edit_file over rewriting an entire existing file when only a small change is required.
-- All file operations must remain inside the active workspace.
-- If a path is rejected because it escapes the workspace, do not attempt to bypass the restriction.
-
-TERMINAL TOOLS
-
-There are two execution modes.
-
-1. run_terminal
-   - Use for short commands expected to finish quickly.
-   - Examples: git status, git diff, directory inspection, version checks, and quick tests.
-   - Do not use it for long builds, installations, development servers, compilation, deliberate waits, or commands expected to remain running.
-
-2. start_terminal
-   - Use for long-running commands.
-   - Examples: package installation, builds, compilation, development servers, long test suites, and commands containing deliberate waits.
-   - start_terminal returns a process ID.
-   - Remember that process ID and use it for subsequent process operations.
-   - Do not simulate background execution using &, start /b, temporary scripts, or similar shell tricks when start_terminal is available.
-
-TERMINAL LOG RETRIEVAL
-
-- Terminal processes retain their captured output internally.
-- check_terminal may truncate large output to protect the context window.
-- If relevant information may exist inside an omitted section, use read_terminal_output instead of rerunning the command.
-- Use start_line and end_line to request only the relevant portion.
-- Do not request unnecessarily large ranges.
-- Prefer targeted log inspection around suspected errors or relevant line ranges.
-- Rerun a completed command only when rerunning is actually necessary; do not rerun merely to recover truncated output.
-
-PROCESS MONITORING
-
-- Use check_terminal only for processes created by start_terminal.
-- Use the exact process ID returned by start_terminal.
-- If a process is still running, do not start the same command again.
-- Avoid rapid zero-second polling.
-- Use wait_seconds when waiting for useful progress.
-- Choose wait_seconds according to the expected task duration.
-- A monitoring wait is NOT a process execution timeout.
-- The underlying process may continue running after check_terminal returns RUNNING.
-- If the process completes during the wait, inspect its output and exit code before deciding what to do next.
-- Exit code 0 normally indicates success.
-- A non-zero exit code indicates failure or abnormal termination; inspect the output before deciding on the next action.
-- Do not claim success merely because a process was started.
-
-PROCESS MANAGEMENT
-
-- Use list_terminal_processes to inspect processes created by start_terminal.
-- Never use stop_terminal merely because a process is taking a long time.
-- Never stop a process just because check_terminal reports RUNNING.
-- A long-running process is not considered stuck merely because it is taking time.
-- If the user asks only to START a background process, start it, return its process ID, and leave it running.
-- If the user asks to WAIT for completion, monitor it using check_terminal with appropriate wait_seconds values until it completes.
-- Use stop_terminal when the user explicitly asks to stop, cancel, terminate, or restart a process.
-- Before stopping a process for any other reason, ask the user for confirmation.
-- Never claim a process was stopped unless stop_terminal confirms it.
-
-TASK COMPLETION
-
-For coding tasks, when appropriate follow this workflow:
-
-understand task
-→ inspect relevant project state
-→ make the smallest appropriate change
-→ run or test the result
-→ inspect failures
-→ fix if necessary
-→ verify
-→ report completion
-
-Do not stop after writing code if the user's request reasonably requires testing or verification and the necessary tools are available.
-
-ERROR HANDLING
-
-- Treat tool errors as information.
-- Read the actual error before choosing the next action.
-- Do not fabricate a successful result after a tool failure.
-- Do not repeatedly retry the identical failing command without a reason.
-- Prefer diagnosing the root cause.
-- If the task cannot be completed with available tools, clearly explain what blocked it.
-
-AUTOMATIC RECOVERY
-
-- A failed tool call does not automatically end the task.
-- When a command or tool fails unexpectedly, inspect the actual error and determine whether the problem can reasonably be fixed with the available tools.
-- If the failure is recoverable, diagnose the root cause, make the smallest appropriate corrective change, and retry or verify the operation.
-- Do not blindly repeat the identical failed command. Change something relevant first, unless retrying unchanged is justified by the error or explicitly requested by the user.
-- Continue the recovery loop until:
-  1. the task succeeds,
-  2. the failure requires user input or permission,
-  3. the required capability is unavailable, or
-  4. further automatic attempts would be unsafe or unreasonable.
-- Never hide failed attempts. The final response should accurately summarize the verified outcome.
-- An intentionally failing command requested by the user is not something to automatically repair.
-
-RECOVERY SUCCESS
-
-- Once the operation that previously failed is retried after a corrective change and succeeds, the recovery objective is complete.
-- Stop automatic recovery immediately after verified success.
-- Do not try alternative executables, commands, environments, or fixes after the corrected operation has already succeeded.
-- A terminal command is verified successful when the relevant tool result reports exit code 0.
-- After verified success, report the result to the user unless another part of the user's task remains unfinished.
-
-RECOVERY LIMITS
-
-- Make at most 3 failed automatic recovery attempts for an active task.
-- After 3 failed recovery attempts, stop speculative automatic repair and report the blocker.
-- Successful inspection or editing steps do not reset the failure count.
-- A new task resets the recovery count.
-- Explicit user instructions may start another attempt even after the automatic recovery limit.
+system_message = SystemMessage(content=CLAUDE_SYSTEM_PERSONA)
 
 
 
-TASK STATE PRIVACY
+def _zero_token_usage() -> dict[str, Any]:
+    """Return an empty token usage snapshot."""
+    return TokenUsage().to_dict()
 
-- TASK STATE is internal agent metadata.
-- Never expose, print, quote, or reproduce internal task-state fields in the final response.
-- Never output labels such as "action:", "updated_task:", "current_task:", "task_action:", "task_status:", or "steps_completed:" to the user.
-- Use task state only to understand and continue the user's work.
-- Final responses should contain only the useful result of the user's request.
-- Keep normal responses concise.
-- Do not narrate every internal decision.
-- Tool calls perform the work; the final response summarizes the verified result.
 
-"""
-)
+def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsage]) -> dict[str, Any]:
+    """Merge a list of TokenUsage records into an existing state snapshot."""
+    total = TokenUsage.from_dict(existing)
+
+    for usage in additions:
+        total = total + usage
+
+    return total.to_dict()
 
 
 # =========================================================
-# AI NODE
+# AI NODE (with Context Engine)
 # =========================================================
 def ai_node(
     state: AgentState,
@@ -303,171 +301,41 @@ def ai_node(
     provider = configurable["provider"]
     model = configurable["model"]
 
-    llm = get_llm(
-        provider=provider,
-        model=model,
-    )
+    # Cost-aware routing: try to use a cheaper/better model for this task
+    task_for_routing = state.get("current_task", "")
+    plan_for_routing = state.get("plan", [])
+    routed_provider, routed_model = cost_router.route(task_for_routing, plan_for_routing)
+
+    try:
+        llm = get_llm(provider=routed_provider, model=routed_model)
+        provider = routed_provider
+        model = routed_model
+    except Exception:
+        # Fallback to the originally configured provider if routing fails
+        llm = get_llm(provider=provider, model=model)
 
     llm_with_tools = llm.bind_tools(tools)
-    
-    completed_steps = state.get("steps_completed", [])
 
-    if completed_steps:
-        progress_text = "\n".join(
-            f"- {step}" for step in completed_steps
-        )
-    else:
-        progress_text = "- No successful steps recorded yet."
-    failed_steps = state.get("failed_steps", [])
-
-    if failed_steps:
-        failure_text = "\n".join(
-            f"- {step}" for step in failed_steps
-        )
-    else:
-        failure_text = "- No failed attempts recorded."
-    
-    recovery_attempts = state.get(
-    "recovery_attempts",
-    0,
-)
-
-    recovery_mode = state.get("recovery_mode", False)
-    recovery_command = state.get("recovery_command")
-
-    if recovery_mode:
-        latest_failure = (
-            failed_steps[-1]
-            if failed_steps
-            else "Unknown failure"
-        )
-
-        recovery_context = (
-            "RECOVERY MODE IS ACTIVE.\n"
-            f"Original failed operation: {recovery_command}\n"
-            f"Recovery failures: {recovery_attempts}/3\n\n"
-            "Latest recorded failure:\n"
-            f"{latest_failure}\n\n"
-            "The previous operation failed and the task is not complete.\n"
-            "Diagnose the root cause before retrying.\n"
-            "Do NOT repeat the identical failed command as your next "
-            "action unless the failure indicates that an unchanged retry "
-            "is genuinely appropriate.\n"
-            "For coding/runtime failures, inspect the relevant source "
-            "when necessary and make the smallest corrective change.\n"
-            "After a corrective action, retry the original failed "
-            "operation and verify it succeeds.\n"
-            "Preserve the current overall strategy unless the failure "
-            "shows that strategy is no longer viable.\n"
-            "Stop speculative recovery after 3 failed executions."
-        )
-    else:
-        recovery_context = (
-            f"Recovery failures during this task: "
-            f"{recovery_attempts}/3.\n"
-            "Recovery mode is not active."
-        )
-
-    replan_count = state.get("replan_count", 0)
-
-    replan_context = (
-        f"Automatic replans during this task: {replan_count}/2.\n"
-        "This is separate from recovery_attempts.\n"
-        "If asked for the replan count, report this value exactly."
+    # Use the Context Engine to build clean, organized messages.
+    messages = context_engine.build_ai_messages(
+        state=dict(state),
+        system_message=system_message,
     )
-
-    plan = state.get("plan", [])
-    plan_goal = state.get("plan_goal", "")
-
-    if plan:
-        plan_lines = []
-
-        for step in plan:
-            plan_lines.append(
-                f"{step['id']}. "
-                f"[{step['status']}] "
-                f"{step['description']}"
-            )
-
-        plan_context = (
-            f"Plan goal: {plan_goal}\n"
-            + "\n".join(plan_lines)
-        )
-    else:
-        plan_context = "No explicit plan for this task."
-
-    task_context = SystemMessage(
-    content=(
-        "The user is working on this ongoing coding task:\n"
-        f"{state.get('current_task', '')}\n\n"
-
-        "Their latest request is:\n"
-        f"{state.get('latest_instruction', '')}\n\n"
-
-        "Previous successful work:\n"
-        f"{progress_text}\n\n"
-
-        "Previous failed attempts:\n"
-        f"{failure_text}\n\n"
-
-        "Use this history only as operational context. "
-        "Do not expose or reproduce these internal lists unless "
-        "the user explicitly asks about progress or failures. "
-
-        "Do not blindly repeat a failed operation. "
-        "If an operation previously failed, inspect the available "
-        "failure context and choose a different approach when appropriate. "
-
-        "If the user explicitly asks to retry or repeat an operation, "
-        "perform it even if it previously failed. "
-
-        "Do not assume previous successful work is still valid if "
-        "later changes may have invalidated it.\n\n"
-        "TERMINAL FAILURE SEMANTICS\n\n"
-
-        "- A terminal process with exit code 0 is successful.\n"
-        "- A terminal process with a non-zero exit code is a failed execution.\n"
-        "- This remains true even when the user intentionally requested a "
-        "command that was expected to fail.\n"
-        "- Distinguish between 'the user's test behaved as expected' and "
-        "'the terminal process succeeded'.\n"
-        "- If a command intentionally exits with code 1, say that the test "
-        "behaved as expected, but the command itself failed with exit code 1.\n"
-        "- When asked what failed, use the recorded failed-attempt history "
-        "as the source of truth.\n\n"
-
-        "ACTIVE PLAN\n"
-        f"{plan_context}\n\n"
-
-        "PLAN COMPLETION\n"
-        f"All planned steps completed: {is_plan_complete(state)}\n"
-        "If all planned steps are completed, do not call more tools "
-        "unless verification actually failed or the user's task still "
-        "has an unmet requirement. Return the concise final result.\n\n"
-
-        "RECOVERY POLICY\n"
-        f"{recovery_context}\n"
-        "Once a previously failed operation succeeds after a corrective "
-        "change, consider that recovery objective satisfied. "
-        "Do not perform additional speculative retries or try alternative "
-        "executables after verified success unless another requirement "
-        "remains unfinished.\n\n"
-
-        "REPLAN STATUS\n"
-        f"{replan_context}\n"
-    )
-)
-    
-    messages = [
-        system_message,
-        task_context,
-        *state["messages"],
-    ]
 
     result = llm_with_tools.invoke(messages)
 
+    # =========================================================
+    # TRACK TOKEN USAGE
+    # =========================================================
+    call_usage = TokenTracker.record_call(messages, result, model)
+    token_usage = _merge_token_usage(
+        state.get("token_usage", {}),
+        [call_usage],
+    )
+
     return {
-        "messages": [result]
+        "messages": [result],
+        "token_usage": token_usage,
     }
 
 
@@ -489,9 +357,86 @@ def finalize_node(state: AgentState):
         task_succeeded=True,
     )
 
+    # Store successful task in long-term memory.
+    current_task = state.get("current_task", "")
+    steps_completed = state.get("steps_completed", [])
+    failed_steps = state.get("failed_steps", [])
+
+    if current_task and steps_completed:
+        memory_manager.store_task_completion(
+            task=current_task,
+            steps_completed=steps_completed,
+            plan=plan,
+        )
+
+    # Build a beautiful completion message
+    lines = []
+    task_display = current_task[:70] if current_task else "Task"
+    lines.append(f"## ✅ Finished: {task_display}")
+    lines.append("")
+
+    # Summarize what was done
+    if steps_completed:
+        lines.append("### 📁 What I did:")
+        for step in steps_completed[-8:]:
+            lines.append(f"- {step}")
+        lines.append("")
+
+    # Note any issues
+    if failed_steps:
+        lines.append("### ⚠️ Issues I ran into:")
+        for failure in failed_steps[-3:]:
+            lines.append(f"- {failure}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("*Need any tweaks? Just let me know!*")
+
+    # Add proactive suggestions
+    from src.context.reflection_engine import ReflectionEngine
+    reflector = ReflectionEngine()
+    reflection = reflector.reflect(
+        task=current_task,
+        steps_completed=steps_completed,
+        failed_steps=failed_steps,
+        plan=plan,
+    )
+
+    suggestions_text = reflector.format_suggestions(reflection.get("suggestions", []))
+    if suggestions_text:
+        # insert before the final sign-off
+        lines.insert(-2, suggestions_text)
+
+    # Export analytics for dashboard
+    from src.agents.cost_router import cost_router
+    from src.agents.skill_manager import skill_manager
+
+    # Calculate token usage for emissions
+    usage = state.get("token_usage", {})
+    cost_usd = usage.get("estimated_cost_usd", 0)
+    prompt_tokens = usage.get("prompt_tokens", 0)
+    completion_tokens = usage.get("completion_tokens", 0)
+    call_count = usage.get("calls_made", 0)
+
+    event_bus.emit("analytics.update", {
+        "totalCost": cost_usd,
+        "tokensIn": prompt_tokens,
+        "tokensOut": completion_tokens,
+        "apiCalls": call_count,
+        "model": LLM_MODEL,
+        "tier": getattr(cost_router, "_last_route", {}).get("tier", "standard"),
+        "provider": LLM_PROVIDER,
+        "skills": len(skill_manager.list_skills()),
+    })
+
+    event_bus.emit("suggestions", {
+        "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
+    })
+
     return {
         "plan": plan,
         "task_completed": True,
+        "messages": [AIMessage(content="\n".join(lines))],
     }
 
 
@@ -586,6 +531,9 @@ def task_manager_node(
             "task_action": "plan_cancelled",
             "task_status": "cancelled",
             "task_completed": False,
+            "prior_attempts": [],
+            "token_usage": _zero_token_usage(),
+            "workspace": config["configurable"].get("workspace", "."),
         }
 
     if (
@@ -601,6 +549,8 @@ def task_manager_node(
                 "plan_goal",
                 state.get("current_task", ""),
             ),
+            "token_usage": state.get("token_usage", _zero_token_usage()),
+            "workspace": config["configurable"].get("workspace", "."),
         }
 
     if is_plan_approval(latest_instruction):
@@ -608,6 +558,7 @@ def task_manager_node(
             "task_action": "approval_without_plan",
             "task_status": "idle",
             "plan_approved": False,
+            "token_usage": state.get("token_usage", _zero_token_usage()),
         }
 
     if (
@@ -619,6 +570,7 @@ def task_manager_node(
         return {
             "task_action": "revise_plan",
             "latest_instruction": latest_instruction,
+            "token_usage": state.get("token_usage", _zero_token_usage()),
         }
 
     # First turn: there is no previous active task.
@@ -631,7 +583,7 @@ def task_manager_node(
             "failed_steps": [],
             "recovery_attempts": 0,
             "recovery_mode": False,
-            "tool_failures":0,
+            "tool_failures": 0,
             "recovery_command": None,
             "plan": [],
             "plan_goal": "",
@@ -642,6 +594,9 @@ def task_manager_node(
             "replan_count": 0,
             "execution_trace": [],
             "task_completed": False,
+            "prior_attempts": [],
+            "token_usage": _zero_token_usage(),
+            "workspace": config["configurable"].get("workspace", "."),
         }
 
     llm = get_llm(
@@ -653,12 +608,9 @@ def task_manager_node(
         TaskDecision
     )
 
-    decision = cast(
-    TaskDecision,
-    task_llm.invoke(
-        [
-            SystemMessage(
-                content="""
+    task_messages = [
+        SystemMessage(
+            content="""
 You manage the active task for an AI coding agent.
 
 Classify the latest user instruction as:
@@ -681,16 +633,32 @@ For "new", updated_task must be the new task.
 
 For "unrelated", preserve the existing active task exactly.
 """
-            ),
-            HumanMessage(
-                content=(
-                    f"Current active task:\n{current_task}\n\n"
-                    f"Latest instruction:\n{latest_instruction}"
-                )
-            ),
-        ]
-    ),
-)
+        ),
+        HumanMessage(
+            content=(
+                f"Current active task:\n{current_task}\n\n"
+                f"Latest instruction:\n{latest_instruction}"
+            )
+        ),
+    ]
+
+    decision = cast(
+        TaskDecision,
+        task_llm.invoke(task_messages),
+    )
+
+    call_usage = TokenTracker.record_call(task_messages, decision, model)
+
+    if decision.action == "new":
+        token_usage = _merge_token_usage(
+            _zero_token_usage(),
+            [call_usage],
+        )
+    else:
+        token_usage = _merge_token_usage(
+            state.get("token_usage", {}),
+            [call_usage],
+        )
 
     if decision.action == "unrelated":
         updated_task = current_task
@@ -699,31 +667,36 @@ For "unrelated", preserve the existing active task exactly.
     else:
         updated_task = current_task
 
-
-    if decision.action =="new":
+    if decision.action == "new":
         return {
-        "current_task": updated_task,
-        "task_action": decision.action,
-        "task_status": "in_progress",
-        "steps_completed": [],
-        "failed_steps": [],
-        "recovery_attempts": 0,
-        "tool_failures":0,
-        "recovery_mode":False,
-        "recovery_command": None,
-        "plan": [],
-        "plan_goal": "",
-        "plan_created": False,
-        "plan_approved": False,
-        "plan_revision_count": 0,
-        "replan_needed": False,
-        "replan_count": 0,
-        "execution_trace": [],
-        "task_completed": False,
-    }
+            "current_task": updated_task,
+            "task_action": decision.action,
+            "task_status": "in_progress",
+            "steps_completed": [],
+            "failed_steps": [],
+            "recovery_attempts": 0,
+            "tool_failures": 0,
+            "recovery_mode": False,
+            "recovery_command": None,
+            "plan": [],
+            "plan_goal": "",
+            "plan_created": False,
+            "plan_approved": False,
+            "plan_revision_count": 0,
+            "replan_needed": False,
+            "replan_count": 0,
+            "execution_trace": [],
+            "task_completed": False,
+            "prior_attempts": [],
+            "token_usage": token_usage,
+            "workspace": config["configurable"].get("workspace", "."),
+        }
+
     return {
         "current_task": updated_task,
         "task_action": decision.action,
+        "token_usage": token_usage,
+        "workspace": config["configurable"].get("workspace", "."),
     }
 
 def progress_node(
@@ -759,6 +732,7 @@ def progress_node(
     "recovery_command"
 )
     replan_needed = state.get("replan_needed", False)
+    total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
 
     # ==========================================
     # FIND LATEST TOOL MESSAGES
@@ -890,13 +864,19 @@ def progress_node(
             if plan:
                 configurable = config["configurable"]
 
+                usages: list[TokenUsage] = []
+
                 replan_needed = should_replan(
                     task=state.get("current_task", ""),
                     plan=plan,
                     failure=failure,
                     provider=configurable["provider"],
                     model=configurable["model"],
+                    usage_list=usages,
                 )
+
+                for usage in usages:
+                    total_usage = total_usage + usage
 
             continue
 
@@ -984,7 +964,7 @@ def progress_node(
     # RETURN AFTER THE LOOP
     # ==========================================
 
-    return {
+    result = {
         "steps_completed": steps_completed,
         "failed_steps": failed_steps,
         "tool_failures": tool_failures,
@@ -994,7 +974,24 @@ def progress_node(
         "plan": plan,
         "replan_needed": replan_needed,
         "execution_trace": execution_trace,
+        "token_usage": total_usage.to_dict(),
     }
+
+    if latest_tools:
+        result["messages"] = [
+            SystemMessage(
+                content=(
+                    "You just received a tool result. Take a moment to evaluate it:\n"
+                    "- Did the tool succeed or fail?\n"
+                    "- Does the output match what you expected?\n"
+                    "- Should you proceed, fix something, ask the user, or replan?\n\n"
+                    "Use verify() when the result needs explicit validation. "
+                    "Don't verify meta-tools like think(), verify(), or ask_user()."
+                )
+            )
+        ]
+
+    return result
 
 
 def is_plan_complete(state: AgentState) -> bool:
@@ -1019,25 +1016,28 @@ def after_progress(state: AgentState) -> str:
     if state.get("replan_needed", False):
         return "replanner"
 
+    # If the active plan is complete after tool execution, stop instead of
+    # giving weaker/cheap models another chance to keep calling tools forever.
+    if is_plan_complete(state):
+        return "finalize"
+
     return "ai"
 
 def recovery_limit_node(state: AgentState):
     failed_steps = state.get("failed_steps", [])
-
     if failed_steps:
         latest_failure = failed_steps[-1]
     else:
         latest_failure = "Unknown failure"
-
     return {
         "messages": [
             AIMessage(
                 content=(
-                    "Automatic recovery stopped after 3 failed "
-                    "attempts. The latest recorded failure was:\n\n"
+                    "I stopped trying to automatically recover after 3 failed attempts. "
+                    "The last issue I ran into was:\n\n"
                     f"{latest_failure}\n\n"
-                    "Further automatic retries were stopped to avoid "
-                    "an unproductive recovery loop."
+                    "I don't want to keep retrying the same thing and waste your time (and tokens). "
+                    "Could you take a look and let me know how you'd like to proceed?"
                 )
             )
         ]
@@ -1066,23 +1066,51 @@ def planner_node(
     if not current_task:
         return {}
 
+    usages: list[TokenUsage] = []
+
     needs_plan = should_create_plan(
         task=current_task,
         provider=provider,
         model=model,
+        usage_list=usages,
     )
 
     if not needs_plan:
+        token_usage = _merge_token_usage(
+            state.get("token_usage", {}),
+            usages,
+        )
+
         return {
             "plan": [],
             "plan_goal": "",
             "plan_created": False,
+            "token_usage": token_usage,
         }
 
-    task_plan = create_plan(
-        task=current_task,
-        provider=provider,
-        model=model,
+    # Cost-aware routing for planning
+    routed_provider, routed_model = cost_router.route(current_task)
+
+    try:
+        # create_plan uses the provider/model strings, not the llm object directly
+        # So we just pass the routed ones; if they fail, fallback below
+        task_plan = create_plan(
+            task=current_task,
+            provider=routed_provider,
+            model=routed_model,
+            usage_list=usages,
+        )
+    except Exception:
+        task_plan = create_plan(
+            task=current_task,
+            provider=provider,
+            model=model,
+            usage_list=usages,
+        )
+
+    token_usage = _merge_token_usage(
+        state.get("token_usage", {}),
+        usages,
     )
 
     plan = [
@@ -1096,6 +1124,7 @@ def planner_node(
         "plan": plan,
         "plan_goal": task_plan.goal,
         "plan_created": True,
+        "token_usage": token_usage,
     }
 
 
@@ -1122,7 +1151,8 @@ def plan_cancelled_node(state: AgentState):
         "messages": [
             AIMessage(
                 content=(
-                    "Plan cancelled. No changes were made."
+                    "No problem — I've cancelled the plan and no changes were made. "
+                    "Let me know if you'd like to take a different approach."
                 )
             )
         ]
@@ -1134,7 +1164,8 @@ def approval_without_plan_node(state: AgentState):
         "messages": [
             AIMessage(
                 content=(
-                    "There is no pending plan to approve."
+                    "I don't see a pending plan waiting for approval right now. "
+                    "Would you like me to create one for your current task?"
                 )
             )
         ]
@@ -1152,35 +1183,29 @@ def after_planner(state: AgentState) -> str:
 
 def plan_preview_node(state: AgentState):
     """Return the generated plan without executing it."""
-
     plan = state.get("plan", [])
-
     if not plan:
         return {
             "messages": [
                 AIMessage(
                     content=(
-                        "This request does not require "
-                        "a multi-step execution plan."
+                        "This looks like something I can handle directly "
+                        "without a formal execution plan. I'll get right to it."
                     )
                 )
             ]
         }
-
     lines = []
-
+    lines.append("Here's my plan for this task:\n")
     for step in plan:
         lines.append(
             f"{step['id']}. {step['description']}"
         )
-
+    lines.append("\nLet me know if you'd like me to proceed or adjust anything!")
     return {
         "messages": [
             AIMessage(
-                content=(
-                    "Plan:\n\n"
-                    + "\n".join(lines)
-                )
+                content="\n".join(lines)
             )
         ]
     }
@@ -1197,12 +1222,20 @@ def plan_reviser_node(
 
     configurable = config["configurable"]
 
+    usages: list[TokenUsage] = []
+
     revised = revise_plan(
         task=state.get("plan_goal", state.get("current_task", "")),
         plan=current_plan,
         revision=state.get("latest_instruction", ""),
         provider=configurable["provider"],
         model=configurable["model"],
+        usage_list=usages,
+    )
+
+    token_usage = _merge_token_usage(
+        state.get("token_usage", {}),
+        usages,
     )
 
     revised_plan = [
@@ -1222,7 +1255,9 @@ def plan_reviser_node(
         "plan_revision_count": (
             state.get("plan_revision_count", 0) + 1
         ),
+        "token_usage": token_usage,
     }
+
 
 
 
@@ -1251,12 +1286,21 @@ def replanner_node(
 
     configurable = config["configurable"]
 
+    usages: list[TokenUsage] = []
+
     task_plan = create_replan(
         task=current_task,
         plan=old_plan,
         failed_steps=failed_steps,
         provider=configurable["provider"],
         model=configurable["model"],
+        prior_attempts=state.get("prior_attempts", []),  # NEW: Pass learning memory
+        usage_list=usages,
+    )
+
+    token_usage = _merge_token_usage(
+        state.get("token_usage", {}),
+        usages,
     )
 
     # Preserve completed steps.
@@ -1281,10 +1325,40 @@ def replanner_node(
 
     new_steps = start_next_plan_step(new_steps)
 
+    # Summarize this failed attempt for future learning (short-term)
+    latest_failure = failed_steps[-1] if failed_steps else "Unknown failure"
+    attempt_summary = {
+        "strategy_summary": f"Plan with {len(old_plan)} steps failed at step {len(completed) + 1}",
+        "failure_reason": latest_failure,
+        "lesson": f"Original approach failed. Switching to new strategy with {len(new_steps)} steps.",
+    }
+
+    # Store in LONG-TERM memory (cross-session learning).
+    memory_manager.store_replan_lesson(
+        task=current_task,
+        old_plan=old_plan,
+        failure=latest_failure,
+        new_strategy=f"New plan with {len(new_steps)} steps",
+    )
+
+    # Also store a reflection about this failure
+    from src.context.reflection_engine import ReflectionEngine
+    ReflectionEngine().reflect(
+        task=f"{current_task} [REPLAN]",
+        steps_completed=[f"Original plan failed: {latest_failure}"],
+        failed_steps=[latest_failure],
+        plan=old_plan,
+    )
+
+    prior_attempts = list(state.get("prior_attempts", []))
+    prior_attempts.append(attempt_summary)
+
     return {
         "plan": completed + new_steps,
         "replan_needed": False,
         "replan_count": replan_count + 1,
+        "prior_attempts": prior_attempts,  # NEW: Save lessons learned
+        "token_usage": token_usage,
     }
 
 
@@ -1292,7 +1366,55 @@ def replanner_node(
 # GRAPH
 # =========================================================
 
-tool_node = ToolNode(tools)
+# Wrap ToolNode with safety guard
+from src.context.safety_guard import SafetyGuard
+
+class SafeToolNode:
+    """
+    Wrapper around ToolNode that checks safety before executing.
+    """
+    def __init__(self, tools, safety_guard: SafetyGuard):
+        self._node = ToolNode(tools)
+        self._guard = safety_guard
+
+    def __call__(self, state, config=None):
+        # Check the last AI message for tool calls
+        messages = state.get("messages", [])
+        if not messages:
+            return self._node.invoke(state, config)
+
+        last_msg = messages[-1]
+        tool_calls = getattr(last_msg, "tool_calls", None)
+        if not tool_calls:
+            return self._node.invoke(state, config)
+
+        # Get workspace from config
+        workspace = "."
+        if config and "configurable" in config:
+            workspace = config["configurable"].get("workspace", ".")
+
+        guard = SafetyGuard(workspace)
+
+        for tc in tool_calls:
+            tool_name = tc.get("name", "")
+            tool_args = tc.get("args", {})
+            is_safe, warning = guard.check_tool_call(tool_name, tool_args)
+            if not is_safe:
+                # Return a tool result that looks like a blocked execution
+                # This triggers the agent to ask the user
+                blocked_msg = AIMessage(
+                    content=(
+                        f"🛑 I was about to run `{tool_name}` but I need your confirmation first.\n\n"
+                        f"{warning}\n\n"
+                        f"Please reply so I know how to proceed."
+                    )
+                )
+                return {"messages": [blocked_msg]}
+
+        # All safe — proceed to real tool execution
+        return self._node.invoke(state, config)
+
+tool_node = SafeToolNode(tools, SafetyGuard())
 
 builder = StateGraph(AgentState)
 
@@ -1445,6 +1567,7 @@ builder.add_conditional_edges(
         "ai": "ai",
         "replanner": "replanner",
         "recovery_limit": "recovery_limit",
+        "finalize": "finalize",
     },
 )
 
@@ -1466,6 +1589,22 @@ builder.add_edge(
 # =========================================================
 # MEMORY
 # =========================================================
+
+# Create ONE memory manager for the whole agent (cross-session memory).
+# Use PersistentMemoryWrapper so memories survive across restarts.
+from src.context.persistent_memory import PersistentMemoryWrapper
+base_memory = MemoryManager()
+memory_manager = PersistentMemoryWrapper(base_memory)
+
+# Main context engine: heuristic summarization only (saves money).
+# To enable LLM-powered summarization for massive outputs, pass llm=get_llm(...).
+# Give it the memory manager so it can retrieve past lessons.
+context_engine = ContextEngine(
+    max_tokens=8000,
+    model=LLM_MODEL,
+    llm=None,
+    memory_manager=memory_manager,
+)
 
 memory = MemorySaver()
 
@@ -1521,6 +1660,10 @@ def stream_agent(
     workspace: str = ".",
     execution_mode: Literal["agent", "plan"] = "agent",
 ) -> str:
+    from src.context.convention_learner import ConventionLearner
+    ConventionLearner().scan_workspace(workspace)
+    
+    event_bus.emit("session.status", {"status": "busy", "thread_id": thread_id})
 
     config: RunnableConfig = {
         "configurable": {
@@ -1533,22 +1676,37 @@ def stream_agent(
     }
 
     final_response = ""
+    current_step = 0
+    total_steps = 0
 
     for event in graph.stream(
-    {
-        "messages": [
-            HumanMessage(content=message)
-        ],
-        "latest_instruction": message,
-        "execution_mode": execution_mode,
-    },
-    config=config,
-    stream_mode="updates",
-):
+        {
+            "messages": [
+                HumanMessage(content=message)
+            ],
+            "latest_instruction": message,
+            "execution_mode": execution_mode,
+        },
+        config=config,
+        stream_mode="updates",
+    ):
+        # ---------------------------------------------
+        # PLANNER NODE — show plan creation
+        # ---------------------------------------------
+        if "planner" in event:
+            plan_data = event["planner"]
+            plan = plan_data.get("plan", [])
+            if plan:
+                total_steps = len(plan)
+                print(f"\n📋 Plan created: {total_steps} steps")
+                event_bus.emit("plan.created", {
+                    "steps": plan,
+                    "thread_id": thread_id,
+                })
+
         # ---------------------------------------------
         # AI NODE
         # ---------------------------------------------
-
         if "ai" in event:
             ai_messages = event["ai"].get(
                 "messages",
@@ -1560,29 +1718,82 @@ def stream_agent(
 
             last_message = ai_messages[-1]
 
+            # Show cost routing decision
+            from src.agents.cost_router import cost_router
+            route_info = cost_router.get_last_route_info()
+            if "tier" in route_info.lower():
+                print(f"\n🧭 {route_info}")
+
             # AI requested tools
             if last_message.tool_calls:
+                event_bus.emit("message.agent.start", {"thread_id": thread_id})
                 for tool_call in last_message.tool_calls:
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
+                    
+                    tool_id = f"{thread_id}-{tool_call.get('id', '')}"
+                    
+                    # Emit tool call event
+                    event_bus.emit("tool.call", {
+                        "tool_id": tool_id,
+                        "tool_name": tool_name,
+                        "tool_args": tool_args,
+                        "thread_id": thread_id,
+                    })
 
-                    print(
-                        f"\n[Tool] "
-                        f"{tool_name} "
-                        f"{tool_args}"
-                    )
+                    if tool_name == "think":
+                        reasoning = tool_args.get("reasoning", "")
+                        print(f"\n💭 {reasoning[:350]}...")
+                    else:
+                        current_step += 1
+                        step_label = f"({current_step}/{total_steps})" if total_steps else ""
+                        print(
+                            f"\n🔧 {step_label} {tool_name} "
+                            f"{tool_args}"
+                        )
 
             # AI produced final text
             elif last_message.content:
                 final_response = last_message.content
+                # Stream the whole content as one chunk for now
+                event_bus.emit("message.agent.chunk", {
+                    "chunk": final_response,
+                    "thread_id": thread_id,
+                })
 
         # ---------------------------------------------
-        # TOOL NODE
+        # PROGRESS NODE — show step completion
         # ---------------------------------------------
+        if "progress" in event:
+            progress_data = event["progress"]
+            steps_completed = progress_data.get("steps_completed", [])
+            failed_steps = progress_data.get("failed_steps", [])
 
-        if "tools" in event:
-            print("[Tool completed]")
+            if steps_completed and len(steps_completed) > 0:
+                latest = steps_completed[-1]
+                print(f"  ✅ {latest}")
+                event_bus.emit("plan.step.complete", {
+                    "step": latest,
+                    "thread_id": thread_id,
+                })
 
+            if failed_steps and len(failed_steps) > 0:
+                latest = failed_steps[-1]
+                print(f"  ❌ {latest}")
+
+        # ---------------------------------------------
+        # REPLANNER NODE
+        # ---------------------------------------------
+        if "replanner" in event:
+            print("\n🔄 Replanning... adjusting strategy based on what we learned.")
+
+        # ---------------------------------------------
+        # RECOVERY LIMIT
+        # ---------------------------------------------
+        if "recovery_limit" in event:
+            print("\n⛔ Recovery limit reached. Pausing for user input.")
+
+    event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
     return final_response
 
 from src.agents.agent_status import build_agent_status
@@ -1602,8 +1813,112 @@ def get_agent_status(
     snapshot = graph.get_state(config)
 
     if snapshot is None:
-        return build_agent_status({})
+        return build_agent_status(
+            {},
+            memory_count=memory_manager.get_memory_count(),
+        )
 
     values = snapshot.values or {}
 
-    return build_agent_status(dict(values))
+    return build_agent_status(
+        dict(values),
+        memory_count=memory_manager.get_memory_count(),
+    )
+def fork_conversation(
+    source_thread_id: str,
+    new_thread_id: str | None = None,
+) -> str:
+    """
+    Fork a conversation: copy the current state into a new thread.
+    This lets you explore alternatives without losing the original.
+    """
+    import uuid
+
+    if new_thread_id is None:
+        new_thread_id = f"fork-{uuid.uuid4().hex[:8]}"
+
+    source_config = {"configurable": {"thread_id": source_thread_id}}
+    snapshot = graph.get_state(source_config)
+
+    if snapshot is None:
+        return f"No saved state found for thread '{source_thread_id}'."
+
+    new_config = {"configurable": {"thread_id": new_thread_id}}
+    graph.update_state(new_config, snapshot.values)
+
+    return new_thread_id
+
+def export_session_analytics(thread_id: str) -> dict:
+    """
+    Export all analytics for the dashboard.
+    Call this after every task or on demand.
+    """
+    from src.context.reflection_engine import ReflectionEngine
+    status = get_agent_status(thread_id)
+    cost = status.get("cost", {})
+    return {
+        "totalCost": cost.get("estimated_cost_usd", 0),
+        "tokensIn": cost.get("prompt_tokens", 0),
+        "tokensOut": cost.get("completion_tokens", 0),
+        "apiCalls": cost.get("calls_made", 0),
+        "cheapCalls": getattr(cost_router, "_cheap_count", 0),
+        "standardCalls": getattr(cost_router, "_standard_count", 0),
+        "premiumCalls": getattr(cost_router, "_premium_count", 0),
+        "replans": status.get("replan", {}).get("count", 0),
+        "recoveries": status.get("recovery", {}).get("attempts", 0),
+        "skills": len(skill_manager.list_skills()),
+        "memories": memory_manager.get_memory_count(),
+        "reflections": len(ReflectionEngine()._reflections),
+        "currentTask": status.get("task", ""),
+        "planSteps": status.get("plan", {}).get("total", 0),
+        "completedSteps": status.get("plan", {}).get("completed", 0),
+    }
+
+def export_dashboard_analytics(
+    thread_id: str,
+    task: str = "",
+    cost: dict | None = None,
+    model: str = "",
+    tier: str = "",
+    provider: str = "",
+    skills: int = 0,
+    tool_calls: list | None = None,
+) -> None:
+    """
+    Export analytics after every task so the dashboard shows live data.
+    Call this from finalize_node or after every tool execution.
+    """
+    import json
+    import time
+    from pathlib import Path
+
+    analytics_path = Path.home() / ".pulseai" / "session_analytics.json"
+
+    # Read existing
+    existing = {}
+    if analytics_path.exists():
+        try:
+            with open(analytics_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+
+    # Merge
+    existing.update({
+        "timestamp": time.time(),
+        "thread_id": thread_id,
+        "currentTask": task[:100],
+        "totalCost": cost.get("estimated_cost_usd", 0) if cost else 0,
+        "tokensIn": cost.get("prompt_tokens", 0) if cost else 0,
+        "tokensOut": cost.get("completion_tokens", 0) if cost else 0,
+        "apiCalls": cost.get("calls_made", 0) if cost else 0,
+        "model": model,
+        "tier": tier,
+        "provider": provider,
+        "skills": skills,
+        "tool_calls": tool_calls or [],
+    })
+
+    analytics_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(analytics_path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2)
