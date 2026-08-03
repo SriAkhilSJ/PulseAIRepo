@@ -297,24 +297,31 @@ class RepoMap:
         if self._cache is None:
             return ""
 
-        lines = self._cache.splitlines()
-        compressed = []
+        # Split off the import graph so compression/truncation can't destroy it
+        # (every import-graph line contains " -> " and lives at the tail).
+        marker = "=== IMPORT GRAPH ==="
+        if marker in self._cache:
+            tree_part, graph_part = self._cache.split(marker, 1)
+            graph_part = marker + graph_part
+        else:
+            tree_part, graph_part = self._cache, ""
 
-        for line in lines:
-            # Remove symbol details.
+        compressed = []
+        for line in tree_part.splitlines():
+            # Remove symbol details from the tree portion only.
             if " -> " in line:
                 line = line.split(" -> ")[0]
             compressed.append(line)
 
         result = "\n".join(compressed)
 
-        # If still too big, truncate.
+        # If still too big, truncate the tree portion only.
         if len(result) * 0.75 > max_tokens:
             max_chars = int(max_tokens / 0.75)
-            result = result[:max_chars]
+            result = result[:max_chars].rstrip()
             result += "\n... (truncated) ..."
 
-        return result
+        return result + graph_part
 
     # =========================================================
     # CACHE HELPERS

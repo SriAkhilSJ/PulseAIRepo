@@ -1,6 +1,6 @@
 # PulseAI (PulseCodeAI)
 
-PulseAI is an autonomous senior-engineer agent built with LangGraph and LangChain. It features a "Claude-Quality" ecosystem, a real-time Agentic IDE dashboard, and a layered context engine designed for high-precision autonomous coding.
+PulseAI is an autonomous senior-engineer agent built with LangGraph and LangChain. It features a "Claude-Quality" ecosystem, a real-time Agentic IDE dashboard, and a task-aware context engine designed for high-precision autonomous coding.
 
 ---
 
@@ -42,22 +42,72 @@ Then open `http://localhost:8080`.
 - **Recovery:** Automatically detects and recovers from tool or terminal failures.
 - **Replanning:** Pivot strategy mid-task if the current plan becomes unviable.
 
-### Layered Context Engine
-PulseAI builds a 15-layer context for every LLM call, including:
-- Repo Map & Task context
-- Plan & Progress tracking
-- Recovery & Replan history
-- Tone & Quality guidelines
-- Project Conventions (auto-learned)
+### Task-Aware Context Engine (v2)
+PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, fixed budget), v2 is task-aware:
+
+- **Task Classification:** Regex heuristics + embedding similarity classify each task into 9 types (debug, create, refactor, test, explore, explain, plan, recovery, chat).
+- **Relevance Scoring:** Every layer is scored `60% task-type prior + 30% semantic similarity + 10% recency`; low-value layers are skipped entirely.
+- **Hierarchical Assembly:** Layers are packed into a token budget highest-relevance-first; oversized layers are compressed rather than dropped.
+- **Semantic Dedup:** Embedding near-duplicate detection (cosine > 0.88) removes redundant layers.
+- **Differential Caching:** Layers are only rebuilt when non-message state changes.
+- **Semantic History Compression:** `SmartCompressor` scores each past message by similarity to the current task (plus type/recency heuristics), not just age.
+- **Feedback Loop:** Completed tasks record which layers were used; layer weights drift ±3% toward successful compositions.
 
 ### Long-Term Memory
 - **Persistent Memories:** Past task results and lessons are stored in `~/.pulseai/memories.json`.
+- **Vector Memory:** Semantic store (sentence-transformers embeddings) for preferences, reflections, and tool outputs — **in-memory, not yet persisted**.
 - **Reflections:** Learned behaviors and "don't-do-this" lessons are indexed via `ReflectionEngine`.
 - **Skills:** Frequently used command patterns or workflows are saved to `skills.json`.
 
 ### Web Search & Intelligence
 - **Integrated Search:** Uses `ddgs` for real-time documentation and error lookups.
 - **Web Fetch:** Reads full page content to verify implementation details.
+
+---
+
+## ⚖️ v2 vs v1: The Honest Diff
+
+Everything below was verified by running both versions — v2 (`ae04d77`) is the better engine. Not because it's newer, but because it fixes concrete v1 weaknesses:
+
+| Area | v1 (previous commit) | v2 (current) | Verdict |
+|---|---|---|---|
+| Task awareness | Same 15 layers, same order, every call | Task classified into 9 types; per-type relevance & budgets | **v2** — v1 wasted tokens on irrelevant layers |
+| Context budgeting | Static split; steal from history when over | Type-specific ratios + hierarchical fit + per-layer compression | **v2** |
+| History trimming | Heuristic scoring (type + recency) | Semantic similarity to current task + heuristics | **v2** |
+| Embeddings | `SimpleEmbedding` — hash bag-of-words, no meaning | `all-MiniLM-L6-v2` — real semantics, shared singleton | **v2** |
+| Repo map symbols | Regex (`^def`/`^class`), missed async/decorators | AST-based, handles async + decorators, lists imports | **v2** |
+| Import graph | None | AST import graph (top 20 files × 5 imports) | **v2** |
+| Repo map compression | Stripped every ` -> ` line — silently killed symbols *and* the import graph | Preserves the import graph through compression | **v2** (bug fixed) |
+| Dedup | None | Embedding near-duplicate removal (0.88 threshold) | **v2** |
+| Feedback | None | Records completions, adjusts layer weights | v2 (partial — see caveats) |
+
+### Verified caveats (read before believing the hype)
+
+1. **Tool-memory layer is plumbing, not product.** `retrieve_tool_memories()` exists, but nothing in the graph calls `store_tool_memory()` yet — the "RELEVANT PAST TOOL OUTPUTS" layer stays empty until a writer is wired in.
+2. **Feedback is one-sided.** `record_feedback(success=True)` is hardcoded in `finalize_node` — failures are never recorded, so weight learning only sees wins. It drifts ±3% per task and needs 10+ records to matter. It is a scaffold, not real learning.
+3. **Embedder cold-start is heavy.** First load takes ~30s and downloads ~100MB (`all-MiniLM-L6-v2`, CPU). If it fails, classifier, compressor, and dedup all fall back to heuristics — which is by design, but the semantic features silently downgrade.
+4. **Vector memory is in-memory only.** Restart = memory lost. The "Persistent SQLite Vector Memory" roadmap item is still open.
+5. **Import graph is a hint, not a graph.** 20 files × 5 imports, top-level modules only — no transitive deps, no call sites.
+6. **No chunk-level retrieval.** Context is assembled at layer granularity (whole repo map, whole memory blocks), not code-chunk granularity.
+
+---
+
+## 🆚 Can It Compete With Cursor? (The Straight Answer)
+
+**What's genuinely strong:**
+- Task-aware, budget-bounded context assembly with semantic scoring beats the naive "stuff everything in" approach most OSS agents use. Tokens go to relevant layers.
+- AST-accurate repo map with import graph + semantic dedup gives solid structural grounding per call.
+- Zero-cost local embeddings — no API spend for context features.
+- Differential caching means the heavy work happens once, not every turn.
+
+**What Cursor has that this does not (yet):**
+- A real codebase index: per-symbol/chunk embeddings, hybrid BM25 + vector retrieval, refreshed incrementally as files change. PulseAI has a static tree snapshot + a 20-file import graph.
+- Code-chunk-level retrieval. The agent currently reads whole files; Cursor retrieves the *relevant* function/class.
+- A persistent vector store (Chroma/SQLite). Ours dies with the process.
+- LSP/editor integration, `@`-references, git-aware context.
+- A 200K-token model window with automatic file inclusion. PulseAI budgets a fixed `max_tokens` with heuristic ratios.
+
+**Bottom line:** the v2 context engine and repo map are a credible foundation — above typical OSS agent scaffolding — but to genuinely compete with Cursor's codebase Q&A, the roadmap is: chunked code index + BM25 hybrid retrieval → persistence → incremental refresh. That is the next milestone, not a claim we make today.
 
 ---
 
@@ -79,12 +129,14 @@ flowchart TD
         REC --> AI
     end
 
-    subgraph "Claude-Quality Layers"
+    subgraph "Context Engine v2"
         AI <--> CE[Context Engine]
-        CE --- CL[Convention Learner]
-        CE --- SG[Safety Guard]
-        CE --- RE[Reflection Engine]
-        CE --- TA[Tone Adapter]
+        CE --> TC[Task Classifier]
+        CE --> SC[Semantic Scoring]
+        CE --> HA[Hierarchical Assembly]
+        CE --> DD[Embedding Dedup]
+        CE --> FB[Feedback Loop]
+        CE --> RM[Repo Map + Import Graph]
     end
 
     DASH <-->|SSE / API| U
@@ -101,13 +153,18 @@ PulseAIRepo/
 │   ├── dashboard_server.py         # Web IDE Backend
 │   ├── agents/                     # Specialist agents (Planner, SubAgent)
 │   ├── context/                    # Context, Memory, Safety, and Tone layers
+│   │   ├── context_engine.py       # Task-aware, budgeted context assembly
+│   │   ├── repo_map.py             # AST repo map + import graph
+│   │   ├── smart_compressor.py     # Semantic history compression
+│   │   ├── vector_memory.py        # In-memory semantic store
 │   │   ├── safety_guard.py         # Human-in-the-loop approval logic
 │   │   ├── reflection_engine.py    # Learning from past mistakes
 │   │   ├── convention_learner.py   # Style matching logic
 │   │   └── ...
 │   ├── graphs/                     # LangGraph workflow definitions
+│   ├── llm/factory.py              # LLM + shared embedder factory
 │   ├── providers/                  # Multi-LLM provider support (Groq, OpenAI, Gemini)
-│   ├── tests/                      # Extensive regression suite
+│   ├── tests/                      # Regression suite
 │   └── tools/                      # File, Terminal, Web, and Math tools
 ├── dashboard.html                  # Agentic IDE Frontend
 ├── pyproject.toml                  # Dependencies & Project Meta
@@ -130,11 +187,18 @@ CUSTOM_BASE_URL=https://your-api-url/v1
 CUSTOM_API_KEY=sk-your-key
 ```
 
+**Embeddings (optional, defaults are local + free):**
+```env
+EMBEDDING_PROVIDER=local          # local (sentence-transformers) | openai (not implemented yet)
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+EMBEDDING_DEVICE=cpu              # cpu | cuda
+```
+
 ---
 
 ## 🧪 Testing
 
-PulseAI maintains a high-stability regression suite.
+PulseAI maintains a regression suite covering the graph, dashboard, and approval flows.
 
 **Run All Tests:**
 ```bash
@@ -160,7 +224,12 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 
 - [x] 6-Step Claude-Quality Transformation
 - [x] Agentic IDE Dashboard (Red Neon)
-- [x] Multi-agent Collaboration Layer (Step 7)
-- [ ] Automated README sync based on `ConventionLearner`
-- [ ] Persistent SQLite Vector Memory
+- [x] Multi-agent Collaboration Layer
+- [x] Task-aware Context Engine v2 (classification, scoring, budgets, dedup)
+- [x] AST repo map + import graph
+- [ ] Wire the tool-memory writer (store tool outputs during runs)
+- [ ] Record failure feedback, not just success
+- [ ] Persistent vector memory (SQLite/Chroma)
+- [ ] Chunk-level code retrieval with BM25 + vector hybrid index
+- [ ] Incremental index refresh (watch file changes, update deltas)
 - [ ] Per-session cost reports in PDF format
