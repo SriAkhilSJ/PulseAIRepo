@@ -55,7 +55,7 @@ PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, f
 
 ### Long-Term Memory
 - **Persistent Memories:** Past task results and lessons are stored in `~/.pulseai/memories.json`.
-- **Vector Memory:** Semantic store (sentence-transformers embeddings) for preferences, reflections, and tool outputs — **in-memory, not yet persisted**.
+- **Vector Memory:** Semantic store (sentence-transformers embeddings) for preferences, reflections, and tool outputs — **SQLite-backed at `~/.pulseai/vector_memory.db`, survives restarts**.
 - **Reflections:** Learned behaviors and "don't-do-this" lessons are indexed via `ReflectionEngine`.
 - **Skills:** Frequently used command patterns or workflows are saved to `skills.json`.
 
@@ -83,12 +83,11 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 
 ### Verified caveats (read before believing the hype)
 
-1. **Tool-memory layer is plumbing, not product.** `retrieve_tool_memories()` exists, but nothing in the graph calls `store_tool_memory()` yet — the "RELEVANT PAST TOOL OUTPUTS" layer stays empty until a writer is wired in.
-2. **Feedback is one-sided.** `record_feedback(success=True)` is hardcoded in `finalize_node` — failures are never recorded, so weight learning only sees wins. It drifts ±3% per task and needs 10+ records to matter. It is a scaffold, not real learning.
-3. **Embedder cold-start is heavy.** First load takes ~30s and downloads ~100MB (`all-MiniLM-L6-v2`, CPU). If it fails, classifier, compressor, and dedup all fall back to heuristics — which is by design, but the semantic features silently downgrade.
-4. **Vector memory is in-memory only.** Restart = memory lost. The "Persistent SQLite Vector Memory" roadmap item is still open.
-5. **Import graph is a hint, not a graph.** 20 files × 5 imports, top-level modules only — no transitive deps, no call sites.
-6. **No chunk-level retrieval.** Context is assembled at layer granularity (whole repo map, whole memory blocks), not code-chunk granularity.
+1. **Feedback is one-sided.** `record_feedback(success=True)` is hardcoded in `finalize_node` — failures are never recorded, so weight learning only sees wins. It drifts ±3% per task and needs 10+ records to matter. It is a scaffold, not real learning.
+2. **Embedder cold-start is heavy.** First load takes ~30s and downloads ~100MB (`all-MiniLM-L6-v2`, CPU). If it fails, classifier, compressor, and dedup all fall back to heuristics — which is by design, but the semantic features silently downgrade.
+3. **Import graph is a hint, not a graph.** 20 files × 5 imports, top-level modules only — no transitive deps, no call sites.
+4. **No chunk-level retrieval.** Context is assembled at layer granularity (whole repo map, whole memory blocks), not code-chunk granularity.
+5. **SQLite search is a LINEAR scan.** `search()` scores the most recent 500 rows in Python — correct and persistent, but not a real vector index. Time to scale past ~10K memories.
 
 ---
 
@@ -103,11 +102,12 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 **What Cursor has that this does not (yet):**
 - A real codebase index: per-symbol/chunk embeddings, hybrid BM25 + vector retrieval, refreshed incrementally as files change. PulseAI has a static tree snapshot + a 20-file import graph.
 - Code-chunk-level retrieval. The agent currently reads whole files; Cursor retrieves the *relevant* function/class.
-- A persistent vector store (Chroma/SQLite). Ours dies with the process.
 - LSP/editor integration, `@`-references, git-aware context.
 - A 200K-token model window with automatic file inclusion. PulseAI budgets a fixed `max_tokens` with heuristic ratios.
 
-**Bottom line:** the v2 context engine and repo map are a credible foundation — above typical OSS agent scaffolding — but to genuinely compete with Cursor's codebase Q&A, the roadmap is: chunked code index + BM25 hybrid retrieval → persistence → incremental refresh. That is the next milestone, not a claim we make today.
+*Note: persistent vector memory is solved (SQLite at `~/.pulseai/vector_memory.db`) — the remaining gap is a proper *index* (chunk embeddings + BM25), not persistence.*
+
+**Bottom line:** the v2 context engine, repo map, and persistent memory are a credible foundation — above typical OSS agent scaffolding — but to genuinely compete with Cursor's codebase Q&A, the roadmap is: chunked code index + BM25 hybrid retrieval → incremental refresh. That is the next milestone, not a claim we make today.
 
 ---
 
@@ -227,9 +227,9 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 - [x] Multi-agent Collaboration Layer
 - [x] Task-aware Context Engine v2 (classification, scoring, budgets, dedup)
 - [x] AST repo map + import graph
-- [ ] Wire the tool-memory writer (store tool outputs during runs)
+- [x] Tool-memory writer (semantic store of past tool outputs)
+- [x] Persistent vector memory (SQLite, ~/.pulseai/vector_memory.db)
 - [ ] Record failure feedback, not just success
-- [ ] Persistent vector memory (SQLite/Chroma)
 - [ ] Chunk-level code retrieval with BM25 + vector hybrid index
-- [ ] Incremental index refresh (watch file changes, update deltas)
 - [ ] Per-session cost reports in PDF format
+/usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy

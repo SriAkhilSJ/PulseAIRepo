@@ -27,11 +27,13 @@ class MemoryManager:
     Episodic = "what happened" memories (like diary entries).
     """
 
-    def __init__(self, embedding_provider=None):
+    def __init__(self, embedding_provider=None, db_path: str | None = None):
         """
         Creates the vector memory store.
+
+        db_path: SQLite file location. Defaults to ~/.pulseai/vector_memory.db
         """
-        self.vector_memory = VectorMemory(embedding_provider)
+        self.vector_memory = VectorMemory(db_path=db_path)
 
     # =========================================================
     # STORE METHODS: Save memories for later
