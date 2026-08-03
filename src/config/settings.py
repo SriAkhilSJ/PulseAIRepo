@@ -44,3 +44,11 @@ CONTEXT_MODEL: str = os.getenv(
     "CONTEXT_MODEL",
     LLM_MODEL,
 )
+
+# =========================================================
+# EMBEDDING (for semantic context, dedup, memory, and scoring)
+# =========================================================
+EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", "local")
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_DEVICE: str = os.getenv("EMBEDDING_DEVICE", "cpu")
+

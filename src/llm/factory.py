@@ -125,3 +125,35 @@ def get_llm(provider, model):
         return RetryLLMProxy(llm)
 
     raise ValueError(f"Unknown provider: {provider}")
+
+
+# =========================================================
+# EMBEDDING FACTORY
+# =========================================================
+class EmbeddingFactory:
+    """Singleton embedder — loads once, reused across the agent."""
+    _instance: Any = None
+    _model: Any = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def get_model(self):
+        if self._model is not None:
+            return self._model
+        from src.config.settings import EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_DEVICE
+        if EMBEDDING_PROVIDER == "local":
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(EMBEDDING_MODEL, device=EMBEDDING_DEVICE)
+        elif EMBEDDING_PROVIDER == "openai":
+            raise NotImplementedError("OpenAI embeddings not yet implemented")
+        else:
+            raise ValueError(f"Unknown embedding provider: {EMBEDDING_PROVIDER}")
+        return self._model
+
+def get_embedder():
+    """Return the shared embedder instance."""
+    return EmbeddingFactory().get_model()
+

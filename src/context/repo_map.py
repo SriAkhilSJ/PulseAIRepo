@@ -139,8 +139,20 @@ class RepoMap:
 
             lines.append("")
 
+        # Add import graph at the end
+        graph = self._build_import_graph(files)
+        if graph:
+            lines.append("")
+            lines.append("=== IMPORT GRAPH ===")
+            for file_path, imports in sorted(graph.items())[:20]:
+                lines.append(f"{file_path} -> {', '.join(imports[:5])}")
+            if len(graph) > 20:
+                lines.append(f"... ({len(graph) - 20} more files) ...")
+
+        lines.append("")
         lines.append("=== END REPO MAP ===")
         return "\n".join(lines)
+
 
     def _collect_files(self) -> list[Path]:
         """Walk directory tree, collecting interesting files."""
@@ -202,38 +214,72 @@ class RepoMap:
         return f"{name} ({size_str})"
 
     def _extract_python_symbols(self, path: Path) -> str:
-        """
-        Extract top-level functions and classes from a Python file.
-        Uses regex for speed and robustness (works on broken syntax).
-        """
+        """Extract top-level symbols using AST (accurate, handles decorators/async)."""
+        import ast
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
+            tree = ast.parse(content)
         except Exception:
             return ""
 
-        # Find class definitions.
-        classes = re.findall(r"^class\s+(\w+)", content, re.MULTILINE)
+        classes = []
+        functions = []
+        imports = []
 
-        # Find function definitions (top-level only, not indented).
-        functions = re.findall(r"^def\s+(\w+)", content, re.MULTILINE)
-
-        # Skip private functions for brevity.
-        functions = [func for func in functions if not func.startswith("_")]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                classes.append(node.name)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.col_offset == 0 and not node.name.startswith("_"):
+                    functions.append(node.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module.split(".")[0])
 
         parts = []
         if classes:
-            class_text = f"classes: {', '.join(classes[:3])}"
+            ct = f"classes: {', '.join(classes[:3])}"
             if len(classes) > 3:
-                class_text += f" (+{len(classes) - 3})"
-            parts.append(class_text)
-
+                ct += f" (+{len(classes) - 3})"
+            parts.append(ct)
         if functions:
-            function_text = f"functions: {', '.join(functions[:3])}"
+            ft = f"functions: {', '.join(functions[:3])}"
             if len(functions) > 3:
-                function_text += f" (+{len(functions) - 3})"
-            parts.append(function_text)
+                ft += f" (+{len(functions) - 3})"
+            parts.append(ft)
+        if imports:
+            it = f"imports: {', '.join(imports[:3])}"
+            if len(imports) > 3:
+                it += f" (+{len(imports) - 3})"
+            parts.append(it)
 
         return " | ".join(parts)
+
+    def _build_import_graph(self, files: list[Path]) -> dict[str, list[str]]:
+        """Build a map of file -> modules it imports."""
+        import ast
+        graph: dict[str, list[str]] = {}
+        for f in files:
+            if f.suffix != ".py":
+                continue
+            try:
+                content = f.read_text(encoding="utf-8", errors="ignore")
+                tree = ast.parse(content)
+            except Exception:
+                continue
+            rel = str(f.relative_to(self.root))
+            imports = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.extend(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports.append(node.module.split(".")[0])
+            if imports:
+                graph[rel] = list(dict.fromkeys(imports))  # dedupe
+        return graph
+
 
     def _format_size(self, size: int) -> str:
         """Human-readable file size."""

@@ -442,6 +442,9 @@ def finalize_node(state: AgentState):
             plan=plan,
         )
 
+    context_engine.record_feedback(success=True, task=current_task)
+
+
     # Build a beautiful completion message
     lines = []
     task_display = current_task[:70] if current_task else "Task"

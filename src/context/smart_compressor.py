@@ -1,50 +1,55 @@
-
 """
-Smart Context Compressor for PulseCodeAI
-========================================
-Replaces naive message trimming with semantic importance scoring.
-Important messages (errors, user corrections, successful verifications)
-are preserved. Fluff (repeated tool outputs, redundant summaries) is dropped.
-
-What this changes:
-- The agent remembers critical failures and corrections
-- Old successful steps are summarized, not dropped entirely
-- Token budget is spent on what matters most
+Smart Context Compressor for PulseCodeAI v2
+============================================
+Replaces arbitrary heuristics with semantic relevance scoring.
 """
 from typing import Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 
+
 class SmartCompressor:
     """
-    Compresses conversation history by importance, not just age.
+    Compresses conversation history by semantic relevance to the task,
+    not just message type heuristics.
     """
+
     def __init__(self, model: str | None = None):
         self.model = model
+        self._embedder = None
+        try:
+            from src.llm.factory import get_embedder
+            self._embedder = get_embedder()
+        except Exception:
+            pass
 
     def compress(
         self,
         history: list[BaseMessage],
         budget: int,
         token_counter: Any,
+        task: str = "",
     ) -> list[BaseMessage]:
         """
         Compress history to fit within token budget.
-        Strategy: Score each message by importance, keep highest-scoring.
+        If task is provided, uses semantic similarity for scoring.
         """
         if not history:
             return []
 
-        # Score every message
+        task_emb = None
+        if self._embedder and task:
+            try:
+                task_emb = self._embedder.encode([task], normalize_embeddings=True).tolist()[0]
+            except Exception:
+                pass
+
         scored = []
         for i, msg in enumerate(history):
-            score = self._score_message(msg, i, len(history))
+            score = self._score_message(msg, i, len(history), task_emb)
             scored.append((score, i, msg))
 
-        # Sort by score descending
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        # Greedily add highest-scoring messages until budget is full
-        # But preserve chronological order in the final output
         selected = []
         current_tokens = 0
         for score, idx, msg in scored:
@@ -53,50 +58,53 @@ class SmartCompressor:
                 selected.append((idx, msg))
                 current_tokens += msg_tokens
 
-        # Sort back to chronological order
         selected.sort(key=lambda x: x[0])
         return [msg for _, msg in selected]
 
-    def _score_message(self, msg: BaseMessage, index: int, total: int) -> float:
-        """
-        Score a message by importance. Higher = more likely to keep.
-        """
+    def _score_message(
+        self, msg: BaseMessage, index: int, total: int, task_emb: list | None
+    ) -> float:
         score = 0.0
 
-        # Recency bonus (newer messages are more important)
+        # Recency (newer = more important)
         recency = index / max(total - 1, 1)
-        score += recency * 30
+        score += recency * 25
 
-        # Message type scoring
+        # Base type scores (reduced from v1 — embeddings do the heavy lifting)
         if isinstance(msg, HumanMessage):
-            score += 50  # User instructions are sacred
+            score += 40
         elif isinstance(msg, SystemMessage):
-            score += 40  # Context layers are important
+            score += 30
         elif isinstance(msg, AIMessage):
-            score += 25
-            # Tool calls in AI messages are important (show decisions)
+            score += 20
             if getattr(msg, "tool_calls", None):
-                score += 20
-            # Error admissions are very important
+                score += 15
             content = str(msg.content).lower()
             if any(w in content for w in ["error", "failed", "sorry", "mistake", "wrong"]):
-                score += 35
+                score += 25
         elif isinstance(msg, ToolMessage):
-            score += 15
+            score += 10
             content = str(msg.content).lower()
-            # Error outputs are critical to remember
             if any(w in content for w in ["error", "traceback", "failed", "exception"]):
-                score += 40
-            # Successful verifications are moderately important
+                score += 35
             if "verified" in content or "success" in content:
-                score += 20
-            # Think tool outputs are low importance (reasoning is ephemeral)
+                score += 15
             if getattr(msg, "name", "") == "think":
                 score -= 10
 
-        # Length penalty (very long messages are expensive, slightly deprioritize)
-        content_len = len(str(msg.content))
-        if content_len > 2000:
-            score -= 10
+            # SEMANTIC BOOST: tool outputs relevant to task are critical
+            if task_emb and self._embedder:
+                try:
+                    msg_emb = self._embedder.encode(
+                        [content[:500]], normalize_embeddings=True
+                    ).tolist()[0]
+                    sim = sum(a * b for a, b in zip(task_emb, msg_emb))
+                    score += sim * 50  # up to +50 for highly relevant output
+                except Exception:
+                    pass
+
+        # Length penalty
+        if len(str(msg.content)) > 2000:
+            score -= 8
 
         return max(score, 0)

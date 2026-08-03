@@ -16,7 +16,8 @@ This is the layer between the agent's graph and the raw VectorMemory.
 
 from typing import Any
 
-from src.context.vector_memory import VectorMemory, SimpleEmbedding
+from src.context.vector_memory import VectorMemory
+
 
 
 class MemoryManager:
@@ -132,6 +133,20 @@ class MemoryManager:
             text=f"USER PREFERENCE: {preference}",
             metadata={"type": "preference"}
         )
+
+    def store_tool_memory(self, tool_name: str, query: str, summary: str, full_output: str):
+        """Store a tool output for semantic retrieval later."""
+        text = f"TOOL {tool_name} | QUERY: {query} | SUMMARY: {summary}"
+        self.vector_memory.add(
+            text=text,
+            metadata={"type": "tool_memory", "tool": tool_name, "query": query, "summary": summary},
+        )
+
+    def retrieve_tool_memories(self, query: str, top_k: int = 3) -> list[dict]:
+        """Find past tool outputs semantically similar to the current task."""
+        results = self.vector_memory.search(query, top_k=top_k)
+        return [r for r in results if r.get("metadata", {}).get("type") == "tool_memory"]
+
 
     def retrieve_preferences(self, query: str = "preference", top_k: int = 5) -> list[str]:
         """

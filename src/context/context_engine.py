@@ -20,7 +20,14 @@ This prevents:
 - Lost information (important stuff is preserved)
 """
 
-from typing import Any
+import hashlib
+import json
+import os
+import re
+import time
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 from langchain_core.messages import (
     BaseMessage,
@@ -37,7 +44,108 @@ from src.context.repo_map import get_repo_map
 from src.config.settings import CONTEXT_MODEL
 
 
+class TaskType(Enum):
+    EXPLORE = "explore"
+    DEBUG = "debug"
+    CREATE = "create"
+    REFACTOR = "refactor"
+    TEST = "test"
+    EXPLAIN = "explain"
+    CHAT = "chat"
+    PLAN = "plan"
+    RECOVERY = "recovery"
+
+
+class TaskClassifier:
+    """
+    Classifies a raw user instruction into a TaskType.
+    Uses fast regex heuristics + optional embedding similarity.
+    """
+
+    HEURISTICS: dict[TaskType, list[str]] = {
+        TaskType.DEBUG: [r"bug|error|fail|traceback|exception|broken|crash|wrong"],
+        TaskType.CREATE: [r"create|add|implement|build|write|generate|new file"],
+        TaskType.TEST: [r"test|verify|pytest|unittest|assert|validate|check"],
+        TaskType.REFACTOR: [r"refactor|restructure|rename|extract|optimize|migrate"],
+        TaskType.EXPLORE: [r"find|locate|where is|show me|list|explore|structure"],
+        TaskType.EXPLAIN: [r"explain|how does|what does|document|describe|clarify"],
+        TaskType.RECOVERY: [r"recover|retry|try again|fix the failure|handle error"],
+    }
+
+    PROTOTYPES: dict[TaskType, list[str]] = {
+        TaskType.EXPLORE: ["explore the codebase", "find where", "show me the structure"],
+        TaskType.DEBUG: ["fix the bug", "debug this error", "why is this failing", "there is a bug", "fix this error", "why is this breaking"],
+        TaskType.CREATE: ["create a new feature", "add an endpoint", "implement this"],
+        TaskType.REFACTOR: ["refactor this", "restructure", "optimize performance"],
+        TaskType.TEST: ["run tests", "verify this works", "pytest"],
+        TaskType.EXPLAIN: ["explain this code", "how does this work", "document this"],
+        TaskType.CHAT: ["hello", "what can you do", "help"],
+        TaskType.RECOVERY: ["try again", "recover from failure", "fix the error"],
+    }
+
+    def __init__(self):
+        self._embedder = None
+        self._prototype_embs: dict[TaskType, list] = {}
+        try:
+            from src.llm.factory import get_embedder
+            self._embedder = get_embedder()
+            self._warm_up()
+        except Exception:
+            pass
+
+    def _warm_up(self) -> None:
+        for task_type, texts in self.PROTOTYPES.items():
+            self._prototype_embs[task_type] = self._embedder.encode(
+                texts, normalize_embeddings=True
+            ).tolist()
+
+    def classify(self, task: str) -> TaskType:
+        if not task or len(task.strip()) < 3:
+            return TaskType.CHAT
+
+        text = task.lower().strip()
+        scores: dict[TaskType, float] = {}
+
+        for task_type, patterns in self.HEURISTICS.items():
+            for pat in patterns:
+                if re.search(pat, text):
+                    scores[task_type] = scores.get(task_type, 0.0) + 1.0
+
+        if scores:
+            best = max(scores, key=scores.get)
+            # High-confidence regex hit (multiple patterns matched): skip embedder
+            if scores[best] >= 2.0:
+                return best
+            # Embedder available: use it to disambiguate lower-confidence hits
+            if self._embedder and self._prototype_embs:
+                return self._embedding_classify(text)
+            # No embedder: use best regex match if any signal exists
+            if scores[best] >= 1.0:
+                return best
+
+        if self._embedder and self._prototype_embs:
+            return self._embedding_classify(text)
+
+        return TaskType.CREATE if len(task) > 60 else TaskType.CHAT
+
+    def _embedding_classify(self, text: str) -> TaskType:
+        emb = self._embedder.encode([text], normalize_embeddings=True).tolist()[0]
+        best_type = TaskType.CHAT
+        best_score = -1.0
+        for task_type, proto_embs in self._prototype_embs.items():
+            max_sim = max(self._cosine_sim(emb, pe) for pe in proto_embs)
+            if max_sim > best_score:
+                best_score = max_sim
+                best_type = task_type
+        return best_type
+
+    @staticmethod
+    def _cosine_sim(a: list, b: list) -> float:
+        return sum(x * y for x, y in zip(a, b))
+
+
 class ContextEngine:
+
     """
     The Context Engine class.
 
@@ -74,131 +182,376 @@ class ContextEngine:
         # If None, the agent has no long-term memory (like before).
         self.memory_manager = memory_manager
 
+        # Differential-update cache
+        self._last_state_hash: Optional[str] = None
+        self._layer_cache: dict[str, Any] = {}
+        self._current_task: Optional[str] = None
+
+        # Feedback loop for learning layer weights
+        self._feedback_history: list[dict] = []
+        self._feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
+        self._load_feedback()
+
+
     # =========================================================
     # MAIN METHOD: Build messages for the AI node
     # =========================================================
+
+    def _hash_state(self, state: dict[str, Any]) -> str:
+        """Hash everything except messages (they change every turn)."""
+        keys = sorted(k for k in state.keys() if k != "messages")
+        payload = json.dumps({k: str(state.get(k)) for k in keys}, sort_keys=True)
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    def _allocate_budget(self, task_type: TaskType) -> tuple[int, int]:
+        """
+        Return (context_budget, history_budget) based on task type.
+        Ratios are tuned: debug needs history, explore needs context.
+        """
+        ratios = {
+            TaskType.EXPLORE:  (0.50, 0.50),
+            TaskType.DEBUG:    (0.35, 0.65),
+            TaskType.CREATE:   (0.45, 0.55),
+            TaskType.REFACTOR: (0.40, 0.60),
+            TaskType.TEST:     (0.30, 0.70),
+            TaskType.EXPLAIN:  (0.40, 0.60),
+            TaskType.CHAT:     (0.20, 0.80),
+            TaskType.PLAN:     (0.50, 0.50),
+            TaskType.RECOVERY: (0.35, 0.65),
+        }
+        ctx_ratio, hist_ratio = ratios.get(task_type, (0.40, 0.60))
+        ctx = int(self.max_tokens * ctx_ratio)
+        return ctx, self.max_tokens - ctx
+
+    # Relevance map: which layers matter for which task types
+    LAYER_RELEVANCE: dict[str, dict[TaskType, float]] = {
+        "repo_map": {
+            TaskType.EXPLORE: 1.0, TaskType.CREATE: 0.90, TaskType.REFACTOR: 0.95,
+            TaskType.DEBUG: 0.70, TaskType.TEST: 0.50, TaskType.EXPLAIN: 0.80,
+            TaskType.CHAT: 0.10, TaskType.PLAN: 0.90, TaskType.RECOVERY: 0.60,
+        },
+        "task": {t: 1.0 for t in TaskType},
+        "plan": {
+            TaskType.PLAN: 1.0, TaskType.CREATE: 0.90, TaskType.REFACTOR: 0.90,
+            TaskType.DEBUG: 0.80, TaskType.TEST: 0.80, TaskType.RECOVERY: 0.90,
+            TaskType.EXPLORE: 0.30, TaskType.EXPLAIN: 0.20, TaskType.CHAT: 0.0,
+        },
+        "progress": {
+            TaskType.DEBUG: 0.90, TaskType.RECOVERY: 0.90, TaskType.TEST: 0.80,
+            TaskType.CREATE: 0.60, TaskType.REFACTOR: 0.60, TaskType.PLAN: 0.50,
+            TaskType.EXPLORE: 0.20, TaskType.EXPLAIN: 0.10, TaskType.CHAT: 0.0,
+        },
+        "recovery": {
+            TaskType.RECOVERY: 1.0, TaskType.DEBUG: 0.90, TaskType.TEST: 0.50,
+            TaskType.CREATE: 0.30, TaskType.REFACTOR: 0.30, TaskType.PLAN: 0.20,
+            TaskType.EXPLORE: 0.0, TaskType.EXPLAIN: 0.0, TaskType.CHAT: 0.0,
+        },
+        "replan": {
+            TaskType.RECOVERY: 0.90, TaskType.DEBUG: 0.70, TaskType.PLAN: 0.80,
+            TaskType.CREATE: 0.50, TaskType.REFACTOR: 0.50, TaskType.TEST: 0.40,
+            TaskType.EXPLORE: 0.0, TaskType.EXPLAIN: 0.0, TaskType.CHAT: 0.0,
+        },
+        "attempt_history": {
+            TaskType.RECOVERY: 1.0, TaskType.DEBUG: 0.90, TaskType.TEST: 0.60,
+            TaskType.CREATE: 0.40, TaskType.REFACTOR: 0.40, TaskType.PLAN: 0.30,
+            TaskType.EXPLORE: 0.0, TaskType.EXPLAIN: 0.0, TaskType.CHAT: 0.0,
+        },
+        "long_term_memory": {
+            TaskType.CREATE: 0.80, TaskType.REFACTOR: 0.80, TaskType.DEBUG: 0.70,
+            TaskType.TEST: 0.60, TaskType.PLAN: 0.70, TaskType.RECOVERY: 0.60,
+            TaskType.EXPLORE: 0.30, TaskType.EXPLAIN: 0.40, TaskType.CHAT: 0.10,
+        },
+        "tool_memory": {
+            TaskType.DEBUG: 0.90, TaskType.RECOVERY: 0.90, TaskType.TEST: 0.70,
+            TaskType.CREATE: 0.60, TaskType.REFACTOR: 0.60, TaskType.PLAN: 0.40,
+            TaskType.EXPLORE: 0.40, TaskType.EXPLAIN: 0.30, TaskType.CHAT: 0.0,
+        },
+        "ambiguity": {
+            TaskType.CREATE: 0.80, TaskType.REFACTOR: 0.80, TaskType.DEBUG: 0.60,
+            TaskType.PLAN: 0.90, TaskType.TEST: 0.50, TaskType.RECOVERY: 0.40,
+            TaskType.EXPLORE: 0.30, TaskType.EXPLAIN: 0.20, TaskType.CHAT: 0.0,
+        },
+        "tone": {t: 0.30 for t in TaskType},
+        "quality": {t: 0.50 for t in TaskType},
+        "conventions": {
+            TaskType.CREATE: 0.90, TaskType.REFACTOR: 0.90, TaskType.TEST: 0.70,
+            TaskType.DEBUG: 0.50, TaskType.PLAN: 0.60, TaskType.RECOVERY: 0.30,
+            TaskType.EXPLORE: 0.20, TaskType.EXPLAIN: 0.30, TaskType.CHAT: 0.0,
+        },
+        "memory_validation": {
+            TaskType.CREATE: 0.60, TaskType.REFACTOR: 0.60, TaskType.DEBUG: 0.70,
+            TaskType.RECOVERY: 0.80, TaskType.TEST: 0.50, TaskType.PLAN: 0.50,
+            TaskType.EXPLORE: 0.20, TaskType.EXPLAIN: 0.20, TaskType.CHAT: 0.0,
+        },
+        "reflections": {
+            TaskType.DEBUG: 0.80, TaskType.RECOVERY: 0.90, TaskType.TEST: 0.60,
+            TaskType.CREATE: 0.50, TaskType.REFACTOR: 0.50, TaskType.PLAN: 0.40,
+            TaskType.EXPLORE: 0.20, TaskType.EXPLAIN: 0.20, TaskType.CHAT: 0.10,
+        },
+        "skills": {
+            TaskType.CREATE: 0.80, TaskType.REFACTOR: 0.80, TaskType.TEST: 0.70,
+            TaskType.DEBUG: 0.60, TaskType.PLAN: 0.60, TaskType.RECOVERY: 0.40,
+            TaskType.EXPLORE: 0.30, TaskType.EXPLAIN: 0.30, TaskType.CHAT: 0.10,
+        },
+    }
 
     def build_ai_messages(
         self,
         state: dict[str, Any],
         system_message: SystemMessage,
     ) -> list[BaseMessage]:
-        """
-        Build the complete message list for the main AI node.
+        """Adaptive, hierarchical, deduplicated context assembly."""
 
-        This replaces the giant manual string-building in ai_node.
-        """
-        # Step 1: Build our organized context layers
-        context_messages = self._build_context_layers(state)
+        # 1. Classify task
+        task = state.get("current_task", "")
+        self._current_task = task
+        task_type = TaskClassifier().classify(task)
 
-        # Step 2: Get the raw conversation history
+        # 2. Differential state check
+        current_hash = self._hash_state(state)
+        rebuild_all = current_hash != self._last_state_hash
+
+        # 3. Build layers (task-aware + differential cache)
+        if rebuild_all:
+            self._layer_cache.clear()
+        raw_layers = self._build_context_layers(state, task_type)
+
+        # 4. Score relevance
+        scored = self._score_and_sort_layers(raw_layers, task, task_type)
+
+        # 5. Deduplicate
+        scored = self._deduplicate_layers(scored)
+
+        # 6. Dynamic budget
+        context_budget, history_budget = self._allocate_budget(task_type)
+
+        # 7. Hierarchical assembly: fit highest-relevance layers first
+        context_messages = self._assemble_hierarchical(scored, context_budget)
+
+        # 8. Smart history
         raw_history = list(state.get("messages", []))
-
-        # Step 2.5: SUMMARIZE long tool outputs before the AI sees them
-        # This prevents giant file reads / terminal dumps from filling the context
         raw_history = self._summarize_tool_messages(raw_history)
+        trimmed_history = self._trim_history(raw_history, history_budget)
 
-        # Step 3: Trim history to fit our budget
-        # We always keep system_message first
-        available_for_history = self.history_budget
-
-        # Count how many tokens our context uses
-        context_token_count = count_tokens(context_messages, self.model)
-
-        # If context is using more than expected, steal from history budget
-        if context_token_count > self.context_budget:
-            available_for_history = self.max_tokens - context_token_count
-
-        # Trim the history
-        trimmed_history = self._trim_history(raw_history, available_for_history)
-
-        # Step 4: Assemble final message list
-        # Order matters! System first, then context, then history
+        # 9. Assemble final
         final_messages = [system_message] + context_messages + trimmed_history
+
+        # 10. Cache for next turn
+        self._last_state_hash = current_hash
 
         return final_messages
 
-    # =========================================================
-    # CONTEXT LAYERS (This is the magic)
-    # =========================================================
-
-    def _build_context_layers(self, state: dict[str, Any]) -> list[BaseMessage]:
-        """
-        Build organized layers of context.
-
-        Instead of one giant text blob, we create separate messages.
-        This helps the AI understand the structure better.
-        """
+    def _build_context_layers(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
+        """Build organized layers, but skip irrelevant ones for this task type."""
         layers = []
+        builders = {
+            "repo_map": self._repo_map_layer,
+            "task": self._task_layer,
+            "plan": self._plan_layer,
+            "progress": self._progress_layer,
+            "recovery": self._recovery_layer,
+            "replan": self._replan_layer,
+            "attempt_history": self._attempt_history_layer,
+            "long_term_memory": self._long_term_memory_layer,
+            "tool_memory": self._tool_memory_layer,
+            "ambiguity": self._ambiguity_layer,
+            "tone": self._tone_layer,
+            "quality": self._quality_layer,
+            "conventions": self._convention_layer,
+            "memory_validation": self._memory_validation_layer,
+            "reflections": self._reflection_layer,
+            "skills": self._skills_layer,
+        }
 
-        # ---- LAYER 0: Repo Map (codebase structure) ----
-        repo_map_msg = self._repo_map_layer(state)
-        if repo_map_msg:
-            layers.append(repo_map_msg)
+        for name, builder in builders.items():
+            relevance_map = self.LAYER_RELEVANCE.get(name, {})
+            score = relevance_map.get(task_type, 0.0)
+            if score < 0.15:
+                continue  # Skip low-value layers entirely
 
-        # ---- LAYER 1: What is the current task? ----
-        layers.append(self._task_layer(state))
+            # Differential check: reuse cached layer if state deps haven't changed
+            cached = self._layer_cache.get(name)
+            if cached and self._last_state_hash == self._hash_state(state):
+                layers.append(cached)
+                continue
 
-        # ---- LAYER 2: What is our current plan? ----
-        layers.append(self._plan_layer(state))
-
-        # ---- LAYER 3: What have we accomplished? ----
-        layers.append(self._progress_layer(state))
-
-        # ---- LAYER 4: Are we in recovery mode? ----
-        recovery_msg = self._recovery_layer(state)
-        if recovery_msg:
-            layers.append(recovery_msg)
-
-        # ---- LAYER 5: Have we replanned? ----
-        replan_msg = self._replan_layer(state)
-        if replan_msg:
-            layers.append(replan_msg)
-
-        # ---- LAYER 6: Past attempts summary (current task only) ----
-        history_msg = self._attempt_history_layer(state)
-        if history_msg:
-            layers.append(history_msg)
-
-        # ---- LAYER 7: Long-term memory (cross-task learning) ----
-        memory_msg = self._long_term_memory_layer(state)
-        if memory_msg:
-            layers.append(memory_msg)
-
-        # ---- LAYER 8: Ambiguity detection ----
-        ambiguity_msg = self._ambiguity_layer(state)
-        if ambiguity_msg:
-            layers.append(ambiguity_msg)
-
-        # ---- LAYER 9: Tone adaptation ----
-        tone_msg = self._tone_layer(state)
-        if tone_msg:
-            layers.append(tone_msg)
-
-        # ---- LAYER 10: Quality standards reminder ----
-        layers.append(self._quality_layer())
-
-        # ---- LAYER 11: Project conventions ----
-        convention_msg = self._convention_layer(state)
-        if convention_msg:
-            layers.append(convention_msg)
-
-        # ---- LAYER 12: Memory validation ----
-        validation_msg = self._memory_validation_layer(state)
-        if validation_msg:
-            layers.append(validation_msg)
-
-        # ---- LAYER 13: Past reflections & lessons ----
-        reflection_msg = self._reflection_layer(state)
-        if reflection_msg:
-            layers.append(reflection_msg)
-
-        # ---- LAYER 14: User-defined skills ----
-        skills_msg = self._skills_layer(state)
-        if skills_msg:
-            layers.append(skills_msg)
+            try:
+                msg = builder(state)
+                if msg:
+                    layers.append(msg)
+                    self._layer_cache[name] = msg
+            except Exception:
+                continue
 
         return layers
+
+    def _score_and_sort_layers(
+        self, layers: list[SystemMessage], task: str, task_type: TaskType
+    ) -> list[tuple[float, SystemMessage, int]]:
+        """
+        Score each layer by: 60% task-type prior + 30% semantic similarity + 10% recency.
+        Returns list of (score, message, tokens) sorted by score descending.
+        """
+        scored = []
+        try:
+            from src.llm.factory import get_embedder
+            embedder = get_embedder()
+            task_emb = embedder.encode([task], normalize_embeddings=True).tolist()[0]
+        except Exception:
+            # Fallback: just use task-type relevance and recency
+            for i, msg in enumerate(layers):
+                name = self._infer_layer_name(msg)
+                rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
+                recency = i / max(len(layers) - 1, 1)
+                score = rel * 0.9 + recency * 0.1
+                scored.append((score, msg, count_tokens([msg], self.model)))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return scored
+
+        for i, msg in enumerate(layers):
+            name = self._infer_layer_name(msg)
+            base_rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
+
+            content_emb = embedder.encode([msg.content], normalize_embeddings=True).tolist()[0]
+            semantic_sim = sum(a * b for a, b in zip(task_emb, content_emb))
+
+            recency = i / max(len(layers) - 1, 1)
+            score = base_rel * 0.60 + semantic_sim * 0.30 + recency * 0.10
+            scored.append((score, msg, count_tokens([msg], self.model)))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
+    def _infer_layer_name(self, msg: SystemMessage) -> str:
+        """Infer which layer this message belongs to for relevance lookup."""
+        content = msg.content
+        if content.startswith("=== CODEBASE STRUCTURE"):
+            return "repo_map"
+        if content.startswith("=== CURRENT TASK"):
+            return "task"
+        if content.startswith("=== PLAN"):
+            return "plan"
+        if content.startswith("=== PROGRESS"):
+            return "progress"
+        if content.startswith("=== RECOVERY"):
+            return "recovery"
+        if content.startswith("=== REPLAN"):
+            return "replan"
+        if content.startswith("=== PAST ATTEMPTS"):
+            return "attempt_history"
+        if content.startswith("=== LONG-TERM MEMORY"):
+            return "long_term_memory"
+        if content.startswith("=== RELEVANT PAST TOOL OUTPUTS"):
+            return "tool_memory"
+        if content.startswith("=== AMBIGUITY"):
+            return "ambiguity"
+        if content.startswith("=== TONE"):
+            return "tone"
+        if content.startswith("=== QUALITY"):
+            return "quality"
+        if content.startswith("=== PROJECT CONVENTIONS"):
+            return "conventions"
+        if content.startswith("=== MEMORY STALENESS"):
+            return "memory_validation"
+        if content.startswith("=== LESSONS FROM PAST"):
+            return "reflections"
+        if content.startswith("=== ACTIVE SKILLS"):
+            return "skills"
+        return "unknown"
+
+    def _deduplicate_layers(
+        self, scored_layers: list[tuple[float, SystemMessage, int]]
+    ) -> list[tuple[float, SystemMessage, int]]:
+        """Remove layers that are semantically identical to a higher-scored layer."""
+        if len(scored_layers) < 2:
+            return scored_layers
+
+        try:
+            from src.llm.factory import get_embedder
+            embedder = get_embedder()
+            texts = [msg.content for _, msg, _ in scored_layers]
+            embs = embedder.encode(texts, normalize_embeddings=True).tolist()
+        except Exception:
+            return scored_layers
+
+        to_remove = set()
+        for i in range(len(scored_layers)):
+            if i in to_remove:
+                continue
+            for j in range(i + 1, len(scored_layers)):
+                if j in to_remove:
+                    continue
+                sim = sum(a * b for a, b in zip(embs[i], embs[j]))
+                if sim > 0.88:  # Near-duplicate threshold
+                    # Keep the higher-scored one
+                    if scored_layers[i][0] >= scored_layers[j][0]:
+                        to_remove.add(j)
+                    else:
+                        to_remove.add(i)
+                        break
+
+        return [layer for idx, layer in enumerate(scored_layers) if idx not in to_remove]
+
+    def _assemble_hierarchical(
+        self,
+        scored_layers: list[tuple[float, SystemMessage, int]],
+        budget: int,
+    ) -> list[SystemMessage]:
+        """
+        Fit as many high-relevance layers as possible.
+        If a layer is too expensive, try to compress it (summary/truncation).
+        """
+        if not scored_layers:
+            return []
+
+        total = sum(tokens for _, _, tokens in scored_layers)
+        if total <= budget:
+            return [msg for _, msg, _ in scored_layers]
+
+        result = []
+        remaining = budget
+
+        for score, msg, tokens in scored_layers:
+            if tokens <= remaining:
+                result.append(msg)
+                remaining -= tokens
+                continue
+
+            # Layer too big — try to compress
+            compressed = self._compress_layer(msg, remaining)
+            if compressed:
+                result.append(compressed)
+                remaining -= count_tokens([compressed], self.model)
+
+        return result
+
+    def _compress_layer(self, msg: SystemMessage, max_tokens: int) -> Optional[SystemMessage]:
+        """Compress a single layer to fit a token budget."""
+        content = msg.content
+
+        # Repo map compression: strip symbol details
+        if content.startswith("=== CODEBASE STRUCTURE"):
+            lines = content.split("\n")
+            compressed = []
+            for line in lines:
+                if " -> " in line:
+                    compressed.append(line.split(" -> ")[0])
+                else:
+                    compressed.append(line)
+            candidate = SystemMessage(content="\n".join(compressed))
+            if count_tokens([candidate], self.model) <= max_tokens:
+                return candidate
+
+        # Generic truncation
+        max_chars = int(max_tokens * 3.5)  # rough chars-per-token
+        if len(content) > max_chars:
+            truncated = content[:max_chars] + "\n... (truncated) ..."
+            candidate = SystemMessage(content=truncated)
+            if count_tokens([candidate], self.model) <= max_tokens:
+                return candidate
+
+        return None
+
 
     def _reflection_layer(self, state: dict[str, Any]) -> SystemMessage | None:
         """Layer 13: Inject lessons learned from past reflections."""
@@ -510,55 +863,152 @@ class ContextEngine:
 
         return SystemMessage(content="\n".join(lines))
 
-    def _ambiguity_layer(self, state: dict[str, Any]) -> SystemMessage | None:
-        """
-        Layer 8: Detect vague tasks and warn the agent to ask for clarification.
-        """
+    def _ambiguity_layer(self, state: dict[str, Any]) -> Optional[SystemMessage]:
         task = state.get("current_task", "")
         if not task:
             return None
+        return self._detect_ambiguity_advanced(task)
 
-        vague_signals = [
+    def _detect_ambiguity_advanced(self, task: str) -> Optional[SystemMessage]:
+        ambiguous = [
             "fix it", "make it better", "improve", "update", "refactor",
             "optimize", "clean up", "debug", "solve", "handle this",
-            "do it", "change it", "check it", "look at it",
         ]
-
-        specific_signals = [
+        specific = [
             "file", "function", "class", "method", "module",
-            "create", "add ", "delete", "rename", "move ",
-            "test", "bug", "error", "line ", "import ",
-            "path", "directory", "folder", "install",
+            "create", "add", "delete", "rename", "move",
+            "test", "bug", "error", "line", "import", "path",
         ]
 
-        has_vague = any(v in task.lower() for v in vague_signals)
-        has_specific = any(s in task.lower() for s in specific_signals)
+        try:
+            from src.llm.factory import get_embedder
+            embedder = get_embedder()
+            task_emb = embedder.encode([task], normalize_embeddings=True).tolist()[0]
+            amb_embs = embedder.encode(ambiguous, normalize_embeddings=True).tolist()
+            spec_embs = embedder.encode(specific, normalize_embeddings=True).tolist()
 
-        if not has_vague or has_specific:
+            amb_sim = max(sum(a * b for a, b in zip(task_emb, e)) for e in amb_embs)
+            spec_sim = max(sum(a * b for a, b in zip(task_emb, e)) for e in spec_embs)
+
+            if amb_sim > 0.55 and spec_sim < 0.50:
+                return SystemMessage(content=(
+                    "=== AMBIGUITY ALERT ===\n"
+                    "The current task appears vague or underspecified.\n\n"
+                    "Before acting, the agent should consider:\n"
+                    "- Which specific file, function, or module needs attention?\n"
+                    "- What does 'better' or 'fixed' mean in this context?\n"
+                    "- Are there tests, examples, or docs that clarify the goal?\n\n"
+                    "If the task remains unclear after checking available context, "
+                    "use ask_user() to get clarification rather than making assumptions."
+                ))
+            return None
+        except Exception:
+            # Fallback to original heuristic if embedder fails
+            return self._detect_ambiguity_fallback(task)
+
+    def _detect_ambiguity_fallback(self, task: str) -> Optional[SystemMessage]:
+        vague = ["fix it", "make it better", "improve", "update", "refactor",
+                 "optimize", "clean up", "debug", "solve", "handle this",
+                 "do it", "change it", "check it", "look at it"]
+        specific = ["file", "function", "class", "method", "module",
+                    "create", "add ", "delete", "rename", "move ",
+                    "test", "bug", "error", "line ", "import ",
+                    "path", "directory", "folder", "install"]
+        has_vague = any(v in task.lower() for v in vague)
+        has_specific = any(s in task.lower() for s in specific)
+        if has_vague and not has_specific:
+            return SystemMessage(content=(
+                "=== AMBIGUITY ALERT ===\n"
+                "The current task appears vague or underspecified. "
+                "Consider clarifying before acting."
+            ))
+        return None
+
+    def _tool_memory_layer(self, state: dict[str, Any]) -> Optional[SystemMessage]:
+        """
+        Retrieve semantically relevant past tool outputs.
+        Requires memory_manager to have retrieve_tool_memories() method.
+        """
+        if not self.memory_manager or not hasattr(self.memory_manager, "retrieve_tool_memories"):
             return None
 
-        return SystemMessage(content=(
-            "=== AMBIGUITY ALERT ===\n"
-            "The current task appears vague or underspecified.\n\n"
-            "Before acting, the agent should consider:\n"
-            "- Which specific file, function, or module needs attention?\n"
-            "- What does 'better' or 'fixed' mean in this context?\n"
-            "- Are there tests, examples, or docs that clarify the goal?\n\n"
-            "If the task remains unclear after checking available context, "
-            "use ask_user() to get clarification rather than making assumptions."
-        ))
-
-    def _tone_layer(self, state: dict[str, Any]) -> SystemMessage | None:
-        """Layer 9: Adapt tone based on task complexity."""
-        from src.context.tone_adapter import ToneAdapter
-
-        task = state.get("current_task", "")
-        if not task:
+        query = state.get("current_task", "")
+        if not query:
             return None
 
-        adapter = ToneAdapter()
-        guidelines = adapter.get_tone_guidelines(task)
-        return SystemMessage(content=guidelines)
+        try:
+            tool_memories = self.memory_manager.retrieve_tool_memories(query, top_k=2)
+        except Exception:
+            return None
+
+        if not tool_memories:
+            return None
+
+        lines = ["=== RELEVANT PAST TOOL OUTPUTS ===", "Previous tool results that may help:\n"]
+        for mem in tool_memories:
+            tool_name = mem.get("tool", "unknown")
+            summary = mem.get("summary", "")[:180]
+            lines.append(f"- {tool_name}: {summary}")
+        return SystemMessage(content="\n".join(lines))
+
+    def record_feedback(self, success: bool, task: Optional[str] = None) -> None:
+        """Call after task completion to learn which layers worked."""
+        # Build profile of what was sent this turn
+        profile = {
+            "timestamp": time.time(),
+            "task": task or "",
+            "success": success,
+            "layers_used": list(self._layer_cache.keys()),
+        }
+        self._feedback_history.append(profile)
+        if len(self._feedback_history) > 300:
+            self._feedback_history = self._feedback_history[-150:]
+        self._apply_learned_weights()
+        self._save_feedback()
+
+    def _load_feedback(self) -> None:
+        if os.path.exists(self._feedback_path):
+            try:
+                with open(self._feedback_path, "r", encoding="utf-8") as f:
+                    self._feedback_history = json.load(f)
+            except Exception:
+                pass
+
+    def _save_feedback(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self._feedback_path), exist_ok=True)
+            with open(self._feedback_path, "w", encoding="utf-8") as f:
+                json.dump(self._feedback_history, f)
+        except Exception:
+            pass
+
+    def _apply_learned_weights(self) -> None:
+        """Adjust LAYER_RELEVANCE based on historical success/failure."""
+        if len(self._feedback_history) < 10:
+            return
+
+        from collections import defaultdict
+        layer_stats: dict[str, dict] = defaultdict(lambda: {"success": 0, "failure": 0})
+
+        for record in self._feedback_history:
+            if record.get("success") is None:
+                continue
+            for layer_name in record.get("layers_used", []):
+                key = "success" if record["success"] else "failure"
+                layer_stats[layer_name][key] += 1
+
+        for layer_name, stats in layer_stats.items():
+            total = stats["success"] + stats["failure"]
+            if total < 5:
+                continue
+            success_rate = stats["success"] / total
+            # Boost layers with >70% success, demote <40%
+            for task_type in TaskType:
+                current = self.LAYER_RELEVANCE.get(layer_name, {}).get(task_type, 0.5)
+                if success_rate > 0.70:
+                    self.LAYER_RELEVANCE[layer_name][task_type] = min(1.0, current * 1.03)
+                elif success_rate < 0.40:
+                    self.LAYER_RELEVANCE[layer_name][task_type] = max(0.0, current * 0.97)
 
     # =========================================================
     # HISTORY TRIMMING
@@ -592,29 +1042,23 @@ class ContextEngine:
         history: list[BaseMessage],
         budget: int,
     ) -> list[BaseMessage]:
-        """
-        Trim conversation history to fit budget using smart compression.
-        Strategy: Score messages by importance and keep the most valuable ones.
-        Errors, user corrections, and recent decisions are preserved.
-        Fluff and old successful steps are summarized or dropped.
-        """
         if not history:
             return []
 
-        # Use smart compressor for semantic importance-based trimming
         from src.context.smart_compressor import SmartCompressor
         compressor = SmartCompressor(model=self.model)
         compressed = compressor.compress(
             history,
             budget=budget,
             token_counter=lambda msgs, model: count_tokens(msgs, model),
+            task=self._current_task or "",
         )
 
-        # If we still couldn't fit everything, fall back to simple trim
         if count_tokens(compressed, self.model) > budget:
             return trim_messages_to_budget(history, budget, self.model)
 
         return compressed
+
 
     def _compress_history(
         self,
