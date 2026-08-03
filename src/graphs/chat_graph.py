@@ -887,6 +887,37 @@ def progress_node(
         execution_trace.append(trace_entry)
 
         # ------------------------------------------
+        # Store tool output for semantic retrieval
+        # (feeds the "RELEVANT PAST TOOL OUTPUTS" layer)
+        # ------------------------------------------
+        if result.strip() and tool_name != "think":
+            try:
+                # Anchor the memory with the tool's target so later tasks
+                # mentioning the same file/command/query can retrieve it.
+                anchor = ""
+                for key in ("path", "command", "query", "process_id"):
+                    val = tool_args.get(key)
+                    if val:
+                        anchor = f"{key}={val}"
+                        break
+
+                # Failures: the error lives at the tail of the output.
+                # Successes: the useful content starts at the head.
+                if failed:
+                    summary = result[-300:].replace("\n", " ")
+                else:
+                    summary = result[:300].replace("\n", " ")
+
+                memory_manager.store_tool_memory(
+                    tool_name=tool_name,
+                    query=state.get("current_task", ""),
+                    summary=f"{'FAILED' if failed else 'OK'} {anchor} | {summary}",
+                    full_output=result[:2000],
+                )
+            except Exception:
+                pass  # Tool memory is best-effort; never block execution
+
+        # ------------------------------------------
         # Record failure
         # ------------------------------------------
 
