@@ -83,7 +83,7 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 
 ### Verified caveats (read before believing the hype)
 
-1. **Feedback is one-sided.** `record_feedback(success=True)` is hardcoded in `finalize_node` — failures are never recorded, so weight learning only sees wins. It drifts ±3% per task and needs 10+ records to matter. It is a scaffold, not real learning.
+1. **Feedback is coarse, not attributed.** Success/failure is recorded from `finalize_node`, `recovery_limit_node`, and `replan_node`. The loop shifts layer weights ±3%, but `record_feedback` snapshots the live layer cache, which is empty outside `build_ai_messages` — so it can't yet attribute an outcome to *which* layers matter. It learns that failure happened, not why. (Verified working; the attribution gap is next.)
 2. **Embedder cold-start is heavy.** First load takes ~30s and downloads ~100MB (`all-MiniLM-L6-v2`, CPU). If it fails, classifier, compressor, and dedup all fall back to heuristics — which is by design, but the semantic features silently downgrade.
 3. **Import graph is a hint, not a graph.** 20 files × 5 imports, top-level modules only — no transitive deps, no call sites.
 4. **No chunk-level retrieval.** Context is assembled at layer granularity (whole repo map, whole memory blocks), not code-chunk granularity.
@@ -229,7 +229,8 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 - [x] AST repo map + import graph
 - [x] Tool-memory writer (semantic store of past tool outputs)
 - [x] Persistent vector memory (SQLite, ~/.pulseai/vector_memory.db)
-- [ ] Record failure feedback, not just success
+- [x] Failure feedback wired (recovery-limit, replan give-up, finalize)
+- [ ] Layer attribution of feedback (record which layers were sent per task)
 - [ ] Chunk-level code retrieval with BM25 + vector hybrid index
 - [ ] Per-session cost reports in PDF format
 /usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy

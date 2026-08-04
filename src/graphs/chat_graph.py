@@ -442,7 +442,16 @@ def finalize_node(state: AgentState):
             plan=plan,
         )
 
-    context_engine.record_feedback(success=True, task=current_task)
+    # Feedback loop: record FAILURE if the task ended with failed steps,
+    # otherwise success. (Previously success was recorded unconditionally,
+    # so the learning loop only ever saw wins.)
+    try:
+        if state.get("failed_steps"):
+            context_engine.record_feedback(success=False, task=current_task)
+        else:
+            context_engine.record_feedback(success=True, task=current_task)
+    except Exception:
+        pass  # Feedback is best-effort; never block finalization
 
 
     # Build a beautiful completion message
@@ -1147,6 +1156,14 @@ def after_progress(state: AgentState) -> str:
 
 def recovery_limit_node(state: AgentState):
     failed_steps = state.get("failed_steps", [])
+
+    # Record failure feedback: recovery was exhausted — the layer combination
+    # used for this task correlated with failure.
+    try:
+        context_engine.record_feedback(success=False, task=state.get("current_task", ""))
+    except Exception:
+        pass  # Feedback is best-effort; never block the graph
+
     if failed_steps:
         latest_failure = failed_steps[-1]
     else:
@@ -1398,6 +1415,12 @@ def replanner_node(
     replan_count = state.get("replan_count", 0)
 
     if replan_count >= 2:
+        # Give-up: plan was unrecoverable even after 2 replans.
+        # Record failure feedback so the learning loop sees negative samples.
+        try:
+            context_engine.record_feedback(success=False, task=state.get("current_task", ""))
+        except Exception:
+            pass  # Feedback is best-effort; never block the graph
         return {
             "replan_needed": False,
         }
