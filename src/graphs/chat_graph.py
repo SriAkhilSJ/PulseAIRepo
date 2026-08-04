@@ -1521,6 +1521,14 @@ class SafeToolNode:
     def __init__(self, tools, safety_guard: SafetyGuard):
         self._node = ToolNode(tools)
         self._guard = safety_guard
+        # SafetyGuards are stateless except for their workspace, so keep one
+        # per distinct workspace instead of rebuilding on every tool call.
+        # NOTE: keyed by workspace — the injected guard is bound to the
+        # import-time cwd, which may differ from the per-session workspace
+        # passed via config["configurable"]["workspace"].
+        self._guards_by_workspace: dict[str, SafetyGuard] = {
+            str(safety_guard.workspace): safety_guard
+        }
 
     def __call__(self, state, config=None):
         # Check the last AI message for tool calls
@@ -1538,7 +1546,12 @@ class SafeToolNode:
         if config and "configurable" in config:
             workspace = config["configurable"].get("workspace", ".")
 
-        guard = SafetyGuard(workspace)
+        from pathlib import Path
+        ws_key = str(Path(workspace).resolve())
+        guard = self._guards_by_workspace.get(ws_key)
+        if guard is None:
+            guard = SafetyGuard(workspace)
+            self._guards_by_workspace[ws_key] = guard
 
         for tc in tool_calls:
             tool_name = tc.get("name", "")

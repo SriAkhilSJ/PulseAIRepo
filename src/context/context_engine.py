@@ -187,6 +187,21 @@ class ContextEngine:
         self._layer_cache: dict[str, Any] = {}
         self._current_task: Optional[str] = None
 
+        # Layer names actually SENT in the most recent build (post-scoring,
+        # post-dedup, post-budget). Used by record_feedback() for true
+        # attribution instead of snapshotting the session-wide layer cache.
+        self._last_layers_sent: list[str] = []
+
+        # Per-instance copy: _apply_learned_weights() mutates these weights,
+        # and the class-level dict would otherwise leak learned drift across
+        # ALL engine instances in the process (dashboard sessions, threads).
+        import copy
+        self.LAYER_RELEVANCE = copy.deepcopy(type(self).LAYER_RELEVANCE)
+
+        # Task classification is read-only after warm-up; reuse one instance
+        # instead of re-encoding ~25 prototype embeddings on every turn.
+        self._classifier: Optional[TaskClassifier] = None
+
         # Feedback loop for learning layer weights
         self._feedback_history: list[dict] = []
         self._feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
@@ -305,7 +320,9 @@ class ContextEngine:
         # 1. Classify task
         task = state.get("current_task", "")
         self._current_task = task
-        task_type = TaskClassifier().classify(task)
+        if self._classifier is None:
+            self._classifier = TaskClassifier()
+        task_type = self._classifier.classify(task)
 
         # 2. Differential state check
         current_hash = self._hash_state(state)
@@ -327,6 +344,13 @@ class ContextEngine:
 
         # 7. Hierarchical assembly: fit highest-relevance layers first
         context_messages = self._assemble_hierarchical(scored, context_budget)
+
+        # 7b. Snapshot the names of layers actually SENT (after scoring,
+        # dedup, and budget fit) so record_feedback() can attribute outcomes
+        # to the real composition — not the session-wide layer cache.
+        self._last_layers_sent = [
+            self._infer_layer_name(m) for m in context_messages
+        ]
 
         # 8. Smart history
         raw_history = list(state.get("messages", []))
@@ -363,6 +387,10 @@ class ContextEngine:
             "skills": self._skills_layer,
         }
 
+        # Compute the state hash ONCE for the whole build. (Previously this
+        # ran json.dumps + sha256 up to 15x per turn on cache-hit paths.)
+        current_hash = self._hash_state(state)
+
         for name, builder in builders.items():
             relevance_map = self.LAYER_RELEVANCE.get(name, {})
             score = relevance_map.get(task_type, 0.0)
@@ -371,7 +399,7 @@ class ContextEngine:
 
             # Differential check: reuse cached layer if state deps haven't changed
             cached = self._layer_cache.get(name)
-            if cached and self._last_state_hash == self._hash_state(state):
+            if cached and self._last_state_hash == current_hash:
                 layers.append(cached)
                 continue
 
@@ -958,7 +986,9 @@ class ContextEngine:
             "timestamp": time.time(),
             "task": task or "",
             "success": success,
-            "layers_used": list(self._layer_cache.keys()),
+            # Attribute to the layers actually sent in the final build;
+            # fall back to the cache only if no build ran this session.
+            "layers_used": self._last_layers_sent or list(self._layer_cache.keys()),
         }
         self._feedback_history.append(profile)
         if len(self._feedback_history) > 300:
