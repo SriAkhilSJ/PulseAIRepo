@@ -45,6 +45,11 @@ CONTEXT_MODEL: str = os.getenv(
     LLM_MODEL,
 )
 
+# Provider input safety limit (tokens). Trim messages before sending if over.
+# OmniRouter's auto-combo tier 503s on oversized requests; keep the payload
+# under this cap so the pre-send guard can avoid the rejection.
+PROVIDER_SAFE_LIMIT: int = int(os.getenv("PROVIDER_SAFE_LIMIT", "6000"))
+
 # =========================================================
 # EMBEDDING (for semantic context, dedup, memory, and scoring)
 # =========================================================

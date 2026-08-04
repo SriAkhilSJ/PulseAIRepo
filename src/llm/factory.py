@@ -24,7 +24,42 @@ class RetryLLMProxy:
         self._max_attempts = max_attempts
 
     def invoke(self, *args, **kwargs):
+        """
+        Invoke with retry logic AND a pre-send token guard.
+        If messages exceed the provider's safe limit, trim from the middle
+        (preserve system + recent history) before sending.
+        """
         last_error = None
+
+        # ------------------------------------------------------------------
+        # PRE-SEND TOKEN GUARD (503 mitigation)
+        # Guard ONLY the messages arg — never any other positional arg.
+        # ------------------------------------------------------------------
+        messages_arg = None
+        if args:
+            messages_arg = args[0]
+        elif "messages" in kwargs:
+            messages_arg = kwargs["messages"]
+
+        if isinstance(messages_arg, list):
+            try:
+                from src.config.settings import PROVIDER_SAFE_LIMIT
+                from src.context.token_budget import count_tokens
+                total_tokens = count_tokens(messages_arg, self.model)
+            except Exception:
+                total_tokens = 0
+                PROVIDER_SAFE_LIMIT = 0
+
+            if total_tokens > PROVIDER_SAFE_LIMIT:
+                trimmed = self._trim_to_limit(messages_arg, PROVIDER_SAFE_LIMIT)
+                print(
+                    f"[RetryLLMProxy] Trimmed {total_tokens} -> ~{PROVIDER_SAFE_LIMIT} "
+                    f"tokens to avoid provider 503"
+                )
+                if args:
+                    args = (trimmed,) + args[1:]
+                else:
+                    kwargs["messages"] = trimmed
 
         for attempt in range(self._max_attempts):
             try:
@@ -38,6 +73,47 @@ class RetryLLMProxy:
                 time.sleep(self._retry_delay(error, attempt))
 
         raise last_error
+
+    def _trim_to_limit(self, messages: list, limit: int) -> list:
+        """
+        Trim message list to fit within token limit.
+        Strategy: preserve system message (index 0) and the most recent
+        messages at the tail. Drop from the middle (oldest history first).
+        """
+        try:
+            from src.context.token_budget import count_tokens
+        except Exception:
+            return messages
+
+        if not messages:
+            return messages
+
+        # Always keep the first message (system prompt).
+        keep_head = 1
+        head_tokens = count_tokens(messages[:keep_head], self.model)
+
+        # Binary search for how many tail messages we can keep.
+        low, high = 0, len(messages) - keep_head
+        best = 0
+        while low <= high:
+            mid = (low + high) // 2
+            tail = messages[-mid:] if mid > 0 else []
+            t = head_tokens
+            if tail:
+                try:
+                    t = count_tokens(messages[:keep_head] + tail, self.model)
+                except Exception:
+                    t = head_tokens
+            if t <= limit:
+                best = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        result = messages[:keep_head]
+        if best > 0:
+            result.extend(messages[-best:])
+        return result
 
     def bind_tools(self, *args, **kwargs):
         return RetryLLMProxy(
@@ -64,6 +140,10 @@ class RetryLLMProxy:
             or "temporarily unavailable" in text
             or "connection error" in text
             or "connecterror" in text
+            # OmniRouter returns 503 when an auto-combo backend is unavailable
+            # or the request is oversized; retrying (after trimming) may succeed.
+            or "503" in text
+            or "combo retry limit" in text
             # Some custom auto routers may briefly route to a backend model
             # their OpenAI-compatible endpoint cannot serve. Retrying can select
             # a different backend for the same configured model id.

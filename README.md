@@ -88,6 +88,7 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 3. **Import graph is a hint, not a graph.** 20 files × 5 imports, top-level modules only — no transitive deps, no call sites.
 4. **No chunk-level retrieval.** Context is assembled at layer granularity (whole repo map, whole memory blocks), not code-chunk granularity.
 5. **SQLite search is a LINEAR scan.** `search()` scores the most recent 500 rows in Python — correct and persistent, but not a real vector index. Time to scale past ~10K memories.
+6. **The pre-send guard covers messages, not tool defs.** `RetryLLMProxy` trims the message list to `PROVIDER_SAFE_LIMIT` (default 6000), but `bind_tools` payloads ride along untouched — a 50-tool definition list can still push a request over a tight provider limit.
 
 ---
 
@@ -230,6 +231,7 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 - [x] Tool-memory writer (semantic store of past tool outputs)
 - [x] Persistent vector memory (SQLite, ~/.pulseai/vector_memory.db)
 - [x] Failure feedback wired (recovery-limit, replan give-up, finalize)
+- [x] Pre-send token guard (PROVIDER_SAFE_LIMIT, 503 mitigation — verified live)
 - [ ] Layer attribution of feedback (record which layers were sent per task)
 - [ ] Chunk-level code retrieval with BM25 + vector hybrid index
 - [ ] Per-session cost reports in PDF format
