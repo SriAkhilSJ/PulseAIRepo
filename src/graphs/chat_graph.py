@@ -1,3 +1,5 @@
+import os
+import sqlite3
 from typing import Annotated
 from typing_extensions import TypedDict
 # pyrefly: ignore [missing-import]
@@ -16,7 +18,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 # pyrefly: ignore [missing-import]
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 # pyrefly: ignore [missing-import]
 from langgraph.graph import StateGraph, START, END
 # pyrefly: ignore [missing-import]
@@ -1521,6 +1523,14 @@ class SafeToolNode:
     def __init__(self, tools, safety_guard: SafetyGuard):
         self._node = ToolNode(tools)
         self._guard = safety_guard
+        # SafetyGuards are stateless except for their workspace, so keep one
+        # per distinct workspace instead of rebuilding on every tool call.
+        # NOTE: keyed by workspace — the injected guard is bound to the
+        # import-time cwd, which may differ from the per-session workspace
+        # passed via config["configurable"]["workspace"].
+        self._guards_by_workspace: dict[str, SafetyGuard] = {
+            str(safety_guard.workspace): safety_guard
+        }
 
     def __call__(self, state, config=None):
         # Check the last AI message for tool calls
@@ -1538,7 +1548,12 @@ class SafeToolNode:
         if config and "configurable" in config:
             workspace = config["configurable"].get("workspace", ".")
 
-        guard = SafetyGuard(workspace)
+        from pathlib import Path
+        ws_key = str(Path(workspace).resolve())
+        guard = self._guards_by_workspace.get(ws_key)
+        if guard is None:
+            guard = SafetyGuard(workspace)
+            self._guards_by_workspace[ws_key] = guard
 
         for tc in tool_calls:
             tool_name = tc.get("name", "")
@@ -1738,8 +1753,19 @@ builder.add_edge(
 # Create ONE memory manager for the whole agent (cross-session memory).
 # Use PersistentMemoryWrapper so memories survive across restarts.
 from src.context.persistent_memory import PersistentMemoryWrapper
-base_memory = MemoryManager()
-memory_manager = PersistentMemoryWrapper(base_memory)
+
+# Long-term memory needs the embedding backend (sentence-transformers, ~100MB
+# model). VectorMemory RAISES when that backend is unavailable (fresh CI,
+# slim containers) — and because this runs at module import time, it would
+# crash the entire agent on boot. Degrade to memory_manager=None instead,
+# matching the ContextEngine's documented fallback pattern (all memory layers
+# already treat None as "feature off").
+try:
+    base_memory = MemoryManager()
+    memory_manager = PersistentMemoryWrapper(base_memory)
+except Exception as exc:  # e.g. RuntimeError from VectorMemory
+    print(f"[chat_graph] Long-term memory DISABLED (boot degraded): {exc}")
+    memory_manager = None
 
 # Main context engine: heuristic summarization only (saves money).
 # To enable LLM-powered summarization for massive outputs, pass llm=get_llm(...).
@@ -1751,7 +1777,16 @@ context_engine = ContextEngine(
     memory_manager=memory_manager,
 )
 
-memory = MemorySaver()
+# Persistent session checkpointer — thread state survives restarts.
+# NOTE: SqliteSaver.from_conn_string() returns a context manager (verified),
+# so for a module-level saver we hold a direct connection instead.
+# check_same_thread=False is required: the dashboard server runs the graph
+# from worker threads, and sqlite connections are thread-bound by default.
+_CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
+os.makedirs(os.path.dirname(_CHECKPOINT_DB), exist_ok=True)
+_checkpoint_conn = sqlite3.connect(_CHECKPOINT_DB, check_same_thread=False)
+memory = SqliteSaver(_checkpoint_conn)
+memory.setup()
 
 graph = builder.compile(
     checkpointer=memory
