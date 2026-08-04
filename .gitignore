@@ -14,3 +14,20 @@ wheels/
 
 # Temp run artifacts
 logs/
+
+# Generated agent artifacts
+generated/
+*.log
+
+# Tooling / IDE
+venv/
+.vscode/
+.idea/
+*.swp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local PulseAI runtime state (if ever created repo-local)
+.pulseai/
