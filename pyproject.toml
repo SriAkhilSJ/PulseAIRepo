@@ -3,7 +3,7 @@ name = "pulserepo"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 
 dependencies = [
     "ddgs>=9.14.4",
@@ -16,11 +16,12 @@ dependencies = [
     "langchain-groq>=1.1.3",
     "langchain-openai>=1.4.0",
     "langgraph>=1.2.9",
+    "langgraph-checkpoint-sqlite>=2.0.9",
     "openai>=2.47.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
-    "sentence-transformers>=3.0.0",
+    "sentence-transformers>=3.0.0,<4.0.0",
     "tiktoken>=0.13.0",
     "typer>=0.27.0",
     "uvicorn>=0.51.0",
@@ -29,3 +30,11 @@ dependencies = [
 [tool.pyrefly]
 project-includes = ["src"]
 search-path = ["."]
+
+# uv-native dev group (repo is uv-managed: `uv sync` installs this by default;
+# pip users: `uv pip install -e . --group dev`).
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
