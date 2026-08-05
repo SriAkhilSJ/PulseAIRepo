@@ -45,6 +45,11 @@ CONTEXT_MODEL: str = os.getenv(
     LLM_MODEL,
 )
 
+# Optional hard override of the model's context window (tokens). When set,
+# it wins over the live provider probe AND the built-in table. Leave unset
+# to let the engine discover the window dynamically.
+LLM_CONTEXT_WINDOW: str | None = os.getenv("LLM_CONTEXT_WINDOW")
+
 # Provider input safety limit (tokens). Trim messages before sending if over.
 # OmniRouter's auto-combo tier 503s on oversized requests; keep the payload
 # under this cap so the pre-send guard can avoid the rejection.

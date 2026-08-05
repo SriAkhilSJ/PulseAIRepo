@@ -22,7 +22,10 @@ see ContextEngine.__init__.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import time
 
 MODEL_WINDOWS: dict[str, int] = {
     # Anthropic
@@ -79,10 +82,10 @@ def _normalize(model_name: str) -> str:
     return n
 
 
-def model_window(model_name: str | None) -> int:
-    """Return the known context window for a model, or the safe default."""
+def _table_lookup(model_name: str | None) -> int | None:
+    """Static-table lookup; None when the model is genuinely unknown."""
     if not model_name:
-        return MODEL_WINDOWS["default"]
+        return None
 
     n = _normalize(model_name)
 
@@ -111,9 +114,201 @@ def model_window(model_name: str | None) -> int:
     if best_key is not None:
         return MODEL_WINDOWS[best_key]
 
-    return MODEL_WINDOWS["default"]
+    return None
+
+
+def model_window(model_name: str | None) -> int:
+    """Static table only — no network. Unknown models get the safe default.
+
+    For runtime-aware resolution (env override / cache / live provider
+    probe), use resolve_context_window() instead.
+    """
+    found = _table_lookup(model_name)
+    return found if found is not None else MODEL_WINDOWS["default"]
 
 
 def usable_budget(model_name: str | None) -> int:
     """Window minus reply headroom — the most the input should ever use."""
     return max(model_window(model_name) - SAFETY_MARGIN, _MIN_USABLE)
+
+
+# =====================================================================
+# DYNAMIC CONTEXT-WINDOW DISCOVERY
+# =====================================================================
+#
+# The static table above can't know every model — the repo's own default
+# (e.g. "qwen/..." on Groq) isn't in anyone's hardcoded list. So at runtime
+# we resolve the window through a priority chain:
+#
+#   1. LLM_CONTEXT_WINDOW env override          (user always wins)
+#   2. fresh on-disk cache                      (no cold-boot network cost)
+#   3. static table                             (zero network for known models)
+#   4. LIVE provider probe                      (Groq/Gemini/OpenRouter expose it)
+#   5. stale cache, else the conservative default
+#
+# OpenAI and Anthropic do NOT publish window sizes in their model APIs —
+# for those providers the static table (step 3) is the authoritative source.
+# Probes are read-only GET requests with a hard timeout; every failure
+# degrades to the next rung, never to a crash.
+
+_PROBE_TIMEOUT_S = 2.5
+_CACHE_TTL_S = 7 * 24 * 3600
+
+
+def _cache_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".pulseai", "model_windows.json")
+
+
+def _read_cache() -> dict:
+    try:
+        with open(_cache_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_cache(key: str, window: int) -> None:
+    """Best-effort cache write; a cache failure must never break resolution."""
+    try:
+        data = _read_cache()
+        data[key] = {"window": window, "ts": time.time()}
+        os.makedirs(os.path.dirname(_cache_path()), exist_ok=True)
+        with open(_cache_path(), "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def _cache_get(key: str) -> tuple[int, bool] | None:
+    """Return (window, is_fresh) or None."""
+    entry = _read_cache().get(key)
+    if not isinstance(entry, dict):
+        return None
+    window = entry.get("window")
+    ts = entry.get("ts", 0)
+    if not isinstance(window, int) or window <= 0:
+        return None
+    return window, (time.time() - ts) < _CACHE_TTL_S
+
+
+def _http_get_json(url: str, headers: dict | None = None) -> dict | None:
+    """GET JSON with a hard timeout. Any failure -> None (callers degrade)."""
+    try:
+        import httpx
+        resp = httpx.get(url, headers=headers or {}, timeout=_PROBE_TIMEOUT_S)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+def _probe_groq(model_name: str) -> int | None:
+    """Groq's /models objects carry a real `context_window` field."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None
+    data = _http_get_json(
+        "https://api.groq.com/openai/v1/models",
+        {"Authorization": f"Bearer {api_key}"},
+    )
+    if not data:
+        return None
+    wanted = {model_name.strip().lower(), _normalize(model_name)}
+    for m in data.get("data", []):
+        if str(m.get("id", "")).lower() in wanted:
+            window = m.get("context_window") or m.get("max_tokens")
+            if isinstance(window, int) and window > 0:
+                return window
+    return None
+
+
+def _probe_gemini(model_name: str) -> int | None:
+    """Gemini's models.get returns `inputTokenLimit`."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    data = _http_get_json(
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{_normalize(model_name)}?key={api_key}"
+    )
+    if not data:
+        return None
+    window = data.get("inputTokenLimit")
+    return window if isinstance(window, int) and window > 0 else None
+
+
+def _probe_openrouter(model_name: str) -> int | None:
+    """OpenRouter's public catalog carries `context_length` (no auth needed)."""
+    data = _http_get_json("https://openrouter.ai/api/v1/models")
+    if not data:
+        return None
+    wanted = {model_name.strip().lower(), _normalize(model_name)}
+    for m in data.get("data", []):
+        if str(m.get("id", "")).lower() in wanted:
+            window = m.get("context_length")
+            if isinstance(window, int) and window > 0:
+                return window
+    return None
+
+
+_PROBES = {
+    "groq": _probe_groq,
+    "gemini": _probe_gemini,
+    "google": _probe_gemini,
+    "openrouter": _probe_openrouter,
+}
+
+
+def resolve_context_window(
+    model_name: str | None,
+    provider: str | None = None,
+    allow_network: bool = True,
+) -> tuple[int, str]:
+    """Resolve the context window dynamically. Returns (window, source).
+
+    `source` says which rung of the chain answered — "env-override",
+    "cache", "static-table", "<provider>-api", "cache-stale", or "default".
+    """
+    raw = (model_name or "").strip().lower()
+    if provider is None:
+        # Go through settings (not raw env): its .env loading AND its
+        # "groq" default must apply here, or an unset env var silently
+        # disables the probe while the LLM factory happily uses Groq.
+        try:
+            from src.config.settings import LLM_PROVIDER
+            provider = LLM_PROVIDER
+        except Exception:
+            provider = os.getenv("LLM_PROVIDER", "")
+    provider = provider.strip().lower()
+    cache_key = f"{provider}:{raw}"
+
+    # 1) Explicit user override always wins.
+    override = os.getenv("LLM_CONTEXT_WINDOW", "").strip()
+    if override.isdigit() and int(override) > 0:
+        return int(override), "env-override"
+
+    # 2) Fresh cache: we've asked this provider before; trust it.
+    cached = _cache_get(cache_key)
+    if cached and cached[1]:
+        return cached[0], "cache"
+
+    # 3) Static table: zero network for models we already know.
+    table = _table_lookup(model_name)
+    if table is not None:
+        return table, "static-table"
+
+    # 4) Live provider probe (only for genuinely unknown models).
+    if allow_network:
+        probe = _PROBES.get(provider)
+        if probe is not None:
+            window = probe(raw)
+            if window is not None:
+                _write_cache(cache_key, window)
+                return window, f"{provider}-api"
+
+    # 5) Stale cache beats nothing; otherwise conservative default.
+    if cached:
+        return cached[0], "cache-stale"
+    return MODEL_WINDOWS["default"], "default"

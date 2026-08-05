@@ -72,17 +72,155 @@ class TestEngineAutoBudget:
     def test_auto_budget_capped_by_provider_safe_limit(self):
         from src.config.settings import PROVIDER_SAFE_LIMIT
 
-        eng = ContextEngine(model="gpt-4o", llm=None, memory_manager=None)
+        eng = ContextEngine(
+            model="gpt-4o", llm=None, memory_manager=None, probe_window=False
+        )
         expected = max(min(usable_budget("gpt-4o"), PROVIDER_SAFE_LIMIT), 4_096)
         assert eng.max_tokens == expected
         # And with the shipped default limit, a 128K model is capped DOWN:
         # building more would just be trimmed by RetryLLMProxy at send time.
         assert eng.max_tokens <= PROVIDER_SAFE_LIMIT
+        assert eng.context_window == 128_000
+        assert eng.context_window_source == "static-table"
 
     def test_auto_budget_never_below_floor(self):
-        eng = ContextEngine(model="gpt-4", llm=None, memory_manager=None)
+        eng = ContextEngine(
+            model="gpt-4", llm=None, memory_manager=None, probe_window=False
+        )
         assert eng.max_tokens >= 4_096
 
     def test_unknown_model_auto_budget_is_conservative(self):
-        eng = ContextEngine(model="acme/mystery-llm", llm=None, memory_manager=None)
+        # probe_window=False: no network in tests — unknown must degrade
+        # straight to the conservative default.
+        eng = ContextEngine(
+            model="acme/mystery-llm", llm=None, memory_manager=None,
+            probe_window=False,
+        )
         assert eng.max_tokens <= 8_192
+        assert eng.context_window_source == "default"
+
+
+# =====================================================================
+# DYNAMIC discovery: override -> cache -> table -> live probe -> default
+# =====================================================================
+
+import json
+import os
+
+import pytest
+
+from src.context import model_budgets as mb
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache(tmp_path, monkeypatch):
+    """Every dynamic test gets a private HOME (private ~/.pulseai cache)
+    and no lingering override env var."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LLM_CONTEXT_WINDOW", raising=False)
+    yield
+
+
+class TestDynamicResolution:
+    def test_env_override_wins_over_everything(self, monkeypatch):
+        monkeypatch.setenv("LLM_CONTEXT_WINDOW", "99999")
+        window, source = mb.resolve_context_window("gpt-4o", provider="openai")
+        assert (window, source) == (99999, "env-override")
+
+    def test_static_table_beats_network(self, monkeypatch):
+        def _boom(url, headers=None):
+            raise AssertionError("network must not be touched for known models")
+
+        monkeypatch.setattr(mb, "_http_get_json", _boom)
+        window, source = mb.resolve_context_window("gpt-4o", provider="openai")
+        assert (window, source) == (128_000, "static-table")
+
+    def test_groq_probe_parses_context_window(self, monkeypatch):
+        def fake_get(url, headers=None):
+            assert "api.groq.com" in url
+            assert headers["Authorization"].startswith("Bearer ")
+            return {"data": [
+                {"id": "llama-3.3-70b-versatile", "context_window": 131072},
+                {"id": "qwen/qwen3.6-27b", "context_window": 131072},
+            ]}
+
+        monkeypatch.setattr(mb, "_http_get_json", fake_get)
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+        # The repo's OWN default model: unknown to every static table,
+        # discoverable from the provider.
+        window, source = mb.resolve_context_window(
+            "qwen/qwen3.6-27b", provider="groq", allow_network=True
+        )
+        assert (window, source) == (131072, "groq-api")
+
+    def test_gemini_probe_parses_input_token_limit(self, monkeypatch):
+        monkeypatch.setattr(
+            mb, "_http_get_json",
+            lambda url, headers=None: {"inputTokenLimit": 1_048_576},
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        window, source = mb.resolve_context_window(
+            "gemini-9.9-ultra-exp",  # unknown to the static table
+            provider="gemini",
+            allow_network=True,
+        )
+        assert (window, source) == (1_048_576, "gemini-api")
+
+    def test_openrouter_probe_parses_context_length(self, monkeypatch):
+        monkeypatch.setattr(
+            mb, "_http_get_json",
+            lambda url, headers=None: {"data": [
+                {"id": "acme/new-model", "context_length": 65536},
+            ]},
+        )
+        window, source = mb.resolve_context_window(
+            "acme/new-model", provider="openrouter", allow_network=True
+        )
+        assert (window, source) == (65536, "openrouter-api")
+
+    def test_probe_result_is_cached(self, monkeypatch):
+        calls = {"n": 0}
+
+        def fake_get(url, headers=None):
+            calls["n"] += 1
+            return {"data": [{"id": "acme/m", "context_length": 50000}]}
+
+        monkeypatch.setattr(mb, "_http_get_json", fake_get)
+        first = mb.resolve_context_window("acme/m", provider="openrouter")
+        assert first == (50000, "openrouter-api")
+
+        # Second call: network now FAILS, fresh cache must answer instead.
+        monkeypatch.setattr(
+            mb, "_http_get_json",
+            lambda url, headers=None: (_ for _ in ()).throw(OSError("down")),
+        )
+        second = mb.resolve_context_window("acme/m", provider="openrouter")
+        assert second == (50000, "cache")
+        assert calls["n"] == 1  # probed exactly once
+
+    def test_probe_failure_falls_to_stale_cache_then_default(self, monkeypatch):
+        # Write a stale cache entry by hand.
+        cache = mb._cache_path()
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        with open(cache, "w") as f:
+            json.dump({"groq:acme/old": {"window": 42000, "ts": 0}}, f)  # ts=0 -> ancient
+
+        monkeypatch.setattr(mb, "_http_get_json", lambda url, headers=None: None)
+        window, source = mb.resolve_context_window("acme/old", provider="groq")
+        assert (window, source) == (42000, "cache-stale")
+
+        window, source = mb.resolve_context_window("acme/never-seen", provider="groq")
+        assert (window, source) == (8_192, "default")
+
+    def test_engine_uses_dynamic_window(self, monkeypatch):
+        monkeypatch.setattr(
+            mb, "resolve_context_window",
+            lambda model, provider=None, allow_network=True: (131072, "groq-api"),
+        )
+        from src.config.settings import PROVIDER_SAFE_LIMIT
+
+        eng = ContextEngine(model="qwen/qwen3.6-27b", llm=None, memory_manager=None)
+        assert eng.context_window == 131072
+        assert eng.context_window_source == "groq-api"
+        # min(131072 - 4096, PROVIDER_SAFE_LIMIT)
+        assert eng.max_tokens == min(131072 - 4096, PROVIDER_SAFE_LIMIT)

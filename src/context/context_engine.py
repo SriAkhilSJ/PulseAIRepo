@@ -159,31 +159,41 @@ class ContextEngine:
         model: str | None = None,
         llm=None,
         memory_manager: MemoryManager | None = None,
+        probe_window: bool = True,
     ):
         """
         max_tokens: How many tokens the AI can handle total. None (default)
-                    = auto-detect from the model's context window, capped at
-                    PROVIDER_SAFE_LIMIT so the pre-send guard in RetryLLMProxy
-                    never has to amputate our context layers mid-flight
-                    (it trims middle-out: the layers die first).
+                    = DYNAMIC discovery: env override -> cache -> static
+                    table -> LIVE provider probe -> safe default, then
+                    capped at PROVIDER_SAFE_LIMIT so the pre-send guard in
+                    RetryLLMProxy never has to amputate our context layers
+                    mid-flight (it trims middle-out: the layers die first).
                     Pass an explicit int to override everything.
         model: Which model you're using (affects token counting + budget).
+        probe_window: allow the live provider HTTP probe for unknown models
+                    (2.5s hard timeout, then cached for a week). Tests pass
+                    False to stay offline.
         """
         self.model = model or CONTEXT_MODEL
 
         if max_tokens is not None:
             self.max_tokens = max_tokens
+            self.context_window: int | None = None
+            self.context_window_source = "explicit"
         else:
-            # MODEL-AWARE: a 128K/200K/1M-window model should not be squeezed
-            # into the historical 8000. But the provider's own input cap wins:
-            # building more context than PROVIDER_SAFE_LIMIT just means the
-            # RetryLLMProxy trims the extra off before every send. Raise
-            # PROVIDER_SAFE_LIMIT (paid tier) to unlock the rest.
             from src.config.settings import PROVIDER_SAFE_LIMIT
-            from src.context.model_budgets import usable_budget
-            self.max_tokens = max(
-                min(usable_budget(self.model), PROVIDER_SAFE_LIMIT),
-                4_096,
+            from src.context.model_budgets import SAFETY_MARGIN, resolve_context_window
+            window, source = resolve_context_window(
+                self.model, allow_network=probe_window
+            )
+            self.context_window = window
+            self.context_window_source = source
+            usable = max(window - SAFETY_MARGIN, 4_096)
+            self.max_tokens = max(min(usable, PROVIDER_SAFE_LIMIT), 4_096)
+            print(
+                f"[ContextEngine] context window {window:,} for {self.model!r} "
+                f"(source: {source}); token budget {self.max_tokens:,} "
+                f"(provider cap {PROVIDER_SAFE_LIMIT:,})"
             )
 
         # We reserve some tokens for "context" (the stuff we build)

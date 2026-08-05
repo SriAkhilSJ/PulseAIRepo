@@ -255,3 +255,44 @@ overshoot costs the request.
 
 Suite: **60/60 green** (26 new pure tests). `chat_graph` + engine + index
 compile clean; explicit `max_tokens=` override path unchanged (tests rely on it).
+
+---
+
+## 10. Dynamic Context-Window Discovery (2026-08-05, founder request)
+
+Founder ask: "the model context window should be dynamic — it should only
+get to know its context window and act according to it." Correct instinct:
+the §9 static table can never know every model (the repo's own default
+`qwen/qwen3.6-27b` isn't in anyone's hardcoded list), so guessing was the
+wrong long-term design.
+
+**Shipped: a priority chain in `resolve_context_window()`** —
+`LLM_CONTEXT_WINDOW` env override → fresh on-disk cache
+(`~/.pulseai/model_windows.json`, 7-day TTL) → static table (zero network
+for known models) → **live provider probe** (Groq `/models`.`context_window`,
+Gemini `inputTokenLimit`, OpenRouter `context_length`; 2.5s hard timeout,
+then cached) → stale cache → conservative default.
+
+Design decisions, and why:
+- **Static-before-probe**: known models (gpt-4o, Claude) never touch the
+  network. OpenAI/Anthropic don't publish windows in their APIs anyway —
+  for them the table IS the authoritative source.
+- **Provider name comes from `src.config.settings`**, not raw env: my first
+  cut read `LLM_PROVIDER` from os.environ, which silently disabled probing
+  whenever the env var was unset — while the settings default of `groq`
+  happily powered the LLM factory. Caught in demo, fixed, regression-tested.
+- **Probes are read-only GETs, failure-degrading**: any error → next rung,
+  never a crash. Worst case: one 2.5s cold-boot stall, then a week of cache.
+- **Engine logs the source on every auto init** (`[ContextEngine] context
+  window 131,072 for 'qwen/qwen3.6-27b' (source: groq-api); ...`) — budget
+  provenance must be observable, not magic.
+- `PROVIDER_SAFE_LIMIT` still caps the operational budget — dynamic
+  discovery sizes the *model*, the proxy cap guards the *tier*.
+
+Live demo (fake provider payload through the real chain): cold boot probes
+`groq-api` → 131,072 for the repo's default model; warm boot answers from
+`cache` with zero network; `gpt-4o` → `static-table` (probe_never called);
+`LLM_CONTEXT_WINDOW=64000` → `env-override`.
+
+Suite: **68/68 green** (8 new pure tests; cache isolated to tmp HOME, HTTP
+seam monkeypatched — no network in CI).
