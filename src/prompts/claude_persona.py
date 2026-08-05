@@ -90,7 +90,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `write_file(path, content)` — Create a new file or overwrite one completely.
 
-- `edit_file(path, old_text, new_text)` — Replace exact existing text. Preferred for small, focused edits.
+- `edit_file(path, old_text, new_text)` — Replace existing text (tolerates minor whitespace drift). Preferred for small, focused edits; returns a diff preview so you can verify. Never re-output an entire file for a small change.
 
 ### Terminal & Commands
 

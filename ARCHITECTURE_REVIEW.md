@@ -169,3 +169,37 @@ the fixes above — **14/14 suite green**; live demo over `src/context/`
 Meta-score on pasted AI code to date: **specs now carry good architecture, but
 every single one failed on at least one empirically-provable runtime fact.
 Verification is not optional.**
+
+---
+
+## 7. P1 Shipped: edit_file upgrade (2026-08-04) — verified against BOTH reviews
+
+Fourth paste: a P1 spec ("wire compute_unified_diff into edit_file's whole-file
+rewrites") + a counter-review calling out the P1 spec's false premise. This time
+the *counter-review* was the sharp one — and it still had bugs to catch.
+
+**Counter-review claims (all verified TRUE against the repo):**
+1. `edit_file` already did find-and-replace — P1's premise was false. ✅ True.
+2. P1 spec dropped `config: RunnableConfig` → workspace-sandbox regression. ✅ True.
+3. P1 renamed `old_text`→`old_string` → breaks tool schema/history. ✅ True.
+4. Redundant `content` mode (write_file exists) + fragile line-range mode. ✅ True.
+5. P1's "atomic" claim was a plain `write_text`. ✅ True.
+6. Event format mismatch risk with the dashboard's flat `{"file","lines"}` shape. ✅ True.
+
+**Bugs the counter-review's own code had (caught here, not shipped):**
+- Fuzzy fallback replaced only the FIRST matched line with new_text's first
+  line → would corrupt multi-line edits. Shipped instead: whitespace-normalized
+  block-span matcher (threshold 0.88) that replaces the whole original span.
+- Atomic write lost file permissions (mkstemp = 0600). Shipped: mode preserved.
+- Double-emitted `files.changed` with a synthetic messageId. Shipped: only
+  `diff.show` from the tool; `files.changed` stays owned by progress_node.
+- Persona "add guidance" was stale — the preference already existed (line 93);
+  strengthened in place.
+
+**Shipped in `src/tools/file_tools.py`:** unchanged signature
+`(path, old_text, new_text, config)`; exact → block-span fuzzy fallback;
+tempfile+`os.replace` atomic write (perms preserved, temp files cleaned);
+`compute_unified_diff` wired (lazy import — avoids the circular import with
+chat_graph); `diff.show` emitted in the dashboard's existing flat shape; diff
+preview returned for the agent's verify() loop; "no change" is a true no-op.
+10 pure tests — **24/24 suite green**; graph boots; tool schema unchanged.

@@ -208,6 +208,67 @@ def search_code(
 
     return "\n".join(results)
     # Keep your EXISTING search logic below this point.
+def _fuzzy_find_block(
+    original: str, old_text: str, threshold: float = 0.88
+) -> tuple[int, int] | None:
+    """Locate old_text in original, tolerating per-line whitespace drift.
+
+    Matches on whitespace-stripped lines and maps the best window back to an
+    ORIGINAL line span, so the caller can replace the whole block — never a
+    single line (which would corrupt multi-line edits). Returns
+    (start_idx, end_idx_exclusive) into original.splitlines(), or None.
+    """
+    import difflib
+
+    orig_lines = original.splitlines()
+    old_lines = old_text.splitlines()
+    if not orig_lines or not old_lines:
+        return None
+    if not any(line.strip() for line in old_lines):
+        return None
+
+    n = len(old_lines)
+    orig_stripped = [line.strip() for line in orig_lines]
+    old_join = "\n".join(line.strip() for line in old_lines)
+
+    best_ratio, best_idx = 0.0, None
+    for i in range(0, len(orig_lines) - n + 1):
+        window = "\n".join(orig_stripped[i: i + n])
+        if not window.strip():
+            continue
+        ratio = difflib.SequenceMatcher(None, old_join, window).ratio()
+        if ratio > best_ratio:
+            best_ratio, best_idx = ratio, i
+
+    if best_idx is None or best_ratio < threshold:
+        return None
+    return (best_idx, best_idx + n)
+
+
+def _atomic_write(path, content: str) -> None:
+    """Write via tempfile + os.replace (same directory => same filesystem):
+    concurrent readers never see a torn file, and the original mode survives.
+    """
+    import os
+    import tempfile
+
+    st_mode = path.stat().st_mode & 0o777
+    fd, tmp = tempfile.mkstemp(
+        dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(tmp, st_mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 @tool
 def edit_file(
     path: str,
@@ -228,9 +289,10 @@ def edit_file(
     - Do not use before reading the file when current content matters.
 
     IMPORTANT:
-    - old_text must match existing content exactly.
+    - old_text should match existing content; minor whitespace drift is
+      tolerated automatically (the replacement covers the matched BLOCK).
     - Prefer small, targeted replacements.
-    - Verify the edit afterward with read_file or a test command.
+    - A diff preview is returned so you can verify the edit — use it.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -240,22 +302,65 @@ def edit_file(
         path
     )
 
-    content = safe_path.read_text(
+    if not safe_path.exists():
+        return f"❌ File not found: {path}"
+
+    original = safe_path.read_text(
         encoding="utf-8"
     )
 
-    if old_text not in content:
-        return f"Text not found in {path}"
+    match_mode = "exact"
+    if old_text in original:
+        updated_content = original.replace(
+            old_text,
+            new_text,
+            1
+        )
+    else:
+        span = _fuzzy_find_block(original, old_text)
+        if span is None:
+            return (
+                f"❌ Text not found in {path}. "
+                f"Read the file first and retry with current content."
+            )
+        match_mode = "fuzzy"
+        orig_lines = original.splitlines(keepends=True)
+        new_lines = new_text.splitlines(keepends=True)
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += "\n"
+        start, end = span
+        updated_content = "".join(
+            orig_lines[:start] + new_lines + orig_lines[end:]
+        )
 
-    updated_content = content.replace(
-        old_text,
-        new_text,
-        1
-    )
+    if updated_content == original:
+        return f"ℹ️ No change: new_text equals the existing content in {path}."
 
-    safe_path.write_text(
-        updated_content,
-        encoding="utf-8"
-    )
+    _atomic_write(safe_path, updated_content)
 
-    return f"File edited: {path}"
+    # Lazy import: chat_graph imports file_tools at module load time — a
+    # module-level import here would be circular.
+    from src.graphs.chat_graph import compute_unified_diff
+
+    diff = compute_unified_diff(original, updated_content, str(safe_path))
+
+    preview_lines: list[str] = []
+    marker = {"added": "+", "removed": "-", "context": " "}
+    for chunk in diff["chunks"]:
+        for line in chunk["lines"]:
+            preview_lines.append(
+                f"{marker[line['type']]}{line['text'].rstrip()}"
+            )
+
+    # Same flat {"file", "lines"} payload shape the dashboard already
+    # renders for write_file. files.changed stays owned by progress_node
+    # (it has the real tool_call_id for messageId).
+    from src.dashboard.event_bus import event_bus
+    event_bus.emit("diff.show", {
+        "file": path,
+        "lines": preview_lines[:20],
+    })
+
+    note = " (fuzzy match — verify the result)" if match_mode == "fuzzy" else ""
+    preview = "\n".join(preview_lines[:12])
+    return f"✅ Edited {path}{note}\n\nDiff preview:\n{preview}"
