@@ -241,9 +241,16 @@ class ContextEngine:
     # Relevance map: which layers matter for which task types
     LAYER_RELEVANCE: dict[str, dict[TaskType, float]] = {
         "repo_map": {
-            TaskType.EXPLORE: 1.0, TaskType.CREATE: 0.90, TaskType.REFACTOR: 0.95,
-            TaskType.DEBUG: 0.70, TaskType.TEST: 0.50, TaskType.EXPLAIN: 0.80,
-            TaskType.CHAT: 0.10, TaskType.PLAN: 0.90, TaskType.RECOVERY: 0.60,
+            # Demoted from v2: chunk-level retrieval (relevant_chunks) now
+            # carries the coding context; the map remains king for EXPLORE.
+            TaskType.EXPLORE: 1.0, TaskType.CREATE: 0.55, TaskType.REFACTOR: 0.55,
+            TaskType.DEBUG: 0.45, TaskType.TEST: 0.35, TaskType.EXPLAIN: 0.55,
+            TaskType.CHAT: 0.10, TaskType.PLAN: 0.65, TaskType.RECOVERY: 0.45,
+        },
+        "relevant_chunks": {
+            TaskType.CREATE: 0.95, TaskType.REFACTOR: 0.95, TaskType.DEBUG: 0.95,
+            TaskType.EXPLORE: 0.85, TaskType.TEST: 0.80, TaskType.PLAN: 0.80,
+            TaskType.RECOVERY: 0.80, TaskType.EXPLAIN: 0.70, TaskType.CHAT: 0.0,
         },
         "task": {t: 1.0 for t in TaskType},
         "plan": {
@@ -370,6 +377,7 @@ class ContextEngine:
         layers = []
         builders = {
             "repo_map": self._repo_map_layer,
+            "relevant_chunks": self._relevant_chunks_layer,
             "task": self._task_layer,
             "plan": self._plan_layer,
             "progress": self._progress_layer,
@@ -455,6 +463,8 @@ class ContextEngine:
         content = msg.content
         if content.startswith("=== CODEBASE STRUCTURE"):
             return "repo_map"
+        if content.startswith("=== RELEVANT CODE CHUNKS"):
+            return "relevant_chunks"
         if content.startswith("=== CURRENT TASK"):
             return "task"
         if content.startswith("=== PLAN"):
@@ -727,6 +737,15 @@ class ContextEngine:
         )
 
         return SystemMessage(content=content)
+
+    def _relevant_chunks_layer(self, state: dict[str, Any]) -> SystemMessage | None:
+        """Layer 0b: chunk-level retrieval (replaces whole-file reads).
+
+        Every failure path returns None — this layer must never break a build,
+        including first-run (index still building) and no-embedder environments.
+        """
+        from src.context.chunk_index import build_relevant_chunks_layer
+        return build_relevant_chunks_layer(state)
 
     def _task_layer(self, state: dict[str, Any]) -> SystemMessage:
         """Layer 1: What is the user trying to do?"""
