@@ -200,6 +200,7 @@ class ChunkIndex:
         workspace: str | Path,
         db_path: Optional[str] = None,
         embedder: Any = None,
+        watch: bool = False,
     ):
         self.workspace = Path(workspace).resolve()
         if db_path is None:
@@ -224,8 +225,22 @@ class ChunkIndex:
         # P0 scale.
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
+        # The dashboard AND a CLI session can hold the same per-workspace DB.
+        # WAL serializes one writer + many readers but writer-writer still
+        # raises SQLITE_BUSY immediately without a timeout — 5s is generous
+        # for single-file sync transactions.
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._write_lock = threading.RLock()
         self._indexing_thread: Optional[threading.Thread] = None
+
+        # File-watcher state (started only when watch=True, i.e. via
+        # get_index() in production — tests construct with watch=False and
+        # drive the queue helpers directly).
+        self._watcher_thread: Optional[threading.Thread] = None
+        self._watcher_stop = threading.Event()
+        self._pending_syncs: set[str] = set()
+        self._pending_removes: set[str] = set()
+        self._sync_queue_lock = threading.Lock()
 
         if embedder is not None:
             self._embedder = embedder
@@ -247,6 +262,9 @@ class ChunkIndex:
             self.uses_vec = False
 
         self._init_schema()
+
+        if watch:
+            self.start_watcher()
 
     # ------------------------------------------------------------------
     # SCHEMA
@@ -335,6 +353,157 @@ class ChunkIndex:
         self._indexing_thread = t
         t.start()
 
+    # ------------------------------------------------------------------
+    # FILE WATCHER (optional, watchdog-backed with polling fallback)
+    # ------------------------------------------------------------------
+    #
+    # Why both event-driven AND a cheap per-turn sync_workspace(): the
+    # watcher batch-drains every ~2s, so a save→ask round-trip faster than
+    # that would otherwise read stale chunks. The per-turn mtime sweep is
+    # milliseconds; the watcher exists to catch edits made BETWEEN turns.
+
+    _WATCH_BATCH_S = 2.0      # debounce window for queued events
+    _WATCH_POLL_S = 15.0      # fallback sweep when watchdog isn't installed
+
+    def start_watcher(self) -> None:
+        """Start the background watcher thread (idempotent)."""
+        if self._watcher_thread is not None and self._watcher_thread.is_alive():
+            return
+        self._watcher_stop.clear()
+        self._watcher_thread = threading.Thread(
+            target=self._watch_loop, daemon=True, name="chunk-index-watcher"
+        )
+        self._watcher_thread.start()
+
+    def stop_watcher(self) -> None:
+        """Signal the watcher to stop and wait briefly. Daemon thread, so
+        process exit also cleans up; this is for tests and clean shutdowns."""
+        self._watcher_stop.set()
+        if self._watcher_thread is not None:
+            self._watcher_thread.join(timeout=5.0)
+            self._watcher_thread = None
+
+    def _enqueue_sync(self, path: str) -> None:
+        with self._sync_queue_lock:
+            self._pending_syncs.add(path)
+
+    def _enqueue_remove(self, path: str) -> None:
+        with self._sync_queue_lock:
+            # A delete after a modify in the same debounce window: remove wins.
+            self._pending_syncs.discard(path)
+            self._pending_removes.add(path)
+
+    def _drain_pending_syncs(self) -> tuple[list[str], list[str]]:
+        """Atomically take the queued paths; returns (to_sync, to_remove)."""
+        with self._sync_queue_lock:
+            to_sync = list(self._pending_syncs)
+            to_remove = list(self._pending_removes)
+            self._pending_syncs.clear()
+            self._pending_removes.clear()
+        return to_sync, to_remove
+
+    def _apply_queued_changes(self) -> None:
+        to_sync, to_remove = self._drain_pending_syncs()
+        for path in to_remove:
+            try:
+                p = Path(path)
+                if self.workspace in p.resolve().parents:
+                    self.remove_file(p)
+            except Exception as exc:
+                print(f"[ChunkIndex] watcher remove failed for {path}: {exc}")
+        for path in to_sync:
+            try:
+                p = Path(path)
+                if p.exists() and self.workspace in p.resolve().parents:
+                    self.sync_file(p)
+            except Exception as exc:
+                print(f"[ChunkIndex] watcher sync failed for {path}: {exc}")
+
+    def _watch_loop(self) -> None:
+        try:
+            from watchdog.events import FileSystemEventHandler
+            from watchdog.observers import Observer
+        except ImportError:
+            # watchdog not installed: degrade to a periodic mtime sweep.
+            # Same cost as the per-turn sync — a stat walk, no re-embedding
+            # unless something actually changed.
+            while not self._watcher_stop.wait(self._WATCH_POLL_S):
+                try:
+                    self.sync_workspace()
+                except Exception as exc:
+                    print(f"[ChunkIndex] watcher poll sync failed: {exc}")
+            return
+
+        index = self
+
+        class _PyHandler(FileSystemEventHandler):
+            def on_modified(self, event):
+                if not event.is_directory and event.src_path.endswith(".py"):
+                    index._enqueue_sync(event.src_path)
+
+            def on_created(self, event):
+                if not event.is_directory and event.src_path.endswith(".py"):
+                    index._enqueue_sync(event.src_path)
+
+            def on_deleted(self, event):
+                if not event.is_directory and event.src_path.endswith(".py"):
+                    index._enqueue_remove(event.src_path)
+
+            def on_moved(self, event):
+                if event.is_directory:
+                    return
+                if event.src_path.endswith(".py"):
+                    index._enqueue_remove(event.src_path)
+                dest = getattr(event, "dest_path", "")
+                if dest.endswith(".py"):
+                    index._enqueue_sync(dest)
+
+        observer = Observer()
+        observer.schedule(_PyHandler(), str(self.workspace), recursive=True)
+        try:
+            observer.start()
+        except Exception as exc:
+            # Unsupported FS / perms: fall back to polling rather than dying.
+            print(f"[ChunkIndex] watcher unavailable ({exc}); polling instead")
+            while not self._watcher_stop.wait(self._WATCH_POLL_S):
+                try:
+                    self.sync_workspace()
+                except Exception as poll_exc:
+                    print(f"[ChunkIndex] watcher poll sync failed: {poll_exc}")
+            return
+
+        try:
+            while not self._watcher_stop.wait(self._WATCH_BATCH_S):
+                self._apply_queued_changes()
+        finally:
+            observer.stop()
+            observer.join(timeout=5.0)
+
+    # ------------------------------------------------------------------
+    # INCREMENTAL SYNC
+    # ------------------------------------------------------------------
+
+    def remove_file(self, file_path: Path) -> int:
+        """Drop all chunks for a file from all four stores. No-op if absent.
+
+        Closes the deleted-file drift gap: before this, deleting a .py file
+        left its chunks in the index (and FTS/BM25 kept retrieving ghosts).
+        """
+        rel = str(file_path.relative_to(self.workspace))
+        vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
+        with self._write_lock:
+            with self.conn:  # single transaction for all stores
+                old_ids = [r[0] for r in self.conn.execute(
+                    "SELECT id FROM code_chunks WHERE file_path = ?", (rel,)
+                )]
+                for cid in old_ids:
+                    self.conn.execute(f"DELETE FROM {vec_table} WHERE chunk_id = ?", (cid,))
+                    self.conn.execute("DELETE FROM chunk_fts WHERE chunk_id = ?", (cid,))
+                cur = self.conn.execute(
+                    "DELETE FROM code_chunks WHERE file_path = ?", (rel,)
+                )
+                return len(old_ids) if old_ids else cur.rowcount
+
     def sync_file(self, file_path: Path) -> None:
         """Atomic incremental re-index of one file (including its FTS rows)."""
         rel = str(file_path.relative_to(self.workspace))
@@ -359,8 +528,10 @@ class ChunkIndex:
         # RLock is reentrant so sync_file's internal acquire is free).
         with self._write_lock:
             changed = 0
+            on_disk: set[str] = set()
             for fpath in self._iter_py_files():
                 rel = str(fpath.relative_to(self.workspace))
+                on_disk.add(rel)
                 row = self.conn.execute(
                     "SELECT MAX(modified_time) FROM code_chunks WHERE file_path = ?", (rel,)
                 ).fetchone()
@@ -368,6 +539,16 @@ class ChunkIndex:
                 if not row or row[0] is None or row[0] < current:
                     self.sync_file(fpath)
                     changed += 1
+            # Prune ghosts: chunks whose source file no longer exists.
+            # One DISTINCT scan + set diff — cheap, and it makes deletions
+            # visible even when the watcher missed them (or isn't installed).
+            indexed = {
+                r[0] for r in self.conn.execute(
+                    "SELECT DISTINCT file_path FROM code_chunks"
+                )
+            }
+            for ghost in indexed - on_disk:
+                changed += self.remove_file(self.workspace / ghost)
             return changed
 
     def _iter_py_files(self):
@@ -581,14 +762,25 @@ class ChunkIndex:
 # ---------------------------------------------------------------------
 
 
-def get_index(workspace: str | Path, db_path: Optional[str] = None) -> ChunkIndex:
-    """One ChunkIndex per workspace, process-wide. New DB only on first use."""
+def get_index(
+    workspace: str | Path,
+    db_path: Optional[str] = None,
+    watch: bool = True,
+) -> ChunkIndex:
+    """One ChunkIndex per workspace, process-wide. New DB only on first use.
+
+    watch=True (production default) starts the background file watcher so
+    edits made between turns are re-indexed within ~2s (or on the next poll
+    sweep if watchdog isn't installed). Tests pass watch=False.
+    """
     key = str(Path(workspace).resolve())
     with _INDEX_CACHE_LOCK:
         idx = _INDEX_CACHE.get(key)
         if idx is None:
-            idx = ChunkIndex(key, db_path=db_path)
+            idx = ChunkIndex(key, db_path=db_path, watch=watch)
             _INDEX_CACHE[key] = idx
+        elif watch:
+            idx.start_watcher()  # idempotent — a daemon thread
         return idx
 
 

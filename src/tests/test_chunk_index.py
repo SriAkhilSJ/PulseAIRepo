@@ -277,3 +277,80 @@ def test_layer_builder_and_engine_integration(workspace):
     assert "relevant_chunks" in eng._last_layers_sent, (
         f"chunks layer missing from sent layers: {eng._last_layers_sent}"
     )
+
+
+# ---------------------------------------------------------------------
+# File watcher queue logic + deleted-file pruning (deterministic, no threads)
+# ---------------------------------------------------------------------
+
+
+def test_busy_timeout_pragma_set(index):
+    # Two processes (dashboard + CLI) can hold the same per-workspace DB;
+    # writer-writer must WAIT, not fail with SQLITE_BUSY.
+    row = index.conn.execute("PRAGMA busy_timeout").fetchone()
+    assert row[0] == 5000
+
+
+def test_watcher_queue_dedup_and_drain(index):
+    index._enqueue_sync("/ws/a.py")
+    index._enqueue_sync("/ws/a.py")  # duplicate save events collapse
+    index._enqueue_sync("/ws/b.py")
+    to_sync, to_remove = index._drain_pending_syncs()
+    assert sorted(to_sync) == ["/ws/a.py", "/ws/b.py"]
+    assert to_remove == []
+    assert index._drain_pending_syncs() == ([], [])  # queue is drained
+
+
+def test_remove_wins_over_sync_in_same_window(index):
+    # Editor swap-delete right after save: the delete must win, or we'd
+    # re-index a ghost.
+    index._enqueue_sync("/ws/a.py")
+    index._enqueue_remove("/ws/a.py")
+    to_sync, to_remove = index._drain_pending_syncs()
+    assert to_sync == []
+    assert to_remove == ["/ws/a.py"]
+
+
+def test_remove_file_drops_all_stores(index):
+    index.index_workspace()
+    assert index.search("auth token"), "precondition: auth chunks indexed"
+    removed = index.remove_file(index.workspace / "auth.py")
+    assert removed > 0
+    results = index.search("auth token")
+    assert all("auth.py" not in c.file_path for c in results)
+    # Explicitly verify ALL FOUR stores, not just the search result.
+    with index._write_lock:
+        assert index.conn.execute(
+            "SELECT COUNT(*) FROM code_chunks WHERE file_path = 'auth.py'"
+        ).fetchone()[0] == 0
+        vec_table = "chunk_vec" if index.uses_vec else "chunk_vec_fallback"
+        assert index.conn.execute(
+            f"SELECT COUNT(*) FROM {vec_table}"
+        ).fetchone()[0] == index.conn.execute(
+            "SELECT COUNT(*) FROM code_chunks"
+        ).fetchone()[0]
+    # No-op on a file that isn't indexed.
+    assert index.remove_file(index.workspace / "auth.py") == 0
+
+
+def test_sync_workspace_prunes_deleted_files(index, workspace):
+    index.index_workspace()
+    (workspace / "garden.py").unlink()
+    index.sync_workspace()
+    results = index.search("water the plants")
+    assert all("garden.py" not in c.file_path for c in results)
+    with index._write_lock:
+        assert index.conn.execute(
+            "SELECT COUNT(*) FROM code_chunks WHERE file_path = 'garden.py'"
+        ).fetchone()[0] == 0
+
+
+def test_get_index_watch_flag(workspace, tmp_path):
+    idx = get_index(workspace, db_path=str(tmp_path / "w.db"), watch=False)
+    assert idx._watcher_thread is None
+    idx.start_watcher()
+    assert idx._watcher_thread is not None and idx._watcher_thread.is_alive()
+    idx.start_watcher()  # idempotent — must not spawn a second thread
+    assert idx._watcher_thread is not None
+    idx.stop_watcher()
+    assert idx._watcher_thread is None

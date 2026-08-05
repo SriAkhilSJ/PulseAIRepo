@@ -155,23 +155,43 @@ class ContextEngine:
 
     def __init__(
         self,
-        max_tokens: int = 8000,
+        max_tokens: int | None = None,
         model: str | None = None,
         llm=None,
         memory_manager: MemoryManager | None = None,
     ):
         """
-        max_tokens: How many tokens the AI can handle total.
-                    (Check your model context window before raising this.)
-        model: Which model you're using (affects token counting).
+        max_tokens: How many tokens the AI can handle total. None (default)
+                    = auto-detect from the model's context window, capped at
+                    PROVIDER_SAFE_LIMIT so the pre-send guard in RetryLLMProxy
+                    never has to amputate our context layers mid-flight
+                    (it trims middle-out: the layers die first).
+                    Pass an explicit int to override everything.
+        model: Which model you're using (affects token counting + budget).
         """
-        self.max_tokens = max_tokens
         self.model = model or CONTEXT_MODEL
 
+        if max_tokens is not None:
+            self.max_tokens = max_tokens
+        else:
+            # MODEL-AWARE: a 128K/200K/1M-window model should not be squeezed
+            # into the historical 8000. But the provider's own input cap wins:
+            # building more context than PROVIDER_SAFE_LIMIT just means the
+            # RetryLLMProxy trims the extra off before every send. Raise
+            # PROVIDER_SAFE_LIMIT (paid tier) to unlock the rest.
+            from src.config.settings import PROVIDER_SAFE_LIMIT
+            from src.context.model_budgets import usable_budget
+            self.max_tokens = max(
+                min(usable_budget(self.model), PROVIDER_SAFE_LIMIT),
+                4_096,
+            )
+
         # We reserve some tokens for "context" (the stuff we build)
-        # and leave the rest for "history" (past conversation)
-        self.context_budget = 3000   # Tokens for our organized context
-        self.history_budget = max_tokens - self.context_budget  # Rest for chat history
+        # and leave the rest for "history" (past conversation).
+        # NOTE: informational only — _allocate_budget() recomputes the real
+        # per-task split from self.max_tokens on every turn.
+        self.context_budget = int(self.max_tokens * 0.4)
+        self.history_budget = self.max_tokens - self.context_budget
 
         # SmartSummarizer compresses long tool outputs before they reach the AI
         # llm=None means: use only free heuristics (recommended for budget)
@@ -239,6 +259,11 @@ class ContextEngine:
         return ctx, self.max_tokens - ctx
 
     # Relevance map: which layers matter for which task types
+    # Layers that describe state OUTSIDE the graph state dict (e.g. the git
+    # working tree). They rebuild every turn and are never served from the
+    # differential cache — see _build_context_layers().
+    VOLATILE_LAYERS: frozenset[str] = frozenset({"git_context"})
+
     LAYER_RELEVANCE: dict[str, dict[TaskType, float]] = {
         "repo_map": {
             # Demoted from v2: chunk-level retrieval (relevant_chunks) now
@@ -251,6 +276,14 @@ class ContextEngine:
             TaskType.CREATE: 0.95, TaskType.REFACTOR: 0.95, TaskType.DEBUG: 0.95,
             TaskType.EXPLORE: 0.85, TaskType.TEST: 0.80, TaskType.PLAN: 0.80,
             TaskType.RECOVERY: 0.80, TaskType.EXPLAIN: 0.70, TaskType.CHAT: 0.0,
+        },
+        "git_context": {
+            # Highest for DEBUG ("the bug I just introduced") and REFACTOR;
+            # near-zero for CHAT, which is below the 0.15 build threshold
+            # anyway — no git subprocesses are spawned for small talk.
+            TaskType.DEBUG: 0.70, TaskType.REFACTOR: 0.60, TaskType.CREATE: 0.50,
+            TaskType.RECOVERY: 0.40, TaskType.PLAN: 0.40, TaskType.TEST: 0.30,
+            TaskType.EXPLAIN: 0.30, TaskType.EXPLORE: 0.20, TaskType.CHAT: 0.10,
         },
         "task": {t: 1.0 for t in TaskType},
         "plan": {
@@ -378,6 +411,7 @@ class ContextEngine:
         builders = {
             "repo_map": self._repo_map_layer,
             "relevant_chunks": self._relevant_chunks_layer,
+            "git_context": self._git_context_layer,
             "task": self._task_layer,
             "plan": self._plan_layer,
             "progress": self._progress_layer,
@@ -408,8 +442,12 @@ class ContextEngine:
             if score < 0.15:
                 continue  # Skip low-value layers entirely
 
-            # Differential check: reuse cached layer if state deps haven't changed
-            cached = self._layer_cache.get(name)
+            # Differential check: reuse cached layer if state deps haven't
+            # changed. VOLATILE layers (git_context) describe the world
+            # OUTSIDE the state dict — a commit or `git add` does not change
+            # the state hash — so they must rebuild every turn. Building one
+            # is a handful of fast local subprocess calls, well under 100ms.
+            cached = None if name in self.VOLATILE_LAYERS else self._layer_cache.get(name)
             if cached and self._last_state_hash == current_hash:
                 layers.append(cached)
                 continue
@@ -418,7 +456,8 @@ class ContextEngine:
                 msg = builder(state)
                 if msg:
                     layers.append(msg)
-                    self._layer_cache[name] = msg
+                    if name not in self.VOLATILE_LAYERS:
+                        self._layer_cache[name] = msg
             except Exception as exc:
                 # Never silent: a masked builder error hid the _quality_layer
                 # signature bug for months. Skip the layer, but say so.
@@ -471,6 +510,8 @@ class ContextEngine:
             return "repo_map"
         if content.startswith("=== RELEVANT CODE CHUNKS"):
             return "relevant_chunks"
+        if content.startswith("=== GIT CONTEXT"):
+            return "git_context"
         if content.startswith("=== CURRENT TASK"):
             return "task"
         if content.startswith("=== PLAN"):
@@ -746,6 +787,15 @@ class ContextEngine:
         """
         from src.context.chunk_index import build_relevant_chunks_layer
         return build_relevant_chunks_layer(state)
+
+    def _git_context_layer(self, state: dict[str, Any]) -> SystemMessage | None:
+        """Layer 0c: live git awareness (branch, staged/uncommitted, recent).
+
+        Returns None outside a git repo. Marked VOLATILE (never cached):
+        commits/staging happen outside the graph state dict.
+        """
+        from src.context.git_context import build_git_context_layer
+        return build_git_context_layer(state)
 
     def _task_layer(self, state: dict[str, Any]) -> SystemMessage:
         """Layer 1: What is the user trying to do?"""

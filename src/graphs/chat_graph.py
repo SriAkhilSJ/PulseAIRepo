@@ -1772,8 +1772,10 @@ except Exception as exc:  # e.g. RuntimeError from VectorMemory
 # Main context engine: heuristic summarization only (saves money).
 # To enable LLM-powered summarization for massive outputs, pass llm=get_llm(...).
 # Give it the memory manager so it can retrieve past lessons.
+# max_tokens=None -> auto-detect from the model's context window, capped at
+# PROVIDER_SAFE_LIMIT (see ContextEngine.__init__). Never hardcode a number
+# here again: an 8000 cap silently wastes 96% of a 200K-window model.
 context_engine = ContextEngine(
-    max_tokens=8000,
     model=LLM_MODEL,
     llm=None,
     memory_manager=memory_manager,
