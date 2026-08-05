@@ -22,6 +22,16 @@ class RetryLLMProxy:
     def __init__(self, llm: Any, max_attempts: int = 5):
         self._llm = llm
         self._max_attempts = max_attempts
+        # Explicit model name extraction — do NOT rely on __getattr__
+        # fall-through. langchain providers differ: ChatOpenAI/ChatGroq
+        # historically exposed model_name (alias "model"), newer versions
+        # expose model; ChatGoogleGenerativeAI uses model. Grab whichever
+        # exists so count_tokens() always gets a real model string.
+        self.model = (
+            getattr(llm, "model", None)
+            or getattr(llm, "model_name", None)
+            or getattr(llm, "model_id", None)
+        )
 
     def invoke(self, *args, **kwargs):
         """
@@ -46,7 +56,14 @@ class RetryLLMProxy:
                 from src.config.settings import PROVIDER_SAFE_LIMIT
                 from src.context.token_budget import count_tokens
                 total_tokens = count_tokens(messages_arg, self.model)
-            except Exception:
+            except Exception as guard_error:
+                # NEVER silently disable the guard: a token-counting failure
+                # would otherwise zero the limit and ship oversized payloads
+                # straight to providers (the 503 the guard exists to prevent).
+                print(
+                    f"[RetryLLMProxy] Token guard unavailable (model={self.model!r}): "
+                    f"{guard_error!r} — sending untrimmed"
+                )
                 total_tokens = 0
                 PROVIDER_SAFE_LIMIT = 0
 
