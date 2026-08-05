@@ -336,3 +336,20 @@ empirically:
 | `None` when even suffix doesn't fit | ✅ Correct as-is (genuinely unfittable) | Regression-pinned in a test |
 
 Suite: **80/80 green** (2 new property tests with a brute-force oracle).
+
+---
+
+## 13. Round-13 Audit Follow-ups (2026-08-05)
+
+Ninth pasted review — round-12 audit came back clean ("Ship this"), with
+the reviewer honestly retracting both of their round-12 false claims (test
+absence, proxy path). Three minor issues raised; verdicts:
+
+| Claim | Verdict | Action |
+|---|---|---|
+| 1. `_safe_limit()` memoization race: two threads could both resolve on first use | 🟡 **REAL, proven**: barrier-gated resolve showed `calls == 2` under a controlled race. Harmless-but-wasteful (GIL makes the int write safe; both compute the same value) | ✅ Double-checked locking (`_limit_lock`); deterministic race test now pins `calls == 1` |
+| 2. `_trim_to_limit` re-measures head+tail per binary iteration | ❌ **REJECTED as not-worth-churn**: runs only when already over the limit (rare), ~log2(n) iterations of a ms-scale function; even the reviewer graded it negligible. Risk of touching the guard's math > the gain | Documented here |
+| 3. `RetryLLMProxy.model` getattr-chain can yield None | 🔴 **REAL — and *worse than the reviewer's "Low"***: in auto mode (`PSL=0`, the paid-tier path), model=None resolves the unknown-model 4,096 while the engine budgets the full discovered window. Production-shaped proof: **engine 126,976 vs proxy 4,096 — silent amputation, zero warnings** | ✅ Fallback to `settings.LLM_MODEL` (the factory's own source of truth) + loud log line; lockstep regression test |
+
+Suite: **83/83 green** (3 new tests: deterministic race, extraction
+fallback, engine↔proxy lockstep with hidden model attr).

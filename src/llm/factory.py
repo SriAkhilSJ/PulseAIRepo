@@ -1,4 +1,5 @@
 import re
+import threading
 import time
 from typing import Any
 
@@ -35,6 +36,24 @@ class RetryLLMProxy:
             or getattr(llm, "model_name", None)
             or getattr(llm, "model_id", None)
         )
+        if self.model is None:
+            # A provider that exposes none of the three attrs must not leave
+            # self.model as None: with PROVIDER_SAFE_LIMIT=0 (auto), the
+            # guard would resolve the UNKNOWN-model default (4,096) while the
+            # engine budgets the real discovered window — a silent amputator.
+            # Fall back to the same source of truth the factory builds from.
+            try:
+                from src.config.settings import LLM_MODEL
+                self.model = LLM_MODEL
+                print(
+                    f"[RetryLLMProxy] {type(llm).__name__} exposes no model "
+                    f"attr; falling back to LLM_MODEL={self.model!r}"
+                )
+            except Exception:
+                pass
+        # Guards auto-limit resolution (double-checked in _safe_limit);
+        # the dashboard can invoke this proxy from worker threads.
+        self._limit_lock = threading.Lock()
 
     def invoke(self, *args, **kwargs):
         """
@@ -109,9 +128,11 @@ class RetryLLMProxy:
         if PROVIDER_SAFE_LIMIT > 0:
             return PROVIDER_SAFE_LIMIT
         if self._auto_limit is None:
-            from src.context.model_budgets import SAFETY_MARGIN, resolve_context_window
-            window, _source = resolve_context_window(self.model)
-            self._auto_limit = max(window - SAFETY_MARGIN, 4_096)
+            with self._limit_lock:
+                if self._auto_limit is None:
+                    from src.context.model_budgets import SAFETY_MARGIN, resolve_context_window
+                    window, _source = resolve_context_window(self.model)
+                    self._auto_limit = max(window - SAFETY_MARGIN, 4_096)
         return self._auto_limit
 
     def _trim_to_limit(self, messages: list, limit: int) -> list:

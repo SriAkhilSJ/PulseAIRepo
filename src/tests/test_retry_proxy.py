@@ -62,3 +62,66 @@ def test_guard_trims_at_auto_limit(monkeypatch):
     # Head (system) and tail (recent) must survive middle-out trimming.
     assert llm.sent[0].content == "SYS"
     assert llm.sent[-1].content.startswith("19:")
+
+
+# =====================================================================
+# Round-13 fixes (both proven pre-fix in adversarial experiments)
+# =====================================================================
+
+import threading
+
+
+def test_auto_limit_memoization_is_thread_safe(monkeypatch):
+    """Pre-fix proof: two racing threads BOTH resolved (calls == 2).
+    Double-checked locking must make it exactly one."""
+    monkeypatch.setattr(settings, "PROVIDER_SAFE_LIMIT", 0)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = {"n": 0}
+
+    def gated_resolve(model, provider=None, allow_network=True):
+        calls["n"] += 1
+        entered.set()
+        release.wait(2)
+        return (131_072, "test")
+
+    monkeypatch.setattr(mb, "resolve_context_window", gated_resolve)
+    proxy = RetryLLMProxy(_StubLLM("m/unknown"))
+    results = []
+
+    t1 = threading.Thread(target=lambda: results.append(proxy._safe_limit()))
+    t1.start()
+    assert entered.wait(2)          # t1 is inside resolve, holding the lock
+    t2 = threading.Thread(target=lambda: results.append(proxy._safe_limit()))
+    t2.start()                      # must block on the lock, not re-resolve
+    release.set()
+    t1.join(); t2.join()
+    assert calls["n"] == 1, f"race re-resolved: {calls['n']} calls"
+    assert results == [131_072 - 4_096, 131_072 - 4_096]
+
+
+class _NoModelAttrs:
+    """A provider object exposing no model/model_name/model_id attr."""
+
+    def invoke(self, *a, **k):
+        return "ok"
+
+
+def test_model_extraction_falls_back_to_llm_model():
+    proxy = RetryLLMProxy(_NoModelAttrs())
+    assert proxy.model == settings.LLM_MODEL
+
+
+def test_auto_lockstep_holds_when_provider_hides_model_attr(monkeypatch):
+    """The silent amputation from the round-13 experiment: provider hides
+    its model attr -> proxy used to resolve the 4,096 unknown default while
+    the engine budgeted 126,976. With the settings fallback they agree."""
+    monkeypatch.setattr(settings, "PROVIDER_SAFE_LIMIT", 0)
+    monkeypatch.setattr(
+        mb, "resolve_context_window",
+        lambda model, provider=None, allow_network=True: (131_072, "test"),
+    )
+    from src.context.context_engine import ContextEngine
+    eng = ContextEngine(model=settings.LLM_MODEL, llm=None, memory_manager=None)
+    proxy = RetryLLMProxy(_NoModelAttrs())
+    assert proxy._safe_limit() == eng.max_tokens == 131_072 - 4_096
