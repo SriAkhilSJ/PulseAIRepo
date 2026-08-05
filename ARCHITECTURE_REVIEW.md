@@ -353,3 +353,19 @@ absence, proxy path). Three minor issues raised; verdicts:
 
 Suite: **83/83 green** (3 new tests: deterministic race, extraction
 fallback, engine↔proxy lockstep with hidden model attr).
+
+---
+
+## 14. Round-14 Nit (2026-08-05)
+
+Tenth pasted review — round 13 verified clean, reviewer retracted their
+round-12 "Low" grade in writing (correctly upgraded to High). One residual:
+
+| Claim | Verdict | Action |
+|---|---|---|
+| `LLM_MODEL` fallback import sits in `try/except: pass` — could still exit silently with `model=None` | 🟡 **REAL (hygiene)**: settings is fully loaded at factory import time (module-level imports of its API keys), so the `except` could only ever mask a pathological failure INTO the silent state the whole feature exists to kill. House rule: never silent | ✅ `try/except` removed; final loud WARNING if model is still falsy; 2 new tests pin both the announce-fallback and announce-pathological paths |
+
+Reviewer-confirmed non-issue: fresh `_limit_lock` per `bind_tools()` proxy
+is correct by construction (per-instance memoization).
+
+Suite: **85/85 green** (+2). Ten review rounds complete.

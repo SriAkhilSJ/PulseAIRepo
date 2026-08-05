@@ -42,15 +42,22 @@ class RetryLLMProxy:
             # guard would resolve the UNKNOWN-model default (4,096) while the
             # engine budgets the real discovered window — a silent amputator.
             # Fall back to the same source of truth the factory builds from.
-            try:
-                from src.config.settings import LLM_MODEL
-                self.model = LLM_MODEL
-                print(
-                    f"[RetryLLMProxy] {type(llm).__name__} exposes no model "
-                    f"attr; falling back to LLM_MODEL={self.model!r}"
-                )
-            except Exception:
-                pass
+            # (settings is fully loaded by factory import time — no circular
+            # risk — so there is no excuse for a silent except: pass here.)
+            from src.config.settings import LLM_MODEL
+            self.model = LLM_MODEL
+            print(
+                f"[RetryLLMProxy] {type(llm).__name__} exposes no model "
+                f"attr; falling back to LLM_MODEL={self.model!r}"
+            )
+        if not self.model:
+            # Last-resort honesty: nothing about this proxy may fail silently.
+            # An empty LLM_MODEL leaves the guard conservative-by-default.
+            print(
+                "[RetryLLMProxy] WARNING: no model name available "
+                f"(provider={type(llm).__name__}, LLM_MODEL empty) — token "
+                "guard/auto-limit will use conservative fallbacks"
+            )
         # Guards auto-limit resolution (double-checked in _safe_limit);
         # the dashboard can invoke this proxy from worker threads.
         self._limit_lock = threading.Lock()

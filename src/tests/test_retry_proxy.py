@@ -125,3 +125,22 @@ def test_auto_lockstep_holds_when_provider_hides_model_attr(monkeypatch):
     eng = ContextEngine(model=settings.LLM_MODEL, llm=None, memory_manager=None)
     proxy = RetryLLMProxy(_NoModelAttrs())
     assert proxy._safe_limit() == eng.max_tokens == 131_072 - 4_096
+
+
+def test_missing_model_is_never_silent(monkeypatch, capsys):
+    """Round-14 nit: even the pathological case (no provider attr AND an
+    empty LLM_MODEL) must announce itself, not pass silently."""
+    monkeypatch.setattr(settings, "LLM_MODEL", "")
+    proxy = RetryLLMProxy(_NoModelAttrs())
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "no model name available" in out
+    # And it must not *lie* either: model stays falsy rather than inventing one.
+    assert not proxy.model
+
+
+def test_fallback_log_announces_the_model_used(capsys):
+    proxy = RetryLLMProxy(_NoModelAttrs())
+    out = capsys.readouterr().out
+    assert "falling back to LLM_MODEL" in out
+    assert proxy.model == settings.LLM_MODEL
