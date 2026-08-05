@@ -1797,6 +1797,7 @@ except Exception as exc:  # e.g. RuntimeError from VectorMemory
 _ENGINES: "OrderedDict[str, ContextEngine]" = OrderedDict()
 _ENGINES_LOCK = threading.Lock()
 _ENGINES_MAX = 128  # LRU cap: engines are light; unbounded growth is not.
+_WARNED_DEFAULT_BUCKET = False
 
 
 def _session_key_from_config(config: RunnableConfig | None) -> str:
@@ -1820,6 +1821,19 @@ def get_context_engine(
         if isinstance(config_or_key, str)
         else _session_key_from_config(config_or_key)
     )
+    if key == "default":
+        # Sessions with no thread_id all collapse into one shared engine —
+        # the SAFE degradation (isolation loss, never correctness loss, thanks
+        # to the per-engine lock), but it means somebody bypassed session
+        # plumbing. Say so ONCE per process, never silently.
+        global _WARNED_DEFAULT_BUCKET
+        if not _WARNED_DEFAULT_BUCKET:
+            _WARNED_DEFAULT_BUCKET = True
+            print(
+                "[chat_graph] ContextEngine request without thread_id — "
+                "bucketing to the shared 'default' engine. If this is the "
+                "dashboard, a session is missing its thread_id."
+            )
     with _ENGINES_LOCK:
         engine = _ENGINES.get(key)
         if engine is None:

@@ -63,7 +63,7 @@ def test_record_feedback_attributes_layers_actually_sent(tmp_path):
     eng._feedback_path = str(tmp_path / "feedback.json")
     eng.build_ai_messages(_state(), SystemMessage(content="SYS"))
     eng.record_feedback(True, task="fix the bug in the parser")
-    record = json.loads(open(eng._feedback_path).read())[-1]
+    record = json.loads(open(eng._feedback_path).readlines()[-1])  # JSONL store
     assert record["layers_used"], "feedback recorded no layers"
     assert "task" in record["layers_used"]
     assert None not in record["layers_used"]

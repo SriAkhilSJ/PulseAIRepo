@@ -65,7 +65,7 @@ class TestIsolation:
     def test_attribution_isolated_between_sessions(self, tmp_path):
         eng_a = chat_graph.get_context_engine("iso-a")
         eng_b = chat_graph.get_context_engine("iso-b")
-        eng_a._feedback_path = str(tmp_path / "a.json")
+        eng_a._feedback_path = str(tmp_path / "a.jsonl")
         sysmsg = SystemMessage(content="SYS")
 
         eng_a.build_ai_messages(_state("fix the bug in the parser"), sysmsg)
@@ -77,7 +77,7 @@ class TestIsolation:
         assert eng_b._last_layers_sent != a_layers
 
         eng_a.record_feedback(success=False, task="fix the bug in the parser")
-        record = json.loads(open(eng_a._feedback_path).read())[-1]
+        record = json.loads(open(eng_a._feedback_path).readlines()[-1])  # JSONL
         assert record["layers_used"] == a_layers, (
             "session B's build overwrote session A's attribution snapshot"
         )
@@ -165,3 +165,101 @@ class TestNodeWiring:
     def test_engines_carry_api_locks(self):
         eng = chat_graph.get_context_engine("lock-check")
         assert hasattr(eng, "_api_lock"), "engine lost its mutation guard"
+
+
+# =====================================================================
+# D1 follow-up: append-only JSONL feedback store (race proven pre-fix:
+# two engines interleaved full-rewrites and one session's row VANISHED)
+# =====================================================================
+
+import pytest
+
+from src.context.context_engine import (
+    ContextEngine,
+    _get_shared_classifier,
+)
+
+
+@pytest.fixture
+def fb_home(tmp_path, monkeypatch):
+    """Engines derive their feedback path from ~ — point ~ at tmp."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    return tmp_path
+
+
+def _fb_path(home):
+    return home / ".pulseai" / "context_feedback.jsonl"
+
+
+class TestFeedbackStore:
+    def test_interleaved_sessions_never_lose_records(self, fb_home):
+        # The exact pre-fix loss pattern: A writes, B writes (stomped A),
+        # A writes again (stomped B) — disk ended with only [A, A2].
+        eng_a = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        eng_b = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        eng_a.record_feedback(success=True, task="alpha")
+        eng_b.record_feedback(success=False, task="beta")
+        eng_a.record_feedback(success=True, task="alpha-2")
+
+        lines = [json.loads(l) for l in open(_fb_path(fb_home))]
+        assert [r["task"] for r in lines] == ["alpha", "beta", "alpha-2"], (
+            "append-only store lost an interleaved session record"
+        )
+
+    def test_new_engine_sees_global_history(self, fb_home):
+        # Global learning channel (by design): a fresh session engine
+        # bootstraps its weights from OTHER sessions' records.
+        ContextEngine(max_tokens=4000, llm=None, memory_manager=None).record_feedback(
+            True, task="earlier-session")
+        fresh = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        assert any(r["task"] == "earlier-session" for r in fresh._feedback_history)
+
+    def test_debris_lines_are_skipped_not_fatal(self, fb_home):
+        # Cross-process interleave can tear a line; readers must keep the rest.
+        _fb_path(fb_home).parent.mkdir(parents=True, exist_ok=True)
+        _fb_path(fb_home).write_text(
+            '{"task": "ok", "success": true}\n'
+            '{"task": "torn-half — NOT JSON\n'
+            '{"task": "ok2", "success": false}\n'
+        )
+        eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        assert [r["task"] for r in eng._feedback_history] == ["ok", "ok2"]
+
+    def test_legacy_json_store_migrates(self, fb_home):
+        legacy = fb_home / ".pulseai" / "context_feedback.json"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text(json.dumps([{"task": "old1"}, {"task": "old2"}]))
+        eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        assert [r["task"] for r in eng._feedback_history] == ["old1", "old2"]
+        assert len(open(_fb_path(fb_home)).readlines()) == 2
+        assert not legacy.exists(), "legacy file should be renamed away"
+        assert (legacy.parent / "context_feedback.json.bak").exists()
+
+    def test_compaction_bounds_the_file(self, fb_home):
+        n = ContextEngine._FEEDBACK_COMPACT_AT + 50
+        _fb_path(fb_home).parent.mkdir(parents=True, exist_ok=True)
+        _fb_path(fb_home).write_text(
+            "".join(json.dumps({"task": f"t{i}"}) + "\n" for i in range(n))
+        )
+        eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        keep = ContextEngine._FEEDBACK_COMPACT_TO
+        assert len(eng._feedback_history) == keep
+        lines = open(_fb_path(fb_home)).readlines()
+        assert len(lines) == keep, "file not actually compacted"
+        assert json.loads(lines[0])["task"] == f"t{n - keep}", "kept tail must be the most recent"
+
+
+class TestSharedClassifier:
+    def test_one_classifier_per_process(self):
+        assert _get_shared_classifier() is _get_shared_classifier()
+
+    def test_engines_share_the_classifier(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        a = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        b = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+        a.build_ai_messages(_state("fix the bug"), SystemMessage(content="SYS"))
+        b.build_ai_messages(_state("explain the code"), SystemMessage(content="SYS"))
+        assert a._classifier is not None
+        assert a._classifier is b._classifier, (
+            "per-engine classifiers re-warmed ~25 prototype embeddings per session"
+        )

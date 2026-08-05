@@ -410,3 +410,23 @@ LRU eviction w/ exact order semantics, attribution + weight isolation,
 8-thread same-session hammer, node config wiring, end-to-end recovery-limit
 feedback on the right engine). One degraded-memory test updated for the new
 `finalize_node(state, config)` signature.
+
+---
+
+## 16. D1 Follow-ups: Feedback-Store Race + Shared Classifier (2026-08-05)
+
+Eleventh pasted review — D1 audit clean, three issues; verdicts:
+
+| Claim | Verdict | Action |
+|---|---|---|
+| 1. Feedback file race: session engines full-rewrite the SAME `context_feedback.json` — last writer wins | 🔴 **REAL — and D1-promoted**: latent under the singleton (one practical writer), now N engines each holding own history. Proven pre-fix: interleave A→B→A and disk held only `[A, A2]` — **session B's row gone** | ✅ Append-only JSONL store (one line per record, O_APPEND — no writer ever overwrites another); defensive reader skips debris from theoretical cross-process tears; legacy `.json` auto-migrates to `.jsonl`; compaction at 2000→1000 lines via pid-tmp + `os.replace` |
+| 2. Per-engine TaskClassifier warm-up | 🟡 **REAL — compute, not just memory as they graded**: every new session engine re-encoded ~25 prototypes at first build; classifier is read-only after init (verified) | ✅ One process-wide shared classifier (double-checked lock); regression test pins `a._classifier is b._classifier` |
+| 3. Missing `thread_id` collapses sessions into `"default"` | 🟡 By-design SAFE degradation (isolation loss, never correctness — per-engine lock holds); dashboard always passes thread_id | ✅ One-time per-process loud notice — if plumbing ever regresses, it's visible at boot instead of silent session collapse |
+
+Global feedback learning channel **kept by design** (§15): a fresh engine
+still bootstraps from other sessions' records — now via the union of the
+shared append-only file instead of racy rewrites.
+
+Suite: **101/101 green** (7 new: the proven-loss reproduction as a
+regression test, global history, debris tolerance, legacy migration,
+compaction, 2× shared classifier). Two JSON-array readers updated to JSONL.

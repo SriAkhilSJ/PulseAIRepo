@@ -145,13 +145,29 @@ class TaskClassifier:
         return sum(x * y for x, y in zip(a, b))
 
 
-class ContextEngine:
+# One TaskClassifier per PROCESS, shared by every session engine (D1
+# follow-up): ~25 prototype embeddings are encoded at warm-up, and the
+# classifier is read-only afterwards (verified) — 128 session engines each
+# paying that warm-up was pure waste.
+_SHARED_CLASSIFIER: Optional["TaskClassifier"] = None
+_SHARED_CLASSIFIER_LOCK = threading.Lock()
 
+
+def _get_shared_classifier() -> "TaskClassifier":
+    global _SHARED_CLASSIFIER
+    if _SHARED_CLASSIFIER is None:
+        with _SHARED_CLASSIFIER_LOCK:
+            if _SHARED_CLASSIFIER is None:
+                _SHARED_CLASSIFIER = TaskClassifier()
+    return _SHARED_CLASSIFIER
+
+
+class ContextEngine:
     """
     The Context Engine class.
 
-    You create ONE of these when your agent starts.
-    It lives for the whole conversation.
+    Engines are session-scoped (one per conversation thread, via the
+    chat_graph registry) and live for that conversation.
     """
 
     def __init__(
@@ -250,9 +266,15 @@ class ContextEngine:
         # mutations must not interleave.
         self._api_lock = threading.RLock()
 
-        # Feedback loop for learning layer weights
+        # Feedback loop for learning layer weights.
+        # Append-only JSONL store: session-scoped engines (D1) made the old
+        # full-file rewrite a real data-loss race — proven: two engines
+        # interleaved records and one session's row vanished (last writer
+        # wins). One line per record, O_APPEND at the OS level; readers skip
+        # debris lines defensively.
         self._feedback_history: list[dict] = []
-        self._feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
+        self._feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.jsonl")
+        self._legacy_feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
         self._load_feedback()
 
 
@@ -396,7 +418,7 @@ class ContextEngine:
         task = state.get("current_task", "")
         self._current_task = task
         if self._classifier is None:
-            self._classifier = TaskClassifier()
+            self._classifier = _get_shared_classifier()
         task_type = self._classifier.classify(task)
 
         # 2. Differential state check
@@ -1164,23 +1186,70 @@ class ContextEngine:
         if len(self._feedback_history) > 300:
             self._feedback_history = self._feedback_history[-150:]
         self._apply_learned_weights()
-        self._save_feedback()
+        self._append_feedback(profile)
 
     def _load_feedback(self) -> None:
+        # One-time migration from the legacy full-rewrite JSON array store.
+        if not os.path.exists(self._feedback_path) and os.path.exists(self._legacy_feedback_path):
+            try:
+                with open(self._legacy_feedback_path, "r", encoding="utf-8") as f:
+                    legacy = json.load(f)
+                if isinstance(legacy, list):
+                    os.makedirs(os.path.dirname(self._feedback_path), exist_ok=True)
+                    with open(self._feedback_path, "w", encoding="utf-8") as f:
+                        for record in legacy:
+                            f.write(json.dumps(record) + "\n")
+                    os.replace(self._legacy_feedback_path, self._legacy_feedback_path + ".bak")
+            except Exception:
+                pass  # learning data must never block boot
+
         if os.path.exists(self._feedback_path):
+            history = []
             try:
                 with open(self._feedback_path, "r", encoding="utf-8") as f:
-                    self._feedback_history = json.load(f)
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue  # debris from a cross-process interleave: skip, keep the rest
+                        if isinstance(record, dict):
+                            history.append(record)
             except Exception:
-                pass
+                return
+            self._feedback_history = history
+            self._compact_feedback_if_needed()
 
-    def _save_feedback(self) -> None:
+    # Compaction bounds boot-time load cost; rotation keeps the tail (most
+    # recent = most informative for the learned weights).
+    _FEEDBACK_COMPACT_AT = 2000
+    _FEEDBACK_COMPACT_TO = 1000
+
+    def _compact_feedback_if_needed(self) -> None:
+        if len(self._feedback_history) <= self._FEEDBACK_COMPACT_AT:
+            return
+        self._feedback_history = self._feedback_history[-self._FEEDBACK_COMPACT_TO:]
+        try:
+            tmp = f"{self._feedback_path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                for record in self._feedback_history:
+                    f.write(json.dumps(record) + "\n")
+            os.replace(tmp, self._feedback_path)  # atomic on POSIX + Windows
+        except Exception:
+            pass  # worst case: file stays long; never block boot
+
+    def _append_feedback(self, profile: dict) -> None:
+        """Append ONE record line. O_APPEND means concurrent session engines
+        (and the dashboard + CLI processes) never overwrite each other's
+        rows — unlike the retired full-file rewrite."""
         try:
             os.makedirs(os.path.dirname(self._feedback_path), exist_ok=True)
-            with open(self._feedback_path, "w", encoding="utf-8") as f:
-                json.dump(self._feedback_history, f)
+            with open(self._feedback_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(profile) + "\n")
         except Exception:
-            pass
+            pass  # feedback is best-effort; never block the graph
 
     def _apply_learned_weights(self) -> None:
         """Adjust LAYER_RELEVANCE based on historical success/failure."""
