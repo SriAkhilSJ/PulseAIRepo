@@ -467,3 +467,57 @@ here because the harness catching me is the point of the harness.
 Suite: **127/127 green** (+26: dashboard validation suite incl. 413/evil
 thread_ids, guard substitution, timeouts per provider, repo_map registry,
 diff edges, search skips, sub-agent depth cap, add-removal).
+
+---
+
+## 18. Reviewer Self-Verification of the 18-Issue Review (2026-08-05)
+
+Thirteenth pasted artifact: the §17 reviewer "rigorously re-verified" their
+own review — confirming 15 claims, retracting 1 (adopting this audit's FALSE
+verdict on `is_plan_approval`), pivoting it to a new claim ("too narrow"),
+and silently dropping 2 (#11 progress_node god-node, #12 compute_unified_diff
+fragility — both remain attached to their §17 verdicts here). Every line
+number they cite matches the PRE-patch tree; the round-12 bundle (upstream
+`445073c`, `c48a42b`) landed between their review and their verification.
+
+All 16 rows re-verified live against the post-patch tree:
+
+| Their row | Verdict now | Fresh evidence (this turn) |
+|---|---|---|
+| Flask missing from deps | FALSE NOW | `pyproject.toml:11-12` flask + flask-cors |
+| Sub-agent deadlock | **REFUTED BY REPRO** | Nested `graph.invoke` — same compiled graph, same `SqliteSaver`, same connection, same thread: 3 levels (`main → main/sub0 → main/sub1`) all execute, 0.010s, zero errors. Depth cap additionally shipped (`chat_graph.py:231`). Parent-blocking isolation stays in debt D7 |
+| Shared checkpointer connection | FALSE — sharper proof + a real caveat (below) | `SqliteSaver` holds an internal `threading.Lock` (langgraph-checkpoint-sqlite :95); every cursor op runs `with self.lock:` / `with self.cursor(...)`; its docstring: *"check_same_thread=False is OK as the implementation uses a lock to ensure thread safety."* 4-thread concurrent-put hammer through the saver: **200/200 checkpoints, zero errors, zero loss** |
+| `shell=True` injection vector | FALSE NOW as stated | `SafeToolNode(tools, SafetyGuard())` wraps ALL tools (`chat_graph.py:1538`), `run_terminal`/`start_terminal` included; round-12 escalation sends every `$()`/backtick to approval (`safety_guard.py:80`). "Guard is a checkpoint, not a sandbox" stays documented |
+| Vector memory O(n) scan | STANDS → debt D8 | `vector_memory.py:89` LIMIT-500 scan, intentionally until sqlite-vec migration |
+| No LLM timeouts | FALSE NOW | `factory.py:247-281`: 60s on all 5 provider constructors |
+| `search_code` brute force | perf FIXED; FTS reroute REJECTED | `file_tools.py:11-18`: skip-dirs + 2MB/2k-file/500-result caps; substring-grep ≠ BM25 question-answering |
+| Dashboard zero validation | FALSE NOW | `dashboard_server.py:43,54,58-60`: thread_id regex, 10k-char message cap, 1MB body cap + 413 handler |
+| Circular imports in tools | FALSE NOW | Fresh-interpreter `import src.tools.file_tools` pulls **zero** graph/dashboard modules — `compute_unified_diff` (:374) and `event_bus` (:389) imports are both function-lazy; `event_bus.py` itself is a leaf (json/queue/threading/time only) |
+| `add` math tool | FALSE NOW | gone from the tool list |
+| `AgentState(total=False)` | REJECTION STANDS | LangGraph reducers return partial dicts; `total=True` would break every node return — idiom, not sloppiness |
+| repo_map singleton race | FALSE NOW | `_repo_map_instance` symbol GONE; per-workspace registry + lock (`repo_map.py:369,382`) |
+| `web_fetch` regex HTML | STANDS → debt D10 | low-traffic tool; bs4 swap sized |
+| Placeholder description | FALSE NOW | `pyproject.toml:4` real description |
+| cl100k fallback for Qwen | **PARTIALLY STANDS — honestly scoped** | `token_tracker.py:168-170` still falls back to `cl100k_base` for non-OpenAI models. The CONSEQUENCE is dead: budget safety moved to `usable_window_budget()` (margin = max(4096, 5%·window), shared by engine AND proxy, §17#8), so counting drift can no longer overflow/amputate context. Remaining residue = display/cost-accounting precision only. Their AutoTokenizer fix rejected: a heavy transformers dep for display math. Documented known limitation |
+| Pivot: "approval matching too narrow" (yep/yeah/ok/sure) | **REJECTED AS UNSAFE DIRECTION** | approvals = {approve, approved, execute, execute plan, run plan, proceed, go ahead, continue, yes}. An approval gate must **fail closed**: false negative = retype "approve"; false positive = destructive plan executes on a non-approval. Fuzzy-NL approval is the exact anti-goal the gate exists for. Their factual basis ("ok/sure/yep don't match") is true — and that is the correct, now-pinned behavior |
+
+**The hammer that bit me first (process honesty, same rule as §17):** my
+first shared-connection stress test hammered the RAW `sqlite3.Connection`
+with `conn.execute` from 8 threads and DID fail — `InterfaceError`, lost
+rows (244/1600). That failure mode is real (CPython's own docs warn about
+unsynchronized concurrent use of one connection object) — but it is *not the
+pattern this codebase exercises*: every checkpointer access goes through
+`SqliteSaver`'s internal lock. Recorded lesson: **never add bespoke raw-conn
+writers to `_checkpoint_conn`** — go through the saver. Pragmas (my §17-era
+evidence) were necessary but not sufficient proof; the saver lock is the
+actual guarantee. The reviewer's claim stays false; my own method leveled
+up. My first nested-invoke repro also had a bad assertion (expected the
+outer invoke to return the innermost depth) — corrected, re-run, refutation
+intact. Both corrections published here because the harness catching
+ME is the point of the harness.
+
+**Scorecard across both artifacts of this review (18 claims + 1 pivot):**
+10 merged, 3 false/overstated on mechanism, 1 idiom rejection, 4 deferred
+debts, 1 pivot rejected as unsafe. Suite: **130/130 green** (+3 pinned this
+round: nested-invoke refutation, concurrent-session saver hammer,
+fail-closed approval).
