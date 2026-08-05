@@ -296,3 +296,25 @@ Live demo (fake provider payload through the real chain): cold boot probes
 
 Suite: **68/68 green** (8 new pure tests; cache isolated to tmp HOME, HTTP
 seam monkeypatched — no network in CI).
+
+---
+
+## 11. Commit-Verification Report on My Own Work (2026-08-05, founder-escalated)
+
+Seventh pasted review — this one audited MY commits (`ca3fd5c`, `30f15f7`)
+and the founder called the findings shameful. Fair. Verdicts, as always,
+empirical:
+
+| Claim | Verdict | Action |
+|---|---|---|
+| 1. `_infer_layer_name` is brittle header-string sniffing | 🔴 **REAL, proven**: `== GIT CONTEXT` (one `=` short) → `unknown` → 0.5 relevance + corrupted feedback attribution | ✅ **Identity tags**: every engine-built layer stamped `response_metadata["layer"]` at build; inference is tag-first, header chain demoted to fallback; tags propagate through `_compress_layer`. Verified `response_metadata` never enters provider payloads (`convert_to_openai_messages` output) |
+| 2. `PROVIDER_SAFE_LIMIT` caps everything at 6K — "discovery is observational" | 🔴 **REAL**: engine logged 131K but used 6K with no path forward | ✅ **AUTO mode**: `PROVIDER_SAFE_LIMIT=0` → both the engine budget AND the `RetryLLMProxy` guard resolve the identical `discovered_window − 4,096` (proxy memoizes: no per-invoke disk/network). Default stays 6000 — safe out of the box, one env var unlocks paid tiers. Boot log now prints the hint: `— set PROVIDER_SAFE_LIMIT=0 to unlock 126,976` |
+| 3. Watcher/index is `.py`-only | 🟡 **REAL but scope, not a bug**: the extractor is stdlib `ast` — Python by construction. Multi-language = tree-sitter grammars, a milestone of its own | Deferred as **debt D5** (after D1 session-scoping, D2 embed cache). Not shipping a regex-chunker — that's a quality downgrade wearing a feature's clothes |
+| 4. Probes read raw `os.getenv` for API keys | 🟡 **REAL** (latent): worked by accident — resolve() imports settings first, whose `load_dotenv()` populates os.environ. Inconsistent with the provider fix I had just made | ✅ `_settings_key()`: settings-first, env fallback; regression tests pin both paths |
+| (self-found) `_compress_layer` generic truncation assumed 3.5 chars/token | 🔴 **REAL, worse than any pasted claim this round**: code-dense text runs ~2.5 chars/token, so the truncation branch produced candidates ~42% over budget and **silently returned None → layer dropped** — for every code-dense layer, always | ✅ Measured per-message ratio + proportional fit with shrink retry (≤3 attempts). Found by my own failing test, fixed same commit |
+
+**Demo proof:** default tier caps at 6,000 with printed unlock hint; auto
+tier budgets 126,976 and `proxy._safe_limit()` returns the **identical
+number** — engine and guard in lockstep. All layers carry identity tags.
+
+Suite: **78/78 green** (10 new pure tests incl. a new `test_retry_proxy.py`).

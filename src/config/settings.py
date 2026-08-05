@@ -53,6 +53,11 @@ LLM_CONTEXT_WINDOW: str | None = os.getenv("LLM_CONTEXT_WINDOW")
 # Provider input safety limit (tokens). Trim messages before sending if over.
 # OmniRouter's auto-combo tier 503s on oversized requests; keep the payload
 # under this cap so the pre-send guard can avoid the rejection.
+#   > 0 : explicit cap (safe default for free/combo tiers)
+#   = 0 : AUTO — trust the dynamically discovered model window instead.
+#         Use this on paid/unlimited tiers to unlock the full context window;
+#         both the ContextEngine budget and the RetryLLMProxy guard resolve
+#         the identical number, so they can never disagree.
 PROVIDER_SAFE_LIMIT: int = int(os.getenv("PROVIDER_SAFE_LIMIT", "6000"))
 
 # =========================================================

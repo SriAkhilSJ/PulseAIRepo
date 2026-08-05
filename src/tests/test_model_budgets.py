@@ -224,3 +224,39 @@ class TestDynamicResolution:
         assert eng.context_window_source == "groq-api"
         # min(131072 - 4096, PROVIDER_SAFE_LIMIT)
         assert eng.max_tokens == min(131072 - 4096, PROVIDER_SAFE_LIMIT)
+
+
+class TestSettingsKeyResolution:
+    def test_probe_reads_key_from_settings_when_env_missing(self, monkeypatch):
+        from src.config import settings
+        # Key lives in .env (loaded by settings); raw env deliberately absent.
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)
+        monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_from_dotenv")
+        captured = {}
+
+        def fake_get(url, headers=None):
+            captured.update(headers or {})
+            return {"data": [{"id": "acme/x", "context_window": 77777}]}
+
+        monkeypatch.setattr(mb, "_http_get_json", fake_get)
+        assert mb._probe_groq("acme/x") == 77777
+        assert captured["Authorization"] == "Bearer gsk_from_dotenv"
+
+    def test_probe_returns_none_without_any_key(self, monkeypatch):
+        from src.config import settings
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)
+        monkeypatch.setattr(settings, "GROQ_API_KEY", None)
+        assert mb._probe_groq("acme/x") is None
+
+
+class TestAutoUnlock:
+    def test_engine_unlocks_discovered_window_when_cap_is_zero(self, monkeypatch):
+        from src.config import settings
+        monkeypatch.setattr(settings, "PROVIDER_SAFE_LIMIT", 0)
+        monkeypatch.setattr(
+            mb, "resolve_context_window",
+            lambda model, provider=None, allow_network=True: (131072, "groq-api"),
+        )
+        eng = ContextEngine(llm=None, memory_manager=None)
+        # No provider cap: budget = discovered window minus reply headroom.
+        assert eng.max_tokens == 131072 - SAFETY_MARGIN

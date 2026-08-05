@@ -189,11 +189,22 @@ class ContextEngine:
             self.context_window = window
             self.context_window_source = source
             usable = max(window - SAFETY_MARGIN, 4_096)
-            self.max_tokens = max(min(usable, PROVIDER_SAFE_LIMIT), 4_096)
+            if PROVIDER_SAFE_LIMIT > 0:
+                cap = PROVIDER_SAFE_LIMIT
+                hint = (
+                    f" — set PROVIDER_SAFE_LIMIT=0 to unlock {usable:,}"
+                    if usable > PROVIDER_SAFE_LIMIT else ""
+                )
+            else:
+                # AUTO: trust the discovered window; RetryLLMProxy resolves
+                # the same number, so engine and guard stay in lockstep.
+                cap = usable
+                hint = " (auto: trusting discovered window)"
+            self.max_tokens = max(min(usable, cap), 4_096)
             print(
                 f"[ContextEngine] context window {window:,} for {self.model!r} "
                 f"(source: {source}); token budget {self.max_tokens:,} "
-                f"(provider cap {PROVIDER_SAFE_LIMIT:,})"
+                f"(provider cap {cap:,}){hint}"
             )
 
         # We reserve some tokens for "context" (the stuff we build)
@@ -465,6 +476,12 @@ class ContextEngine:
             try:
                 msg = builder(state)
                 if msg:
+                    # IDENTITY TAG: the layer's name travels IN the message
+                    # (response_metadata is local-only — verified invisible
+                    # in provider payloads). Scoring/dedup/feedback must not
+                    # depend on string-sniffing a header line: one "=" short
+                    # and attribution silently degrades to "unknown".
+                    msg.response_metadata["layer"] = name
                     layers.append(msg)
                     if name not in self.VOLATILE_LAYERS:
                         self._layer_cache[name] = msg
@@ -514,7 +531,15 @@ class ContextEngine:
         return scored
 
     def _infer_layer_name(self, msg: SystemMessage) -> str:
-        """Infer which layer this message belongs to for relevance lookup."""
+        """Which layer this message belongs to (relevance lookup + feedback).
+
+        Metadata tag first (authoritative — stamped at build time); the
+        header-prefix chain is only a fallback for messages that were not
+        built by this engine's builder loop.
+        """
+        tag = msg.response_metadata.get("layer")
+        if tag:
+            return tag
         content = msg.content
         if content.startswith("=== CODEBASE STRUCTURE"):
             return "repo_map"
@@ -633,17 +658,37 @@ class ContextEngine:
                     compressed.append(line.split(" -> ")[0])
                 else:
                     compressed.append(line)
-            candidate = SystemMessage(content="\n".join(compressed))
+            # Carry the identity tag across compression, or attribution is
+            # lost precisely when the layer mattered enough to keep.
+            candidate = SystemMessage(
+                content="\n".join(compressed),
+                response_metadata=dict(msg.response_metadata),
+            )
             if count_tokens([candidate], self.model) <= max_tokens:
                 return candidate
 
-        # Generic truncation
-        max_chars = int(max_tokens * 3.5)  # rough chars-per-token
-        if len(content) > max_chars:
-            truncated = content[:max_chars] + "\n... (truncated) ..."
-            candidate = SystemMessage(content=truncated)
-            if count_tokens([candidate], self.model) <= max_tokens:
-                return candidate
+        # Generic truncation. Measure THIS message's real chars-per-token
+        # instead of assuming 3.5: code/symbol-dense text runs ~2.5, and any
+        # fixed guess above the true ratio produces candidates that are
+        # ~40% over budget and can never fit (verified: the truncation path
+        # silently returned None for all code-dense layers). Starts at 90%
+        # of the proportional share, then shrinks only if the first estimate
+        # still overshoots (suffix + boundary effects) — ≤3 attempts total.
+        orig_tokens = count_tokens([msg], self.model)
+        if orig_tokens > 0 and len(content) > 0:
+            target_chars = int(len(content) * (max_tokens / orig_tokens) * 0.9)
+            suffix = "\n... (truncated) ..."
+            for _ in range(3):
+                if target_chars <= 0:
+                    break
+                candidate = SystemMessage(
+                    content=content[:target_chars] + suffix,
+                    response_metadata=dict(msg.response_metadata),
+                )
+                cand_tokens = count_tokens([candidate], self.model)
+                if cand_tokens <= max_tokens:
+                    return candidate
+                target_chars = int(target_chars * (max_tokens / cand_tokens) * 0.9)
 
         return None
 

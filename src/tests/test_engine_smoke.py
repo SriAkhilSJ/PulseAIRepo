@@ -91,3 +91,52 @@ def test_safety_guard_is_workspace_scoped():
         "run_terminal", {"command": "rm -rf /important"}
     )
     assert not risky, "dangerous command was not flagged"
+
+
+def test_built_layers_carry_identity_tags():
+    """Every layer the engine builds must carry its name in
+    response_metadata — scoring/dedup/feedback must not depend on
+    string-sniffing header text (one '=' short used to silently degrade
+    attribution to 'unknown')."""
+    eng = _engine()
+    raw = eng._build_context_layers(_state(), TaskType.DEBUG)
+    assert raw, "no layers built"
+    untagged = [
+        m.content.splitlines()[0] for m in raw if "layer" not in m.response_metadata
+    ]
+    assert not untagged, f"layers missing identity tags: {untagged}"
+    for m in raw:
+        assert eng._infer_layer_name(m) == m.response_metadata["layer"]
+
+
+def test_infer_layer_name_prefers_tag_over_header():
+    eng = _engine()
+    msg = SystemMessage(
+        content="== TOTALLY DIFFERENT HEADER ===",
+        response_metadata={"layer": "tone"},
+    )
+    assert eng._infer_layer_name(msg) == "tone"
+    # Fallback chain still works for messages built outside the engine loop.
+    assert eng._infer_layer_name(SystemMessage(content="=== TONE: gentle")) == "tone"
+
+
+def test_compress_layer_preserves_identity_tag():
+    eng = _engine()
+    big = SystemMessage(
+        content="=== CODEBASE STRUCTURE (Repo Map) ===\n" + "src/a.py -> def f\n" * 400,
+        response_metadata={"layer": "repo_map"},
+    )
+    out = eng._compress_layer(big, max_tokens=200)
+    assert out is not None
+    assert out.response_metadata.get("layer") == "repo_map"
+    assert len(out.content) < len(big.content)
+
+
+def test_layer_tags_are_invisible_to_providers():
+    # The whole point of response_metadata: never leaks into API payloads.
+    from langchain_core.messages.utils import convert_to_openai_messages
+    dumped = convert_to_openai_messages(
+        [SystemMessage(content="x", response_metadata={"layer": "task"})]
+    )[0]
+    assert "layer" not in dumped
+    assert "response_metadata" not in dumped

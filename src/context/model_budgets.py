@@ -204,9 +204,24 @@ def _http_get_json(url: str, headers: dict | None = None) -> dict | None:
     return None
 
 
+def _settings_key(name: str) -> str | None:
+    """API key via settings first (.env is loaded there), raw env as fallback.
+
+    Reading os.getenv directly here would silently skip probes for users who
+    keep keys in .env without exporting them — same trap as the provider
+    resolution once had, fixed the same way.
+    """
+    try:
+        from src.config import settings
+        value = getattr(settings, name, None)
+    except Exception:
+        value = None
+    return value or os.getenv(name)
+
+
 def _probe_groq(model_name: str) -> int | None:
     """Groq's /models objects carry a real `context_window` field."""
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = _settings_key("GROQ_API_KEY")
     if not api_key:
         return None
     data = _http_get_json(
@@ -226,7 +241,7 @@ def _probe_groq(model_name: str) -> int | None:
 
 def _probe_gemini(model_name: str) -> int | None:
     """Gemini's models.get returns `inputTokenLimit`."""
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = _settings_key("GEMINI_API_KEY")
     if not api_key:
         return None
     data = _http_get_json(

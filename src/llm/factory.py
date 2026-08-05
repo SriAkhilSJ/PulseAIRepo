@@ -22,6 +22,9 @@ class RetryLLMProxy:
     def __init__(self, llm: Any, max_attempts: int = 5):
         self._llm = llm
         self._max_attempts = max_attempts
+        # Lazily resolved when PROVIDER_SAFE_LIMIT=0 (auto mode); memoized
+        # so per-invoke guard checks never re-read the disk cache.
+        self._auto_limit: int | None = None
         # Explicit model name extraction — do NOT rely on __getattr__
         # fall-through. langchain providers differ: ChatOpenAI/ChatGroq
         # historically exposed model_name (alias "model"), newer versions
@@ -52,10 +55,13 @@ class RetryLLMProxy:
             messages_arg = kwargs["messages"]
 
         if isinstance(messages_arg, list):
+            # trim_limit semantics: >=0 = enforce this limit; -1 = guard
+            # unavailable, send untrimmed (with a loud warning, never silent).
+            trim_limit = -1
             try:
-                from src.config.settings import PROVIDER_SAFE_LIMIT
                 from src.context.token_budget import count_tokens
                 total_tokens = count_tokens(messages_arg, self.model)
+                trim_limit = self._safe_limit()
             except Exception as guard_error:
                 # NEVER silently disable the guard: a token-counting failure
                 # would otherwise zero the limit and ship oversized payloads
@@ -65,12 +71,11 @@ class RetryLLMProxy:
                     f"{guard_error!r} — sending untrimmed"
                 )
                 total_tokens = 0
-                PROVIDER_SAFE_LIMIT = 0
 
-            if total_tokens > PROVIDER_SAFE_LIMIT:
-                trimmed = self._trim_to_limit(messages_arg, PROVIDER_SAFE_LIMIT)
+            if trim_limit >= 0 and total_tokens > trim_limit:
+                trimmed = self._trim_to_limit(messages_arg, trim_limit)
                 print(
-                    f"[RetryLLMProxy] Trimmed {total_tokens} -> ~{PROVIDER_SAFE_LIMIT} "
+                    f"[RetryLLMProxy] Trimmed {total_tokens} -> ~{trim_limit} "
                     f"tokens to avoid provider 503"
                 )
                 if args:
@@ -90,6 +95,24 @@ class RetryLLMProxy:
                 time.sleep(self._retry_delay(error, attempt))
 
         raise last_error
+
+    def _safe_limit(self) -> int:
+        """The pre-send input cap for this proxy.
+
+        PROVIDER_SAFE_LIMIT > 0  → explicit cap (free/combo tiers).
+        PROVIDER_SAFE_LIMIT = 0  → AUTO: trust the dynamically discovered
+        model window (minus reply headroom). Use on paid/unlimited tiers —
+        the ContextEngine resolves the identical number, so engine-built
+        context and this guard can never disagree.
+        """
+        from src.config.settings import PROVIDER_SAFE_LIMIT
+        if PROVIDER_SAFE_LIMIT > 0:
+            return PROVIDER_SAFE_LIMIT
+        if self._auto_limit is None:
+            from src.context.model_budgets import SAFETY_MARGIN, resolve_context_window
+            window, _source = resolve_context_window(self.model)
+            self._auto_limit = max(window - SAFETY_MARGIN, 4_096)
+        return self._auto_limit
 
     def _trim_to_limit(self, messages: list, limit: int) -> list:
         """
