@@ -86,7 +86,7 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 1. **Feedback is coarse, not attributed.** Success/failure is recorded from `finalize_node`, `recovery_limit_node`, and `replan_node`. The loop shifts layer weights ±3%, but `record_feedback` snapshots the live layer cache, which is empty outside `build_ai_messages` — so it can't yet attribute an outcome to *which* layers matter. It learns that failure happened, not why. (Verified working; the attribution gap is next.)
 2. **Embedder cold-start is heavy.** First load takes ~30s and downloads ~100MB (`all-MiniLM-L6-v2`, CPU). If it fails, classifier, compressor, and dedup all fall back to heuristics — which is by design, but the semantic features silently downgrade.
 3. **Import graph is a hint, not a graph.** 20 files × 5 imports, top-level modules only — no transitive deps, no call sites.
-4. **No chunk-level retrieval.** Context is assembled at layer granularity (whole repo map, whole memory blocks), not code-chunk granularity.
+4. **Chunk retrieval exists but is narrow.** `chunk_index.py` (sqlite-vec KNN + FTS5 BM25 → RRF) is wired into ContextEngine as `relevant_chunks` for DEBUG/CREATE/REFACTOR tasks; other task types still assemble at layer granularity.
 5. **SQLite search is a LINEAR scan.** `search()` scores the most recent 500 rows in Python — correct and persistent, but not a real vector index. Time to scale past ~10K memories.
 6. **The pre-send guard covers messages, not tool defs.** `RetryLLMProxy` trims the message list to `PROVIDER_SAFE_LIMIT` (default 6000), but `bind_tools` payloads ride along untouched — a 50-tool definition list can still push a request over a tight provider limit.
 
@@ -155,6 +155,7 @@ PulseAIRepo/
 │   ├── agents/                     # Specialist agents (Planner, SubAgent)
 │   ├── context/                    # Context, Memory, Safety, and Tone layers
 │   │   ├── context_engine.py       # Task-aware, budgeted context assembly
+│   │   ├── chunk_index.py          # Chunked code index (sqlite-vec KNN + FTS5 BM25 → RRF)
 │   │   ├── repo_map.py             # AST repo map + import graph
 │   │   ├── smart_compressor.py     # Semantic history compression
 │   │   ├── vector_memory.py        # In-memory semantic store
@@ -167,6 +168,7 @@ PulseAIRepo/
 │   ├── providers/                  # Multi-LLM provider support (Groq, OpenAI, Gemini)
 │   ├── tests/                      # Regression suite
 │   └── tools/                      # File, Terminal, Web, and Math tools
+├── desktop/                        # VS Code fork (code-oss-dev 1.130.0) desktop app
 ├── dashboard.html                  # Agentic IDE Frontend
 ├── pyproject.toml                  # Dependencies & Project Meta
 └── uv.lock
@@ -232,7 +234,7 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 - [x] Persistent vector memory (SQLite, ~/.pulseai/vector_memory.db)
 - [x] Failure feedback wired (recovery-limit, replan give-up, finalize)
 - [x] Pre-send token guard (PROVIDER_SAFE_LIMIT, 503 mitigation — verified live)
+- [x] Chunk-level code retrieval (sqlite-vec KNN + FTS5 BM25, RRF fusion — `src/context/chunk_index.py`, wired into ContextEngine as `relevant_chunks`)
 - [ ] Layer attribution of feedback (record which layers were sent per task)
-- [ ] Chunk-level code retrieval with BM25 + vector hybrid index
 - [ ] Per-session cost reports in PDF format
 /usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy
