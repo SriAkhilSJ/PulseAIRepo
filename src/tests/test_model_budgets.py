@@ -14,6 +14,7 @@ from src.context.model_budgets import (
     SAFETY_MARGIN,
     model_window,
     usable_budget,
+    usable_window_budget,
 )
 
 
@@ -259,4 +260,4 @@ class TestAutoUnlock:
         )
         eng = ContextEngine(llm=None, memory_manager=None)
         # No provider cap: budget = discovered window minus reply headroom.
-        assert eng.max_tokens == 131072 - SAFETY_MARGIN
+        assert eng.max_tokens == usable_window_budget(131072)

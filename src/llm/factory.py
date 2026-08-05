@@ -137,9 +137,12 @@ class RetryLLMProxy:
         if self._auto_limit is None:
             with self._limit_lock:
                 if self._auto_limit is None:
-                    from src.context.model_budgets import SAFETY_MARGIN, resolve_context_window
+                    from src.context.model_budgets import (
+                        resolve_context_window,
+                        usable_window_budget,
+                    )
                     window, _source = resolve_context_window(self.model)
-                    self._auto_limit = max(window - SAFETY_MARGIN, 4_096)
+                    self._auto_limit = usable_window_budget(window)
         return self._auto_limit
 
     def _trim_to_limit(self, messages: list, limit: int) -> list:
@@ -235,10 +238,13 @@ class RetryLLMProxy:
 
 
 def get_llm(provider, model):
+    # Hard timeouts: a hung provider must NEVER wedge a dashboard worker
+    # thread forever. Retries stay with RetryLLMProxy (single owner).
     if provider == "groq":
         llm = ChatGroq(
             model=model,
             api_key=GROQ_API_KEY,
+            request_timeout=60,
         )
         return RetryLLMProxy(llm)
 
@@ -246,6 +252,7 @@ def get_llm(provider, model):
         llm = ChatGoogleGenerativeAI(
             model=model,
             api_key=GEMINI_API_KEY,
+            timeout=60,
         )
         return RetryLLMProxy(llm)
 
@@ -254,6 +261,7 @@ def get_llm(provider, model):
             model=model,
             api_key=NVIDIA_API_KEY,
             base_url="https://integrate.api.nvidia.com/v1",
+            request_timeout=60,
         )
         return RetryLLMProxy(llm)
 
@@ -261,6 +269,7 @@ def get_llm(provider, model):
         llm = ChatOpenAI(
             api_key=OPENAI_API_KEY,
             model=model,
+            request_timeout=60,
         )
         return RetryLLMProxy(llm)
 
@@ -269,6 +278,7 @@ def get_llm(provider, model):
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
             model=model,
+            request_timeout=60,
         )
         return RetryLLMProxy(llm)
 

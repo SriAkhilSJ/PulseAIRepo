@@ -12,6 +12,7 @@ Architecture:
 """
 
 import json
+import re
 import os
 import sys
 import threading
@@ -29,6 +30,34 @@ from src.config.settings import LLM_PROVIDER, LLM_MODEL
 
 app = Flask(__name__)
 CORS(app)
+
+# ---------------------------------------------------------------
+# INPUT VALIDATION (round-12 review: nothing was checked)
+# ---------------------------------------------------------------
+# Payloads flow into the engine registry, the checkpointer, and (via
+# session analytics) file paths — so thread_id gets a strict charset,
+# messages get a hard cap, and bodies get a transport cap.
+app.config["MAX_CONTENT_LENGTH"] = 1_000_000  # 1 MB request bodies
+
+MAX_MESSAGE_CHARS = 10_000
+_THREAD_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def _validate_chat_payload(payload: dict):
+    """Return (message, thread_id) or raise ValueError with a client message."""
+    message = str(payload.get("message", "")).strip()
+    thread_id = str(payload.get("thread_id", "web-session")).strip() or "web-session"
+    if not message:
+        raise ValueError("Empty message")
+    if len(message) > MAX_MESSAGE_CHARS:
+        raise ValueError(f"Message too long (>{MAX_MESSAGE_CHARS} chars)")
+    if not _THREAD_ID_RE.match(thread_id):
+        raise ValueError("Invalid thread_id (letters, digits, . _ - only, max 64)")
+
+
+@app.errorhandler(413)
+def _too_large(_err):
+    return jsonify({"error": "Payload too large"}), 413
 
 # Path to dashboard HTML
 DASHBOARD_HTML = Path(__file__).parent.parent / "dashboard.html"
@@ -77,13 +106,14 @@ def stream():
 def chat():
     """Receive a message from the browser and start the agent."""
     payload = request.get_json(force=True, silent=True) or {}
-    message = payload.get("message", "").strip()
-    thread_id = payload.get("thread_id", "web-session")
+    try:
+        _validate_chat_payload(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    message = payload["message"].strip()
+    thread_id = str(payload.get("thread_id", "web-session")).strip() or "web-session"
     mode = payload.get("mode", "agent")
     auto_approve = payload.get("auto_approve", False)
-
-    if not message:
-        return jsonify({"error": "Empty message"}), 400
 
     # Emit user message immediately so UI shows it
     event_bus.emit("message.user", {

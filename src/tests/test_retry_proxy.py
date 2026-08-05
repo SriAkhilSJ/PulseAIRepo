@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.config import settings
 from src.context import model_budgets as mb
+from src.context.model_budgets import usable_window_budget
 from src.llm.factory import RetryLLMProxy
 
 
@@ -37,8 +38,8 @@ def test_safe_limit_auto_uses_discovered_window_and_memoizes(monkeypatch):
 
     monkeypatch.setattr(mb, "resolve_context_window", fake_resolve)
     proxy = RetryLLMProxy(_StubLLM("claude-3-5-sonnet"))
-    assert proxy._safe_limit() == 200_000 - 4_096
-    assert proxy._safe_limit() == 200_000 - 4_096
+    assert proxy._safe_limit() == usable_window_budget(200_000)
+    assert proxy._safe_limit() == usable_window_budget(200_000)
     assert calls["n"] == 1, "auto limit must be memoized (no per-invoke disk/network)"
 
 
@@ -97,7 +98,7 @@ def test_auto_limit_memoization_is_thread_safe(monkeypatch):
     release.set()
     t1.join(); t2.join()
     assert calls["n"] == 1, f"race re-resolved: {calls['n']} calls"
-    assert results == [131_072 - 4_096, 131_072 - 4_096]
+    assert results == [usable_window_budget(131_072)] * 2
 
 
 class _NoModelAttrs:
@@ -124,7 +125,7 @@ def test_auto_lockstep_holds_when_provider_hides_model_attr(monkeypatch):
     from src.context.context_engine import ContextEngine
     eng = ContextEngine(model=settings.LLM_MODEL, llm=None, memory_manager=None)
     proxy = RetryLLMProxy(_NoModelAttrs())
-    assert proxy._safe_limit() == eng.max_tokens == 131_072 - 4_096
+    assert proxy._safe_limit() == eng.max_tokens == usable_window_budget(131_072)
 
 
 def test_missing_model_is_never_silent(monkeypatch, capsys):

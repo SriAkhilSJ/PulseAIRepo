@@ -75,7 +75,19 @@ class SafetyGuard:
         return any(critical in path_lower for critical in self.CRITICAL_PATHS)
 
     def _is_dangerous_command(self, command: str) -> bool:
-        """Check if a shell command is dangerous."""
+        """Check if a shell command is dangerous.
+
+        Command substitution ($() or backticks) ALWAYS escalates: the
+        substring list only sees literal text, so `$(cat ~/.env)` would sail
+        through as "safe-looking" while smuggling secrets into the context.
+        (The reviewer's example `echo $(rm -rf /)` was already caught —
+        "rm -rf" is a literal substring — but the general hole was real.)
+
+        NOTE: this guard is a human checkpoint, not a sandbox. Determined
+        obfuscation can always slip past regexes; approvals are the control.
+        """
+        if "$(" in command or "`" in command:
+            return True
         cmd_lower = command.lower().strip()
         return any(danger in cmd_lower for danger in self.DANGEROUS_COMMANDS)
 

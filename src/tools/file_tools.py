@@ -5,6 +5,18 @@ from langchain_core.runnables import RunnableConfig
 
 PROJECT_ROOT = Path.cwd()
 
+# search_code guards (round-12 review: rglob("*") descended .git and
+# node_modules with zero skips and no caps). Substring-grep semantics kept
+# deliberately — BM25 in chunk_index answers a DIFFERENT question.
+_SEARCH_SKIP_DIRS = {
+    "__pycache__", ".git", ".venv", "venv", "node_modules",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist", "build",
+    ".tox", ".idea", ".vscode", "generated",
+}
+_SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024   # 2 MB: minified bundles, logs
+_SEARCH_MAX_FILES = 2_000                   # worst-case scan budget
+_SEARCH_MAX_RESULTS = 500                   # context budget, not grep's
+
 def resolve_workspace_path(
     workspace: str,
     path: str
@@ -171,19 +183,34 @@ def search_code(
     if safe_path.is_file():
         files = [safe_path]
 
-    # If it's a directory, recursively find files
+    # If it's a directory, recursively find files.
+    # .git internals and dependency forests grep nothing but garbage and
+    # make an O(n) tool O(disaster). Same skip philosophy as chunk_index.
     else:
-        files = safe_path.rglob("*")
+        files = (
+            f for f in safe_path.rglob("*")
+            if not any(part in _SEARCH_SKIP_DIRS for part in f.parts)
+        )
 
+    scanned = 0
     for file_path in files:
 
         if not file_path.is_file():
             continue
 
         try:
+            if file_path.stat().st_size > _SEARCH_MAX_FILE_BYTES:
+                continue  # minified bundles / logs / data dumps
             content = file_path.read_text(
                 encoding="utf-8"
             )
+            scanned += 1
+            if scanned > _SEARCH_MAX_FILES:
+                results.append(
+                    f"... stopped after {_SEARCH_MAX_FILES} files "
+                    f"(narrow the path or the query)"
+                )
+                break
         except (UnicodeDecodeError, PermissionError, OSError):
             # Skip binary/unreadable files
             continue
@@ -205,6 +232,10 @@ def search_code(
 
     if not results:
         return f"No results found for '{query}' in '{path}'."
+
+    if len(results) > _SEARCH_MAX_RESULTS:
+        results = results[:_SEARCH_MAX_RESULTS]
+        results.append(f"... truncated at {_SEARCH_MAX_RESULTS} matches")
 
     return "\n".join(results)
     # Keep your EXISTING search logic below this point.
@@ -340,7 +371,7 @@ def edit_file(
 
     # Lazy import: chat_graph imports file_tools at module load time — a
     # module-level import here would be circular.
-    from src.graphs.chat_graph import compute_unified_diff
+    from src.utils.diff_utils import compute_unified_diff
 
     diff = compute_unified_diff(original, updated_content, str(safe_path))
 

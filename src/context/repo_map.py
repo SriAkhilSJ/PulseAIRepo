@@ -18,6 +18,7 @@ reading files.
 
 import os
 import re
+import threading
 from pathlib import Path
 
 
@@ -360,29 +361,34 @@ class RepoMap:
 # GLOBAL INSTANCE
 # =========================================================
 
-_repo_map_instance: RepoMap | None = None
+# Per-workspace registry (same D1 class as the engine singleton race): the
+# old single global flip-flopped whenever two dashboard sessions used
+# DIFFERENT workspaces — every turn rebuilt the other session's map, and a
+# RepoMap build is a full AST walk of the repo. Keyed dict + lock instead.
+_repo_maps: dict[str, "RepoMap"] = {}
+_repo_maps_lock = threading.Lock()
+
+
+def _map_for(workspace_path: Path) -> "RepoMap":
+    key = str(workspace_path)
+    with _repo_maps_lock:
+        instance = _repo_maps.get(key)
+        if instance is None:
+            instance = RepoMap(workspace_path)
+            _repo_maps[key] = instance
+        return instance
 
 
 def get_repo_map(workspace: str | Path, max_tokens: int = 1500) -> str:
-    """
-    Get the repo map for a workspace.
-
-    Uses a singleton so the map is cached across calls.
-    """
-    global _repo_map_instance
-
+    """Get the repo map for a workspace (cached per workspace)."""
     workspace_path = Path(workspace).resolve()
-
-    if _repo_map_instance is None or _repo_map_instance.root != workspace_path:
-        _repo_map_instance = RepoMap(workspace_path)
-
-    return _repo_map_instance.get_map(max_tokens)
+    return _map_for(workspace_path).get_map(max_tokens)
 
 
 def refresh_repo_map(workspace: str | Path) -> str:
     """Force rebuild the repo map."""
-    global _repo_map_instance
-
     workspace_path = Path(workspace).resolve()
-    _repo_map_instance = RepoMap(workspace_path)
-    return _repo_map_instance.refresh()
+    with _repo_maps_lock:
+        instance = RepoMap(workspace_path)
+        _repo_maps[str(workspace_path)] = instance
+    return instance.refresh()

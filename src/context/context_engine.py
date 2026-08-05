@@ -199,13 +199,16 @@ class ContextEngine:
             self.context_window_source = "explicit"
         else:
             from src.config.settings import PROVIDER_SAFE_LIMIT
-            from src.context.model_budgets import SAFETY_MARGIN, resolve_context_window
+            from src.context.model_budgets import (
+                resolve_context_window,
+                usable_window_budget,
+            )
             window, source = resolve_context_window(
                 self.model, allow_network=probe_window
             )
             self.context_window = window
             self.context_window_source = source
-            usable = max(window - SAFETY_MARGIN, 4_096)
+            usable = usable_window_budget(window)
             if PROVIDER_SAFE_LIMIT > 0:
                 cap = PROVIDER_SAFE_LIMIT
                 hint = (

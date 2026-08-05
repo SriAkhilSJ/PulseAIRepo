@@ -430,3 +430,40 @@ shared append-only file instead of racy rewrites.
 Suite: **101/101 green** (7 new: the proven-loss reproduction as a
 regression test, global history, debris tolerance, legacy migration,
 compaction, 2× shared classifier). Two JSON-array readers updated to JSONL.
+
+---
+
+## 17. The 18-Issue Deep Review (2026-08-05)
+
+Twelfth pasted review — a full-repo sweep. All 18 claims verified; 10
+merged, 3 false/overstated, 1 rejected, 4 deferred as sized debts.
+
+| # | Claim | Verdict | Action |
+|---|---|---|---|
+| 1 | Dashboard imports flask/flask_cors, deps list only fastapi/uvicorn | 🔴 **REAL, proven** (`ModuleNotFoundError` on the declared set — dashboard crashes on fresh install) | ✅ flask + flask-cors in pyproject |
+| 2 | Sub-agent deadlock | 🟡 **Mechanism overstated** (same-thread serialized conn, distinct sub-* thread ids, WAL+busy_timeout), but recursion + parent-blocking real | ✅ Depth cap: sub-agents can't spawn sub-agents (caller thread_id via RunnableConfig; was hardcoded "main"). Full isolation → **debt D7** |
+| 3 | Checkpointer single-conn thread-unsafe | ❌ **FALSE here**: empirical `journal_mode=wal, busy_timeout=5000`; CPython sqlite is threadsafe-serialized | Evidence documented |
+| 4 | shell=True bypass | 🟡 Their example was **already caught** ("rm -rf" literal substring), but benign-payload substitution (`$(cat ~/.env)`) slipped through | ✅ ALL command substitution ($()/backticks) escalates to approval; guard documented as checkpoint-not-sandbox |
+| 5 | Vector memory 500-row python scan | ✅ REAL, under-scale today | **Debt D8** (sqlite-vec migration, self-contained) |
+| 6 | No LLM timeouts | 🔴 **REAL** (all 5 constructors bare) | ✅ 60s timeout on every provider (param names signature-verified: request_timeout for OpenAI/Groq, timeout for Gemini) |
+| 7 | search_code brute force | 🟡 REAL, worse than stated: **zero skip logic** (.git/node_modules greps). Their FTS reroute **rejected** (substring-grep ≠ BM25 question) | ✅ Skip-dirs + 2MB file cap + 2k-file budget + 500-result cap |
+| 8 | cl100k counting for Qwen default | 🟡 REAL, bounded | ✅ Margin rule upgraded: max(4096, 5% of window), one shared `usable_window_budget()` formula for engine AND proxy (deduplicated) |
+| 9 | Dashboard zero input validation | 🔴 **REAL** | ✅ 10k-char message cap, strict thread_id regex (flows into registry keys + file paths), 1MB body cap + 413 handler; flask test-client suite |
+| 10 | Tool→graph circular import | ✅ REAL | ✅ `src/utils/diff_utils.py` neutral module; file_tools no longer imports chat_graph |
+| 11 | progress_node god node | 🟡 REAL | **Debt D9**: split only after golden behavior tests exist — 200-line node surgery without them is how regressions ship |
+| 12 | compute_unified_diff fragile | ❌ **OVERSTATED** (parser reads difflib's own output; "\ No newline" line degrades to context) | ✅ Edge tests pin: empty file, no-trailing-newline, identical content |
+| 13 | `add` math tool wastes a slot | 🔴 REAL | ✅ Removed from tool list (module kept for the scratch script) |
+| 14 | is_plan_approval fooled by "yes, but..." | ❌ **FALSE**: exact full-message set membership, not substring | Evidence documented |
+| 15 | AgentState total=False too permissive | ❌ **REJECTED**: LangGraph reducers return partial dicts — total=False is the idiom, total=True would break every node return | Rationale documented |
+| 16 | repo_map singleton cross-workspace race | 🔴 **REAL — same class as D1**: two sessions on different workspaces flip-flop a full AST rebuild EVERY turn | ✅ Per-workspace registry + lock (same pattern as engines) |
+| 17 | web_fetch regex HTML parsing | 🟡 REAL, gracefully degrading heuristic | **Debt D10** (bs4 swap, low value) |
+| 18 | Placeholder pyproject description | 🔴 REAL | ✅ Real description |
+
+**Process note (transparency):** the diff-utils move initially over-captured
+via regex and amputated module code; caught by the suite (imports failed),
+repaired with exact restoration from HEAD, and the incident is recorded
+here because the harness catching me is the point of the harness.
+
+Suite: **127/127 green** (+26: dashboard validation suite incl. 413/evil
+thread_ids, guard substitution, timeouts per provider, repo_map registry,
+diff edges, search skips, sub-agent depth cap, add-removal).

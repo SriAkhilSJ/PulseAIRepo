@@ -132,6 +132,21 @@ def usable_budget(model_name: str | None) -> int:
     return max(model_window(model_name) - SAFETY_MARGIN, _MIN_USABLE)
 
 
+def usable_window_budget(window: int) -> int:
+    """The single budget formula shared by ContextEngine AND RetryLLMProxy
+    (they must agree to the token).
+
+    Margin = max(4096, 5% of window): the flat margin alone under-covers
+    tokenizer divergence for models tiktoken doesn't natively know — our
+    counting elsewhere is cl100k-based, and approximations scale with
+    window size. 5% headroom price for never shipping an oversized payload.
+    """
+    if window <= 0:
+        return _MIN_USABLE
+    margin = max(SAFETY_MARGIN, int(window * 0.05))
+    return max(window - margin, _MIN_USABLE)
+
+
 # =====================================================================
 # DYNAMIC CONTEXT-WINDOW DISCOVERY
 # =====================================================================
