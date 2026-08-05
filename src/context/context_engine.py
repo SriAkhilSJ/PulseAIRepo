@@ -397,6 +397,9 @@ class ContextEngine:
 
         # Compute the state hash ONCE for the whole build. (Previously this
         # ran json.dumps + sha256 up to 15x per turn on cache-hit paths.)
+        # NOTE: invalidation is COARSE by design — one hash covers all layers,
+        # so any state change rebuilds every layer. Correct, just not granular.
+        # True per-layer dependency hashing is a deliberate non-goal for now.
         current_hash = self._hash_state(state)
 
         for name, builder in builders.items():
@@ -1002,8 +1005,10 @@ class ContextEngine:
             "timestamp": time.time(),
             "task": task or "",
             "success": success,
-            # Attribute to the layers actually sent in the final build;
-            # fall back to the cache only if no build ran this session.
+            # Attribute to the layers actually sent in the final build.
+            # The cache fallback only fires if a task fails before ANY build
+            # this session (e.g. planner crash on turn 1) — known-low value,
+            # kept so the feedback row is never empty.
             "layers_used": self._last_layers_sent or list(self._layer_cache.keys()),
         }
         self._feedback_history.append(profile)

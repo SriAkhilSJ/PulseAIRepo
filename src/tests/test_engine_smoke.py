@@ -69,6 +69,17 @@ def test_record_feedback_attributes_layers_actually_sent(tmp_path):
     assert None not in record["layers_used"]
 
 
+def test_every_built_layer_infers_a_known_name():
+    """Regression guard: if a layer builder's header text is ever edited,
+    _infer_layer_name must not silently degrade to 'unknown' (0.5 relevance
+    plus broken feedback attribution)."""
+    eng = _engine()
+    eng.build_ai_messages(_state(), SystemMessage(content="SYS"))
+    raw = eng._build_context_layers(_state(), TaskType.DEBUG)
+    unknown = [m.content.splitlines()[0] for m in raw if eng._infer_layer_name(m) == "unknown"]
+    assert not unknown, f"layers with unmapped headers: {unknown}"
+
+
 def test_safety_guard_is_workspace_scoped():
     guard_tmp = SafetyGuard("/tmp")
     assert str(guard_tmp.workspace) == "/tmp"

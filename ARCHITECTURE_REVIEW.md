@@ -203,3 +203,25 @@ tempfile+`os.replace` atomic write (perms preserved, temp files cleaned);
 chat_graph); `diff.show` emitted in the dashboard's existing flat shape; diff
 preview returned for the agent's verify() loop; "no change" is a true no-op.
 10 pure tests — **24/24 suite green**; graph boots; tool schema unchanged.
+
+---
+
+## 8. SmartCompressor Turn-Atomicity + Lock Hygiene (2026-08-05)
+
+Fifth pasted review ("Context Engine Verification Report" scoring itself 72/100
+— vanity score ignored; claims verified individually):
+
+| Claim | Verdict | Action |
+|---|---|---|
+| SmartCompressor per-message scoring breaks turns | 🔴 **REAL — worse than stated**: could emit a ToolMessage without its tool_call AIMessage (protocol-invalid → provider HTTP 400s) | ✅ Rewritten turn-atomic: group → score=max member → budget-fit per turn → protocol-sanitize output (7 new tests) |
+| A: `sync_workspace` lock batching | 🟡 True but overstated (waste, not corruption) | ✅ One lock around the sweep |
+| B: drop read lock on `_search_vec_fast` | ❌ **REJECTED — unsafe fix**: "WAL allows concurrent reads" holds for SEPARATE connections, not concurrent cursors on ONE shared connection object. Single-lock serialization is the correct design | Documented rationale in code instead |
+| C: lock missing on `_rrf_fuse`/`get_neighbors`/`_is_index_empty` | ✅ Real — inconsistent with own shared-connection discipline | ✅ All locked |
+| D: layer swallows exceptions silently | ✅ Real (ironic: same sin I fixed in the engine) | ✅ Loud warning, `None` degrade |
+| E: `_iter_py_files` materializes list | ✅ Hygiene | ✅ Generator |
+| F: differential cache is all-or-nothing | 🟡 Known coarse invalidation, not a bug | Documented as deliberate |
+| H: `_infer_layer_name` header coupling | 🟡 Fair | ✅ Regression test: no layer may infer "unknown" |
+| I: feedback fallback to session cache | 🟡 Known-low (pre-build failures only) | Commented |
+
+Suite: **34/34 green**. Live proof: undersized budget now drops a whole turn
+atomically instead of leaving an orphaned 800-token ToolMessage.

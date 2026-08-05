@@ -214,6 +214,14 @@ class ChunkIndex:
 
         # check_same_thread=False: first-run indexing happens on a background
         # thread; a default connection raises ProgrammingError when shared.
+        # check_same_thread=False: first-run indexing happens on a background
+        # thread; a default connection raises ProgrammingError when shared.
+        # NOTE on locking: this is ONE shared connection object. "WAL allows
+        # concurrent reads" applies across SEPARATE connections — not to
+        # concurrent cursor use on the same connection. Therefore ALL access
+        # (reads included) serializes through _write_lock. Correct by design;
+        # the optimization (a dedicated read connection) is not worth it at
+        # P0 scale.
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._write_lock = threading.RLock()
@@ -346,23 +354,27 @@ class ChunkIndex:
 
     def sync_workspace(self) -> int:
         """Re-index files whose mtime is newer than what we stored. Returns count."""
-        changed = 0
-        for fpath in self._iter_py_files():
-            rel = str(fpath.relative_to(self.workspace))
-            row = self.conn.execute(
-                "SELECT MAX(modified_time) FROM code_chunks WHERE file_path = ?", (rel,)
-            ).fetchone()
-            current = fpath.stat().st_mtime
-            if not row or row[0] is None or row[0] < current:
-                self.sync_file(fpath)
-                changed += 1
-        return changed
+        # One lock for the whole sweep: concurrent sync_workspace() calls used
+        # to race on the same files (wasteful duplicated delete+insert cycles;
+        # RLock is reentrant so sync_file's internal acquire is free).
+        with self._write_lock:
+            changed = 0
+            for fpath in self._iter_py_files():
+                rel = str(fpath.relative_to(self.workspace))
+                row = self.conn.execute(
+                    "SELECT MAX(modified_time) FROM code_chunks WHERE file_path = ?", (rel,)
+                ).fetchone()
+                current = fpath.stat().st_mtime
+                if not row or row[0] is None or row[0] < current:
+                    self.sync_file(fpath)
+                    changed += 1
+            return changed
 
-    def _iter_py_files(self) -> list[Path]:
-        return [
-            f for f in self.workspace.rglob("*.py")
-            if not any(part in _SKIP_DIRS for part in f.parts)
-        ]
+    def _iter_py_files(self):
+        """Generator — a 10K-file workspace shouldn't materialize a list."""
+        for f in self.workspace.rglob("*.py"):
+            if not any(part in _SKIP_DIRS for part in f.parts):
+                yield f
 
     def _insert_chunks(self, chunks: list[dict], mtime: float, commit: bool) -> None:
         with self._write_lock:
@@ -424,7 +436,8 @@ class ChunkIndex:
         return self._rrf_fuse(vec, bm25, k=RRF_K)[:top_k]
 
     def _is_index_empty(self) -> bool:
-        row = self.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()
+        with self._write_lock:
+            row = self.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()
         return not row or row[0] == 0
 
     def _search_vector(self, query: str, limit: int) -> list[tuple[str, float]]:
@@ -441,7 +454,8 @@ class ChunkIndex:
     def _search_vec_fast(self, q_emb: list[float], limit: int) -> list[tuple[str, float]]:
         """vec_distance_l2 verified on sqlite-vec v0.1.9. Vectors are unit-
         normalized, so cosine = 1 - L2²/2 EXACTLY (no max-distance math —
-        that divides by zero on exact matches)."""
+        that divides by zero on exact matches). The lock is intentional even
+        for reads — see the shared-connection note in __init__."""
         with self._write_lock:
             try:
                 rows = self.conn.execute("""
@@ -512,11 +526,12 @@ class ChunkIndex:
 
         ordered_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
         placeholders = ",".join("?" * len(ordered_ids))
-        rows = self.conn.execute(
-            f"SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,"
-            f" signature, docstring, body FROM code_chunks WHERE id IN ({placeholders})",
-            ordered_ids,
-        ).fetchall()
+        with self._write_lock:  # shared connection: all access serialized
+            rows = self.conn.execute(
+                f"SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,"
+                f" signature, docstring, body FROM code_chunks WHERE id IN ({placeholders})",
+                ordered_ids,
+            ).fetchall()
         by_id = {r[0]: r for r in rows}
 
         results: list[ChunkResult] = []
@@ -537,19 +552,20 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def get_neighbors(self, chunk_id: str, radius: int = 3) -> list[ChunkResult]:
-        row = self.conn.execute(
-            "SELECT file_path, start_line FROM code_chunks WHERE id = ?", (chunk_id,)
-        ).fetchone()
-        if not row:
-            return []
-        file_path, center = row[0], row[1]
-        rows = self.conn.execute("""
-            SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,
-                   signature, docstring, body
-            FROM code_chunks
-            WHERE file_path = ? AND start_line BETWEEN ? AND ?
-            ORDER BY start_line
-        """, (file_path, center - radius * 5, center + radius * 5)).fetchall()
+        with self._write_lock:
+            row = self.conn.execute(
+                "SELECT file_path, start_line FROM code_chunks WHERE id = ?", (chunk_id,)
+            ).fetchone()
+            if not row:
+                return []
+            file_path, center = row[0], row[1]
+            rows = self.conn.execute("""
+                SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,
+                       signature, docstring, body
+                FROM code_chunks
+                WHERE file_path = ? AND start_line BETWEEN ? AND ?
+                ORDER BY start_line
+            """, (file_path, center - radius * 5, center + radius * 5)).fetchall()
         return [
             ChunkResult(
                 id=r[0], file_path=r[1], symbol_name=r[2], symbol_type=r[3],
@@ -596,7 +612,11 @@ def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
         chunks = index.search(task, top_k=3)
         if not chunks:
             return None
-    except Exception:
+    except Exception as exc:
+        # Never silent (same rule as the engine's builder loop): an import
+        # error or sqlite-vec crash here must not invisibly downgrade the
+        # agent to repo_map-only retrieval for the whole session.
+        print(f"[ChunkIndex] relevant_chunks layer failed: {exc}")
         return None
 
     lines = ["=== RELEVANT CODE CHUNKS ==="]
