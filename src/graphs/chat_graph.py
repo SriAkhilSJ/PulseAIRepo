@@ -437,7 +437,7 @@ def finalize_node(state: AgentState):
     steps_completed = state.get("steps_completed", [])
     failed_steps = state.get("failed_steps", [])
 
-    if current_task and steps_completed:
+    if memory_manager and current_task and steps_completed:
         memory_manager.store_task_completion(
             task=current_task,
             steps_completed=steps_completed,
@@ -511,7 +511,7 @@ def finalize_node(state: AgentState):
         "tokensOut": completion_tokens,
         "apiCalls": call_count,
         "model": LLM_MODEL,
-        "tier": getattr(cost_router, "_last_route", {}).get("tier", "standard"),
+        "tier": (getattr(cost_router, "_last_route", None) or {}).get("tier", "standard"),
         "provider": LLM_PROVIDER,
         "skills": len(skill_manager.list_skills()),
     })
@@ -1481,12 +1481,14 @@ def replanner_node(
     }
 
     # Store in LONG-TERM memory (cross-session learning).
-    memory_manager.store_replan_lesson(
-        task=current_task,
-        old_plan=old_plan,
-        failure=latest_failure,
-        new_strategy=f"New plan with {len(new_steps)} steps",
-    )
+    # Guarded: memory_manager is None in degraded-boot environments.
+    if memory_manager:
+        memory_manager.store_replan_lesson(
+            task=current_task,
+            old_plan=old_plan,
+            failure=latest_failure,
+            new_strategy=f"New plan with {len(new_steps)} steps",
+        )
 
     # Also store a reflection about this failure
     from src.context.reflection_engine import ReflectionEngine
@@ -1995,14 +1997,14 @@ def get_agent_status(
     if snapshot is None:
         return build_agent_status(
             {},
-            memory_count=memory_manager.get_memory_count(),
+            memory_count=memory_manager.get_memory_count() if memory_manager else 0,
         )
 
     values = snapshot.values or {}
 
     return build_agent_status(
         dict(values),
-        memory_count=memory_manager.get_memory_count(),
+        memory_count=memory_manager.get_memory_count() if memory_manager else 0,
     )
 def fork_conversation(
     source_thread_id: str,
@@ -2047,7 +2049,7 @@ def export_session_analytics(thread_id: str) -> dict:
         "replans": status.get("replan", {}).get("count", 0),
         "recoveries": status.get("recovery", {}).get("attempts", 0),
         "skills": len(skill_manager.list_skills()),
-        "memories": memory_manager.get_memory_count(),
+        "memories": memory_manager.get_memory_count() if memory_manager else 0,
         "reflections": len(ReflectionEngine()._reflections),
         "currentTask": status.get("task", ""),
         "planSteps": status.get("plan", {}).get("total", 0),

@@ -32,6 +32,12 @@ Thumbs.db
 # Local PulseAI runtime state (if ever created repo-local)
 .pulseai/
 
+# VSCode fork (desktop/) build outputs — never vendor these
+node_modules/
+desktop/out/
+desktop/out-build/
+desktop/.build/
+
 # Desktop fork (VS Code) — leftover artifacts not covered by its nested .gitignore
 desktop/*.log
 desktop/**/*.backup

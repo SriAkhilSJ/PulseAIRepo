@@ -619,18 +619,6 @@ class ContextEngine:
             return None
         return SystemMessage(content=text)
 
-    def _preferences_layer(self, state: dict[str, Any]) -> SystemMessage | None:
-        """Layer 8: Relevant user preferences."""
-        if self.memory_manager is None:
-            return None
-            
-        prefs = self.memory_manager.retrieve_preferences()
-        if not prefs:
-            return None
-            
-        content = "=== USER PREFERENCES ===\n" + "\n".join(f"- {p}" for p in prefs)
-        return SystemMessage(content=content)
-
     def _quality_layer(self, state: dict[str, Any]) -> SystemMessage | None:
         """Layer 8: Claude-quality response standards reminder.
 
@@ -1116,65 +1104,6 @@ class ContextEngine:
             return trim_messages_to_budget(history, budget, self.model)
 
         return compressed
-
-
-    def _compress_history(
-        self,
-        history: list[BaseMessage],
-        budget: int,
-    ) -> list[BaseMessage]:
-        """
-        Compress old conversation turns into a summary.
-        Keeps recent messages intact and summarizes older ones.
-        """
-        keep_recent = 4
-        recent = history[-keep_recent:] if len(history) >= keep_recent else list(history)
-        older = history[:-keep_recent] if len(history) > keep_recent else []
-
-        if older:
-            summary_lines = ["=== PREVIOUS CONVERSATION SUMMARY ==="]
-
-            for message in older:
-                if isinstance(message, ToolMessage):
-                    content = (
-                        message.content[:150]
-                        if isinstance(message.content, str)
-                        else str(message.content)[:150]
-                    )
-                    summary_lines.append(
-                        f"- Used tool '{message.name or 'unknown'}': {content}..."
-                    )
-
-                elif isinstance(message, AIMessage):
-                    tool_calls = getattr(message, "tool_calls", None)
-                    if tool_calls:
-                        calls = [call.get("name", "unknown") for call in tool_calls]
-                        summary_lines.append(
-                            f"- Agent decided to use: {', '.join(calls)}"
-                        )
-                    elif message.content:
-                        content = (
-                            message.content[:150]
-                            if isinstance(message.content, str)
-                            else str(message.content)[:150]
-                        )
-                        summary_lines.append(f"- Agent said: {content}...")
-
-                elif isinstance(message, HumanMessage):
-                    content = (
-                        message.content[:150]
-                        if isinstance(message.content, str)
-                        else str(message.content)[:150]
-                    )
-                    summary_lines.append(f"- User said: {content}...")
-
-            summary = SystemMessage(content="\n".join(summary_lines))
-            compressed = [summary] + recent
-
-            if count_tokens(compressed, self.model) <= budget:
-                return compressed
-
-        return trim_messages_to_budget(history, budget, self.model)
 
     # =========================================================
     # HELPER METHODS
