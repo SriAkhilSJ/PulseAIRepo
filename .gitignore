@@ -31,3 +31,10 @@ Thumbs.db
 
 # Local PulseAI runtime state (if ever created repo-local)
 .pulseai/
+
+# Desktop fork (VS Code) — leftover artifacts not covered by its nested .gitignore
+desktop/*.log
+desktop/**/*.backup
+desktop/_tmp_*
+desktop/code-oss-dev@1.130.0
+desktop/npm-run-all2
