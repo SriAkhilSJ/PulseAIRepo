@@ -137,3 +137,35 @@ import time → **the whole agent crashed on import in slim environments** (fres
 small containers) — contradicting the README's "graceful degrade by design" claim.
 Fixed: boot now degrades to `memory_manager=None` with a loud warning, matching the
 ContextEngine's existing fallback pattern.
+
+---
+
+## 6. P0 Shipped: Chunked Code Index (2026-08-04) — the Cursor-gap closer
+
+Third pasted artifact: a twice-reviewed `chunk_index.py` spec + a "4 remaining bugs"
+review + a "4-line patch". Verdict: **highest-quality paste yet — but it would not
+have run.** Empirical verification (sqlite-vec v0.1.9):
+
+| Claim | Verdict |
+|---|---|
+| Spec's sqlite-vec syntax (`vec_f32`, `vec_distance_l2`, `MATCH + k`) | ✅ Correct (verified live) — rare win |
+| Review Bug 1: FTS5 external-content + manual inserts drift; never deleted on re-index | ✅ REAL — shipped standalone FTS5 + `chunk_id UNINDEXED`, managed in the same transaction |
+| Review Bug 2: `max_dist` normalization divides by zero on exact match | ✅ REAL (exact match = 0.0 confirmed) — shipped exact cosine `1 − L2²/2` for unit vectors |
+| Review Bug 3: dead `_rrf_fuse` calling nonexistent `_static_conn()` | ✅ REAL — removed; single fuse method |
+| Review Bug 4: `last_insert_rowid()` fragility | ✅ REAL — eliminated by the Bug 1 fix |
+| **My finding A: background indexing thread shares a default sqlite connection** | 🔴 REAL — `ProgrammingError` cross-thread (proven). Shipped `check_same_thread=False` + `RLock` |
+| **My finding B: `index_workspace` never commits** | 🔴 REAL — fresh connection sees `COUNT=0` (proven); index would vanish on exit. Shipped batched commits |
+| **My finding C: raw task text → FTS5 `MATCH` syntax error** | 🔴 REAL — shipped tokenize + quote-OR sanitizer (can never produce invalid FTS syntax) |
+| **My finding D: per-call `ChunkIndex` construction + shared default DB** | ⚠️ Shipped process-wide per-workspace index cache + per-workspace DB (no cross-repo contamination) |
+
+**Shipped:** `src/context/chunk_index.py` (AST extraction → sqlite-vec KNN +
+FTS5 BM25 → RRF position fusion, background first-run indexing, atomic
+incremental sync); wired into ContextEngine as `relevant_chunks` (relevance
+0.95 DEBUG/CREATE/REFACTOR) with `repo_map` demoted on coding tasks (kept at
+1.0 for EXPLORE); 9 pure CI tests (no model download) mapping one-to-one to
+the fixes above — **14/14 suite green**; live demo over `src/context/`
+(43 chunks) returns `ContextEngine` as top hit in BM25-only degraded mode.
+
+Meta-score on pasted AI code to date: **specs now carry good architecture, but
+every single one failed on at least one empirically-provable runtime fact.
+Verification is not optional.**
