@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import threading
+from collections import OrderedDict
 from typing import Annotated
 from typing_extensions import TypedDict
 # pyrefly: ignore [missing-import]
@@ -392,7 +394,9 @@ def ai_node(
     llm_with_tools = llm.bind_tools(tools)
 
     # Use the Context Engine to build clean, organized messages.
-    messages = context_engine.build_ai_messages(
+    # Session-scoped: this thread's thread_id selects an isolated engine
+    # (cache, attribution snapshot, learned weights all independent).
+    messages = get_context_engine(config).build_ai_messages(
         state=dict(state),
         system_message=system_message,
     )
@@ -426,7 +430,7 @@ def should_continue(state: AgentState):
 
     return "finalize"
 
-def finalize_node(state: AgentState):
+def finalize_node(state: AgentState, config: RunnableConfig):
     plan = finalize_plan(
         plan=list(state.get("plan", [])),
         task_succeeded=True,
@@ -448,10 +452,11 @@ def finalize_node(state: AgentState):
     # otherwise success. (Previously success was recorded unconditionally,
     # so the learning loop only ever saw wins.)
     try:
+        engine = get_context_engine(config)
         if state.get("failed_steps"):
-            context_engine.record_feedback(success=False, task=current_task)
+            engine.record_feedback(success=False, task=current_task)
         else:
-            context_engine.record_feedback(success=True, task=current_task)
+            engine.record_feedback(success=True, task=current_task)
     except Exception:
         pass  # Feedback is best-effort; never block finalization
 
@@ -1156,13 +1161,15 @@ def after_progress(state: AgentState) -> str:
 
     return "ai"
 
-def recovery_limit_node(state: AgentState):
+def recovery_limit_node(state: AgentState, config: RunnableConfig):
     failed_steps = state.get("failed_steps", [])
 
     # Record failure feedback: recovery was exhausted — the layer combination
     # used for this task correlated with failure.
     try:
-        context_engine.record_feedback(success=False, task=state.get("current_task", ""))
+        get_context_engine(config).record_feedback(
+            success=False, task=state.get("current_task", "")
+        )
     except Exception:
         pass  # Feedback is best-effort; never block the graph
 
@@ -1420,7 +1427,9 @@ def replanner_node(
         # Give-up: plan was unrecoverable even after 2 replans.
         # Record failure feedback so the learning loop sees negative samples.
         try:
-            context_engine.record_feedback(success=False, task=state.get("current_task", ""))
+            get_context_engine(config).record_feedback(
+                success=False, task=state.get("current_task", "")
+            )
         except Exception:
             pass  # Feedback is best-effort; never block the graph
         return {
@@ -1769,17 +1778,62 @@ except Exception as exc:  # e.g. RuntimeError from VectorMemory
     print(f"[chat_graph] Long-term memory DISABLED (boot degraded): {exc}")
     memory_manager = None
 
-# Main context engine: heuristic summarization only (saves money).
-# To enable LLM-powered summarization for massive outputs, pass llm=get_llm(...).
-# Give it the memory manager so it can retrieve past lessons.
-# max_tokens=None -> auto-detect from the model's context window, capped at
-# PROVIDER_SAFE_LIMIT (see ContextEngine.__init__). Never hardcode a number
-# here again: an 8000 cap silently wastes 96% of a 200K-window model.
-context_engine = ContextEngine(
-    model=LLM_MODEL,
-    llm=None,
-    memory_manager=memory_manager,
-)
+# ---------------------------------------------------------------------
+# SESSION-SCOPED CONTEXT ENGINES (D1)
+# ---------------------------------------------------------------------
+# One ContextEngine per conversation thread. The old module-level singleton
+# silently shared _layer_cache, _last_layers_sent, feedback history AND the
+# learned LAYER_RELEVANCE weights across every dashboard session — proven
+# corruption: session A's outcome was attributed to (and punished) session
+# B's layer composition, and A's weight drift steered B's next build.
+# Registry is memoized + LRU-capped; construction matches the retired
+# singleton (model auto-resolution, shared memory manager — long-term
+# memory stays intentionally global: single-product, not multi-tenant).
+#
+# Planner note: src/agents/planner.py keeps its own engine singleton and
+# needs no registry — its build_*_messages methods are pure construction
+# (verified: zero self-mutation), so threads can share it safely.
+
+_ENGINES: "OrderedDict[str, ContextEngine]" = OrderedDict()
+_ENGINES_LOCK = threading.Lock()
+_ENGINES_MAX = 128  # LRU cap: engines are light; unbounded growth is not.
+
+
+def _session_key_from_config(config: RunnableConfig | None) -> str:
+    try:
+        thread_id = (config or {}).get("configurable", {}).get("thread_id")
+    except AttributeError:
+        thread_id = None
+    return str(thread_id) if thread_id else "default"
+
+
+def get_context_engine(
+    config_or_key: RunnableConfig | str | None = None,
+) -> ContextEngine:
+    """Memoized per-session ContextEngine.
+
+    Nodes pass their RunnableConfig (thread_id lives in configurable);
+    tools/tests may pass a raw key string. Unknown -> "default".
+    """
+    key = (
+        config_or_key
+        if isinstance(config_or_key, str)
+        else _session_key_from_config(config_or_key)
+    )
+    with _ENGINES_LOCK:
+        engine = _ENGINES.get(key)
+        if engine is None:
+            engine = ContextEngine(
+                model=LLM_MODEL,
+                llm=None,
+                memory_manager=memory_manager,
+            )
+            _ENGINES[key] = engine
+            if len(_ENGINES) > _ENGINES_MAX:
+                _ENGINES.popitem(last=False)  # evict least-recently-used
+        else:
+            _ENGINES.move_to_end(key)
+        return engine
 
 # Persistent session checkpointer — thread state survives restarts.
 # NOTE: SqliteSaver.from_conn_string() returns a context manager (verified),

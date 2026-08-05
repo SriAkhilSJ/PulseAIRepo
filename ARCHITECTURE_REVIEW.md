@@ -369,3 +369,44 @@ Reviewer-confirmed non-issue: fresh `_limit_lock` per `bind_tools()` proxy
 is correct by construction (per-instance memoization).
 
 Suite: **85/85 green** (+2). Ten review rounds complete.
+
+---
+
+## 15. D1: Session-Scoped ContextEngines (2026-08-05, founder-prioritized)
+
+The last big architecture debt. **Proven pre-fix:** the module-level
+`context_engine` singleton shared `_layer_cache`, `_last_layers_sent`,
+feedback history, and learned LAYER_RELEVANCE weights across every
+dashboard session. Deterministic demonstration: session B's build between
+A's build and A's `record_feedback` made A's feedback row carry B's exact
+layer composition (A's `progress` layer gone from the record), and every
+weight drift steered every other session.
+
+**Shipped:**
+- `_ENGINES` registry in chat_graph: memoized per `thread_id` (nodes pass
+  their `RunnableConfig`; tools/tests may pass a raw key), `OrderedDict`
+  LRU capped at 128, one lock for registry mutation.
+- `finalize_node` / `recovery_limit_node` now declare `config` (LangGraph
+  injects it) — previously they could not reach a session key at all.
+- Per-engine `_api_lock` (RLock) wrapping `build_ai_messages` /
+  `record_feedback`: same-session concurrent turns (dashboard double-fire)
+  can't interleave mutations. Planner message builders audited and found
+  PURE (zero self-mutation) — planner singleton correctly left alone;
+  premature registry rejected.
+
+**By-design boundary (documented, not a bug):** the feedback JSON file
+stays a GLOBAL learning channel — new session engines bootstrap their
+weights from accumulated history. Cross-session *learning* is the point of
+the feature; cross-session *mutation* was the bug. True multi-tenant
+isolation (per-user feedback files, per-user memory) is a product decision
+for later, not an engineering defect today.
+
+**Post-fix proof:** the exact pre-fix scenario now records A's own layer
+composition (printed `True`), and 12-record failure drift on session A
+leaves session B's weights byte-identical.
+
+Suite: **94/94 green** (8 new tests: registry memoization, default bucket,
+LRU eviction w/ exact order semantics, attribution + weight isolation,
+8-thread same-session hammer, node config wiring, end-to-end recovery-limit
+feedback on the right engine). One degraded-memory test updated for the new
+`finalize_node(state, config)` signature.

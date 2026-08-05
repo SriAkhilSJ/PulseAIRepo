@@ -28,7 +28,10 @@ def test_finalize_node_survives_degraded_memory(degraded):
         "replan_count": 0,
         "workspace": ".",
     }
-    out = degraded.finalize_node(state)  # would AttributeError before the fix
+    # config added in D1: finalize_node needs thread_id to reach the
+    # session-scoped engine registry.
+    cfg = {"configurable": {"thread_id": "degraded-finalize", "provider": "groq", "model": "m"}}
+    out = degraded.finalize_node(state, cfg)  # would AttributeError before the fix
     assert out, "finalize_node returned nothing"
 
 

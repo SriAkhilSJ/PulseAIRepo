@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from enum import Enum
 from dataclasses import dataclass, field
@@ -243,6 +244,12 @@ class ContextEngine:
         # instead of re-encoding ~25 prototype embeddings on every turn.
         self._classifier: Optional[TaskClassifier] = None
 
+        # Guards ALL public build/record entry points. Engines are
+        # session-scoped (chat_graph registry), but the dashboard can fire
+        # two turns for the SAME session concurrently — cache/snapshot/weight
+        # mutations must not interleave.
+        self._api_lock = threading.RLock()
+
         # Feedback loop for learning layer weights
         self._feedback_history: list[dict] = []
         self._feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
@@ -371,7 +378,14 @@ class ContextEngine:
         },
     }
 
-    def build_ai_messages(
+    def build_ai_messages(self, state, system_message):
+        """Thread-safe public entry: same-session concurrent turns (the
+        dashboard can double-fire a thread) must not interleave the
+        cache / _last_layers_sent / hash mutations below."""
+        with self._api_lock:
+            return self._build_ai_messages(state, system_message)
+
+    def _build_ai_messages(
         self,
         state: dict[str, Any],
         system_message: SystemMessage,
@@ -1129,6 +1143,11 @@ class ContextEngine:
         return SystemMessage(content="\n".join(lines))
 
     def record_feedback(self, success: bool, task: Optional[str] = None) -> None:
+        """Thread-safe public entry (see build_ai_messages)."""
+        with self._api_lock:
+            self._record_feedback(success, task)
+
+    def _record_feedback(self, success: bool, task: Optional[str] = None) -> None:
         """Call after task completion to learn which layers worked."""
         # Build profile of what was sent this turn
         profile = {
