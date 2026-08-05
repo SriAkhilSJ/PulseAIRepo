@@ -416,7 +416,10 @@ class ContextEngine:
                 if msg:
                     layers.append(msg)
                     self._layer_cache[name] = msg
-            except Exception:
+            except Exception as exc:
+                # Never silent: a masked builder error hid the _quality_layer
+                # signature bug for months. Skip the layer, but say so.
+                print(f"[ContextEngine] layer '{name}' builder failed: {exc}")
                 continue
 
         return layers
@@ -628,8 +631,14 @@ class ContextEngine:
         content = "=== USER PREFERENCES ===\n" + "\n".join(f"- {p}" for p in prefs)
         return SystemMessage(content=content)
 
-    def _quality_layer(self) -> SystemMessage:
-        """Layer 8: Claude-quality response standards reminder."""
+    def _quality_layer(self, state: dict[str, Any]) -> SystemMessage | None:
+        """Layer 8: Claude-quality response standards reminder.
+
+        (This layer was silently NEVER built for months: it took no `state`
+        arg while the builder loop calls builder(state), and the blanket
+        try/except in _build_context_layers swallowed the TypeError. Signature
+        fixed; the builder loop now warns loudly instead of failing silently.)
+        """
         return SystemMessage(content=(
             "=== QUALITY STANDARDS ===\n"
             "As you work, remember to:\n"
