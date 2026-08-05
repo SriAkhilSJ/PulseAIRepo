@@ -675,9 +675,9 @@ class ContextEngine:
         # of the proportional share, then shrinks only if the first estimate
         # still overshoots (suffix + boundary effects) — ≤3 attempts total.
         orig_tokens = count_tokens([msg], self.model)
+        suffix = "\n... (truncated) ..."
         if orig_tokens > 0 and len(content) > 0:
             target_chars = int(len(content) * (max_tokens / orig_tokens) * 0.9)
-            suffix = "\n... (truncated) ..."
             for _ in range(3):
                 if target_chars <= 0:
                     break
@@ -689,6 +689,31 @@ class ContextEngine:
                 if cand_tokens <= max_tokens:
                     return candidate
                 target_chars = int(target_chars * (max_tokens / cand_tokens) * 0.9)
+
+            # Guaranteed-convergence fallback. Proportional steps handle
+            # ~99% of layers; adversarial mixed-density content (prose +
+            # CJK + emoji) can defeat ANY fixed-iteration proportional
+            # scheme (~0.7% in fuzzing) and get the layer dropped despite
+            # a fitting prefix existing. tokens(prefix) is monotone enough
+            # in prefix length (BPE seam wobble aside — the returned
+            # candidate is always re-measured, never assumed), so binary
+            # search finds a fitting prefix whenever one exists.
+            lo, hi = 1, len(content)
+            best: SystemMessage | None = None
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                candidate = SystemMessage(
+                    content=content[:mid] + suffix,
+                    response_metadata=dict(msg.response_metadata),
+                )
+                if count_tokens([candidate], self.model) <= max_tokens:
+                    best = candidate
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            if best is not None:
+                return best
+            # Genuinely unfittable: not even a 1-char prefix + suffix fits.
 
         return None
 

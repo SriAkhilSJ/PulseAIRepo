@@ -318,3 +318,21 @@ tier budgets 126,976 and `proxy._safe_limit()` returns the **identical
 number** — engine and guard in lockstep. All layers carry identity tags.
 
 Suite: **78/78 green** (10 new pure tests incl. a new `test_retry_proxy.py`).
+
+---
+
+## 12. Verification of Round 11 + Compression Convergence (2026-08-05)
+
+Eighth pasted review — audited round 11 with partial visibility (their
+GitHub fetches failed, so several claims were "unverified"). All resolved
+empirically:
+
+| Claim | Verdict | Action |
+|---|---|---|
+| "Proxy side of auto-mode unverified — lockstep claim may be false" | ✅ **VERIFIED REAL**: `_safe_limit()` ships as claimed (`PSL>0` → explicit; `PSL=0` → resolve discovered window − margin, memoized); `test_retry_proxy.py` has explicit/auto/memo/trim-end-to-end tests | Evidence printed in-session; no code change needed |
+| "No test for tag survives compression" | ❌ **FALSE**: `test_compress_layer_preserves_identity_tag` + `test_layer_tags_are_invisible_to_providers` exist since round 11; reviewer couldn't fetch the test files | Pointed at the test names |
+| `_compress_layer` can still return None after 3 proportional iterations, dropping a fittable layer | 🔴 **REAL, fuzz-proven**: 2/284 adversarial mixed-density cases (prose + CJK + emoji) returned None while a fitting prefix existed (budget=200, 443-token layer, 106-char prefix fits) | ✅ Binary-search fallback after the proportional fast path: converges whenever a fitting prefix exists; returned candidate always re-measured (BPE seam wobble can't phantom-fit). Re-run harness: **0 unjustified-None, 0 over-budget in 284 cases** |
+| Their suggested fix: "return the smallest candidate anyway, the pre-send guard trims it" | ❌ **REJECTED**: deliberately shipping over-budget context = re-introducing the amputation roulette the whole guard architecture exists to prevent | Convergence instead of roulette |
+| `None` when even suffix doesn't fit | ✅ Correct as-is (genuinely unfittable) | Regression-pinned in a test |
+
+Suite: **80/80 green** (2 new property tests with a brute-force oracle).

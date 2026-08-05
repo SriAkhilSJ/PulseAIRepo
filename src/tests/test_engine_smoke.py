@@ -140,3 +140,52 @@ def test_layer_tags_are_invisible_to_providers():
     )[0]
     assert "layer" not in dumped
     assert "response_metadata" not in dumped
+
+
+def test_compress_layer_never_drops_a_fittable_layer():
+    """Fuzz-proven gap (round 12): the old ≤3-iteration proportional loop
+    returned None — layer SILENTLY DROPPED — for ~0.7% of mixed-density
+    contents even though a fitting prefix existed. The binary-search
+    fallback must make 'unjustified None' impossible."""
+    from src.context.token_budget import count_tokens
+
+    eng = _engine()
+    suffix = "\n... (truncated) ..."
+    LIGHT = "the quick brown fox jumps over the lazy dog " * 20
+    CJK = "".join(chr(0x4E00 + (i % 500)) for i in range(400))   # ~1 char/token
+    EMOJI = "🙂🚀🔥💡⚙️🧩🎯🛠️" * 50                                 # <1 char/token
+    cases = [LIGHT + CJK, CJK + LIGHT, LIGHT + EMOJI + CJK, EMOJI + LIGHT,
+             CJK + EMOJI]
+
+    def fit_exists(content, budget):
+        lo, hi, found = 0, len(content), False
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if count_tokens([SystemMessage(content=content[:mid] + suffix)], eng.model) <= budget:
+                found = True
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return found
+
+    for content in cases:
+        for budget in (50, 100, 200, 500, 1000):
+            msg = SystemMessage(content=content, response_metadata={"layer": "x"})
+            if count_tokens([msg], eng.model) <= budget:
+                continue  # not a compression case
+            out = eng._compress_layer(msg, budget)
+            if fit_exists(content, budget):
+                assert out is not None, (
+                    f"fittable layer dropped (budget={budget})")
+                assert count_tokens([out], eng.model) <= budget, (
+                    f"compressed layer over budget (budget={budget})")
+                assert out.response_metadata["layer"] == "x"
+            else:
+                assert out is None, f"magic compression of the unfittable (budget={budget})"
+
+
+def test_compress_layer_none_only_when_truly_unfittable():
+    eng = _engine()
+    # Budget smaller than the suffix alone: None is the ONLY honest answer.
+    msg = SystemMessage(content="🙂🚀🔥" * 100, response_metadata={"layer": "x"})
+    assert eng._compress_layer(msg, max_tokens=3) is None
