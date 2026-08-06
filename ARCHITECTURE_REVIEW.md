@@ -898,3 +898,55 @@ isolation), D9 (progress_node split), D10 (web_fetch soup), D13
 D16 (cross-session playbook), C1 (chunk_index KNN query shape —
 measured 155ms@20K slow-shape pattern), P2 (VS Code ext).
 ~~D11~~ ~~D12~~ REVOKED (see above).
+
+---
+
+## 26. Detective Mode — Import-Linked Retrieval Expansion (2026-08-06)
+
+Founder roadmap item #3 ("detective mode"): when the chunk layer matches
+code for a task, the prompt now also says WHO IMPORTS THAT CODE
+(break-warning) and WHAT IT IMPORTS (relies-on note). D15 (Python half).
+
+**Why a new edge graph (verified, not assumed):** `repo_map`'s existing
+import "graph" keeps only each module's FIRST dotted segment
+(`alias.name.split(".")[0]`, repo_map.py:275) — `src.llm.factory` and
+`src.graphs.chat_graph` both collapse to `src`. File->file edges are
+impossible from it, so a second build beside it (churn risk on edits) was
+the alternative. Shipped instead: `import_edges` table inside the chunk
+index, resolved from full AST dotted paths (`_extract_py_import_edges`),
+rows living in the SAME `sync_file`/`remove_file` transactions as chunk
+rows — edges cannot drift from code by construction. Non-Python files
+produce zero edges by design (v1 boundary; tree-sitter import nodes are
+the D15-remainder, ~same config-driven patterns as D5).
+
+**Migration (no user action):** `PRAGMA user_version` 1→2 forces ONE
+full re-sync on existing indexes at boot (loud log lines), because a
+table-empty check cannot distinguish "never built" from "project has no
+imports". Tested: `test_v2_migration_forces_one_resync` proves edges
+backfill and the normal mtime path resumes (second sync = 0 changes).
+
+**Prompt shape (hard-capped: 4 neighbors, 3 symbols each):**
+
+```
+=== RELATED FILES (import links) ===
+- service.py imports repo.py — edits above may BREAK this file | symbols: validate_session_token
+- db.py imported by service.py — the matched code relies on it | symbols: connect
+```
+
+**Self-caught this round:** my e2e fixture assumed search would match
+only the target file; the target's CALL SITE inside the dependent file
+correctly made it a second match, excluding it from the relation list
+(used-file exclusion working as designed). The failure was mine, not the
+code's — fixed by a lexically-unique task + direct `_related_files_lines`
+pins so both directions are asserted deterministically.
+
+Suite: 164 → **174** (+10: dotted/from/relative/self/stdlib resolution,
+both directions, cap-at-4, no-edge safety, edit-sync, remove-sync,
+migration, JS-tolerance).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ — remaining:
+D7 (sub-agent isolation), D9 (progress_node split), D10 (web_fetch soup),
+D13 (re-rank), D14 (symbol ranking), D15-remainder (JS/TS/Go/Rust/Java
+import edges via tree-sitter import statements), D16 (cross-session
+playbook), C1 (chunk_index KNN join shape — measured slow-shape
+suspicion), P2 (VS Code ext). ~~D11~~ ~~D12~~ REVOKED (§25).

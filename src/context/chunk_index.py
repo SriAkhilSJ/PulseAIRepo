@@ -24,6 +24,12 @@ Design notes (each one is a verified lesson, not a guess):
   to vector distances.
 - Embedded text is hard-capped (~200 tokens) for all-MiniLM-L6-v2; the full
   (display-truncated) body is stored separately for the LLM.
+- import_edges (schema user_version=2): file->file import graph powering the
+  "related files" section of the context layer ("detective mode"). Python-
+  only, stdlib-ast, full dotted-path resolution to workspace files (the
+  repo_map graph's first-segment module names can't produce file->file
+  edges — verified). Rows live/die in the SAME transactions as chunk
+  rows, so edges cannot drift from code.
 """
 
 from __future__ import annotations
@@ -56,6 +62,64 @@ _SKIP_DIRS = {
     ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist", "build",
     ".tox", ".idea", ".vscode", "generated",
 }
+
+
+# ---------------------------------------------------------------------
+# IMPORT EDGES (v2 — "detective mode")
+# ---------------------------------------------------------------------
+
+def _extract_py_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
+    """Resolve a Python file's imports to in-workspace file targets.
+
+    Full dotted-path resolution (repo_map's first-segment module names
+    cannot produce file->file edges — verified). `import a.b.c` resolves
+    the exact module path; `from a.b import c` resolves both the module
+    file (`a/b.py`, `a/b/__init__.py`) and submodule targets (`a/b/c.py`);
+    relative `from .x import y` climbs from the importer's package dir.
+    stdlib/third-party imports resolve to nothing and are dropped: edges
+    exist only between workspace files. Never raises — missing edges are
+    a retrieval bonus, not a failure mode.
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError, RecursionError):
+        return set()
+
+    targets: set[str] = set()
+    importer_str = str(importer_rel)
+    importer_dir = importer_rel.parent
+
+    def _resolve(module: str, names: list[str], level: int) -> None:
+        if level >= 1:
+            base = importer_dir
+            for _ in range(level - 1):
+                base = base.parent  # Path('.').parent == '.': cannot escape root
+        else:
+            base = Path("")
+        mod_path = Path(*module.split(".")) if module else Path("")
+        full = base / mod_path
+        candidates = [full.with_suffix(".py"), full / "__init__.py"]
+        for name in names:  # from X import n -> X/n.py may be the real target
+            candidates.append(full / f"{name}.py")
+            candidates.append(full / name / "__init__.py")
+        for cand in candidates:
+            rel_str = str(cand)
+            if rel_str == importer_str:
+                continue
+            try:
+                if (workspace / cand).is_file():
+                    targets.add(rel_str)
+            except OSError:
+                continue
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                _resolve(alias.name, [], 0)
+        elif isinstance(node, ast.ImportFrom):
+            _resolve(node.module or "", [a.name for a in node.names], node.level or 0)
+    return targets
+
 
 # One ChunkIndex per workspace, shared process-wide (constructing a fresh
 # index — and re-syncing — per layer call would dominate every turn).
@@ -251,6 +315,10 @@ class ChunkIndex:
         except Exception:
             self.uses_vec = False
 
+        # Set before _init_schema(): the migration check inside flips this
+        # True when it finds an old DB with chunks but no edge data.
+        self._needs_edge_resync = False
+
         self._init_schema()
 
         if watch:
@@ -304,6 +372,30 @@ class ChunkIndex:
                         embedding BLOB NOT NULL
                     )
                 """)
+
+            # v2: file->file import edges for the related-files section.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS import_edges (
+                    importer TEXT NOT NULL,
+                    imported TEXT NOT NULL,
+                    PRIMARY KEY (importer, imported)
+                )
+            """)
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_imported ON import_edges(imported)"
+            )
+            self.conn.commit()
+
+        # Migration edge: an existing DB has chunks but no edges. One forced
+        # re-sync rebuilds them; PRAGMA user_version marks it done so this
+        # never loops. (Files with zero imports produce zero edge rows, so
+        # "table empty" alone can NOT be the migration signal.)
+        if self.conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+            has_chunks = self.conn.execute(
+                "SELECT 1 FROM code_chunks LIMIT 1"
+            ).fetchone()
+            self._needs_edge_resync = bool(has_chunks)
+            self.conn.execute("PRAGMA user_version = 2")
             self.conn.commit()
 
     # ------------------------------------------------------------------
@@ -317,6 +409,7 @@ class ChunkIndex:
             self.conn.execute(f"DELETE FROM {vec_table}")
             self.conn.execute("DELETE FROM code_chunks")
             self.conn.execute("DELETE FROM chunk_fts")
+            self.conn.execute("DELETE FROM import_edges")
             self.conn.commit()
 
         files = self._iter_source_files()
@@ -478,7 +571,7 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def remove_file(self, file_path: Path) -> int:
-        """Drop all chunks for a file from all four stores. No-op if absent.
+        """Drop all chunks AND import edges for a file. No-op if absent.
 
         Closes the deleted-file drift gap: before this, deleting a .py file
         left its chunks in the index (and FTS/BM25 kept retrieving ghosts).
@@ -496,16 +589,21 @@ class ChunkIndex:
                 cur = self.conn.execute(
                     "DELETE FROM code_chunks WHERE file_path = ?", (rel,)
                 )
+                # Edges the deleted file OWNED vanish with it. Edges pointing
+                # AT it are harmless (relations start from matched live files).
+                self.conn.execute("DELETE FROM import_edges WHERE importer = ?", (rel,))
                 return len(old_ids) if old_ids else cur.rowcount
 
     def sync_file(self, file_path: Path) -> None:
-        """Atomic incremental re-index of one file (including its FTS rows)."""
+        """Atomic incremental re-index of one file (chunks, FTS, AND import
+        edges — one transaction, so an interrupted sync never splits them)."""
         rel = str(file_path.relative_to(self.workspace))
         mtime = file_path.stat().st_mtime
         chunks = extract_source_chunks(file_path, self.workspace)
+        edges = self._edges_for(file_path, rel)
         vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
         with self._write_lock:
-            with self.conn:  # single transaction for all four stores
+            with self.conn:  # single transaction for all five stores
                 old_ids = [r[0] for r in self.conn.execute(
                     "SELECT id FROM code_chunks WHERE file_path = ?", (rel,)
                 )]
@@ -514,6 +612,23 @@ class ChunkIndex:
                     self.conn.execute("DELETE FROM chunk_fts WHERE chunk_id = ?", (cid,))
                 self.conn.execute("DELETE FROM code_chunks WHERE file_path = ?", (rel,))
                 self._insert_chunks_no_commit(chunks, mtime)
+                self.conn.execute("DELETE FROM import_edges WHERE importer = ?", (rel,))
+                for target in edges:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO import_edges (importer, imported) VALUES (?, ?)",
+                        (rel, target),
+                    )
+
+    def _edges_for(self, file_path: Path, rel: str) -> set[str]:
+        """Resolved in-repo import targets of one Python file (empty set for
+        non-Python or unparseable sources — edges are a bonus, never fatal)."""
+        if file_path.suffix.lower() != ".py":
+            return set()
+        try:
+            source = file_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return set()
+        return _extract_py_import_edges(source, Path(rel), self.workspace)
 
     def sync_workspace(self) -> int:
         """Re-index files whose mtime is newer than what we stored. Returns count."""
@@ -521,6 +636,13 @@ class ChunkIndex:
         # to race on the same files (wasteful duplicated delete+insert cycles;
         # RLock is reentrant so sync_file's internal acquire is free).
         with self._write_lock:
+            # v2 migration: an upgraded DB with chunks but no edges gets ONE
+            # full re-sync (every file) so detective mode works immediately —
+            # then the flag clears and normal mtime behavior resumes.
+            force_all = self._needs_edge_resync
+            self._needs_edge_resync = False
+            if force_all:
+                print("[ChunkIndex] v2 upgrade: one-time import-edge rebuild start")
             changed = 0
             on_disk: set[str] = set()
             for fpath in self._iter_source_files():
@@ -530,9 +652,11 @@ class ChunkIndex:
                     "SELECT MAX(modified_time) FROM code_chunks WHERE file_path = ?", (rel,)
                 ).fetchone()
                 current = fpath.stat().st_mtime
-                if not row or row[0] is None or row[0] < current:
+                if force_all or not row or row[0] is None or row[0] < current:
                     self.sync_file(fpath)
                     changed += 1
+            if force_all:
+                print("[ChunkIndex] v2 upgrade: import-edge rebuild done")
             # Prune ghosts: chunks whose source file no longer exists.
             # One DISTINCT scan + set diff — cheap, and it makes deletions
             # visible even when the watcher missed them (or isn't installed).
@@ -843,4 +967,83 @@ def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
             lines.append(f"# {doc}")
         lines.append(f"```{fence}\n{body}\n```")
         lines.append("")
+
+    related = _related_files_lines(index, used_files)
+    if related:
+        lines.extend(related)
     return SystemMessage(content="\n".join(lines))
+
+
+_MAX_RELATED_FILES = 4        # total neighbor lines, both directions combined
+_MAX_RELATED_SYMBOLS = 3      # symbol names listed per neighbor file
+
+
+def _related_files_lines(index: "ChunkIndex", used_files: set[str]) -> list[str]:
+    """Detective mode: import-linked neighbors of the matched files.
+
+    - dependents ("X imports the matched file") are the break-warning:
+      edits to the chunks above may BREAK them — listed first;
+    - dependencies ("the matched file imports Y") show what the code
+      relies on.
+
+    Edges live in the same transactions as chunk rows, so this can never
+    describe code that has since changed. Hard-capped; never fatal.
+    """
+    if not used_files:
+        return []
+    try:
+        with index._write_lock:
+            used = sorted(used_files)
+            dep_pairs: list[tuple[str, str]] = []     # (neighbor, matched_file)
+            depnd_pairs: list[tuple[str, str]] = []   # (neighbor, matched_file)
+            for f in used:
+                depnd_pairs.extend(
+                    (r[0], f) for r in index.conn.execute(
+                        "SELECT importer FROM import_edges WHERE imported = ? ORDER BY importer",
+                        (f,),
+                    )
+                )
+                dep_pairs.extend(
+                    (r[0], f) for r in index.conn.execute(
+                        "SELECT imported FROM import_edges WHERE importer = ? ORDER BY imported",
+                        (f,),
+                    )
+                )
+
+            seen: set[str] = set()
+            ordered: list[tuple[str, str, bool]] = []  # (neighbor, matched, is_dependent)
+            candidates = (
+                [(n, m, True) for n, m in depnd_pairs]
+                + [(n, m, False) for n, m in dep_pairs]
+            )  # dependents first: the break-warning outranks the relies-on note
+            for neighbor, matched, is_dependent in candidates:
+                if neighbor in used_files or neighbor in seen:
+                    continue
+                seen.add(neighbor)
+                ordered.append((neighbor, matched, is_dependent))
+                if len(ordered) >= _MAX_RELATED_FILES:
+                    break
+            if not ordered:
+                return []
+
+            lines = ["=== RELATED FILES (import links) ==="]
+            for neighbor, matched, is_dependent in ordered:
+                symbols = [
+                    r[0] for r in index.conn.execute(
+                        """SELECT symbol_name FROM code_chunks
+                           WHERE file_path = ? AND symbol_type IN ('function','class')
+                                 AND symbol_name != '(module)'
+                           ORDER BY start_line LIMIT ?""",
+                        (neighbor, _MAX_RELATED_SYMBOLS),
+                    )
+                ]
+                tail = f" | symbols: {', '.join(symbols)}" if symbols else ""
+                if is_dependent:
+                    lines.append(f"- {neighbor} imports {matched} — edits above may BREAK this file{tail}")
+                else:
+                    lines.append(f"- {neighbor} imported by {matched} — the matched code relies on it{tail}")
+            return lines
+    except Exception as exc:
+        # Same loud rule as the layer itself: never an invisible downgrade.
+        print(f"[ChunkIndex] related-files lookup failed: {exc}")
+        return []
