@@ -11,14 +11,30 @@ Modes:
 - test: Terminal tools to run and verify tests
 - review: Read-only tools to audit code
 
+Execution model (honest): spawn() invokes the child graph SYNCHRONOUSLY
+inside the parent's tool call — the parent's model sees the child's result
+as the tool output in the same turn. "Parallel" is about task-splitting,
+not wall-clock concurrency. Structural safety (verified, ARCHITECTURE_REVIEW.md §27):
+- depth cap = 1 (prefix check on the caller's thread_id)
+- recursion_limit=50 on every invoke; 60s LLM call timeouts
+- a crashed child is caught at THIS boundary (spawn returns a graceful
+  failure string the parent model can recover from). Measured against
+  langgraph 1.2.10: its DEFAULT ToolNode handler converts only
+  ToolInvocationError and RE-RAISES anything else — earlier belief that
+  "ToolNode converts tool crashes" held only under pre-1.x langgraph
+  (suite caught the drift; ARCHITECTURE_REVIEW.md §27).
+- results are capped at 2000 chars before entering the parent's context
+
 What this changes:
 - Complex tasks are split across specialized agents
-- Research happens in parallel with coding (sequentially for now)
 - The main agent coordinates instead of doing everything itself
 """
 import uuid
 from typing import Literal, Any
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
+
+# Orphaned entries (crash between spawn and get_result) never exceed this.
+_MAX_COMPLETED_AGENTS = 50
 
 class SubAgentCoordinator:
     """
@@ -38,6 +54,10 @@ class SubAgentCoordinator:
         """
         Spawn a sub-agent with a focused task.
         Returns the sub-agent's thread ID.
+
+        NOTE: the result payload lives in _active_agents ONLY until
+        get_result() reads it (pop-on-read — before that fix the dict grew
+        by one full result string per spawn for the process's whole life).
         """
         from src.graphs.chat_graph import invoke_agent
         agent_id = f"sub-{mode}-{uuid.uuid4().hex[:6]}"
@@ -71,13 +91,25 @@ class SubAgentCoordinator:
 
         focused_task = prompts.get(mode, task)
 
-        # Run the sub-agent synchronously
-        result = invoke_agent(
-            message=focused_task,
-            thread_id=agent_id,
-            provider=provider,
-            model=model,
-        )
+        # Run the sub-agent synchronously. Crash boundary: a child failure
+        # (provider errors after retries, nested bugs) must degrade to a
+        # sentence the parent can reason about — NEVER an exception climbing
+        # the tool stack, because langgraph>=1.1's default ToolNode handler
+        # re-raises non-validation exceptions, killing the parent's turn.
+        try:
+            result = invoke_agent(
+                message=focused_task,
+                thread_id=agent_id,
+                provider=provider,
+                model=model,
+            )
+        except Exception as exc:
+            result = (
+                f"⛔ Sub-agent crashed: {exc!r}\n"
+                "The main conversation is unaffected. Possible causes: provider "
+                "outage/rate-limit, or a bug in the delegated step. You can retry "
+                "with a narrower task or complete it directly here."
+            )
 
         self._active_agents[agent_id] = {
             "mode": mode,
@@ -85,11 +117,19 @@ class SubAgentCoordinator:
             "result": result,
             "parent": parent_thread_id,
         }
+        # Belt-and-braces bound: if an invoke raises mid-delegation (the entry
+        # then never gets popped), cap the registry at the newest 50 — dicts
+        # keep insertion order, so the oldest orphans are evicted first.
+        while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
+            self._active_agents.pop(next(iter(self._active_agents)))
 
         return agent_id
 
     def get_result(self, agent_id: str) -> str:
-        agent = self._active_agents.get(agent_id)
+        # Pop-on-read: a result has exactly one consumer (the delegating tool
+        # call) — the entry must die the moment it is delivered, or the
+        # singleton accumulates every sub-agent result for the process's life.
+        agent = self._active_agents.pop(agent_id, None)
         if not agent:
             return f"No sub-agent found with ID: {agent_id}"
         return agent["result"]

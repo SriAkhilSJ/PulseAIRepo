@@ -950,3 +950,57 @@ D13 (re-rank), D14 (symbol ranking), D15-remainder (JS/TS/Go/Rust/Java
 import edges via tree-sitter import statements), D16 (cross-session
 playbook), C1 (chunk_index KNN join shape — measured slow-shape
 suspicion), P2 (VS Code ext). ~~D11~~ ~~D12~~ REVOKED (§25).
+
+---
+
+## 27. D7: Sub-Agent Debt — Two Verdicts, One Real Bug, Zero Vibes (2026-08-06)
+
+Founder roadmap #4 ("parallel helpers that can't freeze the chat"). This
+section exists in TWO drafts because a workspace rollback ate the first;
+the second draft is STRONGER — the suite caught draft one's key claim.
+
+**Verdict sweep (empirical, unchanged between drafts):**
+- Sub-agents run SYNCHRONOUSLY inside the parent's tool call
+  (`subagent_coordinator.spawn` → inline `invoke_agent`). No async
+  machinery anywhere — the module docstring's "parallel" was marketing.
+  Fixed the docstring to describe reality.
+- Depth cap (thread prefix), recursion_limit=50, 60s LLM timeouts,
+  result capped at 2000 chars — already-present structural safety.
+- Real leak: `_active_agents` grew one full result string per spawn for
+  the process lifetime (nobody ever called `clear()`). Fixed: pop-on-read
+  + hard cap `_MAX_COMPLETED_AGENTS=50` (insertion-ordered eviction).
+  3 hygiene pins added.
+
+**Draft-1 claim the suite killed in draft 2:** "a crashed sub-agent is
+fine because langgraph ToolNode converts tool exceptions to error
+ToolMessages." TRUE only under pre-1.x langgraph. Against the repo's own
+declared floor (`langgraph>=1.2.9`, sandbox 1.2.10): the DEFAULT handler
+is literally
+`if isinstance(e, ToolInvocationError): return e.message; raise e` —
+every non-validation crash RE-RAISES, killing the graph task. Compiled-
+graph reproduction confirmed the freeze: without a fix, a crashed
+sub-agent ends the parent's turn. (My draft-1 sandbox had drifted to an
+older langgraph; pip installs are sandbox-fresh per turn — the drift is
+why "verified yesterday" without pinned versions means nothing.)
+
+**Fix (framework-independent):** crash caught at the spawn boundary in
+`sub_agent.py:invoke` — the parent receives a graceful
+"⛔ Sub-agent crashed: <cause> ... retry with a narrower task" string as
+a NORMAL tool result. Compiled-graph pin proves nothing escapes.
+
+**New measurable debt filed (D17):** under langgraph>=1.1's narrowed
+default, ANY tool raising a non-validation exception kills the turn —
+the sub-agent path is now covered, but every other tool's raise path is
+unaudited. Audit + choose an explicit `handle_tool_errors` policy with
+pins. (Tools mostly self-catch today; the net is still owed.)
+
+Suite: 174 → **178** (+4: crash-degrades-Gracefully via compiled graph,
+pop-on-read, missing-id, registry cap). Bare-ToolNode unit invocation
+also learned: impossible by design in 1.2.10 (runtime config keys exist
+only inside a compiled graph) — harnesses must compile.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ —
+remaining: D9 (progress_node split), D10 (web_fetch soup), D13 (re-rank),
+D14 (symbol ranking), D15-remainder (multilang import edges), D16
+(cross-session playbook), D17 (tool-crash net policy, langgraph 1.2.x),
+C1 (chunk_index KNN join shape), P2 (VS Code ext).
