@@ -740,3 +740,67 @@ tolerance×2, extension allowlist, e2e trilingual workspace).
 Debt board: ~~D1~~ ~~D2~~ ~~D5 (JS/TS + Go/Rust/Java)~~ — remaining: D7,
 D8, D9, D10, P2. Adding more grammars (C/C++/C#/Ruby/PHP) is now a
 ~15-line config + wheel each, when users ask.
+
+---
+
+## 23. Second-Source Six-Pillar Review Adjudication (2026-08-06)
+
+Founder pasted a "six pillars of context engineering" review scoring the
+engine **5.8/10**. Reviewer's own preamble states method: *"I was able to
+pull the repo metadata, README, architecture review, and dependency
+manifest"* — **documents, not code**. Verified all ~20 checkable
+assertions empirically against upstream `504e099` (the ref they saw).
+
+**Killshot finding:** every "bug" this review reports as present-tense is
+a **verbatim quote of §1 of this document** — the ORIGINAL review's fix
+list (§1:41-45, §1:93) — read without its resolution column (§:128
+"✅ Corrected", etc.). They quoted the problem half of the audit log and
+stopped before the fix half. Same method failure as §19, second source.
+
+| # | Reviewer claim | Verdict | Evidence |
+|---|---|---|---|
+| 1 | "No chunk-level code retrieval" | **FALSE** | `chunk_index.py` upstream since `ca3fd5c`: per-symbol module/function/class chunks; their quote of "Cursor's actual moat…" is §1:44, pre-fix text |
+| 2 | "No BM25/lexical retrieval" (their P0) | **FALSE** | `chunk_index.py:6` sqlite-vec KNN + **FTS5 BM25** fused via RRF (`:186,:613,:620`); the P0 fix is already shipped |
+| 3 | "MemorySaver checkpointer → state dies on restart" (their P1) | **FALSE** | `chat_graph.py:1810` `SqliteSaver(_checkpoint_conn)`, sessions at `~/.pulseai/sessions.db`; quote is §1:41, corrected per §:128 |
+| 4 | "TaskClassifier re-instantiated every turn" | **FALSE** | process-shared singleton `_get_shared_classifier()` (`context_engine.py:153-159`, fixed `445073c`) |
+| 5 | "LAYER_RELEVANCE class attribute mutated" | **FALSE** | per-instance `copy.deepcopy` (`context_engine.py:261`) |
+| 6 | "record_feedback snapshots session cache, not per-turn layers" | **FALSE** | attributes `self._last_layers_sent` (`context_engine.py:1200`), cache is only the never-happens fallback |
+| 7 | "No mtime-based cache invalidation" | **FALSE** | `repo_map._is_stale()` mtime check + auto-rebuild (`repo_map.py:354-357,:83-84`); chunk index per-file mtime re-insert (`chunk_index.py:329,:504`) |
+| 8 | "No incremental re-indexing" | **FALSE** | watchdog-backed watcher + polling fallback + selective re-insert (`chunk_index.py:347-435`) |
+| 9 | "~10.6K LOC" | WRONG NUMBER | 15,809 src LOC (`find src -name '*.py' | xargs wc -l`) |
+| 10 | "repo_map capped at 1,200 tokens" | HALF | default is 1500 (`repo_map.py:76`); 1200 at the one engine call site |
+| 11 | "No tool output truncation discipline" | OVERSTATED | per-tool caps exist: terminal head/tail split (`terminal_tools.py:163-172`), web `max_chars` (`web_tools.py:117`), search match cap (`file_tools.py:238`). TRUE part: no GLOBAL budget on cumulative tool output entering history → **D11** |
+| 12 | "No graduated truncation / no binary-search fit" | OVERSTATED | `_compress_map` is two-stage (strip symbol details → truncate) and protects the import graph (`repo_map.py:293-327`). TRUE part: no per-symbol relevance ordering → folded into **D14** |
+| 13 | "Vector memory = linear scan of 500 rows" | TRUE | `vector_memory.py:89` (code comment admits it); already **D8** |
+| 14 | "No cross-encoder re-ranking" | TRUE | nothing in src/ — **D13** (new, P3) |
+| 15 | "No observation masking / reference pointers" | TRUE | nothing in SmartCompressor — **D12** (new, P2) |
+| 16 | "Import graph not traversed at retrieval" | TRUE | graph is rendered (top-20) into map text (`repo_map.py:148-149`), no edge-walk retrieval — **D15** (new, P2) |
+| 17 | "No PageRank-style symbol ranking" | TRUE | — **D14** (new, P2) |
+| 18 | "No headroom reservation for next tool result" | TRUE-ish | static ceiling only; folded into **D11** |
+| 19 | 9 task types / SafeToolNode / tier routing (their praise) | TRUE | `TaskType` enum `context_engine.py:49-59` |
+| 20 | PROVIDER_SAFE_LIMIT=6000 | TRUE | `settings.py:61`, env-overridable; model-aware budgets also live |
+
+**Net new value extracted (this is what a review is FOR):** four real
+gaps filed as debt — **D11** (global tool-output budget + headroom
+reservation), **D12** (observation masking of aged tool outputs),
+**D13** (cross-encoder re-rank of top-k), **D14** (PageRank-style symbol
+ranking / binary-fit repo map), **D15** (graph-traversal retrieval
+expansion over the existing import graph).
+
+**Re-score on their own rubric, with evidence:** P1 4→**6.5** (chunk
+index + repo map + import graph exist; PageRank/type info absent), P2
+3→**7** (KNN+BM25+RRF exist; re-rank/graph-expansion absent), P3 5 (they
+were mostly right; per-tool caps soften "no discipline"), P4 3→**4**, P5
+4→**5.5** (attribution + persistence fixed), P6 3→**7** (mtime+watcher on
+both indexes). ≈ **7/10** — the closure from their 5.8 to 7 was done by
+this audit loop, reading this document. Irony noted.
+
+**Process note:** no code changed this turn. The D2→D5-2 stack is still
+unapplied upstream; D11/D12 are the next candidates **after** it lands —
+not before. Piling more unapplied commits on the queue is how patches
+rot.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ — remaining: D7 (sub-agent isolation),
+D8 (vector-memory ANN), D9 (progress_node split), D10 (web_fetch soup),
+D11 (tool-output budget), D12 (observation masking), D13 (re-rank),
+D14 (symbol ranking), D15 (graph-expansion retrieval), P2 (VS Code ext).
