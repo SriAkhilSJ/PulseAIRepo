@@ -521,3 +521,38 @@ ME is the point of the harness.
 debts, 1 pivot rejected as unsafe. Suite: **130/130 green** (+3 pinned this
 round: nested-invoke refutation, concurrent-session saver hammer,
 fail-closed approval).
+
+---
+
+## 19. The Reviewer's Third Artifact: "Fresh Verification" (2026-08-05)
+
+Fourteenth paste — the §17/§18 reviewer's "fresh" verification. It now
+acknowledges 9 fixes (the §17 merges, plus round-7's atomic `edit_file`
+and the §4-era per-workspace guard cache — noticed by them for the first
+time). But its "still broken" list contains **zero new actionable items**,
+and two of its three "priority fixes" recommend changes this audit already
+disproved empirically:
+
+| Their "still broken" row | Verdict | Evidence |
+|---|---|---|
+| `shell=True` CRITICAL → "shlex.split + shell=False" | **REJECTED (3rd time)** | Demo: `shlex.split("cat app.py \| grep TODO > t.txt && echo done")` makes `'|'`/`'>'` literal argv — pipes, redirects, `&&` silently break. An agent that can't run `npm run build && npm test` is not a coding agent. Control plane = SafeToolNode checkpointing ALL tools + `$()`/backtick escalation (§17#4). Same architecture as Claude Code/Cursor: shell + permission gate. The guard is documented as a checkpoint, not a sandbox |
+| Sub-agent synchronous deadlock CRITICAL | **FALSE — refuted, now test-pinned** | Live repro (§18): nested `graph.invoke`, same graph/saver/conn/thread — all 3 levels execute in 0.010s, zero errors. Parent-blocking isolation remains = debt D7, which is a design task, not a deadlock |
+| SQLite shared connection CRITICAL → "use `from_conn_string()`" | **FALSE — and their fix is broken** | `SqliteSaver.from_conn_string()` returns a `_GeneratorContextManager`, NOT a saver — disproven in §5(T1) *ten rounds ago*, re-recommended here as "priority fix #2". Real guarantee re-pinned: saver-internal `threading.Lock` + concurrent-put hammer in committed tests |
+| VectorMemory O(n) scan | STANDS → **D8** | sized debt |
+| `search_code` brute force | caps shipped; ChunkIndex reroute **REJECTED** | substring-grep ≠ BM25 question-answering (§17#7) |
+| `AgentState(total=False)` | **REJECTED** | LangGraph idiom (§17#15) |
+| repo_map "no lock on `_repo_map_instance`" | **THE SYMBOL IS DELETED** | `grep _repo_map_instance src/context/repo_map.py` → no match. Per-workspace registry + `_repo_maps_lock` at :369-382. The reviewer cites nonexistent code as evidence of a live race |
+| `web_fetch` regex HTML | STANDS → **D10** | sized debt |
+| Qwen tokenizer | residue only — display/cost precision; budget consequence dead via shared `usable_window_budget()` margin | §18 row 15 |
+| `is_plan_approval` narrow matching | **REJECTED as unsafe** | approval gates fail closed; pinned by committed test (§18) |
+
+**Reviewer meta-scorecard across its three artifacts:** (1) 18 claims → 10
+merged, 3 false/overstated, 1 rejected, 4 debts. (2) 16 "confirmations" →
+10 stale-tree, 1 pivot rejected as unsafe. (3) 10 "still broken" → 3
+refuted by reproductions now committed as tests, 1 citing deleted code, 3
+repeating rejected positions, 2 standing debts, 1 scoped documentation
+note; its top 2 "priority fixes" were previously disproven by this audit.
+Verdict on this reviewer as a source: **reliable idea generator,
+unreliable verifier — it never executes the code it grades.** Keep feeding
+its claims into the gauntlet; stop treating its severity ratings or its
+"verified" stamps as signal.
