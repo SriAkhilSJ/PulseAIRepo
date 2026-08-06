@@ -841,3 +841,60 @@ D8 (vector ANN), D9 (progress_node split), D10 (web_fetch soup),
 D11 (tool-output budget), D12 (observation masking), D13 (re-rank),
 D14 (symbol ranking), D15 (graph-expansion retrieval), D16 (cross-session
 playbook), P2 (VS Code ext).
+
+---
+
+## 25. "Finish the Context Engine" — Round 1 (2026-08-06, founder-directed)
+
+Founder order: finish the context engine completely before other task
+types, in plain English. Round 1 shipped D8 and — more important —
+**caught and revoked two debts I had filed wrongly in §23.**
+
+**D11/D12 REVOKED (my §23 filing error, owning it):** "no observation
+masking / no tool-output discipline" — FALSE, and the reviewers who
+claimed it and I who seconded it all missed the same file:
+`src/context/summarizer.py` (SmartSummarizer, per-tool-family compress
+rules, free-heuristic-first, LLM only >8K chars), live on EVERY build at
+`context_engine.py:457` (`_summarize_tool_messages` runs before
+history trim). Coverage: any tool output >800 chars gets head/tail +
+structure compression at assembly time; tool-side caps
+(terminal/web/search) bound output at creation. Remaining sliver
+(in-loop same-turn giant outputs, custom tools without caps) is
+documented here as degenerate, not shipped as fake work. My error was
+keyword-shaped searching ('mask', 'placeholder') instead of reading the
+pipeline. The gauntlet catching the auditor is the system working.
+
+**D8 SHIPPED (reframed by measurement):** vector_memory.py v3.
+The §23 filing said "performance debt". Measured truth: the LIMIT-500
+scan is O(500) FOREVER — it never gets slower; its disease is
+CORRECTNESS (memories older than the newest 500 are silently
+un-recallable). Shipped: vec0 derived index (blob column remains source
+of truth; zero-migration backfill at boot; dual-write on add;
+delete_old/clear keep tables in sync), legacy path preserved verbatim
+when sqlite-vec is absent. Measured at 5,000 memories: legacy 38.2ms
+searching 500 rows → new 4.4ms searching ALL 5,000 (+8.7x speed,
++10x recall — both real this time, both measured).
+
+**Query-shape lesson (verified, generalizes):** vec0 search written as
+`JOIN ... ORDER BY vec_distance_l2(...) LIMIT k` materializes the FULL
+join — measured 155ms at 20K rows. The `embedding MATCH vec_f32(?)
+AND k = ?` form + post-limit join is 13ms and tie-equivalent (verified
+per-id: reported MATCH distances == directly-computed distances).
+**chunk_index._search_vec_fast uses the slow shape** — fine at current
+workspace sizes, now a measured suspicion on the board (C1), fix when
+profiling bites. Also verified: vec0 reads raw bytes as float32 BLOB
+(rejects the odd-length JSON BLOB — my first add() dual-write did
+exactly this; tests caught it): feed JSON TEXT (or vec_f32()).
+
+Suite: 159 → **164** (+5: KNN/legacy parity on gapped fixtures, the
+beyond-500 recall bug test, dual-write sync, no-sqlite-vec fallback,
+pre-v3 backfill). Tie physics: parity asserts order only above the
+1e-5 noise floor — float32 vec0 storage turns exact-zero cosines into
+~2e-7, and tie order is engine-defined (verified), never user-visible.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ — remaining: D7 (sub-agent
+isolation), D9 (progress_node split), D10 (web_fetch soup), D13
+(re-rank), D14 (symbol ranking), D15 (graph-expansion retrieval),
+D16 (cross-session playbook), C1 (chunk_index KNN query shape —
+measured 155ms@20K slow-shape pattern), P2 (VS Code ext).
+~~D11~~ ~~D12~~ REVOKED (see above).
