@@ -1482,7 +1482,15 @@ class SafeToolNode:
     Wrapper around ToolNode that checks safety before executing.
     """
     def __init__(self, tools, safety_guard: SafetyGuard):
-        self._node = ToolNode(tools)
+        # handle_tool_errors=True — the crash net, decided by experiment
+        # (ARCHITECTURE_REVIEW.md §27-28): langgraph>=1.1's DEFAULT handler
+        # converts only ToolInvocationError and re-raises anything else,
+        # so any unhandled tool exception (file lock, httpx, OSError...) used
+        # to kill the whole turn. True = catch-all -> error ToolMessage with
+        # intact tool_call pairing; the model reads the error and adapts.
+        # GraphInterrupt/GraphBubbleUp are exempted inside ToolNode (verified
+        # in 1.2.10 source), so control flow is unaffected.
+        self._node = ToolNode(tools, handle_tool_errors=True)
         self._guard = safety_guard
         # SafetyGuards are stateless except for their workspace, so keep one
         # per distinct workspace instead of rebuilding on every tool call.

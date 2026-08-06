@@ -1004,3 +1004,40 @@ remaining: D9 (progress_node split), D10 (web_fetch soup), D13 (re-rank),
 D14 (symbol ranking), D15-remainder (multilang import edges), D16
 (cross-session playbook), D17 (tool-crash net policy, langgraph 1.2.x),
 C1 (chunk_index KNN join shape), P2 (VS Code ext).
+
+---
+
+## 28. D17: Tool-Crash Net — One Line, Chosen by Experiment (2026-08-06)
+
+The §27 discovery generalized: if a crashed SUB-agent could freeze a turn,
+so could ANY tool whose body raises a non-validation exception. Audit
+(grep-level): file_tools self-catches most paths but still holds a bare
+`raise ValueError` (:29); terminal/web have partial handlers; zero net
+existed above them.
+
+**Policy chosen empirically, not from release notes** (langgraph 1.2.10,
+compiled-graph harness, `plain_boom` probe):
+
+| construction | arbitrary RuntimeError reaches the graph as... |
+|---|---|
+| `ToolNode(tools)` (default) | **task exception — turn dead** (reproduced) |
+| `ToolNode(tools, handle_tool_errors=True)` | `status="error"` ToolMessage, `tool_call_id` pairing intact, content `Error: RuntimeError(...)` — **turn survives** (reproduced) |
+
+Interrupts exempted inside ToolNode (`GraphInterrupt`/`GraphBubbleUp`
+re-raised unconditionally, 1.2.10 source read) — approval/interrupt
+control flow is untouched.
+
+**Shipped:** one line at the single choke point — `SafeToolNode.__init__`
+now builds `ToolNode(tools, handle_tool_errors=True)` (chat_graph.py:1485).
+No tool bodies touched: the net sits above all 17 registered tools.
+
+**Pins (suite 178 → 182):** default-policy tripwire (documents the
+1.2.10 baseline), True=catch-all semantics, production `tool_node`
+carries the net (attribute assert, anti-regression), and end-to-end
+SafeToolNode survival through a compiled graph.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~ —
+remaining: D9 (progress_node split), D10 (web_fetch soup), D13 (re-rank),
+D14 (symbol ranking), D15-remainder (multilang import edges), D16
+(cross-session playbook), C1 (chunk_index KNN join shape), P2 (VS Code
+ext).
