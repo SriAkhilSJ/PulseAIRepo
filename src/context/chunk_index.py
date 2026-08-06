@@ -42,7 +42,7 @@ from typing import Any, Optional
 from src.context.lang_extractors import (
     _sha256_id,
     _truncate_for_embedding,
-    extract_chunks_ts_js,
+    extract_chunks_treesitter,
     source_extensions,
 )
 
@@ -174,7 +174,7 @@ def extract_source_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
     by _iter_source_files anyway)."""
     if file_path.suffix.lower() == ".py":
         return extract_chunks(file_path, root)
-    return extract_chunks_ts_js(file_path, root)
+    return extract_chunks_treesitter(file_path, root)
 
 
 # ---------------------------------------------------------------------
@@ -822,6 +822,7 @@ def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
         ".jsx": "jsx",
         ".ts": "typescript", ".cts": "typescript", ".mts": "typescript",
         ".tsx": "tsx",
+        ".go": "go", ".rs": "rust", ".java": "java",
     }
 
     lines = ["=== RELEVANT CODE CHUNKS ==="]

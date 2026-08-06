@@ -137,11 +137,13 @@ def test_python_only_degradation_is_loud_once(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(le, "_GRAMMARS", {})
     monkeypatch.setattr(le, "_FAILED", set())
     monkeypatch.setattr(le, "_NOTICED", False)
-    monkeypatch.setitem(sys.modules, "tree_sitter_javascript", None)  # import fails
-    monkeypatch.setitem(sys.modules, "tree_sitter_typescript", None)
+    for mod_name in ("tree_sitter_javascript", "tree_sitter_typescript",
+                     "tree_sitter_go", "tree_sitter_rust", "tree_sitter_java"):
+        monkeypatch.setitem(sys.modules, mod_name, None)  # imports fail
 
     assert le._load_grammar("javascript") is None
     assert le._load_grammar("typescript") is None
+    assert le._load_grammar("go") is None
     assert le.source_extensions() == frozenset({".py"})
 
     src = tmp_path / "app.js"
@@ -236,6 +238,124 @@ def test_edited_file_reembeds_only_changed_chunks(tmp_path, monkeypatch):
     idx.sync_workspace()
     delta = embedder.encoded - first
     assert delta <= 2, f"re-sync embedded {delta} chunks instead of ~1"
+
+
+# ---------------------------------------------------------- D5-2: go/rust/java
+
+
+GO = """// Package main entry.
+package main
+
+import "fmt"
+
+// Login authenticates a user.
+func Login(u string) error { return nil }
+
+type Session struct { ttl int }
+
+// Start begins the session.
+func (s *Session) Start() { fmt.Println(s.ttl) }
+"""
+
+RUST = """/// Authenticate a user.
+pub fn login(u: &str) -> bool { true }
+
+struct Session { ttl: u32 }
+
+impl Session {
+    /// Begin the session.
+    pub fn start(&self) {}
+    fn stop(&mut self) {}
+}
+
+trait Stoppable { fn halt(&self); }
+"""
+
+JAVA = """package com.pulse;
+
+/** User service. */
+class UserService {
+    private int ttl;
+    UserService(int t) { this.ttl = t; }
+    public User login(String u) { return new User(u); }
+}
+
+interface Repo { User get(String id); }
+"""
+
+
+def test_go_functions_methods_struct(tmp_path):
+    src = tmp_path / "main.go"
+    src.write_text(GO)
+    by = _names(extract_source_chunks(src, tmp_path))
+    assert by["Login"]["symbol_type"] == "function"
+    assert by["Login"]["docstring"] == "// Login authenticates a user."
+    assert by["Session"]["symbol_type"] == "class"          # struct, via type_spec
+    assert by["Start"]["symbol_type"] == "function"          # receiver method: top-level chunk
+    assert by["Start"]["docstring"] == "// Start begins the session."
+
+
+def test_rust_fn_struct_impl_trait(tmp_path):
+    src = tmp_path / "lib.rs"
+    src.write_text(RUST)
+    by = _names(extract_source_chunks(src, tmp_path))
+    assert by["login"]["symbol_type"] == "function"
+    assert by["login"]["docstring"].startswith("/// Authenticate")
+    assert by["Session"]["symbol_type"] == "class"
+    assert by["impl Session"]["symbol_type"] == "class"      # name resolved from type_identifier
+    assert "  start(...)" in by["impl Session"]["content"]   # methods embedded
+    assert by["Stoppable"]["symbol_type"] == "class"         # trait
+
+
+def test_java_class_interface_javadoc(tmp_path):
+    src = tmp_path / "UserService.java"
+    src.write_text(JAVA)
+    by = _names(extract_source_chunks(src, tmp_path))
+    assert by["UserService"]["docstring"] == "/** User service. */"
+    assert "  UserService(...)" in by["UserService"]["content"]  # constructor listed
+    assert "  login(...)" in by["UserService"]["content"]
+    assert by["Repo"]["symbol_type"] == "class"              # interface
+    assert "login" not in by                                 # no standalone method chunks
+
+
+def test_new_languages_tolerant_of_broken_source(tmp_path):
+    for name, text in [("bad.rs", "fn broken( { {{{"), ("bad.go", "func ((( oops")]:
+        src = tmp_path / name
+        src.write_text(text)
+        chunks = extract_source_chunks(src, tmp_path)
+        assert chunks and chunks[0]["symbol_type"] == "module"
+
+
+def test_source_extensions_cover_d5_2(tmp_path):
+    exts = le.source_extensions()
+    assert {".py", ".js", ".ts", ".tsx", ".go", ".rs", ".java"} <= exts
+
+
+def test_index_e2e_go_rust_java(tmp_path):
+    (tmp_path / "main.go").write_text(GO)
+    (tmp_path / "lib.rs").write_text(RUST)
+    (tmp_path / "UserService.java").write_text(JAVA)
+    (tmp_path / "auth.py").write_text("def validate_token(t):\n    return True\n")
+
+    idx = ChunkIndex(tmp_path, db_path=str(tmp_path / "idx.db"), embedder=None, watch=False)
+    idx.index_workspace()
+
+    assert any(r.symbol_name == "Login" and r.file_path == "main.go"
+               for r in idx.search("Login authenticates", top_k=10))
+    assert any(r.symbol_name == "impl Session"
+               for r in idx.search("Session", top_k=10))
+    assert any(r.symbol_name == "UserService"
+               for r in idx.search("user service login", top_k=10))
+    assert any(r.symbol_name == "validate_token"
+               for r in idx.search("validate_token", top_k=10))  # python unchanged
+
+    (tmp_path / "lib.rs").write_text(RUST + "\npub fn logout(u: &str) {}\n")
+    idx.sync_workspace()
+    assert any(r.symbol_name == "logout" for r in idx.search("logout", top_k=10))
+
+    removed = idx.remove_file(tmp_path / "main.go")
+    assert removed > 0
+    assert not [r for r in idx.search("Login", top_k=10) if r.file_path == "main.go"]
 
 
 def test_iter_source_files_yields_all_supported(tmp_path):

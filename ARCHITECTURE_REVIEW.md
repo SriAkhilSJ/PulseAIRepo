@@ -690,3 +690,53 @@ design space — that's where the extension APIs live).
 
 Debt board: ~~D1~~ ~~D2~~ ~~D5(m1: JS/TS family)~~ — remaining: D5-2
 (more grammars, as users demand), D7, D8, D9, D10, P2.
+
+---
+
+## 22. D5-2: Go / Rust / Java Grammars (2026-08-06, founder-directed)
+
+Founder said "D5-2". The milestone-1 deferral ("more grammars, as users
+demand") arrived same-day.
+
+**Grammar-first process:** every node type used below was verified by
+spiking the installed grammar wheels against real source files BEFORE
+writing the extractor — tree-sitter grammars name things differently
+per language, and docs drift:
+
+| Language | Verified shapes (installed wheels) |
+|---|---|
+| Go 0.25.0 | `function_declaration`/`method_declaration` (both with `name` field); structs via `type_declaration → type_spec → name`; comments are `comment` |
+| Rust 0.24.2 | `function_item`; `struct_item`/`trait_item` (named); `impl_item` has NO name — resolved as `impl <Type>` from its `type_identifier`; doc comments are `line_comment` containing `doc_comment`; methods live in `declaration_list` |
+| Java 0.23.5 | `class_declaration`/`interface_declaration` (named); members in `class_body`/`interface_body` as `method_declaration`/`constructor_declaration`; javadoc is `block_comment` |
+
+**Shipped:** `_walk_generic` — a config-driven walker (per-language node
+sets + comment types + method containers + name-resolution strategy);
+`_load_grammar` generalized to importlib over a kind→(module, attr) map;
+`extract_chunks_ts_js` renamed `extract_chunks_treesitter` (it earns its
+name now); fences `go`/`rust`/`java`; 3 wheels added to pyproject
+(**uv sync required**). Python still stdlib-ast; JS/TS walk untouched.
+
+**Granularity parity decisions (reviewable, not accidental):** Go receiver
+methods are top-level chunks (they ARE top-level declarations in Go);
+Rust impl methods embed in the `impl <Type>` class chunk (Python-class
+parity); Java has no standalone method chunks (same parity); type-only
+constructs (interfaces ARE class chunks — they're searchable and hold
+signatures; Java enums, Go iota consts skipped by scope).
+
+**Verified live:** all three languages extract names/lines/docs correctly
+(module header, goto doc comments, JSDoc blocks); `impl Session` carries
+its method list; broken .rs/.go sources tolerate; production
+`build_relevant_chunks_layer` serves Rust and Go tasks with the right
+fences; e2e index/search/edit-sync/remove per language green.
+
+**Self-caught:** degrade test broke honestly — it only blocked the JS/TS
+wheels, but go/rust/java grammars now load fine, so "Python-only" was no
+longer python-only (assertion caught scope, code was right); iter test
+lost a fixture line to my own edit (assertion caught the fumble).
+
+Suite: **157/157 green** (+6: per-language extraction, broken-source
+tolerance×2, extension allowlist, e2e trilingual workspace).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5 (JS/TS + Go/Rust/Java)~~ — remaining: D7,
+D8, D9, D10, P2. Adding more grammars (C/C++/C#/Ruby/PHP) is now a
+~15-line config + wheel each, when users ask.
