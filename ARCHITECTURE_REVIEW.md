@@ -556,3 +556,68 @@ Verdict on this reviewer as a source: **reliable idea generator,
 unreliable verifier — it never executes the code it grades.** Keep feeding
 its claims into the gauntlet; stop treating its severity ratings or its
 "verified" stamps as signal.
+
+---
+
+## 20. D2: Process-Wide Embedding Cache (2026-08-06, founder "next")
+
+The last debt item that touched every turn. **Measured pre-fix waste** on
+a 16-layer turn: **60 vector encodes, every turn, none of them new work** —
+1 task single + 16 layer singles (scoring) + 16 (dedup re-encoding the
+SAME texts) + 27 ambiguity encodes (26 module-constant strings) + 1
+classifier query. Session-scoped engines (D1) made it per-session: 128
+sessions each re-encoded identical workspace texts independently.
+
+**Shipped:** `src/context/embedding_cache.py` — content-addressed LRU
+memoization. Key = sha256(embedder identity + normalize flag + text);
+embeddings are a pure function of the key, so there is no TTL, no
+invalidation, and no staleness by construction. Values stored as float32
+(the backend's native precision — round-trip exact); 4096-entry cap ≈ 6MB;
+shared process-wide like the TaskClassifier; compute outside the lock
+(duplicate compute under a race is benign; serializing embedder work would
+be self-inflicted latency). All four engine encode call-sites routed
+through it (scoring, dedup, ambiguity, classifier query).
+
+**Measured post-fix** (16-layer turns, counting embedder wired into the
+real engine methods):
+
+| Metric | OLD | NEW | Delta |
+|---|---|---|---|
+| encodes, cold turn (16 layers) | 60 | 43 | **-28%** |
+| encodes, steady turn (unchanged state) | 60 | **0** | **-100%** |
+| encodes, 2-turn sequence | 120 | 43 | **-64%** |
+| encodes, 10-turn session | 600 | ~43 | **-93%** |
+| encode() backend calls, cold scoring | 17 (1+N singles) | 1 batch | fewer API round trips |
+
+Cross-site wins fall out for free: dedup rides scoring's vectors (0
+encodes), ambiguity's task string rides scoring's (0), the classifier's
+repeat query rides everything (0).
+
+**Self-caught by the suite (process honesty, same rule as always):**
+1. **`max_entries` edge bug proved by a test**: a batch larger than cache
+   capacity got its own oldest entries evicted before results were read →
+   `None` slots. Fixed: results are filled BEFORE eviction, plus a loud
+   invariant raise (never a silently missing vector).
+2. First ambiguity test demanded 27 encodes; got 26 — the cache correctly
+   deduped my demo task ("make it better") against the ambiguous-string
+   constant it collided with. Cache was right; test was wrong.
+3. First fake embedder emitted all-positive components → everything looked
+   similar (cos 0.66–0.90) → accidental dedup removals. Zero-centered
+   components, because real embedders are mixed-sign.
+4. The measurement harness itself had a bug (a `lambda: EmbeddingCache()`
+   constructing a fresh cache per call masked all cross-call hits) —
+   caught because the printed numbers contradicted the passing tests.
+
+Suite: **140/140 green** (+10: warm-turn-zero, bit-identical cold/warm
+scores, dedup-rides-scoring, consts-once, classifier-query-once,
+order/duplicates, changed-only, LRU bound, identity-swap isolation,
+8-thread hammer with zero corruption).
+
+**Artifact-4 footnote (trail convention):** the fourth reviewer paste
+("Fresh Verification — Aug 6") contained zero new technical claims; its
+one new factual assertion (correct qwen pricing row) verified TRUE
+(`token_tracker.py:42-43`). Adjudicated in-chat against §17–§19; recorded
+here so every artifact's verdict lives in the trail.
+
+Debt board: ~~D1~~ ~~D2~~ — next: D5/D7 (first real milestones), D8–D10,
+P2.

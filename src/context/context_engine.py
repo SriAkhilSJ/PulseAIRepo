@@ -42,6 +42,7 @@ from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
+from src.context.embedding_cache import get_embedding_cache
 from src.config.settings import CONTEXT_MODEL
 
 
@@ -130,7 +131,7 @@ class TaskClassifier:
         return TaskType.CREATE if len(task) > 60 else TaskType.CHAT
 
     def _embedding_classify(self, text: str) -> TaskType:
-        emb = self._embedder.encode([text], normalize_embeddings=True).tolist()[0]
+        emb = get_embedding_cache().encode(self._embedder, [text])[0]
         best_type = TaskType.CHAT
         best_score = -1.0
         for task_type, proto_embs in self._prototype_embs.items():
@@ -543,7 +544,15 @@ class ContextEngine:
         try:
             from src.llm.factory import get_embedder
             embedder = get_embedder()
-            task_emb = embedder.encode([task], normalize_embeddings=True).tolist()[0]
+            # D2: content-addressed cache. Layer texts (and the repeated task
+            # string across graph turns of one task) are stable turn-over-
+            # turn — the old code re-encoded every layer EVERY turn, once
+            # here and once again in dedup. One batch call computes misses
+            # only; vectors are bit-identical to the old direct calls.
+            all_vecs = get_embedding_cache().encode(
+                embedder, [task] + [msg.content for msg in layers]
+            )
+            task_emb, content_embs = all_vecs[0], all_vecs[1:]
         except Exception:
             # Fallback: just use task-type relevance and recency
             for i, msg in enumerate(layers):
@@ -559,7 +568,7 @@ class ContextEngine:
             name = self._infer_layer_name(msg)
             base_rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
 
-            content_emb = embedder.encode([msg.content], normalize_embeddings=True).tolist()[0]
+            content_emb = content_embs[i]
             semantic_sim = sum(a * b for a, b in zip(task_emb, content_emb))
 
             recency = i / max(len(layers) - 1, 1)
@@ -629,7 +638,9 @@ class ContextEngine:
             from src.llm.factory import get_embedder
             embedder = get_embedder()
             texts = [msg.content for _, msg, _ in scored_layers]
-            embs = embedder.encode(texts, normalize_embeddings=True).tolist()
+            # D2: these are (mostly) the texts just encoded by scoring —
+            # a warm cache turns dedup into a zero-compute lookup.
+            embs = get_embedding_cache().encode(embedder, texts)
         except Exception:
             return scored_layers
 
@@ -1099,9 +1110,12 @@ class ContextEngine:
         try:
             from src.llm.factory import get_embedder
             embedder = get_embedder()
-            task_emb = embedder.encode([task], normalize_embeddings=True).tolist()[0]
-            amb_embs = embedder.encode(ambiguous, normalize_embeddings=True).tolist()
-            spec_embs = embedder.encode(specific, normalize_embeddings=True).tolist()
+            # D2: 26 of these 27 strings are module constants — re-encoding
+            # them every single turn was the purest waste in the engine.
+            vecs = get_embedding_cache().encode(embedder, [task] + ambiguous + specific)
+            task_emb = vecs[0]
+            amb_embs = vecs[1 : 1 + len(ambiguous)]
+            spec_embs = vecs[1 + len(ambiguous) :]
 
             amb_sim = max(sum(a * b for a, b in zip(task_emb, e)) for e in amb_embs)
             spec_sim = max(sum(a * b for a, b in zip(task_emb, e)) for e in spec_embs)
