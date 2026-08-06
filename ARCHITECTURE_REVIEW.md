@@ -800,7 +800,44 @@ unapplied upstream; D11/D12 are the next candidates **after** it lands —
 not before. Piling more unapplied commits on the queue is how patches
 rot.
 
+---
+
+## 24. Six-Pillar Round-2 Re-Review Adjudication (2026-08-06)
+
+Same source as §23 returned after the D2→D5-2 stack landed upstream
+(`504e099..955b636` — 5 commits since their c48a42b-era review; their
+cited `517a771` is not in repo history, tooling-side ref). Re-rating:
+5.8 → **7.2/10**. **This time they read code** — design-note quotes,
+real constants (`BODY_HARD_CAP_CHARS=800`, 2-file cap, `top_k=3`,
+`vec_distance_l2` on `FLOAT[384]`, batch commits, RRF-k=60): all
+verified TRUE against the tree. Method upgraded mid-stream.
+
+Two residual allegations re-verified empirically (pins in
+`test_review12_reverify.py`, suite 157→**159**):
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| "Feedback attribution STILL broken — `record_feedback` snapshots `self._layer_cache`" (their P0, "Low", gates 8.0) | **FALSE** | `:449-454` step 7b snapshots post-assembly layer NAMES every build — its comment pre-answers the criticism ("not the session-wide layer cache"); `:1200`'s cache expression is the documented no-build-yet fallback. Functional pin `test_feedback_attribution_names_sent_layers_not_session_cache`: injects a decoy cache key never sent → feedback row contains exactly the sent layers, decoy excluded. Reviewer quoted the fallback branch and never saw the primary one — same selective line-reading as §23's §1-quoting. Bug-fix scorecard corrects to **6/6** |
+| "watch param exists but isn't wired into the main loop" | **FALSE** | `get_index(..., watch=True)` is the per-workspace production factory (chunk_index.py:769-, docstring: "production default… Tests pass watch=False"); the 16-layer builder goes through it + per-serve `sync_workspace()` (:807). Pin: `test_chunk_index_watcher_is_production_default` asserts the signature default |
+| vector_memory linear scan remains for personal memory; code path bypasses it | TRUE | standing **D8** |
+| Remaining gaps (re-rank, graph expansion, tool-output masking, adaptive compaction pipeline, cross-session playbook) | TRUE | D13/D15+D14, D11/D12, D9-adjacent, **D16 new** (playbook/`record_decision` — the only genuinely new debt this review) |
+| Their P0 fix-list top item for 8.0+ | n/a | already shipped — the gate moves to D13/D15 |
+
+**Meta-verdict update (supersedes §19 in part):** this source is now a
+*reliable describer of what code says, unreliable auditor of what code
+does* — every TRUE claim this round was a read claim; every FALSE claim
+was a NOT-FIXED/wiring allegation requiring behavioral verification they
+didn't run. Keep accepting their gap lists as debt candidates; keep
+refusing their "still broken" verdicts without a reproduction. Rating
+convergence noted: my independent §23 re-score (≈7.0) precedes their 7.2;
+two evidence-based reconciliations landed within 0.2.
+
+**Self-caught this round:** pin test first imported the factory as
+`_index_for` (my guess) — collection ImportError caught it; real name is
+`get_index`. Suite doing its job.
+
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ — remaining: D7 (sub-agent isolation),
-D8 (vector-memory ANN), D9 (progress_node split), D10 (web_fetch soup),
+D8 (vector ANN), D9 (progress_node split), D10 (web_fetch soup),
 D11 (tool-output budget), D12 (observation masking), D13 (re-rank),
-D14 (symbol ranking), D15 (graph-expansion retrieval), P2 (VS Code ext).
+D14 (symbol ranking), D15 (graph-expansion retrieval), D16 (cross-session
+playbook), P2 (VS Code ext).

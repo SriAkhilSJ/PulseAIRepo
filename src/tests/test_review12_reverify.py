@@ -127,3 +127,72 @@ def test_plan_approval_fails_closed_by_design():
         "yes, but don't delete anything",
     ):
         assert is_plan_approval(not_an_approval) is False
+
+
+# ---------------------------------------------------------------------
+# Six-pillar round-2 review pins (ARCHITECTURE_REVIEW.md §24).
+#
+# The reviewer converged to a code-reading method (mostly TRUE verdicts
+# this round) but left one "NOT FIXED / P0" allegation and one wiring
+# allegation. Both are refuted here FUNCTIONALLY, not by code reading.
+# ---------------------------------------------------------------------
+
+import inspect
+import json
+
+from langchain_core.messages import SystemMessage
+
+from src.context.chunk_index import get_index
+from src.context.context_engine import ContextEngine
+
+
+def _pin_state(task: str) -> dict:
+    return {
+        "current_task": task,
+        "messages": [],
+        "workspace": ".",
+        "plan": [{"id": 1, "description": "pin", "status": "pending"}],
+        "steps_completed": [],
+        "failed_steps": [],
+        "recovery_mode": False,
+        "recovery_attempts": 0,
+        "replan_count": 0,
+    }
+
+
+def test_feedback_attribution_names_sent_layers_not_session_cache(tmp_path):
+    """Their P0: "record_feedback snapshots self._layer_cache (session-wide
+    cache), not the exact layers sent this turn" — rated NOT FIXED.
+
+    PRIMARY branch is step 7b (context_engine.py:449-454): every build
+    snapshots post-assembly layer NAMES into _last_layers_sent; the
+    _layer_cache expression at :1200 is the documented no-build-yet
+    fallback. This test fabricates the reviewer's imagined bug condition
+    (a cache key that never went to the prompt) and proves it cannot
+    leak into the feedback row."""
+    eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+    eng._feedback_path = str(tmp_path / "pin.jsonl")
+
+    eng.build_ai_messages(_pin_state("fix the bug in the parser"), SystemMessage("SYS"))
+    sent = list(eng._last_layers_sent)
+    assert sent, "build produced no attribution snapshot — pin would be vacuous"
+
+    # Fabricate the bug condition: cache entry that was never assembled/sent.
+    eng._layer_cache["decoy_never_went_to_prompt"] = SystemMessage("DECOY")
+    assert set(eng._layer_cache) - set(sent), (
+        "pin is vacuous: cache holds nothing beyond the sent layers"
+    )
+
+    eng.record_feedback(success=True, task="six-pillar attribution pin")
+    row = json.loads(open(eng._feedback_path).readlines()[-1])
+
+    assert row["layers_used"] == sent
+    assert "decoy_never_went_to_prompt" not in row["layers_used"]
+
+
+def test_chunk_index_watcher_is_production_default():
+    """Their freshness claim: "the watch param exists but isn't wired into
+    the main loop". The per-workspace factory that production goes through
+    defaults watch=True; only tests opt out."""
+    default = inspect.signature(get_index).parameters["watch"].default
+    assert default is True, "production factory must start the watcher by default"
