@@ -39,9 +39,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from src.context.lang_extractors import (
+    _sha256_id,
+    _truncate_for_embedding,
+    extract_chunks_ts_js,
+    source_extensions,
+)
+
 EMBED_DIM = 384  # all-MiniLM-L6-v2 output size
 RRF_K = 60
-EMBED_HARD_CAP_CHARS = 800      # ~200 tokens at ~4 chars/token
 BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
 FTS_MAX_TOKENS_PER_QUERY = 12
 
@@ -77,35 +83,9 @@ class ChunkResult:
 
 
 # ---------------------------------------------------------------------
-# CHUNK EXTRACTION (Python AST — stdlib only)
+# CHUNK EXTRACTION (Python AST — stdlib; JS/TS via tree-sitter in
+# lang_extractors — D5 multi-language milestone 1)
 # ---------------------------------------------------------------------
-
-
-def _sha256_id(*parts: str) -> str:
-    return hashlib.sha256(":".join(parts).encode()).hexdigest()[:16]
-
-
-def _truncate_for_embedding(
-    file_path: str,
-    symbol_type: str,
-    symbol_name: str,
-    signature: str,
-    docstring: Optional[str],
-    body_lines: list[str],
-) -> str:
-    """Text that gets embedded. Hard-capped for the embedding model's
-    training window (~256 tokens); structure first, body sample last."""
-    doc = (docstring or "")[:150]
-    body_head = "\n".join(body_lines[:8])
-    content = (
-        f"FILE: {file_path} | TYPE: {symbol_type} | NAME: {symbol_name}\n"
-        f"SIG: {signature}\n"
-        f"DOC: {doc}\n"
-        f"BODY:\n{body_head}"
-    )
-    if len(content) > EMBED_HARD_CAP_CHARS:
-        content = content[:EMBED_HARD_CAP_CHARS]
-    return content
 
 
 def extract_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
@@ -185,6 +165,16 @@ def extract_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
         })
 
     return chunks
+
+
+def extract_source_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
+    """Extension dispatch (D5): stdlib AST for Python — the richest path,
+    already verified for async/decorators — tree-sitter for the JS/TS
+    family. Unsupported suffixes extract to nothing (and are never yielded
+    by _iter_source_files anyway)."""
+    if file_path.suffix.lower() == ".py":
+        return extract_chunks(file_path, root)
+    return extract_chunks_ts_js(file_path, root)
 
 
 # ---------------------------------------------------------------------
@@ -329,12 +319,12 @@ class ChunkIndex:
             self.conn.execute("DELETE FROM chunk_fts")
             self.conn.commit()
 
-        files = self._iter_py_files()
+        files = self._iter_source_files()
         # Batch commits: uncommitted inserts are invisible to other
         # connections and lost on close (verified). 25 files per batch.
         for i, fpath in enumerate(files):
             try:
-                chunks = extract_chunks(fpath, self.workspace)
+                chunks = extract_source_chunks(fpath, self.workspace)
                 if chunks:
                     self._insert_chunks(chunks, fpath.stat().st_mtime, commit=False)
             except Exception:
@@ -435,31 +425,35 @@ class ChunkIndex:
             return
 
         index = self
+        source_exts = tuple(source_extensions())  # snapshot once per loop
 
-        class _PyHandler(FileSystemEventHandler):
+        def _is_source(path: str) -> bool:
+            return path.lower().endswith(source_exts)
+
+        class _SourceHandler(FileSystemEventHandler):
             def on_modified(self, event):
-                if not event.is_directory and event.src_path.endswith(".py"):
+                if not event.is_directory and _is_source(event.src_path):
                     index._enqueue_sync(event.src_path)
 
             def on_created(self, event):
-                if not event.is_directory and event.src_path.endswith(".py"):
+                if not event.is_directory and _is_source(event.src_path):
                     index._enqueue_sync(event.src_path)
 
             def on_deleted(self, event):
-                if not event.is_directory and event.src_path.endswith(".py"):
+                if not event.is_directory and _is_source(event.src_path):
                     index._enqueue_remove(event.src_path)
 
             def on_moved(self, event):
                 if event.is_directory:
                     return
-                if event.src_path.endswith(".py"):
+                if _is_source(event.src_path):
                     index._enqueue_remove(event.src_path)
                 dest = getattr(event, "dest_path", "")
-                if dest.endswith(".py"):
+                if _is_source(dest):
                     index._enqueue_sync(dest)
 
         observer = Observer()
-        observer.schedule(_PyHandler(), str(self.workspace), recursive=True)
+        observer.schedule(_SourceHandler(), str(self.workspace), recursive=True)
         try:
             observer.start()
         except Exception as exc:
@@ -508,7 +502,7 @@ class ChunkIndex:
         """Atomic incremental re-index of one file (including its FTS rows)."""
         rel = str(file_path.relative_to(self.workspace))
         mtime = file_path.stat().st_mtime
-        chunks = extract_chunks(file_path, self.workspace)
+        chunks = extract_source_chunks(file_path, self.workspace)
         vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
         with self._write_lock:
             with self.conn:  # single transaction for all four stores
@@ -529,7 +523,7 @@ class ChunkIndex:
         with self._write_lock:
             changed = 0
             on_disk: set[str] = set()
-            for fpath in self._iter_py_files():
+            for fpath in self._iter_source_files():
                 rel = str(fpath.relative_to(self.workspace))
                 on_disk.add(rel)
                 row = self.conn.execute(
@@ -551,9 +545,15 @@ class ChunkIndex:
                 changed += self.remove_file(self.workspace / ghost)
             return changed
 
-    def _iter_py_files(self):
-        """Generator — a 10K-file workspace shouldn't materialize a list."""
-        for f in self.workspace.rglob("*.py"):
+    def _iter_source_files(self):
+        """Generator — a 10K-file workspace shouldn't materialize a list.
+        Extension allowlist is DYNAMIC: grammar packages that failed to
+        load simply drop out (Python-only degraded mode), so a slim
+        environment never walks files it cannot parse."""
+        exts = source_extensions()
+        for f in self.workspace.rglob("*"):
+            if f.suffix.lower() not in exts:
+                continue
             if not any(part in _SKIP_DIRS for part in f.parts):
                 yield f
 
@@ -597,7 +597,11 @@ class ChunkIndex:
         if not self._embedder:
             return [[0.0] * EMBED_DIM for _ in texts]
         try:
-            return self._embedder.encode(texts, normalize_embeddings=True).tolist()
+            # D2+D5 synergy: re-syncing an edited file re-embeds ALL its
+            # chunks, but only the edited ones have new content — the
+            # content-addressed cache returns the rest for free.
+            from src.context.embedding_cache import get_embedding_cache
+            return get_embedding_cache().encode(self._embedder, texts)
         except Exception:
             return [[0.0] * EMBED_DIM for _ in texts]
 
@@ -811,6 +815,15 @@ def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
         print(f"[ChunkIndex] relevant_chunks layer failed: {exc}")
         return None
 
+    # Markdown fence language by extension (D5: no more ```python on JS).
+    _FENCE_TAGS = {
+        ".py": "python",
+        ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+        ".jsx": "jsx",
+        ".ts": "typescript", ".cts": "typescript", ".mts": "typescript",
+        ".tsx": "tsx",
+    }
+
     lines = ["=== RELEVANT CODE CHUNKS ==="]
     lines.append("Use these before reading entire files.\n")
     used_files: set[str] = set()
@@ -821,11 +834,12 @@ def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
         used_files.add(chunk.file_path)
         doc = (chunk.docstring or "").split("\n")[0][:120]
         body = chunk.body[:BODY_HARD_CAP_CHARS]
+        fence = _FENCE_TAGS.get(Path(chunk.file_path).suffix.lower(), "")
         lines.append(
             f"--- {chunk.file_path}:{chunk.start_line}-{chunk.end_line} | {chunk.symbol_name} ---"
         )
         if doc:
             lines.append(f"# {doc}")
-        lines.append(f"```python\n{body}\n```")
+        lines.append(f"```{fence}\n{body}\n```")
         lines.append("")
     return SystemMessage(content="\n".join(lines))

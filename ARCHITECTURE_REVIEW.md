@@ -621,3 +621,72 @@ here so every artifact's verdict lives in the trail.
 
 Debt board: ~~D1~~ ~~D2~~ — next: D5/D7 (first real milestones), D8–D10,
 P2.
+
+---
+
+## 21. D5 Milestone 1: Multi-Language Chunk Index via tree-sitter (2026-08-06, founder-directed)
+
+Founder direction: *"continue D5 — use vscode fork apis if it's available."*
+
+**The fork-APIs verdict (verified against the remote tree, not assumed):**
+`desktop/` on GitHub IS a VS Code fork (`desktop/product.json`,
+`desktop/src/bootstrap-fork.ts`). Its language APIs are (a) TextMate
+grammars — regex tokenizers, no AST — and (b) LSP servers — out-of-process
+daemons behind TypeScript extension-host IPC. **Neither is importable
+from the Python backend**, and spawning Electron/node just to parse files
+at index time is the wrong shape for a microsecond-scale in-process task.
+The Python-consumable technology for exactly this job is tree-sitter
+(error-tolerant concrete syntax trees, per-language grammar wheels) — the
+same class of parser Cursor/Aider-style indexers use. Fork/extension APIs
+pay off at **P2** as *integration* points (file-watch feeds → index
+freshness, diagnostics → context), not as parsers. Direction applied
+accordingly: D5 = tree-sitter.
+
+**Shipped (milestone 1: JS/TS family — `.js/.jsx/.mjs/.cjs` +
+`.ts/.tsx/.cts/.mts`):**
+- **NEW `src/context/lang_extractors.py`** — tree-sitter extraction:
+  functions, arrow/function-expression consts, classes (methods embedded
+  into the class chunk, Python-parity), `export`/`export default`
+  unwrapping, `/** */` and `//` doc comments (including above `export`),
+  module header chunks, 2MB/50k-node safety valves, output schema
+  byte-identical to the Python extractor's.
+- Python keeps its stdlib-ast extractor (richer; verified for
+  async/decorators). Dispatch via `extract_source_chunks()`.
+- `_iter_py_files` → `_iter_source_files` with a **dynamic extension
+  allowlist**: a grammar that fails to load drops out of the set
+  (Python-only degrade, one loud notice per process) — a slim environment
+  never walks files it cannot parse.
+- File watcher is suffix-agnostic (same debounce/queue machinery).
+- Diff fences now match the language (` ```javascript ` etc. — was
+  hard-coded ``` ```python ``` on everything).
+- **D2×D5 synergy:** `_embed_batch` rides the D2 embedding cache —
+  re-syncing an edited file now re-embeds only chunks whose content
+  actually changed (test-pinned: 4-chunk file + 1 appended function →
+  ≤2 encodes instead of 5).
+
+**Verified live end-to-end in sandbox:** mixed py/js/ts/tsx workspace
+indexes per language; BM25 retrieval hits the right symbol in the right
+language (`login`→session.js, `fetchUser`→api.ts, `Dashboard`→App.tsx,
+`validate_password`→auth.py); production layer path (`get_index` registry)
+serves a JS task the exact `logout` chunk under a `javascript` fence;
+broken JS extracts a module chunk without crashing.
+
+**Self-caught during build (process honesty):** JSDoc above
+`export function` failed to attach — the comment is a sibling of the
+*export statement*, not of the unwrapped declaration inside. Caught in
+smoke testing; fixed via a doc-anchor parameter. One demo-layer `None`
+was my harness bypassing the process-wide index registry (fresh DB), not
+a product bug — re-proven through the real `get_index` path.
+
+Suite: **151/151 green** (+11: JS/TS/TSX extraction shape, variable
+ignores, interface/type ignores, JSDoc+line-comment docs, broken-source
+tolerance, schema parity with Python, loud-once degradation, e2e
+index/search/edit-sync/remove for JS, iter allowlist + skip-dirs,
+re-embed-on-edit encode budget).
+
+**Deferred by scope (honest):** more grammars (go/rust/java — config-level
+adds once this pattern bakes in production); LSP-grade semantic info (P2
+design space — that's where the extension APIs live).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5(m1: JS/TS family)~~ — remaining: D5-2
+(more grammars, as users demand), D7, D8, D9, D10, P2.
