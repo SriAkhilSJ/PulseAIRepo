@@ -177,7 +177,8 @@ def test_registry_contains_execute_code_once():
     from src.graphs.chat_graph import tools
     names = [t.name for t in tools]
     assert names.count("execute_code") == 1
-    assert len(names) == 19
+    assert names.count("session_search") == 1
+    assert len(names) == 20
 
 
 def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):

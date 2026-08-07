@@ -64,6 +64,7 @@ from src.tools.terminal_tools import (
 )
 from src.tools.web_tools import web_search, web_fetch
 from src.tools.code_exec_tool import execute_code
+from src.tools.session_search_tool import session_search
 from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
 
 from src.agents.cost_router import cost_router
@@ -281,6 +282,9 @@ tools = [
     # Programmatic tool calling: ONE scripted call can chain the tools
     # above and return only printed output (D18, hermes PTC pattern).
     execute_code,
+
+    # Zero-LLM recall of past sessions (D16, hermes session-search shape).
+    session_search,
 ]
 
 

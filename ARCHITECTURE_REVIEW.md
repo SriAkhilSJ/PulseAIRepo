@@ -1150,3 +1150,60 @@ delegation inside scripts, workspace path isolation. Suite: 207 green
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ — remaining: D9, D10, D13, D14, D15-remainder, D16 (session-
 search shape), D19, D20, D21, D22, C1, P2.
+
+## 31. D16 — session_search: zero-LLM recall of past sessions (2026-08-07)
+
+Second hermes steal landed (§29 adoption step #2; D16 spec REDESIGNED at
+§29 from "LLM playbook" to their session-search shape). New tool #20:
+`session_search` — three modes inferred from args (their single-shape
+design, tools/session_search_tool.py:1-46): DISCOVERY (query -> top
+sessions with match window + first/last-3-message bookends), SCROLL
+(session_id + around_message_id -> anchored window with page hints),
+BROWSE (recent sessions). Bonus: session_id alone = overview. Cost of
+recall: ONE sqlite query, ZERO model calls.
+
+Their two hard-won lessons are adopted, not just copied:
+- #19434 (summaries drift + cron blindness): full message TEXT is
+  indexed, never summaries; sub-agent threads (our automation class,
+  `sub-` prefix) are demoted exactly like their cron sessions — shown
+  ONLY when no interactive session matches, and labeled.
+- #43175 (compaction payloads re-inflate context): machine handoff
+  summaries skipped AT INGEST; we adopt their marker prefixes so D22's
+  future compressor emits markers the index already ignores.
+
+Storage-side facts verified empirically before building (suite pins them):
+- Checkpoints live at ~/.pulseai/sessions.db, msgpack-serialized; decode
+  MUST use langgraph's own serde (SqliteSaver.serde.loads_typed) — never
+  hand-parse (verified against a live SqliteSaver-written DB).
+- The latest checkpoint per thread holds the FULL message list
+  (channel state), so ingest = latest-checkpoint-per-thread with a
+  last-checkpoint-id watermark (same shape as chunk_index's mtime sync;
+  unchanged sync is one no-op scan — pinned).
+- Context layers never pollute recall: build_ai_messages returns a fresh
+  request-only list (context_engine.py:415-461), state untouched — so
+  only user/assistant text is indexed; system personas and tool dumps are
+  BM25 poison and excluded at ingest (pinned with sentinel strings).
+
+Budgets: 300-row FTS scan before per-thread dedup, 5 discovery cards,
+message previews 400 chars, cards ~8KB total, scroll window <= 20.
+
+Pins: src/tests/test_session_search.py 18/18 against REAL SqliteSaver-
+written fixtures — discovery card contract, current-thread exclusion,
+sub-agent demotion both directions, compaction/persona/tool payloads
+unsearchable, list-content flattening, query-over-args precedence, scroll
+windows + page hints both directions, bad-anchor friendliness, browse
+order + exclusion, overview, long-message caps, incremental re-ingest on
+checkpoint bump, free unchanged sync, fresh-install friendliness, zero-
+LLM source pin (module can never import an LLM without red tests),
+20-tool registry. Suite: 225 green (107s).
+
+Sandbox-eats-work interlude (recorded, ledger honesty): mid-round the
+workspace rolled back to a PARTIAL snapshot (no .git, no src/context,
+no src/tests) while building this. Full clone + `git am` of the D18
+patch restored everything in minutes — proof the patch-per-round flow is
+the real durability layer. The founder's repo is source of truth; the
+sandbox is a scratchpad.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ — remaining: D9, D10, D13, D14, D15-remainder, D19,
+D20, D21, D22, C1, P2.
