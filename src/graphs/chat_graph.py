@@ -351,6 +351,11 @@ def ai_node(
 
     llm_with_tools = llm.bind_tools(tools)
 
+    # D31: start of an AI iteration — reset shadow-checkpoint dedup so the
+    # first mutation this iteration snapshots the pre-change workspace.
+    from src.tools.shadow_checkpoints import begin_agent_turn
+    begin_agent_turn()
+
     # Use the Context Engine to build clean, organized messages.
     # Session-scoped: this thread's thread_id selects an isolated engine
     # (cache, attribution snapshot, learned weights all independent).

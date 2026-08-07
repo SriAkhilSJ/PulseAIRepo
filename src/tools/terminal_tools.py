@@ -278,6 +278,13 @@ def run_terminal(
 
     workspace = config["configurable"]["workspace"]
 
+    # D31: shadow snapshot BEFORE shell commands — `rm`, `git reset --hard`,
+    # move/rename accidents are the #1 destruction vector. Per-turn dedup
+    # makes this a no-op after the first mutation of the turn.
+    from src.tools.shadow_checkpoints import checkpoint_before_mutation
+    _reason = "run_terminal: " + " ".join(command.split())[:80]
+    checkpoint_before_mutation(workspace, _reason)
+
     try:
         result = subprocess.run(
             command,

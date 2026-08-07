@@ -11,6 +11,17 @@ They are therefore excluded from discovery until converted to pytest-style
 guard. Delete entries from this list as each test is migrated.
 """
 
+# D31: shadow checkpoints default ON in production. In tests they must
+# write to a per-session throwaway store, never the developer's real
+# ~/.pulseai/checkpoints.
+import os as _os
+import tempfile as _tempfile
+
+_os.environ.setdefault(
+    "PULSEAI_CHECKPOINT_HOME",
+    _tempfile.mkdtemp(prefix="pulseai-test-checkpoints-"),
+)
+
 collect_ignore = [
     "test_agent_regression.py",
     "test_agent_status.py",

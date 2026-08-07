@@ -394,6 +394,12 @@ def _run_script(code: str, config: RunnableConfig) -> str:
                 )
         return _tracer
 
+    # D31: one shadow snapshot for the WHOLE script — a PTC script can run
+    # write_file/edit_file many times; per-turn dedup makes this cheap.
+    from src.tools.shadow_checkpoints import checkpoint_before_mutation
+    _ws = (config or {}).get("configurable", {}).get("workspace", ".")
+    checkpoint_before_mutation(str(_ws), "execute_code script")
+
     error_report: str | None = None
     sys.settrace(_tracer)
     try:

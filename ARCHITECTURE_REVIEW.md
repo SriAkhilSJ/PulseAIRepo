@@ -1815,3 +1815,118 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
 ~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ — remaining: P2 (editor/UI product work).
 THE CONTEXT ENGINE BOARD IS EMPTY.
+
+---
+
+## §43 — D31 shipped: shadow checkpoints (hermes steal #7, second-pass
+extraction); hermes remaining queue D32/D33/D34 filed
+
+Direction: founder — "AS I SAID U: CHECK HERMES AGENT, WHAT IT DOES,
+CAPTURE ITS VALUE AND IMPLEMENT IN THE PULSEAI." First pass (§29) shipped
+all six steals (D16/D18/D19/D20/D21/D22); this round is the SECOND PASS
+over the 3,848-file tree hunting unmined subsystems — specifically things
+that also answer the two external code reviews (Aug 7) adjudicated this
+week: "no real git rollback" (review 1) and the file-clobbering hazard
+behind "edit tool is string replacement" / "dashboard concurrency"
+(review 2).
+
+Second-pass findings with receipts (their tree):
+- tools/checkpoint_manager.py:1-60 (shared store layout), :239-277
+  (_git_env isolation: GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE +
+  GIT_CONFIG_GLOBAL/SYSTEM=devnull "user-level settings... would spawn
+  interactive pinentry windows mid-session"), :998+ (_take: seed index
+  via read-tree, add -A, diff-index --quiet no-change skip, write-tree/
+  commit-tree/update-ref plumbing), :919-960 (restore with PRE-ROLLBACK
+  snapshot = undo-the-undo, checkout <hash> -- <target>).
+- tools/file_state.py:1-40 — read-stamp/write-stamp staleness guard
+  preventing subagent B's write being clobbered by subagent A's stale
+  read-then-write. FILED AS D32 (directly answers review-2's file
+  safety class; also needed before D33 is safe).
+- tools/delegate_tool.py:3208-3290 — TRUE parallel sub-agents:
+  DaemonThreadPoolExecutor(max_workers=max_children),
+  contextvars.copy_context() per child, wait(FIRST_COMPLETED, 0.5s)
+  polling (NOT as_completed: "if a child agent gets stuck, the parent
+  blocks forever even after interrupt propagation"), graceful interrupt
+  with fabricated "interrupted" entries for still-pending futures.
+  FILED AS D33 (answers review-1's "sub-agents are synchronous").
+- run_agent._should_parallelize_tool_batch (referenced from
+  file_state.py docstring) — path-overlap-checked parallel tool batches.
+  FILED AS D34 (latency; needs SafeToolNode concurrency + D32 first).
+
+D31 SHIPPED — shadow checkpoints (src/tools/shadow_checkpoints.py, 450
+lines vs their 1,953: dropped legacy migration, gateway/volume-evidence,
+multi-transport env builder; kept all safety rails and added two):
+- One shared store at ~/.pulseai/checkpoints/store (env override
+  PULSEAI_CHECKPOINT_HOME); per-project ref refs/pulseai/<hash16> +
+  per-project index; git object DB dedupes across projects and turns —
+  their single-store receipt measured ~500MB → near-zero for N worktrees.
+- Hooks (transparent, LLM never sees them, never raise): write_file,
+  edit_file (after the no-change early return), run_terminal (their
+  "terminal with destructive flags" — we snapshot before ANY terminal
+  command since rm/reset --hard is the #1 real-world destructor), and
+  ONE snapshot per execute_code script (D18's PTC scripts mutate a lot;
+  dedup makes it cheap). ai_node calls begin_agent_turn() per AI
+  iteration; dedup = at most one snapshot per workspace per iteration,
+  and zero commits on no-change turns (diff-index --quiet).
+- Git isolation copied verbatim in substance: GIT_DIR/GIT_WORK_TREE/
+  GIT_INDEX_FILE + GIT_CONFIG_GLOBAL/SYSTEM=os.devnull + NOSYSTEM, forced
+  identity "PulseAI Shadow" (with config isolated there IS no user.email),
+  stdin DEVNULL, CREATE_NO_WINDOW on win32. The user's project NEVER gets
+  a .git (pinned).
+- Restore: pre-rollback snapshot first (undo-the-undo), checkout <hash>
+  -- <target>; overwrite semantics documented + pinned (files created
+  AFTER the checkpoint are never deleted). Two guards upstream lacks:
+  merge-base --is-ancestor against THIS project's ref (their shared
+  object DB would happily "restore" project B's state into project A) and
+  absolute/../ file_path rejection. Hash format validated.
+- Bounded history: ring trim at 2×max_snapshots collapses the line to a
+  fresh root commit of the current tree (depth stays in [max, 2×max]);
+  lazy daily git gc with marker (their _repair_bare_repo_dirs lesson:
+  gc packs refs, so ALL our reads go through rev-parse, never loose
+  files). Oversize files (>10MB) unstaged post-add. Kill-switch
+  PULSEAI_CHECKPOINTS=off (founder doctrine: every feature gets one).
+  Store-size hard cap deferred to D32-era prune port (noted, not silent).
+
+Measured (scripts/d31_checkpoint_measure.py, founder's latency metric):
+50-file workspace: first snapshot 51ms (once per workspace ever),
+mutation turn median 20.6ms, no-change turn 10.5ms, restore 18.6ms,
+store 0.04MB/6 snapshots. 500-file: first 124ms, mutation 29.7ms,
+no-change 17.5ms, restore 27.2ms, store 0.17MB. Cost of insurance ≈
+20-30ms on the first mutation of a turn; zero LLM calls, zero tokens.
+
+Founder's metrics: context quality — the agent can now be told "revert"
+and mean it; latency — ~25ms per mutating turn; token budget — zero;
+LLM calls — zero. Also closes review-1 wound #6 ("no real git
+rollback") verbatim and half the fear behind review-2 wounds #7/#8.
+
+Development honesty: my first undo-the-undo test asserted a pre-rollback
+snapshot that CANNOT exist (restore when tree==tip is a diff-index
+no-op — the broken content was already the last snapshot); rewrote the
+test to pin the REAL value (pre-rollback saves work you never
+checkpointed). Packed-refs bit me in two test assertions (loose-dir
+listing) — the same trap upstream documented; fixed to rev-parse and
+pinned the excludes read through ls-tree. Trim rule redesigned mid-round
+from ">= max collapse" to a [max, 2×max] ring after measuring that the
+aggressive rule discarded useful history depth.
+
+Pins: src/tests/test_shadow_checkpoints.py NEW 13/13 (edit/write hooks
+fire + reason strings; once-per-turn dedup + begin_agent_turn re-arms;
+kill-switch makes hooks no-op with NO store creation; undo-the-undo
+unsaved-work rescue; full-tree restore overwrite semantics incl.
+newer-file survival; no .git pollution + ref via rev-parse; no-change →
+no commit; excludes keep __pycache__/.pyc/.git out of trees; ring trim
+bounded + latest restorable; cross-project restore refused; git-missing
+graceful; invalid hash / path escape rejected). conftest redirects the
+store to a per-session tmp (developer machines stay clean). Existing
+edit_file/terminal/PTC suites green through the hooks. Suite: 329 green.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ — remaining: D25 (repo-map
+staleness TTL/watcher — review-2 claim CONFIRMED 106ms@10k/306ms@30k
+files per turn, measured), D26 (layer-cache whitelist hash — 0%→70%
+hits measured), D27 (builder-signature zombie pin), D28 (post-edit
+syntax receipt), D29 (dashboard per-thread lock), D30 (classifier skip,
+measure-first), D32 (file-state staleness guard, steal #8), D33
+(parallel sub-agents, steal #9), D34 (parallel tool batches, steal #10),
+P2 (editor/UI product work).

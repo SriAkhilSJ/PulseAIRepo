@@ -141,6 +141,11 @@ def write_file(
         exist_ok=True
     )
 
+    # D31: shadow snapshot BEFORE mutating (once per turn per workspace;
+    # transparent to the LLM, never raises).
+    from src.tools.shadow_checkpoints import checkpoint_before_mutation
+    checkpoint_before_mutation(workspace, f"write_file: {path}")
+
     safe_path.write_text(
         content,
         encoding="utf-8"
@@ -366,6 +371,11 @@ def edit_file(
 
     if updated_content == original:
         return f"ℹ️ No change: new_text equals the existing content in {path}."
+
+    # D31: shadow snapshot BEFORE mutating (captures the pre-edit state;
+    # placed after the no-change early return so no-op edits cost nothing).
+    from src.tools.shadow_checkpoints import checkpoint_before_mutation
+    checkpoint_before_mutation(workspace, f"edit_file: {path}")
 
     _atomic_write(safe_path, updated_content)
 

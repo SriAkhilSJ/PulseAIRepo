@@ -644,6 +644,15 @@ def test_d13_zero_feature_query_keeps_raw_rrf_order(tmp_path):
         '    """Bolt the cross beams together."""\n'
         "    return beams\n"
     )
+    # Latent flake pinned shut (§43): left to chance, the two fixture files
+    # land ~ms apart, so has_hot (=> hot bonus to the single freshest
+    # candidate) fires on sub-second drift — and whether that bonus changes
+    # the outcome then depends on scandir tie-order inside the RRF fixture
+    # (inode order is tmpfs-luck). The test's intent is "no feature fires",
+    # so force it: identical mtimes => len(set(mtimes)) == 1 => hot off.
+    old = time.time() - 3600
+    for f in ("hydra.py", "beams.py"):
+        os.utime(ws / f, (old, old))
     idx = ChunkIndex(ws, db_path=str(tmp_path / "d13z.db"), embedder=FakeEmbedder())
     idx.index_workspace()
     q = "compute watering windows per zone"
