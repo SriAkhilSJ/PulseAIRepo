@@ -1,0 +1,487 @@
+"""
+execute_code -- Programmatic Tool Calling (PTC)
+================================================
+
+Lets the LLM write ONE Python script that calls PulseAI's in-process tools
+directly, collapsing multi-step tool chains into a single tool call. Only
+the script's ``print()`` output re-enters the conversation window.
+
+Pattern lifted from NousResearch hermes-agent
+(``tools/code_execution_tool.py``, ledger §29 -> debt D18). Design deltas
+from their version, all verified before writing:
+
+* **No RPC.** Their tools can live on remote machines (Docker/SSH) so they
+  shuttle calls over a Unix socket / request files. Ours are in-process
+  Python functions -- the "transport" is a function call. The whole UDS
+  layer is skipped.
+* **Custom print, not redirect_stdout.** This process is a server: the
+  dashboard, event bus and other threads share sys.stdout. A script-scoped
+  capped buffer replaces ``print`` instead of hijacking the global stream.
+* **Deadline via per-thread sys.settrace.** ToolNode runs tool calls on
+  worker threads; ``signal.alarm`` is main-thread-only. A line-level trace
+  hook enforces the wall-clock budget in ANY thread. Honest limit: a single
+  pathological C-level expression (``10**10**9``) runs no Python lines and
+  can overshoot until it finishes; ``run_terminal`` is additionally
+  time-boxed by running it on a bounded daemon thread.
+* **SafetyGuard is re-checked per inner call.** The graph-level guard only
+  inspects top-level tool args by tool NAME (SafetyGuard.check_tool_call),
+  so script text sails past it. Every inner call of write_file (overwrite),
+  edit_file (critical path) and run_terminal/start_terminal (dangerous
+  command) is re-validated; unsafe ops are DENIED with guidance (auto-deny,
+  hermes delegate_tool.py worker-thread policy) because a script cannot
+  surface the human approval prompt.
+* **Iteration budget.** Hermes refunds PTC iterations from their budget.
+  Our analog is structural: LangGraph budgets node executions, and an
+  execute_code turn is exactly ONE tool call no matter how many inner calls
+  it makes -- the refund is built in.
+
+This is a set of guardrails for cooperative model-written scripts on the
+user's own machine, NOT a security boundary against malicious code: the
+real boundaries remain workspace path resolution inside every tool and the
+SafetyGuard approval checkpoints.
+"""
+
+import ast
+import builtins
+import collections
+import datetime
+import functools
+import itertools
+import json
+import math
+import random
+import re
+import statistics
+import string
+import sys
+import textwrap
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+
+from src.context.safety_guard import SafetyGuard
+from src.tools.file_tools import (
+    read_file,
+    list_files,
+    search_code,
+    write_file,
+    edit_file,
+)
+from src.tools.terminal_tools import (
+    run_terminal,
+    start_terminal,
+    check_terminal,
+    stop_terminal,
+    list_terminal_processes,
+    cleanup_terminal_processes,
+    read_terminal_output,
+)
+from src.tools.web_tools import web_search, web_fetch
+
+# ---------------------------------------------------------------------------
+# Budgets (hermes: 300s / 50 calls / 50KB stdout -- verified §29)
+# ---------------------------------------------------------------------------
+_PTC_TIMEOUT_S = 120.0
+_PTC_MAX_TOOL_CALLS = 50
+_PTC_MAX_STDOUT_CHARS = 50_000
+_PTC_MAX_SCRIPT_CHARS = 16_000
+
+# Pure-stdlib helper modules preloaded into the script namespace. Import
+# statements are rejected outright, so this allowlist IS the module menu.
+_PRELOADED_MODULES: dict[str, Any] = {
+    "re": re,
+    "json": json,
+    "math": math,
+    "datetime": datetime,
+    "collections": collections,
+    "itertools": itertools,
+    "functools": functools,
+    "textwrap": textwrap,
+    "statistics": statistics,
+    "string": string,
+    "random": random,
+}
+
+# Names a script may not load. getattr/setattr/delattr are banned because
+# they'd defeat the dunder-attribute ban with string-built names
+# (getattr(x, "__" + "class__")); open/eval/exec/compile are obvious.
+_BANNED_NAMES = frozenset({
+    "exec", "eval", "compile", "open", "input", "globals", "locals",
+    "vars", "dir", "getattr", "setattr", "delattr", "help", "exit",
+    "quit", "breakpoint", "super", "memoryview", "__import__",
+    "__builtins__",
+})
+
+# Builtin callables kept available, plus exception types for try/except.
+_SAFE_BUILTIN_NAMES = (
+    "abs", "all", "any", "bin", "bool", "bytearray", "bytes", "chr",
+    "complex", "dict", "divmod", "enumerate", "filter", "float",
+    "format", "frozenset", "hash", "hex", "int", "isinstance",
+    "issubclass", "iter", "len", "list", "map", "max", "min", "next",
+    "oct", "ord", "pow", "range", "repr", "reversed", "round", "set",
+    "slice", "sorted", "str", "sum", "tuple", "type", "zip",
+    "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
+    "RuntimeError", "StopIteration", "ZeroDivisionError",
+    "AttributeError", "NameError", "NotImplementedError", "OSError",
+)
+_SAFE_BUILTINS: dict[str, Any] = {
+    name: getattr(builtins, name) for name in _SAFE_BUILTIN_NAMES
+}
+_SAFE_BUILTINS.update({"True": True, "False": False, "None": None})
+
+
+class _DeadlineExceeded(Exception):
+    """Raised by the trace hook when the wall-clock budget is spent."""
+
+
+class _CallBudgetExceeded(Exception):
+    """Raised by a tool stub past _PTC_MAX_TOOL_CALLS inner calls."""
+
+
+class _CappedStdout:
+    """Script-private stdout: appends up to the cap, then drops and flags.
+
+    Deliberately NOT sys.stdout redirection -- other threads (dashboard,
+    event bus) share the process stream.
+    """
+
+    def __init__(self, cap: int = _PTC_MAX_STDOUT_CHARS):
+        self._cap = cap
+        self._chunks: list[str] = []
+        self._len = 0
+        self.truncated = False
+
+    def write(self, text: str) -> None:
+        if self._len >= self._cap:
+            self.truncated = True
+            return
+        remaining = self._cap - self._len
+        if len(text) > remaining:
+            self._chunks.append(text[:remaining])
+            self._len = self._cap
+            self.truncated = True
+        else:
+            self._chunks.append(text)
+            self._len += len(text)
+
+    def getvalue(self) -> str:
+        return "".join(self._chunks)
+
+
+def _validate_script(tree: ast.AST) -> str | None:
+    """Reject scripts outside the cooperative-script allowlist.
+
+    Returns a human/model-readable reason, or None if the script is OK.
+    Checked BEFORE anything executes: a rejected script has zero effects.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return (
+                f"line {node.lineno}: import statements are disabled inside "
+                f"execute_code. Preloaded modules: "
+                f"{', '.join(sorted(_PRELOADED_MODULES))}."
+            )
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            return (
+                f"line {node.lineno}: private/dunder attribute access "
+                f"(.{node.attr}) is disabled."
+            )
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in _BANNED_NAMES
+        ):
+            return (
+                f"line {node.lineno}: '{node.id}' is not available "
+                f"inside execute_code."
+            )
+        if isinstance(node, (ast.AsyncFunctionDef, ast.AsyncFor, ast.AsyncWith, ast.Await)):
+            return f"line {node.lineno}: async constructs are not supported in scripts."
+    return None
+
+
+class _InnerCallDispatcher:
+    """Builds the script-visible tool functions over the real tool objects.
+
+    Every stub: (1) counts against the call budget, (2) re-runs the
+    SafetyGuard for checkpointed operations and auto-denies, (3) converts
+    tool exceptions into error strings so one bad call in a loop doesn't
+    kill the script. Budget/deadline exception types always re-raise.
+    """
+
+    # Inner ops that must pass SafetyGuard before dispatch, mirroring the
+    # graph-level checkpoints the script text bypasses (see module docstring).
+    # Values map the stub's args dict -> the args shape the guard inspects.
+    _GUARDED_KEY = {
+        "write_file": "path",
+        "edit_file": "path",
+        "run_terminal": "command",
+        "start_terminal": "command",
+    }
+
+    # Guards are stateless apart from their workspace, so keep one per
+    # distinct workspace (SafeToolNode's caching pattern, same reasoning).
+    _guards: dict[str, SafetyGuard] = {}
+    _guards_lock = threading.Lock()
+
+    def __init__(self, config: RunnableConfig):
+        self._config = config
+        workspace = (config or {}).get("configurable", {}).get("workspace", ".")
+        self._workspace = str(Path(workspace).resolve())
+        self._calls = 0
+        self._deadline = 0.0
+
+    def set_deadline(self, deadline: float) -> None:
+        self._deadline = deadline
+
+    def _guard(self) -> SafetyGuard:
+        with self._guards_lock:
+            guard = self._guards.get(self._workspace)
+            if guard is None:
+                guard = SafetyGuard(self._workspace)
+                self._guards[self._workspace] = guard
+            return guard
+
+    def _deny(self, name: str, warning: str) -> str:
+        first_line = warning.strip().splitlines()[0] if warning else "unsafe operation"
+        return (
+            f"⛔ Safety guard blocked {name}() inside the script: {first_line}\n"
+            "A script cannot ask the human for approval. Ask the user first, "
+            f"then run {name} as a normal tool call so they can confirm."
+        )
+
+    def _count_call(self) -> None:
+        self._calls += 1
+        if self._calls > _PTC_MAX_TOOL_CALLS:
+            raise _CallBudgetExceeded(
+                f"script made more than {_PTC_MAX_TOOL_CALLS} tool calls "
+                f"({_PTC_MAX_TOOL_CALLS} is the budget per script)"
+            )
+
+    def _remaining(self) -> float:
+        return max(1.0, self._deadline - time.monotonic())
+
+    def _dispatch(self, name: str, tool_obj, args: dict[str, Any], needs_config: bool) -> str:
+        self._count_call()
+
+        guard_key = self._GUARDED_KEY.get(name)
+        if guard_key is not None:
+            is_safe, warning = self._guard().check_tool_call(name, {guard_key: args.get(guard_key, "")})
+            if not is_safe:
+                return self._deny(name, warning)
+
+        def _invoke() -> Any:
+            if needs_config:
+                return tool_obj.invoke(args, config=self._config)
+            return tool_obj.invoke(args)
+
+        try:
+            # run_terminal is the one unbounded inner call (subprocess.run
+            # with no timeout). Give it only the script's remaining budget
+            # on a daemon thread so a hung command cannot outlive the script.
+            if name == "run_terminal":
+                box: dict[str, Any] = {}
+
+                def _run() -> None:
+                    try:
+                        box["result"] = _invoke()
+                    except Exception as error:  # converted to string below
+                        box["error"] = error
+
+                worker = threading.Thread(target=_run, daemon=True)
+                worker.start()
+                worker.join(self._remaining())
+                if worker.is_alive():
+                    return (
+                        f"⏱️ Error: run_terminal({args.get('command', '')!r}) did not "
+                        "finish within the script's time budget. For long commands "
+                        "use start_terminal + check_terminal instead."
+                    )
+                if "error" in box:
+                    raise box["error"]
+                result = box.get("result")
+            else:
+                result = _invoke()
+        except (_DeadlineExceeded, _CallBudgetExceeded):
+            raise
+        except Exception as error:
+            return f"Error: {name}() failed: {type(error).__name__}: {error}"
+
+        return result if isinstance(result, str) else str(result)
+
+    def namespace(self) -> dict[str, Any]:
+        """Script-visible tool functions with friendly signatures."""
+        return {
+            # File tools
+            "read_file": lambda path: self._dispatch(
+                "read_file", read_file, {"path": path}, True),
+            "list_files": lambda path=".": self._dispatch(
+                "list_files", list_files, {"path": path}, True),
+            "search_code": lambda query, path=".": self._dispatch(
+                "search_code", search_code, {"query": query, "path": path}, True),
+            "write_file": lambda path, content: self._dispatch(
+                "write_file", write_file, {"path": path, "content": content}, True),
+            "edit_file": lambda path, old_text, new_text: self._dispatch(
+                "edit_file", edit_file,
+                {"path": path, "old_text": old_text, "new_text": new_text}, True),
+            # Terminal tools
+            "run_terminal": lambda command: self._dispatch(
+                "run_terminal", run_terminal, {"command": command}, True),
+            "start_terminal": lambda command: self._dispatch(
+                "start_terminal", start_terminal, {"command": command}, True),
+            "check_terminal": lambda process_id, wait_seconds=0: self._dispatch(
+                "check_terminal", check_terminal,
+                {"process_id": process_id, "wait_seconds": wait_seconds}, False),
+            "stop_terminal": lambda process_id: self._dispatch(
+                "stop_terminal", stop_terminal, {"process_id": process_id}, False),
+            "list_terminal_processes": lambda: self._dispatch(
+                "list_terminal_processes", list_terminal_processes, {}, False),
+            "cleanup_terminal_processes": lambda: self._dispatch(
+                "cleanup_terminal_processes", cleanup_terminal_processes, {}, False),
+            "read_terminal_output": lambda process_id, start_line=1, end_line=200: self._dispatch(
+                "read_terminal_output", read_terminal_output,
+                {"process_id": process_id, "start_line": start_line, "end_line": end_line}, False),
+            # Web tools
+            "web_search": lambda query, max_results=5: self._dispatch(
+                "web_search", web_search, {"query": query, "max_results": max_results}, False),
+            "web_fetch": lambda url, max_chars=12_000: self._dispatch(
+                "web_fetch", web_fetch, {"url": url, "max_chars": max_chars}, False),
+        }
+
+
+def _run_script(code: str, config: RunnableConfig) -> str:
+    """Validate, sandbox-execute, and return ONLY what the script prints."""
+    if len(code) > _PTC_MAX_SCRIPT_CHARS:
+        return (
+            f"⛔ Script rejected: {len(code)} chars exceeds the "
+            f"{_PTC_MAX_SCRIPT_CHARS}-char limit. Split the work into smaller scripts."
+        )
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as error:
+        return f"⛔ Script has a Python syntax error (line {error.lineno}): {error.msg}"
+
+    rejection = _validate_script(tree)
+    if rejection is not None:
+        return f"⛔ Script rejected: {rejection}"
+
+    out = _CappedStdout()
+
+    def _ptc_print(*args: Any, sep: str = " ", end: str = "\n", file: Any = None, flush: bool = False) -> None:
+        # `file` is accepted for signature familiarity and deliberately
+        # ignored: everything the script "prints" goes to its private buffer.
+        out.write(sep.join(str(a) for a in args) + end)
+
+    dispatcher = _InnerCallDispatcher(config)
+    dispatcher.set_deadline(time.monotonic() + _PTC_TIMEOUT_S)
+
+    namespace: dict[str, Any] = {"__builtins__": dict(_SAFE_BUILTINS), "print": _ptc_print}
+    namespace.update(_PRELOADED_MODULES)
+    namespace.update(dispatcher.namespace())
+
+    previous_trace = sys.gettrace()
+
+    def _tracer(frame, event, arg):  # noqa: ANN001, ANN202 - CPython trace API
+        if event in ("line", "call"):
+            if time.monotonic() > dispatcher._deadline:
+                raise _DeadlineExceeded(
+                    f"script exceeded its {_PTC_TIMEOUT_S:.0f}s time budget"
+                )
+        return _tracer
+
+    error_report: str | None = None
+    sys.settrace(_tracer)
+    try:
+        exec(compile(tree, "<execute_code>", "exec"), namespace)  # noqa: S102 - guarded sandbox
+    except _DeadlineExceeded as error:
+        error_report = f"⏱️ {error}"
+    except _CallBudgetExceeded as error:
+        error_report = f"⛔ {error}"
+    except Exception as error:
+        line = "?"
+        tb = sys.exc_info()[2]
+        while tb is not None:
+            if tb.tb_frame.f_code.co_filename == "<execute_code>":
+                line = str(tb.tb_lineno)
+                break
+            tb = tb.tb_next
+        error_report = (
+            f"⛔ Script error (line {line}): "
+            f"{type(error).__name__}: {error}"
+        )
+    finally:
+        sys.settrace(previous_trace)
+
+    stdout = out.getvalue()
+    if out.truncated:
+        stdout += f"\n... [stdout truncated at {_PTC_MAX_STDOUT_CHARS} chars]"
+
+    if error_report is not None:
+        if stdout.strip():
+            return f"{error_report}\n--- partial output before the failure ---\n{stdout}"
+        return error_report
+
+    if not stdout.strip():
+        return (
+            "✅ Script finished but printed nothing. "
+            "Only print() output is returned -- print the result you want back."
+        )
+    return stdout
+
+
+@tool
+def execute_code(code: str, config: RunnableConfig) -> str:
+    """
+    Run ONE Python script that can call the file/terminal/web tools as
+    functions, then return ONLY what the script prints.
+
+    WHEN TO USE:
+    - A task needs 3+ chained tool steps (read several files, search, then
+      run a check) -- the script does them all in ONE call instead of many
+      separate tool calls.
+    - Raw tool output would be huge (whole files, long test logs): let the
+      script filter it and print only the few lines that matter.
+
+    WHEN NOT TO USE:
+    - A single simple action (one read, one edit) -- call the tool directly.
+    - Anything needing human approval (overwriting an existing file, editing
+      secrets, destructive shell commands): those are DENIED inside scripts.
+      Run them as normal tool calls so the user can confirm.
+
+    FUNCTIONS AVAILABLE INSIDE THE SCRIPT (same behavior as the tools):
+        read_file(path)                       -> file contents
+        list_files(path=".")                  -> directory listing
+        search_code(query, path=".")          -> grep-style matches
+        write_file(path, content)             -> write (blocked if file exists)
+        edit_file(path, old_text, new_text)   -> targeted edit
+        run_terminal(command)                 -> stdout/stderr of a shell command
+        start_terminal(command)               -> long-running process
+        check_terminal(process_id, wait_seconds=0)
+        stop_terminal(process_id)
+        list_terminal_processes()
+        cleanup_terminal_processes()
+        read_terminal_output(process_id, start_line=1, end_line=200)
+        web_search(query, max_results=5)
+        web_fetch(url, max_chars=12000)
+
+    RULES:
+    - No import statements. Preloaded modules: re, json, math, datetime,
+      collections, itertools, functools, textwrap, statistics, string, random.
+    - No open/eval/exec/getattr or dunder attributes.
+    - Budgets: 120s wall clock, 50 tool calls, 50KB of printed output.
+    - Errors inside the script come back as strings; inspect them and adapt.
+    - ALWAYS print() your final result -- only printed text is returned.
+
+    EXAMPLE:
+        report = read_file("app.py")
+        matches = search_code("def login", "src")
+        tests = run_terminal("python -m pytest -q")
+        last = tests.strip().splitlines()[-1]
+        print(f"app.py: {len(report)} chars | login defs at:\\n{matches}\\n{last}")
+    """
+    return _run_script(code, config)

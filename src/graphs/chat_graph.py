@@ -63,6 +63,7 @@ from src.tools.terminal_tools import (
     read_terminal_output
 )
 from src.tools.web_tools import web_search, web_fetch
+from src.tools.code_exec_tool import execute_code
 from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
 
 from src.agents.cost_router import cost_router
@@ -276,6 +277,10 @@ tools = [
     # Web tools
     web_search,
     web_fetch,
+
+    # Programmatic tool calling: ONE scripted call can chain the tools
+    # above and return only printed output (D18, hermes PTC pattern).
+    execute_code,
 ]
 
 

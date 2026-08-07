@@ -1084,3 +1084,69 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~ —
 remaining: D9, D10, D13, D14, D15-remainder, D16 (session-search shape),
 D18 (PTC), D19 (prompt-cache audit), D20 (subagent auto-deny), D21
 (aux-model routing), D22 (compaction pack), C1, P2.
+
+## 30. D18 — execute_code: Programmatic Tool Calling (2026-08-07)
+
+First hermes-agent steal landed (§29 adoption step #1). The model can now
+write ONE Python script that calls the file/terminal/web tools as
+in-process functions; only the script's print() output re-enters the
+window. Receipt in their tree: tools/code_execution_tool.py:1-22 (caps
+300s/50 calls/50KB stdout; iterations refunded, agent/iteration_budget.py
+:28-29).
+
+Measured on this repo, same 5-step inspection both ways:
+- old: 5 tool calls + 5 model turns -> 26,850 chars parked in the window
+- PTC: 1 tool call + 1 model turn -> 256 chars (104.9x fewer chars)
+
+Design deltas from hermes (each verified against OUR stack first):
+- No RPC: their UDS/file-RPC layer exists because their tools can live on
+  remote machines (Docker/SSH); ours are in-process Python -> the
+  transport is a function call. The whole socket layer is skipped.
+- Custom print buffer, not redirect_stdout: this is a long-lived server
+  process; dashboard/event-bus/other sessions share sys.stdout.
+- Deadline via per-thread sys.settrace: signal.alarm is main-thread only
+  and ToolNode executes tools on worker threads. Honest limit, kept in
+  the module docstring: a single pathological C-level expression runs no
+  Python lines and can overshoot; run_terminal is additionally time-boxed
+  on a bounded daemon thread because it wraps subprocess.run with no
+  internal timeout.
+- SafetyGuard re-checked per inner call: SafeToolNode's guard inspects
+  args by tool NAME only (safety_guard.py:38-63), so script text sails
+  past the graph-level check. write_file-overwrite, edit_file-critical-
+  path and run/start_terminal-dangerous-command are re-validated inside
+  the dispatcher and auto-DENIED with "ask the user, then run it as a
+  normal tool call" guidance (hermes delegate_tool.py:63-91 auto-deny
+  policy for non-interactive contexts; a script cannot surface the human
+  approval prompt).
+- Budget treatment: hermes refunds PTC iterations from their iteration
+  budget; ours is structural -- LangGraph budgets node executions, and an
+  execute_code turn is exactly ONE tool call no matter how many inner
+  calls it makes. The refund is built in.
+
+Allowlist (full text in src/tools/code_exec_tool.py docstring): no
+imports (re, json, math, datetime, collections, itertools, functools,
+textwrap, statistics, string, random preloaded), no open/eval/exec/
+compile/getattr/dunder access; 14 inner functions = 5 file + 7 terminal +
+2 web. Caps: 120s wall, 50 inner calls, 50KB stdout, 16KB script. These
+are guardrails for cooperative model-written scripts, not a security
+boundary; the real boundaries remain per-tool workspace path resolution
+and SafetyGuard checkpoints.
+
+Registry recount while wiring: 18 tools before this round (4 meta + 5
+file + 7 terminal + 2 web) — earlier rounds quoted 17; the audited count
+stands. 19 with execute_code.
+
+Pins: src/tests/test_ptc.py 25/25 — pipeline collapse (raw file bodies
+absent from the window), no-print hint, runner-tail filtering, 50KB cap,
+50-call budget, worker-thread deadline, oversize rejection, nine banned-
+construct rejections incl. zero-side-effect pre-validation, preloaded
+modules present/os absent, destructive command denied with target file
+provably surviving, overwrite checkpoint denying-then-continuing, tool
+failures as strings not script death, registry cardinality, the name-
+based-graph-guard/inner-guard-is-the-control policy pin, no recursion/
+delegation inside scripts, workspace path isolation. Suite: 207 green
+(74s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ — remaining: D9, D10, D13, D14, D15-remainder, D16 (session-
+search shape), D19, D20, D21, D22, C1, P2.
