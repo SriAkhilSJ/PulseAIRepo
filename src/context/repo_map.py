@@ -68,6 +68,10 @@ class RepoMap:
         self.root = Path(root_path).resolve()
         self._cache: str | None = None
         self._cache_mtime: float = 0.0
+        # D14 (§37): per-file stats collected during the build — the ONLY
+        # inputs the compress path's importance ranking needs (no re-walk).
+        self._file_stats: dict[str, dict[str, float]] = {}
+        self._in_degree: dict[str, int] = {}
 
     # =========================================================
     # PUBLIC API
@@ -140,15 +144,42 @@ class RepoMap:
 
             lines.append("")
 
-        # Add import graph at the end
-        graph = self._build_import_graph(files)
-        if graph:
+        # Add import graph at the end. D14: prefer RESOLVED file->file edges
+        # (the verified chunk_index resolver) — centrality counts only make
+        # sense on real edges; the module-first-segment graph can't produce
+        # them. Legacy module graph stays as the degraded fallback.
+        edges = self._resolved_edges(files)
+        graph_lines: list[str] = []
+        if edges:
+            in_degree: dict[str, int] = {}
+            for _src, tgts in edges.items():
+                for t in tgts:
+                    in_degree[t] = in_degree.get(t, 0) + 1
+            self._in_degree = in_degree
+            hubs = sorted(in_degree.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+            graph_lines.append(
+                "Most depended-upon: "
+                + ", ".join(f"{t} ({n})" for t, n in hubs)
+            )
+            for importer in sorted(edges)[:20]:
+                tgts = sorted(edges[importer],
+                              key=lambda t: (-in_degree.get(t, 0), t))[:5]
+                graph_lines.append(f"{importer} -> {', '.join(tgts)}")
+            if len(edges) > 20:
+                graph_lines.append(f"... ({len(edges) - 20} more files) ...")
+        else:
+            self._in_degree = {}
+            graph = self._build_import_graph(files)
+            if graph:
+                for file_path, imports in sorted(graph.items())[:20]:
+                    graph_lines.append(f"{file_path} -> {', '.join(imports[:5])}")
+                if len(graph) > 20:
+                    graph_lines.append(f"... ({len(graph) - 20} more files) ...")
+
+        if graph_lines:
             lines.append("")
             lines.append("=== IMPORT GRAPH ===")
-            for file_path, imports in sorted(graph.items())[:20]:
-                lines.append(f"{file_path} -> {', '.join(imports[:5])}")
-            if len(graph) > 20:
-                lines.append(f"... ({len(graph) - 20} more files) ...")
+            lines.extend(graph_lines)
 
         lines.append("")
         lines.append("=== END REPO MAP ===")
@@ -201,27 +232,37 @@ class RepoMap:
 
         For Python files: extract top-level functions/classes.
         For others: just show size and extension.
+
+        Also stashes D14 compress-ranking stats (mtime, size, symbol mass) —
+        one stat() call, no re-walk later.
         """
-        size = full_path.stat().st_size
+        st = full_path.stat()
+        size = st.st_size
         size_str = self._format_size(size)
         name = rel_path.name
+        stats = {"mtime": st.st_mtime, "size": float(size), "mass": 0.0}
 
         # Python files get symbol extraction.
         if full_path.suffix == ".py" and size < MAX_FILE_SIZE:
-            symbols = self._extract_python_symbols(full_path)
+            symbols, n_classes, n_functions = self._extract_python_symbols(full_path)
+            stats["mass"] = float(n_classes + n_functions)
+            self._file_stats[str(rel_path)] = stats
             if symbols:
                 return f"{name} ({size_str}) -> {symbols}"
 
+        self._file_stats[str(rel_path)] = stats
         return f"{name} ({size_str})"
 
-    def _extract_python_symbols(self, path: Path) -> str:
-        """Extract top-level symbols using AST (accurate, handles decorators/async)."""
+    def _extract_python_symbols(self, path: Path) -> tuple[str, int, int]:
+        """Extract top-level symbols using AST (accurate, handles decorators/async).
+        Returns (formatted_text, n_classes, n_functions) — counts feed the D14
+        importance mass signal."""
         import ast
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
             tree = ast.parse(content)
         except Exception:
-            return ""
+            return "", 0, 0
 
         classes = []
         functions = []
@@ -256,7 +297,46 @@ class RepoMap:
                 it += f" (+{len(imports) - 3})"
             parts.append(it)
 
-        return " | ".join(parts)
+        return " | ".join(parts), len(classes), len(functions)
+
+    def _resolved_edges(self, files: list[Path]) -> dict[str, set[str]]:
+        """D14: file->file import edges via chunk_index's verified resolver
+        (full dotted-path resolution). Module-level graph is the documented
+        fallback when that import is unavailable. Never raises — edges are
+        a ranking bonus, not a failure mode."""
+        try:
+            from src.context.chunk_index import _extract_py_import_edges
+        except Exception:
+            return {}
+        edges: dict[str, set[str]] = {}
+        for f in files:
+            if f.suffix != ".py":
+                continue
+            try:
+                src = f.read_text(encoding="utf-8", errors="ignore")
+                rel = f.relative_to(self.root)
+            except (OSError, ValueError):
+                continue
+            try:
+                targets = _extract_py_import_edges(src, rel, self.root)
+            except Exception:
+                continue
+            if targets:
+                edges[str(rel)] = set(targets)
+        return edges
+
+    def _importance(self, rel: str, max_deg: float, min_mtime: float,
+                    mtime_span: float, max_mass: float) -> float:
+        """D14 compress-ranking score: depended-upon-ness dominates, then
+        recency (range-normalized — ratio-to-max on epoch seconds would make
+        everything ~1.0), then symbol mass. All inputs content/mtime-derived;
+        computed only on the compress path, so the FULL map never reorders
+        (byte-stable for prompt-cache prefixing — the §32 doctrine)."""
+        stats = self._file_stats.get(rel, {})
+        deg_n = (self._in_degree.get(rel, 0) / max_deg) if max_deg else 0.0
+        rec_n = ((stats.get("mtime", 0.0) - min_mtime) / mtime_span) if mtime_span else 0.0
+        mass_n = (stats.get("mass", 0.0) / max_mass) if max_mass else 0.0
+        return 3.0 * deg_n + 1.5 * rec_n + 0.5 * mass_n
 
     def _build_import_graph(self, files: list[Path]) -> dict[str, list[str]]:
         """Build a map of file -> modules it imports."""
@@ -292,8 +372,24 @@ class RepoMap:
 
     def _compress_map(self, max_tokens: int) -> str:
         """
-        If the map is too big, compress it by removing function details and
-        keeping only the tree structure.
+        D14 v2: staged reduction by file IMPORTANCE — when budget forces a
+        choice, the map keeps the files that matter instead of the files
+        whose names sort early in the alphabet. Pre-fix behavior: strip ALL
+        symbol detail, then truncate from the END OF THE ALPHABET, so
+        z_core_engine.py vanished while a_junk_00.py survived (measured in
+        scripts/d13_d14_rank_measure.py R1).
+
+        Stages (each stops as soon as the budget fits):
+          1. strip "| imports: ..." segments (least informative detail)
+          2. strip symbol detail for below-median-importance files only
+             (top-importance files keep their classes/functions)
+          3. strip ALL symbol detail (the old stage 1)
+          4. drop whole file lines, LEAST-important first
+          5. char-truncate as the legacy last resort
+
+        The import-graph section is split off first and always appended
+        whole. Emission among kept files stays alphabetical per directory
+        (navigable; and within a fixed selection the text is deterministic).
         """
         if self._cache is None:
             return ""
@@ -307,21 +403,106 @@ class RepoMap:
         else:
             tree_part, graph_part = self._cache, ""
 
-        compressed = []
+        # --- parse the tree section into typed entries ---------------------
+        #                (kind, line, rel-or-dir)
+        entries: list[tuple[str, str, str | None]] = []
+        cur_dir = "."
         for line in tree_part.splitlines():
-            # Remove symbol details from the tree portion only.
-            if " -> " in line:
-                line = line.split(" -> ")[0]
-            compressed.append(line)
+            stripped = line.strip()
+            if line.startswith("  ") and " (" in stripped:
+                fname = stripped.split(" (")[0]
+                # os.path.join: _file_stats keys come from str(Path) — same
+                # separator per platform (Windows-safe).
+                rel = fname if cur_dir == "." else os.path.join(cur_dir, fname)
+                entries.append(("file", line, rel))
+            elif (stripped.startswith("[root]") or stripped.endswith("files)")) \
+                    and " files)" in stripped:
+                dir_name = stripped.split("]")[0].rstrip("/") if stripped.startswith("[root]") \
+                    else stripped.split("  (")[0].rstrip("/")
+                cur_dir = "." if stripped.startswith("[root]") else dir_name
+                entries.append(("dir", line, cur_dir))
+            else:
+                entries.append(("meta", line, None))
 
-        result = "\n".join(compressed)
+        # --- importance over the files present -----------------------------
+        file_rels = [rel for kind, _l, rel in entries if kind == "file" and rel]
+        if not file_rels:
+            return self._cache[: int(max_tokens / 0.75)] + graph_part
+        max_deg = max([self._in_degree.get(r, 0) for r in file_rels] + [0]) or 0
+        mtimes = [self._file_stats.get(r, {}).get("mtime", 0.0) for r in file_rels]
+        min_mtime, mtime_span = min(mtimes), (max(mtimes) - min(mtimes)) or 0.0
+        max_mass = max([self._file_stats.get(r, {}).get("mass", 0.0) for r in file_rels] + [0]) or 0.0
+        imp = {
+            r: self._importance(r, max_deg, min_mtime, mtime_span, max_mass)
+            for r in file_rels
+        }
 
-        # If still too big, truncate the tree portion only.
-        if len(result) * 0.75 > max_tokens:
-            max_chars = int(max_tokens / 0.75)
-            result = result[:max_chars].rstrip()
-            result += "\n... (truncated) ..."
+        def _fits(lines: list[str]) -> bool:
+            return len("\n".join(lines)) * 0.75 <= max_tokens
 
+        def _emit() -> list[str]:
+            return [line for _kind, line, _rel in entries]
+
+        # stage 1: drop "| imports: ..." segments from file lines
+        work: list[tuple[str, str, str | None]] = [
+            (k, (ln.split(" | imports:")[0] if k == "file" else ln), r)
+            for k, ln, r in entries
+        ]
+        entries = work
+        if _fits(_emit()):
+            return "\n".join(_emit()) + graph_part
+
+        # stage 2: strip symbol detail for files at-or-below the MEDIAN
+        # importance (<= so a tied low floor like all-junk-zeros loses its
+        # detail first); top-importance files keep classes/functions.
+        import statistics
+        median_imp = statistics.median(imp.values())
+        work = [
+            (k, (ln.split(" -> ")[0] if k == "file" and r is not None
+                 and imp.get(r, 0.0) <= median_imp else ln), r)
+            for k, ln, r in entries
+        ]
+        if _fits([ln for _k, ln, _r in work]):
+            entries = work
+            return "\n".join(_emit()) + graph_part
+
+        # stage 3: strip ALL symbol detail (old stage 1)
+        work = [
+            (k, (ln.split(" -> ")[0] if k == "file" else ln), r)
+            for k, ln, r in entries
+        ]
+        entries = work
+        if _fits(_emit()):
+            return "\n".join(_emit()) + graph_part
+
+        # stage 4: drop whole file lines, least important first; then drop
+        # directory headers left with no files under them.
+        for victim in sorted(file_rels, key=lambda r: (imp[r], r)):
+            entries = [e for e in entries if not (e[0] == "file" and e[2] == victim)]
+            pruned: list[tuple[str, str, str | None]] = []
+            for i, e in enumerate(entries):
+                if e[0] == "dir":
+                    j = i + 1
+                    found = False
+                    while j < len(entries) and entries[j][0] != "dir":
+                        if entries[j][0] == "file":
+                            found = True
+                            break
+                        j += 1
+                    if not found:
+                        continue
+                pruned.append(e)
+            entries = pruned
+            if _fits(_emit()):
+                return ("\n".join(_emit())
+                        + "\n... (least-important files omitted) ..."
+                        + graph_part)
+
+        # stage 5: legacy char truncate, tree portion only.
+        result = "\n".join(_emit())
+        max_chars = int(max_tokens / 0.75)
+        result = result[:max_chars].rstrip()
+        result += "\n... (truncated) ..."
         return result + graph_part
 
     # =========================================================

@@ -1476,3 +1476,98 @@ total-tie stability + hybrid still useful, limit>population). Suite:
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ — remaining: D9,
 D10, D13, D14, D15-remainder, D23, P2.
+
+---
+
+## §37 — D13+D14 FIXED: retrieval re-rank + repo-map importance ranking (the reviewers' 8.0 gate)
+
+**Debt D13 (chunk re-rank) and D14 (symbol/file ranking) closed in one
+pass** — same retrieval machinery, one measurement harness, one commit.
+
+Evidence BEFORE (scripts/d13_d14_rank_measure.py, planted judged
+scenarios, FakeEmbedder word-bucket determinism):
+- S1: a query literally naming `parse_auth_token` ranked the gold chunk
+  **#4 — P@3 MISS** behind vocabulary-twin distractor files (RRF fuses on
+  rank POSITIONS and never considers WHAT matched).
+- S2: on an implementation question, tests/test_cache.py's module chunk
+  sat at #2, ABOVE the implementation function.
+- S5: twin files, identical content: the 30-day-stale one outranked the
+  one edited minutes ago (recency invisible).
+- R1: over-budget repo map compression stripped symbol detail from every
+  file at roommate budgets; when forced to cut, it truncated from the END
+  OF THE ALPHABET — z_core_engine.py (highest in-degree, freshest, most
+  symbols) was DELETED while 12 stale a_junk_* files survived.
+- R2: import graph emitted alphabetically; the hub (libbase, 3 dependents)
+  was never even named as a node.
+
+D13 fix (chunk_index.py): `_rerank` stage after RRF fusion, before top_k.
+Normalized RRF stays the base; additive features (module-level `_RERANK_W`
+table): exact symbol-name-in-query (4.0), snake/camel name parts (0.6, cap
+3), file-stem token (1.0), freshest-file (0.5), test-file demote (-2.5,
+skipped for test-ish queries), docstring (0.2). Python stable sort, so a
+zero-feature query is byte-identical to raw RRF. Zero LLM calls, zero
+embedder calls — the query encode remains the ONLY encode (pinned:
+calls-delta == 1). `modified_time` added to ChunkResult (additive,
+default 0.0; the RRF fetch now also selects modified_time).
+
+D13 AFTER: S1 gold #1 (top3 = gold fn, gold module, one distractor); S2
+zero test files in top3 (top3 all src/cache.py), test-ish control query
+unaffected; S5 fresh file wins; S3/S4 file-level no-regress + S4b strict
+zero-feature byte-equality vs raw RRF. encodes=1 across every search.
+
+D14 fix (repo_map.py): file->file resolved edges reused from chunk_index's
+verified `_extract_py_import_edges` (lazy import; legacy module-level
+graph kept as degraded fallback) → in_degree. Per-file stats (mtime, size,
+symbol mass) collected inside `_describe_file`'s single stat — zero
+re-walks. Import graph section now leads with "Most depended-upon:
+a (n), b (m)..." (top 5, deterministic) + file->file rows, targets sorted
+by in-degree. `_compress_map` v2 staged: (1) strip "| imports:" segments,
+(2) strip symbol detail at-or-below the MEDIAN importance (top files keep
+theirs), (3) strip ALL detail (legacy stage 1), (4) drop whole file lines
+least-important-first + prune emptied dir headers (+ explicit
+"least-important files omitted"), (5) legacy char truncate as last resort.
+Importance = 3*in_degree_n + 1.5*recency_n(range-normalized; ratio-to-max
+on epoch seconds would make everything ~1.0) + 0.5*mass_n. The FULL map
+stays alphabetical + byte-stable — ranking lives ONLY in the compress
+path, honoring the §32 prompt-cache-prefix doctrine. Windows-safe: stats
+keys built with os.path.join like the parser's rel keys.
+
+Why this matters in production, not in theory: the engine calls
+get_repo_map(workspace, max_tokens=1200) — PulseAIRepo's own map overflows
+that, so the COMPRESS path is what the LLM actually sees every turn.
+
+D14 AFTER (same harness, OLD snapshot from git show vs NEW):
+- R1a roomy 620 tok: OLD core shown, symbols stripped from everyone / NEW
+  core shown WITH its symbols, junk detail gone.
+- R1b tight 240 tok: OLD **core DELETED, all 12 junk shown** / NEW core
+  kept, 6 of 12 junk dropped first (alpha-stable among kept).
+- R2: OLD no hubs / NEW "Most depended-upon: libbase.py (3)" + named rows.
+Group invariant: no junk outlives a consumer at budgets 180/220/260
+(pinned); rebuild deterministic (pinned).
+
+Founder's metrics: latency — re-rank is O(k) arithmetic, embedder call
+count pinned flat, map compression does 0 re-walks (stats side-collected);
+context quality — this is THE reviewers' 8.0 gate: the right chunk/file now
+surfaces (P@3 MISS -> #1); token budget — unchanged caps, and compression
+now spends its shrunken budget on what matters; LLM calls — zero added.
+
+**D24 filed:** the import-graph section is still appended whole after
+compress (legacy protection kept deliberately), so a very large graph can
+itself exceed max_tokens. Cap/limit it next round.
+
+Development honesty: one test-fixture bug of mine (module-vs-method
+_rerank import) and one mid-implementation self-review fix (stage-2
+tied-floor `< median` would no-op on all-junk workspaces -> `<=`; plus the
+walrus-placeholder stage-4 mess edited out before commit).
+
+Pins: test_chunk_index.py 26/26 (6 new D13: exact-name rescue, test
+demote+test-ish control, hot file, strict zero-feature RRF identity,
+embedder-call-delta==1, helpers/edge passthrough); test_repo_map.py 8/8
+NEW FILE (roomy graduated detail + tree-fits-budget, tight drop order +
+omission note + alpha stability, cross-budget junk<consumer invariant,
+determinism, hubs line, legacy fallback, no-python no-crash, full-map
+alpha+byte-stable). Suite: 281 green (9.9s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+— remaining: D9, D10, D15-remainder, D23, D24, P2.

@@ -57,6 +57,50 @@ RRF_K = 60
 BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
 FTS_MAX_TOKENS_PER_QUERY = 12
 
+# ---------------------------------------------------------------------
+# D13 (§37): feature re-rank over the fused candidate set
+# ---------------------------------------------------------------------
+# RRF fuses on rank POSITIONS — it never considers WHAT matched, so a
+# chunk whose exact symbol name is in the query could lose to vocabulary
+# twins ranking well in both retrievers (measured: scripts/
+# d13_d14_rank_measure.py S1 — gold at rank 4, P@3 MISS). After fusing we
+# re-score candidates with cheap, zero-LLM, zero-extra-embedding features:
+# the query encode stays the ONLY encode of the turn (pinned).
+_RERANK_W = {
+    "name_exact": 4.0,   # literal `parse_auth_token` appears in the query
+    "name_part": 0.6,    # per matched symbol-name part (snake/camel), cap 3
+    "path_token": 1.0,   # file-stem part appears in the query ("auth ...")
+    "hot": 0.5,          # freshest file among the candidates
+    "test_demote": -2.5, # test file, when the query is not test-ish
+    "docstring": 0.2,    # documented API preference
+}
+_RERANK_NAME_PART_CAP = 3
+_RERANK_MIN_WORD = 3     # query words shorter than this never count as hints
+_RERANK_TESTISH = {"test", "tests", "testing", "pytest", "unittest", "spec", "specs"}
+
+
+def _word_parts(text: str) -> set[str]:
+    """snake_case AND camelCase aware word splitting; lowered parts.
+
+    'parse_auth_token' -> {parse, auth, token, parse_auth_token? no — parts}.
+    Used symmetrically on queries and symbol/file names so a snake-cased
+    symbol name can match both the full token and its parts.
+    """
+    parts: set[str] = set()
+    for tok in re.findall(r"[A-Za-z0-9]+", text):
+        for piece in re.split(r"_+", tok):
+            if not piece:
+                continue
+            for sub in re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z]+|[a-z]+|[0-9]+", piece):
+                parts.add(sub.lower())
+    return parts
+
+
+def _is_test_path(file_path: str) -> bool:
+    p = Path(file_path)
+    name = p.name.lower()
+    return name.startswith("test_") or name.endswith("_test.py") or "tests" in p.parts
+
 # C1 (fixed §36): vec0 KNN pushdown. The MATCH + k constraint is handled
 # inside the extension (exact KNN over its own index) instead of computing
 # vec_distance_l2 for every row and sorting in SQL — 12-14x faster at
@@ -166,6 +210,7 @@ class ChunkResult:
     docstring: Optional[str]
     body: str          # display body for LLM context
     score: float       # fused score
+    modified_time: float = 0.0  # file mtime at last sync (D13 hot feature)
 
 
 # ---------------------------------------------------------------------
@@ -756,7 +801,8 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def search(self, query: str, top_k: int = 3) -> list[ChunkResult]:
-        """Hybrid search: KNN vector + BM25, fused via RRF (rank positions).
+        """Hybrid search: KNN vector + BM25, fused via RRF (rank positions),
+        then D13 feature re-rank (name/path/hot/test signals) before top_k.
         top_k defaults to 3 so the layer can't eat the context budget."""
         if self._is_index_empty():
             self._trigger_background_index()
@@ -764,7 +810,63 @@ class ChunkIndex:
 
         vec = self._search_vector(query, top_k * 3)
         bm25 = self._search_bm25(query, top_k * 3)
-        return self._rrf_fuse(vec, bm25, k=RRF_K)[:top_k]
+        fused = self._rrf_fuse(vec, bm25, k=RRF_K)
+        return self._rerank(fused, query)[:top_k]
+
+    # ------------------------------------------------------------------
+    # RE-RANK (D13 — see the feature table at module level)
+    # ------------------------------------------------------------------
+
+    def _rerank(self, results: list[ChunkResult], query: str) -> list[ChunkResult]:
+        """Feature re-rank over the fused set. Invariants, all pinned:
+
+        - zero LLM calls, zero embedder calls (arithmetic on fetched fields);
+        - normalized RRF score stays the base — features nudge, they do not
+          replace retrieval;
+        - Python's sort is STABLE, so a zero-feature query yields
+          byte-identical order to pre-D13;
+        - deterministic given (query, index contents, mtimes).
+        """
+        if len(results) <= 1 or not query:
+            return results
+
+        qtext = query.lower()
+        qwords = {w for w in _word_parts(query) if len(w) >= _RERANK_MIN_WORD}
+        test_query = bool(qwords & _RERANK_TESTISH)
+
+        mtimes = [r.modified_time for r in results]
+        max_mtime = max(mtimes)
+        has_hot = len(set(mtimes)) > 1
+
+        max_score = max((r.score for r in results), default=0.0)
+
+        def _bonus(r: ChunkResult) -> float:
+            b = 0.0
+            name = r.symbol_name
+            if name and name != "(module)":
+                if name.lower() in qtext:
+                    b += _RERANK_W["name_exact"]
+                else:
+                    overlap = (qwords & _word_parts(name)) if qwords else set()
+                    b += _RERANK_W["name_part"] * min(len(overlap), _RERANK_NAME_PART_CAP)
+            stem = Path(r.file_path).stem
+            if qwords and stem:
+                if qwords & _word_parts(stem):
+                    b += _RERANK_W["path_token"]
+            if has_hot and r.modified_time == max_mtime:
+                b += _RERANK_W["hot"]
+            if _is_test_path(r.file_path) and not test_query:
+                b += _RERANK_W["test_demote"]
+            if r.docstring:
+                b += _RERANK_W["docstring"]
+            return b
+
+        scored = [
+            ((r.score / max_score if max_score > 0 else 0.0) + _bonus(r), r)
+            for r in results
+        ]
+        scored.sort(key=lambda t: t[0], reverse=True)  # stable: ties keep RRF order
+        return [r for _s, r in scored]
 
     def _is_index_empty(self) -> bool:
         with self._write_lock:
@@ -873,7 +975,8 @@ class ChunkIndex:
         with self._write_lock:  # shared connection: all access serialized
             rows = self.conn.execute(
                 f"SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,"
-                f" signature, docstring, body FROM code_chunks WHERE id IN ({placeholders})",
+                f" signature, docstring, body, modified_time FROM code_chunks"
+                f" WHERE id IN ({placeholders})",
                 ordered_ids,
             ).fetchall()
         by_id = {r[0]: r for r in rows}
@@ -888,6 +991,7 @@ class ChunkIndex:
                 symbol_type=row[3], start_line=row[4], end_line=row[5],
                 signature=row[6] or "", docstring=row[7],
                 body=row[8] or "", score=scores[cid],
+                modified_time=row[9] or 0.0,
             ))
         return results
 

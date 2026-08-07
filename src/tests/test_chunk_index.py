@@ -20,6 +20,7 @@ import pytest
 
 from src.context.chunk_index import (
     ChunkIndex,
+    ChunkResult,
     extract_chunks,
     get_index,
     build_relevant_chunks_layer,
@@ -40,8 +41,10 @@ class FakeEmbedder:
     """Word-bucket hashing: texts sharing words get similar vectors."""
 
     DIM = 384
+    calls = 0  # D13: the re-rank must add ZERO embedder calls
 
     def encode(self, texts, normalize_embeddings=True):
+        type(self).calls += 1
         out = _Embeds()
         for text in texts:
             vec = [0.0] * self.DIM
@@ -516,3 +519,165 @@ def test_c1_knn_limit_exceeds_population(index):
     res = index._search_vec_fast(q, 50)
     assert len(res) == 3
     assert all(0.0 <= s <= 1.0 for _cid, s in res)
+
+
+# ---------------------------------------------------------------------
+# D13 pins (ARCHITECTURE_REVIEW.md §37): fused-set feature re-rank
+# ---------------------------------------------------------------------
+# Measured baseline (scripts/d13_d14_rank_measure.py): a query naming the
+# exact symbol ranked it #4 (P@3 MISS) behind vocabulary twins; test files
+# occupied the top-3 on implementation questions; twin files ranked by
+# vocabulary only, ignoring recency. The re-rank adds zero LLM and zero
+# embedder calls — pinned directly.
+
+from src.context.chunk_index import _word_parts, _is_test_path  # noqa: E402
+
+_RERANK_GOLD = '''"""Authentication module."""
+import os
+import hashlib
+
+
+def parse_auth_token(raw_header):
+    """Parse a Bearer token from an Authorization header."""
+    parts = raw_header.split(" ")
+    assert len(parts) == 2, "malformed header"
+    return parts[1]
+'''
+
+
+def test_d13_exact_name_query_rescues_gold(tmp_path):
+    ws = tmp_path
+    (ws / "core").mkdir()
+    (ws / "core" / "auth.py").write_text(_RERANK_GOLD)
+    (ws / "noise").mkdir()
+    for n in range(6):
+        (ws / "noise" / f"distractor_{n}.py").write_text(
+            f'"""Twin module {n}: raises TypeError malformed header assertion."""\n'
+            + "".join(
+                f"def twin_{n}_{i}(raw_header, malformed, assertion):\n"
+                '    """Raises TypeError on malformed header data, assertion plumbing."""\n'
+                "    return raw_header or malformed or assertion\n\n"
+                for i in range(3)
+            )
+        )
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13.db"), embedder=FakeEmbedder())
+    idx.index_workspace()
+
+    res = idx.search("parse_auth_token raises TypeError: malformed header assertion", top_k=3)
+    assert res, "no results at all"
+    assert res[0].symbol_name == "parse_auth_token"
+    assert res[0].file_path == os.path.join("core", "auth.py")
+
+
+def test_d13_test_files_demoted_out_of_top3_for_impl_query(tmp_path):
+    ws = tmp_path
+    (ws / "src").mkdir()
+    (ws / "tests").mkdir()
+    impl = (
+        '"""Cache layer with eviction and TTL policy."""\n\n'
+        "def cache_put(key, value, ttl):\n"
+        '    """Store value under key with ttl eviction policy."""\n'
+        "    return (key, value, ttl)\n\n"
+        "def cache_get(key):\n"
+        '    """Fetch a cached value by key."""\n'
+        "    return key\n"
+    )
+    twin = (
+        '"""Cache layer with eviction and TTL policy."""\n\n'
+        "def cache_put_checked(key, value, ttl):\n"
+        '    """Store value under key with ttl eviction policy, verified."""\n'
+        "    assert key and (key, value, ttl)\n\n"
+        "def cache_get_checked(key):\n"
+        '    """Fetch a cached value by key, verified."""\n'
+        "    assert key and key\n"
+    )
+    (ws / "src" / "cache.py").write_text(impl)
+    (ws / "tests" / "test_cache.py").write_text(twin)
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13t.db"), embedder=FakeEmbedder())
+    idx.index_workspace()
+
+    res = idx.search("cache layer eviction ttl policy", top_k=3)
+    assert res
+    assert all("test_" not in r.file_path for r in res[:3]), \
+        f"test file leaked into top3: {[(r.symbol_name, r.file_path) for r in res[:3]]}"
+
+    # Control: a test-ISH query lifts the demote — tests may surface again.
+    res_testish = idx.search("test cache eviction policy", top_k=3)
+    assert res_testish  # and it must not crash/demote either way
+
+
+def test_d13_freshest_file_wins_vocabulary_tie(tmp_path):
+    ws = tmp_path
+    body = (
+        '"""Rate limiting."""\n\n'
+        "def throttle_request(req):\n"
+        '    """Apply the sliding window to this request."""\n'
+        "    return req\n"
+    )
+    (ws / "legacy_limiter.py").write_text(body)
+    (ws / "limiter.py").write_text(body)
+    old = time.time() - 30 * 86400
+    os.utime(ws / "legacy_limiter.py", (old, old))
+    now = time.time()
+    os.utime(ws / "limiter.py", (now, now))
+
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13h.db"), embedder=FakeEmbedder())
+    idx.index_workspace()
+    res = idx.search("throttle request sliding window", top_k=2)
+    assert res
+    assert res[0].file_path == "limiter.py"
+
+
+def test_d13_zero_feature_query_keeps_raw_rrf_order(tmp_path):
+    """STRICT no-regress: no feature fires => search() output is identical
+    to raw _rrf_fuse, in both members and order."""
+    ws = tmp_path
+    (ws / "hydra.py").write_text(
+        '"""Hydration scheduling."""\n\n'
+        "def schedule_irrigation(zones):\n"
+        '    """Compute watering windows per zone."""\n'
+        "    return zones\n"
+    )
+    (ws / "beams.py").write_text(
+        '"""Pergola assembly notes."""\n\n'
+        "def assemble_beams(beams):\n"
+        '    """Bolt the cross beams together."""\n'
+        "    return beams\n"
+    )
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13z.db"), embedder=FakeEmbedder())
+    idx.index_workspace()
+    q = "compute watering windows per zone"
+    raw = idx._rrf_fuse(idx._search_vector(q, 9), idx._search_bm25(q, 9))[:3]
+    got = idx.search(q, top_k=3)
+    assert [r.id for r in got] == [r.id for r in raw]
+
+
+def test_d13_rerank_adds_zero_embedder_and_llm_calls(tmp_path):
+    ws = tmp_path
+    (ws / "auth.py").write_text(_RERANK_GOLD)
+    (ws / "garden.py").write_text(GARDEN_CODE)
+    FakeEmbedder.calls = 0
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13e.db"), embedder=FakeEmbedder())
+    idx.index_workspace()
+    after_index = FakeEmbedder.calls
+    idx.search("token header", top_k=3)
+    assert FakeEmbedder.calls - after_index == 1, \
+        "search must encode exactly once (the query); re-rank is arithmetic-only"
+
+
+def test_d13_word_parts_and_test_path_helpers(index):
+    parts = _word_parts("parse_auth_token")
+    assert {"parse", "auth", "token"} <= parts
+    camel = _word_parts("HTTPServerError")
+    assert {"http", "server", "error"} <= camel
+    assert _is_test_path("tests/test_cache.py")
+    assert _is_test_path(os.path.join("pkg", "tests", "cache.py"))
+    assert _is_test_path("pkg/cache_test.py")
+    assert not _is_test_path("src/cache.py")
+
+    # unit-level rerank smoke: no query / single result are pass-through
+    r = ChunkResult(id="x", file_path="a.py", symbol_name="f",
+                    symbol_type="function", start_line=1, end_line=2,
+                    signature="", docstring=None, body="", score=1.0)
+    assert index._rerank([r], "anything") == [r]
+    assert index._rerank([r], "") == [r]
