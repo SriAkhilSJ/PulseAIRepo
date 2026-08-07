@@ -1041,3 +1041,46 @@ remaining: D9 (progress_node split), D10 (web_fetch soup), D13 (re-rank),
 D14 (symbol ranking), D15-remainder (multilang import edges), D16
 (cross-session playbook), C1 (chunk_index KNN join shape), P2 (VS Code
 ext).
+
+---
+
+## 29. External Pattern Extraction: NousResearch hermes-agent (2026-08-06)
+
+Founder-directed analysis ("read and extract the value", not a rated
+review). Depth-1 clone of main; 3,848 .py files; read the context/agent
+core + tools + delegation + memory + LSP layers. Full founder-facing
+writeup: `hermes-extraction-report.md` (workspace). Receipts below are
+file:line in their tree.
+
+**Patterns adopted as debt (the steals worth their effort):**
+- **D18 — Programmatic Tool Calling**: model writes ONE script calling
+  tools in-process; only stdout re-enters the window (their
+  tools/code_execution_tool.py:1-22; caps 300s/50 calls/50KB stdout;
+  iterations refunded). Our in-process tools skip their RPC complexity.
+  Biggest calls+tokens lever on their list and ours.
+- **D19 — prompt-cache prefix audit**: volatile 16-layer composition may
+  bust provider KV-cache every turn; they treat byte-stable prefixes as
+  an invariant (context_engine.py:229-245) and track cache_read_tokens.
+  Unmeasured cost leak; measure first, then stable-order if true.
+- **D20 — sub-agent dangerous-command auto-deny**: our helpers surface
+  approval prompts inside their OWN conversations (no human reading);
+  hermes installs non-interactive auto-deny callbacks into worker
+  threads (delegate_tool.py:63-91).
+- **D16 redesign**: cross-session playbook SPEC CHANGED to their
+  zero-LLM session-search shape (FTS5 discover w/ bookends + anchored
+  scroll + source demotion lesson #19434; sesssion_search_tool.py:1-46).
+- **D21 — auxiliary-model maintenance routing** (summaries/maintenance
+  never on the main model or its prompt cache) .
+- **D22 — compaction hardening pack**: proactive cheap prune trigger,
+  token-budget tail protection, iterative-not-rebuilt summaries,
+  anti-thrash telemetry (context_compressor.py:1319-1327,:399).
+
+**Where we already lead (keep):** per-symbol hybrid BM25+KNN+RRF code
+index w/ mtime sync + import edges across 6 languages (their layers read
+lean on raw file tools + LSP diagnostics); learned layer weights;
+approval UX + crash net; this ledger.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~ —
+remaining: D9, D10, D13, D14, D15-remainder, D16 (session-search shape),
+D18 (PTC), D19 (prompt-cache audit), D20 (subagent auto-deny), D21
+(aux-model routing), D22 (compaction pack), C1, P2.
