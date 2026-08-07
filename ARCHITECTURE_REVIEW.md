@@ -2090,3 +2090,82 @@ SafeToolNode concurrency + approval-flow serialization; D32 delivered
 the file-safety prerequisite, still a bigger surgery than a single
 round), P2 (editor/UI product work — the heart's UI is now surrounded
 by rollback, guards, and parallel delegates).
+
+## §46 — D30 + D34 shipped: classifier quick path + the tool-batch gate
+
+D30 — task-manager quick path (measured, not guessed): a rule-based
+_quick_task_decision sits before _task_manager_llm; ack vocab (yes/ok/thanks/bro/
+yahh/okk + emoji, <=4 tokens) => continue, explicit reset prefixes and
+forget-phrases => new, exact-match approval-word veto preserves the
+plan-approval branch upstream, danger tokens and multi-line always fall
+to the LLM. Corpus measure (scripts/d30_classifier_skip_measure.py):
+33/53 = 62% of real traffic classifies FREE, 0 misroutes. Kill-switch
+PULSEAI_TASK_CLASSIFIER=llm. 55 pins (test_task_classifier_skip.py).
+Metric line: latency (a whole LLM round-trip ~0.5-2s), token budget
+(classify prompt+completion both saved), LLM calls (-62% on the manager
+seat) — three of the founder's four, on the seat that fires EVERY turn.
+
+D34 — the tool-batch gate (hermes steal #10 COMPLETE, but honestly
+reframed mid-flight): v1's premise — "ToolNode runs batches serially" —
+was FALSE, and was caught by this round's own measure script: the
+"legacy" pass of 4x300ms fakes ran in 0.31s, not the 1.2s serial floor.
+langgraph's ToolNode ALREADY runs multi-call batches CONCURRENTLY —
+including write_file+read_file on the SAME file, which is a race. D34v2
+is therefore a CORRECTNESS gate, which is also hermes' actual design
+(_should_parallelize_tool_batch): ELIGIBLE batches (>=2 calls, registry
+identity, no wildcards, pairwise path-disjoint from every writer) keep
+concurrent execution in our pool (input-order results, contextvars
+copies, every slot filled); REFUSED batches are forced SEQUENTIAL in
+input order — [create x + read x] now deterministically reads the fresh
+content instead of racing to "file missing"; single calls and unknown
+tool names fall to ToolNode (its unknown-tool error text stays
+canonical — pinned verbatim). Measured receipts
+(scripts/d34_parallel_tools_measure.py): A) conflicting batch, gate ON
+=> reader saw 'NEW'; B) same batch, kill-switch off => reader saw
+'MISSING' (the race, receipted); C) safe 4x300ms disjoint batch =>
+0.31s. 14 pins (test_parallel_tools.py), incl. the LOUD legacy-
+concurrency pin: with the gate OFF the instant reader logs BEFORE the
+0.3s writer — nobody can mistake "off" for "serial" ever again. Metric
+line: this is the CORRECTNESS entry on the board — a turn whose tool
+results no longer depend on thread luck is a turn the model doesn't
+have to re-run, which is fewer LLM calls bought with determinism.
+
+Wiring: SafeToolNode.__call__ all-safe path = try_parallel_batch ->
+try_sequential_batch -> ToolNode fall-through; _tools_by_name identity
+registry in __init__. Kill-switch PULSEAI_PARALLEL_TOOLS=off restores
+TRUE legacy (concurrent, races included — pinned and measured so the
+switch's semantics are documented by behavior, not by comment).
+
+Sandbox/verification honesty (this round was attacked twice and
+survived): (1) rollback wiped git HEAD back to D23 with the working
+tree intact — recovered by replaying the three delivered patches from
+/home/user (D31->c21-adjacent replays landed as 825fa31/c21e916/
+c5a082f, contents byte-identical, hashes differ as they will on any
+machine that 'git am's them) and restoring the D30/D34 files from the
+d34-backup stash; git identity re-set, doctrine held — zero work lost.
+(2) The full suite in ONE pytest process now trips this sandbox's 2GB
+RAM wall: it stalls INSIDE test_session_engines'
+concurrent-turns test with every worker mid-BERT-forward (faulthandler
+receipts in this round's logs) — RSS ~973MB + torch thread pools vs a
+~900MB ceiling. NOT a deadlock: the same file passes alone in 47s, and
+all four staged pair-bisections (each D3x module x session_engines)
+passed at full speed. Verified as THREE green runs on the SAME tree:
+225 (first 17 suite modules) + 181 (next 16) + 16 (session_engines
+alone) = 422 passed, 0 failed. On the founder's machine the single
+run is expected to behave as the 316-359 runs did; the 2GB ceiling is
+this sandbox's, not the suite's. Also owned: two pkill self-matches
+killed my own shell (pattern matched my own cmdline) — recovered both
+times, now using anchored patterns; and the first D34 measure draft
+pre-created the race file, tripping the PRODUCTION overwrite-approval
+guard — the receipt now uses the fresh-create shape and documents why.
+
+Pins: test_task_classifier_skip.py NEW 55/55; test_parallel_tools.py
+NEW 14/14. Suite: 422 green (225+181+16 split runs, same tree).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ ~~D25~~ ~~D26~~ ~~D27~~ ~~D28~~
+~~D29~~ ~~D32~~ ~~D33~~ ~~D30~~ ~~D34~~ — remaining: P2 (VS Code fork
+OSS — THE HEART'S BODY: the engine is finished and every steal is in;
+the editor surface is the last item on the board, awaiting the
+founder's external verification verdict).

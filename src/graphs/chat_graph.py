@@ -621,6 +621,120 @@ def _task_manager_llm(provider: str, model: str):
         return get_llm(provider=provider, model=model)
 
 
+# ==========================================
+# D30 TASK-CLASSIFIER QUICK PATH (§46)
+# ==========================================
+# The task manager used to pay ONE aux-LLM structured-output call for EVERY
+# user message once a task was active. Measured reality of sessions: a huge
+# share of follow-ups are unambiguous approvals ("ok go", "yess") or
+# explicit resets ("new task: ..."). This quick path classifies ONLY those
+# slam-dunks for free; anything with a whiff of ambiguity STILL pays the
+# aux call (the LLM path below is unchanged). Kill-switch:
+# PULSEAI_TASK_CLASSIFIER=llm restores always-LLM behavior.
+
+_D30_ACK_VOCAB = frozenset({
+    # single-message approvals/acks — every token must be in this set and
+    # the message at most 4 tokens (double-guarded), else the LLM decides.
+    "ok", "okay", "k", "kk", "okk", "okkk", "okey", "yes", "yeah", "yeh",
+    "yep", "yepp", "yup", "ya", "yah", "yahh", "yess", "yesss", "ys", "ye",
+    "y", "sure", "go", "ahead", "proceed", "continue", "do", "it", "lgtm",
+    "good", "great", "perfect", "fine", "thanks", "thank", "you", "thx",
+    "ty", "cool", "nice", "awesome", "bet", "done", "roger", "copy",
+    "aight", "alright", "welp", "bro", "please", "works", "noted", "then",
+    "correct", "exactly", "right", "brilliant", "sounds", "looks",
+    "for", "amazing", "love", "you're",
+    "👍", "✅", "🙏", "🔥", "💯", "❤️", "😍", "🎉",
+})
+
+_D30_DANGER_TOKENS = frozenset({
+    # ANY of these anywhere => definitely not a plain ack: LLM decides.
+    "no", "not", "nope", "nah", "stop", "wait", "hold", "but", "however",
+    "redo", "revert", "undo", "change", "actually", "instead", "don't",
+    "dont", "why", "what", "how", "explain", "show", "list", "which",
+    "wrong", "broken", "error", "fail", "failed", "failing", "issue",
+    "doesn't", "didn't", "can't", "wont", "won't", "?", "delete", "remove",
+})
+
+_D30_APPROVAL_WORDS = frozenset({
+    # must stay in sync with is_plan_approval()'s set: these are routing
+    # decisions, not classifications — the approval branch owns them.
+    "yes", "proceed", "go ahead", "continue",
+    "approve", "approved", "execute", "execute plan", "run plan",
+})
+
+_D30_NEW_PREFIXES = (
+    "new task", "different task", "another task", "start over",
+    "fresh task",
+)
+_D30_FORGET_PHRASES = (
+    "forget the previous task", "forget previous task",
+    "forget the current task", "forget current task", "forget this task",
+    "forget the old task", "forget that task", "scrap that", "scrap this",
+    "scrap everything", "abandon this task",
+)
+
+
+def _quick_task_decision(
+    current_task: str, latest_instruction: str
+) -> tuple[str, str] | None:
+    """Return (action, updated_task) for slam-dunk messages, else None.
+
+    D30 (§46): free classification for the two unambiguous shapes sessions
+    are full of — bare acknowledgments (= continue, task text unchanged)
+    and explicit task resets (= new). CONSERVATIVE by design, both paths
+    double-guarded; every uncertain message returns None and pays the aux
+    LLM exactly like before. Kill-switch: PULSEAI_TASK_CLASSIFIER=llm.
+    """
+    if os.environ.get("PULSEAI_TASK_CLASSIFIER", "").strip().lower() == "llm":
+        return None
+
+    raw = (latest_instruction or "").strip()
+    if not raw or "\n" in raw:  # multi-line messages are never slam-dunks
+        return None
+    norm = " ".join(raw.lower().split()).strip(" .!…~")
+    if not norm:
+        return None
+
+    # Bare plan-approval words BELONG to the approval branch above (which
+    # claims them before the quick path ever runs). The veto compares the
+    # EXACT phrase (punctuation kept): "yes" is vetoed ("yes, execute the
+    # plan" routing), but "yes!" / "yess" are plain acks the approval
+    # branch never claimed — safely free. This makes the function safe for
+    # ANY future caller, not just today's wiring.
+    if " ".join(raw.lower().split()) in _D30_APPROVAL_WORDS:
+        return None
+
+    tokens = norm.split()
+    if any(t in _D30_DANGER_TOKENS for t in tokens):
+        return None
+
+    # --- explicit reset => "new" ----------------------------------------
+    import re as _re
+    for prefix in _D30_NEW_PREFIXES:
+        m = _re.match(
+            r"(?is)^" + _re.escape(prefix) + r"(?=\W|$)"
+            r"\s*[:,\-–—]?\s*(?:with\s+)?",
+            raw,
+        )
+        if m:
+            remainder = raw[m.end():].strip()
+            return "new", remainder if len(remainder) >= 3 else raw
+    for phrase in _D30_FORGET_PHRASES:
+        m = _re.match(
+            r"(?is)^" + _re.escape(phrase) + r"(?=\W|$)\s*[:,\-–—]?\s*",
+            raw,
+        )
+        if m:
+            remainder = raw[m.end():].strip()
+            return "new", remainder if len(remainder) >= 3 else raw
+
+    # --- bare acknowledgment => "continue" --------------------------------
+    if len(tokens) <= 4 and all(t in _D30_ACK_VOCAB for t in tokens):
+        return "continue", current_task
+
+    return None
+
+
 def task_manager_node(
     state: AgentState,
     config: RunnableConfig,
@@ -718,6 +832,45 @@ def task_manager_node(
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": _zero_token_usage(),
+            "workspace": config["configurable"].get("workspace", "."),
+        }
+
+    # D30 (§46): slam-dunk messages classified for free — ack => continue
+    # (task text unchanged), explicit reset => new. Only these two shapes;
+    # everything else pays the aux LLM below, exactly like before. (Note:
+    # the aux client is constructed AFTER this check — a quick-path turn
+    # costs zero LLM anything, not even client setup.)
+    quick = _quick_task_decision(current_task, latest_instruction)
+    if quick is not None:
+        action, updated_task = quick
+        if action == "new":
+            return {
+                "current_task": updated_task,
+                "task_action": "new",
+                "task_status": "in_progress",
+                "steps_completed": [],
+                "failed_steps": [],
+                "recovery_attempts": 0,
+                "tool_failures": 0,
+                "recovery_mode": False,
+                "recovery_command": None,
+                "plan": [],
+                "plan_goal": "",
+                "plan_created": False,
+                "plan_approved": False,
+                "plan_revision_count": 0,
+                "replan_needed": False,
+                "replan_count": 0,
+                "execution_trace": [],
+                "task_completed": False,
+                "prior_attempts": [],
+                "token_usage": _zero_token_usage(),
+                "workspace": config["configurable"].get("workspace", "."),
+            }
+        return {
+            "current_task": updated_task,
+            "task_action": action,
+            "token_usage": state.get("token_usage", _zero_token_usage()),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -1364,6 +1517,9 @@ class SafeToolNode:
         # in 1.2.10 source), so control flow is unaffected.
         self._node = ToolNode(tools, handle_tool_errors=True)
         self._guard = safety_guard
+        # D34 (§46): identity registry for parallel-batch eligibility —
+        # a call is only parallel-executed when we can identify its tool.
+        self._tools_by_name = {t.name: t for t in tools}
         # SafetyGuards are stateless except for their workspace, so keep one
         # per distinct workspace instead of rebuilding on every tool call.
         # NOTE: keyed by workspace — the injected guard is bound to the
@@ -1481,7 +1637,31 @@ class SafeToolNode:
                 )
                 return {"messages": [blocked_msg]}
 
-        # All safe — proceed to real tool execution
+        # All safe — proceed to real tool execution.
+        # D34 (§46): the tool-batch gate. ToolNode runs multi-call batches
+        # CONCURRENTLY by default (measured — v1's "serial" premise was
+        # wrong and is owned in §46), including write+read on the SAME
+        # file (a race — the reader can get stale content). So: eligible
+        # batches keep concurrent execution here; REFUSED batches
+        # (conflicting paths / wildcard blast radius) are forced
+        # SEQUENTIAL in input order — write-then-read deterministically
+        # reads the fresh content. Singletons and unknown tool names fall
+        # through to ToolNode (its unknown-tool error text stays
+        # canonical). PULSEAI_PARALLEL_TOOLS=off => true legacy below.
+        from src.graphs.parallel_tools import (
+            try_parallel_batch,
+            try_sequential_batch,
+        )
+        parallel = try_parallel_batch(
+            tool_calls, self._tools_by_name, config, workspace
+        )
+        if parallel is not None:
+            return {"messages": parallel}
+        sequential = try_sequential_batch(
+            tool_calls, self._tools_by_name, config, workspace
+        )
+        if sequential is not None:
+            return {"messages": sequential}
         return self._node.invoke(state, config)
 
 tool_node = SafeToolNode(tools, SafetyGuard())
