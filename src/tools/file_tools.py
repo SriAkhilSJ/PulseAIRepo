@@ -136,6 +136,15 @@ def write_file(
         path
     )
 
+    # D28: overwriting a WORKING Python file with broken grammar is refused
+    # (new files are exempt — templates/skeletons may be intentionally
+    # incomplete; edit_file's receipt handles refinement).
+    if safe_path.suffix == ".py" and safe_path.exists():
+        original_now = safe_path.read_text(encoding="utf-8")
+        receipt_error = _python_syntax_receipt(original_now, content)
+        if receipt_error is not None:
+            return receipt_error
+
     safe_path.parent.mkdir(
         parents=True,
         exist_ok=True
@@ -150,6 +159,10 @@ def write_file(
         content,
         encoding="utf-8"
     )
+
+    # D25: our own mutation must never hide behind the repo-map staleness TTL.
+    from src.context.repo_map import invalidate_repo_map
+    invalidate_repo_map(workspace)
 
     return f"File written: {path}"
 
@@ -281,6 +294,34 @@ def _fuzzy_find_block(
     return (best_idx, best_idx + n)
 
 
+def _python_syntax_receipt(original: str, updated: str) -> str | None:
+    """D28 (§44): never leave a .py file worse than we found it.
+
+    If the ORIGINAL parsed fine but the edit result does not, the edit is
+    rejected BEFORE writing (return value = agent-readable error string).
+    If the original was already broken, the edit is allowed through
+    (returns None) — agents must stay able to repair broken files.
+    """
+    import ast
+
+    def _parse(text: str):
+        try:
+            ast.parse(text)
+            return None
+        except SyntaxError as exc:
+            return exc
+
+    orig_err = _parse(original)
+    new_err = _parse(updated)
+    if orig_err is None and new_err is not None:
+        return (
+            f"❌ Edit rejected: the result would not be valid Python "
+            f"(line {new_err.lineno}): {new_err.msg}. "
+            f"File left unchanged — fix the edit and retry."
+        )
+    return None
+
+
 def _atomic_write(path, content: str) -> None:
     """Write via tempfile + os.replace (same directory => same filesystem):
     concurrent readers never see a torn file, and the original mode survives.
@@ -372,12 +413,23 @@ def edit_file(
     if updated_content == original:
         return f"ℹ️ No change: new_text equals the existing content in {path}."
 
+    # D28: syntax receipt for Python — a broken-grammar edit is refused
+    # before it ever touches disk (non-Python files are unaffected).
+    if safe_path.suffix == ".py":
+        receipt_error = _python_syntax_receipt(original, updated_content)
+        if receipt_error is not None:
+            return receipt_error
+
     # D31: shadow snapshot BEFORE mutating (captures the pre-edit state;
     # placed after the no-change early return so no-op edits cost nothing).
     from src.tools.shadow_checkpoints import checkpoint_before_mutation
     checkpoint_before_mutation(workspace, f"edit_file: {path}")
 
     _atomic_write(safe_path, updated_content)
+
+    # D25: our own mutation must never hide behind the repo-map staleness TTL.
+    from src.context.repo_map import invalidate_repo_map
+    invalidate_repo_map(workspace)
 
     # Lazy import: chat_graph imports file_tools at module load time — a
     # module-level import here would be circular.

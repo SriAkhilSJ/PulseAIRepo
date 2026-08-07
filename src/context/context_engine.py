@@ -308,10 +308,32 @@ class ContextEngine:
     # MAIN METHOD: Build messages for the AI node
     # =========================================================
 
+    # D26 (§44): keys the layer builders (and only they) are ALLOWED to
+    # depend on. An external review (Aug 7) claimed the differential layer
+    # cache "is never hit in normal operation" — measured and CONFIRMED:
+    # the hash covered every state key except messages, and chat_graph
+    # merges token_usage EVERY ai turn + appends execution_trace EVERY tool
+    # action (chat_graph.py:373-375, :871), while NO layer reads them
+    # (grepped all 18 builders). Hit rate measured 0/10 turns; with this
+    # whitelist, 70% (scripts/review6_adjudicate.py). test_engine_smoke
+    # pins the set against the builders' actual state.get usage (AST), so
+    # a future layer reading a new key fails loudly here, not silently
+    # stale there.
+    _HASHED_STATE_KEYS: frozenset[str] = frozenset({
+        "current_task", "latest_instruction", "workspace",
+        "plan", "plan_goal",
+        "steps_completed", "failed_steps",
+        "recovery_mode", "recovery_attempts", "recovery_command",
+        "replan_count", "prior_attempts",
+    })
+
     def _hash_state(self, state: dict[str, Any]) -> str:
-        """Hash everything except messages (they change every turn)."""
-        keys = sorted(k for k in state.keys() if k != "messages")
-        payload = json.dumps({k: str(state.get(k)) for k in keys}, sort_keys=True)
+        """Hash ONLY the keys layers read (messages excluded by design;
+        token_usage/execution_trace excluded as measured noise)."""
+        payload = json.dumps(
+            {k: str(state.get(k)) for k in sorted(self._HASHED_STATE_KEYS)},
+            sort_keys=True,
+        )
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     def _allocate_budget(self, task_type: TaskType) -> tuple[int, int]:
@@ -558,8 +580,10 @@ class ContextEngine:
         # Compute the state hash ONCE for the whole build. (Previously this
         # ran json.dumps + sha256 up to 15x per turn on cache-hit paths.)
         # NOTE: invalidation is COARSE by design — one hash covers all layers,
-        # so any state change rebuilds every layer. Correct, just not granular.
-        # True per-layer dependency hashing is a deliberate non-goal for now.
+        # so any change to a HASHED key rebuilds every layer. Correct, just
+        # not granular; true per-layer dependency hashing is a deliberate
+        # non-goal. (D26 narrowed the keyset to what layers actually read —
+        # before that, per-turn token/execution noise busted it every turn.)
         current_hash = self._hash_state(state)
 
         for name, builder in builders.items():

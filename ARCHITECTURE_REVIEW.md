@@ -1930,3 +1930,87 @@ syntax receipt), D29 (dashboard per-thread lock), D30 (classifier skip,
 measure-first), D32 (file-state staleness guard, steal #8), D33
 (parallel sub-agents, steal #9), D34 (parallel tool batches, steal #10),
 P2 (editor/UI product work).
+
+---
+
+## §44 — D25/D26/D27/D28/D29 shipped: the review-autopsy fix pack
+
+Direction: founder proceeded after the Aug-7 two-review adjudication
+(delivered as a truth table in chat; every claim re-verified against
+file:line + measurements in scripts/review6_adjudicate.py — the review
+itself is not in the repo, the receipts are). Verdicts in brief: 2 real
+bugs (both fixed below), 3 true-but-small (fixed), 2 true-by-design
+(parked, documented), 2 REFUTED (ambiguity re-embed cost — measured 27
+texts process-lifetime then exactly 1/turn, D2 cache; "no unit tests"
+— 316-test tree says otherwise; both logged in chat).
+
+D25 — the Turn Tax (repo-map staleness os.walk every turn):
+CONFIRMED 10.1ms@1k / 105.6ms@10k / 305.8ms@30k files per staleness
+check (before-numbers, review6_adjudicate.py). Fix: RepoMap._is_stale
+trusts a fresh answer for PULSEAI_REPO_MAP_STALE_TTL seconds (default
+2.0; "0" = legacy always-walk) + file tools call invalidate_repo_map on
+EVERY mutation WE make (write_file/edit_file), so the TTL only ever
+bounds edits made outside the agent's view — our own changes can never
+hide behind it (pinned end-to-end through the tool). AFTER measurement:
+5 consecutive get_repo_map turns on a 500-file workspace trigger ZERO
+walks (was one per turn); steady-state get_map 17.45ms (compress-on-
+cache). Founder metric: latency — the tax is gone, not reduced.
+
+D26 — the Self-Poisoning Cache (differential layer cache 0% hit):
+CONFIRMED 0/10 turns with 10 unique hashes; root cause grepped: all 18
+layer builders read only 12 state keys, but the hash covered everything
+except messages — and chat_graph merges token_usage EVERY ai turn
+(chat_graph.py:373-375) and appends execution_trace EVERY tool action
+(:871). Fix: _HASHED_STATE_KEYS whitelist (the 12 keys). Guard against
+future drift: an AST pin fails loudly if ANY ContextEngine method
+taking `state` reads a key outside the set (a future layer reading a
+new key breaks the pin HERE, never serves stale layers THERE). AFTER
+measurement: hit rate 0% → 70% (7/10; the 3 misses are turn 1 cold and
+the 2 turns where steps_completed LEGITIMATELY changed), unique hashes
+10 → 3, per-turn build_ai_messages median 67.7ms → 18.6ms (3.6x
+cheaper CPU). Honest scope note: this is CPU-side assembly cost; the
+provider-side money cache was already handled by D19/D23 (91.7% prefix
+stability) — the review conflated the two, and the ledger says so.
+
+D27 — zombie-layer alarm: the registry of 18 builders is now pinned
+two ways: (a) AST pin — every method in the builders dict must have
+exactly (self, state) (the signature bug that deadened _quality_layer
+for months can never compile again); (b) loud-build smoke — a healthy
+CREATE build must produce layers with ZERO "builder failed" warnings
+on stdout. The blanket except stays (a crashing layer must not kill a
+turn) but is now permanently audited.
+
+D28 — syntax receipt: edit_file refuses an edit whose result would not
+parse as Python (ast.parse receipt BEFORE writing; file untouched;
+agent-readable error with line number). Editing an ALREADY-broken file
+stays allowed (repair must always be possible — pinned by parsing the
+repair result). write_file gets the receipt only when OVERWRITING an
+existing working .py; new files are exempt (templates/skeletons).
+Non-Python files unaffected. Deliberate boundary: other languages
+skipped this round — tree-sitter error-node detection parked (noted,
+not silent).
+
+D29 — dashboard per-thread turn lock: new Flask-free module
+src/dashboard/turn_locks.py (bounded 256-entry lock registry, idle-evict)
+wired inside run_agent: a second POST on the same thread_id now WAITS
+for the first graph instead of racing it through the shared checkpoint.
+Pins: same id → same lock object; distinct ids → distinct; 4-thread
+contention counter proves max concurrency == 1.
+
+Development honesty: one str/str TypeError in my own d28 test (fixed),
+one d25 flake traced to fixture mtimes vs the cache's recorded latest —
+hardened with a strictly-future utime (no granularity edges, ever);
+my own drafting garbage in two tests cleaned pre-commit; three sandbox
+rollbacks ate the D31 commit and the pip environment mid-round — tree
+rebuilt from the patch (am replay + wave-1 whole-file backups), deps
+reinstalled, zero work lost (durability doctrine held again).
+
+Pins: src/tests/test_review_autopsy_fixes.py NEW 14/14 (5× D25, 2× D26,
+2× D27, 3× D28, 2× D29). Suite: 343 green.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ ~~D25~~ ~~D26~~ ~~D27~~ ~~D28~~
+~~D29~~ — remaining: D30 (classifier skip, measure-first), D32
+(file-state guard, steal #8) ← in flight, D33 (parallel sub-agents,
+steal #9), D34 (parallel tool batches, steal #10), P2 (editor/UI).

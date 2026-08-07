@@ -123,35 +123,40 @@ def chat():
 
     # Start agent in background thread so Flask stays responsive
     def run_agent():
-        try:
-            from src.graphs.chat_graph import stream_agent
-            
-            # If auto_approve is on, pre-approve all pending tools
-            if auto_approve:
-                # The agent will check approval_queue and auto-resolve
-                pass
+        # D29: one turn at a time per conversation — a second POST on the
+        # same thread_id waits instead of racing the first graph through
+        # the shared checkpoint (review-autopsy fix, §44).
+        from src.dashboard.turn_locks import turn_lock
+        with turn_lock(thread_id):
+            try:
+                from src.graphs.chat_graph import stream_agent
 
-            # This will emit events via the hooks we added to stream_agent
-            result = stream_agent(
-                message=message,
-                thread_id=thread_id,
-                provider=LLM_PROVIDER,
-                model=LLM_MODEL,
-                workspace=".",
-                execution_mode=mode,
-            )
+                # If auto_approve is on, pre-approve all pending tools
+                if auto_approve:
+                    # The agent will check approval_queue and auto-resolve
+                    pass
 
-            event_bus.emit("message.agent.end", {
-                "content": result,
-                "thread_id": thread_id,
-            })
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            event_bus.emit("message.agent.error", {
-                "error": str(e),
-                "thread_id": thread_id,
-            })
+                # This will emit events via the hooks we added to stream_agent
+                result = stream_agent(
+                    message=message,
+                    thread_id=thread_id,
+                    provider=LLM_PROVIDER,
+                    model=LLM_MODEL,
+                    workspace=".",
+                    execution_mode=mode,
+                )
+
+                event_bus.emit("message.agent.end", {
+                    "content": result,
+                    "thread_id": thread_id,
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                event_bus.emit("message.agent.error", {
+                    "error": str(e),
+                    "thread_id": thread_id,
+                })
 
     thread = threading.Thread(target=run_agent, daemon=True)
     thread.start()

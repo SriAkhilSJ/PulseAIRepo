@@ -19,6 +19,7 @@ reading files.
 import os
 import re
 import threading
+import time
 from pathlib import Path
 
 
@@ -68,6 +69,12 @@ class RepoMap:
         self.root = Path(root_path).resolve()
         self._cache: str | None = None
         self._cache_mtime: float = 0.0
+        # D25 (§44): the staleness CHECK walked the whole tree on EVERY
+        # get_map — measured 106ms @10k files, 306ms @30k, and it runs once
+        # per engine turn. Now the walk answer is trusted for a short TTL
+        # (mutations OUR tools make call invalidate() instantly anyway; the
+        # TTL only bounds edits made outside the agent's view).
+        self._last_stale_check: float = 0.0
         # D14 (§37): per-file stats collected during the build — the ONLY
         # inputs the compress path's importance ranking needs (no re-walk).
         self._file_stats: dict[str, dict[str, float]] = {}
@@ -102,6 +109,7 @@ class RepoMap:
         """Force rebuild the map from disk."""
         self._cache = self._build_map()
         self._cache_mtime = self._get_latest_mtime()
+        self._last_stale_check = time.time()  # the build was itself a walk
         return self._cache
 
     def invalidate(self):
@@ -577,7 +585,19 @@ class RepoMap:
         return latest
 
     def _is_stale(self) -> bool:
-        """Check if any file has been modified since cache was built."""
+        """Check if any file has been modified since cache was built.
+
+        D25: the full-tree walk runs at most once per TTL window
+        (PULSEAI_REPO_MAP_STALE_TTL seconds, default 2.0; "0" restores the
+        legacy walk-every-call behavior). Worst case within the window: the
+        map is up to TTL seconds behind an EXTERNAL edit — far below one
+        agent turn, while the walk itself used to cost ~30% of a big-repo
+        turn (measured, §44)."""
+        ttl = stale_check_ttl()
+        now = time.time()
+        if ttl > 0 and (now - self._last_stale_check) < ttl:
+            return False
+        self._last_stale_check = now
         current_mtime = self._get_latest_mtime()
         return current_mtime > self._cache_mtime
 
@@ -608,6 +628,31 @@ def get_repo_map(workspace: str | Path, max_tokens: int = 1500) -> str:
     """Get the repo map for a workspace (cached per workspace)."""
     workspace_path = Path(workspace).resolve()
     return _map_for(workspace_path).get_map(max_tokens)
+
+
+def stale_check_ttl() -> float:
+    """D25: seconds between full-tree staleness walks (env override)."""
+    raw = os.environ.get("PULSEAI_REPO_MAP_STALE_TTL", "").strip()
+    if not raw:
+        return 2.0
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return 2.0
+
+
+def invalidate_repo_map(workspace: str | Path) -> None:
+    """D25: called by the file tools after a mutation WE made — the known
+    change must never hide behind the staleness TTL. No-op if no map has
+    been built for the workspace yet."""
+    try:
+        workspace_path = Path(workspace).resolve()
+        with _repo_maps_lock:
+            instance = _repo_maps.get(str(workspace_path))
+        if instance is not None:
+            instance.invalidate()
+    except Exception:
+        pass  # bookkeeping must never break an edit
 
 
 def refresh_repo_map(workspace: str | Path) -> str:
