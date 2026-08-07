@@ -1207,3 +1207,50 @@ sandbox is a scratchpad.
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ — remaining: D9, D10, D13, D14, D15-remainder, D19,
 D20, D21, D22, C1, P2.
+
+## 32. D19 — prompt-cache audit: measured verdict + canonical emission (2026-08-07)
+
+Third hermes steal (§29 step #3), run measure-first per plan. New:
+`src/context/prompt_cache_audit.py` (per-turn byte-prefix recorder wired
+into build_ai_messages; per-session, in-memory ring, opt-in JSONL sink via
+PULSEAI_CACHE_AUDIT_JSONL) + `scripts/cache_audit_measure.py` (realistic
+turn sequences through the REAL engine: tmp git repo, growing history,
+alternating feedback, noisy embeddings, git edits mid-session).
+
+Measured verdict (harness output, before -> after fix):
+
+| scenario | before | after | verdict |
+|---|---|---|---|
+| A double-fire (identical state) | 100% | 100% | healthy |
+| B continuation, no feedback | 93-95% @ history boundary | same | healthy |
+| C + feedback EVERY turn | 93-95% @ history | same | REFUTED: learned-weight nudges never flipped emission order (5- and 20-turn horizons); ties break deterministically (stable sort) |
+| C2 + embedding jitter | 90-93% @ history | 94-95% @ history | healthy |
+| D task switch | 5% @ task layer | 20.6% @ task layer | legitimate (bigger head survives now) |
+| E git change mid-session | **22.2%** | **70.3%** | THE ONE REAL LEAK, fixed |
+
+The one real leak was PLACEMENT, not reordering: volatile git_context
+(rebuilt every turn by design) sat mid-block in score-sorted emission, so
+every `git add`/commit — i.e. every turn a coding agent does work — busted
+~78% of the request prefix including the entire history.
+
+Fix shipped this round: `_assemble_hierarchical` keeps score-driven
+SELECTION (budget fit + compression walk untouched, byte-identical fitted
+sets) but emits in CANONICAL order (`_BUILDER_ORDER`, unknowns by name,
+volatile dead last). Hermes' invariant, adopted: default-path emissions
+are byte-boring. All 182 pre-existing engine/budget tests pass unchanged.
+
+Residual, filed as **D23** (not shipped — semantic change needs its own
+quality gate): git_context still sits BEFORE history, so on edit turns
+history re-reads; moving volatile layers after history would lift E-turn
+stability 70% -> ~95% but reorders what the model reads last. Deliberate
+follow-up, not a drive-by.
+
+Pins: src/tests/test_prompt_cache_audit.py 9/9 — chunk-skip first-diff,
+first-turn/identical/append/blame attribution, ring buffer, JSONL opt-in
+only, engine integration (git_context provably LAST layer + edit-turn
+breaker + ratio >= 0.55 floor vs measured 0.703), selection-score-vs-
+placement-canonical split. Suite: 234 green (128s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ — remaining: D9, D10, D13, D14, D15-remainder,
+D20, D21, D22, D23 (volatile-layers-after-history, from §32), C1, P2.

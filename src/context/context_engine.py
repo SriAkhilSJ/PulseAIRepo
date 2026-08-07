@@ -254,6 +254,11 @@ class ContextEngine:
         # attribution instead of snapshotting the session-wide layer cache.
         self._last_layers_sent: list[str] = []
 
+        # D19 prompt-cache prefix audit: lazily created per-session recorder
+        # (see prompt_cache_audit.py). Records how much of each assembled
+        # request is byte-identical to the previous turn's.
+        self._cache_audit = None
+
         # Per-instance copy: _apply_learned_weights() mutates these weights,
         # and the class-level dict would otherwise leak learned drift across
         # ALL engine instances in the process (dashboard sessions, threads).
@@ -317,6 +322,21 @@ class ContextEngine:
     # working tree). They rebuild every turn and are never served from the
     # differential cache — see _build_context_layers().
     VOLATILE_LAYERS: frozenset[str] = frozenset({"git_context"})
+
+    # Canonical EMISSION order (D19, measured in §32). Provider prompt
+    # caches pay on exact byte prefixes: scoring still governs SELECTION
+    # (which layers fit the budget), but placement must be boring — same
+    # selected set => same byte prefix, every turn. Volatile layers emit
+    # dead last so their byte churn (git status changes whenever the agent
+    # edits/commits) busts nothing after them except themselves.
+    # Unknown layers (hand-built messages) sort deterministically by name
+    # after known ones, before volatile — see _emission_sort_key.
+    _BUILDER_ORDER: tuple[str, ...] = (
+        "repo_map", "relevant_chunks", "task", "plan", "progress",
+        "recovery", "replan", "attempt_history", "long_term_memory",
+        "tool_memory", "ambiguity", "tone", "quality", "conventions",
+        "memory_validation", "reflections", "skills",
+    )
 
     LAYER_RELEVANCE: dict[str, dict[TaskType, float]] = {
         "repo_map": {
@@ -464,7 +484,20 @@ class ContextEngine:
         # 10. Cache for next turn
         self._last_state_hash = current_hash
 
+        # 11. D19 audit: measure prompt-cache prefix stability turn-over-turn
+        # (one prefix compare; cheap enough to be always on).
+        if self._cache_audit is None:
+            from src.context.prompt_cache_audit import CachePrefixAudit
+            self._cache_audit = CachePrefixAudit()
+        self._cache_audit.record(final_messages)
+
         return final_messages
+
+    def cache_audit_stats(self) -> dict:
+        """D19: prompt-cache prefix-stability report for this session."""
+        if self._cache_audit is None:
+            return {"turns": 0}
+        return self._cache_audit.stats()
 
     def _build_context_layers(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
         """Build organized layers, but skip irrelevant ones for this task type."""
@@ -662,21 +695,35 @@ class ContextEngine:
 
         return [layer for idx, layer in enumerate(scored_layers) if idx not in to_remove]
 
+    def _emission_sort_key(self, msg: SystemMessage) -> tuple:
+        """D19: canonical placement. Known non-volatile layers in
+        _BUILDER_ORDER, unknowns by name, volatile layers dead last —
+        see the class note on _BUILDER_ORDER for the cache economics."""
+        name = self._infer_layer_name(msg)
+        if name in self.VOLATILE_LAYERS:
+            return (2, name)
+        try:
+            return (0, self._BUILDER_ORDER.index(name))
+        except ValueError:
+            return (1, name)
+
     def _assemble_hierarchical(
         self,
         scored_layers: list[tuple[float, SystemMessage, int]],
         budget: int,
     ) -> list[SystemMessage]:
         """
-        Fit as many high-relevance layers as possible.
-        If a layer is too expensive, try to compress it (summary/truncation).
+        Fit as many high-relevance layers as possible (SELECTION is
+        score-driven), then emit them in canonical order (PLACEMENT is
+        fixed, D19). If a layer is too expensive, try to compress it.
         """
         if not scored_layers:
             return []
 
         total = sum(tokens for _, _, tokens in scored_layers)
         if total <= budget:
-            return [msg for _, msg, _ in scored_layers]
+            fitted = [msg for _, msg, _ in scored_layers]
+            return sorted(fitted, key=self._emission_sort_key)
 
         result = []
         remaining = budget
@@ -693,7 +740,7 @@ class ContextEngine:
                 result.append(compressed)
                 remaining -= count_tokens([compressed], self.model)
 
-        return result
+        return sorted(result, key=self._emission_sort_key)
 
     def _compress_layer(self, msg: SystemMessage, max_tokens: int) -> Optional[SystemMessage]:
         """Compress a single layer to fit a token budget."""
