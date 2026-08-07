@@ -168,3 +168,50 @@ def test_d14_full_map_stays_alphabetical_and_byte_stable(ranked_ws):
     assert names == sorted(names), "full map must stay alphabetical"
     # cached repeated call is the same string (no rebuild churn)
     assert rm.get_map(max_tokens=100_000) is first
+
+
+# ---------------------------------------------------------------------
+# D24 pins (§38): the import graph itself is budgeted under compression
+# ---------------------------------------------------------------------
+
+
+def test_d24_huge_graph_is_budgeted_under_compression(tmp_path):
+    """60 importers -> the graph rows alone would exceed a tight budget.
+    Compress must keep marker+hub line, drop tail rows, and say so."""
+    (tmp_path / "libbase.py").write_text('"""Hub."""\nX = 1\n')
+    for i in range(60):
+        (tmp_path / f"leaf_{i:02d}.py").write_text("import libbase\n")
+    rm = RepoMap(tmp_path)
+    text = rm.get_map(max_tokens=300)
+    assert "=== IMPORT GRAPH ===" in text
+    assert "Most depended-upon: libbase.py (60)" in text
+    graph_part = "=== IMPORT GRAPH ===" + text.split("=== IMPORT GRAPH ===", 1)[1]
+    shown_rows = [ln for ln in graph_part.splitlines() if " -> " in ln]
+    assert 0 < len(shown_rows) < 60, f"expected trimmed graph, got {len(shown_rows)} rows"
+    assert "graph rows omitted" in text
+    # closing marker stays LAST (pin found the mid-map bug on first run)
+    assert text.rstrip().endswith("=== END REPO MAP ===")
+    # graph section respects its share of the budget (+ fixed-line slack)
+    cap = 300 * RepoMap._GRAPH_BUDGET_SHARE
+    assert len(graph_part) * 0.75 <= cap + 45
+
+
+def test_d24_full_map_never_trims_graph(tmp_path):
+    # 18 leaves: under the full map's own legacy 20-row cap, so every row
+    # must render AND no D24 budgeting note may appear in the full path.
+    (tmp_path / "libbase.py").write_text("X = 1\n")
+    for i in range(18):
+        (tmp_path / f"leaf_{i:02d}.py").write_text("import libbase\n")
+    text = RepoMap(tmp_path).get_map(max_tokens=100_000)
+    graph_part = text.split("=== IMPORT GRAPH ===", 1)[1]
+    rows = [ln for ln in graph_part.splitlines() if " -> " in ln]
+    assert len(rows) == 18
+    assert "graph rows omitted" not in text
+
+
+def test_d24_small_graph_untouched_by_budgeting(tmp_path):
+    (tmp_path / "libb.py").write_text("X = 1\n")
+    (tmp_path / "a.py").write_text("import libb\n")
+    text = RepoMap(tmp_path).get_map(max_tokens=400)
+    assert "a.py -> libb.py" in text
+    assert "graph rows omitted" not in text

@@ -1571,3 +1571,38 @@ alpha+byte-stable). Suite: 281 green (9.9s).
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
 — remaining: D9, D10, D15-remainder, D23, D24, P2.
+
+---
+
+## §38 — D24 FIXED: import-graph section budgeted under compression
+
+**Debt D24 (self-filed during §37) closed.** The compress path appended the
+entire import-graph section after budgeting the tree ("graph protection"
+overreached from the legacy era): on graph-heavy repos the graph alone
+could blow past max_tokens — the compressed map's whole point.
+
+Fix: `_budget_graph` caps the graph section to 35% of the compress budget
+(`_GRAPH_BUDGET_SHARE`). The hub line ("Most depended-upon:") always
+survives — densest information; data rows then fill until the cap; dropped
+rows get an explicit "... (N graph rows omitted for budget) ...". The FULL
+map never touches the graph (its own legacy 20-row cap + "more files" note
+unchanged and pinned).
+
+Pin-side honesty: the first D24 pin run caught a REAL bug of mine — the
+closing "=== END REPO MAP ===" marker was bucketed as a head line and
+landed mid-section; fixed (closing marker explicitly kept last, and now
+pinned). Also two fixture-side assertion fixes (file-detail lines also
+contain " -> " so graph rows must be counted inside the section only; the
+legacy full-map 20-row cap must not be misread as D24 trimming).
+
+Founder's metrics: token budget — compressed maps now honor the budget
+end-to-end (tree fits, graph ≤35%); context quality — hub line survives
+every squeeze; latency/LLM calls — untouched.
+
+Pins: test_repo_map.py 11/11 (3 new D24: huge-graph budgeted + closing
+marker last + row trim + note, full map never D24-trims, small graph
+pass-through). Suite: 284 green (9.3s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ — remaining: D9, D10, D15-remainder, D23, P2.

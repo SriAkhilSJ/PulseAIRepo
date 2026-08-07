@@ -299,6 +299,43 @@ class RepoMap:
 
         return " | ".join(parts), len(classes), len(functions)
 
+    # Max share of the compress budget the import-graph section may eat
+    # (D24): the tree carries the map's primary content.
+    _GRAPH_BUDGET_SHARE = 0.35
+
+    def _budget_graph(self, graph_text: str, max_tokens: int) -> str:
+        """D24: cap the graph section to a share of the compress budget.
+
+        Keeps the marker, the 'Most depended-upon:' hub line (densest info),
+        then as many data rows as fit; explicit note when rows are dropped.
+        Never raises; short sections pass through untouched.
+        """
+        cap_tokens = max_tokens * self._GRAPH_BUDGET_SHARE
+        if len(graph_text) * 0.75 <= cap_tokens:
+            return graph_text
+        lines = graph_text.splitlines()
+        head: list[str] = []
+        rows: list[str] = []
+        tail_markers: list[str] = []
+        for ln in lines:
+            if ln.strip() == "=== END REPO MAP ===":
+                tail_markers.append(ln)          # closing marker stays LAST
+            elif " -> " in ln and not ln.startswith("..."):
+                rows.append(ln)
+            elif ln.startswith("..."):
+                continue  # replaced by our own omission note if needed
+            else:
+                head.append(ln)
+        kept: list[str] = list(head)
+        for ln in rows:
+            if len("\n".join(kept + [ln])) * 0.75 > cap_tokens and kept:
+                break
+            kept.append(ln)
+        dropped = len(rows) - (len(kept) - len(head))
+        if dropped > 0:
+            kept.append(f"... ({dropped} graph rows omitted for budget) ...")
+        return "\n".join(kept + tail_markers)
+
     def _resolved_edges(self, files: list[Path]) -> dict[str, set[str]]:
         """D14: file->file import edges via chunk_index's verified resolver
         (full dotted-path resolution). Module-level graph is the documented
@@ -396,10 +433,17 @@ class RepoMap:
 
         # Split off the import graph so compression/truncation can't destroy it
         # (every import-graph line contains " -> " and lives at the tail).
+        #
+        # D24 (§38): the graph section is NOT appended whole at any cost —
+        # on graph-heavy repos it alone could exceed max_tokens (legacy
+        # protection overreached). The hub line always survives; data rows
+        # are budgeted to GRAPH_SHARE of the token budget, dropped from the
+        # tail (alphabetical rows -> tail rows carry no special rank), with
+        # an explicit omission note. The FULL map never trims the graph.
         marker = "=== IMPORT GRAPH ==="
         if marker in self._cache:
             tree_part, graph_part = self._cache.split(marker, 1)
-            graph_part = marker + graph_part
+            graph_part = self._budget_graph(marker + graph_part, max_tokens)
         else:
             tree_part, graph_part = self._cache, ""
 
