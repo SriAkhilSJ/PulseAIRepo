@@ -35,6 +35,42 @@ LLM_MODEL: str = os.getenv(
 )
 
 # =========================================================
+# AUXILIARY (MANAGEMENT-CLASS) MODEL — D21, hermes §29
+# =========================================================
+# Housekeeping LLM calls (task classification, summaries of giant tool
+# outputs, memory maintenance) should bill at janitor rates, never at the
+# flagship's — and never share the main conversation's request chain
+# (their curator.py:17-18 invariant: aux "never touches the main
+# session's prompt cache"). Ours is structural: aux calls are separate
+# requests via a dedicated client (factory.get_auxiliary_llm).
+_AUX_CHEAP_TABLE: dict[str, str] = {
+    "groq": "llama-3.1-8b-instant",
+    "openai": "gpt-4o-mini",
+    "gemini": "gemini-2.0-flash",
+    "nvidia": "meta/llama-3.1-8b-instruct",
+}
+
+
+def resolve_aux_llm() -> tuple[str, str]:
+    """(provider, model) for management-class calls.
+
+    Env overrides win; else the per-provider cheap table (unknown/custom
+    providers fall back to the MAIN model — identical behavior, the safe
+    degradation; configure AUX_LLM_MODEL to actually save).
+    """
+    provider = os.getenv("AUX_LLM_PROVIDER", LLM_PROVIDER)
+    model = os.getenv("AUX_LLM_MODEL") or _AUX_CHEAP_TABLE.get(provider, LLM_MODEL)
+    return provider, model
+
+
+AUX_LLM_PROVIDER, AUX_LLM_MODEL = resolve_aux_llm()
+
+# SmartSummarizer stays LLM-free by default (recommended for budget).
+# Set SUMMARIZER_LLM=aux to let >8000-char tool outputs be summarized by
+# the AUXILIARY model — a real quality win at janitor prices.
+SUMMARIZER_LLM: str = os.getenv("SUMMARIZER_LLM", "").strip().lower()
+
+# =========================================================
 # CONTEXT / TOKEN COUNTING
 # =========================================================
 

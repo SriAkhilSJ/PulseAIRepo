@@ -29,7 +29,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, InjectedState
 
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
-from src.llm.factory import get_llm
+from src.llm.factory import get_llm, get_auxiliary_llm
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
@@ -550,6 +550,17 @@ def is_plan_cancellation(message: str) -> bool:
 # =========================================================
 # TASK NODE
 # =========================================================
+def _task_manager_llm(provider: str, model: str):
+    """Task classification is MANAGEMENT-class work (short structured
+    output, not user-facing prose): route it to the auxiliary client
+    (D21). Main model is the fallback, mirroring ai_node's cost-router
+    fallback policy — routing must never block a turn."""
+    try:
+        return get_auxiliary_llm()
+    except Exception:
+        return get_llm(provider=provider, model=model)
+
+
 def task_manager_node(
     state: AgentState,
     config: RunnableConfig,
@@ -650,10 +661,7 @@ def task_manager_node(
             "workspace": config["configurable"].get("workspace", "."),
         }
 
-    llm = get_llm(
-        provider=provider,
-        model=model,
-    )
+    llm = _task_manager_llm(provider, model)
 
     task_llm = llm.with_structured_output(
         TaskDecision
@@ -1886,9 +1894,19 @@ def get_context_engine(
     with _ENGINES_LOCK:
         engine = _ENGINES.get(key)
         if engine is None:
+            # D21: >8000-char tool outputs may be summarized by the
+            # AUXILIARY model (janitor prices) when explicitly enabled;
+            # free heuristics remain the default floor (SUMMARIZER_LLM).
+            summarizer_llm = None
+            from src.config.settings import SUMMARIZER_LLM
+            if SUMMARIZER_LLM == "aux":
+                try:
+                    summarizer_llm = get_auxiliary_llm()
+                except Exception:
+                    summarizer_llm = None
             engine = ContextEngine(
                 model=LLM_MODEL,
-                llm=None,
+                llm=summarizer_llm,
                 memory_manager=memory_manager,
             )
             _ENGINES[key] = engine

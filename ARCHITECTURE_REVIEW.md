@@ -1302,3 +1302,50 @@ before confirming network; tarball-then-replace is the order.
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ — remaining: D9, D10, D13, D14,
 D15-remainder, D21, D22, D23, C1, P2.
+
+## 34. D21 — auxiliary-model maintenance routing (2026-08-07)
+
+Fifth hermes steal (§29 step #5). Their curator rule (curator.py:17-18):
+maintenance NEVER runs on the main client — "never touches the main
+session's prompt cache."
+
+Discovery-first (not copy-first), because routing must match OUR stack:
+- ReflectionEngine: pure string templating, ZERO LLM. Nothing to route.
+- SmartSummarizer: production passes llm=None (free heuristics). No
+  spend today; the >8000-char LLM tier was unreachable in production.
+- skill/memory managers: no LLM call sites (grep-verified).
+- True management-class LLM consumer: task_manager's per-instruction
+  classification (with_structured_output(TaskDecision)) at MAIN rates.
+- Planner: product-critical quality; stays main (documented decision).
+
+Shipped:
+- settings.resolve_aux_llm(): env override (AUX_LLM_PROVIDER/MODEL) ->
+  per-provider cheap table (groq: llama-3.1-8b-instant, openai:
+  gpt-4o-mini, gemini: 2.0-flash, nvidia: llama-3.1-8b-instruct) ->
+  MAIN fallback for unknown providers (identical behavior, safe
+  degradation; never a breakage mode).
+- factory.get_auxiliary_llm(): cached per (provider, model), DISTINCT
+  object from get_llm() output, RetryLLMProxy timeouts/retries intact —
+  the structural form of their invariant (separate client, separate
+  request chain; our main-session cache prefix from §32 is untouched by
+  construction).
+- task_manager classification routed to aux with main fallback (mirrors
+  ai_node's cost-router fallback policy: routing never blocks a turn).
+- SUMMARIZER_LLM=aux opt-in: engine construction hands the aux client to
+  SmartSummarizer (>8000-char tool outputs get real summaries at janitor
+  prices); default OFF, aux-failure degrades to free heuristics (pinned).
+
+Pins: src/tests/test_aux_model_routing.py 8/8 — cheap-table default,
+env-override, unknown-provider main fallback, cache-once distinct-client
+(curator invariant), retry-policy wrap, task_manager aux-first/main-
+fallback with exact main config preserved, summarizer default-free +
+opt-in + degrade-on-failure. Suite: 249 green (121s).
+
+Rollback #5 struck mid-round again (same signature) — recovered via the
+network-first codeload ritual. Founder's heads-up about the missing .git
+addressed: the sandbox repo was git-init-reconstructed after the GitHub
+rate-limit; content-identical, remote re-added, patches unaffected.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ — remaining: D9, D10, D13, D14,
+D15-remainder, D22, D23, C1, P2.

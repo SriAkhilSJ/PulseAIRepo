@@ -286,6 +286,27 @@ def get_llm(provider, model):
 
 
 # =========================================================
+# AUXILIARY CLIENT (D21)
+# =========================================================
+_aux_llm_cache: dict[tuple[str, str], Any] = {}
+
+
+def get_auxiliary_llm():
+    """Dedicated management-class client (hermes curator invariant, §29).
+
+    Cached per (provider, model); a DISTINCT object from anything
+    get_llm() hands out, so aux calls can never share or perturb the main
+    session's request chain. All Deep maintenance routing (task
+    classification, aux summaries) flows through here.
+    """
+    from src.config.settings import AUX_LLM_PROVIDER, AUX_LLM_MODEL
+    key = (AUX_LLM_PROVIDER, AUX_LLM_MODEL)
+    if key not in _aux_llm_cache:
+        _aux_llm_cache[key] = get_llm(provider=key[0], model=key[1])
+    return _aux_llm_cache[key]
+
+
+# =========================================================
 # EMBEDDING FACTORY
 # =========================================================
 class EmbeddingFactory:
