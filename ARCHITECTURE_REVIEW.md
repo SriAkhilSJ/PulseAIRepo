@@ -1349,3 +1349,63 @@ rate-limit; content-identical, remote re-added, patches unaffected.
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ — remaining: D9, D10, D13, D14,
 D15-remainder, D22, D23, C1, P2.
+
+## 35. D22 — compaction hardening pack (2026-08-07)
+
+Sixth and final hermes steal (§29 step #6) — all four pack patterns
+(context_compressor.py receipts re-verified this session):
+
+1. PRUNE-FIRST (their :399 placeholder, verbatim marker text): old tool
+   outputs in the unprotected middle are replaced with
+   "[Old tool output cleared to save context space]" before ANY structural
+   dropping is considered. Zero LLM. The structural stage (existing
+   turn-atomic SmartCompressor) now fires only when pruned+per-tool-
+   summarized history STILL overflows — hermes' two-trigger model.
+2. ABSOLUTE protection: head (first complete turn, protocol-pair-safe)
+   and tail (newest ~20K tokens, pair-boundary-safe) are never handed to
+   the structural stage at all; it compresses only the expendable middle
+   with budget-minus-reserved. Protection is structural, not scoring luck.
+3. ITERATIVE summary (their #5): whatever the middle drops is folded into
+   a running per-session summary by the AUX client (D21) — each round
+   extends the previous summary (extend-not-rebuild pin: second call's
+   prompt contains the first summary). Injected as a SystemMessage right
+   after the head with their anti-confusion REFERENCE-ONLY prefix
+   (trimmed). Aux failure degrades to bounded plain-append (<=3000 chars)
+   — compaction degrades, never breaks.
+4. ANTI-THRASH telemetry: per-session counters (compaction_stats());
+   a compaction reclaiming <15% counts ineffective; 3 in a row suppress
+   the LLM summary step for 10 rounds (pruning continues).
+
+CRITICAL structural advantage over hermes, in our favor: all of this runs
+on the REQUEST-ONLY history copy in build_ai_messages — the checkpoint
+store is never mutated. Their store-pollution bug (#43175, which forced
+discovery-time summary filtering) cannot occur here; pinned by the
+state-contents-unchanged test. Markers deliberately match D16's
+ingest-skip prefixes anyway (belt and suspenders, also pinned).
+Kill-switch: PULSEAI_COMPACTION=off restores the legacy pipeline.
+
+Development note (ledger honesty): two rounds of test-fixture bugs were
+mine (fat heads + BPE-compressible dump text masking middles; a leftover
+sketch line). The final fixture suite sets budgets by MEASURED token
+counts so tokenizer mood can't flake them. The real-product behavior was
+correct from the first build — the 6 red tests were the fixtures lying.
+
+Pins: src/tests/test_compaction.py 13/13 — prune middle-only + source
+immutability + pairing preserved, short-output/small-history no-ops,
+tail pair boundary, prune-fits skips structural (spy), fast path zero-work,
+head+tail absent from structural input (spy-captured), dropped-turns
+summary placement + prefix, iterative extend, aux-failure bounded append,
+anti-thrash freeze, marker/index-prefix consistency, env kill-switch,
+engine non-mutation + wiring. Suite: 262 green (10s).
+
+Workspace ops interlude (founder-directed): desktop/ (54MB/6,988 files —
+the Electron shell) excluded from the sandbox checkout via
+sparse-checkout + tarball excludes; sandbox footprint 55MB -> 3.3MB.
+Upstream repo UNTOUCHED (desktop/ = future P2 home; deletion upstream is
+a product decision, not a maintenance one). Rollback #6 struck during
+the chore; recovered via the ritual; sparse guard re-applied and is now
+part of the standard rebuild order.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ — remaining: D9, D10,
+D13, D14, D15-remainder, D23, C1, P2.

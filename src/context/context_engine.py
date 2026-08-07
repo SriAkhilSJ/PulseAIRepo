@@ -259,6 +259,10 @@ class ContextEngine:
         # request is byte-identical to the previous turn's.
         self._cache_audit = None
 
+        # D22 per-session history compactor (compaction.py); lazy so the
+        # constructor stays I/O-free.
+        self._compactor = None
+
         # Per-instance copy: _apply_learned_weights() mutates these weights,
         # and the class-level dict would otherwise leak learned drift across
         # ALL engine instances in the process (dashboard sessions, threads).
@@ -475,8 +479,7 @@ class ContextEngine:
 
         # 8. Smart history
         raw_history = list(state.get("messages", []))
-        raw_history = self._summarize_tool_messages(raw_history)
-        trimmed_history = self._trim_history(raw_history, history_budget)
+        trimmed_history = self._compact_history(raw_history, history_budget)
 
         # 9. Assemble final
         final_messages = [system_message] + context_messages + trimmed_history
@@ -1369,6 +1372,55 @@ class ContextEngine:
                 result.append(message)
 
         return result
+
+    def _compact_history(
+        self,
+        history: list[BaseMessage],
+        budget: int,
+    ) -> list[BaseMessage]:
+        """D22 hermes pack (compaction.py): prune-first with protected
+        head/tail, structural dropping only if still over budget, dropped
+        turns folded into an iterative AUX-model summary with anti-thrash
+        suppression. PULSEAI_COMPACTION=off restores the legacy pipeline."""
+        import os as _os
+
+        if _os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
+            return self._trim_history(self._summarize_tool_messages(history), budget)
+
+        if self._compactor is None:
+            from src.context.compaction import HistoryCompactor
+            from src.llm.factory import get_auxiliary_llm
+
+            self._compactor = HistoryCompactor(
+                model=self.model,
+                aux_llm_getter=get_auxiliary_llm,  # D21's janitor client
+            )
+
+        from src.context.smart_compressor import SmartCompressor
+        compressor = SmartCompressor(model=self.model)
+        return self._compactor.compact(
+            history,
+            budget,
+            summarize_tools=self._summarize_tool_messages,
+            structural_compress=lambda h, b: compressor.compress(
+                h,
+                budget=b,
+                token_counter=lambda msgs, model: count_tokens(msgs, model),
+                task=self._current_task or "",
+            ),
+            fallback_trim=lambda h, b: trim_messages_to_budget(h, b, self.model),
+        )
+
+    def compaction_stats(self) -> dict:
+        """D22 telemetry: prune/compaction counters for this session."""
+        if self._compactor is None:
+            return {"prunes": 0, "structural_compactions": 0, "llm_summary_calls": 0,
+                    "llm_suppressed": 0, "ineffective_streak": 0, "summary_chars": 0,
+                    "placeholders": 0, "placeholder_chars_reclaimed": 0}
+        stats = dict(self._compactor.stats)
+        stats["summary_chars"] = len(self._compactor.summary)
+        stats["llm_suppressed_active"] = self._compactor.llm_suppressed
+        return stats
 
     def _trim_history(
         self,
