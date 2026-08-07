@@ -12,9 +12,11 @@ Modes:
 - review: Read-only tools to audit code
 
 Execution model (honest): spawn() invokes the child graph SYNCHRONOUSLY
-inside the parent's tool call — the parent's model sees the child's result
-as the tool output in the same turn. "Parallel" is about task-splitting,
-not wall-clock concurrency. Structural safety (verified, ARCHITECTURE_REVIEW.md §27):
+inside the parent's tool call — one delegation blocks the parent's turn.
+D33 added spawn_batch(): several children run CONCURRENTLY in a bounded
+thread pool (hermes steal #9, §45) with index-ordered results; the batch
+tool is delegate_to_subagent_batch in chat_graph.py. Structural safety
+(verified, ARCHITECTURE_REVIEW.md §27):
 - depth cap = 1 (prefix check on the caller's thread_id)
 - recursion_limit=50 on every invoke; 60s LLM call timeouts
 - a crashed child is caught at THIS boundary (spawn returns a graceful
@@ -42,6 +44,11 @@ class SubAgentCoordinator:
     """
     def __init__(self):
         self._active_agents: dict[str, dict] = {}
+        # D33: batches mutate the registry from worker THREADS — dict ops
+        # are GIL-atomic, but insert+evict is a two-step sequence, so the
+        # mutation itself takes a lock (never held across child invokes).
+        import threading
+        self._lock = threading.Lock()
 
     def spawn(
         self,
@@ -111,19 +118,81 @@ class SubAgentCoordinator:
                 "with a narrower task or complete it directly here."
             )
 
-        self._active_agents[agent_id] = {
-            "mode": mode,
-            "task": task,
-            "result": result,
-            "parent": parent_thread_id,
-        }
-        # Belt-and-braces bound: if an invoke raises mid-delegation (the entry
-        # then never gets popped), cap the registry at the newest 50 — dicts
-        # keep insertion order, so the oldest orphans are evicted first.
-        while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
-            self._active_agents.pop(next(iter(self._active_agents)))
+        with self._lock:
+            self._active_agents[agent_id] = {
+                "mode": mode,
+                "task": task,
+                "result": result,
+                "parent": parent_thread_id,
+            }
+            # Belt-and-braces bound: if an invoke raises mid-delegation (the
+            # entry then never gets popped), cap the registry at the newest
+            # 50 — dicts keep insertion order, oldest orphans evicted first.
+            while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
+                self._active_agents.pop(next(iter(self._active_agents)))
 
         return agent_id
+
+    def spawn_batch(
+        self,
+        mode: "Literal['research', 'code', 'test', 'review']",
+        tasks: list[str],
+        parent_thread_id: str,
+        provider: str = LLM_PROVIDER,
+        model: str = LLM_MODEL,
+        max_workers: int = 4,
+    ) -> list[str]:
+        """D33 (steal #9, §45): run several sub-agents CONCURRENTLY.
+
+        Pattern lifted from hermes delegate_tool.py:3208-3299:
+        ThreadPoolExecutor with one contextvars.Context per child, futures
+        mapped to task INDEX so results come back in input order, and a
+        per-child crash captured at its own slot (a dead child never takes
+        the batch down). Honest deltas from upstream, by design:
+        - their wait(FIRST_COMPLETED, 0.5s) loop exists to honor a PARENT
+          INTERRUPT signal; our graph has no such signal today, so plain
+          as_completed is used (the loop is reintroduced with interrupts).
+        - single-task batches take the legacy synchronous spawn() path —
+          byte-identical behavior for the common case (pinned).
+
+        Returns agent ids in the SAME order as `tasks` (pop with
+        get_result). With the D32 file-state guard armed, concurrent code
+        sub-agents cannot silently clobber each other's files.
+        """
+        if not tasks:
+            return []
+        if len(tasks) == 1:
+            return [self.spawn(mode, tasks[0], parent_thread_id,
+                               provider=provider, model=model)]
+
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        results: list[Optional[str]] = [None] * len(tasks)
+        workers = max(1, min(max_workers, len(tasks)))
+
+        def _one(index: int, task: str) -> str:
+            return self.spawn(mode=mode, task=task,
+                              parent_thread_id=parent_thread_id,
+                              provider=provider, model=model)
+
+        with ThreadPoolExecutor(max_workers=workers,
+                                thread_name_prefix="pulseai-sub") as pool:
+            future_to_index = {}
+            for index, task in enumerate(tasks):
+                ctx = contextvars.copy_context()
+                future_to_index[pool.submit(ctx.run, _one, index, task)] = index
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    results[index] = future.result()
+                except Exception as exc:  # spawn has its own crash net; this
+                    # is paranoia-grade — a batch entry must NEVER go missing.
+                    results[index] = (
+                        f"⛔ Sub-agent batch worker {index} failed before "
+                        f"registering: {exc!r}"
+                    )
+        return [str(r) for r in results]
 
     def get_result(self, agent_id: str) -> str:
         # Pop-on-read: a result has exactly one consumer (the delegating tool

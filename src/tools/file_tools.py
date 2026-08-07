@@ -70,7 +70,14 @@ def read_file(
         "r",
         encoding="utf-8"
     ) as file:
-        return file.read()
+        content = file.read()
+
+    # D32: stamp "this agent has seen the current content" — the file-state
+    # guard's knowledge base for clobber detection (never raises).
+    from src.tools import file_state
+    file_state.record_read(file_state.task_id_from_config(config), safe_path)
+
+    return content
 
 @tool
 def list_files(
@@ -136,29 +143,42 @@ def write_file(
         path
     )
 
-    # D28: overwriting a WORKING Python file with broken grammar is refused
-    # (new files are exempt — templates/skeletons may be intentionally
-    # incomplete; edit_file's receipt handles refinement).
-    if safe_path.suffix == ".py" and safe_path.exists():
-        original_now = safe_path.read_text(encoding="utf-8")
-        receipt_error = _python_syntax_receipt(original_now, content)
-        if receipt_error is not None:
-            return receipt_error
-
     safe_path.parent.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    # D31: shadow snapshot BEFORE mutating (once per turn per workspace;
-    # transparent to the LLM, never raises).
-    from src.tools.shadow_checkpoints import checkpoint_before_mutation
-    checkpoint_before_mutation(workspace, f"write_file: {path}")
+    # D32: one per-path critical section covers check → write → stamp, so
+    # two in-process agents can never interleave a clobber.
+    from src.tools import file_state
+    _tid = file_state.task_id_from_config(config)
+    with file_state.lock_path(safe_path):
+        # D32: refuse to silently overwrite another agent's fresh work.
+        if safe_path.exists():
+            stale = file_state.check_stale(_tid, safe_path)
+            if stale is not None:
+                return stale
 
-    safe_path.write_text(
-        content,
-        encoding="utf-8"
-    )
+        # D28: overwriting a WORKING Python file with broken grammar is
+        # refused (new files are exempt — templates/skeletons may be
+        # intentionally incomplete; edit_file's receipt handles refinement).
+        if safe_path.suffix == ".py" and safe_path.exists():
+            original_now = safe_path.read_text(encoding="utf-8")
+            receipt_error = _python_syntax_receipt(original_now, content)
+            if receipt_error is not None:
+                return receipt_error
+
+        # D31: shadow snapshot BEFORE mutating (once per turn per workspace;
+        # transparent to the LLM, never raises).
+        from src.tools.shadow_checkpoints import checkpoint_before_mutation
+        checkpoint_before_mutation(workspace, f"write_file: {path}")
+
+        safe_path.write_text(
+            content,
+            encoding="utf-8"
+        )
+
+        file_state.note_write(_tid, safe_path)
 
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map
@@ -426,6 +446,12 @@ def edit_file(
     checkpoint_before_mutation(workspace, f"edit_file: {path}")
 
     _atomic_write(safe_path, updated_content)
+
+    # D32: stamp the write (edit_file needs no stale REFUSAL — it reads
+    # fresh content itself and replaces only the matched span; see
+    # file_state's policy note).
+    from src.tools import file_state
+    file_state.note_write(file_state.task_id_from_config(config), safe_path)
 
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map

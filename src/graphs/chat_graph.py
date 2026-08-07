@@ -251,11 +251,67 @@ def delegate_to_subagent(
     )
 
 
+@tool
+def delegate_to_subagent_batch(
+    mode: Literal["research", "code", "test", "review"],
+    tasks: list[str],
+    config: RunnableConfig,
+) -> str:
+    """
+    Delegate SEVERAL independent sub-tasks at once — they run in parallel.
+
+    WHEN TO USE:
+    - 2-5 INDEPENDENT pieces of the same kind (e.g. "review these 3 files",
+      "research these 2 libraries"). Independence means: different files,
+      no piece needs another piece's output.
+
+    WHEN NOT TO USE:
+    - A single sub-task (use delegate_to_subagent).
+    - Pieces that depend on each other or touch the same file — run those
+      sequentially yourself. Parallel code sub-agents are protected from
+      clobbering each other's files, but dependencies still need order.
+
+    Returns each sub-agent's result in the SAME order as the tasks list.
+    """
+    from src.config.settings import LLM_PROVIDER, LLM_MODEL
+
+    caller_thread = (config or {}).get("configurable", {}).get("thread_id", "")
+    if str(caller_thread).startswith("sub-"):
+        return (
+            "⛔ Sub-agents cannot spawn further sub-agents (depth cap). "
+            "Complete the decomposed steps directly instead."
+        )
+    if not tasks:
+        return "⛔ Empty batch: provide at least one task."
+    if len(tasks) > 5:
+        return (
+            f"⛔ Batch too large ({len(tasks)} tasks, max 5): split it "
+            f"into smaller batches."
+        )
+
+    agent_ids = subagent_coordinator.spawn_batch(
+        mode=mode,
+        tasks=tasks,
+        parent_thread_id=str(caller_thread) or "main",
+        provider=LLM_PROVIDER,
+        model=LLM_MODEL,
+    )
+
+    parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
+    for i, (task, agent_id) in enumerate(zip(tasks, agent_ids), 1):
+        result = subagent_coordinator.get_result(agent_id)
+        parts.append(
+            f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
+        )
+    return "\n".join(parts)
+
+
 tools = [
     think,
     verify,
     ask_user,
     delegate_to_subagent,
+    delegate_to_subagent_batch,
 
 
     # File tools

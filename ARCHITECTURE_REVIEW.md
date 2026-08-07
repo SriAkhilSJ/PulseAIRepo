@@ -2014,3 +2014,79 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
 ~~D29~~ — remaining: D30 (classifier skip, measure-first), D32
 (file-state guard, steal #8) ← in flight, D33 (parallel sub-agents,
 steal #9), D34 (parallel tool batches, steal #10), P2 (editor/UI).
+
+---
+
+## §45 — D32/D33 shipped: file-state guard + parallel sub-agent batches
+(hermes steals #8/#9; the reviewers' sync-subagent wound closed)
+
+Direction: founder "Proceed" after the §43 steal list. Order chosen by
+dependency: the guard must exist BEFORE concurrency is safe.
+
+D32 — File-state guard (src/tools/file_state.py, receipts:
+hermes tools/file_state.py:1-40): process-wide registry of per-agent
+read stamps and the last writer per path; write_file refuses a full
+overwrite whenever ANOTHER tool-using agent wrote the file and my
+knowledge is older or absent ("Refusing to clobber ... re-read first"
+— agent-readable recovery built into the refusal). Blind-overwrite
+(new-to-me but already-written-by-someone files) refused as well;
+writer stamps double as knowledge (your own writes never self-stale);
+per-path lock_path critical sections cover check→write→stamp so two
+in-process agents cannot interleave one; read_file stamps knowledge;
+edit_file is deliberately refusal-FREE — it reads fresh content itself
+and replaces only the matched span, so a stale-anchored old_text
+either fails to match (self-healing error) or lands surgically while
+PRESERVING the other agent's changes outside the span (policy pinned
+by test, not by vibes). Identity = the graph's thread_id (main session
+or "sub-*" children — invoke_agent's config carries it natively,
+chat_graph.py:1737-1744); fallback "main". Kill-switch
+PULSEAI_FILE_STATE_GUARD=off; every hook fail-open (a guard bug must
+never break an edit — and D31 shadows every mutation anyway).
+Honest scope limit: EXTERNAL edits (vim/IDE) are out of reach of the
+registry — same upstream scope; the mtime stamps are kept so a future
+check can go further. D34 note: this guard is the prerequisite that
+makes parallel TOOL batches designable at all.
+
+D33 — Parallel sub-agent batches (SubAgentCoordinator.spawn_batch +
+delegate_to_subagent_batch tool #21, receipts: hermes
+tools/delegate_tool.py:3208-3299): bounded ThreadPoolExecutor
+(min(4, len) workers), one contextvars.Context copy per child (their
+exact isolation trick), futures mapped to task index so results return
+in INPUT order even when finish order differs (pinned with inverted
+sleeps), per-child crash captured at its own slot (a dead child never
+sinks the batch — pinned), single-task batches take the legacy
+synchronous path (byte-identical common case — pinned), coordinator
+registry insertion+eviction now locked (thread mutation). Honest
+deltas from upstream: their wait(FIRST_COMPLETED, 0.5s) interrupt loop
+is NOT copied — our graph has no parent-interrupt signal today, so
+as_completed is used and the loop returns when interrupts land
+(documented in the code). Tool surface guarded: depth cap (sub- ids
+denied, same as single), 5-task batch cap, per-result 2000-char cap
+(carried). Measured in the pin: 3 × 300ms children complete in <0.6s
+(serial: ≥0.9s) — the review-1 wound "Sub-Agents Are Synchronous, Not
+Parallel" is closed with a wall-clock number, not a claim.
+Synergy pin D32×D33: two parallel children racing the SAME file
+through the real write path → exactly one wins, exactly one gets the
+recoverable refusal, file always coherent.
+
+Development honesty: (1) my own splice of the batch tool separated the
+original return's closing paren — SyntaxError caught by the pin run,
+fixed; (2) my writer-stamp test initially forgot the blind-overwrite
+guard refuses the SECOND agent, test rewritten to match the designed
+flow (read → write); (3) children receive the mode-focused prompt not
+the raw task — pin helper task_of() documents it; (4) two tool-count
+pins (ptc/session_search) did their job and caught 20→21 — updated
+loudly with the reason in the pin text, names kept for history.
+
+Pins: src/tests/test_file_state.py NEW 10/10; test_sub_agent_batch.py
+NEW 6/6; registry pins updated ×2. Suite: 359 green.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ ~~D25~~ ~~D26~~ ~~D27~~ ~~D28~~
+~~D29~~ ~~D32~~ ~~D33~~ — remaining: D30 (classifier skip,
+measure-first), D34 (parallel tool batches — assessed: needs
+SafeToolNode concurrency + approval-flow serialization; D32 delivered
+the file-safety prerequisite, still a bigger surgery than a single
+round), P2 (editor/UI product work — the heart's UI is now surrounded
+by rollback, guards, and parallel delegates).
