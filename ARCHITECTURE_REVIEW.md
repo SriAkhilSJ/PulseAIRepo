@@ -1606,3 +1606,41 @@ pass-through). Suite: 284 green (9.3s).
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
 ~~D24~~ — remaining: D9, D10, D15-remainder, D23, P2.
+
+---
+
+## §39 — D10 FIXED: web_fetch readable-text extraction (regex soup -> stdlib parser)
+
+**Debt D10 closed.** web_fetch converted pages with a handful of regexes:
+nav bars, cookie banners, JSON-LD blobs, comments, footer/newsletter junk
+all leaked into the agent's 12K context budget; <pre> code was whitespace-
+flattened (indentation destroyed); an UNCLOSED <script> could swallow the
+document. Measured (scripts/d10_webfetch_measure.py, one gnarly fixture
+page, OLD from git snapshot vs NEW): junk-hits 5/10 -> 0/10, all wanted
+article content kept, output 365 -> 181 chars (50% smaller, all signal),
+code now fenced with indentation verbatim.
+
+Fix (src/tools/web_tools.py): `_ReadableTextExtractor` (stdlib
+html.parser only — zero new dependencies, checked) drops drop-content
+elements (script/style/noscript/template/svg/iframe/form/select/button/
+head), drops boilerplate containers when class/id/role matches the junk
+pattern (careful: plain <header>/<aside> without junk hints KEEP their
+text), removes comments natively, converts <pre> to fenced blocks with
+verbatim data and inline <code> to backticks, decodes entities, and
+normalizes whitespace only OUTSIDE fences. Degenerate-output safety: when
+the parser yields <25 chars from substantial markup (e.g. page-opening
+unclosed script swallows the doc in CDATA), the legacy regex strip runs
+as fallback — tail content survives; never a silent empty return.
+
+Founder's metrics: token budget — cleaned pages carry ~half the chars with
+zero junk (measured), context quality — code arrives fenced and readable;
+latency/LLM calls — untouched.
+
+Pins: src/tests/test_web_tools.py NEW FILE 8/8 (junk-out/content-in,
+pre fence+verbatim, inline-code backticks, entities, fetch integration
+with monkeypatched httpx incl. title decode + junk absence, unclosed-
+script fallback, plain-text passthrough, scheme guard). Suite: 292 green.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ — remaining: D9, D15-remainder, D23, P2.
