@@ -1489,6 +1489,19 @@ from src.context.safety_guard import SafetyGuard
 class SafeToolNode:
     """
     Wrapper around ToolNode that checks safety before executing.
+
+    Interactive threads (human reading): an unsafe call returns an
+    approval-question AIMessage and nothing executes.
+
+    Sub-agent threads (``sub-`` prefix, no human reading): that prompt is
+    a dead end — verified pre-fix that sub-agents got the identical "please
+    confirm" message as mains, facing a reader who does not exist. D20
+    adopts hermes' delegate_tool.py policy: non-interactive AUTO-DENY.
+    Unsafe calls become denial ToolMessages (model adapts in one turn
+    instead of looping to the recursion cap), safe calls in the same batch
+    still execute, and every denial is audit-logged. Opt-in escape hatch
+    for batch/cron-style runs: PULSEAI_SUBAGENT_AUTO_APPROVE=1 (their
+    ``subagent_auto_approve`` config), also audit-logged.
     """
     def __init__(self, tools, safety_guard: SafetyGuard):
         # handle_tool_errors=True — the crash net, decided by experiment
@@ -1521,10 +1534,12 @@ class SafeToolNode:
         if not tool_calls:
             return self._node.invoke(state, config)
 
-        # Get workspace from config
+        # Get workspace + thread from config
         workspace = "."
+        thread_id = ""
         if config and "configurable" in config:
             workspace = config["configurable"].get("workspace", ".")
+            thread_id = str(config["configurable"].get("thread_id", ""))
 
         from pathlib import Path
         ws_key = str(Path(workspace).resolve())
@@ -1532,6 +1547,73 @@ class SafeToolNode:
         if guard is None:
             guard = SafetyGuard(workspace)
             self._guards_by_workspace[ws_key] = guard
+
+        # --- D20: sub-agent threads auto-deny instead of prompting -------
+        if thread_id.startswith("sub-") and os.environ.get(
+            "PULSEAI_SUBAGENT_AUTO_APPROVE", ""
+        ).strip() != "1":
+            verdicts = [
+                (tc, *guard.check_tool_call(tc.get("name", ""), tc.get("args", {})))
+                for tc in tool_calls
+            ]
+            unsafe = [v for v in verdicts if not v[1]]
+            if not unsafe:
+                return self._node.invoke(state, config)
+
+            import logging
+            log = logging.getLogger("pulseai.safety")
+            denials: dict[str, ToolMessage] = {}
+            for tc, _, warning in unsafe:
+                first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
+                denials[tc["id"]] = ToolMessage(
+                    content=(
+                        f"⛔ AUTO-DENIED (sub-agent safety policy): "
+                        f"`{tc.get('name', '')}` was blocked. {first_line}\n"
+                        "Sub-agents cannot ask the human for approval, so "
+                        "dangerous operations are denied immediately. Do not "
+                        "retry this operation; either accomplish the task a "
+                        "safe way, or finish and report that this step needs "
+                        "the human to run it directly in the main session."
+                    ),
+                    tool_call_id=tc["id"],
+                    name=tc.get("name", ""),
+                    status="error",
+                )
+                log.warning(
+                    "sub-agent %s AUTO-DENIED %s args=%s",
+                    thread_id, tc.get("name", ""), str(tc.get("args", {}))[:160],
+                )
+
+            safe_tcs = [tc for tc, ok, _ in verdicts if ok]
+            results: dict[str, ToolMessage] = dict(denials)
+            if safe_tcs:
+                filtered_ai = AIMessage(
+                    content=last_msg.content,
+                    tool_calls=safe_tcs,
+                    id=getattr(last_msg, "id", None),
+                )
+                filtered_state = dict(state)
+                filtered_state["messages"] = messages[:-1] + [filtered_ai]
+                executed = self._node.invoke(filtered_state, config)
+                for m in executed.get("messages", []):
+                    if isinstance(m, ToolMessage):
+                        results[m.tool_call_id] = m
+
+            # Return ToolMessages in the model's original tool_call order:
+            # pairing/order invariants (see §28 crash-net round) must hold
+            # regardless of which batch members were denied.
+            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+            return {"messages": ordered}
+
+        if thread_id.startswith("sub-"):
+            import logging
+            logging.getLogger("pulseai.safety").warning(
+                "sub-agent %s AUTO-APPROVED %d tool call(s) unchecked "
+                "(PULSEAI_SUBAGENT_AUTO_APPROVE=1): %s",
+                thread_id, len(tool_calls),
+                [tc.get("name", "") for tc in tool_calls],
+            )
+            return self._node.invoke(state, config)
 
         for tc in tool_calls:
             tool_name = tc.get("name", "")

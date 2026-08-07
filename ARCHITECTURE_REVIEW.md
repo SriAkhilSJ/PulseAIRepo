@@ -1254,3 +1254,51 @@ placement-canonical split. Suite: 234 green (128s).
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ — remaining: D9, D10, D13, D14, D15-remainder,
 D20, D21, D22, D23 (volatile-layers-after-history, from §32), C1, P2.
+
+## 33. D20 — sub-agent safety auto-deny (2026-08-07)
+
+Fourth hermes steal (§29 step #4). Baseline proven first: a `sub-` thread
+hitting a dangerous command received the IDENTICAL "please confirm"
+AIMessage as an interactive thread — a prompt addressed to a reader who
+does not exist (dead-end loop fuel, recursion-cap crash fodder for D7).
+Adopted their delegate_tool.py:63-91 policy for our single choke point:
+SafeToolNode now branches on thread prefix. Interactive: unchanged human
+checkpoint. Sub-agent: unsafe calls become denial ToolMessages
+(status=error, exact ids) telling the model to NOT retry and to report
+the step as needing the human; safe calls in the SAME batch still execute
+(partial execution — the old all-or-nothing block was itself a waste);
+merged results preserve the model's original tool_call order (§28 pairing
+invariants). Both paths audit-log (their logger.warning rule); opt-in
+escape hatch PULSEAI_SUBAGENT_AUTO_APPROVE=1 = their subagent_auto_approve
+for batch/cron, also logged, ignored by interactive threads (pinned).
+
+Consistency note: execute_code's inner guard (D18) already auto-denies
+inside scripts — sub-authors now meet the same policy at both layers.
+
+Testing archaeology (ledger honesty): the first test draft called
+tool_node bare and died `Missing required config key 'N/A' for 'tools'` —
+the §27 bare-ToolNode trap, stepped into AGAIN despite knowing it. Pin
+fixture now goes through a compiled mini-graph (crash-net pattern) and a
+repro probe re-verified the runtime-key flow: ToolNode._func(input,
+config, runtime: Runtime) resolves runtime from config's runtime key,
+which langgraph injects for ANY node position and forwards fine through
+the opaque SafeToolNode wrapper.
+
+Pins: src/tests/test_subagent_autodeny.py 7/7 — interactive prompt
+unchanged (file intact), denial ToolMessage contract (id pairing, error
+status, guidance text, command never executed, audit log), mixed batch
+partial execution with original order preserved incl. middle-slot denial,
+all-safe normal run, unsafe-only batch, escape hatch executes + logs,
+flag-ignored-for-mains. Suite: 241 green (124s).
+
+Workspace-durability log: two more mid-round rollbacks (3rd, 4th today;
+same partial-snapshot signature) plus a NEW hazard — GitHub IP rate-limit
+(403 on clone). Recovery playbook now: codeload tarball (different host,
+not rate-limited) + git am of shipped patches + --skip on already-applied
+(the founder had meanwhile pushed D18; skip-flow handled it exactly as
+designed). RULE LEARNED the expensive way: never rm the broken tree
+before confirming network; tarball-then-replace is the order.
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ — remaining: D9, D10, D13, D14,
+D15-remainder, D21, D22, D23, C1, P2.
