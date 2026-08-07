@@ -57,6 +57,28 @@ RRF_K = 60
 BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
 FTS_MAX_TOKENS_PER_QUERY = 12
 
+# C1 (fixed §36): vec0 KNN pushdown. The MATCH + k constraint is handled
+# inside the extension (exact KNN over its own index) instead of computing
+# vec_distance_l2 for every row and sorting in SQL — 12-14x faster at
+# 2K-20K rows, identical orderings (scripts/c1_knn_benchmark.py).
+# Module-level so tests can pin the shape AND break it to drive the
+# fallback branch.
+_VEC0_KNN_SQL = """
+    SELECT v.chunk_id AS id, v.distance AS distance
+    FROM chunk_vec v
+    WHERE v.embedding MATCH vec_f32(?) AND k = ?
+    ORDER BY v.distance
+"""
+# Pre-C1 shape, kept ONLY as the degraded fallback for sqlite-vec builds
+# old enough to lack the k constraint (< v0.1.2). Never the first choice.
+_VEC0_FULLSCAN_SQL = """
+    SELECT c.id, vec_distance_l2(v.embedding, vec_f32(?)) AS distance
+    FROM chunk_vec v
+    JOIN code_chunks c ON v.chunk_id = c.id
+    ORDER BY distance
+    LIMIT ?
+"""
+
 _SKIP_DIRS = {
     "__pycache__", ".git", ".venv", "venv", "node_modules",
     ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist", "build",
@@ -761,22 +783,35 @@ class ChunkIndex:
         return self._search_vec_linear(q_emb, limit)
 
     def _search_vec_fast(self, q_emb: list[float], limit: int) -> list[tuple[str, float]]:
-        """vec_distance_l2 verified on sqlite-vec v0.1.9. Vectors are unit-
-        normalized, so cosine = 1 - L2²/2 EXACTLY (no max-distance math —
-        that divides by zero on exact matches). The lock is intentional even
-        for reads — see the shared-connection note in __init__."""
+        """C1 (fixed §36): native vec0 KNN — the embedding MATCH + k constraint
+        pushes the nearest-neighbor search INTO the extension, so only the
+        k winners are computed. The pre-C1 shape (vec_distance_l2 over every
+        row + a JOIN that only selected back the same id) ran a full O(N)
+        distance pass per search: measured 21->1.5ms at 2K rows, 206->17ms
+        at 20K rows (12-14x; scripts/c1_knn_benchmark.py), with byte-identical
+        orderings on real embeddings.
+
+        - The returned hidden `distance` column IS vec_distance_l2 for FLOAT
+          vectors (sqlite-vec v0.1.9), so the cosine conversion below is the
+          same math — vectors are unit-normalized, cosine = 1 - L2²/2 EXACTLY
+          (no max-distance math — that divides by zero on exact matches).
+        - No JOIN to code_chunks here: v.chunk_id IS the id, and _rrf_fuse
+          re-fetches chunk rows afterwards (tolerating any missing id).
+        - The lock is intentional even for reads — see the shared-connection
+          note in __init__.
+        """
         with self._write_lock:
             try:
-                rows = self.conn.execute("""
-                    SELECT c.id, vec_distance_l2(v.embedding, vec_f32(?)) AS distance
-                    FROM chunk_vec v
-                    JOIN code_chunks c ON v.chunk_id = c.id
-                    ORDER BY distance
-                    LIMIT ?
-                """, (json.dumps(q_emb), limit)).fetchall()
+                rows = self.conn.execute(_VEC0_KNN_SQL, (json.dumps(q_emb), limit)).fetchall()
             except Exception as e:
-                print(f"[ChunkIndex] sqlite-vec query failed: {e}")
-                return []
+                # Ancient sqlite-vec without the k constraint (pre-v0.1.2):
+                # degrade to the pre-C1 full-scan shape rather than to nothing.
+                print(f"[ChunkIndex] vec0 KNN query failed ({e}); full-scan fallback")
+                try:
+                    rows = self.conn.execute(_VEC0_FULLSCAN_SQL, (json.dumps(q_emb), limit)).fetchall()
+                except Exception as e2:
+                    print(f"[ChunkIndex] sqlite-vec query failed: {e2}")
+                    return []
         return [(cid, max(0.0, 1.0 - (d * d) / 2.0)) for cid, d in rows]
 
     def _search_vec_linear(self, q_emb: list[float], limit: int) -> list[tuple[str, float]]:

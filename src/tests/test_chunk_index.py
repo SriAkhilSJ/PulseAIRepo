@@ -354,3 +354,165 @@ def test_get_index_watch_flag(workspace, tmp_path):
     assert idx._watcher_thread is not None
     idx.stop_watcher()
     assert idx._watcher_thread is None
+
+
+# ---------------------------------------------------------------------
+# C1 pins (ARCHITECTURE_REVIEW.md §36): vec0 KNN pushdown
+# ---------------------------------------------------------------------
+# Pre-C1, _search_vec_fast ran vec_distance_l2 over EVERY row plus a JOIN
+# that only re-selected the id it already had. Measured: 21ms -> 1.5ms at
+# 2K rows, 206ms -> 17ms at 20K rows (12-14x) with identical orderings
+# (scripts/c1_knn_benchmark.py). The pins below guard the fix:
+#   1. exact-ordering equivalence vs an exhaustive brute-force reference
+#   2. the query shape really uses MATCH + k (regression guard vs revert)
+#   3. the full-scan fallback still works for ancient sqlite-vec builds
+#   4. total-tie (all-zero, degraded) behavior is stable and harmless
+#   5. limit > population returns everything without error
+
+import json
+import random
+
+import src.context.chunk_index as chunk_index_mod
+
+
+def _gauss_unit_vec(rng: "random.Random", dim: int = 384) -> list:
+    vals = [rng.gauss(0.0, 1.0) for _ in range(dim)]
+    norm = math.sqrt(sum(v * v for v in vals)) or 1.0
+    return [v / norm for v in vals]
+
+
+def _insert_synthetic_vectors(index, n: int, seed: int = 42) -> None:
+    """Straight into the stores — embedding is not what C1 is about."""
+    rng = random.Random(seed)
+    with index._write_lock:
+        for i in range(n):
+            cid = f"syn-{i:05d}"
+            vec = _gauss_unit_vec(rng)
+            index.conn.execute(
+                "INSERT INTO code_chunks (id, file_path, symbol_name, symbol_type,"
+                " start_line, end_line, signature, docstring, body, content,"
+                " content_hash, modified_time) VALUES (?, 'syn.py', 's',"
+                " 'function', 1, 2, '', NULL, '', 'c', 'h', 0.0)",
+                (cid,),
+            )
+            index.conn.execute(
+                "INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, vec_f32(?))",
+                (cid, json.dumps(vec)),
+            )
+        index.conn.commit()
+
+
+def _exhaustive_reference(conn, q_emb: list, limit: int) -> list:
+    """Brute-force exact KNN over the STORED (float32) values."""
+    rows = conn.execute("SELECT chunk_id, vec_to_json(embedding) FROM chunk_vec").fetchall()
+    scored = []
+    for cid, j in rows:
+        v = json.loads(j)
+        d2 = sum((a - b) ** 2 for a, b in zip(q_emb, v))
+        scored.append((d2, cid))
+    scored.sort()
+    return [(cid, math.sqrt(d2)) for d2, cid in scored[:limit]]
+
+
+def test_c1_knn_ordering_matches_exhaustive_reference(index):
+    if not index.uses_vec:
+        pytest.skip("sqlite-vec unavailable in this environment")
+    _insert_synthetic_vectors(index, 600)
+    rng = random.Random(99)
+    q = _gauss_unit_vec(rng)
+
+    fast = index._search_vec_fast(q, 12)
+    ref = _exhaustive_reference(index.conn, q, 12)
+
+    assert [cid for cid, _ in fast] == [cid for cid, _ in ref]
+    # The MATCH distance column is vec_distance_l2: same cosine math, so the
+    # scores must agree to float32 tolerance.
+    for (cid, score), (_cid, d) in zip(fast, ref):
+        assert cid == _cid
+        assert score == pytest.approx(1.0 - (d * d) / 2.0, abs=1e-4)
+
+
+def test_c1_search_uses_knn_pushdown_sql(index):
+    """Regression guard: reverting to vec_distance_l2-over-everything must
+    turn this test red, even though results would stay correct."""
+    if not index.uses_vec:
+        pytest.skip("sqlite-vec unavailable in this environment")
+    _insert_synthetic_vectors(index, 50)
+    q = _gauss_unit_vec(random.Random(7))
+
+    captured: list[str] = []
+    index.conn.set_trace_callback(captured.append)
+    try:
+        index._search_vec_fast(q, 5)
+    finally:
+        index.conn.set_trace_callback(None)
+
+    # Note: the trace callback shows statements with bound params EXPANDED
+    # to literals, so the k constraint appears as "k = 5", not "k = ?".
+    vec_stmts = [s for s in captured if "chunk_vec" in s]
+    assert vec_stmts, "expected a chunk_vec query"
+    knn = [s for s in vec_stmts if "MATCH vec_f32" in s and re.search(r"\bk\s*=", s)]
+    assert knn, f"vec search did NOT use the MATCH+k pushdown: {vec_stmts}"
+    assert not any("vec_distance_l2" in s and "JOIN" in s for s in vec_stmts), (
+        f"pre-C1 full-scan JOIN shape reappeared: {vec_stmts}"
+    )
+
+
+def test_c1_fullscan_fallback_when_knn_unsupported(index, monkeypatch, capsys):
+    """Ancient sqlite-vec without the k constraint: degrade to the pre-C1
+    full-scan shape, never to zero results or a crash."""
+    if not index.uses_vec:
+        pytest.skip("sqlite-vec unavailable in this environment")
+    _insert_synthetic_vectors(index, 120, seed=13)
+    q = _gauss_unit_vec(random.Random(5))
+
+    ref = [cid for cid, _ in _exhaustive_reference(index.conn, q, 8)]
+    monkeypatch.setattr(chunk_index_mod, "_VEC0_KNN_SQL",
+                        "SELECT nope FROM nope WHERE nope = nope")
+    got = index._search_vec_fast(q, 8)
+
+    assert [cid for cid, _ in got] == ref
+    assert "full-scan fallback" in capsys.readouterr().out
+
+
+def test_c1_knn_all_zero_embeddings_total_tie_is_stable(workspace, tmp_path):
+    """Degraded index (no embedder at index time => all-zero vectors) makes
+    EVERY distance identical. The old full-scan and the new KNN both return
+    an arbitrary member of the tie-class — the pin locks: no crash, exactly
+    min(limit, n) rows, identical scores, and hybrid search still works."""
+
+    class _ZeroEmbedder:
+        DIM = 384
+
+        def encode(self, texts, normalize_embeddings=True):
+            out = _Embeds()
+            for _t in texts:
+                out.append([0.0] * self.DIM)
+            return out
+
+    zero_index = ChunkIndex(
+        workspace, db_path=str(tmp_path / "zero_index.db"), embedder=_ZeroEmbedder()
+    )
+    if not zero_index.uses_vec:
+        pytest.skip("sqlite-vec unavailable in this environment")
+    zero_index.index_workspace()
+    total = zero_index.conn.execute("SELECT COUNT(*) FROM chunk_vec").fetchone()[0]
+    assert total > 3  # fixture produced real chunks
+
+    res = zero_index._search_vector("parse the auth token", 5)
+    assert len(res) == min(5, total)
+    scores = {round(s, 9) for _cid, s in res}
+    assert len(scores) == 1  # every distance identical => one score value
+
+    hybrid = zero_index.search("water the plants", top_k=3)
+    assert hybrid  # BM25 keeps degraded indexes useful
+
+
+def test_c1_knn_limit_exceeds_population(index):
+    if not index.uses_vec:
+        pytest.skip("sqlite-vec unavailable in this environment")
+    _insert_synthetic_vectors(index, 3, seed=5)
+    q = _gauss_unit_vec(random.Random(1))
+    res = index._search_vec_fast(q, 50)
+    assert len(res) == 3
+    assert all(0.0 <= s <= 1.0 for _cid, s in res)

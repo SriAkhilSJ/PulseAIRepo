@@ -1409,3 +1409,70 @@ part of the standard rebuild order.
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ — remaining: D9, D10,
 D13, D14, D15-remainder, D23, C1, P2.
+
+---
+
+## §36 — C1 FIXED: vec0 KNN pushdown (full-scan JOIN -> MATCH + k; 12-14x, ordering-provable)
+
+**Debt C1, closed.** `_search_vec_fast` (chunk_index.py) ran
+`vec_distance_l2` against EVERY row of `chunk_vec` and JOINed `code_chunks`
+only to re-select the id the vec row already carried — an O(N) distance
+pass + N PK probes per search, then sort + limit. This is exactly the case
+vec0's `WHERE embedding MATCH vec_f32(?) AND k = ?` constraint exists for:
+the nearest-neighbor search runs INSIDE the extension over its own
+shadow tables.
+
+Measure first (scripts/c1_knn_benchmark.py, committed — synthetic Gaussian
+unit vectors, dim=384, exact-order assertion; median of 15 runs):
+rows= 2,000: 21.15ms -> 1.50ms (14.1x) · rows= 5,000: 52.61ms -> 3.72ms
+(14.1x) · rows=20,000: 206.35ms -> 16.69ms (12.4x). Orderings
+byte-identical at every scale on real-geometry vectors. sqlite-vec
+0.1.9 pinned in env; the k constraint exists since 0.1.2. Re-measured
+through the SHIPPED `_search_vec_fast` (vs. the kept `_VEC0_FULLSCAN_SQL`
+fallback) on the same 20K-row database: 6.9x @2K, 11.0x @5K, 12.2x @20K
+(215.69ms -> 17.61ms) — the win survives method-call overhead intact.
+
+Trace-callback evidence (from the pins) the pushdown is real: the MATCH
+form leaves the extension scanning its own `chunk_vec_chunks` /
+`chunk_vec_rowids` shadow tables — exactly k rowid lookups surfaced for
+limit=k, vs. the old plan's full-table distance compute.
+
+Honest edge, diagnosed not hidden: the one real ~/.pulseai DB large enough
+to time (593 rows) showed a returned-SET difference — 593/593 of its
+vectors are ALL-ZERO (it was indexed in degraded no-embedder mode; BM25
+carried it). Total tie: any k members are equally correct; old and new
+just break ties differently. Pinned as stable no-crash behavior in
+test_c1_knn_all_zero_embeddings_total_tie_is_stable; the benchmark prints
+the diagnosis instead of a bare SET-DIFF alarm.
+
+Design kept deliberately:
+- No JOIN in the hot path: `v.chunk_id` IS the id; `_rrf_fuse` re-fetches
+  chunk rows afterwards and tolerates missing ids (`by_id.get` skip).
+- Cosine math UNCHANGED: MATCH's hidden `distance` column is
+  vec_distance_l2 for FLOAT vectors (scores agree to 1e-4 — pinned), so
+  the verified `1 - L2^2/2` conversion (exact-match zero-division lesson)
+  keeps its exact meaning.
+- Degraded fallback preserved: sqlite-vec builds older than v0.1.2 lacking
+  the k constraint fall back to the pre-C1 full-scan SQL (kept as
+  `_VEC0_FULLSCAN_SQL`) with a loud print — never to zero results. Driven
+  red->green by monkeypatching `_VEC0_KNN_SQL` to invalid SQL in pins.
+- Zero user-visible retrieval change is a CLAIM THAT IS PINNED, not
+  assumed: exact-order equivalence vs. an exhaustive brute-force reference
+  over the STORED float32 values, plus a trace-shape regression guard
+  that turns red if anyone reverts to the vec_distance_l2-over-everything
+  shape while keeping results correct.
+
+Latency ledger (founder's metric #1): at a realistic 5K-chunk workspace,
+vector search drops ~53ms -> ~4ms PER retrieval (each turn can fire one
+build of the relevant-chunks layer); at monorepo scale (20K) ~206 -> ~17ms.
+Context quality, token budget, LLM call count: untouched by design —
+proven identical selection.
+
+Pins: src/tests/test_chunk_index.py 20/20 (5 new C1: exhaustive-ordering
+equivalence + score agreement, KNN-shape trace guard, full-scan fallback,
+total-tie stability + hybrid still useful, limit>population). Suite:
+267 green (9.7s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ — remaining: D9,
+D10, D13, D14, D15-remainder, D23, P2.
