@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import re
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -448,3 +449,190 @@ def _walk_generic(
                 # go structs have none to embed (methods are top-level).
                 _add_chunk(chunks, child, name, "class", child, src, lines,
                            rel_path, comment_types, methods, "    // (truncated) ...")
+
+
+# ---------------------------------------------------------------------
+# IMPORT EDGES (D15-remainder, §41): JS/TS, Go, Rust, Java
+# ---------------------------------------------------------------------
+# The Python resolver (verified in the D15 Python slice) lives in
+# chunk_index.py; these are its siblings for the D5 languages. Same
+# doctrine: bounded candidate checks against the filesystem (no repo
+# walks, no DB reads — determinism independent of indexing order), edges
+# only between workspace files, never raises — edges are a retrieval
+# bonus, not a failure mode. Extraction is regex/line based on purpose
+# (fast, dependency-free); a false edge from a comment is harmless
+# metadata compared to the cost of full AST parses per sync.
+
+_EXT_JS_FAMILY = frozenset(set(_EXT_JS) | set(_EXT_TS) | set(_EXT_TSX))
+_JS_RESOLVE_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
+
+
+def extract_js_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
+    """JS/TS: import/export-from, require(), dynamic import(), side-effect
+    imports. Only RELATIVE specifiers resolve (bare 'react' etc. dropped —
+    monorepo alias mapping is a future bonus, not correctness)."""
+    specs: set[str] = set()
+    for m in re.finditer(r"""(?:import|export)\s[^;'"]*?from\s*['"]([^'"]+)['"]""", source):
+        specs.add(m.group(1))
+    for m in re.finditer(r"""import\s*['"]([^'"]+)['"]""", source):  # side-effect
+        specs.add(m.group(1))
+    for m in re.finditer(r"""require\(\s*['"]([^'"]+)['"]\s*\)""", source):
+        specs.add(m.group(1))
+    for m in re.finditer(r"""import\(\s*['"]([^'"]+)['"]\s*\)""", source):
+        specs.add(m.group(1))
+
+    targets: set[str] = set()
+    for spec in specs:
+        if not spec.startswith("."):
+            continue
+        base = importer_rel.parent / spec
+        candidates: list[Path] = []
+        if base.suffix.lower() in _EXT_JS_FAMILY:
+            candidates.append(base)                       # explicit ext
+        else:
+            candidates.extend(Path(str(base) + e) for e in _JS_RESOLVE_EXTS)
+            candidates.extend(base / f"index{e}" for e in _JS_RESOLVE_EXTS)
+        for cand in candidates:
+            try:
+                if (workspace / cand).is_file():
+                    targets.add(str(cand))
+                    break
+            except OSError:
+                continue
+    targets.discard(str(importer_rel))
+    return targets
+
+
+def extract_go_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
+    """Go: single + grouped (+ aliased/dot) imports. A Go import names a
+    PACKAGE directory, not a file — resolve the module-path tail to a
+    workspace directory (longest match wins, stdlib like "fmt" has no
+    workspace dir so drops for free), then edge to up to 5 .go files in it."""
+    specs: set[str] = set()
+    for m in re.finditer(r"import\s*\(([^)]*)\)", source, re.DOTALL):
+        for q in re.finditer(r'"([^"]+)"', m.group(1)):
+            specs.add(q.group(1))
+    for m in re.finditer(r'import\s+(?:[\w.]+\s+)?"([^"]+)"', source):
+        specs.add(m.group(1))
+
+    targets: set[str] = set()
+    for spec in specs:
+        parts = spec.split("/")
+        # progressively trim module-prefix segments; longest dir match wins
+        # (trim may go down to the last segment: module "mod" + pkg tail
+        # resolves "mod/pkg" -> "pkg" when ./mod/pkg doesn't exist).
+        for trim in range(0, min(4, len(parts))):
+            cand_dir = Path(*parts[trim:])
+            try:
+                if (workspace / cand_dir).is_dir():
+                    for f in sorted((workspace / cand_dir).glob("*.go"))[:5]:
+                        rel = f.relative_to(workspace)
+                        if str(rel) != str(importer_rel):
+                            targets.add(str(rel))
+                    break
+            except OSError:
+                continue
+    return targets
+
+
+def _rust_file_candidates(base: Path) -> list[Path]:
+    return [base.with_suffix(".rs"), base / "mod.rs"]
+
+
+def extract_rust_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
+    """Rust: `mod name;` declarations and `use crate::/self::/super::` paths
+    (external crates like serde:: dropped). Leaf resolves to .rs or mod.rs.
+    `use a::b::{c, d}` resolves the PATH part (a/b) — item-level edges are
+    not needed for file->file."""
+    targets: set[str] = set()
+    importer_str = str(importer_rel)
+
+    def _add(base: Path) -> None:
+        # The LAST ::segment of a use-path is usually an ITEM inside the
+        # parent module's file (use crate::auth::Session -> src/auth.rs),
+        # so check the parent path as well as the full path. Full path wins
+        # (module-file over item ambiguity).
+        bases = [base]
+        if base.name:
+            bases.append(base.parent)
+        for b in bases:
+            for cand in _rust_file_candidates(b):
+                try:
+                    if (workspace / cand).is_file():
+                        targets.add(str(cand))
+                        return
+                except OSError:
+                    continue
+
+    for m in re.finditer(r"(?m)^\s*(?:pub\s+)?mod\s+([A-Za-z_]\w*)\s*;", source):
+        name = m.group(1)
+        if name not in {"self", "super", "crate"}:
+            _add(importer_rel.parent / name)
+
+    for m in re.finditer(r"(?m)^\s*(?:pub\s+)?use\s+([^;]+);", source):
+        body = m.group(1).split("{")[0]           # drop item lists
+        body = re.sub(r"\s+as\s+\w+", "", body)   # drop renames
+        segs = [s for s in body.strip().strip(":").split("::") if s]
+        if not segs:
+            continue
+        head, rest = segs[0], segs[1:]
+        if head == "crate":
+            base = Path("")
+        elif head == "self":
+            base = importer_rel.parent
+        elif head == "super":
+            climbs = 1
+            while rest and rest[0] == "super":
+                climbs += 1
+                rest = rest[1:]
+            base = importer_rel.parent
+            for _ in range(climbs):
+                base = base.parent
+        else:
+            continue                                # external crate: dropped
+        base = base / Path(*rest) if rest else base
+        _add(base)
+
+    targets.discard(importer_str)
+    return targets
+
+
+def extract_java_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
+    """Java: import (incl. static) dotted paths. Bounded candidates:
+    layout prefixes ["", src/main/java, src] + dotted path, then the
+    importer's own package dir (same-package files need no import, but
+    nested test projects often import their siblings). Wildcard imports
+    resolve the PACKAGE only when it maps to a single obvious sibling dir —
+    skipped otherwise (bounded-check doctrine)."""
+    targets: set[str] = set()
+    importer_str = str(importer_rel)
+    prefixes = [Path(""), Path("src/main/java"), Path("src")]
+
+    for m in re.finditer(r"(?m)^\s*import\s+(?:static\s+)?([\w.]+)(\.\*)?\s*;", source):
+        parts = m.group(1).split(".")
+        wildcard = bool(m.group(2))
+        if wildcard:
+            continue  # package-level: no single bounded candidate
+        rel_path = Path(*parts).with_suffix(".java")
+        hit = None
+        for pre in prefixes:
+            cand = pre / rel_path
+            try:
+                if (workspace / cand).is_file():
+                    hit = cand
+                    break
+            except OSError:
+                continue
+        if hit is None:
+            tail = Path(*parts[-1:]).with_suffix(".java")
+            cand = importer_rel.parent / tail
+            try:
+                if (workspace / cand).is_file():
+                    hit = cand
+            except OSError:
+                pass
+        if hit is not None:
+            targets.add(str(hit))
+
+    targets.discard(importer_str)
+    return targets

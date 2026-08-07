@@ -1689,3 +1689,57 @@ running-check-records-nothing-but-reflection). Suite: 305 green (10.6s).
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
 ~~D24~~ ~~D10~~ ~~D9~~ — remaining: D15-remainder, D23, P2.
+
+---
+
+## §41 — D15-remainder FIXED: import edges for JS/TS, Go, Rust, Java (+ a latent v2-era bug found by the pin)
+
+**Debt D15-remainder closed.** The chunk extraction grammars already
+handled five non-Python languages (D5); import EDGES — the "related files"
+detective-mode layer — were Python-only.
+
+New resolvers in lang_extractors.py (bounded candidate checks, pure FS,
+no walks/DB reads — indexing-order independent, never raise; false edge
+from a comment documented as harmless metadata):
+- JS/TS: import/export-from, require(), dynamic import(), side-effect;
+  relative specifiers only (bare 'react' dropped); explicit-ext, ext
+  probe, and index.* resolution in this order.
+- Go: single/grouped/aliased imports; a Go import names a PACKAGE DIR —
+  module-prefix trimmed longest-first (4 deep), dir -> up to 5 .go files.
+  stdlib ("fmt") drops for free (no workspace dir).
+- Rust: `mod name;` declarations (file.rs | file/mod.rs) and
+  `use crate::/self::/super::` paths with super:: climbing; item-vs-module
+  ambiguity resolved full-path-first then parent-path (caught by pins on
+  first run — `use super::auth::s` needed the parent probe); external
+  crates dropped. Wildcard item lists/re-exports get the PATH edge.
+- Java: import + static import, dotted path under layout prefixes
+  ["", src/main/java, src], then importer's package dir; wildcard imports
+  skipped (no single bounded candidate).
+Dispatcher: chunk_index._edges_for routes by suffix; import_edges table
+shared by all languages; schema user_version bumped 2 -> 3 (v3 = multi-
+language) so existing users get ONE clean full-rebuild to gain the new
+edges — and that rebuild now actually inserts them, because:
+
+**Latent v2-era bug, found by the §41 integration pin:** index_workspace
+(full rebuild: first run + forced-upgrade path) only DELETEd import_edges
+and never inserted any — fresh workspaces had ZERO edges (detective mode
+empty) until per-file syncs caught up. sync_file had the edge insertion;
+the full path never did. Fixed: rebuild inserts edges per file inside the
+write lock alongside chunk rows. A v1-era detective-mode pin codified the
+Python-only contract ("edges == 0 by design") — INVERTED DELIBERATELY
+(test renamed, note inside) since the debt it documented is now fixed.
+
+Founder's metrics: context quality — related-files ("edits may BREAK X")
+now covers the whole polyglot workspace; token budget — edges were always
+capped (_MAX_RELATED_FILES=4); latency — resolvers are a handful of
+is_file checks per file at index time only; LLM calls — zero.
+
+Pins: test_lang_extractors.py 23/23 (5 new per-language suites: JS/TS all
+forms+bare-drop, Go package-dir+stdlib-drop, Rust mod/use+super+item-vs-
+module, Java layouts+drops, integration mixed-workspace rows incl. the
+full-rebuild coverage, garbage never-raises); test_detective_mode.py
+contract-inverted pin. Suite: 311 green (10.6s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python+remainder)~~ ~~D7~~
+~~D17~~ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~
+~~D14~~ ~~D24~~ ~~D10~~ ~~D9~~ — remaining: D23, P2.

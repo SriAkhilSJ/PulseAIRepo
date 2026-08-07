@@ -24,11 +24,12 @@ Design notes (each one is a verified lesson, not a guess):
   to vector distances.
 - Embedded text is hard-capped (~200 tokens) for all-MiniLM-L6-v2; the full
   (display-truncated) body is stored separately for the LLM.
-- import_edges (schema user_version=2): file->file import graph powering the
-  "related files" section of the context layer ("detective mode"). Python-
-  only, stdlib-ast, full dotted-path resolution to workspace files (the
-  repo_map graph's first-segment module names can't produce file->file
-  edges — verified). Rows live/die in the SAME transactions as chunk
+- import_edges (schema user_version=3): file->file import graph powering the
+  "related files" section of the context layer ("detective mode"). Python
+  via a stdlib-ast full dotted-path resolver (the repo_map graph's
+  first-segment module names can't produce file->file edges — verified);
+  JS/TS, Go, Rust, Java via bounded-candidate resolvers in lang_extractors
+  (D15-remainder, §41). Rows live/die in the SAME transactions as chunk
   rows, so edges cannot drift from code.
 """
 
@@ -46,9 +47,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from src.context.lang_extractors import (
+    _EXT_JS_FAMILY as _EXT_JS_FAMILY_LANG,
     _sha256_id,
     _truncate_for_embedding,
     extract_chunks_treesitter,
+    extract_js_import_edges,
+    extract_go_import_edges,
+    extract_rust_import_edges,
+    extract_java_import_edges,
     source_extensions,
 )
 
@@ -457,12 +463,14 @@ class ChunkIndex:
         # re-sync rebuilds them; PRAGMA user_version marks it done so this
         # never loops. (Files with zero imports produce zero edge rows, so
         # "table empty" alone can NOT be the migration signal.)
-        if self.conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+        # v2 = Python edges (D15), v3 = multi-language edges (D15-remainder
+        # §41): existing v2 DBs get ONE more full re-sync pick-up pass.
+        if self.conn.execute("PRAGMA user_version").fetchone()[0] < 3:
             has_chunks = self.conn.execute(
                 "SELECT 1 FROM code_chunks LIMIT 1"
             ).fetchone()
             self._needs_edge_resync = bool(has_chunks)
-            self.conn.execute("PRAGMA user_version = 2")
+            self.conn.execute("PRAGMA user_version = 3")
             self.conn.commit()
 
     # ------------------------------------------------------------------
@@ -485,8 +493,21 @@ class ChunkIndex:
         for i, fpath in enumerate(files):
             try:
                 chunks = extract_source_chunks(fpath, self.workspace)
-                if chunks:
-                    self._insert_chunks(chunks, fpath.stat().st_mtime, commit=False)
+                rel = str(fpath.relative_to(self.workspace))
+                edges = self._edges_for(fpath, rel)
+                if chunks or edges:
+                    with self._write_lock:
+                        if chunks:
+                            self._insert_chunks_no_commit(chunks, fpath.stat().st_mtime)
+                        # Full rebuild now inserts edges too — pre-D15-remainder
+                        # it only DELETEed them, so freshly-indexed workspaces
+                        # had detective mode empty until per-file syncs caught up
+                        # (found by the §41 integration pin).
+                        for target in edges:
+                            self.conn.execute(
+                                "INSERT OR IGNORE INTO import_edges (importer, imported) VALUES (?, ?)",
+                                (rel, target),
+                            )
             except Exception:
                 continue
             if (i + 1) % 25 == 0:
@@ -687,15 +708,31 @@ class ChunkIndex:
                     )
 
     def _edges_for(self, file_path: Path, rel: str) -> set[str]:
-        """Resolved in-repo import targets of one Python file (empty set for
-        non-Python or unparseable sources — edges are a bonus, never fatal)."""
-        if file_path.suffix.lower() != ".py":
+        """Resolved in-repo import targets of one source file (D15):
+        Python via stdlib-ast resolver; JS/TS, Go, Rust, Java via the
+        lang_extractors resolvers (§41). Empty set for unsupported or
+        unparseable sources — edges are a bonus, never fatal."""
+        suffix = file_path.suffix.lower()
+        if suffix == ".py":
+            resolver = _extract_py_import_edges
+        elif suffix in _EXT_JS_FAMILY_LANG:
+            resolver = extract_js_import_edges
+        elif suffix == ".go":
+            resolver = extract_go_import_edges
+        elif suffix == ".rs":
+            resolver = extract_rust_import_edges
+        elif suffix == ".java":
+            resolver = extract_java_import_edges
+        else:
             return set()
         try:
             source = file_path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             return set()
-        return _extract_py_import_edges(source, Path(rel), self.workspace)
+        try:
+            return resolver(source, Path(rel), self.workspace)
+        except Exception:
+            return set()
 
     def sync_workspace(self) -> int:
         """Re-index files whose mtime is newer than what we stored. Returns count."""

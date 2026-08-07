@@ -8,6 +8,8 @@ import sys
 
 import pytest
 
+from pathlib import Path
+
 from src.context.chunk_index import ChunkIndex, extract_chunks, extract_source_chunks
 from src.context import lang_extractors as le
 
@@ -374,3 +376,146 @@ def test_iter_source_files_yields_all_supported(tmp_path):
     assert {"a.py", "b.js", "c.tsx"} <= found
     assert "d.css" not in found
     assert "e.js" not in found  # skip-dirs still apply
+
+
+# ---------------------------------------------------------------------
+# D15-remainder pins (§41): import edges for JS/TS, Go, Rust, Java
+# ---------------------------------------------------------------------
+
+from src.context.lang_extractors import (
+    extract_js_import_edges,
+    extract_go_import_edges,
+    extract_rust_import_edges,
+    extract_java_import_edges,
+)
+
+
+def _mk(tmp_path, files):
+    for rel, text in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+    return tmp_path
+
+
+def test_d15_js_ts_edges(tmp_path):
+    ws = _mk(tmp_path, {
+        "src/util.ts": "export const u = 1;\n",
+        "src/lib/api.ts": "export const a = 1;\n",
+        "src/lib/index.ts": "export * from './api';\n",
+        "node_modules_skip.ts": "",
+    })
+    src = (
+        "import { u } from './util';\n"
+        "export { a } from './lib/api';\n"
+        "const dyn = import('./util');\n"
+        "const rq = require('./lib');\n"
+        "import './util';\n"
+        "import React from 'react';\n"
+    )
+    edges = extract_js_import_edges(src, Path("src/app.ts"), ws)
+    assert str(Path("src/util.ts")) in edges
+    assert str(Path("src/lib/api.ts")) in edges          # export-from + ./lib -> index.ts
+    assert str(Path("src/lib/index.ts")) in edges
+    assert all("react" not in e for e in edges)          # bare specifier dropped
+
+
+def test_d15_go_edges_package_dirs(tmp_path):
+    ws = _mk(tmp_path, {
+        "go.mod": "module github.com/me/proj\n",
+        "cmd/server/main.go": "package main\n",
+        "internal/auth/session.go": "package auth\n",
+        "internal/auth/helpers.go": "package auth\n",
+    })
+    src = (
+        "package main\n\n"
+        "import (\n"
+        '    "fmt"\n'
+        '    "github.com/me/proj/internal/auth"\n'
+        ")\n\n"
+        'import alias "github.com/me/proj/internal/auth"\n'
+    )
+    edges = extract_go_import_edges(src, Path("cmd/server/main.go"), ws)
+    assert str(Path("internal/auth/session.go")) in edges
+    assert str(Path("internal/auth/helpers.go")) in edges
+    assert all("fmt" not in e for e in edges)
+
+
+def test_d15_rust_edges(tmp_path):
+    ws = _mk(tmp_path, {
+        "src/main.rs": "fn main() {}\n",
+        "src/auth.rs": "pub fn s() {}\n",
+        "src/store/mod.rs": "pub mod mem;\n",
+        "src/store/mem.rs": "pub fn m() {}\n",
+    })
+    src_main = (
+        "mod auth;\n"
+        "mod store;\n"
+        "use crate::auth::s;\n"
+        "use serde::Serialize;\n"
+    )
+    edges = extract_rust_import_edges(src_main, Path("src/main.rs"), ws)
+    assert str(Path("src/auth.rs")) in edges
+    assert str(Path("src/store/mod.rs")) in edges        # mod declaration
+    assert all("serde" not in e for e in edges)          # external crate dropped
+
+    # use self:: / super:: from a nested module
+    edges2 = extract_rust_import_edges(
+        "use super::auth::s;\n", Path("src/store/mem.rs"), ws)
+    assert str(Path("src/auth.rs")) in edges2
+
+
+def test_d15_java_edges(tmp_path):
+    ws = _mk(tmp_path, {
+        "src/main/java/com/example/app/Main.java": "class Main {}\n",
+        "src/main/java/com/example/auth/Session.java": "class Session {}\n",
+        "src/main/java/com/example/auth/Tokens.java": "class Tokens {}\n",
+    })
+    src = (
+        "package com.example.app;\n\n"
+        "import com.example.auth.Session;\n"
+        "import static com.example.auth.Tokens;\n"
+        "import java.util.List;\n"
+        "import com.external.lib.*;\n"
+    )
+    edges = extract_java_import_edges(
+        src, Path("src/main/java/com/example/app/Main.java"), ws)
+    assert str(Path("src/main/java/com/example/auth/Session.java")) in edges
+    assert str(Path("src/main/java/com/example/auth/Tokens.java")) in edges
+    assert not any("java/util" in e or "external" in e for e in edges)
+
+
+def test_d15_edges_flow_into_index(tmp_path):
+    """Integration: a mixed workspace indexes edges for ALL languages into
+    the SAME import_edges table, in the chunk-row transactions."""
+    from src.context.chunk_index import ChunkIndex
+
+    ws = _mk(tmp_path, {
+        "core.py": "import util\n",
+        "util.py": "X = 1\n",
+        "app.ts": "import { u } from './helper';\n",
+        "helper.ts": "export const u = 1;\n",
+        "main.go": 'package main\n\nimport "mod/pkg"\n',
+        "pkg/p.go": "package pkg\n",
+    })
+    (ws / "go.mod").write_text("module mod\n")
+    # embedder=None: edges are storage-level metadata, embedding-independent
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "idx.db"), embedder=None, watch=False)
+    idx.index_workspace()
+    rows = set(idx.conn.execute(
+        "SELECT importer, imported FROM import_edges").fetchall())
+    assert (str(Path("core.py")), str(Path("util.py"))) in rows
+    assert (str(Path("app.ts")), str(Path("helper.ts"))) in rows
+    assert (str(Path("main.go")), str(Path("pkg/p.go"))) in rows
+
+
+def test_d15_edges_never_raise_on_garbage(tmp_path):
+    ws = _mk(tmp_path, {"a.ts": "x\n"})
+    for fn, rel in (
+        (extract_js_import_edges, "a.ts"),
+        (extract_go_import_edges, "a.go"),
+        (extract_rust_import_edges, "a.rs"),
+        (extract_java_import_edges, "A.java"),
+    ):
+        assert fn("!!!!(((({{{{", Path(rel), ws) == set()
+        assert fn("", Path(rel), ws) == set()

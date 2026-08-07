@@ -216,7 +216,12 @@ def test_v2_migration_forces_one_resync(ws_and_index, tmp_path):
 # Non-Python tolerance
 # ---------------------------------------------------------------------
 
-def test_js_files_index_without_edges_no_crash(tmp_path, monkeypatch):
+def test_js_files_index_with_edges_and_related_files(tmp_path, monkeypatch):
+    # §41 CONTRACT CHANGE: this pin used to be
+    # "test_js_files_index_without_edges_no_crash" and asserted n_edges == 0
+    # ("v1 edges are Python-only by design"). D15-remainder fixed exactly
+    # that debt: JS/TS (and Go/Rust/Java) now produce import edges. The
+    # assertion inversion is deliberate, not a regression.
     pytest.importorskip("tree_sitter_javascript")
     ws = tmp_path / "proj"
     ws.mkdir()
@@ -230,7 +235,11 @@ def test_js_files_index_without_edges_no_crash(tmp_path, monkeypatch):
                      embedder=FakeEmbedder())
     idx.sync_workspace()
     with idx._write_lock:
-        n_edges = idx.conn.execute("SELECT COUNT(*) FROM import_edges").fetchone()[0]
-    assert n_edges == 0  # v1 edges are Python-only by design
-    assert _related_files_lines(idx, {"app.js"}) == []
+        rows = idx.conn.execute(
+            "SELECT importer, imported FROM import_edges").fetchall()
+    assert (Path("app.js").as_posix(), Path("util.js").as_posix()) in {
+        (Path(a).as_posix(), Path(b).as_posix()) for a, b in rows
+    }
+    related = _related_files_lines(idx, {"app.js"})
+    assert any("util.js" in ln for ln in related)
     idx.conn.close()
