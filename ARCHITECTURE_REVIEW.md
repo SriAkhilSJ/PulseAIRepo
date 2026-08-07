@@ -1644,3 +1644,48 @@ script fallback, plain-text passthrough, scheme guard). Suite: 292 green.
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
 ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
 ~~D24~~ ~~D10~~ — remaining: D9, D15-remainder, D23, P2.
+
+---
+
+## §40 — D9 FIXED: progress_node split (god-block -> tested helpers + thin orchestrator)
+
+**Debt D9 closed.** progress_node was a ~340-line function owning tool-
+outcome classification, trace recording, semantic tool-memory, failure/
+recovery bookkeeping (with sneaky forks: check_terminal "running" skips
+EVEN trace recording; the recovery command slot is set by the FIRST
+run/check failure only; "other tool" failures count attempts only while
+already recovering; recovery clears only when the SAME command succeeds),
+replan consultation, plan updates, event emissions, step labels, and the
+reflection-prompt injection. Untestable in isolation; any edit risked
+breaking plan/recovery semantics.
+
+Fix: new src/graphs/progress_helpers.py — pure, side-effect-light helpers
+(events returned as DATA and emitted by the node): latest_tool_messages,
+find_tool_args, classify_tool_outcome (tri-state incl. SKIP), make_trace_
+entry, tool_memory_anchor + record_tool_memory (never raises), build_
+failure, maybe_replan, success_step_label, resolve_recovery_on_success,
+PROGRESS_REFLECTION_PROMPT (byte-pinned). progress_node is now ~80 lines:
+ordering contract trace -> memory -> failure/success -> dedupe kept
+verbatim; should_replan/update_plan_from_tool moved out of chat_graph's
+import block (single responsibility restored).
+
+Zero-behavior-change proof: the entire plan/replan/recovery suite (30+
+tests: plan_approval/cancel/mode/revision, replan_graph/replan_recovery,
+agent_regression/status) green through the NEW orchestrator unchanged.
+
+Founder's metrics: pure code health — no user-visible change; the value is
+that the NEXT recovery-loop change (and the agent's own self-edits of this
+file) now happen against 13 focused pins instead of a god-block. Latency/
+context/tokens/LLM calls: untouched by construction.
+
+Pins: src/tests/test_progress_helpers.py NEW FILE 13/13 (extraction order,
+arg lookup, every classification fork incl. terminal rules + skip, memory
+anchor precedence/head-vs-tail/no-raise, failure variants + attempt rules,
+replan short-circuit + monkeypatched consult, labels/events per tool,
+same-command recovery clearing, reflection bytes; plus 3 integration
+tests through the real progress_node: success path, failure->recovery,
+running-check-records-nothing-but-reflection). Suite: 305 green (10.6s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ — remaining: D15-remainder, D23, P2.

@@ -1,0 +1,270 @@
+"""D9 pins (§40): the progress_node split.
+
+Every fork of the pre-D9 god-block is pinned in isolation against
+src/graphs/progress_helpers.py, plus integration tests through the real
+progress_node. The rest of the plan/replan suite (30+ tests) exercises
+the orchestrator end-to-end and must stay green — that is the
+no-behavior-change proof.
+"""
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+import src.graphs.progress_helpers as ph
+
+
+# ---------------------------------------------------------------------
+# extraction / lookup
+# ---------------------------------------------------------------------
+
+def test_d9_latest_tool_messages_trailing_run_only():
+    msgs = [
+        HumanMessage(content="hi"),
+        ToolMessage(content="old", tool_call_id="0", name="read_file"),
+        AIMessage(content="thinking"),
+        ToolMessage(content="a", tool_call_id="1", name="read_file"),
+        ToolMessage(content="b", tool_call_id="2", name="list_files"),
+    ]
+    got = ph.latest_tool_messages(msgs)
+    assert [m.tool_call_id for m in got] == ["1", "2"]  # order restored
+
+
+def test_d9_find_tool_args_matches_call_id():
+    msgs = [
+        AIMessage(content="", tool_calls=[
+            {"id": "aa", "name": "read_file", "args": {"path": "x.py"}},
+            {"id": "bb", "name": "run_terminal", "args": {"command": "ls"}},
+        ]),
+    ]
+    assert ph.find_tool_args(msgs, "bb") == {"command": "ls"}
+    assert ph.find_tool_args(msgs, "nope") == {}
+
+
+# ---------------------------------------------------------------------
+# outcome classification (every legacy fork)
+# ---------------------------------------------------------------------
+
+def test_d9_classify_terminal_rules():
+    ok = "files listed\nexit code: 0"
+    bad = "oops\nexit code: 1"
+    assert ph.classify_tool_outcome("run_terminal", ok) == ph.OUTCOME_SUCCESS
+    assert ph.classify_tool_outcome("run_terminal", bad) == ph.OUTCOME_FAILED
+    # no exit-code line at all is a failure for run_terminal
+    assert ph.classify_tool_outcome("run_terminal", "done") == ph.OUTCOME_FAILED
+    assert ph.classify_tool_outcome(
+        "check_terminal", "status: running") == ph.OUTCOME_SKIP
+    assert ph.classify_tool_outcome(
+        "check_terminal", "status: completed\nexit code: 0") == ph.OUTCOME_SUCCESS
+    assert ph.classify_tool_outcome(
+        "check_terminal", "status: completed\nexit code: 2") == ph.OUTCOME_FAILED
+    # generic markers on any other tool
+    assert ph.classify_tool_outcome("read_file", "error: not found") == ph.OUTCOME_FAILED
+    assert ph.classify_tool_outcome("read_file", "Traceback (most recent") == ph.OUTCOME_FAILED
+    assert ph.classify_tool_outcome(
+        "read_file", "unknown process id") == ph.OUTCOME_FAILED
+    assert ph.classify_tool_outcome(
+        "write_file", "path escapes workspace") == ph.OUTCOME_FAILED
+    assert ph.classify_tool_outcome("read_file", "file contents here") == ph.OUTCOME_SUCCESS
+
+
+# ---------------------------------------------------------------------
+# tool memory
+# ---------------------------------------------------------------------
+
+class _Mem:
+    def __init__(self):
+        self.calls = []
+
+    def store_tool_memory(self, **kw):
+        self.calls.append(kw)
+
+
+def test_d9_memory_rules():
+    mem = _Mem()
+    ph.record_tool_memory(mem, "think", "task", "some output", {}, False)
+    ph.record_tool_memory(mem, "read_file", "task", "   ", {}, False)
+    ph.record_tool_memory(None, "read_file", "task", "data", {}, False)
+    assert mem.calls == []
+
+    ph.record_tool_memory(mem, "read_file", "task", "HEAD " + "x" * 400,
+                          {"path": "a.py", "command": "ls"}, False)
+    ph.record_tool_memory(mem, "run_terminal", "task", "y" * 400 + " TAIL",
+                          {"command": "make"}, True)
+    ok, fail = mem.calls
+    assert ok["summary"].startswith("OK path=a.py | HEAD")  # anchor precedence path>command
+    assert fail["summary"].startswith("FAILED command=make |")
+    assert fail["summary"].endswith("TAIL")                  # failure keeps the tail
+    assert ok["full_output"].startswith("HEAD") and len(ok["full_output"]) == 405
+
+
+def test_d9_memory_never_raises_even_when_store_explodes():
+    class _Boom:
+        def store_tool_memory(self, **kw):
+            raise RuntimeError("db down")
+
+    ph.record_tool_memory(_Boom(), "read_file", "t", "data", {}, False)
+
+
+# ---------------------------------------------------------------------
+# failure bookkeeping
+# ---------------------------------------------------------------------
+
+def test_d9_build_failure_terminal_variants():
+    f, up = ph.build_failure("run_terminal", "boom output", {"command": "make"},
+                             False, None)
+    assert f.startswith("Command failed: make\nActual tool output:\n")
+    assert up == {"tool_failures_inc": 1, "recovery_attempts_inc": 1,
+                  "recovery_mode": True, "recovery_command": "make"}
+
+    # already in recovery: command slot NOT stolen
+    f, up = ph.build_failure("run_terminal", "x", {"command": "make2"},
+                             True, "make")
+    assert up["recovery_command"] == "make"
+    assert up["recovery_attempts_inc"] == 1
+
+    f, up = ph.build_failure("check_terminal", "x", {"process_id": "p9"},
+                             False, None)
+    assert f.startswith("Terminal process failed: p9")
+    assert up["recovery_command"] == "process:p9"
+
+    # generic tool: attempts only move while already in recovery
+    f, up = ph.build_failure("read_file", "x", {}, False, None)
+    assert f == "Tool failed: read_file"
+    assert up["recovery_attempts_inc"] == 0 and up["recovery_mode"] is False
+    f, up = ph.build_failure("read_file", "x", {}, True, "make")
+    assert up["recovery_attempts_inc"] == 1 and up["recovery_mode"] is True
+
+
+def test_d9_maybe_replan(monkeypatch):
+    needed, usages = ph.maybe_replan("t", [], "f", "p", "m")
+    assert needed is False and usages == []
+
+    captured = {}
+
+    def _fake(task, plan, failure, provider, model, usage_list):
+        captured.update(task=task, failure=failure, provider=provider, model=model)
+        usage_list.append("U1")
+        return True
+
+    monkeypatch.setattr(ph, "should_replan", _fake)
+    needed, usages = ph.maybe_replan("fix auth", [{"step": 1}], "boom", "groq", "llama")
+    assert needed is True and usages == ["U1"]
+    assert captured["failure"] == "boom" and captured["provider"] == "groq"
+
+
+# ---------------------------------------------------------------------
+# success labels / events / recovery clearing
+# ---------------------------------------------------------------------
+
+def test_d9_success_labels_and_events():
+    label, events = ph.success_step_label("write_file",
+                                          {"path": "a.py", "content": "l1\nl2"}, "tc1")
+    assert label == "Wrote file: a.py"
+    assert [e for e, _ in events] == ["diff.show", "files.changed"]
+    assert events[0][1] == {"file": "a.py", "lines": ["l1", "l2"]}
+    assert events[1][1] == {"messageId": "tc1", "files": ["a.py"]}
+
+    label, events = ph.success_step_label("edit_file", {"path": "b.py"}, "tc2")
+    assert label == "Edited file: b.py"
+    assert [e for e, _ in events] == ["files.changed"]
+
+    label, events = ph.success_step_label("read_file", {"path": "c.py"}, "tc3")
+    assert label == "Read file: c.py" and events == []
+
+    label, _ = ph.success_step_label("run_terminal", {"command": "make"}, "t")
+    assert label == "Ran command successfully: make"
+    label, _ = ph.success_step_label("custom_tool", {}, "t")
+    assert label == "Completed tool: custom_tool"
+
+
+def test_d9_recovery_clears_only_same_command():
+    mode, cmd = ph.resolve_recovery_on_success(
+        "run_terminal", {"command": "make"}, True, "make")
+    assert (mode, cmd) == (False, None)
+    mode, cmd = ph.resolve_recovery_on_success(
+        "run_terminal", {"command": "make clean"}, True, "make")
+    assert (mode, cmd) == (True, "make")
+    mode, cmd = ph.resolve_recovery_on_success(
+        "read_file", {"path": "a.py"}, True, "make")
+    assert (mode, cmd) == (True, "make")
+
+
+def test_d9_reflection_prompt_bytes():
+    assert ph.PROGRESS_REFLECTION_PROMPT.startswith(
+        "You just received a tool result. Take a moment to evaluate it:"
+    )
+    assert ph.PROGRESS_REFLECTION_PROMPT.endswith(
+        "Don't verify meta-tools like think(), verify(), or ask_user()."
+    )
+
+
+# ---------------------------------------------------------------------
+# integration through the real node
+# ---------------------------------------------------------------------
+
+def _cfg():
+    return {"configurable": {"provider": "p", "model": "m", "thread_id": "t9"}}
+
+
+def test_d9_progress_node_success_path():
+    from src.graphs.chat_graph import progress_node
+
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "t1", "name": "run_terminal", "args": {"command": "ls"}},
+            ]),
+            ToolMessage(content="files here\nexit code: 0",
+                        tool_call_id="t1", name="run_terminal"),
+        ],
+        "current_task": "list files",
+    }
+    out = progress_node(state, _cfg())
+    assert out["steps_completed"] == ["Ran command successfully: ls"]
+    assert out["failed_steps"] == []
+    assert out["execution_trace"][0]["status"] == "success"
+    assert out["execution_trace"][0]["tool"] == "run_terminal"
+    assert isinstance(out["messages"][0], SystemMessage)
+    assert out["messages"][0].content == ph.PROGRESS_REFLECTION_PROMPT
+    assert "token_usage" in out
+
+
+def test_d9_progress_node_failure_sets_recovery():
+    from src.graphs.chat_graph import progress_node
+
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "t1", "name": "run_terminal", "args": {"command": "make"}},
+            ]),
+            ToolMessage(content="boom\nexit code: 1",
+                        tool_call_id="t1", name="run_terminal"),
+        ],
+        "current_task": "build it",
+    }
+    out = progress_node(state, _cfg())
+    assert out["recovery_mode"] is True
+    assert out["recovery_command"] == "make"
+    assert out["recovery_attempts"] == 1
+    assert out["tool_failures"] == 1
+    assert out["failed_steps"][0].startswith("Command failed: make")
+
+
+def test_d9_progress_node_running_check_records_nothing():
+    from src.graphs.chat_graph import progress_node
+
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "t1", "name": "check_terminal", "args": {"process_id": "p1"}},
+            ]),
+            ToolMessage(content="status: running",
+                        tool_call_id="t1", name="check_terminal"),
+        ],
+        "current_task": "watch it",
+    }
+    out = progress_node(state, _cfg())
+    assert out["execution_trace"] == []
+    assert out["steps_completed"] == []
+    assert out["failed_steps"] == []
+    # ...but the reflection message still fires (a tool message DID arrive)
+    assert isinstance(out["messages"][0], SystemMessage)

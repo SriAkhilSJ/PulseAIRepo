@@ -38,12 +38,11 @@ from src.agents.planner import (
     create_replan,
     revise_plan,
     should_create_plan,
-    should_replan,
     start_next_plan_step,
-    update_plan_from_tool,
     finalize_plan,
     check_ambiguity,
 )
+from src.graphs import progress_helpers as ph
 from src.tools.file_tools import (
     read_file,
     list_files,
@@ -762,312 +761,103 @@ def progress_node(
     state: AgentState,
     config: RunnableConfig,
 ):
-    """Track successful and failed tool operations."""
+    """Track successful and failed tool operations.
+
+    D9 (§40): this node is now a thin orchestrator over
+    src/graphs/progress_helpers.py — every fork of the bookkeeping lives
+    there unit-tested; the ORDER of operations below is the behavior
+    contract (trace -> memory -> failure/success -> dedupe).
+    """
 
     messages = state.get("messages", [])
 
-    plan = list(
-        state.get("plan", [])
-    )
-
-    steps_completed = list(
-        state.get("steps_completed", [])
-    )
-
-    failed_steps = list(
-        state.get("failed_steps", [])
-    )
-    
-    execution_trace = list(
-        state.get("execution_trace", [])
-    )
-    recovery_attempts = state.get(
-    "recovery_attempts",
-    0,
-)
+    plan = list(state.get("plan", []))
+    steps_completed = list(state.get("steps_completed", []))
+    failed_steps = list(state.get("failed_steps", []))
+    execution_trace = list(state.get("execution_trace", []))
+    recovery_attempts = state.get("recovery_attempts", 0)
     recovery_mode = state.get("recovery_mode", False)
     tool_failures = state.get("tool_failures", 0)
-    recovery_command = state.get(
-    "recovery_command"
-)
+    recovery_command = state.get("recovery_command")
     replan_needed = state.get("replan_needed", False)
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
 
-    # ==========================================
-    # FIND LATEST TOOL MESSAGES
-    # ==========================================
-
-    latest_tools: list[ToolMessage] = []
-
-    for message in reversed(messages):
-        if isinstance(message, ToolMessage):
-            latest_tools.append(message)
-        else:
-            break
-
-    latest_tools.reverse()
-
-    # ==========================================
-    # PROCESS TOOL MESSAGES
-    # ==========================================
+    latest_tools = ph.latest_tool_messages(messages)
 
     for message in latest_tools:
         tool_name = message.name or "unknown_tool"
         result = str(message.content)
-        result_lower = result.lower()
+        tool_args = ph.find_tool_args(messages, message.tool_call_id)
 
-        # ------------------------------------------
-        # Find matching tool arguments FIRST
-        # ------------------------------------------
+        outcome = ph.classify_tool_outcome(tool_name, result)
+        if outcome == ph.OUTCOME_SKIP:
+            continue  # check_terminal still running: record NOTHING
 
-        tool_args = {}
+        failed = outcome == ph.OUTCOME_FAILED
 
-        for previous_message in reversed(messages):
-            if not hasattr(previous_message, "tool_calls"):
-                continue
-
-            for tool_call in previous_message.tool_calls:
-                if tool_call.get("id") == message.tool_call_id:
-                    tool_args = tool_call.get("args", {})
-                    break
-
-            if tool_args:
-                break
-
-        # ------------------------------------------
-        # Determine success / failure
-        # ------------------------------------------
-
-        failed = (
-            "error:" in result_lower
-            or "traceback" in result_lower
-            or "unknown process id" in result_lower
-            or "path escapes workspace" in result_lower
+        # Trace comes before memory/failure/success handling (pre-D9 order).
+        execution_trace.append(
+            ph.make_trace_entry(tool_name, tool_args, result, failed)
         )
 
-        if tool_name == "run_terminal":
-            if "exit code: 0" not in result_lower:
-                failed = True
-
-        elif tool_name == "check_terminal":
-            if "status: running" in result_lower:
-                continue
-
-            if "status: completed" in result_lower:
-                if "exit code: 0" not in result_lower:
-                    failed = True
-
-        # ------------------------------------------
-        # Record trace
-        # ------------------------------------------
-        trace_entry = {
-            "type": "tool",
-            "tool": tool_name,
-            "args": tool_args.copy(),
-            "status": "failed" if failed else "success",
-            "result": result[-1000:],
-        }
-        execution_trace.append(trace_entry)
-
-        # ------------------------------------------
-        # Store tool output for semantic retrieval
-        # (feeds the "RELEVANT PAST TOOL OUTPUTS" layer)
-        # ------------------------------------------
-        if result.strip() and tool_name != "think":
-            try:
-                # Anchor the memory with the tool's target so later tasks
-                # mentioning the same file/command/query can retrieve it.
-                anchor = ""
-                for key in ("path", "command", "query", "process_id"):
-                    val = tool_args.get(key)
-                    if val:
-                        anchor = f"{key}={val}"
-                        break
-
-                # Failures: the error lives at the tail of the output.
-                # Successes: the useful content starts at the head.
-                if failed:
-                    summary = result[-300:].replace("\n", " ")
-                else:
-                    summary = result[:300].replace("\n", " ")
-
-                memory_manager.store_tool_memory(
-                    tool_name=tool_name,
-                    query=state.get("current_task", ""),
-                    summary=f"{'FAILED' if failed else 'OK'} {anchor} | {summary}",
-                    full_output=result[:2000],
-                )
-            except Exception:
-                pass  # Tool memory is best-effort; never block execution
-
-        # ------------------------------------------
-        # Record failure
-        # ------------------------------------------
+        # Store tool output for semantic retrieval (best-effort inside).
+        ph.record_tool_memory(
+            memory_manager,
+            tool_name,
+            state.get("current_task", ""),
+            result,
+            tool_args,
+            failed,
+        )
 
         if failed:
-            tool_failures += 1
-
-            if tool_name == "run_terminal":
-                command = tool_args.get(
-                    "command",
-                    "unknown command",
-                )
-
-                # Every failed terminal execution counts.
-                recovery_attempts += 1
-
-                if not recovery_mode:
-                    recovery_mode = True
-                    recovery_command = command
-
-                failure = (
-                    f"Command failed: {command}\n"
-                    f"Actual tool output:\n{result[-3000:]}"
-                )
-
-            elif tool_name == "check_terminal":
-                process_id = tool_args.get(
-                    "process_id",
-                    "unknown",
-                )
-
-                recovery_attempts += 1
-
-                if not recovery_mode:
-                    recovery_mode = True
-                    recovery_command = f"process:{process_id}"
-
-                failure = (
-                    f"Terminal process failed: {process_id}\n"
-                    f"Actual tool output:\n{result[-3000:]}"
-                )
-
-            else:
-                if recovery_mode:
-                    recovery_attempts += 1
-
-                failure = f"Tool failed: {tool_name}"
+            failure, updates = ph.build_failure(
+                tool_name, result, tool_args, recovery_mode, recovery_command
+            )
+            tool_failures += updates["tool_failures_inc"]
+            recovery_attempts += updates["recovery_attempts_inc"]
+            recovery_mode = updates["recovery_mode"]
+            recovery_command = updates["recovery_command"]
 
             if failure not in failed_steps:
                 failed_steps.append(failure)
 
-            if plan:
-                configurable = config["configurable"]
-
-                usages: list[TokenUsage] = []
-
-                replan_needed = should_replan(
-                    task=state.get("current_task", ""),
-                    plan=plan,
-                    failure=failure,
-                    provider=configurable["provider"],
-                    model=configurable["model"],
-                    usage_list=usages,
-                )
-
+            needed, usages = ph.maybe_replan(
+                task=state.get("current_task", ""),
+                plan=plan,
+                failure=failure,
+                provider=config["configurable"]["provider"],
+                model=config["configurable"]["model"],
+            )
+            if usages:
+                replan_needed = needed
                 for usage in usages:
                     total_usage = total_usage + usage
-
             continue
 
-        # ------------------------------------------
-        # Record success
-        # ------------------------------------------
-
+        # ---------------- success ----------------
         if plan:
-            plan = update_plan_from_tool(
+            plan = ph.update_plan_from_tool(
                 plan=plan,
                 tool_name=tool_name,
                 tool_args=tool_args,
                 failed=False,
             )
 
-        if tool_name == "read_file":
-            path = tool_args.get("path", "unknown")
-            step = f"Read file: {path}"
+        label, events = ph.success_step_label(
+            tool_name, tool_args, message.tool_call_id
+        )
+        for event_name, payload in events:
+            event_bus.emit(event_name, payload)
 
-        elif tool_name == "write_file":
-            path = tool_args.get("path", "unknown")
-            step = f"Wrote file: {path}"
-            
-            content = tool_args.get("content", "")
-            event_bus.emit("diff.show", {
-                "file": path,
-                "lines": content.split("\n")[:20],
-            })
-            event_bus.emit("files.changed", {
-                "messageId": message.tool_call_id,
-                "files": [path],
-            })
+        # Same-operation rule: recovery clears only when the command that
+        # originally failed now succeeds.
+        recovery_mode, recovery_command = ph.resolve_recovery_on_success(
+            tool_name, tool_args, recovery_mode, recovery_command
+        )
 
-        elif tool_name == "edit_file":
-            path = tool_args.get("path", "unknown")
-            step = f"Edited file: {path}"
-
-            event_bus.emit("files.changed", {
-                "messageId": message.tool_call_id,
-                "files": [path],
-            })
-
-        elif tool_name == "search_code":
-            query = tool_args.get("query", "")
-            path = tool_args.get("path", ".")
-            step = f"Searched for '{query}' inside {path}"
-
-        elif tool_name == "list_files":
-            path = tool_args.get("path", ".")
-            step = f"Listed files: {path}"
-
-        elif tool_name == "run_terminal":
-            command = tool_args.get(
-                "command",
-                "unknown command",
-            )
-            step = f"Ran command successfully: {command}"
-
-            # Recovery only finishes when the SAME operation
-            # that originally failed now succeeds.
-            if (
-                recovery_mode
-                and recovery_command is not None
-                and command == recovery_command
-            ):
-                recovery_mode = False
-                recovery_command = None
-
-        elif tool_name == "start_terminal":
-            command = tool_args.get(
-                "command",
-                "unknown command",
-            )
-            step = f"Started background command: {command}"
-
-        elif tool_name == "check_terminal":
-            process_id = tool_args.get(
-                "process_id",
-                "unknown",
-            )
-            step = (
-                "Terminal process completed successfully: "
-                f"{process_id}"
-            )
-
-        elif tool_name == "stop_terminal":
-            process_id = tool_args.get(
-                "process_id",
-                "unknown",
-            )
-            step = f"Stopped terminal process: {process_id}"
-
-        else:
-            step = f"Completed tool: {tool_name}"
-
-        if step not in steps_completed:
-            steps_completed.append(step)
-
-    # ==========================================
-    # RETURN AFTER THE LOOP
-    # ==========================================
+        if label not in steps_completed:
+            steps_completed.append(label)
 
     result = {
         "steps_completed": steps_completed,
@@ -1084,16 +874,7 @@ def progress_node(
 
     if latest_tools:
         result["messages"] = [
-            SystemMessage(
-                content=(
-                    "You just received a tool result. Take a moment to evaluate it:\n"
-                    "- Did the tool succeed or fail?\n"
-                    "- Does the output match what you expected?\n"
-                    "- Should you proceed, fix something, ask the user, or replan?\n\n"
-                    "Use verify() when the result needs explicit validation. "
-                    "Don't verify meta-tools like think(), verify(), or ask_user()."
-                )
-            )
+            SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
         ]
 
     return result
