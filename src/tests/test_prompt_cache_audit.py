@@ -145,10 +145,25 @@ def test_engine_audits_and_git_context_emits_last(engine, tmp_path):
     engine.build_ai_messages(_state(ws, msgs2), persona)
     stats = engine.cache_audit_stats()
     rec = stats["recent"][-1]
-    assert rec["breaker"] == "layer:git_context"
-    # Measured 70.3% on the harness fixture post-fix (22.2% pre-fix).
-    # Pin well below the harness number so fixture details stay flexible.
+    # §42 CONTRACT CHANGE: D19 asserted breaker == "layer:git_context" with
+    # stable_ratio >= 0.55 (its measured 70.3%). D23 moved volatile layers
+    # AFTER history, so a git change can no longer evict the conversation
+    # from the prefix — the only breakers are natural history growth (the
+    # measured long-session cross-over: 15.3% -> 91.7% on the post-edit
+    # turn). The engine fixture defaults to the NEW layout; the legacy
+    # assertion is superseded deliberately, not regressed.
+    assert rec["breaker"].startswith("history:"), (
+        f"volatile layer leaked back into the cache prefix: {rec}")
     assert rec["stable_ratio"] >= 0.55
+    # ...and the placement guarantee itself: git sits after all history.
+    seen = []
+    for m in engine.build_ai_messages(_state(ws, msgs2), persona):
+        if isinstance(m, SystemMessage) and str(m.content).startswith("=== GIT CONTEXT"):
+            seen.append("git")
+        elif isinstance(m, (HumanMessage, AIMessage)):
+            seen.append("hist")
+    assert "git" in seen, "git layer missing — placement cannot be verified"
+    assert seen.index("git") > max(i for i, k in enumerate(seen) if k == "hist")
 
 
 def test_selection_score_driven_placement_canonical(engine):

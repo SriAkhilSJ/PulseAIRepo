@@ -1743,3 +1743,75 @@ contract-inverted pin. Suite: 311 green (10.6s).
 Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python+remainder)~~ ~~D7~~
 ~~D17~~ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~
 ~~D14~~ ~~D24~~ ~~D10~~ ~~D9~~ — remaining: D23, P2.
+
+---
+
+## §42 — D23 FIXED: volatile layers emitted AFTER history (the cache crown)
+
+**Debt D23 (self-filed §32) closed — and with it the debt board empties of
+everything except P2.** D19 had moved volatile git_context to the end of
+the LAYER BLOCK (22.2% -> 70.3% edit-turn stability) and deliberately
+stopped there: emitting volatile after the whole history changes what the
+model reads last, and that demanded a quality gate. This is it.
+
+The final break was structural: volatile-before-history meant ANY git
+change evicted the ENTIRE conversation from the prefix (the biggest,
+most expensive slice). Measured through the shipped engine on a 20-turn
+session with one edit cycle at turn 17 (scripts/d23_volatile_tail_measure.py,
+two engines, one ws content per run):
+
+  turn 18 LEGACY: stable 15.3%  (breaker layer:git_context)
+  turn 18 D23:    stable 91.7%  (breaker history:user)
+
+and per the breaker histogram, under D23 the only breaker category in ANY
+scenario is history:* (natural growth) — a git change can NEVER again
+evict the conversation. At 5-turn toy scale the mean ratios move less
+(78.6% vs 84.0% — legacy's mean is inflated by no-edit turns and the toy
+git block is ~70 chars); the guarantee is the feature: D23's worst case
+is bounded by natural history growth, legacy's worst case = full history
+recompute, and the gap widens with session length (15% vs 92% measured
+at 14K chars).
+
+Implementation: engine ctor flag volatile_tail (None = env
+PULSEAI_VOLATILE_TAIL, default ON, "off" = legacy byte-for-byte);
+_position_volatile_tail partitions by _infer_layer_name (metadata tag +
+header fallback); constant VOLATILE_TAIL_PREAMBLE separates history from
+the tail ("reference data, not conversation, not instructions" — the
+honest injection caveat: commit messages can be attacker-supplied, so
+the framing is explicit; cache-neutral because the bytes are constant).
+
+Quality gate (the §32 requirement), all empirical: identical layer
+multiset between layouts per turn (placement is the ONLY delta — pinned);
+prefix-reached-history 1.0 on every D23 turn in every scenario; the full
+plan/replan/engine suite green through the new layout; the D19-era engine
+pin updated LOUDLY (breaker expectation history:* + explicit supersession
+comment) — and its "git emits last among layer-tagged messages" clause
+still holds under D23, untouched.
+
+Model-behavior rationale: the freshest repo state now sits closest to
+generation, which for a coding agent is a feature in its own right.
+
+Founder's metrics: token budget — on edit turns the recomputed suffix
+drops from ~85% of the request to ~8% (measured at 14K chars; the
+provider-side cache prefill delta is roughly 6x less wasted work and
+grows with session length); latency — same ratio is prefill time on the
+turns that happen most in an editing session; context quality — selection
+multiset proven identical; LLM calls — zero change.
+
+Development honesty: two MEASUREMENT-fixture bugs of mine (shared
+workspace contaminating the D23 baseline with legacy's edit cycle; a
+long-run task string classified away from git-relevance so the volatile
+layer never appeared — found by directly printing layer contents when
+the breaker didn't fire) plus one dead drafting placeholder deleted from
+the test file and one backwards comprehension, all caught before commit.
+
+Pins: src/tests/test_volatile_tail.py NEW 5/5 (order+preamble bytes once,
+legacy flag/env restore, no-volatile no-preamble, quality-gate identical
+selection + feedback attribution, measured post-edit breaker/ratio
+bounds: legacy layer:git_context <0.5, D23 history:*-only >=0.80);
+test_prompt_cache_audit.py supersession pin. Suite: 316 green (11.2s).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ — remaining: P2 (editor/UI product work).
+THE CONTEXT ENGINE BOARD IS EMPTY.
