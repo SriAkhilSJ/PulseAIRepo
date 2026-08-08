@@ -2,6 +2,23 @@
 
 PulseAI is an autonomous senior-engineer agent built with LangGraph and LangChain. It features a "Claude-Quality" ecosystem, a real-time Agentic IDE dashboard, and a task-aware context engine designed for high-precision autonomous coding.
 
+> **Two eras, one repo.** The **engine** (`src/`) is a complete, test-pinned autonomous coding agent (~25K LOC). The **IDE** (`desktop/` + `docs/P2-roadmap.md`) is the current phase: a VS Code fork — **PulseCode** — where the frozen engine becomes a native AI IDE through a stdio bridge (`src/bridge/`). See [Current Status](#-current-status-2026-08-08) below.
+
+---
+
+## 📊 Current Status (2026-08-08)
+
+**Engine: complete and frozen.** The agent loop, context engine, memory, and tooling have shipped through 35 debt items (D1–D35) plus 10 hermes-pattern steals — all closed, each one verified empirically before merge and pinned by the regression suite (**437 → 445 green**). The engine is now treated as *completed work*: new engine ideas go through the old board as separate D-items, never into the fork's milestones.
+
+**IDE: P2 Phase 0 in progress.** The roadmap (`docs/P2-roadmap.md`) is scope-frozen and follows a strict **2-line rule**: upstream VS Code is touched in exactly two places (`product.json` branding + one import line); everything else lives in a new `contrib/pulse/` directory.
+
+- ✅ 0.1–0.3 — fork plan, rebrand ("PulseCode"), skeleton patch (`patches/pulscode-m1-skeleton.patch`)
+- ✅ 0.4 — engine-side bridge: `src/bridge/` stdio JSON-RPC v1 sidecar (stdlib-only codec, 1 MiB line guard, handshake + version check, never-dies-on-garbage) — **the only door** between the fork and the engine
+- ⏳ 0.5 / M1 — sidebar "Pulse" view + chat round-trip through the real engine (tool calls as cards)
+- M2–M5 — native diff-approval UX, live telemetry, checkpoint time-machine, installers
+
+Every design decision, review round, and measurement lives in **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** — a 48-round development journal. It is the honest history of the project, including the claims that were rejected.
+
 ---
 
 ## 🧠 The Claude-Quality Transformation
@@ -52,6 +69,9 @@ PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, f
 - **Differential Caching:** Layers are only rebuilt when non-message state changes.
 - **Semantic History Compression:** `SmartCompressor` scores each past message by similarity to the current task (plus type/recency heuristics), not just age.
 - **Feedback Loop:** Completed tasks record which layers were used; layer weights drift ±3% toward successful compositions.
+- **Chunked Code Index:** `chunk_index.py` — tree-sitter/AST chunks → sqlite-vec KNN + FTS5 BM25 → RRF fusion, with a vec0 KNN pushdown (12–14×) and feature re-ranking (D13/D14). Wired into DEBUG/CREATE/REFACTOR tasks as `relevant_chunks`.
+- **Dynamic Context-Window Discovery:** env override → on-disk cache → static table → live provider probe, so unknown models budget correctly instead of guessing.
+- **Session-Scoped Engines:** one ContextEngine per thread (`thread_id`), so no session's cache or learned weights leak into another's.
 
 ### Long-Term Memory
 - **Persistent Memories:** Past task results and lessons are stored in `~/.pulseai/memories.json`.
@@ -59,9 +79,8 @@ PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, f
 - **Reflections:** Learned behaviors and "don't-do-this" lessons are indexed via `ReflectionEngine`.
 - **Skills:** Frequently used command patterns or workflows are saved to `skills.json`.
 
-### Web Search & Intelligence
-- **Integrated Search:** Uses `ddgs` for real-time documentation and error lookups.
-- **Web Fetch:** Reads full page content to verify implementation details.
+### Agent Tools (21 total)
+File tools (`read_file`, `list_files`, `search_code`, `write_file`, `edit_file` — atomic + fuzzy block-span), terminal tools (`run_terminal` + background process lifecycle), web tools (`web_search`, `web_fetch` — stdlib readable-text extraction), `execute_code` (one scripted call chains tools in-process), `session_search` (zero-LLM recall of past sessions via FTS5), `think`/`verify`/`ask_user`, and sub-agent delegation (`delegate_to_subagent` + parallel `delegate_to_subagent_batch`).
 
 ---
 
@@ -90,6 +109,8 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 5. **SQLite search is a LINEAR scan.** `search()` scores the most recent 500 rows in Python — correct and persistent, but not a real vector index. Time to scale past ~10K memories.
 6. **The pre-send guard covers messages, not tool defs.** `RetryLLMProxy` trims the message list to `PROVIDER_SAFE_LIMIT` (default 6000), but `bind_tools` payloads ride along untouched — a 50-tool definition list can still push a request over a tight provider limit.
 
+> **Note:** caveats #1 (layer attribution), #4 (chunk retrieval wiring), and the memory-index part of #5 were addressed after the v2 comparison was written — see the D-series in [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) (§1, §15–16, §6, §20, §37) for the follow-up work. The table above is preserved as the honest v2-vs-v1 record.
+
 ---
 
 ## 🆚 Can It Compete With Cursor? (The Straight Answer)
@@ -99,16 +120,14 @@ Everything below was verified by running both versions — v2 (`ae04d77`) is the
 - AST-accurate repo map with import graph + semantic dedup gives solid structural grounding per call.
 - Zero-cost local embeddings — no API spend for context features.
 - Differential caching means the heavy work happens once, not every turn.
+- A real chunked code index: tree-sitter/AST chunks → sqlite-vec KNN + FTS5 BM25 → RRF, incrementally synced via a file watcher — the gap this README previously flagged as "the next milestone" is now shipped (`src/context/chunk_index.py`, C1/KNN pushdown, D13/D14 re-rank).
 
 **What Cursor has that this does not (yet):**
-- A real codebase index: per-symbol/chunk embeddings, hybrid BM25 + vector retrieval, refreshed incrementally as files change. PulseAI has a static tree snapshot + a 20-file import graph.
-- Code-chunk-level retrieval. The agent currently reads whole files; Cursor retrieves the *relevant* function/class.
-- LSP/editor integration, `@`-references, git-aware context.
-- A 200K-token model window with automatic file inclusion. PulseAI budgets a fixed `max_tokens` with heuristic ratios.
+- LSP/editor integration, `@`-references, git-aware context (partially covered by `git_context.py`).
+- A 200K-token model window with automatic file inclusion. PulseAI budgets a fixed `max_tokens` with heuristic ratios (dynamic per-model window discovery shipped — see Features).
+- A polished native IDE surface. This is exactly what the **P2 PulseCode fork** is building: native diff-approval, checkpoint timeline, telemetry panel, inline completions — with the frozen engine behind a stdio bridge.
 
-*Note: persistent vector memory is solved (SQLite at `~/.pulseai/vector_memory.db`) — the remaining gap is a proper *index* (chunk embeddings + BM25), not persistence.*
-
-**Bottom line:** the v2 context engine, repo map, and persistent memory are a credible foundation — above typical OSS agent scaffolding — but to genuinely compete with Cursor's codebase Q&A, the roadmap is: chunked code index + BM25 hybrid retrieval → incremental refresh. That is the next milestone, not a claim we make today.
+**Bottom line:** the engine's context layer, chunked code index, and persistent memory are a credible foundation — above typical OSS agent scaffolding. The remaining moat work is now on the product side: turning the fork into the native IDE that surfaces this engine (P2, in progress).
 
 ---
 
@@ -138,9 +157,15 @@ flowchart TD
         CE --> DD[Embedding Dedup]
         CE --> FB[Feedback Loop]
         CE --> RM[Repo Map + Import Graph]
+        CE --> CI[Chunked Code Index]
     end
 
     DASH <-->|SSE / API| U
+
+    subgraph "P2 — PulseCode IDE (VS Code fork)"
+        FORK[PulseCode contrib/pulse] -->|stdio JSON-RPC v1| BRIDGE[src/bridge sidecar]
+        BRIDGE --> GRAPH
+    end
 ```
 
 ---
@@ -152,25 +177,36 @@ PulseAIRepo/
 ├── src/
 │   ├── main.py                     # CLI Entrypoint
 │   ├── dashboard_server.py         # Web IDE Backend
-│   ├── agents/                     # Specialist agents (Planner, SubAgent)
+│   ├── bridge/                     # P2: stdio JSON-RPC v1 sidecar — the ONLY door
+│   │   │                           #     between the PulseCode fork and the engine
+│   │   ├── protocol.py             #     stdlib-only codec (frozen protocol v1)
+│   │   └── __main__.py             #     sidecar entrypoint
+│   ├── agents/                     # Specialist agents (Planner, SubAgent, CostRouter)
 │   ├── context/                    # Context, Memory, Safety, and Tone layers
 │   │   ├── context_engine.py       # Task-aware, budgeted context assembly
 │   │   ├── chunk_index.py          # Chunked code index (sqlite-vec KNN + FTS5 BM25 → RRF)
 │   │   ├── repo_map.py             # AST repo map + import graph
 │   │   ├── smart_compressor.py     # Semantic history compression
-│   │   ├── vector_memory.py        # In-memory semantic store
+│   │   ├── vector_memory.py        # SQLite-backed semantic store
 │   │   ├── safety_guard.py         # Human-in-the-loop approval logic
 │   │   ├── reflection_engine.py    # Learning from past mistakes
 │   │   ├── convention_learner.py   # Style matching logic
-│   │   └── ...
-│   ├── graphs/                     # LangGraph workflow definitions
-│   ├── llm/factory.py              # LLM + shared embedder factory
-│   ├── providers/                  # Multi-LLM provider support (Groq, OpenAI, Gemini)
-│   ├── tests/                      # Regression suite
-│   └── tools/                      # File, Terminal, Web, and Math tools
-├── desktop/                        # VS Code fork (code-oss-dev 1.130.0) desktop app
+│   │   ├── session_index.py        # FTS5 session recall (session_search tool)
+│   │   ├── embedding_cache.py      # Process-wide content-addressed embed cache
+│   │   ├── model_budgets.py        # Dynamic context-window discovery
+│   │   └── ... (git_context, compaction, token_budget, etc.)
+│   ├── graphs/                     # LangGraph workflow definitions (chat_graph, parallel_tools)
+│   ├── llm/factory.py              # LLM + shared embedder factory (main + auxiliary clients)
+│   ├── providers/                  # Multi-LLM provider support (Groq, OpenAI, Gemini, NVIDIA, custom)
+│   ├── tests/                      # pytest regression suite — 445 green
+│   └── tools/                      # File, Terminal, Web, Code-Exec, Session-Search tools
+├── desktop/                        # VS Code fork (code-oss 1.130.0) — PulseCode desktop app
+├── docs/                           # P2 analyses (roadmap, Kilo Code UX, VS Code fork) + hermes report
+├── patches/                        # Engine + fork patch archive (D-series, P2 skeleton)
+├── scripts/                        # Measurement/benchmark scripts (each D-item's receipts)
+├── ARCHITECTURE_REVIEW.md          # 48-round development journal — the honest history
 ├── dashboard.html                  # Agentic IDE Frontend
-├── pyproject.toml                  # Dependencies & Project Meta
+├── pyproject.toml                  # Dependencies & Project Meta (uv-managed)
 └── uv.lock
 ```
 
@@ -197,23 +233,32 @@ EMBEDDING_MODEL=all-MiniLM-L6-v2
 EMBEDDING_DEVICE=cpu              # cpu | cuda
 ```
 
+**Context window (optional):**
+```env
+PROVIDER_SAFE_LIMIT=0             # 0 = auto: engine budget + pre-send guard resolve the
+                                  #     model's discovered window − 4,096 (paid tiers)
+                                  # default 6000 = conservative out of the box
+```
+
 ---
 
 ## 🧪 Testing
 
-PulseAI maintains a regression suite covering the graph, dashboard, and approval flows.
+PulseAI keeps a pytest regression suite — currently **445 green** across graph, context, dashboard, tools, and the bridge. Every shipped change is pinned by tests, and each D-item's measurement script lives in `scripts/` as its receipt.
 
-**Run All Tests:**
+**Run the suite:**
 ```bash
-export PYTHONPATH=$PYTHONPATH:.
-python src/tests/test_agent_regression.py
+uv sync                       # or: uv pip install -e . --group dev
+uv run pytest                 # from the repo root (pythonpath = . is configured)
 ```
 
 **Key Test Modules:**
-- `test_planner_manual`: Verifies plan generation logic.
-- `test_replan_graph`: Verifies mid-task strategy shifts.
-- `test_event_bus`: Verifies dashboard streaming reliability.
-- `test_plan_approval`: Verifies human-in-the-loop approval.
+- `test_planner_manual` / `test_replan_graph`: Plan generation and mid-task strategy shifts.
+- `test_event_bus` / `test_dashboard_server`: Dashboard streaming reliability and input validation.
+- `test_plan_approval` / `test_plan_cancel` / `test_plan_revision`: Human-in-the-loop approval flows.
+- `test_parallel_tools` / `test_file_state`: D34 batch gate + D32 stale-write guard.
+- `test_bridge`: P2 stdio protocol pins (handshake, version mismatch, garbage tolerance, shutdown).
+- `test_prompt_guard`: Persona anti-drift pins (D35).
 
 ---
 
@@ -221,20 +266,39 @@ python src/tests/test_agent_regression.py
 
 PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g., `write_file`, `run_terminal`), the agent pauses and waits for user approval via the Dashboard or CLI. This prevents the agent from making unwanted changes without oversight.
 
+- Interactive threads: unsafe calls return an approval question and nothing executes.
+- Sub-agent threads (no human reading): unsafe calls **auto-deny** (D20) and become denial messages the model can adapt to — opt-in escape hatch `PULSEAI_SUBAGENT_AUTO_APPROVE=1`.
+- The guard is a **checkpoint, not a sandbox**: command substitution (`$()` / backticks) always escalates to approval; `run_terminal` remains `shell=True` by design so pipes, redirects, and `&&` keep working.
+
+---
+
+## 📚 Development Journal
+
+**[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** is the project's live history — 48 rounds of "verify, then merge." Every pasted review, external-pattern steal, and internal audit is adjudicated empirically: claims are checked against the actual tree, false claims are rejected with evidence, and real bugs get shipped with tests + measurement receipts. Debt items D1–D35 are all closed; the remaining board is P2 (the fork) plus candidate D37 (skills registry, parked until a measured gap exists).
+
 ---
 
 ## 🗺️ Roadmap
 
+**Engine era (complete):**
 - [x] 6-Step Claude-Quality Transformation
 - [x] Agentic IDE Dashboard (Red Neon)
-- [x] Multi-agent Collaboration Layer
+- [x] Multi-agent Collaboration Layer (sub-agents + parallel batches)
 - [x] Task-aware Context Engine v2 (classification, scoring, budgets, dedup)
 - [x] AST repo map + import graph
 - [x] Tool-memory writer (semantic store of past tool outputs)
-- [x] Persistent vector memory (SQLite, ~/.pulseai/vector_memory.db)
+- [x] Persistent vector memory (SQLite, `~/.pulseai/vector_memory.db`)
 - [x] Failure feedback wired (recovery-limit, replan give-up, finalize)
-- [x] Pre-send token guard (PROVIDER_SAFE_LIMIT, 503 mitigation — verified live)
-- [x] Chunk-level code retrieval (sqlite-vec KNN + FTS5 BM25, RRF fusion — `src/context/chunk_index.py`, wired into ContextEngine as `relevant_chunks`)
-- [ ] Layer attribution of feedback (record which layers were sent per task)
+- [x] Pre-send token guard (`PROVIDER_SAFE_LIMIT`, 503 mitigation — verified live)
+- [x] Chunk-level code retrieval (sqlite-vec KNN + FTS5 BM25, RRF fusion — `src/context/chunk_index.py`)
+- [x] Layer attribution of feedback (session-scoped engines, per-engine attribution snapshots — D1)
+- [x] D1–D35: session scoping, embed cache, multi-language chunk index, KNN pushdown, re-ranking, compaction, classifier quick path, batch gate, file-state guard, shadow checkpoints, prompt-cache audit, and the hermes pattern steals
 - [ ] Per-session cost reports in PDF format
-/usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy
+
+**IDE era — P2 PulseCode (active, scope-frozen in `docs/P2-roadmap.md`):**
+- [x] Phase 0: fork plan + rebrand + bridge v1 (`src/bridge/`) + skeleton patch
+- [ ] M1 — Brain inside the body: sidebar chat round-trip through the real engine, tool cards
+- [ ] M2 — Safety UX: native diff-approval for every guarded edit, question dock
+- [ ] M3 — Telemetry: live budget bar + usage card (cache on its own line)
+- [ ] M4 — Time machine: checkpoint timeline with one-click restore + undo-the-undo
+- [ ] M5 — Shipping: installers (Windows first), engine bundled, upstream-sync ritual
