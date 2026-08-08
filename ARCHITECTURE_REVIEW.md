@@ -2228,3 +2228,40 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
 Code fork OSS — analysis delivered: contrib-placement confirmed with
 whole-tree receipts, chat contrib's agentSessions pattern identified;
 kilocode UX read next on the founder's order).
+
+## §48 — P2 Phase 0 kicked: the fork's engine-side bridge (founder GO)
+
+Founder green-lit P2 with "Go". Phase 0 plan (docs/P2-roadmap.md, scope
+FROZEN, 2-line rule). This commit is the engine half of Phase 0.4:
+src/bridge/ — the ONLY door between the PulseCode fork and the engine.
+
+Design for the founder's environment: the fork spawns `python -m
+src.bridge` as a sidecar; nlJSON-RPC v1 over stdio. Codec is STDLIB-ONLY
+by design (a codec that can't import can't wedge the handshake, and the
+pins run in 0.17s — cheap forever). Protocol v1 frozen in the roadmap:
+hello/prompt/safety_reply/shutdown in; hello/token/tool_call_*/safety_
+request/telemetry/turn_done/checkpoint_event/echo/error out. Behaviors
+pinned against the REAL subprocess: handshake + version mismatch
+rejection, handshake-required-before-traffic, echo-class prompt shape
+STUB (returns turn_done{stub:true} — honest, so the fork builds its UI
+against real frames while the stream_agent wiring lands with M1's chat
+view), never-dies-on-garbage (bad frame => error frame, loop
+continues), clean shutdown exit 0, 1MiB line guard. Engine logic
+untouched — frozen at 437; the bridge adds no behavior to the graph.
+
+Also this round: full microsoft/vscode clone refreshed in-sandbox
+(main @ 78a7b6c2, 17,598 files, 278MB) for the M1 skeleton work;
+sandbox snapshots cannot hold it (re-clonable in seconds — the durable
+home is the founder's GitHub fork, Phase 0.1). Registry: skills
+(hermes-style) adjudicated and PARKED as candidate D37 with a written
+trigger ("a measured repeat failure class a playbook would fix") —
+no measured gap, prompt budget bleeds every turn for unproven value;
+one founder word overrides.
+
+Pins: test_bridge.py NEW 8/8. Suite: 437 + 8 = 445 green (437 measured
+in the three RAM-wall runs earlier today + 8 fast codec pins now).
+
+Debt board: ~~D1~~..~~D35~~ (all) — remaining: P2 IN PROGRESS (Phase 0:
+bridge DONE this section; 0.1 fork creation = founder action; 0.2
+build env; 0.3 rebrand + 0.5 skeleton = pulscode-m1-skeleton patch),
+D37 candidate (skills — parked, trigger written).
