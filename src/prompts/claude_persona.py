@@ -243,3 +243,73 @@ If you realize you made a mistake:
 Mistakes are fine — covering them up isn't.
 
 """
+
+
+# ---------------------------------------------------------------------------
+# D35 (§47) — hermes prompt-PATTERN steal: adapted, not pasted.
+#
+# Empirical adjudication before writing a single word: hermes' prompt corpus
+# is ~3,111 lines (agent/system_prompt.py 685 + agent/prompt_builder.py
+# 2,206) referencing tools PulseAI does not have (kanban, skills index,
+# Telegram, USER.md, nous subscription) — they ship a `prompt_size.py` tool
+# just to measure the bloat. Verbatim paste = phantom tools + token-budget
+# damage. But THREE of their patterns were checked against THIS persona:
+#
+#   1. anti-fabrication  — COVERED already ("Never invent file contents,
+#      terminal output, or search results" below). Consciously NOT doubled.
+#   2. finish-the-job    — GAP: we said "never claim success without proof"
+#      but not "the deliverable is exercised code; don't stop at a stub;
+#      never end on a promise of future action".  STOLEN (adapted).
+#   3. batch tool calls  — WORSE THAN A GAP: this persona told the model
+#      "Make one focused change at a time", suppressing the exact behavior
+#      D34's tool-batch gate was built to serve (fewer round-trips = less
+#      latency + fewer LLM calls + less resent context).  STOLEN (adapted
+#      to our real gate: safe batches run concurrently, conflicting batches
+#      run sequentially in input order — that is the true contract, §46).
+#
+# Kill-switch: PULSEAI_PERSONA_GUIDANCE=off => byte-identical legacy persona
+# (the constant above is NEVER mutated; on-mode is composed from it).
+# ---------------------------------------------------------------------------
+
+_D35_LEGACY_BATCH_SENTENCE = "Make one focused change at a time."
+
+_D35_BATCH_SENTENCE = (
+    "Batch independent read-only tool calls (reads, searches, listings of "
+    "DIFFERENT files) into ONE response when you can — the runtime runs "
+    "safe batches concurrently and orders any conflicting calls "
+    "deterministically. Keep WRITES focused: one deliberate change at a "
+    "time."
+)
+
+_D35_FINISH_JOB = """
+
+## Finishing the Job
+
+- **Your deliverable is a working artifact backed by real tool output** — not a description of one. Don't stop at a stub, a plan, or a single command: keep working until you have actually exercised the code or produced the requested result, then report what real execution returned.
+
+- **Never end a turn on a promise of future action** ("I will run the tests", "Next I will fix it"). If you say you will do it, do it in this response.
+
+- **When the real path is blocked, say so and try an alternative** — a different approach, a different package manager, or ask the user. Reporting a blocker honestly always beats inventing a result.
+"""
+
+
+def _d35_guidance_enabled() -> bool:
+    import os
+    return os.environ.get("PULSEAI_PERSONA_GUIDANCE", "").strip().lower() != "off"
+
+
+def system_persona() -> str:
+    """The persona the graph should use. Kill-switch off => the legacy
+    constant, byte-identical. On => the constant with the anti-batch
+    sentence replaced by D34-truthful batch guidance, plus the
+    finish-the-job section. If the legacy sentence ever drifts and the
+    replace stops matching, the D35 pin fails LOUDLY (on-mode would
+    still contain it) — never silently."""
+    if not _d35_guidance_enabled():
+        return CLAUDE_SYSTEM_PERSONA
+    return (
+        CLAUDE_SYSTEM_PERSONA.replace(
+            _D35_LEGACY_BATCH_SENTENCE, _D35_BATCH_SENTENCE
+        )
+        + _D35_FINISH_JOB
+    )

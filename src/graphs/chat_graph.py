@@ -64,7 +64,7 @@ from src.tools.terminal_tools import (
 from src.tools.web_tools import web_search, web_fetch
 from src.tools.code_exec_tool import execute_code
 from src.tools.session_search_tool import session_search
-from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
+from src.prompts.claude_persona import system_persona  # D35 (§47)
 
 from src.agents.cost_router import cost_router
 from src.agents.skill_manager import skill_manager
@@ -362,7 +362,7 @@ def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsa
 # =========================================================
 # AI NODE (with Context Engine)
 # =========================================================
-system_message = SystemMessage(content=CLAUDE_SYSTEM_PERSONA)
+system_message = SystemMessage(content=system_persona())
 
 
 def _zero_token_usage() -> dict[str, Any]:

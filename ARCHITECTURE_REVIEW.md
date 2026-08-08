@@ -2169,3 +2169,62 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
 OSS — THE HEART'S BODY: the engine is finished and every steal is in;
 the editor surface is the last item on the board, awaiting the
 founder's external verification verdict).
+
+## §47 — D35 shipped: the hermes prompt-PATTERN steal (founder's opinion, adjudicated)
+
+The founder proposed: "just copy-paste hermes' prompt engineering into
+our code — is that nice?" Empirical check before a single word was
+written. hermes' prompt corpus is ~3,111 lines (agent/system_prompt.py
+685 + prompt_builder.py 2,206) literally referencing tools we do not
+have (kanban, skills index, Telegram, USER.md, nous subscription) — and
+hermes itself ships prompt_size.py to measure the bloat. VERDICT:
+verbatim paste = NOT nice (phantom tools + token-budget damage);
+pattern-steal = nice, for exactly the gaps our persona provably has.
+The three top hermes patterns vs src/prompts/claude_persona.py:
+
+  1. anti-fabrication — ALREADY COVERED ("Never invent file contents,
+     terminal output, or search results"); consciously NOT doubled
+     (pinned: count stays exactly 1 forever).
+  2. finish-the-job — REAL GAP closed: deliverable = working artifact
+     backed by real tool output, never end a turn on a promise of
+     future action, blocked path => say so + try an alternative.
+     (hermes grounded theirs in observed incidents: an Opus run that
+     stopped after an 85-byte stub; a DeepSeek run that fabricated
+     listings behind a pip wall.)
+  3. batch tool calls — WORSE THAN A GAP: our own persona said "Make
+     one focused change at a time", actively suppressing the behavior
+     D34's gate (§46) was built to serve. Sentence REPLACED with the
+     D34-truthful rule: batch independent read-only calls on DIFFERENT
+     files into one response (runtime runs safe batches concurrently,
+     orders conflicting ones), writes stay one-deliberate-change.
+     Fewer round-trips = the founder's metrics directly: latency,
+     resent-context budget, LLM calls.
+
+Anti-drift design: the legacy constant is NEVER mutated — on-mode is
+composed (replace + append); if persona text drifts and the replace
+stops matching, the pin fails loudly. Kill-switch
+PULSEAI_PERSONA_GUIDANCE=off returns the byte-identical legacy persona
+(pinned). Growth bound pinned: <1,300 chars (~330 tokens, stable tier).
+Graph consumes via system_persona() only — raw-constant consumption
+pinned dead. Founder's verdict honored: NO per-model gating shipped
+(hermes gates enforcement text by model family) — unmeasured need,
+parked with a note, same doctrine as static budgets.
+
+Count reconciliation (owed loudly): §46's commit line said "+69 pins,
+422 green". The 422 was the pre-v2-reframe halves sum (8-pin
+test_parallel_tools); the v2 reframe then added 6 more pins, so the
+true post-§46 count was 428 — the commit's "+69" math (359+55+14)
+was right and its "422" was stale by those 6. Today's suite, measured
+in the three RAM-wall runs: 240 + 181 + 16 = 437 green (= 428 + 9
+D35). The number quoted in any message is only as good as its latest
+run — noted, owned, and now exact.
+
+Pins: test_prompt_guard.py NEW 9/9. Suite: 437 green (240+181+16).
+
+Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ ~~D25~~ ~~D26~~ ~~D27~~ ~~D28~~
+~~D29~~ ~~D32~~ ~~D33~~ ~~D30~~ ~~D34~~ ~~D35~~ — remaining: P2 (VS
+Code fork OSS — analysis delivered: contrib-placement confirmed with
+whole-tree receipts, chat contrib's agentSessions pattern identified;
+kilocode UX read next on the founder's order).
