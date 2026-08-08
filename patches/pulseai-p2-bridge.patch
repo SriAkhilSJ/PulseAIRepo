@@ -1,0 +1,383 @@
+From efa1b021d1d73f2e83bf3f10a824e3e93c6cd124 Mon Sep 17 00:00:00 2001
+From: ArenaAgent <agent@arena.local>
+Date: Sat, 8 Aug 2026 09:42:37 +0000
+Subject: [PATCH] feat(bridge): P2 Phase 0.4 -- src/bridge stdio nlJSON-RPC v1
+ sidecar, the ONLY door between PulseCode fork and the frozen engine;
+ stdlib-only codec (handshake+version check, 1MiB guard, malformed=>error
+ frame, loop survives garbage); honest prompt shape-stub
+ (turn_done{stub:true}) so the fork builds its UI against real frames while
+ stream_agent wiring lands with M1 chat view; clean shutdown exit 0; +8 pins,
+ 445 green
+
+---
+ ARCHITECTURE_REVIEW.md   |  37 +++++++++++++
+ src/bridge/__init__.py   |  13 +++++
+ src/bridge/__main__.py   |  88 ++++++++++++++++++++++++++++++
+ src/bridge/protocol.py   |  75 ++++++++++++++++++++++++++
+ src/tests/test_bridge.py | 112 +++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 325 insertions(+)
+ create mode 100644 src/bridge/__init__.py
+ create mode 100644 src/bridge/__main__.py
+ create mode 100644 src/bridge/protocol.py
+ create mode 100644 src/tests/test_bridge.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 6c61d24f..e1cf8647 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -2228,3 +2228,40 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+ Code fork OSS — analysis delivered: contrib-placement confirmed with
+ whole-tree receipts, chat contrib's agentSessions pattern identified;
+ kilocode UX read next on the founder's order).
++
++## §48 — P2 Phase 0 kicked: the fork's engine-side bridge (founder GO)
++
++Founder green-lit P2 with "Go". Phase 0 plan (docs/P2-roadmap.md, scope
++FROZEN, 2-line rule). This commit is the engine half of Phase 0.4:
++src/bridge/ — the ONLY door between the PulseCode fork and the engine.
++
++Design for the founder's environment: the fork spawns `python -m
++src.bridge` as a sidecar; nlJSON-RPC v1 over stdio. Codec is STDLIB-ONLY
++by design (a codec that can't import can't wedge the handshake, and the
++pins run in 0.17s — cheap forever). Protocol v1 frozen in the roadmap:
++hello/prompt/safety_reply/shutdown in; hello/token/tool_call_*/safety_
++request/telemetry/turn_done/checkpoint_event/echo/error out. Behaviors
++pinned against the REAL subprocess: handshake + version mismatch
++rejection, handshake-required-before-traffic, echo-class prompt shape
++STUB (returns turn_done{stub:true} — honest, so the fork builds its UI
++against real frames while the stream_agent wiring lands with M1's chat
++view), never-dies-on-garbage (bad frame => error frame, loop
++continues), clean shutdown exit 0, 1MiB line guard. Engine logic
++untouched — frozen at 437; the bridge adds no behavior to the graph.
++
++Also this round: full microsoft/vscode clone refreshed in-sandbox
++(main @ 78a7b6c2, 17,598 files, 278MB) for the M1 skeleton work;
++sandbox snapshots cannot hold it (re-clonable in seconds — the durable
++home is the founder's GitHub fork, Phase 0.1). Registry: skills
++(hermes-style) adjudicated and PARKED as candidate D37 with a written
++trigger ("a measured repeat failure class a playbook would fix") —
++no measured gap, prompt budget bleeds every turn for unproven value;
++one founder word overrides.
++
++Pins: test_bridge.py NEW 8/8. Suite: 437 + 8 = 445 green (437 measured
++in the three RAM-wall runs earlier today + 8 fast codec pins now).
++
++Debt board: ~~D1~~..~~D35~~ (all) — remaining: P2 IN PROGRESS (Phase 0:
++bridge DONE this section; 0.1 fork creation = founder action; 0.2
++build env; 0.3 rebrand + 0.5 skeleton = pulscode-m1-skeleton patch),
++D37 candidate (skills — parked, trigger written).
+diff --git a/src/bridge/__init__.py b/src/bridge/__init__.py
+new file mode 100644
+index 00000000..6c4d616e
+--- /dev/null
++++ b/src/bridge/__init__.py
+@@ -0,0 +1,13 @@
++"""PulseAI bridge (P2 M1) — the ONLY door between the fork and the engine.
++
++The VS Code fork (PulseCode, contrib/pulse) spawns this module as a
++sidecar process and talks newline-delimited JSON-RPC over stdio. The
++engine's internals stay frozen at 437 green; everything the fork can
++ask for flows through this file's protocol v1.
++
++Protocol v1 (frozen, see docs/P2-roadmap.md Phase 0.4):
++  client -> engine : hello | prompt | safety_reply | shutdown
++  engine -> client : hello | token | tool_call_start | tool_call_end
++                     | safety_request | telemetry | turn_done
++                     | checkpoint_event | echo | error
++"""
+diff --git a/src/bridge/__main__.py b/src/bridge/__main__.py
+new file mode 100644
+index 00000000..bf3e33e5
+--- /dev/null
++++ b/src/bridge/__main__.py
+@@ -0,0 +1,88 @@
++"""Bridge sidecar entry point: python -m src.bridge
++
++Stdio loop, newline-delimited JSON-RPC. Deliberately stupid: no engine
++state, no threads, no globals — those arrive with M1's prompt wiring.
++What ships NOW (P2 Phase 0.4) is the handshake, the echo bus, and the
++wired-shape honest stub for `prompt` so the fork can build its UI
++against real frames while the engine streaming hookup lands.
++
++NEVER crashes on malformed input: bad frames become error frames and
++the loop continues (the fork's renderer must not lose its engine
++because one message was shaped wrong).
++"""
++
++from __future__ import annotations
++
++import sys
++
++from src.bridge.protocol import (
++    CLIENT_METHODS,
++    ProtocolError,
++    check_client_hello,
++    decode_line,
++    encode,
++    error_frame,
++    hello,
++)
++
++ENGINE_VERSION = "0.1.0-p2-bridge"
++
++
++def _emit(obj: dict) -> None:
++    sys.stdout.buffer.write(encode(obj))
++    sys.stdout.buffer.flush()
++
++
++def handle(frame: dict, *, greeted: bool) -> dict | None:
++    """One validated client frame -> the reply frame (or None)."""
++    t = frame["type"]
++    if t not in CLIENT_METHODS:
++        return error_frame(f"unknown method: {t!r}")
++    if t == "hello":
++        if greeted:
++            return error_frame("duplicate hello")
++        check_client_hello(frame)  # raises on mismatch
++        return hello(ENGINE_VERSION)
++    if not greeted:
++        return error_frame("hello handshake required first")
++    if t == "shutdown":
++        return None  # caller breaks the loop
++    if t == "prompt":
++        # M1 shape-stub: the real stream_agent wiring lands with the
++        # fork's chat view. Honesty > pretending: the fork learns from
++        # this flag that the stub answered, not the engine.
++        return {
++            "type": "turn_done",
++            "stub": True,
++            "thread_id": str(frame.get("thread_id", "")),
++            "message": "bridge alive; engine wiring lands with M1 chat view",
++        }
++    if t == "safety_reply":
++        return error_frame("no safety_request pending (stub bridge)")
++    return error_frame(f"unhandled method: {t!r}")
++
++
++def main() -> int:
++    greeted = False
++    while True:
++        line = sys.stdin.buffer.readline()
++        if not line:  # EOF: the fork closed the pipe
++            return 0
++        try:
++            frame = decode_line(line)
++            reply = handle(frame, greeted=greeted)
++            if frame.get("type") == "hello" and reply is not None and reply.get("type") == "hello":
++                greeted = True
++        except ProtocolError as exc:
++            _emit(error_frame(str(exc)))
++            continue
++        except Exception as exc:  # codec bugs must not kill the sidecar
++            _emit(error_frame(f"bridge internal error: {exc!r}"))
++            continue
++        if reply is None:
++            return 0  # shutdown
++        _emit(reply)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/bridge/protocol.py b/src/bridge/protocol.py
+new file mode 100644
+index 00000000..485edda5
+--- /dev/null
++++ b/src/bridge/protocol.py
+@@ -0,0 +1,75 @@
++"""Bridge protocol v1 codec — stdlib only, no engine imports.
++
++Keep this module dependency-free: the fork spawns the bridge before any
++engine init, and a codec that can't import can't wedge the handshake.
++"""
++
++from __future__ import annotations
++
++import json
++from typing import Any
++
++PROTOCOL_VERSION = 1
++
++# Hard bound so a wedged/malicious peer cannot OOM the sidecar with an
++# endless line. 1 MiB is generous for any legitimate frame (prompts,
++# safety payloads) and cheap to enforce.
++MAX_LINE_BYTES = 1 << 20
++
++CLIENT_METHODS = frozenset({"hello", "prompt", "safety_reply", "shutdown"})
++SERVER_EVENTS = frozenset({
++    "hello", "token", "tool_call_start", "tool_call_end",
++    "safety_request", "telemetry", "turn_done", "checkpoint_event",
++    "echo", "error",
++})
++
++
++class ProtocolError(Exception):
++    """Raised for malformed, oversize, or version-mismatched frames."""
++
++
++def encode(obj: dict[str, Any]) -> bytes:
++    """One object -> one newline-terminated line (UTF-8)."""
++    return (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
++
++
++def decode_line(line: bytes) -> dict[str, Any]:
++    """One raw line -> validated frame dict. Raises ProtocolError."""
++    if len(line) > MAX_LINE_BYTES:
++        raise ProtocolError(
++            f"frame exceeds {MAX_LINE_BYTES} bytes ({len(line)})"
++        )
++    try:
++        obj = json.loads(line.decode("utf-8"))
++    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++        raise ProtocolError(f"malformed JSON frame: {exc}") from exc
++    if not isinstance(obj, dict):
++        raise ProtocolError(f"frame must be an object, got {type(obj).__name__}")
++    if "type" not in obj or not isinstance(obj["type"], str):
++        raise ProtocolError("frame missing string field 'type'")
++    return obj
++
++
++def hello(engine_version: str) -> dict[str, Any]:
++    """The handshake frame the server sends in reply to client hello."""
++    return {
++        "type": "hello",
++        "protocol": PROTOCOL_VERSION,
++        "engine": "pulseai",
++        "engine_version": engine_version,
++    }
++
++
++def error_frame(message: str, *, fatal: bool = False) -> dict[str, Any]:
++    return {"type": "error", "message": message, "fatal": fatal}
++
++
++def check_client_hello(frame: dict[str, Any]) -> None:
++    """Validate the client's hello; raise ProtocolError on mismatch."""
++    if frame.get("type") != "hello":
++        raise ProtocolError("first frame must be 'hello'")
++    their = frame.get("protocol")
++    if their != PROTOCOL_VERSION:
++        raise ProtocolError(
++            f"protocol mismatch: client {their!r}, engine {PROTOCOL_VERSION}"
++        )
+diff --git a/src/tests/test_bridge.py b/src/tests/test_bridge.py
+new file mode 100644
+index 00000000..2fbe2bd7
+--- /dev/null
++++ b/src/tests/test_bridge.py
+@@ -0,0 +1,112 @@
++"""Pins for the P2 bridge (Phase 0.4): protocol codec + stdio loop.
++
++The codec is stdlib-only by design; the subprocess pins exercise the
++REAL sidecar (python -m src.bridge) over real pipes — the same shape
++the fork will see.
++"""
++
++from __future__ import annotations
++
++import json
++import subprocess
++import sys
++
++import pytest
++
++from src.bridge.protocol import (
++    MAX_LINE_BYTES,
++    PROTOCOL_VERSION,
++    ProtocolError,
++    check_client_hello,
++    decode_line,
++    encode,
++    error_frame,
++    hello,
++)
++
++
++# ------------------------------------------------------------- codec
++
++def test_codec_round_trip():
++    obj = {"type": "prompt", "text": "héllo 🫀", "id": 7}
++    frame = decode_line(encode(obj))
++    assert frame == obj, "encode+decode must be identity (utf-8 safe)"
++
++
++def test_codec_rejects_malformed_and_non_object():
++    with pytest.raises(ProtocolError):
++        decode_line(b"{not json\n")
++    with pytest.raises(ProtocolError):
++        decode_line(b"[1,2,3]\n")
++    with pytest.raises(ProtocolError):
++        decode_line(json.dumps({"no_type": 1}).encode())
++
++
++def test_codec_size_guard():
++    big = b'{"type":"x","pad":"' + b"a" * MAX_LINE_BYTES + b'"}'
++    with pytest.raises(ProtocolError, match="exceeds"):
++        decode_line(big)
++
++
++def test_hello_handshake_rules():
++    good = hello("v")
++    assert good["protocol"] == PROTOCOL_VERSION and good["engine"] == "pulseai"
++    check_client_hello({"type": "hello", "protocol": PROTOCOL_VERSION})  # no raise
++    with pytest.raises(ProtocolError, match="mismatch"):
++        check_client_hello({"type": "hello", "protocol": 999})
++    with pytest.raises(ProtocolError, match="first frame"):
++        check_client_hello({"type": "prompt"})
++
++
++# ------------------------------------------------- live sidecar pins
++
++def _send(proc, obj):
++    proc.stdin.write(json.dumps(obj) + "\n")
++    proc.stdin.flush()
++    line = proc.stdout.readline()
++    assert line, "sidecar closed stdout unexpectedly"
++    return json.loads(line)
++
++
++@pytest.fixture()
++def sidecar():
++    proc = subprocess.Popen(
++        [sys.executable, "-m", "src.bridge"],
++        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
++        stderr=subprocess.PIPE, text=True,
++    )
++    yield proc
++    proc.kill()
++
++
++def test_sidecar_hello_then_prompt_stub(sidecar):
++    r = _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
++    assert r["type"] == "hello" and r["protocol"] == PROTOCOL_VERSION
++    r = _send(sidecar, {"type": "prompt", "text": "hi", "thread_id": "t1"})
++    # Honest stub: the fork reads this flag and knows the engine
++    # streaming wiring hasn't landed yet.
++    assert r["type"] == "turn_done" and r["stub"] is True
++    assert r["thread_id"] == "t1"
++
++
++def test_sidecar_never_dies_on_garbage(sidecar):
++    sidecar.stdin.write("{garbage not json\n")
++    sidecar.stdin.flush()
++    line = sidecar.stdout.readline()
++    assert "error" in json.loads(line)["type"]
++    # …and still answers a proper handshake afterwards:
++    r = _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
++    assert r["type"] == "hello"
++
++
++def test_sidecar_requires_handshake_first(sidecar):
++    r = _send(sidecar, {"type": "prompt", "text": "skip hello"})
++    assert r["type"] == "error" and "handshake" in r["message"]
++
++
++def test_sidecar_shutdown_exits_cleanly(sidecar):
++    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
++    sidecar.stdin.write(json.dumps({"type": "shutdown"}) + "\n")
++    sidecar.stdin.flush()
++    sidecar.stdin.close()
++    assert sidecar.wait(timeout=10) == 0, "shutdown must exit 0"
+-- 
+2.47.3
+

@@ -1,0 +1,953 @@
+From ebe8e94584dbddc4e1341cbeb7b6843c986b0a13 Mon Sep 17 00:00:00 2001
+From: ArenaAgent <agent@arena.local>
+Date: Fri, 7 Aug 2026 19:38:48 +0000
+Subject: [PATCH] feat(tools+agents): D32 file-state guard + D33 parallel
+ sub-agent batches (hermes steals #8/#9) -- D32: per-agent
+ read-stamp/last-writer registry; write_file refuses stale + blind clobbers
+ with agent-readable 're-read first' recovery; per-path lock_path RMW
+ sections; edit_file refusal-free by pinned policy (fresh-read + span replace
+ preserves others' changes); identity from graph thread_id; fail-open hooks +
+ PULSEAI_FILE_STATE_GUARD=off. D33: spawn_batch ThreadPool(min(4,n)) w/
+ contextvars copies per child, index-ordered results, per-child crash capture,
+ single-task legacy path identical; delegate_to_subagent_batch tool #21 (depth
+ cap, 5-task cap); measured 3x300ms children <0.6s (serial >=0.9s); D32xD33
+ synergy pin: parallel writers, exactly one wins. +16 pins, 359 green
+
+---
+ ARCHITECTURE_REVIEW.md            |  76 ++++++++++++
+ src/agents/sub_agent.py           |  97 +++++++++++++---
+ src/graphs/chat_graph.py          |  56 +++++++++
+ src/tests/test_file_state.py      | 165 +++++++++++++++++++++++++++
+ src/tests/test_ptc.py             |   3 +-
+ src/tests/test_session_search.py  |   5 +-
+ src/tests/test_sub_agent_batch.py | 150 ++++++++++++++++++++++++
+ src/tools/file_state.py           | 184 ++++++++++++++++++++++++++++++
+ src/tools/file_tools.py           |  62 +++++++---
+ 9 files changed, 764 insertions(+), 34 deletions(-)
+ create mode 100644 src/tests/test_file_state.py
+ create mode 100644 src/tests/test_sub_agent_batch.py
+ create mode 100644 src/tools/file_state.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 03e07ad..218210c 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -2014,3 +2014,79 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+ ~~D29~~ — remaining: D30 (classifier skip, measure-first), D32
+ (file-state guard, steal #8) ← in flight, D33 (parallel sub-agents,
+ steal #9), D34 (parallel tool batches, steal #10), P2 (editor/UI).
++
++---
++
++## §45 — D32/D33 shipped: file-state guard + parallel sub-agent batches
++(hermes steals #8/#9; the reviewers' sync-subagent wound closed)
++
++Direction: founder "Proceed" after the §43 steal list. Order chosen by
++dependency: the guard must exist BEFORE concurrency is safe.
++
++D32 — File-state guard (src/tools/file_state.py, receipts:
++hermes tools/file_state.py:1-40): process-wide registry of per-agent
++read stamps and the last writer per path; write_file refuses a full
++overwrite whenever ANOTHER tool-using agent wrote the file and my
++knowledge is older or absent ("Refusing to clobber ... re-read first"
++— agent-readable recovery built into the refusal). Blind-overwrite
++(new-to-me but already-written-by-someone files) refused as well;
++writer stamps double as knowledge (your own writes never self-stale);
++per-path lock_path critical sections cover check→write→stamp so two
++in-process agents cannot interleave one; read_file stamps knowledge;
++edit_file is deliberately refusal-FREE — it reads fresh content itself
++and replaces only the matched span, so a stale-anchored old_text
++either fails to match (self-healing error) or lands surgically while
++PRESERVING the other agent's changes outside the span (policy pinned
++by test, not by vibes). Identity = the graph's thread_id (main session
++or "sub-*" children — invoke_agent's config carries it natively,
++chat_graph.py:1737-1744); fallback "main". Kill-switch
++PULSEAI_FILE_STATE_GUARD=off; every hook fail-open (a guard bug must
++never break an edit — and D31 shadows every mutation anyway).
++Honest scope limit: EXTERNAL edits (vim/IDE) are out of reach of the
++registry — same upstream scope; the mtime stamps are kept so a future
++check can go further. D34 note: this guard is the prerequisite that
++makes parallel TOOL batches designable at all.
++
++D33 — Parallel sub-agent batches (SubAgentCoordinator.spawn_batch +
++delegate_to_subagent_batch tool #21, receipts: hermes
++tools/delegate_tool.py:3208-3299): bounded ThreadPoolExecutor
++(min(4, len) workers), one contextvars.Context copy per child (their
++exact isolation trick), futures mapped to task index so results return
++in INPUT order even when finish order differs (pinned with inverted
++sleeps), per-child crash captured at its own slot (a dead child never
++sinks the batch — pinned), single-task batches take the legacy
++synchronous path (byte-identical common case — pinned), coordinator
++registry insertion+eviction now locked (thread mutation). Honest
++deltas from upstream: their wait(FIRST_COMPLETED, 0.5s) interrupt loop
++is NOT copied — our graph has no parent-interrupt signal today, so
++as_completed is used and the loop returns when interrupts land
++(documented in the code). Tool surface guarded: depth cap (sub- ids
++denied, same as single), 5-task batch cap, per-result 2000-char cap
++(carried). Measured in the pin: 3 × 300ms children complete in <0.6s
++(serial: ≥0.9s) — the review-1 wound "Sub-Agents Are Synchronous, Not
++Parallel" is closed with a wall-clock number, not a claim.
++Synergy pin D32×D33: two parallel children racing the SAME file
++through the real write path → exactly one wins, exactly one gets the
++recoverable refusal, file always coherent.
++
++Development honesty: (1) my own splice of the batch tool separated the
++original return's closing paren — SyntaxError caught by the pin run,
++fixed; (2) my writer-stamp test initially forgot the blind-overwrite
++guard refuses the SECOND agent, test rewritten to match the designed
++flow (read → write); (3) children receive the mode-focused prompt not
++the raw task — pin helper task_of() documents it; (4) two tool-count
++pins (ptc/session_search) did their job and caught 20→21 — updated
++loudly with the reason in the pin text, names kept for history.
++
++Pins: src/tests/test_file_state.py NEW 10/10; test_sub_agent_batch.py
++NEW 6/6; registry pins updated ×2. Suite: 359 green.
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
++~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ ~~D25~~ ~~D26~~ ~~D27~~ ~~D28~~
++~~D29~~ ~~D32~~ ~~D33~~ — remaining: D30 (classifier skip,
++measure-first), D34 (parallel tool batches — assessed: needs
++SafeToolNode concurrency + approval-flow serialization; D32 delivered
++the file-safety prerequisite, still a bigger surgery than a single
++round), P2 (editor/UI product work — the heart's UI is now surrounded
++by rollback, guards, and parallel delegates).
+diff --git a/src/agents/sub_agent.py b/src/agents/sub_agent.py
+index fc6826e..7016902 100644
+--- a/src/agents/sub_agent.py
++++ b/src/agents/sub_agent.py
+@@ -12,9 +12,11 @@ Modes:
+ - review: Read-only tools to audit code
+ 
+ Execution model (honest): spawn() invokes the child graph SYNCHRONOUSLY
+-inside the parent's tool call — the parent's model sees the child's result
+-as the tool output in the same turn. "Parallel" is about task-splitting,
+-not wall-clock concurrency. Structural safety (verified, ARCHITECTURE_REVIEW.md §27):
++inside the parent's tool call — one delegation blocks the parent's turn.
++D33 added spawn_batch(): several children run CONCURRENTLY in a bounded
++thread pool (hermes steal #9, §45) with index-ordered results; the batch
++tool is delegate_to_subagent_batch in chat_graph.py. Structural safety
++(verified, ARCHITECTURE_REVIEW.md §27):
+ - depth cap = 1 (prefix check on the caller's thread_id)
+ - recursion_limit=50 on every invoke; 60s LLM call timeouts
+ - a crashed child is caught at THIS boundary (spawn returns a graceful
+@@ -42,6 +44,11 @@ class SubAgentCoordinator:
+     """
+     def __init__(self):
+         self._active_agents: dict[str, dict] = {}
++        # D33: batches mutate the registry from worker THREADS — dict ops
++        # are GIL-atomic, but insert+evict is a two-step sequence, so the
++        # mutation itself takes a lock (never held across child invokes).
++        import threading
++        self._lock = threading.Lock()
+ 
+     def spawn(
+         self,
+@@ -111,20 +118,82 @@ class SubAgentCoordinator:
+                 "with a narrower task or complete it directly here."
+             )
+ 
+-        self._active_agents[agent_id] = {
+-            "mode": mode,
+-            "task": task,
+-            "result": result,
+-            "parent": parent_thread_id,
+-        }
+-        # Belt-and-braces bound: if an invoke raises mid-delegation (the entry
+-        # then never gets popped), cap the registry at the newest 50 — dicts
+-        # keep insertion order, so the oldest orphans are evicted first.
+-        while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
+-            self._active_agents.pop(next(iter(self._active_agents)))
++        with self._lock:
++            self._active_agents[agent_id] = {
++                "mode": mode,
++                "task": task,
++                "result": result,
++                "parent": parent_thread_id,
++            }
++            # Belt-and-braces bound: if an invoke raises mid-delegation (the
++            # entry then never gets popped), cap the registry at the newest
++            # 50 — dicts keep insertion order, oldest orphans evicted first.
++            while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
++                self._active_agents.pop(next(iter(self._active_agents)))
+ 
+         return agent_id
+ 
++    def spawn_batch(
++        self,
++        mode: "Literal['research', 'code', 'test', 'review']",
++        tasks: list[str],
++        parent_thread_id: str,
++        provider: str = LLM_PROVIDER,
++        model: str = LLM_MODEL,
++        max_workers: int = 4,
++    ) -> list[str]:
++        """D33 (steal #9, §45): run several sub-agents CONCURRENTLY.
++
++        Pattern lifted from hermes delegate_tool.py:3208-3299:
++        ThreadPoolExecutor with one contextvars.Context per child, futures
++        mapped to task INDEX so results come back in input order, and a
++        per-child crash captured at its own slot (a dead child never takes
++        the batch down). Honest deltas from upstream, by design:
++        - their wait(FIRST_COMPLETED, 0.5s) loop exists to honor a PARENT
++          INTERRUPT signal; our graph has no such signal today, so plain
++          as_completed is used (the loop is reintroduced with interrupts).
++        - single-task batches take the legacy synchronous spawn() path —
++          byte-identical behavior for the common case (pinned).
++
++        Returns agent ids in the SAME order as `tasks` (pop with
++        get_result). With the D32 file-state guard armed, concurrent code
++        sub-agents cannot silently clobber each other's files.
++        """
++        if not tasks:
++            return []
++        if len(tasks) == 1:
++            return [self.spawn(mode, tasks[0], parent_thread_id,
++                               provider=provider, model=model)]
++
++        import contextvars
++        from concurrent.futures import ThreadPoolExecutor, as_completed
++
++        results: list[Optional[str]] = [None] * len(tasks)
++        workers = max(1, min(max_workers, len(tasks)))
++
++        def _one(index: int, task: str) -> str:
++            return self.spawn(mode=mode, task=task,
++                              parent_thread_id=parent_thread_id,
++                              provider=provider, model=model)
++
++        with ThreadPoolExecutor(max_workers=workers,
++                                thread_name_prefix="pulseai-sub") as pool:
++            future_to_index = {}
++            for index, task in enumerate(tasks):
++                ctx = contextvars.copy_context()
++                future_to_index[pool.submit(ctx.run, _one, index, task)] = index
++            for future in as_completed(future_to_index):
++                index = future_to_index[future]
++                try:
++                    results[index] = future.result()
++                except Exception as exc:  # spawn has its own crash net; this
++                    # is paranoia-grade — a batch entry must NEVER go missing.
++                    results[index] = (
++                        f"⛔ Sub-agent batch worker {index} failed before "
++                        f"registering: {exc!r}"
++                    )
++        return [str(r) for r in results]
++
+     def get_result(self, agent_id: str) -> str:
+         # Pop-on-read: a result has exactly one consumer (the delegating tool
+         # call) — the entry must die the moment it is delivered, or the
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index cd2900e..1193e53 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -251,11 +251,67 @@ def delegate_to_subagent(
+     )
+ 
+ 
++@tool
++def delegate_to_subagent_batch(
++    mode: Literal["research", "code", "test", "review"],
++    tasks: list[str],
++    config: RunnableConfig,
++) -> str:
++    """
++    Delegate SEVERAL independent sub-tasks at once — they run in parallel.
++
++    WHEN TO USE:
++    - 2-5 INDEPENDENT pieces of the same kind (e.g. "review these 3 files",
++      "research these 2 libraries"). Independence means: different files,
++      no piece needs another piece's output.
++
++    WHEN NOT TO USE:
++    - A single sub-task (use delegate_to_subagent).
++    - Pieces that depend on each other or touch the same file — run those
++      sequentially yourself. Parallel code sub-agents are protected from
++      clobbering each other's files, but dependencies still need order.
++
++    Returns each sub-agent's result in the SAME order as the tasks list.
++    """
++    from src.config.settings import LLM_PROVIDER, LLM_MODEL
++
++    caller_thread = (config or {}).get("configurable", {}).get("thread_id", "")
++    if str(caller_thread).startswith("sub-"):
++        return (
++            "⛔ Sub-agents cannot spawn further sub-agents (depth cap). "
++            "Complete the decomposed steps directly instead."
++        )
++    if not tasks:
++        return "⛔ Empty batch: provide at least one task."
++    if len(tasks) > 5:
++        return (
++            f"⛔ Batch too large ({len(tasks)} tasks, max 5): split it "
++            f"into smaller batches."
++        )
++
++    agent_ids = subagent_coordinator.spawn_batch(
++        mode=mode,
++        tasks=tasks,
++        parent_thread_id=str(caller_thread) or "main",
++        provider=LLM_PROVIDER,
++        model=LLM_MODEL,
++    )
++
++    parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
++    for i, (task, agent_id) in enumerate(zip(tasks, agent_ids), 1):
++        result = subagent_coordinator.get_result(agent_id)
++        parts.append(
++            f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
++        )
++    return "\n".join(parts)
++
++
+ tools = [
+     think,
+     verify,
+     ask_user,
+     delegate_to_subagent,
++    delegate_to_subagent_batch,
+ 
+ 
+     # File tools
+diff --git a/src/tests/test_file_state.py b/src/tests/test_file_state.py
+new file mode 100644
+index 0000000..69fc304
+--- /dev/null
++++ b/src/tests/test_file_state.py
+@@ -0,0 +1,165 @@
++"""Pins for D32 (steal #8, §45): the file-state guard — one agent can
++never silently overwrite another in-process agent's fresh work.
++
++All pure: temp workspaces, real file tools, no LLM.
++"""
++
++from __future__ import annotations
++
++import threading
++import time
++from pathlib import Path
++
++import pytest
++
++from src.tools import file_state
++from src.tools.file_tools import read_file, write_file, edit_file
++
++READ = read_file.func
++WRITE = write_file.func
++EDIT = edit_file.func
++
++TARGET = "shared.py"
++A = "agent-A-thread"
++B = "agent-B-thread"
++
++
++def _ws(tmp_path) -> str:
++    ws = tmp_path / "ws"
++    ws.mkdir(exist_ok=True)
++    (ws / TARGET).write_text("X = 'original'\n")
++    return str(ws)
++
++
++def _cfg(ws: str, tid: str) -> dict:
++    return {"configurable": {"workspace": ws, "thread_id": tid}}
++
++
++@pytest.fixture(autouse=True)
++def _clean(monkeypatch):
++    monkeypatch.delenv("PULSEAI_FILE_STATE_GUARD", raising=False)
++    file_state.reset_for_tests()
++    yield
++    file_state.reset_for_tests()
++
++
++def test_stale_clobber_refused_and_file_intact(tmp_path):
++    ws = _ws(tmp_path)
++    READ(path=TARGET, config=_cfg(ws, A))            # A learns the file
++    WRITE(path=TARGET, content="X = 'B fresh'\n",    # B improves it
++          config=_cfg(ws, B))
++    out = WRITE(path=TARGET, content="X = 'A stale'\n",  # A blindly overwrites
++                config=_cfg(ws, A))
++    assert "Refusing to clobber" in out
++    assert (Path(ws) / TARGET).read_text() == "X = 'B fresh'\n"
++
++
++def test_reread_clears_staleness_and_retry_succeeds(tmp_path):
++    ws = _ws(tmp_path)
++    READ(path=TARGET, config=_cfg(ws, A))
++    WRITE(path=TARGET, content="X = 'B fresh'\n", config=_cfg(ws, B))
++    assert "Refusing" in WRITE(path=TARGET, content="X = 'a'\n",
++                               config=_cfg(ws, A))
++    READ(path=TARGET, config=_cfg(ws, A))            # A catches up
++    out = WRITE(path=TARGET, content="X = 'A current'\n", config=_cfg(ws, A))
++    assert out.startswith("File written")
++    assert (Path(ws) / TARGET).read_text() == "X = 'A current'\n"
++
++
++def test_self_write_chain_never_self_stales(tmp_path):
++    ws = _ws(tmp_path)
++    cfg = _cfg(ws, A)
++    assert WRITE(path=TARGET, content="X = 1\n", config=cfg).startswith("File written")
++    assert WRITE(path=TARGET, content="X = 2\n", config=cfg).startswith("File written")
++    # A never "read" but only ever wrote: still fine (a writer knows its
++    # own writes — pinned via note_write stamping).
++    assert WRITE(path=TARGET, content="X = 3\n", config=cfg).startswith("File written")
++
++
++def test_writer_stamp_does_not_leak_to_other_agent(tmp_path):
++    ws = _ws(tmp_path)
++    WRITE(path=TARGET, content="X = 'A'\n", config=_cfg(ws, A))
++    # B must READ before it's allowed to write at all (blind-overwrite
++    # guard); after that, B is current and its write lands:
++    READ(path=TARGET, config=_cfg(ws, B))
++    WRITE(path=TARGET, content="X = 'B'\n", config=_cfg(ws, B))
++    # A's own-write stamp is older than B's write — A is stale and refused:
++    assert "Refusing to clobber" in WRITE(path=TARGET, content="X = 'A2'\n",
++                                        config=_cfg(ws, A))
++
++
++def test_blind_overwrite_refused(tmp_path):
++    """B creates a file; A (who never read it) must not blindly overwrite."""
++    ws = _ws(tmp_path)
++    target = Path(ws) / "b_made.py"
++    WRITE(path="b_made.py", content="B = 1\n", config=_cfg(ws, B))
++    assert target.read_text() == "B = 1\n"
++    out = WRITE(path="b_made.py", content="A = 0\n", config=_cfg(ws, A))
++    assert "Refusing to clobber" in out
++    assert target.read_text() == "B = 1\n"
++
++
++def test_kill_switch_restores_legacy_behavior(tmp_path, monkeypatch):
++    ws = _ws(tmp_path)
++    READ(path=TARGET, config=_cfg(ws, A))
++    WRITE(path=TARGET, content="X = 'B'\n", config=_cfg(ws, B))
++    monkeypatch.setenv("PULSEAI_FILE_STATE_GUARD", "off")
++    out = WRITE(path=TARGET, content="X = 'A stale'\n", config=_cfg(ws, A))
++    assert out.startswith("File written")  # pre-D32 behavior: last wins
++
++
++def test_edit_file_notes_writes_and_needs_no_refusal(tmp_path):
++    """edit_file is span-safe (reads fresh, replaces the matched span):
++    it must keep working across agents — A's surgical edit PRESERVES B's
++    changes outside the span, and both writes get stamped."""
++    ws = _ws(tmp_path)
++    Path(ws, TARGET).write_text("A_section = 1\nB_section = 2\n")
++    EDIT(path=TARGET, old_text="A_section = 1", new_text="A_section = 10",
++         config=_cfg(ws, A))
++    out = EDIT(path=TARGET, old_text="B_section = 2", new_text="B_section = 20",
++               config=_cfg(ws, B))
++    assert out.startswith("✅"), out
++    assert (Path(ws) / TARGET).read_text() == "A_section = 10\nB_section = 20\n"
++    # and B's edit stamped B as latest writer:
++    assert "Refusing" in WRITE(path=TARGET, content="nope\n", config=_cfg(ws, A))
++
++
++def test_lock_path_mutual_exclusion():
++    lock_key = "/tmp/d32-lock-test"
++    active = {"now": 0, "max": 0}
++    guard = threading.Lock()
++
++    def worker():
++        for _ in range(5):
++            with file_state.lock_path(lock_key):
++                with guard:
++                    active["now"] += 1
++                    active["max"] = max(active["max"], active["now"])
++                time.sleep(0.001)
++                with guard:
++                    active["now"] -= 1
++
++    threads = [threading.Thread(target=worker) for _ in range(4)]
++    for t in threads:
++        t.start()
++    for t in threads:
++        t.join()
++    assert active["max"] == 1
++
++
++def test_config_without_thread_id_falls_back_to_main(tmp_path):
++    ws = _ws(tmp_path)
++    out = READ(path=TARGET, config={"configurable": {"workspace": ws}})
++    assert out == "X = 'original'\n"  # no crash; identity 'main'
++    assert file_state.task_id_from_config({}) == "main"
++
++
++def test_programmatic_api_independent_of_tools(tmp_path):
++    ws = _ws(tmp_path)
++    f = Path(ws) / TARGET
++    file_state.record_read(A, f)
++    file_state.note_write(B, f)
++    assert file_state.check_stale(A, f) is not None
++    assert file_state.check_stale(B, f) is None  # writer checks self
++    file_state.record_read(A, f)
++    assert file_state.check_stale(A, f) is None  # caught up
+diff --git a/src/tests/test_ptc.py b/src/tests/test_ptc.py
+index f5d588d..cab2f6c 100644
+--- a/src/tests/test_ptc.py
++++ b/src/tests/test_ptc.py
+@@ -178,7 +178,8 @@ def test_registry_contains_execute_code_once():
+     names = [t.name for t in tools]
+     assert names.count("execute_code") == 1
+     assert names.count("session_search") == 1
+-    assert len(names) == 20
++    # 21 since D33 (§45): delegate_to_subagent_batch joined the registry.
++    assert len(names) == 21
+ 
+ 
+ def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):
+diff --git a/src/tests/test_session_search.py b/src/tests/test_session_search.py
+index 5f21186..e92c474 100644
+--- a/src/tests/test_session_search.py
++++ b/src/tests/test_session_search.py
+@@ -227,6 +227,9 @@ def test_zero_llm_pure_search_source_pin():
+ 
+ 
+ def test_registry_twenty_tools():
++    """Tool registry count. Renamed in spirit (§45): now 21 — D33 added
++    delegate_to_subagent_batch; the name stays so history diffs loudly."""
+     from src.graphs.chat_graph import tools
+-    assert len([t for t in tools]) == 20
++    assert len([t for t in tools]) == 21
+     assert "session_search" in [t.name for t in tools]
++    assert "delegate_to_subagent_batch" in [t.name for t in tools]
+diff --git a/src/tests/test_sub_agent_batch.py b/src/tests/test_sub_agent_batch.py
+new file mode 100644
+index 0000000..5544581
+--- /dev/null
++++ b/src/tests/test_sub_agent_batch.py
+@@ -0,0 +1,150 @@
++"""Pins for D33 (steal #9, §45): parallel sub-agent batches — true
++wall-clock concurrency, index-ordered results, per-child crash capture,
++single-task path byte-identical to legacy spawn, plus the D32 synergy
++(concurrent children cannot clobber each other's files).
++
++invoke_agent is faked everywhere — no LLM, no graph.
++"""
++
++from __future__ import annotations
++
++import threading
++import time
++from pathlib import Path
++
++import pytest
++
++from src.agents.sub_agent import SubAgentCoordinator
++
++
++def _fake_invoke_factory(behavior):
++    """behavior(thread_id, message) -> result string (or raises)."""
++    def fake(message, thread_id="default", provider=None, model=None,
++             workspace=".", execution_mode="agent"):
++        return behavior(thread_id, message)
++    return fake
++
++
++def task_of(focused_prompt: str) -> str:
++    """Children receive spawn()'s FOCUSED prompt ('You are a ... Task: X');
++    tests want the raw task back."""
++    return focused_prompt.rsplit("Task: ", 1)[-1]
++
++
++@pytest.fixture(autouse=True)
++def _clean():
++    yield
++
++
++def test_single_task_batch_uses_legacy_sequential_path(monkeypatch):
++    calls = []
++
++    def behavior(tid, msg):
++        calls.append(tid)
++        time.sleep(0.05)
++        return f"done:{tid}"
++
++    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
++                        _fake_invoke_factory(behavior))
++    coord = SubAgentCoordinator()
++    t0 = time.perf_counter()
++    ids = coord.spawn_batch("research", ["only one"], "parent")
++    dt = time.perf_counter() - t0
++    assert len(ids) == 1 and ids[0] in calls
++    assert dt >= 0.05  # ran the child inline (sequential, legacy shape)
++    assert coord.get_result(ids[0]) == f"done:{ids[0]}"
++
++
++def test_batch_runs_concurrently_wall_time_pin(monkeypatch):
++    def behavior(tid, msg):
++        time.sleep(0.3)
++        return f"done:{msg[-12:]}"
++
++    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
++                        _fake_invoke_factory(behavior))
++    coord = SubAgentCoordinator()
++    tasks = [f"task number {i} padding" for i in range(3)]
++    t0 = time.perf_counter()
++    ids = coord.spawn_batch("review", tasks, "parent")
++    dt = time.perf_counter() - t0
++    # Serial would be >= 0.9s; parallel bounded pool must be far faster.
++    # (0.6s leaves 2x headroom for slow CI — the pin is about SHAPE.)
++    assert dt < 0.6, f"batch took {dt:.2f}s — children ran sequentially!"
++    assert dt >= 0.28
++    assert len(ids) == 3
++
++
++def test_batch_results_come_back_in_input_order(monkeypatch):
++    def behavior(tid, msg):
++        # Later tasks finish FIRST — order must still follow the input.
++        time.sleep(0.05 if "fast" in msg else 0.2)
++        return f"RESULT[{task_of(msg)}]"
++
++    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
++                        _fake_invoke_factory(behavior))
++    coord = SubAgentCoordinator()
++    tasks = ["slow-first", "fast-second", "fast-third"]
++    ids = coord.spawn_batch("test", tasks, "parent")
++    results = [coord.get_result(i) for i in ids]
++    assert results == [f"RESULT[{t}]" for t in tasks]
++
++
++def test_one_child_crash_does_not_sink_the_batch(monkeypatch):
++    def behavior(tid, msg):
++        if "boom" in msg:
++            raise RuntimeError("provider exploded")
++        return f"ok:{task_of(msg)}"
++
++    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
++                        _fake_invoke_factory(behavior))
++    coord = SubAgentCoordinator()
++    tasks = ["fine one", "boom task", "fine two"]
++    ids = coord.spawn_batch("code", tasks, "parent")  # must not raise
++    results = [coord.get_result(i) for i in ids]
++    assert results[0] == "ok:fine one"
++    assert results[2] == "ok:fine two"
++    assert "Sub-agent crashed" in results[1]
++    assert "provider exploded" in results[1]
++    # and every entry was delivered exactly once (pop-on-read):
++    assert all(coord.get_result(i).startswith("No sub-agent found")
++               for i in ids)
++
++
++def test_batch_empty_and_legacy_registry_bound(monkeypatch):
++    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
++                        _fake_invoke_factory(lambda tid, msg: "x"))
++    coord = SubAgentCoordinator()
++    assert coord.spawn_batch("review", [], "parent") == []
++
++
++def test_concurrent_children_cannot_clobber_files(monkeypatch, tmp_path):
++    """D32 × D33 synergy through the REAL write path: two parallel children
++    racing one file — the guard turns silent clobbering into a visible,
++    recoverable refusal. Exactly one wins; the file is always coherent."""
++    from src.tools.file_tools import write_file
++    from src.tools import file_state
++
++    ws = tmp_path / "ws"
++    ws.mkdir()
++    target = "race.txt"
++
++    def behavior(tid, msg):
++        return write_file.func(
++            path=target, content=f"content from {tid}\n",
++            config={"configurable": {"workspace": str(ws), "thread_id": tid}},
++        )
++
++    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
++                        _fake_invoke_factory(behavior))
++    file_state.reset_for_tests()
++    coord = SubAgentCoordinator()
++    ids = coord.spawn_batch("code", ["write A", "write B"], "parent")
++    results = [coord.get_result(i) for i in ids]
++
++    winners = [r for r in results if r.startswith("File written")]
++    refused = [r for r in results if "Refusing to clobber" in r]
++    assert len(winners) == 1, f"expected exactly one winner: {results}"
++    assert len(refused) == 1, f"expected exactly one refusal: {results}"
++    final = (ws / target).read_text()
++    assert final.startswith("content from sub-code-")
++    file_state.reset_for_tests()
+diff --git a/src/tools/file_state.py b/src/tools/file_state.py
+new file mode 100644
+index 0000000..d40ac7a
+--- /dev/null
++++ b/src/tools/file_state.py
+@@ -0,0 +1,184 @@
++# src/tools/file_state.py
++"""
++File-State Guard (D32, hermes steal #8)
++========================================
++
++Plain English: when two agents work in the same process (main agent +
++sub-agents, or D33's parallel sub-agent batches), one agent can silently
++overwrite another's fresh work: A reads a file, B edits it, A writes its
++(now stale) version back over B's changes. This module makes that clobber
++IMPOSSIBLE: before any write, we check whether someone else wrote the file
++since the writer last read it — and refuse with an agent-readable message
++telling them to re-read first.
++
++Design stolen from hermes `tools/file_state.py:1-40` (receipts §45),
++adapted: our agents are identified by the graph's thread_id (main
++conversation = its session thread, sub-agents = "sub-..." ids from
++invoke_agent's config — see chat_graph.py:1737-1744).
++
++    record_read(task_id, path)      — read_file hook
++    check_stale(task_id, path)      — write_file, BEFORE a full overwrite
++    note_write(task_id, path)       — write_file / edit_file, after success
++    lock_path(path)                 — per-path RMW critical section
++
++Policy note (pinned in tests): the stale REFUSAL lives on write_file,
++whose full-overwrite shape is the true clobber vector. edit_file needs
++no refusal — it reads fresh content itself and replaces only the matched
++span, so a stale-anchored old_text either fails to match (self-healing
++error: "read the file first") or lands surgically while PRESERVING the
++other agent's changes outside the span.
++
++Boring-by-choice details:
++- Stamps are (mtime, monotonic read/write time); a write also stamps the
++  writer's own knowledge (you know what YOU wrote — pinned).
++- Blind-overwrite is refused too: if OUR registry saw another agent write
++  the file and I never read it since, I don't get to clobber it blindly.
++- External edits (vim, IDE) are honestly OUT of scope: we only track
++  in-process tool traffic (same upstream scope). The mtime is recorded so
++  a smarter future check can compare — today's refusal is registry-based.
++- Kill-switch: PULSEAI_FILE_STATE_GUARD=off => instant no-op behavior.
++- Never raises. All hooks fail-open (log nothing, allow the action) — a
++  guard bug must never break an edit; the D31 shadow checkpoint is the
++  seatbelt underneath either way.
++"""
++
++from __future__ import annotations
++
++import threading
++import time
++from contextlib import contextmanager
++from pathlib import Path
++from typing import Optional
++
++_MAX_PATH_ENTRIES = 4096  # bounded registry (locks/stamps are ~100B each)
++
++_reads: dict[str, dict[str, tuple[float, float]]] = {}
++#        path -> task_id -> (mtime_at_read, monotonic read ts)
++_writers: dict[str, tuple[str, float]] = {}
++#          path -> (last writer task_id, monotonic write ts)
++_path_locks: dict[str, threading.Lock] = {}
++_guard = threading.Lock()
++
++
++def _enabled() -> bool:
++    import os
++    return os.environ.get("PULSEAI_FILE_STATE_GUARD", "").strip().lower() != "off"
++
++
++def _key(path) -> str:
++    try:
++        return str(Path(path).resolve())
++    except Exception:
++        return str(path)
++
++
++def _evict_if_needed() -> None:
++    if len(_reads) > _MAX_PATH_ENTRIES:
++        _reads.pop(next(iter(_reads)))
++    if len(_writers) > _MAX_PATH_ENTRIES:
++        _writers.pop(next(iter(_writers)))
++    if len(_path_locks) > _MAX_PATH_ENTRIES:
++        for key, lock in list(_path_locks.items()):
++            if not lock.locked():
++                del _path_locks[key]
++                break
++
++
++def record_read(task_id: str, path) -> None:
++    """Stamp: this agent has seen this file's current content."""
++    if not _enabled():
++        return
++    try:
++        key = _key(path)
++        try:
++            mtime = Path(key).stat().st_mtime
++        except OSError:
++            mtime = 0.0
++        with _guard:
++            _evict_if_needed()
++            _reads.setdefault(key, {})[task_id] = (mtime, time.monotonic())
++    except Exception:
++        pass
++
++
++def note_write(task_id: str, path) -> None:
++    """Stamp: this agent is the last writer (and knows what it wrote)."""
++    if not _enabled():
++        return
++    try:
++        key = _key(path)
++        now = time.monotonic()
++        with _guard:
++            _evict_if_needed()
++            _writers[key] = (task_id, now)
++            _reads.setdefault(key, {})[task_id] = (
++                Path(key).stat().st_mtime if Path(key).exists() else 0.0,
++                now,
++            )
++    except Exception:
++        pass
++
++
++def check_stale(task_id: str, path) -> Optional[str]:
++    """None if the write is safe; an agent-readable refusal string if
++    ANOTHER tool-using agent wrote this file and my knowledge is older
++    (or absent). Registry-only by design (see module docstring)."""
++    if not _enabled():
++        return None
++    try:
++        key = _key(path)
++        with _guard:
++            writer = _writers.get(key)
++            if writer is None:
++                return None
++            writer_id, write_ts = writer
++            if writer_id == task_id:
++                return None
++            my_stamp = _reads.get(key, {}).get(task_id)
++        if my_stamp is not None and my_stamp[1] >= write_ts:
++            return None  # I read it AFTER their write — I'm current.
++        rel = Path(path).name
++        return (
++            f"⚠️ Refusing to clobber: {rel} was modified by another agent "
++            f"(thread {writer_id!r}) since you last read it.\n"
++            f"Re-read the file with read_file first, then retry your edit — "
++            f"their changes are protected from being silently overwritten."
++        )
++    except Exception:
++        return None  # fail-open: guard bugs must never break an edit
++
++
++@contextmanager
++def lock_path(path):
++    """Per-path read-modify-write critical section (in-process)."""
++    key = _key(path)
++    with _guard:
++        lock = _path_locks.get(key)
++        if lock is None:
++            lock = threading.Lock()
++            _path_locks[key] = lock
++    lock.acquire()
++    try:
++        yield
++    finally:
++        lock.release()
++
++
++def reset_for_tests() -> None:
++    with _guard:
++        _reads.clear()
++        _writers.clear()
++        _path_locks.clear()
++
++
++# ------------------------------------------------------------------ helpers
++
++def task_id_from_config(config) -> str:
++    """Agent identity from the tool config (main session thread_id, or the
++    sub-* id invoke_agent gives children). 'main' when absent (direct tool
++    invocations in scripts/tests without graph context)."""
++    try:
++        tid = (config or {}).get("configurable", {}).get("thread_id", "")
++        return str(tid) or "main"
++    except Exception:
++        return "main"
+diff --git a/src/tools/file_tools.py b/src/tools/file_tools.py
+index 09c79cc..a32bce5 100644
+--- a/src/tools/file_tools.py
++++ b/src/tools/file_tools.py
+@@ -70,7 +70,14 @@ def read_file(
+         "r",
+         encoding="utf-8"
+     ) as file:
+-        return file.read()
++        content = file.read()
++
++    # D32: stamp "this agent has seen the current content" — the file-state
++    # guard's knowledge base for clobber detection (never raises).
++    from src.tools import file_state
++    file_state.record_read(file_state.task_id_from_config(config), safe_path)
++
++    return content
+ 
+ @tool
+ def list_files(
+@@ -136,29 +143,42 @@ def write_file(
+         path
+     )
+ 
+-    # D28: overwriting a WORKING Python file with broken grammar is refused
+-    # (new files are exempt — templates/skeletons may be intentionally
+-    # incomplete; edit_file's receipt handles refinement).
+-    if safe_path.suffix == ".py" and safe_path.exists():
+-        original_now = safe_path.read_text(encoding="utf-8")
+-        receipt_error = _python_syntax_receipt(original_now, content)
+-        if receipt_error is not None:
+-            return receipt_error
+-
+     safe_path.parent.mkdir(
+         parents=True,
+         exist_ok=True
+     )
+ 
+-    # D31: shadow snapshot BEFORE mutating (once per turn per workspace;
+-    # transparent to the LLM, never raises).
+-    from src.tools.shadow_checkpoints import checkpoint_before_mutation
+-    checkpoint_before_mutation(workspace, f"write_file: {path}")
++    # D32: one per-path critical section covers check → write → stamp, so
++    # two in-process agents can never interleave a clobber.
++    from src.tools import file_state
++    _tid = file_state.task_id_from_config(config)
++    with file_state.lock_path(safe_path):
++        # D32: refuse to silently overwrite another agent's fresh work.
++        if safe_path.exists():
++            stale = file_state.check_stale(_tid, safe_path)
++            if stale is not None:
++                return stale
++
++        # D28: overwriting a WORKING Python file with broken grammar is
++        # refused (new files are exempt — templates/skeletons may be
++        # intentionally incomplete; edit_file's receipt handles refinement).
++        if safe_path.suffix == ".py" and safe_path.exists():
++            original_now = safe_path.read_text(encoding="utf-8")
++            receipt_error = _python_syntax_receipt(original_now, content)
++            if receipt_error is not None:
++                return receipt_error
++
++        # D31: shadow snapshot BEFORE mutating (once per turn per workspace;
++        # transparent to the LLM, never raises).
++        from src.tools.shadow_checkpoints import checkpoint_before_mutation
++        checkpoint_before_mutation(workspace, f"write_file: {path}")
++
++        safe_path.write_text(
++            content,
++            encoding="utf-8"
++        )
+ 
+-    safe_path.write_text(
+-        content,
+-        encoding="utf-8"
+-    )
++        file_state.note_write(_tid, safe_path)
+ 
+     # D25: our own mutation must never hide behind the repo-map staleness TTL.
+     from src.context.repo_map import invalidate_repo_map
+@@ -427,6 +447,12 @@ def edit_file(
+ 
+     _atomic_write(safe_path, updated_content)
+ 
++    # D32: stamp the write (edit_file needs no stale REFUSAL — it reads
++    # fresh content itself and replaces only the matched span; see
++    # file_state's policy note).
++    from src.tools import file_state
++    file_state.note_write(file_state.task_id_from_config(config), safe_path)
++
+     # D25: our own mutation must never hide behind the repo-map staleness TTL.
+     from src.context.repo_map import invalidate_repo_map
+     invalidate_repo_map(workspace)
+-- 
+2.47.3
+

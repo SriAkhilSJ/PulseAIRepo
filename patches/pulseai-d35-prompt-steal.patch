@@ -1,0 +1,320 @@
+From 6453cd36c45e1f8b7fd15095a4dd7abe69eacc32 Mon Sep 17 00:00:00 2001
+From: ArenaAgent <agent@arena.local>
+Date: Sat, 8 Aug 2026 03:51:49 +0000
+Subject: [PATCH] =?UTF-8?q?feat(prompts):=20D35=20hermes=20prompt-PATTERN?=
+ =?UTF-8?q?=20steal=20--=20adjudicated=20the=20founder's=20copy-paste=20pr?=
+ =?UTF-8?q?oposal=20empirically:=20hermes'=203,111-line=20corpus=20referen?=
+ =?UTF-8?q?ces=20tools=20we=20lack=20(kanban/skills/telegram/USER.md)=20an?=
+ =?UTF-8?q?d=20self-ships=20prompt=5Fsize.py=20for=20the=20bloat,=20so=20p?=
+ =?UTF-8?q?atterns=20not=20paste.=20Three=20checked=20vs=20our=20persona:?=
+ =?UTF-8?q?=20anti-fabrication=20ALREADY=20covered=20(pin=20keeps=20count?=
+ =?UTF-8?q?=20=3D=3D=201=20forever);=20finish-the-job=20gap=20closed=20(wo?=
+ =?UTF-8?q?rking=20artifact=20backed=20by=20real=20output,=20never=20end?=
+ =?UTF-8?q?=20on=20a=20promise,=20blocked=20=3D>=20alternatives);=20batch-?=
+ =?UTF-8?q?calls=20was=20WORSE=20than=20a=20gap=20--=20our=20persona's=20'?=
+ =?UTF-8?q?Make=20one=20focused=20change=20at=20a=20time'=20actively=20sup?=
+ =?UTF-8?q?pressed=20the=20behavior=20D34's=20gate=20serves:=20sentence=20?=
+ =?UTF-8?q?replaced=20with=20D34-truthful=20batch=20rule=20(disjoint=20rea?=
+ =?UTF-8?q?ds=20concurrent,=20conflicts=20ordered;=20writes=20stay=20delib?=
+ =?UTF-8?q?erate).=20Legacy=20constant=20never=20mutated,=20compose-on-top?=
+ =?UTF-8?q?;=20drift=20breaks=20the=20pin=20loudly;=20kill-switch=20PULSEA?=
+ =?UTF-8?q?I=5FPERSONA=5FGUIDANCE=3Doff=20=3D=20byte-identical=20legacy;?=
+ =?UTF-8?q?=20growth=20<1300=20chars=20(~330=20tok)=20pinned;=20graph=20co?=
+ =?UTF-8?q?nsumes=20system=5Fpersona()=20only.=20Per-model=20gating=20park?=
+ =?UTF-8?q?ed=20(unmeasured=20need).=20+9=20pins;=20suite=20437=20green=20?=
+ =?UTF-8?q?(240+181+16);=20also=20reconciled=20the=20422-vs-428=20stalenes?=
+ =?UTF-8?q?s=20from=20=C2=A746=20loudly?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ ARCHITECTURE_REVIEW.md         |  59 ++++++++++++++++++
+ src/graphs/chat_graph.py       |   4 +-
+ src/prompts/claude_persona.py  |  70 ++++++++++++++++++++++
+ src/tests/test_prompt_guard.py | 106 +++++++++++++++++++++++++++++++++
+ 4 files changed, 237 insertions(+), 2 deletions(-)
+ create mode 100644 src/tests/test_prompt_guard.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index aefce01..6c61d24 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -2169,3 +2169,62 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
+ OSS — THE HEART'S BODY: the engine is finished and every steal is in;
+ the editor surface is the last item on the board, awaiting the
+ founder's external verification verdict).
++
++## §47 — D35 shipped: the hermes prompt-PATTERN steal (founder's opinion, adjudicated)
++
++The founder proposed: "just copy-paste hermes' prompt engineering into
++our code — is that nice?" Empirical check before a single word was
++written. hermes' prompt corpus is ~3,111 lines (agent/system_prompt.py
++685 + prompt_builder.py 2,206) literally referencing tools we do not
++have (kanban, skills index, Telegram, USER.md, nous subscription) — and
++hermes itself ships prompt_size.py to measure the bloat. VERDICT:
++verbatim paste = NOT nice (phantom tools + token-budget damage);
++pattern-steal = nice, for exactly the gaps our persona provably has.
++The three top hermes patterns vs src/prompts/claude_persona.py:
++
++  1. anti-fabrication — ALREADY COVERED ("Never invent file contents,
++     terminal output, or search results"); consciously NOT doubled
++     (pinned: count stays exactly 1 forever).
++  2. finish-the-job — REAL GAP closed: deliverable = working artifact
++     backed by real tool output, never end a turn on a promise of
++     future action, blocked path => say so + try an alternative.
++     (hermes grounded theirs in observed incidents: an Opus run that
++     stopped after an 85-byte stub; a DeepSeek run that fabricated
++     listings behind a pip wall.)
++  3. batch tool calls — WORSE THAN A GAP: our own persona said "Make
++     one focused change at a time", actively suppressing the behavior
++     D34's gate (§46) was built to serve. Sentence REPLACED with the
++     D34-truthful rule: batch independent read-only calls on DIFFERENT
++     files into one response (runtime runs safe batches concurrently,
++     orders conflicting ones), writes stay one-deliberate-change.
++     Fewer round-trips = the founder's metrics directly: latency,
++     resent-context budget, LLM calls.
++
++Anti-drift design: the legacy constant is NEVER mutated — on-mode is
++composed (replace + append); if persona text drifts and the replace
++stops matching, the pin fails loudly. Kill-switch
++PULSEAI_PERSONA_GUIDANCE=off returns the byte-identical legacy persona
++(pinned). Growth bound pinned: <1,300 chars (~330 tokens, stable tier).
++Graph consumes via system_persona() only — raw-constant consumption
++pinned dead. Founder's verdict honored: NO per-model gating shipped
++(hermes gates enforcement text by model family) — unmeasured need,
++parked with a note, same doctrine as static budgets.
++
++Count reconciliation (owed loudly): §46's commit line said "+69 pins,
++422 green". The 422 was the pre-v2-reframe halves sum (8-pin
++test_parallel_tools); the v2 reframe then added 6 more pins, so the
++true post-§46 count was 428 — the commit's "+69" math (359+55+14)
++was right and its "422" was stale by those 6. Today's suite, measured
++in the three RAM-wall runs: 240 + 181 + 16 = 437 green (= 428 + 9
++D35). The number quoted in any message is only as good as its latest
++run — noted, owned, and now exact.
++
++Pins: test_prompt_guard.py NEW 9/9. Suite: 437 green (240+181+16).
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(all)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
++~~D24~~ ~~D10~~ ~~D9~~ ~~D23~~ ~~D31~~ ~~D25~~ ~~D26~~ ~~D27~~ ~~D28~~
++~~D29~~ ~~D32~~ ~~D33~~ ~~D30~~ ~~D34~~ ~~D35~~ — remaining: P2 (VS
++Code fork OSS — analysis delivered: contrib-placement confirmed with
++whole-tree receipts, chat contrib's agentSessions pattern identified;
++kilocode UX read next on the founder's order).
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index a3bcb8a..581737e 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -64,7 +64,7 @@ from src.tools.terminal_tools import (
+ from src.tools.web_tools import web_search, web_fetch
+ from src.tools.code_exec_tool import execute_code
+ from src.tools.session_search_tool import session_search
+-from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
++from src.prompts.claude_persona import system_persona  # D35 (§47)
+ 
+ from src.agents.cost_router import cost_router
+ from src.agents.skill_manager import skill_manager
+@@ -362,7 +362,7 @@ def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsa
+ # =========================================================
+ # AI NODE (with Context Engine)
+ # =========================================================
+-system_message = SystemMessage(content=CLAUDE_SYSTEM_PERSONA)
++system_message = SystemMessage(content=system_persona())
+ 
+ 
+ def _zero_token_usage() -> dict[str, Any]:
+diff --git a/src/prompts/claude_persona.py b/src/prompts/claude_persona.py
+index 31238ff..b68f23c 100644
+--- a/src/prompts/claude_persona.py
++++ b/src/prompts/claude_persona.py
+@@ -243,3 +243,73 @@ If you realize you made a mistake:
+ Mistakes are fine — covering them up isn't.
+ 
+ """
++
++
++# ---------------------------------------------------------------------------
++# D35 (§47) — hermes prompt-PATTERN steal: adapted, not pasted.
++#
++# Empirical adjudication before writing a single word: hermes' prompt corpus
++# is ~3,111 lines (agent/system_prompt.py 685 + agent/prompt_builder.py
++# 2,206) referencing tools PulseAI does not have (kanban, skills index,
++# Telegram, USER.md, nous subscription) — they ship a `prompt_size.py` tool
++# just to measure the bloat. Verbatim paste = phantom tools + token-budget
++# damage. But THREE of their patterns were checked against THIS persona:
++#
++#   1. anti-fabrication  — COVERED already ("Never invent file contents,
++#      terminal output, or search results" below). Consciously NOT doubled.
++#   2. finish-the-job    — GAP: we said "never claim success without proof"
++#      but not "the deliverable is exercised code; don't stop at a stub;
++#      never end on a promise of future action".  STOLEN (adapted).
++#   3. batch tool calls  — WORSE THAN A GAP: this persona told the model
++#      "Make one focused change at a time", suppressing the exact behavior
++#      D34's tool-batch gate was built to serve (fewer round-trips = less
++#      latency + fewer LLM calls + less resent context).  STOLEN (adapted
++#      to our real gate: safe batches run concurrently, conflicting batches
++#      run sequentially in input order — that is the true contract, §46).
++#
++# Kill-switch: PULSEAI_PERSONA_GUIDANCE=off => byte-identical legacy persona
++# (the constant above is NEVER mutated; on-mode is composed from it).
++# ---------------------------------------------------------------------------
++
++_D35_LEGACY_BATCH_SENTENCE = "Make one focused change at a time."
++
++_D35_BATCH_SENTENCE = (
++    "Batch independent read-only tool calls (reads, searches, listings of "
++    "DIFFERENT files) into ONE response when you can — the runtime runs "
++    "safe batches concurrently and orders any conflicting calls "
++    "deterministically. Keep WRITES focused: one deliberate change at a "
++    "time."
++)
++
++_D35_FINISH_JOB = """
++
++## Finishing the Job
++
++- **Your deliverable is a working artifact backed by real tool output** — not a description of one. Don't stop at a stub, a plan, or a single command: keep working until you have actually exercised the code or produced the requested result, then report what real execution returned.
++
++- **Never end a turn on a promise of future action** ("I will run the tests", "Next I will fix it"). If you say you will do it, do it in this response.
++
++- **When the real path is blocked, say so and try an alternative** — a different approach, a different package manager, or ask the user. Reporting a blocker honestly always beats inventing a result.
++"""
++
++
++def _d35_guidance_enabled() -> bool:
++    import os
++    return os.environ.get("PULSEAI_PERSONA_GUIDANCE", "").strip().lower() != "off"
++
++
++def system_persona() -> str:
++    """The persona the graph should use. Kill-switch off => the legacy
++    constant, byte-identical. On => the constant with the anti-batch
++    sentence replaced by D34-truthful batch guidance, plus the
++    finish-the-job section. If the legacy sentence ever drifts and the
++    replace stops matching, the D35 pin fails LOUDLY (on-mode would
++    still contain it) — never silently."""
++    if not _d35_guidance_enabled():
++        return CLAUDE_SYSTEM_PERSONA
++    return (
++        CLAUDE_SYSTEM_PERSONA.replace(
++            _D35_LEGACY_BATCH_SENTENCE, _D35_BATCH_SENTENCE
++        )
++        + _D35_FINISH_JOB
++    )
+diff --git a/src/tests/test_prompt_guard.py b/src/tests/test_prompt_guard.py
+new file mode 100644
+index 0000000..0d4845f
+--- /dev/null
++++ b/src/tests/test_prompt_guard.py
+@@ -0,0 +1,106 @@
++"""Pins for D35 (§47): the hermes prompt-pattern steal — adapted, never
++pasted. Two gaps closed (finish-the-job, batch calls), one pattern
++consciously NOT doubled (anti-fabrication — already covered), one
++anti-batch sentence REMOVED (it suppressed the behavior D34's gate was
++built to serve), kill-switch restores byte-identical legacy.
++"""
++
++from __future__ import annotations
++
++import inspect
++
++import pytest
++
++from src.prompts.claude_persona import (
++    CLAUDE_SYSTEM_PERSONA,
++    _D35_FINISH_JOB,
++    _D35_LEGACY_BATCH_SENTENCE,
++    system_persona,
++)
++import src.graphs.chat_graph as chat_graph
++
++
++@pytest.fixture(autouse=True)
++def _clean_env(monkeypatch):
++    monkeypatch.delenv("PULSEAI_PERSONA_GUIDANCE", raising=False)
++    yield
++
++
++# ------------------------------------------------------------ on-mode
++
++def test_d35_legacy_constant_never_mutated():
++    """The frozen constant is sacred: on-mode must not edit it."""
++    assert _D35_LEGACY_BATCH_SENTENCE in CLAUDE_SYSTEM_PERSONA
++
++
++def test_d35_on_kills_the_anti_batch_sentence():
++    p = system_persona()
++    assert _D35_LEGACY_BATCH_SENTENCE not in p, (
++        "the persona told the model to NEVER batch — D34's gate exists "
++        "to execute batches safely; the sentence must be replaced, and "
++        "this pin screams if persona drift ever breaks the replace"
++    )
++    assert "Batch independent read-only tool calls" in p
++    assert "DIFFERENT files" in p, "batching is only safe for disjoint reads"
++
++
++def test_d35_batch_sentence_is_d34_truthful():
++    p = system_persona()
++    assert "concurrently" in p and "conflicting" in p, (
++        "the batch line must state the REAL D34 contract: safe batches "
++        "concurrent, conflicting ones ordered — never overclaim"
++    )
++
++
++def test_d35_finish_job_patterns_present():
++    p = system_persona()
++    for marker in (
++        "working artifact backed by real tool output",
++        "Never end a turn on a promise of future action",
++        "blocked, say so",
++    ):
++        assert marker in p, f"finish-the-job pattern missing: {marker!r}"
++
++
++def test_d35_anti_fabrication_deliberately_not_doubled():
++    """hermes' third block is already covered by the legacy persona
++    ("Never invent file contents..."). One coverage, zero paste."""
++    assert CLAUDE_SYSTEM_PERSONA.count("Never invent file contents") == 1
++    assert system_persona().count("Never invent file contents") == 1, (
++        "if this ever reads 2, someone pasted hermes over our coverage"
++    )
++
++
++def test_d35_growth_bound():
++    """Token-budget guard: the steal is two tight paragraphs, not hermes'
++    3,111-line corpus. ~1,300 chars growth ceiling (~330 tokens once per
++    turn at the stable tier)."""
++    growth = len(system_persona()) - len(CLAUDE_SYSTEM_PERSONA)
++    assert growth < 1300, f"persona grew by {growth} chars — too fat"
++
++
++# ------------------------------------------------------------ kill-switch
++
++def test_d35_killswitch_restores_byte_identical_legacy(monkeypatch):
++    monkeypatch.setenv("PULSEAI_PERSONA_GUIDANCE", "off")
++    assert system_persona() is CLAUDE_SYSTEM_PERSONA or (
++        system_persona() == CLAUDE_SYSTEM_PERSONA
++    ), "off must return the exact legacy persona, byte for byte"
++
++
++def test_d35_finish_job_section_isolated():
++    """The appended block is one contiguous tail, so 'off' cannot leak
++    fragments of it."""
++    assert _D35_FINISH_JOB.startswith("\n\n## Finishing the Job")
++    assert "## Finishing the Job" not in CLAUDE_SYSTEM_PERSONA
++
++
++# ------------------------------------------------------------ wiring
++
++def test_d35_graph_consumes_persona_via_function():
++    src = inspect.getsource(chat_graph)
++    assert "system_persona()" in src, "chat_graph must call the switch-point"
++    assert "SystemMessage(content=CLAUDE_SYSTEM_PERSONA)" not in src, (
++        "raw constant must not be consumed directly — it would bypass "
++        "the kill-switch"
++    )
+-- 
+2.47.3
+

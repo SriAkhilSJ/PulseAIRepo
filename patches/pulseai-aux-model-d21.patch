@@ -1,0 +1,368 @@
+From 04b732c5428d84a488dcd7f462faae5a252d691e Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 10:37:29 +0000
+Subject: [PATCH] feat(llm): auxiliary-model maintenance routing (D21, hermes
+ steal #5) -- settings.resolve_aux_llm (env -> cheap table -> main fallback) +
+ factory.get_auxiliary_llm (cached, distinct client = curator
+ never-touches-main invariant); task_manager classification on aux w/ main
+ fallback; SUMMARIZER_LLM=aux opt-in for >8K tool outputs (default free);
+ discovery: reflection/skill/memory engines are already LLM-free; +8 pins, 249
+ green
+
+---
+ ARCHITECTURE_REVIEW.md              |  47 ++++++++++
+ src/config/settings.py              |  36 +++++++
+ src/graphs/chat_graph.py            |  30 ++++--
+ src/llm/factory.py                  |  21 +++++
+ src/tests/test_aux_model_routing.py | 141 ++++++++++++++++++++++++++++
+ 5 files changed, 269 insertions(+), 6 deletions(-)
+ create mode 100644 src/tests/test_aux_model_routing.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 2f5040b3..095626ea 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1302,3 +1302,50 @@ before confirming network; tarball-then-replace is the order.
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ — remaining: D9, D10, D13, D14,
+ D15-remainder, D21, D22, D23, C1, P2.
++
++## 34. D21 — auxiliary-model maintenance routing (2026-08-07)
++
++Fifth hermes steal (§29 step #5). Their curator rule (curator.py:17-18):
++maintenance NEVER runs on the main client — "never touches the main
++session's prompt cache."
++
++Discovery-first (not copy-first), because routing must match OUR stack:
++- ReflectionEngine: pure string templating, ZERO LLM. Nothing to route.
++- SmartSummarizer: production passes llm=None (free heuristics). No
++  spend today; the >8000-char LLM tier was unreachable in production.
++- skill/memory managers: no LLM call sites (grep-verified).
++- True management-class LLM consumer: task_manager's per-instruction
++  classification (with_structured_output(TaskDecision)) at MAIN rates.
++- Planner: product-critical quality; stays main (documented decision).
++
++Shipped:
++- settings.resolve_aux_llm(): env override (AUX_LLM_PROVIDER/MODEL) ->
++  per-provider cheap table (groq: llama-3.1-8b-instant, openai:
++  gpt-4o-mini, gemini: 2.0-flash, nvidia: llama-3.1-8b-instruct) ->
++  MAIN fallback for unknown providers (identical behavior, safe
++  degradation; never a breakage mode).
++- factory.get_auxiliary_llm(): cached per (provider, model), DISTINCT
++  object from get_llm() output, RetryLLMProxy timeouts/retries intact —
++  the structural form of their invariant (separate client, separate
++  request chain; our main-session cache prefix from §32 is untouched by
++  construction).
++- task_manager classification routed to aux with main fallback (mirrors
++  ai_node's cost-router fallback policy: routing never blocks a turn).
++- SUMMARIZER_LLM=aux opt-in: engine construction hands the aux client to
++  SmartSummarizer (>8000-char tool outputs get real summaries at janitor
++  prices); default OFF, aux-failure degrades to free heuristics (pinned).
++
++Pins: src/tests/test_aux_model_routing.py 8/8 — cheap-table default,
++env-override, unknown-provider main fallback, cache-once distinct-client
++(curator invariant), retry-policy wrap, task_manager aux-first/main-
++fallback with exact main config preserved, summarizer default-free +
++opt-in + degrade-on-failure. Suite: 249 green (121s).
++
++Rollback #5 struck mid-round again (same signature) — recovered via the
++network-first codeload ritual. Founder's heads-up about the missing .git
++addressed: the sandbox repo was git-init-reconstructed after the GitHub
++rate-limit; content-identical, remote re-added, patches unaffected.
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ — remaining: D9, D10, D13, D14,
++D15-remainder, D22, D23, C1, P2.
+diff --git a/src/config/settings.py b/src/config/settings.py
+index bc1924e5..60ef1310 100644
+--- a/src/config/settings.py
++++ b/src/config/settings.py
+@@ -34,6 +34,42 @@ LLM_MODEL: str = os.getenv(
+     "qwen/qwen3.6-27b",
+ )
+ 
++# =========================================================
++# AUXILIARY (MANAGEMENT-CLASS) MODEL — D21, hermes §29
++# =========================================================
++# Housekeeping LLM calls (task classification, summaries of giant tool
++# outputs, memory maintenance) should bill at janitor rates, never at the
++# flagship's — and never share the main conversation's request chain
++# (their curator.py:17-18 invariant: aux "never touches the main
++# session's prompt cache"). Ours is structural: aux calls are separate
++# requests via a dedicated client (factory.get_auxiliary_llm).
++_AUX_CHEAP_TABLE: dict[str, str] = {
++    "groq": "llama-3.1-8b-instant",
++    "openai": "gpt-4o-mini",
++    "gemini": "gemini-2.0-flash",
++    "nvidia": "meta/llama-3.1-8b-instruct",
++}
++
++
++def resolve_aux_llm() -> tuple[str, str]:
++    """(provider, model) for management-class calls.
++
++    Env overrides win; else the per-provider cheap table (unknown/custom
++    providers fall back to the MAIN model — identical behavior, the safe
++    degradation; configure AUX_LLM_MODEL to actually save).
++    """
++    provider = os.getenv("AUX_LLM_PROVIDER", LLM_PROVIDER)
++    model = os.getenv("AUX_LLM_MODEL") or _AUX_CHEAP_TABLE.get(provider, LLM_MODEL)
++    return provider, model
++
++
++AUX_LLM_PROVIDER, AUX_LLM_MODEL = resolve_aux_llm()
++
++# SmartSummarizer stays LLM-free by default (recommended for budget).
++# Set SUMMARIZER_LLM=aux to let >8000-char tool outputs be summarized by
++# the AUXILIARY model — a real quality win at janitor prices.
++SUMMARIZER_LLM: str = os.getenv("SUMMARIZER_LLM", "").strip().lower()
++
+ # =========================================================
+ # CONTEXT / TOKEN COUNTING
+ # =========================================================
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index b35d33b8..fbe00259 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -29,7 +29,7 @@ from langgraph.graph.message import add_messages
+ from langgraph.prebuilt import ToolNode, InjectedState
+ 
+ from src.config.settings import LLM_PROVIDER, LLM_MODEL
+-from src.llm.factory import get_llm
++from src.llm.factory import get_llm, get_auxiliary_llm
+ from src.context.context_engine import ContextEngine
+ from src.context.memory_manager import MemoryManager
+ from src.context.token_tracker import TokenTracker, TokenUsage
+@@ -550,6 +550,17 @@ def is_plan_cancellation(message: str) -> bool:
+ # =========================================================
+ # TASK NODE
+ # =========================================================
++def _task_manager_llm(provider: str, model: str):
++    """Task classification is MANAGEMENT-class work (short structured
++    output, not user-facing prose): route it to the auxiliary client
++    (D21). Main model is the fallback, mirroring ai_node's cost-router
++    fallback policy — routing must never block a turn."""
++    try:
++        return get_auxiliary_llm()
++    except Exception:
++        return get_llm(provider=provider, model=model)
++
++
+ def task_manager_node(
+     state: AgentState,
+     config: RunnableConfig,
+@@ -650,10 +661,7 @@ def task_manager_node(
+             "workspace": config["configurable"].get("workspace", "."),
+         }
+ 
+-    llm = get_llm(
+-        provider=provider,
+-        model=model,
+-    )
++    llm = _task_manager_llm(provider, model)
+ 
+     task_llm = llm.with_structured_output(
+         TaskDecision
+@@ -1886,9 +1894,19 @@ def get_context_engine(
+     with _ENGINES_LOCK:
+         engine = _ENGINES.get(key)
+         if engine is None:
++            # D21: >8000-char tool outputs may be summarized by the
++            # AUXILIARY model (janitor prices) when explicitly enabled;
++            # free heuristics remain the default floor (SUMMARIZER_LLM).
++            summarizer_llm = None
++            from src.config.settings import SUMMARIZER_LLM
++            if SUMMARIZER_LLM == "aux":
++                try:
++                    summarizer_llm = get_auxiliary_llm()
++                except Exception:
++                    summarizer_llm = None
+             engine = ContextEngine(
+                 model=LLM_MODEL,
+-                llm=None,
++                llm=summarizer_llm,
+                 memory_manager=memory_manager,
+             )
+             _ENGINES[key] = engine
+diff --git a/src/llm/factory.py b/src/llm/factory.py
+index 1e0f7d63..d66cd93d 100644
+--- a/src/llm/factory.py
++++ b/src/llm/factory.py
+@@ -285,6 +285,27 @@ def get_llm(provider, model):
+     raise ValueError(f"Unknown provider: {provider}")
+ 
+ 
++# =========================================================
++# AUXILIARY CLIENT (D21)
++# =========================================================
++_aux_llm_cache: dict[tuple[str, str], Any] = {}
++
++
++def get_auxiliary_llm():
++    """Dedicated management-class client (hermes curator invariant, §29).
++
++    Cached per (provider, model); a DISTINCT object from anything
++    get_llm() hands out, so aux calls can never share or perturb the main
++    session's request chain. All Deep maintenance routing (task
++    classification, aux summaries) flows through here.
++    """
++    from src.config.settings import AUX_LLM_PROVIDER, AUX_LLM_MODEL
++    key = (AUX_LLM_PROVIDER, AUX_LLM_MODEL)
++    if key not in _aux_llm_cache:
++        _aux_llm_cache[key] = get_llm(provider=key[0], model=key[1])
++    return _aux_llm_cache[key]
++
++
+ # =========================================================
+ # EMBEDDING FACTORY
+ # =========================================================
+diff --git a/src/tests/test_aux_model_routing.py b/src/tests/test_aux_model_routing.py
+new file mode 100644
+index 00000000..7b9b5ba2
+--- /dev/null
++++ b/src/tests/test_aux_model_routing.py
+@@ -0,0 +1,141 @@
++"""Pins for D21: auxiliary-model maintenance routing (hermes curator
++invariant, §29 — aux "never touches the main session's prompt cache").
++
++Contract:
++- housekeeping calls (task classification, opt-in giant-output summaries)
++  bill the AUXILIARY client, not the flagship
++- aux resolution: env override -> per-provider cheap table -> main fallback
++  (unknown providers degrade to main = identical behavior, never breakage)
++- the aux client is a DISTINCT, cached object from get_llm() results
++- SmartSummarizer stays LLM-free unless SUMMARIZER_LLM=aux opts in
++"""
++
++from __future__ import annotations
++
++
++
++import pytest
++
++import src.config.settings as settings
++from src.llm import factory
++from src.llm.factory import RetryLLMProxy
++
++
++# ------------------------------------------------------------- resolution
++def test_aux_resolution_cheap_table_default(monkeypatch):
++    monkeypatch.delenv("AUX_LLM_PROVIDER", raising=False)
++    monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
++    monkeypatch.setattr(settings, "LLM_PROVIDER", "groq")
++    monkeypatch.setattr(settings, "LLM_MODEL", "qwen/qwen3.6-27b")
++    provider, model = settings.resolve_aux_llm()
++    assert (provider, model) == ("groq", "llama-3.1-8b-instant")
++
++
++def test_aux_resolution_env_override_wins(monkeypatch):
++    monkeypatch.setenv("AUX_LLM_PROVIDER", "openai")
++    monkeypatch.setenv("AUX_LLM_MODEL", "gpt-4o-mini-custom")
++    provider, model = settings.resolve_aux_llm()
++    assert (provider, model) == ("openai", "gpt-4o-mini-custom")
++
++
++def test_aux_resolution_unknown_provider_falls_back_to_main(monkeypatch):
++    monkeypatch.delenv("AUX_LLM_PROVIDER", raising=False)
++    monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
++    monkeypatch.setattr(settings, "LLM_PROVIDER", "custom")
++    monkeypatch.setattr(settings, "LLM_MODEL", "my-local-model")
++    provider, model = settings.resolve_aux_llm()
++    assert (provider, model) == ("custom", "my-local-model")
++
++
++# ---------------------------------------------------------------- factory
++def test_aux_client_is_distinct_and_cached(monkeypatch):
++    factory._aux_llm_cache.clear()
++    monkeypatch.setattr(settings, "AUX_LLM_PROVIDER", "groq")
++    monkeypatch.setattr(settings, "AUX_LLM_MODEL", "llama-3.1-8b-instant")
++
++    builds: list[tuple[str, str]] = []
++    monkeypatch.setattr(
++        factory, "get_llm",
++        lambda provider, model: builds.append((provider, model)) or object(),
++    )
++    aux1 = factory.get_auxiliary_llm()
++    aux2 = factory.get_auxiliary_llm()
++    assert aux1 is aux2                           # cached client
++    assert builds == [("groq", "llama-3.1-8b-instant")]  # built once, AUX settings
++    main = factory.get_llm(provider="groq", model="qwen/qwen3.6-27b")
++    assert aux1 is not main                       # the curator invariant
++    assert builds[-1] == ("groq", "qwen/qwen3.6-27b")    # main model unchanged
++
++
++def test_aux_client_wraps_retry_policy(monkeypatch):
++    factory._aux_llm_cache.clear()
++    monkeypatch.setattr(
++        factory, "get_llm",
++        lambda provider, model: RetryLLMProxy(object()),
++    )
++    assert isinstance(factory.get_auxiliary_llm(), RetryLLMProxy)
++
++
++def test_task_manager_prefers_aux_falls_back_to_main(monkeypatch):
++    import src.graphs.chat_graph as cg
++
++    sentinel = object()
++    monkeypatch.setattr(cg, "get_auxiliary_llm", lambda: sentinel)
++    assert cg._task_manager_llm("groq", "M") is sentinel
++
++    def _boom():
++        raise RuntimeError("provider down")
++
++    called: dict[str, tuple] = {}
++
++    def _main(provider, model):
++        called["hit"] = (provider, model)
++        return "MAIN"
++
++    monkeypatch.setattr(cg, "get_auxiliary_llm", _boom)
++    monkeypatch.setattr(cg, "get_llm", _main)
++    assert cg._task_manager_llm("groq", "M") == "MAIN"
++    assert called["hit"] == ("groq", "M")     # exact main config preserved
++    # monkeypatch reverts automatically at teardown.
++
++
++# ------------------------------------------------------ summarizer wiring
++@pytest.fixture()
++def fresh_engine_key(monkeypatch):
++    """Isolated session bucket so memoized engines never collide."""
++    import src.graphs.chat_graph as cg
++    key = "aux-test-session"
++    with cg._ENGINES_LOCK:
++        cg._ENGINES.pop(key, None)
++    yield cg, key
++    with cg._ENGINES_LOCK:
++        cg._ENGINES.pop(key, None)
++
++
++def test_summarizer_default_free_opt_in_uses_aux(fresh_engine_key, monkeypatch, tmp_path):
++    cg, key = fresh_engine_key
++    monkeypatch.setattr(settings, "SUMMARIZER_LLM", "")
++    cfg = {"configurable": {"thread_id": key, "workspace": str(tmp_path)}}
++    engine = cg.get_context_engine(cfg)
++    assert engine.summarizer.llm is None      # default: zero LLM spend
++
++    with cg._ENGINES_LOCK:
++        cg._ENGINES.pop(key, None)
++    monkeypatch.setattr(settings, "SUMMARIZER_LLM", "aux")
++    sentinel = object()
++    monkeypatch.setattr(cg, "get_auxiliary_llm", lambda: sentinel)
++    engine = cg.get_context_engine(cfg)
++    assert engine.summarizer.llm is sentinel  # opt-in: janitor-priced LLM
++
++
++def test_summarizer_opt_in_aux_failure_degrades_to_free(fresh_engine_key, monkeypatch, tmp_path):
++    cg, key = fresh_engine_key
++
++    def _boom():
++        raise RuntimeError("no aux provider key")
++
++    monkeypatch.setattr(settings, "SUMMARIZER_LLM", "aux")
++    monkeypatch.setattr(cg, "get_auxiliary_llm", _boom)
++    cfg = {"configurable": {"thread_id": key, "workspace": str(tmp_path)}}
++    engine = cg.get_context_engine(cfg)
++    assert engine.summarizer.llm is None      # degraded, never broken
+-- 
+2.47.3
+
