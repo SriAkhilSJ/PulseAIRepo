@@ -40,22 +40,9 @@ def read_file(
     config: RunnableConfig
 ) -> str:
     """
-    Read and return the contents of a file inside the current workspace.
-
-    WHEN TO USE:
-    - Before editing any existing file, read it first to see current contents.
-    - To inspect configuration files, code, data, prompts, or tests.
-    - To verify that write_file or edit_file produced the expected content.
-
-    WHEN NOT TO USE:
-    - Do not use for directories; use list_files instead.
-    - Do not repeatedly read the same unchanged file in one task unless needed.
-
-    Args:
-        path: Workspace-relative path to the file.
-
-    Returns:
-        File contents as text, or a tool error if reading fails.
+    Read a text file and return its contents. Use for known files where
+    accuracy matters. For searching, use search_code; for directories, use
+    list_files. Respects line ranges when given.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -374,22 +361,9 @@ def edit_file(
     config: RunnableConfig
 ) -> str:
     """
-    Replace specific text in an existing file inside the current workspace.
-
-    WHEN TO USE:
-    - Changing a small or precise part of an existing file.
-    - Fixing bugs, imports, config values, or individual functions.
-    - Preserving the rest of the file exactly.
-
-    WHEN NOT TO USE:
-    - Do not use for creating new files; use write_file.
-    - Do not use before reading the file when current content matters.
-
-    IMPORTANT:
-    - old_text should match existing content; minor whitespace drift is
-      tolerated automatically (the replacement covers the matched BLOCK).
-    - Prefer small, targeted replacements.
-    - A diff preview is returned so you can verify the edit — use it.
+    Apply a targeted text replacement (old_text -> new_text) to a file.
+    USE for precise edits instead of rewriting whole files with write_file.
+    The old_text must match exactly, including whitespace.
     """
 
     workspace = config["configurable"]["workspace"]

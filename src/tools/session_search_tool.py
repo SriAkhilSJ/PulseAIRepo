@@ -191,31 +191,19 @@ def session_search(
     config: RunnableConfig = None,
 ) -> str:
     """
-    Search PAST conversations (all previous sessions) with zero LLM cost —
-    pure full-text search, no summaries, no model calls.
+    Search PAST conversations (other sessions) with zero LLM cost —
+    pure full-text search.
 
-    WHEN TO USE:
-    - The user references earlier work: "how did we fix...", "what did we
-      decide about...", "continue what we did last week".
-    - You need facts from a prior session that are not in the current context.
+    USE when the user references earlier work ("how did we fix...",
+    "continue what we did last week") or you need facts from a prior
+    session not in the current context. NOT for this session (already in
+    context) or for code/files (use search_code/read_file).
 
-    WHEN NOT TO USE:
-    - Anything about THIS session — it is already in your context (the
-      current session is excluded from discovery and browse results).
-    - Searching code or files: use search_code/read_file instead.
-
-    THREE MODES (picked automatically from the args):
-    1. DISCOVERY — pass query. Returns the top past sessions with the
-       matching snippet, a few messages around it, and the first/last
-       messages of each session so you can judge relevance.
-    2. SCROLL — pass session_id + around_message_id (from a discovery
-       card). Returns messages around that anchor; use the printed
-       newer/older hints to walk the conversation.
-    3. BROWSE — pass nothing. Lists the most recent past sessions.
-    (session_id alone gives that session's overview: bookends + stats.)
-
-    Only user and assistant messages are searchable. Sub-agent runs are
-    shown only when no interactive session matched.
+    MODES (auto from args): (1) DISCOVERY — pass query: top past sessions
+    with matching snippets; (2) SCROLL — pass session_id +
+    around_message_id from a discovery card: messages around that anchor;
+    (3) BROWSE — pass nothing: most recent sessions. session_id alone
+    gives that session's overview (bookends + stats).
     """
     _index.sync()  # watermark-cheap; fresh recall every call
     current_thread = str((config or {}).get("configurable", {}).get("thread_id", ""))

@@ -33,6 +33,7 @@ pinned in src/tests/test_progress_helpers.py):
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from langchain_core.messages import ToolMessage
@@ -53,6 +54,83 @@ PROGRESS_REFLECTION_PROMPT = (
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILED = "failed"
 OUTCOME_SKIP = "skip"      # check_terminal still running: record NOTHING
+
+# =====================================================================
+# STRATEGY PIVOT (lab finding, run 10)
+# =====================================================================
+# When tool failures are ENVIRONMENT-level (missing binary, PATH/shim or
+# permission problems — e.g. `npx create-vite` failing with "not recognized
+# as an internal or external command" on Windows), retrying the same class
+# of command fails identically forever and the old recovery loop burned all
+# 3 attempts and paused for user input instead of switching strategy.
+# These markers classify that class so the graph can pivot (see
+# next_after_progress / pivot_node) instead of retry-until-dead.
+_ENV_FAILURE_MARKERS = (
+    "not recognized as an internal or external command",
+    "is not recognized",
+    "command not found",
+    "no such file or directory",
+    "cannot find the path specified",
+    "not found in path",
+    "permission denied",
+    "exit code: 127",
+)
+
+RECOVERY_LIMIT = 3      # terminal failures before recovery_limit / pivot
+MAX_PIVOTS = 2          # bounded strategy pivots before giving up
+
+
+# Shown to the model when environment-level failures force a strategy pivot.
+PIVOT_GUIDANCE_PROMPT = (
+    "Environment-level failure detected: the commands you keep running cannot "
+    "execute in this environment (missing binary, PATH/shim or permission "
+    "problem), so retrying them will keep failing identically. STOP running "
+    "this class of command. PIVOT YOUR STRATEGY:\n"
+    "- Create or edit files directly with write_file/edit_file — do not "
+    "scaffold projects or install packages through the terminal if the "
+    "command fails.\n"
+    "- If the task asks for setup/install steps or instructions, deliver them "
+    "as text in your final answer instead of executing them.\n"
+    "- Inspect the workspace with read_file/list_files; never re-run the "
+    "failing command.\n"
+    "Make concrete progress now with a different approach."
+)
+
+
+def classify_env_failure(result: str) -> bool:
+    """True when a tool failure is environmental (missing binary, PATH/shim
+    breakage, permissions) rather than a bug in the agent's own strategy.
+
+    These failures repeat identically on retry and need a strategy pivot,
+    not another attempt (and not a replan — the plan isn't wrong, the
+    environment is)."""
+    r = result.lower()
+    return any(marker in r for marker in _ENV_FAILURE_MARKERS)
+
+
+def next_after_progress(
+    recovery_mode: bool,
+    recovery_attempts: int,
+    replan_needed: bool,
+    plan_complete: bool,
+    env_failures: int,
+    pivot_count: int,
+) -> str:
+    """Pure routing decision for after_progress (unit-testable).
+
+    Old behavior: 3 terminal failures -> recovery_limit (pause for user)
+    even when the failures were environmental and a different strategy
+    existed. New behavior: repeated environment-level failures route to a
+    bounded strategy pivot (MAX_PIVOTS) before giving up."""
+    if recovery_mode and recovery_attempts >= RECOVERY_LIMIT:
+        if env_failures >= 2 and pivot_count < MAX_PIVOTS:
+            return "pivot"
+        return "recovery_limit"
+    if replan_needed:
+        return "replanner"
+    if plan_complete:
+        return "finalize"
+    return "ai"
 
 _TRACE_RESULT_TAIL = 1000
 _MEMORY_SNIPPET = 300
@@ -83,16 +161,32 @@ def find_tool_args(messages: list, tool_call_id: str) -> dict:
     return {}
 
 
-def classify_tool_outcome(tool_name: str, result: str) -> str:
-    """The success/failure/skip verdict, preserving every legacy fork."""
-    result_lower = result.lower()
+# Generic error markers that indicate a FAILED tool execution. Matched at
+# LINE STARTS (MULTILINE), never as substrings: real file content routinely
+# carries mid-line "error:" — `except ValueError:`, a test named
+# `test_..._raises_value_error:` — which previously misclassified successful
+# read_file/think results as failures and burned recovery attempts (lab
+# finding, run 5). Genuine failures open a line: langchain's
+# ToolNode(handle_tool_errors=True) emits "Error: ...", tracebacks open
+# with "Traceback (most recent call last):", and the engine's own error
+# strings ("unknown process id", "path escapes workspace") are standalone
+# lines.
+_ERROR_MARKER_RE = re.compile(
+    r"^(?:error:|traceback|unknown process id|path escapes workspace)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
-    failed = (
-        "error:" in result_lower
-        or "traceback" in result_lower
-        or "unknown process id" in result_lower
-        or "path escapes workspace" in result_lower
-    )
+
+def classify_tool_outcome(tool_name: str, result: str) -> str:
+    """The success/failure/skip verdict, preserving every legacy fork.
+
+    Generic markers (Error:, traceback, ...) count only at LINE STARTS;
+    a mid-line "error:" inside file content or reasoning text is data,
+    not a failed tool (see _ERROR_MARKER_RE). run_terminal/check_terminal
+    keep their exit-code rules.
+    """
+    result_lower = result.lower()
+    failed = bool(_ERROR_MARKER_RE.search(result))
 
     if tool_name == "run_terminal":
         if "exit code: 0" not in result_lower:
@@ -162,6 +256,7 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
         "recovery_attempts_inc": 0,
         "recovery_mode": recovery_mode,
         "recovery_command": recovery_command,
+        "env_failure": classify_env_failure(result),
     }
 
     if tool_name == "run_terminal":

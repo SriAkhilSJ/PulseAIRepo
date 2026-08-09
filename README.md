@@ -79,8 +79,24 @@ PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, f
 - **Reflections:** Learned behaviors and "don't-do-this" lessons are indexed via `ReflectionEngine`.
 - **Skills:** Frequently used command patterns or workflows are saved to `skills.json`.
 
-### Agent Tools (21 total)
-File tools (`read_file`, `list_files`, `search_code`, `write_file`, `edit_file` — atomic + fuzzy block-span), terminal tools (`run_terminal` + background process lifecycle), web tools (`web_search`, `web_fetch` — stdlib readable-text extraction), `execute_code` (one scripted call chains tools in-process), `session_search` (zero-LLM recall of past sessions via FTS5), `think`/`verify`/`ask_user`, and sub-agent delegation (`delegate_to_subagent` + parallel `delegate_to_subagent_batch`).
+### Agent Tools (29 total)
+File tools (`read_file`, `list_files`, `search_code`, `write_file`, `edit_file` — atomic + fuzzy block-span), terminal tools (`run_terminal` + background process lifecycle), web tools (`web_search`, `web_fetch` — stdlib readable-text extraction), `execute_code` (one scripted call chains tools in-process), `session_search` (zero-LLM recall of past sessions via FTS5), `think`/`verify`/`ask_user`, sub-agent delegation (`delegate_to_subagent` + parallel `delegate_to_subagent_batch`), and **browser tools** (`browser_navigate` / `browser_snapshot` / `browser_screenshot` / `browser_click` / `browser_type` / `browser_select_option` / `browser_hover` / `browser_evaluate` — a lazy puppeteer-MCP client in `src/tools/browser_mcp.py` that lets the agent open a page, read it back as an accessibility summary, screenshot it, and interact with it, so it can **see and verify its own UI output**).
+
+---
+
+## 🔬 Lab-Verified: Durability, Efficiency & Eyes (2026-08-09)
+
+The engine was driven end-to-end on a real integration task (shadcn/Spline React components into `/components/ui`) from an **empty sandbox** — and survived the gauntlet:
+
+- **Durability:** completed the task (plan 8/8, EXIT 0) across a broken `npx` environment, a **disk-full crash mid-`npm install`**, a process kill, and a **checkpoint resume in a new process** — 26 API calls, 413k tokens, **$0.041**. The F2 None-planner guard, provider failover (F3), and recovery-pivot fixes that made this possible are in this tree.
+- **Efficiency (measured):** per-call prompt was 15.2k tokens, 73% static re-sends. Tool definitions trimmed 5,686 → 4,232 tokens/call (-26%) and context layers capped → **static per-call cost down ~31%**.
+- **Eyes:** the puppeteer-MCP browser tools above verified the built frontend live — navigated to the dev server, read the page, and screenshotted it.
+
+The frontend the agent built, rendered (Next.js + Tailwind + Spline 3D):
+
+![Spline demo built by the agent — Interactive 3D with a live Spline scene](docs/lab-spline-demo.png)
+
+The eval harness lives in `lab/` (`run_eval_shadcn.py`, `resume_eval_shadcn.py`); full findings are in `lab/LAB_REPORT.md`. On Windows boxes whose npm is configured with `bin-links=false` (which breaks `npx`), `src/tools/terminal_tools.py` injects `NPM_CONFIG_BIN_LINKS=true` into every spawned shell.
 
 ---
 
@@ -244,7 +260,7 @@ PROVIDER_SAFE_LIMIT=0             # 0 = auto: engine budget + pre-send guard res
 
 ## 🧪 Testing
 
-PulseAI keeps a pytest regression suite — currently **445 green** across graph, context, dashboard, tools, and the bridge. Every shipped change is pinned by tests, and each D-item's measurement script lives in `scripts/` as its receipt.
+PulseAI keeps a pytest regression suite — currently **~475 green** across graph, context, dashboard, tools, and the bridge. Every shipped change is pinned by tests, and each D-item's measurement script lives in `scripts/` as its receipt.
 
 **Run the suite:**
 ```bash
@@ -257,6 +273,7 @@ uv run pytest                 # from the repo root (pythonpath = . is configured
 - `test_event_bus` / `test_dashboard_server`: Dashboard streaming reliability and input validation.
 - `test_plan_approval` / `test_plan_cancel` / `test_plan_revision`: Human-in-the-loop approval flows.
 - `test_parallel_tools` / `test_file_state`: D34 batch gate + D32 stale-write guard.
+- `test_lab_fixes`: recovery-pivot classification, provider failover, planner degradation, repo-map bound — the lab-driven engine fixes.
 - `test_bridge`: P2 stdio protocol pins (handshake, version mismatch, garbage tolerance, shutdown).
 - `test_prompt_guard`: Persona anti-drift pins (D35).
 

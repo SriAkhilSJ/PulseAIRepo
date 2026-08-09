@@ -182,8 +182,12 @@ from src.context.context_engine import (
 
 @pytest.fixture
 def fb_home(tmp_path, monkeypatch):
-    """Engines derive their feedback path from ~ — point ~ at tmp."""
+    """Engines derive their feedback path from ~ — point ~ at tmp.
+
+    Windows: expanduser("~") prefers USERPROFILE over HOME, so both must
+    be redirected or the tests read the real ~/.pulseai store."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     return tmp_path
 
 
@@ -221,7 +225,7 @@ class TestFeedbackStore:
             '{"task": "ok", "success": true}\n'
             '{"task": "torn-half — NOT JSON\n'
             '{"task": "ok2", "success": false}\n'
-        )
+        , encoding="utf-8")
         eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
         assert [r["task"] for r in eng._feedback_history] == ["ok", "ok2"]
 

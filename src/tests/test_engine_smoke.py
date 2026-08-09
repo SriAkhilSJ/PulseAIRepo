@@ -80,9 +80,9 @@ def test_every_built_layer_infers_a_known_name():
     assert not unknown, f"layers with unmapped headers: {unknown}"
 
 
-def test_safety_guard_is_workspace_scoped():
-    guard_tmp = SafetyGuard("/tmp")
-    assert str(guard_tmp.workspace) == "/tmp"
+def test_safety_guard_is_workspace_scoped(tmp_path):
+    guard_tmp = SafetyGuard(str(tmp_path))
+    assert str(guard_tmp.workspace) == str(tmp_path)
     ok, _warning = guard_tmp.check_tool_call(
         "run_terminal", {"command": "echo hello"}
     )

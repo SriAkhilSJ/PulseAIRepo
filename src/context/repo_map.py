@@ -195,7 +195,14 @@ class RepoMap:
 
 
     def _collect_files(self) -> list[Path]:
-        """Walk directory tree, collecting interesting files."""
+        """Walk directory tree, collecting interesting files.
+
+        Bounded work: collection stops at MAX_WALK_FILES (env
+        PULSEAI_REPO_MAP_MAX_FILES, default 50_000) so the map build cost is
+        bounded on any repo — a vendored 15k-file editor fork made the full
+        walk+parse dominate the turn (lab run 10 environment).
+        """
+        cap = _max_walk_files()
         files: list[Path] = []
 
         for dirpath, dirnames, filenames in os.walk(self.root):
@@ -231,6 +238,9 @@ class RepoMap:
                     files.append(full_path)
                 elif not ext and size < 50_000:
                     files.append(full_path)
+
+                if len(files) >= cap:
+                    return files
 
         return files
 
@@ -529,26 +539,51 @@ class RepoMap:
 
         # stage 4: drop whole file lines, least important first; then drop
         # directory headers left with no files under them.
-        for victim in sorted(file_rels, key=lambda r: (imp[r], r)):
-            entries = [e for e in entries if not (e[0] == "file" and e[2] == victim)]
+        #
+        # D-optimization: the legacy loop removed ONE victim per iteration
+        # and rebuilt the full entry list each time — O(n^2). On repos with
+        # ~15k files (e.g. a vendored editor fork like desktop/) that is
+        # hundreds of millions of Python operations and hangs the turn for
+        # minutes. The drop predicate is monotone (dropping MORE least-
+        # important files can only shrink the map), so the smallest victim
+        # count that fits is found by binary search in O(n log n) with
+        # byte-identical output.
+        victims = sorted(file_rels, key=lambda r: (imp[r], r))
+
+        def _drop(k: int) -> list[tuple[str, str, str | None]]:
+            dropped = set(victims[:k])
+            kept = [
+                e for e in entries
+                if not (e[0] == "file" and e[2] in dropped)
+            ]
             pruned: list[tuple[str, str, str | None]] = []
-            for i, e in enumerate(entries):
+            for i, e in enumerate(kept):
                 if e[0] == "dir":
                     j = i + 1
                     found = False
-                    while j < len(entries) and entries[j][0] != "dir":
-                        if entries[j][0] == "file":
+                    while j < len(kept) and kept[j][0] != "dir":
+                        if kept[j][0] == "file":
                             found = True
                             break
                         j += 1
                     if not found:
                         continue
                 pruned.append(e)
-            entries = pruned
+            return pruned
+
+        lo, hi = 0, len(victims)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            entries = _drop(mid)
             if _fits(_emit()):
-                return ("\n".join(_emit())
-                        + "\n... (least-important files omitted) ..."
-                        + graph_part)
+                hi = mid
+            else:
+                lo = mid + 1
+        entries = _drop(lo)
+        if _fits(_emit()):
+            return ("\n".join(_emit())
+                    + "\n... (least-important files omitted) ..."
+                    + graph_part)
 
         # stage 5: legacy char truncate, tree portion only.
         result = "\n".join(_emit())
@@ -639,6 +674,23 @@ def stale_check_ttl() -> float:
         return max(0.0, float(raw))
     except ValueError:
         return 2.0
+
+
+def _max_walk_files() -> int:
+    """Cap on files the repo-map walk collects (env override).
+
+    Bounded-work guard: the map is compressed to max_tokens anyway, so
+    walking + parsing hundreds of thousands of files (e.g. a vendored
+    editor fork) only burns the turn. Default 50_000 covers monorepos
+    without affecting quality; lower it on constrained hosts.
+    """
+    raw = os.environ.get("PULSEAI_REPO_MAP_MAX_FILES", "").strip()
+    if not raw:
+        return 50_000
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 50_000
 
 
 def invalidate_repo_map(workspace: str | Path) -> None:

@@ -1,3 +1,4 @@
+import os
 import subprocess
 import threading
 import uuid
@@ -5,6 +6,27 @@ import time
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+
+
+def _shell_env() -> dict:
+    """Environment for spawned shell commands.
+
+    The machine-global user .npmrc sets `bin-links=false`, which breaks `npx` on
+    Windows completely (npm never creates .bin shims, so every npx'd package fails
+    with "not recognized as an internal or external command"). A project-level
+    .npmrc does not help scaffolded apps because npm reads project config only up
+    to the nearest package.json. The NPM_CONFIG_* env var has the highest npm
+    config precedence, so injecting it fixes npx/npm shim linking in every
+    directory the agent shells into, without touching any config file.
+    """
+
+    env = os.environ.copy()
+    env.setdefault("NPM_CONFIG_BIN_LINKS", "true")
+    # Keep the npm/npx cache off the OS drive when a second drive exists:
+    # a full C: once killed a run mid-`npm install` (sqlite "disk is full").
+    if os.path.isdir("D:\\"):
+        env.setdefault("NPM_CONFIG_CACHE", r"D:\npm-cache")
+    return env
 
 
 # Stores currently known background processes
@@ -119,7 +141,8 @@ def start_terminal(
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True
+        text=True,
+        env=_shell_env()
     )
 
     # Store the process
@@ -185,14 +208,12 @@ def check_terminal(
     process_id: str,
     wait_seconds: int = 0
 ) -> str:
-    """Terminal process rules:
-- Use run_terminal for short commands.
-- Use start_terminal for builds, installs, servers, compilation, and long-running commands.
-- Use check_terminal to monitor processes started by start_terminal.
-- When a process is still running, use wait_seconds on later checks instead of repeatedly polling immediately.
-- Choose a reasonable wait based on the task. Short tasks may use 5-10 seconds; builds or installs may use longer waits.
-- A wait_seconds value controls only how long to wait for status; it does not limit or terminate the process.
-- Do not restart a command merely because it is still running."""
+    """
+    Check a background process started by start_terminal. Use wait_seconds
+    (up to 300) on later checks instead of polling immediately; wait only
+    waits for status, it does not limit the process. Do not restart a
+    command merely because it is still running.
+    """
 
     # Prevent unreasonable single-check waits
     wait_seconds = max(0, min(wait_seconds, 300))
@@ -259,21 +280,14 @@ def run_terminal(
     config: RunnableConfig
 ) -> str:
     """
-    Run a short terminal command inside the active workspace.
+    Run a short terminal command inside the active workspace (shell).
 
-    WHEN TO USE:
-    - Running Python scripts: python script.py
-    - Running quick tests or checks.
-    - Inspecting environment state with short commands.
-    - Verifying generated code works.
+    USE for quick commands: python scripts, tests, checks, environment
+    inspection, verifying generated code. Inspect non-zero exit codes.
 
-    WHEN NOT TO USE:
-    - Do not use for long installs, builds, servers, or commands that keep running; use start_terminal.
-    - Do not use for reading known files; use read_file for accuracy.
-    - Do not run destructive commands unless explicitly requested and safe.
-
-    RETURNS:
-    - stdout/stderr plus exit code. Always inspect non-zero exit codes.
+    DO NOT use for long-running installs/builds/servers (use
+    start_terminal) or for reading known files (use read_file). Never run
+    destructive commands unless explicitly requested and safe.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -291,7 +305,8 @@ def run_terminal(
             cwd=workspace,
             shell=True,
             capture_output=True,
-            text=True
+            text=True,
+            env=_shell_env()
         )
 
         output = ""

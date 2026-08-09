@@ -110,7 +110,10 @@ def test_atomic_write_preserves_file_mode(tmp_path):
     target = tmp_path / f
     os.chmod(target, 0o640)
     _call(ws, f, "return 1", "return 2")
-    assert stat.S_IMODE(target.stat().st_mode) == 0o640, "file mode changed after edit"
+    # POSIX-only assertion: on Windows chmod only toggles the read-only bit,
+    # so exact mode bits (0o640) are not representable.
+    if os.name != "nt":
+        assert stat.S_IMODE(target.stat().st_mode) == 0o640, "file mode changed after edit"
 
 
 def test_no_temp_files_left_behind(tmp_path):

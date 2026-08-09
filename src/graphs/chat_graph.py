@@ -64,6 +64,7 @@ from src.tools.terminal_tools import (
 from src.tools.web_tools import web_search, web_fetch
 from src.tools.code_exec_tool import execute_code
 from src.tools.session_search_tool import session_search
+from src.tools.browser_mcp import BROWSER_TOOLS  # puppeteer MCP (hermes browser_tool)
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
 from src.agents.cost_router import cost_router
@@ -125,6 +126,8 @@ class AgentState(TypedDict, total=False):
     replan_count: int
     execution_trace: list[dict[str, Any]]
     task_completed: bool
+    env_failures: int       # environment-level tool failures (pivot trigger)
+    pivot_count: int        # strategy pivots performed (bounded)
     prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
     token_usage: dict[str, Any]  # Tracks tokens and cost for this task
     workspace: str  # Root path of the active project
@@ -340,6 +343,11 @@ tools = [
 
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
+
+    # Browser tools (puppeteer MCP): let the agent SEE rendered UI and
+    # verify its own frontend output (hermes browser_tool shape). Lazy
+    # server spawn; degrade to a message when unavailable.
+    *BROWSER_TOOLS,
 ]
 
 
@@ -389,20 +397,21 @@ def ai_node(
 ):
     configurable = config["configurable"]
 
-    provider = configurable["provider"]
-    model = configurable["model"]
+    base_provider = configurable["provider"]
+    base_model = configurable["model"]
 
     # Cost-aware routing: try to use a cheaper/better model for this task
     task_for_routing = state.get("current_task", "")
     plan_for_routing = state.get("plan", [])
     routed_provider, routed_model = cost_router.route(task_for_routing, plan_for_routing)
 
+    provider = routed_provider
+    model = routed_model
     try:
         llm = get_llm(provider=routed_provider, model=routed_model)
-        provider = routed_provider
-        model = routed_model
     except Exception:
         # Fallback to the originally configured provider if routing fails
+        provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
 
     llm_with_tools = llm.bind_tools(tools)
@@ -420,7 +429,24 @@ def ai_node(
         system_message=system_message,
     )
 
-    result = llm_with_tools.invoke(messages)
+    try:
+        result = llm_with_tools.invoke(messages)
+    except Exception as exc:
+        # F3/F6 (lab run 10): LLM-layer errors — a 403 on a blocked routed
+        # tier (cost_router -> groq/llama-3.1-8b-instant), rate limits, etc.
+        # — must not kill the turn. Fail over to the base provider/model
+        # once (hermes-style provider failover). Only the base tier may
+        # raise. Token accounting below uses the model that actually served.
+        if (provider, model) == (base_provider, base_model):
+            raise
+        print(
+            f"[ai_node] provider failover {provider}/{model} -> "
+            f"{base_provider}/{base_model} ({type(exc).__name__})"
+        )
+        provider, model = base_provider, base_model
+        llm = get_llm(provider=provider, model=model)
+        llm_with_tools = llm.bind_tools(tools)
+        result = llm_with_tools.invoke(messages)
 
     # =========================================================
     # TRACK TOKEN USAGE
@@ -994,6 +1020,7 @@ def progress_node(
     tool_failures = state.get("tool_failures", 0)
     recovery_command = state.get("recovery_command")
     replan_needed = state.get("replan_needed", False)
+    env_failures = state.get("env_failures", 0)
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
 
     latest_tools = ph.latest_tool_messages(messages)
@@ -1032,21 +1059,28 @@ def progress_node(
             recovery_attempts += updates["recovery_attempts_inc"]
             recovery_mode = updates["recovery_mode"]
             recovery_command = updates["recovery_command"]
+            if updates["env_failure"]:
+                env_failures += 1
 
             if failure not in failed_steps:
                 failed_steps.append(failure)
 
-            needed, usages = ph.maybe_replan(
-                task=state.get("current_task", ""),
-                plan=plan,
-                failure=failure,
-                provider=config["configurable"]["provider"],
-                model=config["configurable"]["model"],
-            )
-            if usages:
-                replan_needed = needed
-                for usage in usages:
-                    total_usage = total_usage + usage
+            # Environment-level failures repeat identically on retry: skip
+            # replanning (the plan isn't wrong, the environment is) and let
+            # the recovery loop route to a strategy pivot instead of
+            # retry-until-recovery-limit.
+            if not updates["env_failure"]:
+                needed, usages = ph.maybe_replan(
+                    task=state.get("current_task", ""),
+                    plan=plan,
+                    failure=failure,
+                    provider=config["configurable"]["provider"],
+                    model=config["configurable"]["model"],
+                )
+                if usages:
+                    replan_needed = needed
+                    for usage in usages:
+                        total_usage = total_usage + usage
             continue
 
         # ---------------- success ----------------
@@ -1083,6 +1117,7 @@ def progress_node(
         "plan": plan,
         "replan_needed": replan_needed,
         "execution_trace": execution_trace,
+        "env_failures": env_failures,
         "token_usage": total_usage.to_dict(),
     }
 
@@ -1107,21 +1142,16 @@ def is_plan_complete(state: AgentState) -> bool:
 
 
 def after_progress(state: AgentState) -> str:
-    recovery_mode = state.get("recovery_mode", False)
-    recovery_attempts = state.get("recovery_attempts", 0)
-
-    if recovery_mode and recovery_attempts >= 3:
-        return "recovery_limit"
-
-    if state.get("replan_needed", False):
-        return "replanner"
-
-    # If the active plan is complete after tool execution, stop instead of
-    # giving weaker/cheap models another chance to keep calling tools forever.
-    if is_plan_complete(state):
-        return "finalize"
-
-    return "ai"
+    """Route after tool progress. Decision lives in ph.next_after_progress
+    (unit-testable); this node adds plan-completeness and delegates."""
+    return ph.next_after_progress(
+        recovery_mode=state.get("recovery_mode", False),
+        recovery_attempts=state.get("recovery_attempts", 0),
+        replan_needed=state.get("replan_needed", False),
+        plan_complete=is_plan_complete(state),
+        env_failures=state.get("env_failures", 0),
+        pivot_count=state.get("pivot_count", 0),
+    )
 
 def recovery_limit_node(state: AgentState, config: RunnableConfig):
     failed_steps = state.get("failed_steps", [])
@@ -1153,6 +1183,26 @@ def recovery_limit_node(state: AgentState, config: RunnableConfig):
         ]
     }
 
+def pivot_node(state: AgentState):
+    """Strategy pivot on repeated environment-level tool failures.
+
+    Lab run 10: the agent re-ran the same failing command class (npx
+    scaffold) until the recovery limit and paused for user input, never
+    taking the task's own "provide instructions" branch. This node injects
+    explicit pivot guidance, resets the recovery budget so the limit does
+    not re-trigger, and routes back to ai with a bounded pivot count."""
+    return {
+        "messages": [
+            SystemMessage(content=ph.PIVOT_GUIDANCE_PROMPT)
+        ],
+        "pivot_count": state.get("pivot_count", 0) + 1,
+        "env_failures": 0,
+        "recovery_mode": False,
+        "recovery_command": None,
+        "recovery_attempts": 0,
+    }
+
+
 # =========================================================
 # PLANNER NODE
 # =========================================================
@@ -1178,45 +1228,57 @@ def planner_node(
 
     usages: list[TokenUsage] = []
 
-    needs_plan = should_create_plan(
-        task=current_task,
-        provider=provider,
-        model=model,
-        usage_list=usages,
-    )
-
-    if not needs_plan:
-        token_usage = _merge_token_usage(
-            state.get("token_usage", {}),
-            usages,
-        )
-
+    def _no_plan() -> dict:
+        """Graceful degradation: planning is advisory — a failed plan must
+        never kill the turn (lab run 10: planner emitted {"planner": None}
+        and stream_agent crashed). Return an empty plan so the agent still
+        runs (execution_mode=agent routes planner -> ai)."""
         return {
             "plan": [],
             "plan_goal": "",
             "plan_created": False,
-            "token_usage": token_usage,
+            "token_usage": _merge_token_usage(
+                state.get("token_usage", {}),
+                usages,
+            ),
         }
 
-    # Cost-aware routing for planning
-    routed_provider, routed_model = cost_router.route(current_task)
-
     try:
-        # create_plan uses the provider/model strings, not the llm object directly
-        # So we just pass the routed ones; if they fail, fallback below
-        task_plan = create_plan(
-            task=current_task,
-            provider=routed_provider,
-            model=routed_model,
-            usage_list=usages,
-        )
-    except Exception:
-        task_plan = create_plan(
+        needs_plan = should_create_plan(
             task=current_task,
             provider=provider,
             model=model,
             usage_list=usages,
         )
+
+        if not needs_plan:
+            return _no_plan()
+
+        # Cost-aware routing for planning
+        routed_provider, routed_model = cost_router.route(current_task)
+
+        try:
+            # create_plan uses the provider/model strings, not the llm object
+            # directly. Pass the routed ones; if they fail, fallback below.
+            task_plan = create_plan(
+                task=current_task,
+                provider=routed_provider,
+                model=routed_model,
+                usage_list=usages,
+            )
+        except Exception:
+            task_plan = create_plan(
+                task=current_task,
+                provider=provider,
+                model=model,
+                usage_list=usages,
+            )
+    except Exception as exc:
+        print(
+            f"[planner] plan generation failed; degrading to no-plan "
+            f"({type(exc).__name__}: {exc})"
+        )
+        return _no_plan()
 
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
@@ -1709,6 +1771,11 @@ builder.add_node(
 )
 
 builder.add_node(
+    "pivot",
+    pivot_node,
+)
+
+builder.add_node(
     "plan_preview",
     plan_preview_node,
 )
@@ -1818,11 +1885,17 @@ builder.add_conditional_edges(
         "replanner": "replanner",
         "recovery_limit": "recovery_limit",
         "finalize": "finalize",
+        "pivot": "pivot",
     },
 )
 
 builder.add_edge(
     "replanner",
+    "ai",
+)
+
+builder.add_edge(
+    "pivot",
     "ai",
 )
 
@@ -2036,7 +2109,9 @@ def stream_agent(
         # ---------------------------------------------
         if "planner" in event:
             plan_data = event["planner"]
-            plan = plan_data.get("plan", [])
+            # F2 fix: a planner no-op can emit {"planner": None}; treat as no plan
+            # instead of crashing the whole session on .get() of None.
+            plan = (plan_data or {}).get("plan", [])
             if plan:
                 total_steps = len(plan)
                 print(f"\n📋 Plan created: {total_steps} steps")
