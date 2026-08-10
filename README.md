@@ -70,6 +70,14 @@ Code that ships must be *proven* sound — not believed sound:
 - **`typecheck_workspace` tool:** runs the workspace's own `tsc --noEmit` (tsconfig-aware) and returns errors grouped by file. On the real Test-2 lab app it caught 25 type errors, including the `TS1005: '=>' expected` class the agent had shipped.
 - **Verify gate:** an execution task that wrote code files cannot declare "Finished" until a verification tool ran **and passed** — a `typecheck_workspace` that *runs* but reports errors is treated as unverified and the agent is pushed (bounded, 2×) to fix every reported error and re-verify until ✅.
 
+### Session Durability & Self-Maintenance (D-round)
+Long-running sessions must survive retries, provider switches, and provider (mis)behavior — and keep the agent's memory/skills groomed between turns:
+
+- **Pre-send request sanitizer (D36):** at the final pre-API chokepoint (`RetryLLMProxy.invoke`) the outgoing message list is cleaned losslessly — duplicate `tool_call` entries within one assistant message are collapsed, replayed/re-used `tool_call_id` results are dropped, and byte-identical tool results are deduped. Strict providers (e.g. DeepSeek) HTTP-400 a payload with a repeated `tool_call_id`; retries/crash-resume glitches used to produce exactly that.
+- **Failover prompt-cache preservation (D37):** the static context prefix survives a provider failover byte-identical so provider prompt caches keep paying out (hermes doctrine). The split is unambiguous by design — a sentinel `VOLATILE_TAIL_PREAMBLE` message separates history from the volatile tail, so the split boundary is never sniffed from model output. The agent-guaranteed *service-ready* mode (`ai_mode=svc` / `tscore=1`) also survives tail routing and engine tint.
+- **Post-turn self-curation review (D38):** after a run completes, a short daemon thread replays a digest of the conversation against a memory-review prompt on the janitor (aux) model and writes durable facts — the hermes background-review loop, bounded (one review per trigger per session, capped writes), aux-billed, and never allowed to raise into a turn.
+- **Skill lifecycle (D39):** skills carry provenance (`created_by`: user vs agent), `pinned` status (exempt from every auto-transition), usage telemetry (`use_count` / `view_count` / `patch_count`), and a curator state machine (`active → stale → archived`) that only auto-manages **agent-created** skills, never deletes, and respects pins. `skills_manifest()` emits a compact byte-stable index.
+
 ### Efficiency (fewer calls, fewer tokens)
 - **`execute_code` (PTC) batching:** the agent is taught to collapse multi-step exploration/checks into ONE script call instead of many separate tool calls — the direct fix for the Test-2 50-call pattern.
 - **Tool-output summarization:** >8000-char tool outputs are summarized by the cheap auxiliary model (`SUMMARIZER_LLM=aux`), memoized per unique output so each big result costs one janitor-rate call, not one per turn.
@@ -168,6 +176,8 @@ PulseAIRepo/
 │   ├── context/                    # Context, Memory, Safety, and Tone layers
 │   │   ├── context_engine.py       # Task-aware, budgeted context assembly
 │   │   ├── chunk_index.py          # Chunked code index (sqlite-vec KNN + FTS5 BM25 → RRF)
+│   │   ├── cache_preservation.py   # Byte-stable prompt prefix across provider failover
+│   │   ├── self_curation.py        # Bounded post-run memory-review daemon (aux model)
 │   │   ├── repo_map.py             # AST repo map + import graph
 │   │   ├── smart_compressor.py     # Semantic history compression
 │   │   ├── vector_memory.py        # In-memory semantic store
@@ -177,6 +187,7 @@ PulseAIRepo/
 │   │   └── ...
 │   ├── graphs/                     # LangGraph workflow definitions
 │   ├── llm/factory.py              # LLM + shared embedder factory
+│   │   └── request_sanitizer.py    # Lossless pre-send tool_call dedup (strict providers)
 │   ├── providers/                  # Multi-LLM provider support (Groq, OpenAI, Gemini)
 │   ├── tests/                      # Regression suite
 │   └── tools/                      # File, Terminal, Web, and Math tools
@@ -201,6 +212,15 @@ LLM_PROVIDER=custom
 CUSTOM_BASE_URL=https://your-api-url/v1
 CUSTOM_API_KEY=sk-your-key
 ```
+
+**Local FreeLLM proxy (OpenAI-compatible gateway):** point `custom` at the proxy and let the engine live-probe the model's window:
+```env
+LLM_PROVIDER=custom
+LLM_MODEL=qwen/qwen3.6-27b     # any model the proxy serves (deepseek-v4-flash, gpt-oss-120b, ...)
+CUSTOM_BASE_URL=http://127.0.0.1:31415/v1
+CUSTOM_API_KEY=freellmapi-<token>
+```
+The keys stay in `.env` (gitignored); `src/llm/factory.py` builds `ChatOpenAI(base_url=...)` from them.
 
 **Embeddings (optional, defaults are local + free):**
 ```env
@@ -228,7 +248,7 @@ $env:TMP="D:\pytest-tmp"; $env:TEMP="D:\pytest-tmp"
 .venv\Scripts\python.exe -m pytest src\tests -q --no-header --ignore=src/tests/test_session_engines.py
 ```
 
-The suite is Windows-green: 440 passed, 1 skipped (the POSIX file-mode test — Windows has no mode bits). Point `TMP` at a drive with free space; a full C: drive makes sqlite/IO tests fail.
+The suite is Windows-green: 483 passed, 1 skipped (the POSIX file-mode test — Windows has no mode bits). Point `TMP` at a drive with free space; a full C: drive makes sqlite/IO tests fail. The provider-cap tests (`test_model_budgets`) assert both explicit-cap budgets and AUTO mode (`PROVIDER_SAFE_LIMIT=0`, where the engine trusts the discovered window), so they stay green for either a host `.env` or the shipped default.
 
 **Key Test Modules:**
 - `test_lab_fixes`: Pins the Test-2 fixes — syntax receipt (all languages), verify gate, typecheck tool.
@@ -237,6 +257,9 @@ The suite is Windows-green: 440 passed, 1 skipped (the POSIX file-mode test — 
 - `test_event_bus`: Verifies dashboard streaming reliability.
 - `test_plan_approval`: Verifies human-in-the-loop approval.
 - `test_ptc`: Pins `execute_code` batching behavior (caps, safety, output collapse).
+- `test_model_budgets`: Model-window lookup, dynamic resolution chain, provider safe-limit capping (explicit + AUTO).
+- `test_shadow_checkpoints`: Pre-mutation workspace snapshots (D31) — store, dedup, undo-the-undo, cross-project guard.
+- `test_request_sanitizer` / `test_cache_preservation` / `test_self_curation` / `test_skill_lifecycle`: The D-round durability and self-maintenance machinery.
 
 ---
 
@@ -261,6 +284,11 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 - [x] Multi-language syntax receipt (esbuild) on write/edit — broken code can't land
 - [x] `typecheck_workspace` tool + verify gate (cannot finish with unverified or failing code)
 - [x] Efficiency pass: PTC batching in persona, janitor-rate tool-output summarization, full context window
+- [x] Pre-send request sanitizer (D36): lossless `tool_call` dedup at the retry-proxy chokepoint
+- [x] Failover prompt-cache preservation (D37): byte-stable static prefix across provider switches
+- [x] Post-turn self-curation review (D38): bounded, aux-billed memory-grooming daemon
+- [x] Skill lifecycle (D39): provenance, pinning, usage telemetry, archive curator for agent-created skills
+- [x] Model-budget tests honor both explicit caps and AUTO mode
 - [ ] Layer attribution of feedback (record which layers were sent per task)
 - [ ] Per-session cost reports in PDF format
 - [ ] Benchmark harness: calls/tokens/human-helps per task, before vs after efficiency pass
