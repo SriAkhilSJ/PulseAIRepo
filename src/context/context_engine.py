@@ -1067,9 +1067,7 @@ class ContextEngine:
         content = "=== CURRENT TASK ===\n"
 
         if current_task:
-            # The full task text is already in the conversation history; this
-            # layer is a per-call reminder, so cap it to save prompt tokens.
-            content += f"Overall goal: {current_task[:200]}\n"
+            content += f"Overall goal: {current_task}\n"
         if latest_instruction:
             content += f"Latest instruction: {latest_instruction}\n"
 
@@ -1090,10 +1088,6 @@ class ContextEngine:
             status = step.get("status", "pending")
             desc = step.get("description", "")
             step_id = step.get("id", "?")
-            # Cap step descriptions: the detail lives in the conversation;
-            # the layer only needs to refresh which step is where.
-            if len(desc) > 90:
-                desc = desc[:90] + "…"
             lines.append(f"{step_id}. [{status}] {desc}")
 
         lines.append("")

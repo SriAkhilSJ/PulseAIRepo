@@ -68,6 +68,8 @@ OUTCOME_SKIP = "skip"      # check_terminal still running: record NOTHING
 _ENV_FAILURE_MARKERS = (
     "not recognized as an internal or external command",
     "is not recognized",
+    "the syntax of the command is incorrect",  # cmd.exe parses '/' as a switch
+
     "command not found",
     "no such file or directory",
     "cannot find the path specified",

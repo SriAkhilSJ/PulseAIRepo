@@ -195,14 +195,7 @@ class RepoMap:
 
 
     def _collect_files(self) -> list[Path]:
-        """Walk directory tree, collecting interesting files.
-
-        Bounded work: collection stops at MAX_WALK_FILES (env
-        PULSEAI_REPO_MAP_MAX_FILES, default 50_000) so the map build cost is
-        bounded on any repo — a vendored 15k-file editor fork made the full
-        walk+parse dominate the turn (lab run 10 environment).
-        """
-        cap = _max_walk_files()
+        """Walk directory tree, collecting interesting files."""
         files: list[Path] = []
 
         for dirpath, dirnames, filenames in os.walk(self.root):
@@ -238,9 +231,6 @@ class RepoMap:
                     files.append(full_path)
                 elif not ext and size < 50_000:
                     files.append(full_path)
-
-                if len(files) >= cap:
-                    return files
 
         return files
 
@@ -674,23 +664,6 @@ def stale_check_ttl() -> float:
         return max(0.0, float(raw))
     except ValueError:
         return 2.0
-
-
-def _max_walk_files() -> int:
-    """Cap on files the repo-map walk collects (env override).
-
-    Bounded-work guard: the map is compressed to max_tokens anyway, so
-    walking + parsing hundreds of thousands of files (e.g. a vendored
-    editor fork) only burns the turn. Default 50_000 covers monorepos
-    without affecting quality; lower it on constrained hosts.
-    """
-    raw = os.environ.get("PULSEAI_REPO_MAP_MAX_FILES", "").strip()
-    if not raw:
-        return 50_000
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 50_000
 
 
 def invalidate_repo_map(workspace: str | Path) -> None:

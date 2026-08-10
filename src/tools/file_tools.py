@@ -39,7 +39,7 @@ def read_file(
     path: str,
     config: RunnableConfig
 ) -> str:
-    """
+        """
     Read a text file and return its contents. Use for known files where
     accuracy matters. For searching, use search_code; for directories, use
     list_files. Respects line ranges when given.

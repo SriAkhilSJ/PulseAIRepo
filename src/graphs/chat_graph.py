@@ -64,7 +64,6 @@ from src.tools.terminal_tools import (
 from src.tools.web_tools import web_search, web_fetch
 from src.tools.code_exec_tool import execute_code
 from src.tools.session_search_tool import session_search
-from src.tools.browser_mcp import BROWSER_TOOLS  # puppeteer MCP (hermes browser_tool)
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
 from src.agents.cost_router import cost_router
@@ -129,6 +128,7 @@ class AgentState(TypedDict, total=False):
     env_failures: int       # environment-level tool failures (pivot trigger)
     pivot_count: int        # strategy pivots performed (bounded)
     prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
+    finish_nudges: int      # hermes-style early-finish nudges applied (bounded)
     token_usage: dict[str, Any]  # Tracks tokens and cost for this task
     workspace: str  # Root path of the active project
 # =========================================================
@@ -343,11 +343,6 @@ tools = [
 
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
-
-    # Browser tools (puppeteer MCP): let the agent SEE rendered UI and
-    # verify its own frontend output (hermes browser_tool shape). Lazy
-    # server spawn; degrade to a message when unavailable.
-    *BROWSER_TOOLS,
 ]
 
 
@@ -467,13 +462,63 @@ def ai_node(
 # ROUTING
 # =========================================================
 
+# Execution-flavored task markers: on these, a plain-text finish with no
+# real tool work is treated as an early stop and nudged once (hermes
+# _CODEX_INCOMPLETE_NUDGE pattern, conversation_loop.py).
+_EXECUTION_TASK_MARKERS = (
+    "build", "create", "implement", "integrate", "install", "fix",
+    "refactor", "debug", "test", "scaffold", "develop", "deploy",
+    "configure", "write a", "make a", "add ", "migrate", "upgrade",
+)
+
+_FINISH_NUDGE_BUDGET = 2  # max early-finish nudges before finalize is allowed
+
+_FINISH_NUDGE = (
+    "[System: You declared the task finished, but almost no real work has "
+    "been done — few or no tool calls have executed and the deliverable does "
+    "not exist yet. This is an execution task: do not summarize, do not ask "
+    "questions, do not repeat this finish message. Make the tool call you "
+    "were planning right now (write the file, run the command, build the "
+    "artifact) and keep going until the deliverable actually exists.]"
+)
+
+
+def _looks_like_execution_task(task: str) -> bool:
+    t = (task or "").lower()
+    return any(marker in t for marker in _EXECUTION_TASK_MARKERS)
+
+
+def _tool_call_count(state: AgentState) -> int:
+    return sum(
+        1 for m in state.get("messages", [])
+        if getattr(m, "tool_calls", None)
+    )
+
+
 def should_continue(state: AgentState):
     last_message = state["messages"][-1]
 
     if getattr(last_message, "tool_calls", None):
         return "tools"
 
+    # Finish gate: an execution task that ends with <2 tool calls total is an
+    # early stop, not completion. Nudge once (bounded via finish_nudges) so
+    # the model actually acts; after the budget, allow finalize.
+    if state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
+        if _looks_like_execution_task(state.get("current_task", "")):
+            if _tool_call_count(state) < 2:
+                return "finish_gate"
+
     return "finalize"
+
+
+def finish_gate_node(state: AgentState) -> dict:
+    """Push the model back to work after an early finish declaration."""
+    nudge = SystemMessage(content=_FINISH_NUDGE)
+    return {
+        "messages": [nudge],
+        "finish_nudges": state.get("finish_nudges", 0) + 1,
+    }
 
 def finalize_node(state: AgentState, config: RunnableConfig):
     plan = finalize_plan(
@@ -1795,6 +1840,11 @@ builder.add_node(
     approval_without_plan_node,
 )
 
+builder.add_node(
+    "finish_gate",
+    finish_gate_node,
+)
+
 
 # ---------------------------------------------------------
 # ENTRY FLOW
@@ -1855,6 +1905,16 @@ builder.add_edge(
 builder.add_conditional_edges(
     "ai",
     should_continue,
+    {
+        "tools": "tools",
+        "finalize": "finalize",
+        "finish_gate": "finish_gate",
+    },
+)
+
+builder.add_edge(
+    "finish_gate",
+    "ai",
 )
 
 builder.add_edge(

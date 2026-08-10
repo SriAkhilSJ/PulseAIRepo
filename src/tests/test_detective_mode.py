@@ -92,14 +92,13 @@ def test_dotted_from_and_relative_import_resolution(tmp_path):
 
     impl_edges = _extract_py_import_edges(
         "from .base import Base\n", Path("src/pkg/impl.py"), ws)
-    # Normalize separators: edges use os-native paths (Windows backslashes)
-    assert {e.replace("\\", "/") for e in impl_edges} == {"src/pkg/base.py"}
+    assert impl_edges == {"src/pkg/base.py"}
 
     user_edges = _extract_py_import_edges(
         "from src.pkg import impl\n", Path("user.py"), ws)
     # both the package __init__ and the submodule are legit targets
-    assert "src/pkg/impl.py" in {e.replace("\\", "/") for e in user_edges}
-    assert "src/pkg/__init__.py" in {e.replace("\\", "/") for e in user_edges}
+    assert "src/pkg/impl.py" in user_edges
+    assert "src/pkg/__init__.py" in user_edges
 
 
 def test_stdlib_self_and_missing_targets_are_dropped(tmp_path):

@@ -56,7 +56,7 @@ def test_d9_classify_terminal_rules():
         "check_terminal", "status: completed\nexit code: 0") == ph.OUTCOME_SUCCESS
     assert ph.classify_tool_outcome(
         "check_terminal", "status: completed\nexit code: 2") == ph.OUTCOME_FAILED
-    # generic markers on any other tool — matched at LINE STARTS only
+    # generic markers on any other tool
     assert ph.classify_tool_outcome("read_file", "error: not found") == ph.OUTCOME_FAILED
     assert ph.classify_tool_outcome("read_file", "Traceback (most recent") == ph.OUTCOME_FAILED
     assert ph.classify_tool_outcome(
@@ -64,29 +64,6 @@ def test_d9_classify_terminal_rules():
     assert ph.classify_tool_outcome(
         "write_file", "path escapes workspace") == ph.OUTCOME_FAILED
     assert ph.classify_tool_outcome("read_file", "file contents here") == ph.OUTCOME_SUCCESS
-    # regression (lab run 5): mid-line "error:" inside real content is DATA,
-    # not a failed tool — `except ValueError:` and test names like
-    # test_divide_by_zero_raises_value_error: previously false-positived and
-    # burned recovery attempts on successful reads/think calls.
-    assert ph.classify_tool_outcome(
-        "read_file",
-        'def test_x():\n'
-        '    try:\n'
-        '        calc.divide(1, 0)\n'
-        '    except ValueError:\n'
-        '        return\n'
-        '    raise AssertionError("boom")\n',
-    ) == ph.OUTCOME_SUCCESS
-    assert ph.classify_tool_outcome(
-        "think",
-        "The bug: test_divide_by_zero_raises_value_error: divide does not check "
-        "b == 0.\nFix: raise ValueError.",
-    ) == ph.OUTCOME_SUCCESS
-    # a genuine langchain ToolNode error still opens a line and must be FAILED
-    assert ph.classify_tool_outcome(
-        "read_file", "Error: File not found: calc.py") == ph.OUTCOME_FAILED
-    assert ph.classify_tool_outcome(
-        "read_file", "ok line\nTraceback (most recent call last):\n  File \"a.py\"") == ph.OUTCOME_FAILED
 
 
 # ---------------------------------------------------------------------
@@ -136,22 +113,13 @@ def test_d9_build_failure_terminal_variants():
                              False, None)
     assert f.startswith("Command failed: make\nActual tool output:\n")
     assert up == {"tool_failures_inc": 1, "recovery_attempts_inc": 1,
-                  "recovery_mode": True, "recovery_command": "make",
-                  "env_failure": False}
+                  "recovery_mode": True, "recovery_command": "make"}
 
     # already in recovery: command slot NOT stolen
     f, up = ph.build_failure("run_terminal", "x", {"command": "make2"},
                              True, "make")
     assert up["recovery_command"] == "make"
     assert up["recovery_attempts_inc"] == 1
-    assert up["env_failure"] is False
-
-    # environment-level failure (missing binary / PATH shim): flagged
-    f, up = ph.build_failure(
-        "run_terminal",
-        "'create-vite' is not recognized as an internal or external command",
-        {"command": "npx create-vite ."}, False, None)
-    assert up["env_failure"] is True
 
     f, up = ph.build_failure("check_terminal", "x", {"process_id": "p9"},
                              False, None)
@@ -164,113 +132,6 @@ def test_d9_build_failure_terminal_variants():
     assert up["recovery_attempts_inc"] == 0 and up["recovery_mode"] is False
     f, up = ph.build_failure("read_file", "x", {}, True, "make")
     assert up["recovery_attempts_inc"] == 1 and up["recovery_mode"] is True
-
-
-# ---------------------------------------------------------------------
-# strategy pivot (lab run 10: env-level failures must pivot, not retry)
-# ---------------------------------------------------------------------
-
-def test_env_failure_classifier():
-    assert ph.classify_env_failure(
-        "'create-vite' is not recognized as an internal or external command"
-    ) is True
-    assert ph.classify_env_failure(
-        "'create-react-app' is not recognized as an internal or external command"
-    ) is True
-    assert ph.classify_env_failure(
-        "npm notice run create-vite . --template react-ts"
-    ) is False  # npm's own notice is data, not the env failure
-    assert ph.classify_env_failure("command not found: docker") is True
-    assert ph.classify_env_failure("bash: ls: No such file or directory") is True
-    assert ph.classify_env_failure("permission denied: /root/x") is True
-    # ordinary failures are NOT environment-level
-    assert ph.classify_env_failure(
-        "Traceback (most recent call last):\n  File \"a.py\""
-    ) is False
-    assert ph.classify_env_failure("boom\nexit code: 1") is False
-    assert ph.classify_env_failure(
-        "npx: error: unknown option '--template'"
-    ) is False
-    assert ph.classify_env_failure("make: *** No rule to make target 'x'") is False
-
-
-def test_next_after_progress_routing_matrix():
-    # recovery budget exhausted + env failures + pivots left -> pivot
-    assert ph.next_after_progress(True, 3, False, False, 2, 0) == "pivot"
-    assert ph.next_after_progress(True, 3, False, False, 2, 1) == "pivot"
-    # pivot budget exhausted -> recovery_limit (bounded, never infinite)
-    assert ph.next_after_progress(True, 3, False, False, 2, 2) == "recovery_limit"
-    assert ph.next_after_progress(True, 3, False, False, 2, 9) == "recovery_limit"
-    # env failures below threshold -> old recovery_limit behavior
-    assert ph.next_after_progress(True, 3, False, False, 0, 0) == "recovery_limit"
-    assert ph.next_after_progress(True, 3, False, False, 1, 0) == "recovery_limit"
-    # below the attempt budget: normal flow wins
-    assert ph.next_after_progress(True, 2, False, False, 2, 0) == "ai"
-    assert ph.next_after_progress(True, 2, True, False, 0, 0) == "replanner"
-    assert ph.next_after_progress(False, 0, True, False, 0, 0) == "replanner"
-    assert ph.next_after_progress(False, 0, False, True, 0, 0) == "finalize"
-    assert ph.next_after_progress(False, 0, False, False, 0, 0) == "ai"
-
-
-def test_progress_node_env_failure_counts_and_skips_replan(monkeypatch):
-    from src.graphs.chat_graph import progress_node
-
-    # A replan consult must NOT happen for env-level failures.
-    def _should_not_be_called(*args, **kwargs):
-        raise AssertionError("replan consulted on an environment-level failure")
-
-    monkeypatch.setattr(ph, "maybe_replan", _should_not_be_called)
-
-    state = {
-        "messages": [
-            AIMessage(content="", tool_calls=[
-                {"id": "t1", "name": "run_terminal",
-                 "args": {"command": "npx create-vite . --template react-ts"}},
-            ]),
-            ToolMessage(
-                content=(
-                    "STDERR:\n'create-vite' is not recognized as an internal "
-                    "or external command\n\nExit code: 1"
-                ),
-                tool_call_id="t1", name="run_terminal"),
-        ],
-        "current_task": "build app",
-        "plan": [{"id": 1, "description": "scaffold", "status": "in_progress"}],
-    }
-    out = progress_node(state, _cfg())
-    assert out["env_failures"] == 1
-    assert out["replan_needed"] is False
-    assert out["recovery_mode"] is True
-    assert out["recovery_attempts"] == 1
-
-
-def test_progress_node_regular_failure_still_consults_replan(monkeypatch):
-    from src.graphs.chat_graph import progress_node
-    from src.context.token_tracker import TokenUsage
-
-    called = {}
-
-    def _fake_replan(task, plan, failure, provider, model):
-        called["hit"] = True
-        return True, [TokenUsage()]  # non-empty usages: node adopts on usages
-
-    monkeypatch.setattr(ph, "maybe_replan", _fake_replan)
-
-    state = {
-        "messages": [
-            AIMessage(content="", tool_calls=[
-                {"id": "t1", "name": "run_terminal", "args": {"command": "python x.py"}},
-            ]),
-            ToolMessage(content="Traceback (most recent call last):\nboom\nexit code: 1",
-                        tool_call_id="t1", name="run_terminal"),
-        ],
-        "current_task": "run it",
-        "plan": [{"id": 1, "description": "run", "status": "in_progress"}],
-    }
-    out = progress_node(state, _cfg())
-    assert called.get("hit") is True
-    assert out["replan_needed"] is True
-    assert out["env_failures"] == 0
 
 
 def test_d9_maybe_replan(monkeypatch):

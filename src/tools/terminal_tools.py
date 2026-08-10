@@ -1,4 +1,3 @@
-import os
 import subprocess
 import threading
 import uuid
@@ -6,27 +5,6 @@ import time
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-
-
-def _shell_env() -> dict:
-    """Environment for spawned shell commands.
-
-    The machine-global user .npmrc sets `bin-links=false`, which breaks `npx` on
-    Windows completely (npm never creates .bin shims, so every npx'd package fails
-    with "not recognized as an internal or external command"). A project-level
-    .npmrc does not help scaffolded apps because npm reads project config only up
-    to the nearest package.json. The NPM_CONFIG_* env var has the highest npm
-    config precedence, so injecting it fixes npx/npm shim linking in every
-    directory the agent shells into, without touching any config file.
-    """
-
-    env = os.environ.copy()
-    env.setdefault("NPM_CONFIG_BIN_LINKS", "true")
-    # Keep the npm/npx cache off the OS drive when a second drive exists:
-    # a full C: once killed a run mid-`npm install` (sqlite "disk is full").
-    if os.path.isdir("D:\\"):
-        env.setdefault("NPM_CONFIG_CACHE", r"D:\npm-cache")
-    return env
 
 
 # Stores currently known background processes
@@ -141,8 +119,7 @@ def start_terminal(
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        env=_shell_env()
+        text=True
     )
 
     # Store the process
@@ -305,8 +282,7 @@ def run_terminal(
             cwd=workspace,
             shell=True,
             capture_output=True,
-            text=True,
-            env=_shell_env()
+            text=True
         )
 
         output = ""
