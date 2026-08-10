@@ -133,6 +133,8 @@ class AgentState(TypedDict, total=False):
     verify_nudges: int      # Test-2: nudges to run a verification tool (bounded)
     token_usage: dict[str, Any]  # Tracks tokens and cost for this task
     workspace: str  # Root path of the active project
+    iteration_used: int     # D40: ai-node LLM calls this run (iteration budget)
+    grace_done: int         # D40: grace (text-only) call already performed
 # =========================================================
 # TOOLS
 # =========================================================
@@ -423,6 +425,16 @@ def ai_node(
     from src.tools.shadow_checkpoints import begin_agent_turn
     begin_agent_turn()
 
+    # D40: iteration budget. Once exhausted, tools are hidden and the model
+    # may only produce text (the hermes grace call). The FIRST exhausted call
+    # carries the grace nudge; a model that keeps hallucinating tool calls
+    # still cannot — no tools are bound — and should_continue finalizes the
+    # text. iteration_used increments on BOTH paths so budget accounting is
+    # monotonic.
+    iteration_used = int(state.get("iteration_used", 0))
+    budget_exhausted = iteration_used >= _iteration_budget()
+    grace_done = bool(state.get("grace_done", 0))
+
     # Use the Context Engine to build clean, organized messages.
     # Session-scoped: this thread's thread_id selects an isolated engine
     # (cache, attribution snapshot, learned weights all independent).
@@ -431,8 +443,15 @@ def ai_node(
         system_message=system_message,
     )
 
+    call_model = model
+    call_llm = llm_with_tools
+    if budget_exhausted:
+        call_llm = llm  # unhidden tools: the model cannot make more calls
+        if not grace_done:
+            messages = [SystemMessage(content=_GRACE_NUDGE)] + messages
+
     try:
-        result = llm_with_tools.invoke(messages)
+        result = call_llm.invoke(messages)
     except Exception as exc:
         # F3/F6 (lab run 10): LLM-layer errors — a 403 on a blocked routed
         # tier (cost_router -> groq/llama-3.1-8b-instant), rate limits, etc.
@@ -448,12 +467,22 @@ def ai_node(
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
         llm_with_tools = llm.bind_tools(tools)
-        result = llm_with_tools.invoke(messages)
+        # D37: failover must not break the prompt cache. The engine is keyed
+        # to the base model, so reusing `messages` is prefix-correct already;
+        # re-decoration strips any provider cache decorations and guarantees
+        # the static prefix survives the provider transition untouched.
+        from src.context.cache_preservation import redecorate_for_failover
+        messages, _d37_info = redecorate_for_failover(messages)
+        call_model = model
+        call_llm = llm_with_tools
+        if budget_exhausted:
+            call_llm = llm
+        result = call_llm.invoke(messages)
 
     # =========================================================
     # TRACK TOKEN USAGE
     # =========================================================
-    call_usage = TokenTracker.record_call(messages, result, model)
+    call_usage = TokenTracker.record_call(messages, result, call_model)
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
         [call_usage],
@@ -462,6 +491,8 @@ def ai_node(
     return {
         "messages": [result],
         "token_usage": token_usage,
+        "iteration_used": iteration_used + 1,
+        "grace_done": 1 if budget_exhausted else grace_done,
     }
 
 
@@ -526,6 +557,36 @@ _VERIFY_FAIL_MARKERS = ("❌ typecheck_workspace:", "⚠️ typecheck_workspace:
 
 _CODE_EXT_MARKERS = (".tsx", ".ts", ".jsx", ".js", ".py", ".json", ".css", ".html")
 
+# D40: agent iteration budget (hermes max_iterations / iteration_budget).
+# Wired at the ai_node entry: when iteration_used reaches the budget, tools
+# are hidden and ONE full grace call (hermes' budget-remaining>0 OR
+# _budget_grace_call loop) produces the final summary instead of cutting the
+# model off. Default 30 stays well under the graph recursion_limit (50) so
+# the grace path is always reachable; clamped to <=45 regardless of env.
+_ITERATION_BUDGET_DEFAULT = 30
+_ITERATION_BUDGET_CLAMP = 45
+
+_GRACE_NUDGE = (
+    "[System: The agent iteration budget for this run is exhausted. Do NOT "
+    "call any more tools. Provide your final answer now: summarize what was "
+    "accomplished, what remains unfinished or blocked, and stop. If the task "
+    "needs another pass, say so plainly and report the current state so the "
+    "user can continue.]"
+)
+
+
+def _iteration_budget() -> int:
+    try:
+        value = int(os.environ.get("AGENT_ITERATION_BUDGET", _ITERATION_BUDGET_DEFAULT))
+    except (TypeError, ValueError):
+        value = _ITERATION_BUDGET_DEFAULT
+    return min(max(1, value), _ITERATION_BUDGET_CLAMP)
+
+
+def _budget_exhausted(state: AgentState) -> bool:
+    used = int(state.get("iteration_used", 0))
+    return used >= _iteration_budget()
+
 
 def _looks_like_execution_task(task: str) -> bool:
     t = (task or "").lower()
@@ -541,6 +602,13 @@ def _tool_call_count(state: AgentState) -> int:
 
 def should_continue(state: AgentState):
     last_message = state["messages"][-1]
+
+    # D40: once the ai iteration budget is spent, this run must conclude.
+    # The grace call produced a text answer (or a tool_call the no-tools
+    # binding prevented) — finalize it instead of re-entering gates that
+    # would push the model to work it can no longer do.
+    if _budget_exhausted(state):
+        return "finalize"
 
     if getattr(last_message, "tool_calls", None):
         return "tools"
@@ -2224,6 +2292,12 @@ def invoke_agent(
         config=config,
     )
 
+    from src.context.self_curation import maybe_spawn_memory_review
+    try:
+        maybe_spawn_memory_review(thread_id)
+    except Exception:
+        pass
+
     return result["messages"][-1].content
 
 # =========================================================
@@ -2374,6 +2448,14 @@ def stream_agent(
             print("\n⛔ Recovery limit reached. Pausing for user input.")
 
     event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
+    # D38: post-run bounded background self-curation (memory review on the
+    # aux model). Never blocks the response — state is snapshotted from the
+    # checkpointer and reviewed on a daemon thread.
+    from src.context.self_curation import maybe_spawn_memory_review
+    try:
+        maybe_spawn_memory_review(thread_id)
+    except Exception:
+        pass
     return final_response
 
 from src.agents.agent_status import build_agent_status

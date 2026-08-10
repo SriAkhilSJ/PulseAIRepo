@@ -76,11 +76,17 @@ class TestEngineAutoBudget:
         eng = ContextEngine(
             model="gpt-4o", llm=None, memory_manager=None, probe_window=False
         )
-        expected = max(min(usable_budget("gpt-4o"), PROVIDER_SAFE_LIMIT), 4_096)
-        assert eng.max_tokens == expected
-        # And with the shipped default limit, a 128K model is capped DOWN:
-        # building more would just be trimmed by RetryLLMProxy at send time.
-        assert eng.max_tokens <= PROVIDER_SAFE_LIMIT
+        if PROVIDER_SAFE_LIMIT > 0:
+            # Explicit cap: a 128K model is capped DOWN — building more
+            # would just be trimmed by RetryLLMProxy at send time.
+            expected = max(min(usable_budget("gpt-4o"), PROVIDER_SAFE_LIMIT), 4_096)
+            assert eng.max_tokens == expected
+            assert eng.max_tokens <= PROVIDER_SAFE_LIMIT
+        else:
+            # PROVIDER_SAFE_LIMIT=0 (AUTO, host .env): trust the discovered
+            # window, reserving reply headroom — the identical formula
+            # RetryLLMProxy's pre-send guard applies.
+            assert eng.max_tokens == usable_window_budget(128_000)
         assert eng.context_window == 128_000
         assert eng.context_window_source == "static-table"
 
@@ -223,8 +229,16 @@ class TestDynamicResolution:
         eng = ContextEngine(model="qwen/qwen3.6-27b", llm=None, memory_manager=None)
         assert eng.context_window == 131072
         assert eng.context_window_source == "groq-api"
-        # min(131072 - 4096, PROVIDER_SAFE_LIMIT)
-        assert eng.max_tokens == min(131072 - 4096, PROVIDER_SAFE_LIMIT)
+        # Explicit cap shrinks the budget to it; AUTO mode (cap=0) trusts the
+        # discovered window and reserves only reply headroom — the same
+        # formula RetryLLMProxy's guard applies. The test must hold for
+        # either a host .env or the shipped default.
+        expected = (
+            min(131072 - 4096, PROVIDER_SAFE_LIMIT)
+            if PROVIDER_SAFE_LIMIT > 0
+            else usable_window_budget(131072)
+        )
+        assert eng.max_tokens == expected
 
 
 class TestSettingsKeyResolution:

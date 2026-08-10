@@ -71,15 +71,32 @@ class RetryLLMProxy:
         last_error = None
 
         # ------------------------------------------------------------------
-        # PRE-SEND TOKEN GUARD (503 mitigation)
-        # Guard ONLY the messages arg — never any other positional arg.
+        # PRE-SEND SANITIZER (D36): lossless cleanup of the outgoing message
+        # list — collapse duplicate tool_calls within an assistant message,
+        # drop re-used tool_call_id results, dedup byte-identical tool
+        # results. Mirrors hermes' pre-call sanitizer. Never raises.
         # ------------------------------------------------------------------
+        sanitized = None
         messages_arg = None
         if args:
             messages_arg = args[0]
         elif "messages" in kwargs:
             messages_arg = kwargs["messages"]
 
+        if isinstance(messages_arg, list):
+            from src.llm.request_sanitizer import sanitize_request_messages
+            sanitized = sanitize_request_messages(messages_arg)
+            if sanitized is not messages_arg:
+                if args:
+                    args = (sanitized,) + args[1:]
+                else:
+                    kwargs["messages"] = sanitized
+                messages_arg = sanitized
+
+        # ------------------------------------------------------------------
+        # PRE-SEND TOKEN GUARD (503 mitigation)
+        # Guard ONLY the messages arg — never any other positional arg.
+        # ------------------------------------------------------------------
         if isinstance(messages_arg, list):
             # trim_limit semantics: >=0 = enforce this limit; -1 = guard
             # unavailable, send untrimmed (with a loud warning, never silent).
