@@ -158,7 +158,7 @@ def _extract_py_import_edges(source: str, importer_rel: Path, workspace: Path) -
         return set()
 
     targets: set[str] = set()
-    importer_str = str(importer_rel)
+    importer_str = importer_rel.as_posix()  # forward slashes everywhere (Windows durability)
     importer_dir = importer_rel.parent
 
     def _resolve(module: str, names: list[str], level: int) -> None:
@@ -175,7 +175,7 @@ def _extract_py_import_edges(source: str, importer_rel: Path, workspace: Path) -
             candidates.append(full / f"{name}.py")
             candidates.append(full / name / "__init__.py")
         for cand in candidates:
-            rel_str = str(cand)
+            rel_str = cand.as_posix()
             if rel_str == importer_str:
                 continue
             try:

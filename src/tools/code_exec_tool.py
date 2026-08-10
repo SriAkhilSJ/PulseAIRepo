@@ -446,48 +446,25 @@ def execute_code(code: str, config: RunnableConfig) -> str:
     Run ONE Python script that can call the file/terminal/web tools as
     functions, then return ONLY what the script prints.
 
-    WHEN TO USE:
-    - A task needs 3+ chained tool steps (read several files, search, then
-      run a check) -- the script does them all in ONE call instead of many
-      separate tool calls.
-    - Raw tool output would be huge (whole files, long test logs): let the
-      script filter it and print only the few lines that matter.
+    WHEN TO USE: 3+ chained tool steps (read, search, then check) in ONE
+    call; or raw tool output that would be huge - filter it and print only
+    the lines that matter.
+    WHEN NOT TO USE: a single simple action (call the tool directly); or
+    anything needing human approval (overwrite/edit existing files,
+    secrets, destructive shell commands) - those are DENIED inside scripts.
 
-    WHEN NOT TO USE:
-    - A single simple action (one read, one edit) -- call the tool directly.
-    - Anything needing human approval (overwriting an existing file, editing
-      secrets, destructive shell commands): those are DENIED inside scripts.
-      Run them as normal tool calls so the user can confirm.
+    Callable inside the script (same behavior as the tools):
+    read_file, list_files, search_code, write_file (blocked if the file
+    exists), edit_file, run_terminal, start_terminal, check_terminal,
+    stop_terminal, list_terminal_processes, cleanup_terminal_processes,
+    read_terminal_output, web_search, web_fetch.
 
-    FUNCTIONS AVAILABLE INSIDE THE SCRIPT (same behavior as the tools):
-        read_file(path)                       -> file contents
-        list_files(path=".")                  -> directory listing
-        search_code(query, path=".")          -> grep-style matches
-        write_file(path, content)             -> write (blocked if file exists)
-        edit_file(path, old_text, new_text)   -> targeted edit
-        run_terminal(command)                 -> stdout/stderr of a shell command
-        start_terminal(command)               -> long-running process
-        check_terminal(process_id, wait_seconds=0)
-        stop_terminal(process_id)
-        list_terminal_processes()
-        cleanup_terminal_processes()
-        read_terminal_output(process_id, start_line=1, end_line=200)
-        web_search(query, max_results=5)
-        web_fetch(url, max_chars=12000)
-
-    RULES:
-    - No import statements. Preloaded modules: re, json, math, datetime,
-      collections, itertools, functools, textwrap, statistics, string, random.
-    - No open/eval/exec/getattr or dunder attributes.
-    - Budgets: 120s wall clock, 50 tool calls, 50KB of printed output.
-    - Errors inside the script come back as strings; inspect them and adapt.
-    - ALWAYS print() your final result -- only printed text is returned.
-
-    EXAMPLE:
-        report = read_file("app.py")
-        matches = search_code("def login", "src")
-        tests = run_terminal("python -m pytest -q")
-        last = tests.strip().splitlines()[-1]
-        print(f"app.py: {len(report)} chars | login defs at:\\n{matches}\\n{last}")
+    RULES: no imports (preloaded: re, json, math, datetime, collections,
+    itertools, functools, textwrap, statistics, string, random); no
+    open/eval/exec/getattr or dunder attributes; budgets: 120s wall clock,
+    50 tool calls, 50KB printed output; errors return as strings - inspect
+    and adapt; ALWAYS print() your final result (only printed text is
+    returned). Example: read_file, search_code, run_terminal, then print a
+    filtered summary.
     """
     return _run_script(code, config)

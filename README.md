@@ -63,6 +63,18 @@ PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, f
 - **Integrated Search:** Uses `ddgs` for real-time documentation and error lookups.
 - **Web Fetch:** Reads full page content to verify implementation details.
 
+### Verification & Quality Gates (Test-2 hardening)
+Code that ships must be *proven* sound — not believed sound:
+
+- **Multi-language syntax receipt:** every `write_file`/`edit_file` on `.ts/.tsx/.js/.jsx/.json/.py` is parsed by a real compiler (esbuild for TS/TSX — zero phantom errors, unlike bare `tsc` on single files) before landing. A change that breaks a previously-valid file is rejected on the spot; already-broken files stay repairable.
+- **`typecheck_workspace` tool:** runs the workspace's own `tsc --noEmit` (tsconfig-aware) and returns errors grouped by file. On the real Test-2 lab app it caught 25 type errors, including the `TS1005: '=>' expected` class the agent had shipped.
+- **Verify gate:** an execution task that wrote code files cannot declare "Finished" until a verification tool ran **and passed** — a `typecheck_workspace` that *runs* but reports errors is treated as unverified and the agent is pushed (bounded, 2×) to fix every reported error and re-verify until ✅.
+
+### Efficiency (fewer calls, fewer tokens)
+- **`execute_code` (PTC) batching:** the agent is taught to collapse multi-step exploration/checks into ONE script call instead of many separate tool calls — the direct fix for the Test-2 50-call pattern.
+- **Tool-output summarization:** >8000-char tool outputs are summarized by the cheap auxiliary model (`SUMMARIZER_LLM=aux`), memoized per unique output so each big result costs one janitor-rate call, not one per turn.
+- **Full context window:** `PROVIDER_SAFE_LIMIT=0` unlocks the model's real window (live-probed, margin-reserved) instead of the conservative 6000-token cap that starved the agent into blind re-discovery.
+
 ---
 
 ## ⚖️ v2 vs v1: The Honest Diff
@@ -197,23 +209,34 @@ EMBEDDING_MODEL=all-MiniLM-L6-v2
 EMBEDDING_DEVICE=cpu              # cpu | cuda
 ```
 
+**Agent efficiency (recommended):**
+```env
+SUMMARIZER_LLM=aux               # janitor-model summaries for >8000-char tool outputs
+PROVIDER_SAFE_LIMIT=0            # unlock full model window (paid tiers); 6000 = conservative cap
+```
+
 ---
 
 ## 🧪 Testing
 
-PulseAI maintains a regression suite covering the graph, dashboard, and approval flows.
+PulseAI maintains a regression suite covering the graph, dashboard, approval flows, verification gates, and efficiency behavior.
 
-**Run All Tests:**
-```bash
-export PYTHONPATH=$PYTHONPATH:.
-python src/tests/test_agent_regression.py
+**Run All Tests (Windows):**
+```powershell
+New-Item -ItemType Directory -Force -Path "D:\pytest-tmp" | Out-Null
+$env:TMP="D:\pytest-tmp"; $env:TEMP="D:\pytest-tmp"
+.venv\Scripts\python.exe -m pytest src\tests -q --no-header --ignore=src/tests/test_session_engines.py
 ```
 
+The suite is Windows-green: 440 passed, 1 skipped (the POSIX file-mode test — Windows has no mode bits). Point `TMP` at a drive with free space; a full C: drive makes sqlite/IO tests fail.
+
 **Key Test Modules:**
+- `test_lab_fixes`: Pins the Test-2 fixes — syntax receipt (all languages), verify gate, typecheck tool.
 - `test_planner_manual`: Verifies plan generation logic.
 - `test_replan_graph`: Verifies mid-task strategy shifts.
 - `test_event_bus`: Verifies dashboard streaming reliability.
 - `test_plan_approval`: Verifies human-in-the-loop approval.
+- `test_ptc`: Pins `execute_code` batching behavior (caps, safety, output collapse).
 
 ---
 
@@ -235,6 +258,10 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 - [x] Failure feedback wired (recovery-limit, replan give-up, finalize)
 - [x] Pre-send token guard (PROVIDER_SAFE_LIMIT, 503 mitigation — verified live)
 - [x] Chunk-level code retrieval (sqlite-vec KNN + FTS5 BM25, RRF fusion — `src/context/chunk_index.py`, wired into ContextEngine as `relevant_chunks`)
+- [x] Multi-language syntax receipt (esbuild) on write/edit — broken code can't land
+- [x] `typecheck_workspace` tool + verify gate (cannot finish with unverified or failing code)
+- [x] Efficiency pass: PTC batching in persona, janitor-rate tool-output summarization, full context window
 - [ ] Layer attribution of feedback (record which layers were sent per task)
 - [ ] Per-session cost reports in PDF format
+- [ ] Benchmark harness: calls/tokens/human-helps per task, before vs after efficiency pass
 /usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy

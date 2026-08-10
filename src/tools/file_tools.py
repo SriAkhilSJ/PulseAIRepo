@@ -3,6 +3,12 @@ from pathlib import Path
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
+import json
+import os
+import re
+import shutil
+import subprocess
+
 PROJECT_ROOT = Path.cwd()
 
 # search_code guards (round-12 review: rglob("*") descended .git and
@@ -39,7 +45,7 @@ def read_file(
     path: str,
     config: RunnableConfig
 ) -> str:
-        """
+    """
     Read a text file and return its contents. Use for known files where
     accuracy matters. For searching, use search_code; for directories, use
     list_files. Respects line ranges when given.
@@ -146,12 +152,14 @@ def write_file(
             if stale is not None:
                 return stale
 
-        # D28: overwriting a WORKING Python file with broken grammar is
+        # D28: overwriting a WORKING code file with broken syntax is
         # refused (new files are exempt — templates/skeletons may be
         # intentionally incomplete; edit_file's receipt handles refinement).
-        if safe_path.suffix == ".py" and safe_path.exists():
+        # Test-2 lesson: the receipt covers JS/TS/TSX/JSON, not just Python —
+        # the chat app shipped ~15 syntax bugs through blind writes.
+        if safe_path.exists() and _is_syntax_checkable(safe_path):
             original_now = safe_path.read_text(encoding="utf-8")
-            receipt_error = _python_syntax_receipt(original_now, content)
+            receipt_error = _syntax_receipt(safe_path, original_now, content)
             if receipt_error is not None:
                 return receipt_error
 
@@ -329,6 +337,232 @@ def _python_syntax_receipt(original: str, updated: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Multi-language syntax receipt (Test-2 fix). hermes VALUE, not code: its
+# lint tier splits in-process stdlib checks (Python ast, JSON) from real
+# parser coverage for TS/TSX — and its hard-won lesson is that single-file
+# `tsc` floods PHANTOM errors (no tsconfig => ES5 defaults), so TS/TSX is
+# never shell-linted there. We use esbuild (a real, tsconfig-independent
+# parser, globally installed) for TS/TSX/JS/JSX: fast, zero phantom errors,
+# and it degrades to a no-op if node/esbuild are missing — a receipt must
+# never false-positive a write on a tooling gap.
+# ---------------------------------------------------------------------------
+
+_SYNTAX_CHECK_EXTS = frozenset({".py", ".json", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"})
+_ESBUILD_LOADERS = {".ts": "ts", ".tsx": "tsx", ".js": "js", ".jsx": "jsx", ".mjs": "js", ".cjs": "js"}
+
+# Lazily resolved; None = not yet probed, False = known unavailable.
+_esbuild_probe: bool | None = None
+_node_path_cache: str | None = None
+
+
+def _resolve_global_node_modules() -> str | None:
+    """Locate the global npm node_modules dir (where esbuild lives)."""
+    candidates: list[str] = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        candidates.append(os.path.join(appdata, "npm", "node_modules"))
+    home = os.path.expanduser("~")
+    candidates.append(os.path.join(home, ".npm-global", "lib", "node_modules"))
+    for candidate in candidates:
+        if (Path(candidate) / "esbuild").is_dir():
+            return candidate
+    return None
+
+
+def _is_syntax_checkable(path: Path) -> bool:
+    return path.suffix.lower() in _SYNTAX_CHECK_EXTS
+
+
+def _esbuild_check(code: str, loader: str) -> str | None:
+    """Syntax-check TS/TSX/JS/JSX through esbuild (spawned via node).
+
+    Returns a human error string when the code does NOT parse, or None
+    when it parses clean OR the toolchain (node/esbuild) is unavailable —
+    a write gate must never false-positive on a tooling gap.
+    """
+    global _esbuild_probe, _node_path_cache
+    if _esbuild_probe is False:
+        return None
+
+    node = shutil.which("node")
+    if node is None:
+        _esbuild_probe = False
+        return None
+
+    if _node_path_cache is None:
+        # Resolve the global npm root WITHOUT invoking npm (npm.cmd is not
+        # directly spawnable on Windows — the same bin-links class of bug
+        # that froze Lab run 1). Deterministic on Windows: %APPDATA%\npm\node_modules.
+        _node_path_cache = _resolve_global_node_modules()
+        if _node_path_cache is None:
+            _esbuild_probe = False
+            return None
+
+    script = (
+        "const esbuild=require('esbuild');let s='';process.stdin.setEncoding('utf8');"
+        "process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{"
+        "try{esbuild.transformSync(s,{loader:process.argv[1]||'ts',logLevel:'silent'});"
+        "process.stdout.write('OK');}"
+        "catch(e){const er=e.errors&&e.errors[0];const loc=er&&er.location?"
+        "`line ${er.location.line}, col ${er.location.column}`:'';"
+        "process.stdout.write('ERR: '+(er?er.text:String(e))+(loc?` (${loc})`:''));}});"
+    )
+    try:
+        env = dict(os.environ)
+        env["NODE_PATH"] = _node_path_cache + os.pathsep + env.get("NODE_PATH", "")
+        proc = subprocess.run(
+            [node, "-e", script, loader],
+            input=code, capture_output=True, text=True, timeout=20, env=env,
+        )
+    except Exception:
+        _esbuild_probe = False
+        return None
+
+    out = proc.stdout.strip()
+    if proc.returncode != 0 and not out:
+        # node itself failed (esbuild not resolvable, etc.) — degrade, never reject.
+        _esbuild_probe = False
+        return None
+    if out.startswith("ERR:"):
+        return out[4:].strip()
+    return None
+
+
+def _json_syntax_receipt(original: str, updated: str) -> str | None:
+    def _parse(text: str) -> str | None:
+        try:
+            json.loads(text)
+            return None
+        except (json.JSONDecodeError, ValueError) as exc:
+            return str(exc)
+
+    orig_err = _parse(original)
+    new_err = _parse(updated)
+    if orig_err is None and new_err is not None:
+        return (
+            f"❌ Edit rejected: the result would not be valid JSON ({new_err}). "
+            f"File left unchanged — fix the edit and retry."
+        )
+    return None
+
+
+def _syntax_receipt(path: Path, original: str, updated: str) -> str | None:
+    """D28 multi-language (§Test-2): never leave a code file worse than we
+    found it. If the ORIGINAL parsed clean and the update wouldn't, the
+    write/edit is rejected BEFORE touching disk. If the original was already
+    broken, the change is allowed through — agents must stay able to repair
+    broken files. Non-code files are never touched.
+    """
+    suffix = path.suffix.lower()
+    if suffix == ".py":
+        return _python_syntax_receipt(original, updated)
+    if suffix == ".json":
+        return _json_syntax_receipt(original, updated)
+    loader = _ESBUILD_LOADERS.get(suffix)
+    if loader is None:
+        return None
+    orig_err = _esbuild_check(original, loader)
+    new_err = _esbuild_check(updated, loader)
+    if orig_err is None and new_err is not None:
+        return (
+            f"❌ Edit rejected: the result would not be valid "
+            f"{suffix.lstrip('.')} syntax ({new_err}). "
+            f"File left unchanged — fix the edit and retry."
+        )
+    return None
+
+
+@tool
+def typecheck_workspace(config: RunnableConfig) -> str:
+    """Run the workspace's own TypeScript compiler (tsconfig-aware) in
+    --noEmit mode and return type errors grouped by file.
+
+    WHEN TO USE:
+    - After writing or editing .ts/.tsx files, BEFORE declaring the task
+      finished. This is the proof the code is type-sound, not just
+      syntax-valid.
+    - Whenever you need to verify a frontend/typescript change.
+
+    Skips gracefully (no error) when the workspace has no tsconfig.json,
+    typescript isn't installed in the workspace, or node is unavailable.
+    """
+
+    workspace = config["configurable"]["workspace"]
+    workspace_path = Path(workspace).resolve()
+
+    if not (workspace_path / "tsconfig.json").exists():
+        return (
+            "ℹ️ typecheck_workspace: no tsconfig.json in the workspace — "
+            "TypeScript isn't set up here, so there is nothing to typecheck. "
+            "(If you expected a TS project, verify your setup.)"
+        )
+
+    tsc_js = workspace_path / "node_modules" / "typescript" / "bin" / "tsc"
+    node = shutil.which("node")
+    if node is None or not tsc_js.exists():
+        return (
+            "ℹ️ typecheck_workspace: typescript is not installed in this "
+            "workspace (node_modules/typescript missing) — skipped. Install "
+            "typescript if you want tsc-level verification."
+        )
+
+    try:
+        proc = subprocess.run(
+            [node, str(tsc_js), "--noEmit"],
+            cwd=str(workspace_path),
+            capture_output=True, text=True, timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            "⚠️ typecheck_workspace timed out after 180s — check for a hung "
+            "process and retry."
+        )
+
+    output = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode == 0 or not output.strip():
+        return "✅ typecheck_workspace: tsc --noEmit passed with 0 errors."
+
+    # tsc error shape: `path(line,col): error TSxxxx: message`
+    _tsc_line = re.compile(
+        r"^(.+?)\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.*)$"
+    )
+    errors: list[tuple[str, str, str, str]] = []
+    for line in output.splitlines():
+        m = _tsc_line.match(line.strip())
+        if m:
+            errors.append((m.group(1), m.group(2), m.group(3) + " " + m.group(4), m.group(5)))
+
+    if not errors:
+        tail = output.strip().splitlines()[-8:]
+        return (
+            "⚠️ typecheck_workspace: tsc reported issues (unparsed output):\n"
+            + "\n".join(tail)
+        )
+
+    by_file: dict[str, list[str]] = {}
+    for fname, line, code, msg in errors:
+        by_file.setdefault(fname, []).append(f"{line}:{code}: {msg}")
+
+    parts = [
+        f"❌ typecheck_workspace: {len(errors)} type error(s) found. "
+        f"Fix ALL of them before finishing:"
+    ]
+    shown_total = 0
+    for fname in sorted(by_file)[:15]:
+        if shown_total >= 60:
+            break
+        parts.append(f"{fname}:")
+        for entry in by_file[fname][:10]:
+            parts.append(f"  {entry}")
+            shown_total += 1
+            if shown_total >= 60:
+                break
+    if shown_total < len(errors):
+        parts.append(f"... {len(errors) - shown_total} more error(s) omitted")
+    return "\n".join(parts)
+
+
 def _atomic_write(path, content: str) -> None:
     """Write via tempfile + os.replace (same directory => same filesystem):
     concurrent readers never see a torn file, and the original mode survives.
@@ -407,10 +641,10 @@ def edit_file(
     if updated_content == original:
         return f"ℹ️ No change: new_text equals the existing content in {path}."
 
-    # D28: syntax receipt for Python — a broken-grammar edit is refused
-    # before it ever touches disk (non-Python files are unaffected).
-    if safe_path.suffix == ".py":
-        receipt_error = _python_syntax_receipt(original, updated_content)
+    # D28: syntax receipt — a broken-grammar edit is refused before it
+    # ever touches disk (multi-language; non-code files unaffected).
+    if _is_syntax_checkable(safe_path):
+        receipt_error = _syntax_receipt(safe_path, original, updated_content)
         if receipt_error is not None:
             return receipt_error
 

@@ -227,9 +227,11 @@ def test_zero_llm_pure_search_source_pin():
 
 
 def test_registry_twenty_tools():
-    """Tool registry count. Renamed in spirit (§45): now 21 — D33 added
-    delegate_to_subagent_batch; the name stays so history diffs loudly."""
+    """Tool registry count. Renamed in spirit (§45): now 22 — D33 added
+    delegate_to_subagent_batch, verify gate added typecheck_workspace;
+    the name stays so history diffs loudly."""
     from src.graphs.chat_graph import tools
-    assert len([t for t in tools]) == 21
+    assert len([t for t in tools]) == 22
     assert "session_search" in [t.name for t in tools]
     assert "delegate_to_subagent_batch" in [t.name for t in tools]
+    assert "typecheck_workspace" in [t.name for t in tools]

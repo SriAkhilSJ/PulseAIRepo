@@ -173,7 +173,7 @@ def test_d26_hashed_keys_match_builder_usage_ast():
     takes `state` must be in _HASHED_STATE_KEYS (or be 'messages'). A
     future layer reading a new key fails HERE, loudly — never silently
     stale in production."""
-    src = (Path(__file__).parent.parent / "context" / "context_engine.py").read_text()
+    src = (Path(__file__).parent.parent / "context" / "context_engine.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     engine_cls = next(n for n in ast.walk(tree)
@@ -212,7 +212,7 @@ def test_d26_hashed_keys_match_builder_usage_ast():
 # ---------------------------------------------------------------------------
 
 def test_d27_every_registered_builder_takes_exactly_state():
-    src = (Path(__file__).parent.parent / "context" / "context_engine.py").read_text()
+    src = (Path(__file__).parent.parent / "context" / "context_engine.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     engine_cls = next(n for n in ast.walk(tree)

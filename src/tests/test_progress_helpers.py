@@ -112,8 +112,11 @@ def test_d9_build_failure_terminal_variants():
     f, up = ph.build_failure("run_terminal", "boom output", {"command": "make"},
                              False, None)
     assert f.startswith("Command failed: make\nActual tool output:\n")
+    # env_failure is part of the contract: chat_graph reads updates["env_failure"]
+    # to route to a strategy pivot instead of retry-until-dead.
     assert up == {"tool_failures_inc": 1, "recovery_attempts_inc": 1,
-                  "recovery_mode": True, "recovery_command": "make"}
+                  "recovery_mode": True, "recovery_command": "make",
+                  "env_failure": False}
 
     # already in recovery: command slot NOT stolen
     f, up = ph.build_failure("run_terminal", "x", {"command": "make2"},

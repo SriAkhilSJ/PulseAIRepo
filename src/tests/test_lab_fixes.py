@@ -109,6 +109,86 @@ def test_verify_gate_allows_after_typecheck():
     assert should_continue(state) == "finalize"
 
 
+def test_verify_gate_blocks_failed_typecheck():
+    """Writes + typecheck that RAN but FAILED -> finish_gate (fix nudge)."""
+    from src.graphs.chat_graph import should_continue, finish_gate_node
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="❌ typecheck_workspace: 25 type error(s) found. Fix ALL of them before finishing:",
+            tool_call_id="2", name="typecheck_workspace"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: a.tsx"],
+        "current_task": "build a chat app",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+    out = finish_gate_node(state)
+    assert "did NOT pass" in out["messages"][0].content
+    assert out["verify_nudges"] == 1
+
+
+def test_verify_gate_allows_passing_typecheck():
+    """Writes + typecheck that PASSED -> finalize allowed."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="2", name="typecheck_workspace"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: a.tsx"],
+        "current_task": "build a chat app",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finalize"
+
+
+def test_verify_gate_latest_typecheck_result_wins():
+    """An earlier ❌ superseded by a later ✅ (agent fixed + re-verified)."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="❌ typecheck_workspace: 25 type error(s) found.",
+            tool_call_id="2", name="typecheck_workspace"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "edit_file", "args": {}, "id": "3", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "4", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="4", name="typecheck_workspace"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: a.tsx", "Edited file: a.tsx"],
+        "current_task": "build a chat app",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finalize"
+
+
 def test_verify_gate_skips_non_execution_tasks():
     """Explanation tasks with file writes aren't forced to verify."""
     from src.graphs.chat_graph import should_continue

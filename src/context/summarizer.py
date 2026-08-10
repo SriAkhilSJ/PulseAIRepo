@@ -35,6 +35,13 @@ class SmartSummarizer:
              If None, we only use heuristics (recommended for budget).
         """
         self.llm = llm
+        # Content-hash memo: LLM-summarize a given output only ONCE per
+        # process. state["messages"] keeps the ORIGINAL ToolMessages, so
+        # the same 50KB output would otherwise be re-summarized on every
+        # turn's history build — a latency and cost bomb. Keyed by
+        # (tool_name, content) hash; bounded FIFO eviction.
+        self._llm_summary_cache: dict[str, str] = {}
+        self._llm_summary_cache_max = 128
 
     # =========================================================
     # MAIN ENTRY POINT
@@ -218,6 +225,14 @@ class SmartSummarizer:
         if not self.llm:
             raise ValueError("No LLM provided for summarization")
 
+        import hashlib
+        cache_key = hashlib.sha1(
+            f"{tool_name}\x00{content}".encode("utf-8", "replace")
+        ).hexdigest()
+        cached = self._llm_summary_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         prompt = f"""
 You are a compression assistant. A coding agent just received a very long tool output.
 
@@ -247,7 +262,11 @@ Output:
         ])
 
         summary = str(response.content).strip()
-        return f"[LLM-Summarized {tool_name} output]\n{summary}\n[Original was {len(content)} chars]"
+        result = f"[LLM-Summarized {tool_name} output]\n{summary}\n[Original was {len(content)} chars]"
+        if len(self._llm_summary_cache) >= self._llm_summary_cache_max:
+            self._llm_summary_cache.pop(next(iter(self._llm_summary_cache)))
+        self._llm_summary_cache[cache_key] = result
+        return result
 
     # =========================================================
     # HELPER

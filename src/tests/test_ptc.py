@@ -13,7 +13,9 @@ Every test asserts a BEHAVIOR the design doc claims:
 from __future__ import annotations
 
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
@@ -61,9 +63,15 @@ def test_no_print_gets_friendly_hint(cfg):
     assert "print()" in result
 
 
-def test_runner_output_collapses_to_tail_lines(cfg):
+def test_runner_output_collapses_to_tail_lines(cfg, ws):
+    # `seq` is a Unix binary that only exists on PATH inside Git Bash, not
+    # plain PowerShell/cmd (Windows portability — same class as the `which`
+    # collection bugs). Generate the 500 lines with the venv python instead;
+    # forward slashes are accepted by both cmd.exe and /bin/sh.
+    (ws / "gen.py").write_text("for i in range(1, 501):\n    print(i)\n")
+    py = Path(sys.executable).as_posix()
     script = (
-        'out = run_terminal("seq 1 500")\n'
+        f'out = run_terminal("{py} gen.py")\n'
         "nums = [l for l in out.splitlines() if l.isdigit()]\n"
         "print(len(nums))\n"
         "print(nums[-1])"
@@ -71,7 +79,7 @@ def test_runner_output_collapses_to_tail_lines(cfg):
     result = run(script, cfg)
     lines = result.strip().splitlines()
     assert lines[0] == "500"       # line count computed IN the script
-    assert lines[1] == "500"       # 500 lines of seq output never returned
+    assert lines[1] == "500"       # 500 lines of output never returned
     assert len(result) < 80
 
 # ------------------------------------------------------------------ caps
@@ -178,8 +186,9 @@ def test_registry_contains_execute_code_once():
     names = [t.name for t in tools]
     assert names.count("execute_code") == 1
     assert names.count("session_search") == 1
-    # 21 since D33 (§45): delegate_to_subagent_batch joined the registry.
-    assert len(names) == 21
+    # 22 since Test-2: typecheck_workspace (tsc --noEmit verify tool)
+    # joined after D33's 21 (delegate_to_subagent_batch).
+    assert len(names) == 22
 
 
 def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):

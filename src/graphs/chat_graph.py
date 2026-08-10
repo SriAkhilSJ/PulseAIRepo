@@ -49,6 +49,7 @@ from src.tools.file_tools import (
     search_code,
     write_file,
     edit_file,
+    typecheck_workspace,
 )
 
 
@@ -129,6 +130,7 @@ class AgentState(TypedDict, total=False):
     pivot_count: int        # strategy pivots performed (bounded)
     prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
     finish_nudges: int      # hermes-style early-finish nudges applied (bounded)
+    verify_nudges: int      # Test-2: nudges to run a verification tool (bounded)
     token_usage: dict[str, Any]  # Tracks tokens and cost for this task
     workspace: str  # Root path of the active project
 # =========================================================
@@ -343,6 +345,11 @@ tools = [
 
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
+
+    # Test-2 verification: workspace tsc --noEmit (tsconfig-aware). The
+    # verify gate nudges the agent here when code was written but nothing
+    # verified it — this is what stops 15-syntax-bug finishes.
+    typecheck_workspace,
 ]
 
 
@@ -482,6 +489,43 @@ _FINISH_NUDGE = (
     "artifact) and keep going until the deliverable actually exists.]"
 )
 
+# Verify gate (Test-2 fix): an execution task that WROTE code files but
+# never ran a verification tool must not finalize. Test 2 shipped ~15
+# syntax/type bugs because writes were blind — nothing forced a check
+# before the agent declared itself done.
+_VERIFY_NUDGE_BUDGET = 2
+
+_VERIFY_TOOL_NAMES = frozenset({
+    "typecheck_workspace",
+    "browser_navigate", "browser_snapshot", "browser_screenshot",
+    "browser_click", "browser_type",
+})
+
+_VERIFY_NUDGE = (
+    "[System: You wrote code files but never verified them. You must not "
+    "finish an execution task with unverified code — run the verification "
+    "tool right now: typecheck_workspace (tsc --noEmit) on TypeScript/JS "
+    "projects, and a build/run check for anything executable. Fix any "
+    "errors it reports BEFORE finishing, then re-verify until it passes.]"
+)
+
+# Test-2 hardening: a verification tool that RAN but FAILED is not
+# verification. The gate accepts only a passing (✅) or skip (ℹ️ — no
+# tsconfig / typescript not installed) typecheck result. Failure markers
+# cover the ❌ errors-found shape AND the ⚠️ timeout/unparsed shapes (a
+# check that cannot prove a clean build proves nothing).
+_VERIFY_FAILED_NUDGE = (
+    "[System: You ran typecheck_workspace but it did NOT pass — it "
+    "reported type errors or could not confirm a clean build. A failing "
+    "check is not verification: fix EVERY reported error, then re-run "
+    "typecheck_workspace until it returns the ✅ pass message. Only then "
+    "finalize.]"
+)
+
+_VERIFY_FAIL_MARKERS = ("❌ typecheck_workspace:", "⚠️ typecheck_workspace:")
+
+_CODE_EXT_MARKERS = (".tsx", ".ts", ".jsx", ".js", ".py", ".json", ".css", ".html")
+
 
 def _looks_like_execution_task(task: str) -> bool:
     t = (task or "").lower()
@@ -509,14 +553,74 @@ def should_continue(state: AgentState):
             if _tool_call_count(state) < 2:
                 return "finish_gate"
 
+    # Verify gate: code files were written but the code is NOT proven
+    # sound — either no verification tool ran, or the last typecheck
+    # result reported errors. A check that ran and failed is as
+    # unsatisfied as no check at all (Test-2 hardening).
+    # (Bounded via verify_nudges; both gates share the finish_gate node,
+    # which picks the right nudge + counter.)
+    if state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET:
+        if _looks_like_execution_task(state.get("current_task", "")):
+            if _wrote_code_files(state) and (
+                not _ran_verification(state) or _verification_failed(state)
+            ):
+                return "finish_gate"
+
     return "finalize"
 
 
+def _wrote_code_files(state: AgentState) -> bool:
+    """True when a success step indicates a code file was written/edited."""
+    for step in state.get("steps_completed", []):
+        low = str(step).lower()
+        if ("wrote file:" in low or "edited" in low or "file written" in low) and any(
+            ext in low for ext in _CODE_EXT_MARKERS
+        ):
+            return True
+    return False
+
+
+def _ran_verification(state: AgentState) -> bool:
+    """True when the agent already called a verification tool this turn."""
+    for m in state.get("messages", []):
+        for tc in getattr(m, "tool_calls", None) or []:
+            if (tc.get("name") or "") in _VERIFY_TOOL_NAMES:
+                return True
+    return False
+
+
+def _verification_failed(state: AgentState) -> bool:
+    """True when the LAST typecheck_workspace RESULT reported errors.
+
+    Scans ToolMessages (results) in reverse so a later ✅ supersedes an
+    earlier ❌ — the agent fixed the errors and re-verified. Failure
+    markers are the ❌ errors-found shape and the ⚠️ timeout/unparsed
+    shapes, both of which fail to prove the code is sound.
+    """
+    for m in reversed(state.get("messages", [])):
+        if isinstance(m, ToolMessage) and getattr(m, "name", "") == "typecheck_workspace":
+            content = str(getattr(m, "content", "") or "")
+            return content.startswith(_VERIFY_FAIL_MARKERS)
+    return False
+
+
 def finish_gate_node(state: AgentState) -> dict:
-    """Push the model back to work after an early finish declaration."""
-    nudge = SystemMessage(content=_FINISH_NUDGE)
+    """Push the model back to work after an early finish declaration.
+
+    Distinguishes the two nudge cases: verify gate (code written, nothing
+    verified) vs finish gate (no real work at all) — each has its own
+    bounded counter so one can never starve the other.
+    """
+    if _wrote_code_files(state) and (
+        not _ran_verification(state) or _verification_failed(state)
+    ):
+        nudge = _VERIFY_FAILED_NUDGE if _verification_failed(state) else _VERIFY_NUDGE
+        return {
+            "messages": [SystemMessage(content=nudge)],
+            "verify_nudges": state.get("verify_nudges", 0) + 1,
+        }
     return {
-        "messages": [nudge],
+        "messages": [SystemMessage(content=_FINISH_NUDGE)],
         "finish_nudges": state.get("finish_nudges", 0) + 1,
     }
 

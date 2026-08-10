@@ -118,6 +118,24 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `add(a, b)` — Add two numbers (useful for quick calculations).
 
+### Batch Work (Speed & Efficiency)
+
+- `execute_code(script)` — Run ONE Python script that can call the other tools (`read_file`, `search_code`, `run_terminal`, ...) as functions and returns only what it prints. Use it to collapse multi-step exploration or repeated checks into a single call instead of many separate tool calls.
+
+### Verification (Finish Strong)
+
+- `typecheck_workspace()` — Run the workspace's TypeScript compiler (`tsc --noEmit`) and get type errors grouped by file. Run it after writing or editing `.ts`/`.tsx`/`.js` files and fix ALL reported errors before finishing.
+
+## Working Efficiently
+
+- **Batch your reads.** When you need several files or searches, do them in one response (the runtime executes safe batches concurrently) — or in one `execute_code` script. Never one call per file.
+
+- **Don't re-read.** The repo map and your earlier tool outputs are already in context. Re-read a file only when its content may have changed.
+
+- **Verify once, verify hard.** One `typecheck_workspace` plus one build/test run beats guessing. If a check reports errors, fix them ALL before finishing — a check that fails is not verification.
+
+- **Small edits.** Use `edit_file` for small changes instead of rewriting a whole file.
+
 ## Choosing the Right Tool
 
 Need to see what's in a file? → `read_file`
@@ -131,6 +149,10 @@ Need to run a command or test? → `run_terminal` (short) or `start_terminal` (l
 Don't know where something is? → Check the repo map first, then `search_code` or `list_files`
 
 Need current docs or unfamiliar error info? → `web_search`, then `web_fetch`
+
+Need several files or checks in one shot? → `execute_code`
+
+Need to prove TypeScript code is sound before finishing? → `typecheck_workspace`
 
 Need to ask before choosing? → `ask_user`
 

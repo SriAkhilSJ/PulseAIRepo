@@ -105,6 +105,7 @@ def test_fuzzy_find_block_locates_span():
 # ---------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX mode bits (0o640 coerces to 0o666)")
 def test_atomic_write_preserves_file_mode(tmp_path):
     ws, f = _ws(tmp_path)
     target = tmp_path / f

@@ -7,6 +7,7 @@ All pure: temp workspaces + temp stores, git plumbing only, no LLM.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from src.tools.file_tools import edit_file, write_file
 from src.tools.shadow_checkpoints import ShadowCheckpoints
 
 git = pytest.mark.skipif(
-    subprocess.run(["which", "git"], capture_output=True).returncode != 0,
+    shutil.which("git") is None,
     reason="git binary unavailable",
 )
 

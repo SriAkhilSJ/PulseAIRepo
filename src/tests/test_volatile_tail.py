@@ -19,6 +19,7 @@ Design contract:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -29,7 +30,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from src.context.context_engine import ContextEngine
 
 git = pytest.mark.skipif(
-    subprocess.run(["which", "git"], capture_output=True).returncode != 0,
+    shutil.which("git") is None,
     reason="git binary unavailable",
 )
 
