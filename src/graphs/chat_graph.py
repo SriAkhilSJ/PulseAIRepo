@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import threading
 from collections import OrderedDict
@@ -63,6 +64,7 @@ from src.tools.terminal_tools import (
     read_terminal_output
 )
 from src.tools.web_tools import web_search, web_fetch
+from src.tools.browser_mcp import BROWSER_TOOLS
 from src.tools.code_exec_tool import execute_code
 from src.tools.session_search_tool import session_search
 from src.prompts.claude_persona import system_persona  # D35 (§47)
@@ -352,6 +354,13 @@ tools = [
     # verify gate nudges the agent here when code was written but nothing
     # verified it — this is what stops 15-syntax-bug finishes.
     typecheck_workspace,
+
+    # Test-2 retest (workspace_d): the agent's EYES. A real browser the
+    # agent can navigate/snapshot/screenshot — the only thing that can
+    # prove a UI app actually renders (D5 faked verification because no
+    # browser tool was bound; see browser_mcp docstring). Lazy-spawned, so
+    # registering them costs nothing at import.
+    *BROWSER_TOOLS,
 ]
 
 
@@ -532,12 +541,31 @@ _VERIFY_TOOL_NAMES = frozenset({
     "browser_click", "browser_type",
 })
 
+# UI/frontend deliverables: for these, typecheck alone proves nothing at
+# runtime (Test-2 retest D5: tsc passed while the app 500'd on a missing
+# "use client"). The agent must have DRIVEN A REAL BROWSER. Matching is
+# word-based on purpose: a naive substring "ui" also hits inside "build".
+_UI_TASK_PHRASES = (
+    "web app", "web application", "webapp", "chat app", "chatbot",
+    "user interface", "frontend app", "front-end app", "next.js",
+    "nextjs", "react app", "single page app",
+)
+_UI_TASK_WORDS = {
+    "app", "ui", "web", "chat", "frontend", "front-end", "browser",
+    "dashboard", "component", "page", "website", "interface", "react",
+    "vue", "screenshot",
+}
+
 _VERIFY_NUDGE = (
     "[System: You wrote code files but never verified them. You must not "
-    "finish an execution task with unverified code — run the verification "
-    "tool right now: typecheck_workspace (tsc --noEmit) on TypeScript/JS "
-    "projects, and a build/run check for anything executable. Fix any "
-    "errors it reports BEFORE finishing, then re-verify until it passes.]"
+    "finish an execution task with unverified code — run a verification "
+    "tool right now. For TypeScript/JS projects run typecheck_workspace "
+    "(tsc --noEmit). For a UI/frontend deliverable that is NOT enough: "
+    "start the app (start_terminal, read_terminal_output for the port), "
+    "then prove it with the browser tools — browser_navigate to the URL, "
+    "browser_snapshot to read what rendered, browser_screenshot for visual "
+    "proof, and for chat/forms use browser_type + browser_click. Fix any "
+    "errors BEFORE finishing, then re-verify until it passes.]"
 )
 
 # Test-2 hardening: a verification tool that RAN but FAILED is not
@@ -555,14 +583,25 @@ _VERIFY_FAILED_NUDGE = (
 
 _VERIFY_FAIL_MARKERS = ("❌ typecheck_workspace:", "⚠️ typecheck_workspace:")
 
+# browser_navigate results that prove the page FAILED to serve — a tsc pass
+# does not cancel these out; a 500 page is unverified UI regardless of
+# static analysis (Test-2 retest D5 shipped exactly this bug: tsc clean,
+# GET / = 500, missing "use client").
+_BROWSER_FAIL_MARKERS = (
+    "net::ERR", "failed to navigate", "page crashed", "http 500",
+    "status of 500", "internal server error", "application error",
+    "error occurred", "server responded with a status of 500",
+)
+
 _CODE_EXT_MARKERS = (".tsx", ".ts", ".jsx", ".js", ".py", ".json", ".css", ".html")
 
 # D40: agent iteration budget (hermes max_iterations / iteration_budget).
 # Wired at the ai_node entry: when iteration_used reaches the budget, tools
 # are hidden and ONE full grace call (hermes' budget-remaining>0 OR
 # _budget_grace_call loop) produces the final summary instead of cutting the
-# model off. Default 30 stays well under the graph recursion_limit (50) so
-# the grace path is always reachable; clamped to <=45 regardless of env.
+# model off. The budget is the intended safety valve; the graph
+# recursion_limit is sized (via _recursion_limit) well above it so the grace
+# path is always reachable. Default 30; clamped to <=45 regardless of env.
 _ITERATION_BUDGET_DEFAULT = 30
 _ITERATION_BUDGET_CLAMP = 45
 
@@ -583,6 +622,15 @@ def _iteration_budget() -> int:
     return min(max(1, value), _ITERATION_BUDGET_CLAMP)
 
 
+# Each ai-node iteration costs several LangGraph recursion super-steps
+# (ai_node + tools node + status/recovery nodes), so the hard
+# recursion_limit must sit well above the iteration budget — otherwise
+# GraphRecursionError kills runs mid-work (Test-2 retest D4 hit 50 at only
+# ~16 iterations, losing 11 written files). Budget governs; this is backstop.
+def _recursion_limit() -> int:
+    return max(200, _iteration_budget() * 4 + 40)
+
+
 def _budget_exhausted(state: AgentState) -> bool:
     used = int(state.get("iteration_used", 0))
     return used >= _iteration_budget()
@@ -593,10 +641,26 @@ def _looks_like_execution_task(task: str) -> bool:
     return any(marker in t for marker in _EXECUTION_TASK_MARKERS)
 
 
+# Tools that produce or prove the deliverable — the finish gate's "real
+# work" bar. Introspection/scratchpad calls (think, list_files, read_file,
+# search_code, session_search, check_terminal) do NOT count: a model that
+# burns two of those and then declares "Finished" has still delivered
+# nothing (Test-2 retest on workspace_d proved exactly this bypass).
+_WORK_TOOLS = frozenset({
+    "write_file", "edit_file", "run_terminal", "execute_code",
+    "typecheck_workspace",
+    "browser_navigate", "browser_snapshot", "browser_screenshot",
+    "browser_click", "browser_type", "browser_select", "browser_hover",
+    "browser_evaluate",
+    "web_search", "web_fetch",
+})
+
+
 def _tool_call_count(state: AgentState) -> int:
     return sum(
         1 for m in state.get("messages", [])
-        if getattr(m, "tool_calls", None)
+        if any(tc.get("name") in _WORK_TOOLS
+               for tc in (getattr(m, "tool_calls", None) or []))
     )
 
 
@@ -613,12 +677,14 @@ def should_continue(state: AgentState):
     if getattr(last_message, "tool_calls", None):
         return "tools"
 
-    # Finish gate: an execution task that ends with <2 tool calls total is an
-    # early stop, not completion. Nudge once (bounded via finish_nudges) so
-    # the model actually acts; after the budget, allow finalize.
+    # Finish gate: an execution task that ends with NO deliverable-producing
+    # tool call is an early stop, not completion (probe/scratchpad calls like
+    # think/list_files don't count as work). Nudge once (bounded via
+    # finish_nudges) so the model actually acts; after the budget, allow
+    # finalize.
     if state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
         if _looks_like_execution_task(state.get("current_task", "")):
-            if _tool_call_count(state) < 2:
+            if _tool_call_count(state) < 1:
                 return "finish_gate"
 
     # Verify gate: code files were written but the code is NOT proven
@@ -649,25 +715,55 @@ def _wrote_code_files(state: AgentState) -> bool:
 
 
 def _ran_verification(state: AgentState) -> bool:
-    """True when the agent already called a verification tool this turn."""
+    """True when the agent already called a verification tool this turn.
+
+    For UI/frontend tasks a typecheck is NOT verification — the deliverable
+    must have been driven in a real browser (a browser_* call), otherwise a
+    tsc-pass can hide a runtime 500 (Test-2 retest D5: missing "use client"
+    on a hook-using component passed tsc but 500'd in the browser).
+    """
+    require_browser = _looks_like_ui_task(state.get("current_task", ""))
     for m in state.get("messages", []):
         for tc in getattr(m, "tool_calls", None) or []:
-            if (tc.get("name") or "") in _VERIFY_TOOL_NAMES:
+            name = tc.get("name") or ""
+            if name.startswith("browser_"):
+                return True
+            if not require_browser and name in _VERIFY_TOOL_NAMES:
                 return True
     return False
 
 
+def _looks_like_ui_task(task: str) -> bool:
+    t = (task or "").lower()
+    if any(p in t for p in _UI_TASK_PHRASES):
+        return True
+    words = set(re.findall(r"[a-z0-9]+", t))
+    return bool(words & _UI_TASK_WORDS)
+
+
 def _verification_failed(state: AgentState) -> bool:
-    """True when the LAST typecheck_workspace RESULT reported errors.
+    """True when the LAST verification RESULT reported a failure.
 
     Scans ToolMessages (results) in reverse so a later ✅ supersedes an
-    earlier ❌ — the agent fixed the errors and re-verified. Failure
-    markers are the ❌ errors-found shape and the ⚠️ timeout/unparsed
-    shapes, both of which fail to prove the code is sound.
+    earlier ❌ — the agent fixed the errors and re-verified. Failures:
+    - typecheck_workspace ❌ errors-found / ⚠️ timeout-unparsed shapes, and
+    - a browser_navigate that failed to serve the page (HTTP 500 / load
+      error) — a page that 500s is unverified even if tsc passed.
     """
     for m in reversed(state.get("messages", [])):
-        if isinstance(m, ToolMessage) and getattr(m, "name", "") == "typecheck_workspace":
+        if isinstance(m, ToolMessage) and getattr(m, "name", "") in (
+            "typecheck_workspace", "browser_navigate",
+        ):
             content = str(getattr(m, "content", "") or "")
+            if getattr(m, "name", "") == "browser_navigate":
+                low = content.lower()
+                if any(marker in low for marker in _BROWSER_FAIL_MARKERS):
+                    return True
+                # A successful navigation still isn't verification for a UI
+                # task — it must be followed by rendering proof. But we
+                # cannot require ordering here; the bounded verify-nudge
+                # handles the "navigated but never snapped" case.
+                continue
             return content.startswith(_VERIFY_FAIL_MARKERS)
     return False
 
@@ -2278,7 +2374,7 @@ def invoke_agent(
             "model": model,
             "workspace": workspace,
         },
-        "recursion_limit": 50,
+        "recursion_limit": _recursion_limit(),
     }
 
     result = graph.invoke(
@@ -2324,7 +2420,7 @@ def stream_agent(
             "model": model,
             "workspace": workspace,
         },
-        "recursion_limit": 50,
+        "recursion_limit": _recursion_limit(),
     }
 
     final_response = ""
@@ -2456,6 +2552,26 @@ def stream_agent(
         maybe_spawn_memory_review(thread_id)
     except Exception:
         pass
+
+    # When the run ends via the budget-exhausted / finish-gate path, the
+    # final summary is synthesized by finalize_node and never flows through
+    # an "ai" event (Test-2 retest D5 returned an empty string despite
+    # completing 12/12 plan steps). Fall back to the persisted state's last
+    # message so callers always get the real final response.
+    if not final_response:
+        try:
+            snap = graph.get_state(config)
+            msgs = (snap.values or {}).get("messages", [])
+            if msgs:
+                final_response = msgs[-1].content
+                if isinstance(final_response, list):
+                    final_response = "".join(
+                        b.get("text", "") for b in final_response
+                        if isinstance(b, dict)
+                    ) or str(final_response)
+        except Exception:
+            pass
+
     return final_response
 
 from src.agents.agent_status import build_agent_status

@@ -126,6 +126,8 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `typecheck_workspace()` — Run the workspace's TypeScript compiler (`tsc --noEmit`) and get type errors grouped by file. Run it after writing or editing `.ts`/`.tsx`/`.js` files and fix ALL reported errors before finishing.
 
+- `browser_navigate(url)` / `browser_snapshot()` / `browser_screenshot(name)` / `browser_click(selector)` / `browser_type(selector, text)` / `browser_select(selector, value)` / `browser_hover(selector)` / `browser_evaluate(script)` — a real browser driving your own app. **UI/frontend deliverables MUST be verified in the browser**, not just typechecked: start the app, navigate to it, snapshot to read what actually rendered, screenshot for visual proof, and for chat/forms type a real input and confirm the response appears. A page that serves a 500 is NOT verified, even when `tsc` is clean.
+
 ## Working Efficiently
 
 - **Batch your reads.** When you need several files or searches, do them in one response (the runtime executes safe batches concurrently) — or in one `execute_code` script. Never one call per file.
@@ -153,6 +155,8 @@ Need current docs or unfamiliar error info? → `web_search`, then `web_fetch`
 Need several files or checks in one shot? → `execute_code`
 
 Need to prove TypeScript code is sound before finishing? → `typecheck_workspace`
+
+Need to prove a UI/frontend app actually renders before finishing? → `browser_navigate`, then `browser_snapshot` + `browser_screenshot`
 
 Need to ask before choosing? → `ask_user`
 
@@ -312,6 +316,11 @@ _D35_FINISH_JOB = """
 - **Never end a turn on a promise of future action** ("I will run the tests", "Next I will fix it"). If you say you will do it, do it in this response.
 
 - **When the real path is blocked, say so and try an alternative** — a different approach, a different package manager, or ask the user. Reporting a blocker honestly always beats inventing a result.
+
+## Framework Conventions (apply, don't ask)
+
+- **Next.js App Router: hook-using components are Client Components.** Any component that uses hooks (`useState`, `useRef`, `useEffect`, `useCallback`) MUST be declared `"use client";` as its first line. Files under `app/` and imported components are **Server Components by default** — forgetting the directive compiles under `tsc` but 500s at runtime. When you build a Next.js UI, always end with a real browser_navigate/snapshot to prove `/` renders, because static checks cannot catch this.
+- **React controlled inputs:** after `browser_type` into a chat/form box, snapshot again to confirm the value registered and the app reacted (streaming reply etc.) before calling the task done.
 """
 
 

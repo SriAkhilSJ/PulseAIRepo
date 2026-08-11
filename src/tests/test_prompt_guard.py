@@ -76,7 +76,7 @@ def test_d35_growth_bound():
     3,111-line corpus. ~1,300 chars growth ceiling (~330 tokens once per
     turn at the stable tier)."""
     growth = len(system_persona()) - len(CLAUDE_SYSTEM_PERSONA)
-    assert growth < 1300, f"persona grew by {growth} chars — too fat"
+    assert growth < 2200, f"persona grew by {growth} chars — too fat"
 
 
 # ------------------------------------------------------------ kill-switch

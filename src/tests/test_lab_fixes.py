@@ -48,6 +48,26 @@ def test_finish_gate_allows_real_work():
     assert should_continue(state) == "finalize"
 
 
+def test_finish_gate_ignores_scratchpad_probe_calls():
+    """think + list_files is NOT real work — declaring Finished after only
+    those is an early stop (Test-2 retest workspace_d regression: the agent
+    planned, listed an empty dir, and finalized with zero deliverables)."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    state = {
+        "messages": [
+            HumanMessage("Build a chat app"),
+            AIMessage("", tool_calls=[{"name": "think", "args": {}, "id": "1"}]),
+            AIMessage("", tool_calls=[{"name": "list_files", "args": {}, "id": "2"}]),
+            AIMessage("## ✅ Finished"),
+        ],
+        "current_task": "Build a chat app using Next.js and Tailwind",
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
 def test_finish_gate_skips_chat_tasks():
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage, HumanMessage
@@ -89,7 +109,7 @@ def test_verify_gate_blocks_unverified_code_finish():
 
 
 def test_verify_gate_allows_after_typecheck():
-    """Writes + typecheck_workspace -> finalize allowed."""
+    """Non-UI execution: writes + typecheck_workspace -> finalize allowed."""
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage
     msgs = [
@@ -102,7 +122,7 @@ def test_verify_gate_allows_after_typecheck():
     state = {
         "messages": msgs,
         "steps_completed": ["Wrote file: a.tsx"],
-        "current_task": "build a chat app",
+        "current_task": "build a REST API server in Python",
         "verify_nudges": 0,
         "finish_nudges": 0,
     }
@@ -137,7 +157,7 @@ def test_verify_gate_blocks_failed_typecheck():
 
 
 def test_verify_gate_allows_passing_typecheck():
-    """Writes + typecheck that PASSED -> finalize allowed."""
+    """Non-UI execution: writes + typecheck that PASSED -> finalize allowed."""
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
@@ -153,11 +173,96 @@ def test_verify_gate_allows_passing_typecheck():
     state = {
         "messages": msgs,
         "steps_completed": ["Wrote file: a.tsx"],
-        "current_task": "build a chat app",
+        "current_task": "build a REST API server in Python",
         "verify_nudges": 0,
         "finish_nudges": 0,
     }
     assert should_continue(state) == "finalize"
+
+
+def test_verify_gate_ui_requires_browser_not_typecheck():
+    """UI deliverable: tsc pass alone is NOT verification — the app 500s on
+    a missing 'use client' with tsc clean (Test-2 retest D5). Gate nudges."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="2", name="typecheck_workspace"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_verify_gate_ui_allows_after_browser():
+    """UI deliverable verified with a real browser_navigate + snapshot ->
+    finalize allowed."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="Current URL: http://localhost:3000\nTitle: Chat App\nHow Can I Help You?",
+            tool_call_id="2", name="browser_navigate"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_snapshot", "args": {}, "id": "3", "type": "tool_call"}]),
+        ToolMessage(
+            content='{"url":"http://localhost:3000","title":"Chat App","text":"How Can I Help You?"}',
+            tool_call_id="3", name="browser_snapshot"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finalize"
+
+
+def test_verify_gate_ui_blocks_500_browser_result():
+    """UI deliverable: browser_navigate that served an HTTP 500 is FAILED
+    verification even after a clean tsc (D5's exact bug class)."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="2", name="typecheck_workspace"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "3", "type": "tool_call"}]),
+        ToolMessage(
+            content="GET / 500 in 9ms\nInternal Server Error: ChatLayout is importing hooks without 'use client'.",
+            tool_call_id="3", name="browser_navigate"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
 
 
 def test_verify_gate_latest_typecheck_result_wins():
@@ -182,7 +287,7 @@ def test_verify_gate_latest_typecheck_result_wins():
     state = {
         "messages": msgs,
         "steps_completed": ["Wrote file: a.tsx", "Edited file: a.tsx"],
-        "current_task": "build a chat app",
+        "current_task": "build a REST API server in Python",
         "verify_nudges": 0,
         "finish_nudges": 0,
     }
@@ -257,3 +362,25 @@ def test_syntax_receipt_bad_json_rejected():
     from src.tools.file_tools import _syntax_receipt
     r = _syntax_receipt(Path("c.json"), '{"a": 1}', '{"a": }')
     assert r is not None
+
+
+def test_resolve_workspace_path_strips_workspace_leaf_prefix():
+    """Test-2 retest bug: model wrote 'workspace_d/app/page.tsx' while inside
+    workspace_d, double-nesting under workspace_d/workspace_d/. A leading
+    component equal to the workspace's own basename must resolve to root."""
+    from pathlib import Path
+    from src.tools.file_tools import resolve_workspace_path
+
+    root = Path("D:/pulseAIrepo/PulseAIRepo/lab/workspace_d")
+    got = resolve_workspace_path(str(root), "workspace_d/app/page.tsx")
+    assert got == root / "app" / "page.tsx"
+    assert got.is_relative_to(root)
+
+
+def test_resolve_workspace_path_plain_relative_unchanged():
+    from pathlib import Path
+    from src.tools.file_tools import resolve_workspace_path
+
+    root = Path("D:/pulseAIrepo/PulseAIRepo/lab/workspace_d")
+    got = resolve_workspace_path(str(root), "app/page.tsx")
+    assert got == root / "app" / "page.tsx"

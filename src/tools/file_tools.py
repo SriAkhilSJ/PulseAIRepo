@@ -29,6 +29,17 @@ def resolve_workspace_path(
 ) -> Path:
 
     workspace_path = Path(workspace).resolve()
+
+    # Models frequently prefix paths with the workspace folder's own leaf
+    # name (writing "workspace_d/app/page.tsx" while already inside the
+    # workspace). Strip one leading component equal to the workspace
+    # basename so the file lands at the workspace root instead of nesting at
+    # workspace/<basename>/... (Test-2 retest double-nested exactly this way;
+    # it then broke typecheck/dev-server discovery in the workspace root).
+    parts = Path(path).parts
+    if parts and parts[0] == workspace_path.name:
+        path = str(Path(*parts[1:]))
+
     requested_path = (workspace_path / path).resolve()
 
     if not requested_path.is_relative_to(workspace_path):
