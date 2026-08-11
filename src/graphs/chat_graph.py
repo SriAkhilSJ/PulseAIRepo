@@ -572,13 +572,19 @@ _VERIFY_NUDGE = (
 # verification. The gate accepts only a passing (✅) or skip (ℹ️ — no
 # tsconfig / typescript not installed) typecheck result. Failure markers
 # cover the ❌ errors-found shape AND the ⚠️ timeout/unparsed shapes (a
-# check that cannot prove a clean build proves nothing).
+# check that cannot prove a clean build proves nothing). For UI tasks a
+# browser check that returns NO rendered content is the same class of
+# failure (D6: snapshot came back {"title":"","text":""}, screenshot
+# timed out, yet the agent declared Finished on a page that 500'd).
 _VERIFY_FAILED_NUDGE = (
-    "[System: You ran typecheck_workspace but it did NOT pass — it "
-    "reported type errors or could not confirm a clean build. A failing "
-    "check is not verification: fix EVERY reported error, then re-run "
-    "typecheck_workspace until it returns the ✅ pass message. Only then "
-    "finalize.]"
+    "[System: Your verification did NOT pass — fix it before finishing. "
+    "If typecheck_workspace reported errors, fix EVERY error and re-run "
+    "it until it returns the ✅ pass message. If this is a UI/frontend "
+    "task: a page that 500s, a browser_snapshot that returns empty "
+    "content, or a screenshot that times out means the app has NOT "
+    "rendered — wait for the dev server to finish compiling (the first "
+    "Next.js compile can take 30s+), re-navigate, and re-snapshot until "
+    "you see the actual UI text. Only then finalize.]"
 )
 
 _VERIFY_FAIL_MARKERS = ("❌ typecheck_workspace:", "⚠️ typecheck_workspace:")
@@ -741,30 +747,58 @@ def _looks_like_ui_task(task: str) -> bool:
     return bool(words & _UI_TASK_WORDS)
 
 
+def _snapshot_shows_content(content: str) -> bool:
+    """True when a browser_snapshot result proves the page rendered.
+
+    Snapshot results are JSON; the ToolMessage wraps them with escaped
+    quotes, so normalize \" first. D6's unrendered page came back as
+    {"url":..., "title":"", "text":""} — empty title AND empty text
+    means the page never painted. Anything else (non-empty title or
+    text) is rendering proof.
+    """
+    norm = content.replace('\\"', '"')
+    if '"title":""' in norm and '"text":""' in norm:
+        return False
+    return bool(re.search(r'"(title|text)":\s*"[^"\n]+', norm))
+
+
 def _verification_failed(state: AgentState) -> bool:
     """True when the LAST verification RESULT reported a failure.
 
-    Scans ToolMessages (results) in reverse so a later ✅ supersedes an
-    earlier ❌ — the agent fixed the errors and re-verified. Failures:
-    - typecheck_workspace ❌ errors-found / ⚠️ timeout-unparsed shapes, and
+    Scans ToolMessages (results) in reverse so a later result supersedes
+    an earlier one — the agent fixed things and re-verified. Failures:
+    - typecheck_workspace ❌ errors-found / ⚠️ timeout-unparsed shapes;
     - a browser_navigate that failed to serve the page (HTTP 500 / load
-      error) — a page that 500s is unverified even if tsc passed.
+      error) — a page that 500s is unverified even if tsc passed; and,
+      UI tasks only:
+    - a browser_snapshot that returned NO rendered content — the page
+      never painted (D6: dev server still compiling, snapshot came back
+      {"title":"","text":""} and the agent declared Finished on a
+      page that 500'd at runtime);
+    - a browser_screenshot that timed out — visual proof never captured.
+    A snapshot that shows real content supersedes earlier failures.
     """
+    ui_task = _looks_like_ui_task(state.get("current_task", ""))
     for m in reversed(state.get("messages", [])):
-        if isinstance(m, ToolMessage) and getattr(m, "name", "") in (
-            "typecheck_workspace", "browser_navigate",
-        ):
-            content = str(getattr(m, "content", "") or "")
-            if getattr(m, "name", "") == "browser_navigate":
-                low = content.lower()
-                if any(marker in low for marker in _BROWSER_FAIL_MARKERS):
-                    return True
-                # A successful navigation still isn't verification for a UI
-                # task — it must be followed by rendering proof. But we
-                # cannot require ordering here; the bounded verify-nudge
-                # handles the "navigated but never snapped" case.
-                continue
+        if not isinstance(m, ToolMessage):
+            continue
+        name = getattr(m, "name", "")
+        content = str(getattr(m, "content", "") or "")
+        if name == "typecheck_workspace":
+            # The LAST typecheck result decides (later ✅ supersedes
+            # an earlier ❌ — the agent fixed and re-verified).
             return content.startswith(_VERIFY_FAIL_MARKERS)
+        if name == "browser_navigate":
+            low = content.lower()
+            if any(marker in low for marker in _BROWSER_FAIL_MARKERS):
+                return True
+            continue
+        if ui_task and name == "browser_snapshot":
+            return not _snapshot_shows_content(content)
+        if ui_task and name == "browser_screenshot":
+            if "timed out" in content.lower():
+                return True
+            continue
     return False
 
 

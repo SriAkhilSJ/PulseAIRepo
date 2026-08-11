@@ -265,6 +265,106 @@ def test_verify_gate_ui_blocks_500_browser_result():
     assert should_continue(state) == "finish_gate"
 
 
+def test_verify_gate_ui_blocks_empty_snapshot():
+    """UI deliverable: typecheck ✅ + navigate ok + snapshot that returned
+    NO rendered content is NOT verification — the page never painted (D6:
+    dev server still compiling, snapshot {"title":"","text":""} and a
+    timed-out screenshot, yet the agent declared Finished on a page that
+    500'd at runtime with tsc clean). Gate nudges."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="2", name="typecheck_workspace"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "3", "type": "tool_call"}]),
+        ToolMessage(
+            content="Navigated to http://localhost:3000",
+            tool_call_id="3", name="browser_navigate"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_snapshot", "args": {}, "id": "4", "type": "tool_call"}]),
+        ToolMessage(
+            content='Execution result:\n"{\\"url\\":\\"http://localhost:3000/\\",\\"title\\":\\"\\",\\"text\\":\\"\\"}"',
+            tool_call_id="4", name="browser_snapshot"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_verify_gate_ui_blocks_screenshot_timeout():
+    """UI deliverable: a screenshot that timed out means visual proof was
+    never captured — the page may still be compiling. Gate nudges."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="Navigated to http://localhost:3000",
+            tool_call_id="2", name="browser_navigate"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_screenshot", "args": {"name": "shot"}, "id": "3", "type": "tool_call"}]),
+        ToolMessage(
+            content="[browser:puppeteer_screenshot] timed out after 60s — the page may still be loading; retry once or snapshot again.",
+            tool_call_id="3", name="browser_screenshot"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_verify_gate_ui_rendered_snapshot_supersedes_failed_navigate():
+    """UI deliverable: a later snapshot that shows real content supersedes
+    an earlier failed navigate — the app was fixed and re-verified."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="GET / 500 in 9ms\nInternal Server Error: missing 'use client'.",
+            tool_call_id="2", name="browser_navigate"),
+        AIMessage(content="x", tool_calls=[
+            {"name": "edit_file", "args": {}, "id": "3", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "browser_snapshot", "args": {}, "id": "4", "type": "tool_call"}]),
+        ToolMessage(
+            content='Execution result:\n"{\\"url\\":\\"http://localhost:3000/\\",\\"title\\":\\"Chat App\\",\\"text\\":\\"How Can I Help You?\\"}"',
+            tool_call_id="4", name="browser_snapshot"),
+        AIMessage(content="done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx", "Edited file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finalize"
+
+
 def test_verify_gate_latest_typecheck_result_wins():
     """An earlier ❌ superseded by a later ✅ (agent fixed + re-verified)."""
     from src.graphs.chat_graph import should_continue
