@@ -114,8 +114,8 @@ def test_oversized_script_rejected(cfg):
 
 # -------------------------------------------------------- AST allowlist
 REJECTED_SNIPPETS = [
-    "import os",
-    "from os import getcwd",
+    "import subprocess",
+    "from subprocess import run",
     "open('a.py')",
     "x = (1).__class__",
     "getattr([], 'append')",
@@ -132,17 +132,23 @@ def test_banned_constructs_rejected(snippet, cfg):
 
 
 def test_rejection_happens_before_any_execution(ws, cfg):
-    script = 'write_file("evil.txt", "x")\nimport os'
+    script = 'write_file("evil.txt", "x")\nimport subprocess'
     result = run(script, cfg)
     assert "rejected" in result.lower()
     assert not (ws / "evil.txt").exists(), "rejected script must have zero side effects"
 
 
-def test_preloaded_modules_present_but_os_absent(cfg):
+def test_preloaded_modules_include_hardened_os(cfg):
+    """D8: os is now preloaded (hardened — pure path/dir helpers only) so
+    the agent's batch scripts (`import os; os.makedirs(...)`) run instead
+    of being rejected and falling back to one write_file per round trip."""
     good = run("print(json.dumps({'r': len(re.findall('a', 'banana')), 's': math.sqrt(16)}))", cfg)
     assert '"r": 3' in good and '"s": 4.0' in good
-    bad = run("os.getcwd()", cfg)
-    assert "Script error" in bad and "os" in bad
+    ok = run("print(os.path.basename('x/y.py'))", cfg)
+    assert "y.py" in ok
+    # hardened: no process-escape surface
+    assert "Script error" in run("print(os.system('echo hi'))", cfg)
+    assert "Script error" in run("print(os.popen('echo hi'))", cfg)
 
 # --------------------------------------------- safety inside the script
 def test_destructive_command_denied_and_never_runs(ws, cfg):
@@ -216,3 +222,44 @@ def test_workspace_paths_resolve_to_session_workspace(ws, cfg):
     run('write_file("nested/rel.txt", "here")', cfg)
     assert (ws / "nested" / "rel.txt").read_text() == "here"
     assert not os.path.exists(os.path.join(os.getcwd(), "nested", "rel.txt"))
+
+
+# --------------------------------------------------------- allowlisted imports
+def test_allowlisted_import_stripped_os_is_preloaded(cfg):
+    """D8 regression: the agent's batch script `import os; os.makedirs(...)`
+    was rejected (imports banned, os not preloaded) and it fell back to 19
+    single write_file round trips. `import X` of a preloaded module must be
+    a no-op (the name is already in the namespace)."""
+    result = run("import os\nprint(os.path.dirname('a/b/c'))", cfg)
+    assert "a/b" in result
+    assert "rejected" not in result
+
+
+def test_allowlisted_import_asname_and_from_bind(cfg):
+    result = run(
+        "import os as o\n"
+        "from collections import Counter\n"
+        "print(o.path.basename('x/y'), Counter('aab')['a'])",
+        cfg,
+    )
+    assert "y 2" in result
+
+
+def test_disallowed_import_still_rejected(cfg):
+    result = run("import subprocess\nprint('nope')", cfg)
+    assert "rejected" in result and "subprocess" in result
+    assert "nope" not in result
+
+
+def test_os_makedirs_batch_script_pattern(cfg, ws):
+    """The exact D8 script shape (parent-dir creation for file batches)
+    now runs inside the sandbox."""
+    sub = ws / "batch_sub"
+    script = (
+        "import os\n"
+        f"os.makedirs({str(sub)!r}, exist_ok=True)\n"
+        "print('made')"
+    )
+    result = run(script, cfg)
+    assert "made" in result
+    assert sub.is_dir()

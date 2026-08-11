@@ -49,6 +49,7 @@ import functools
 import itertools
 import json
 import math
+import os
 import random
 import re
 import statistics
@@ -57,6 +58,7 @@ import sys
 import textwrap
 import threading
 import time
+import types
 from pathlib import Path
 from typing import Any
 
@@ -90,8 +92,33 @@ _PTC_MAX_TOOL_CALLS = 50
 _PTC_MAX_STDOUT_CHARS = 50_000
 _PTC_MAX_SCRIPT_CHARS = 16_000
 
+def _safe_os_namespace() -> types.SimpleNamespace:
+    """A hardened `os` for scripts: pure path/dir helpers only.
+
+    D-series finding: the agent's batch scripts use the natural Python
+    idiom `import os; os.makedirs(os.path.dirname(path))` — which was
+    rejected (no os) and pushed it back to one write_file per round trip.
+    Expose ONLY inert helpers: no system/popen/spawn/startfile (process
+    escape), no environ (secrets), no remove/unlink/rename (destructive
+    outside the sanctioned write_file path). os.path is its own
+    SimpleNamespace of pure string ops.
+    """
+    path = types.SimpleNamespace(
+        join=os.path.join, dirname=os.path.dirname, basename=os.path.basename,
+        splitext=os.path.splitext, exists=os.path.exists, isfile=os.path.isfile,
+        isdir=os.path.isdir, abspath=os.path.abspath, normpath=os.path.normpath,
+        sep=os.path.sep,
+    )
+    return types.SimpleNamespace(
+        makedirs=os.makedirs, mkdir=os.mkdir, getcwd=os.getcwd,
+        listdir=os.listdir, walk=os.walk, sep=os.sep, linesep=os.linesep,
+        path=path,
+    )
+
+
 # Pure-stdlib helper modules preloaded into the script namespace. Import
-# statements are rejected outright, so this allowlist IS the module menu.
+# statements for allowlisted names are stripped (see
+# _strip_allowlisted_imports), so this allowlist IS the module menu.
 _PRELOADED_MODULES: dict[str, Any] = {
     "re": re,
     "json": json,
@@ -104,6 +131,7 @@ _PRELOADED_MODULES: dict[str, Any] = {
     "statistics": statistics,
     "string": string,
     "random": random,
+    "os": _safe_os_namespace(),
 }
 
 # Names a script may not load. getattr/setattr/delattr are banned because
@@ -172,18 +200,95 @@ class _CappedStdout:
         return "".join(self._chunks)
 
 
+def _strip_allowlisted_imports(tree: ast.AST) -> None:
+    """Rewrite imports of PRELOADED modules into name bindings.
+
+    Keeps the model's natural Python idiom working inside the sandbox:
+    `import os` -> nothing (os is already in the namespace, so the name
+    is bound by identity); `import os as o` -> `o = os`;
+    `from collections import Counter` -> `Counter = collections.Counter`.
+    Imports of anything NOT in the allowlist are left untouched so
+    _validate_script rejects them with a clear reason.
+    """
+    allowed_modules = set(_PRELOADED_MODULES)
+    drops: set[int] = set()
+    replacements: dict[int, list[ast.stmt]] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            remaining: list[ast.alias] = []
+            binds: list[ast.stmt] = []
+            for alias in node.names:
+                mod = alias.name.split(".", 1)[0]
+                if mod in allowed_modules:
+                    if alias.asname:
+                        binds.append(ast.Assign(
+                            targets=[ast.Name(id=alias.asname, ctx=ast.Store())],
+                            value=ast.Name(id=mod, ctx=ast.Load()),
+                        ))
+                else:
+                    remaining.append(alias)
+            if remaining:
+                node.names = remaining
+            else:
+                drops.add(id(node))
+            if binds:
+                replacements[id(node)] = binds
+        elif isinstance(node, ast.ImportFrom):
+            mod = (node.module or "").split(".", 1)[0]
+            if mod in allowed_modules and node.level == 0:
+                binds = [
+                    ast.Assign(
+                        targets=[ast.Name(id=alias.name, ctx=ast.Store())],
+                        value=ast.Attribute(
+                            value=ast.Name(id=mod, ctx=ast.Load()),
+                            attr=alias.name,
+                            ctx=ast.Load(),
+                        ),
+                    )
+                    for alias in node.names
+                    if alias.name != "*"
+                ]
+                drops.add(id(node))
+                if binds:
+                    replacements[id(node)] = binds
+
+    for parent in ast.walk(tree):
+        for field in ("body", "orelse", "finalbody"):
+            seq = getattr(parent, field, None)
+            if not isinstance(seq, list):
+                continue
+            new_seq: list[ast.stmt] = []
+            for child in seq:
+                if id(child) in drops:
+                    new_seq.extend(replacements.get(id(child), []))
+                else:
+                    new_seq.append(child)
+            setattr(parent, field, new_seq)
+    ast.fix_missing_locations(tree)
+
+
 def _validate_script(tree: ast.AST) -> str | None:
     """Reject scripts outside the cooperative-script allowlist.
 
     Returns a human/model-readable reason, or None if the script is OK.
     Checked BEFORE anything executes: a rejected script has zero effects.
     """
+    _strip_allowlisted_imports(tree)
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
+            mod = (
+                (node.names[0].name if node.names else "")
+                if isinstance(node, ast.Import)
+                else (node.module or "")
+            )
             return (
-                f"line {node.lineno}: import statements are disabled inside "
-                f"execute_code. Preloaded modules: "
-                f"{', '.join(sorted(_PRELOADED_MODULES))}."
+                f"line {node.lineno}: `import {mod}` is disabled. "
+                f"Preloaded (use WITHOUT import): "
+                f"{', '.join(sorted(_PRELOADED_MODULES))}. "
+                f"To write files call the preloaded `write_file(path, "
+                f"content)` function (it creates parent dirs); to read, "
+                f"`read_file(path)`."
             )
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             return (
