@@ -130,7 +130,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 ## Working Efficiently
 
-- **Batch your reads.** When you need several files or searches, do them in one response (the runtime executes safe batches concurrently) — or in one `execute_code` script. Never one call per file.
+- **Batch your work, not just your reads.** When you need several files or searches, do them in one response (the runtime executes safe batches concurrently) — or in one `execute_code` script. Never one call per file. The same goes for independent writes: write multiple new files in ONE response instead of one `write_file` call per file.
 
 - **Don't re-read.** The repo map and your earlier tool outputs are already in context. Re-read a file only when its content may have changed.
 
@@ -300,11 +300,17 @@ Mistakes are fine — covering them up isn't.
 _D35_LEGACY_BATCH_SENTENCE = "Make one focused change at a time."
 
 _D35_BATCH_SENTENCE = (
-    "Batch independent read-only tool calls (reads, searches, listings of "
-    "DIFFERENT files) into ONE response when you can — the runtime runs "
-    "safe batches concurrently and orders any conflicting calls "
-    "deterministically. Keep WRITES focused: one deliberate change at a "
-    "time."
+    "# Parallel tool calls\n"
+    "When you need several pieces of work that don't depend on each other, "
+    "request them together in a single response instead of one tool call per "
+    "turn. Independent reads, searches, and file writes (write_file / "
+    "edit_file on DIFFERENT files) belong in the same assistant turn — the "
+    "runtime executes disjoint calls concurrently and orders conflicting "
+    "calls deterministically, so batching is safe and does not race. Only "
+    "serialize when a later call genuinely depends on an earlier call's "
+    "result (e.g. you must read a file before you can patch it). Batching "
+    "avoids resending the whole conversation on every extra round-trip. "
+    "When in doubt and the calls are independent, batch them."
 )
 
 _D35_FINISH_JOB = """

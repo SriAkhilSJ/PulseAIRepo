@@ -40,8 +40,14 @@ def test_d35_on_kills_the_anti_batch_sentence():
         "to execute batches safely; the sentence must be replaced, and "
         "this pin screams if persona drift ever breaks the replace"
     )
-    assert "Batch independent read-only tool calls" in p
-    assert "DIFFERENT files" in p, "batching is only safe for disjoint reads"
+    # hermes PARALLEL_TOOL_CALL_GUIDANCE pattern: batch independent calls
+    # (reads AND disjoint writes) into one turn; only serialize true
+    # dependencies. D8 measured 30 round trips for 30 tools because the
+    # old sentence told the model to keep writes one-at-a-time.
+    assert "Parallel tool calls" in p
+    assert "request them together in a single response" in p
+    assert "Only serialize when a later call genuinely depends" in p
+    assert "write_file / " in p, "writes must be batchable too (D34 orders conflicts)"
 
 
 def test_d35_batch_sentence_is_d34_truthful():
