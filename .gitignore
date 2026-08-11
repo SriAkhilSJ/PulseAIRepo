@@ -44,3 +44,14 @@ desktop/**/*.backup
 desktop/_tmp_*
 desktop/code-oss-dev@1.130.0
 desktop/npm-run-all2
+
+# Lab eval workspaces: never commit installed deps
+lab/workspace_*/node_modules/
+lab/npm-cache/
+pytest-tmp/
+lab/workspace_*/.next/
+lab/workspace_*/dev.*
+lab/workspace_*/*.pid
+lab/*.start
+lab/*.err
+lab/*.err.log

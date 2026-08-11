@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom radial gradient for empty state */
+.bg-empty-state {
+  background-image: radial-gradient(125% 125% at 50% 101%, rgba(245,87,2,1) 10.5%, rgba(245,120,2,1) 16%, rgba(245,140,2,1) 17.5%, rgba(245,170,100,1) 25%, rgba(238,174,202,1) 40%, rgba(202,179,214,1) 65%, rgba(148,201,233,1) 100%);
+}
+
+/* Dark mode overrides */
+.dark {
+  --background: 212 212 212; /* #212121 */
+  --foreground: 234 234 234; /* #EAEAEA */
+}
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
