@@ -45,6 +45,17 @@ class SafetyGuard:
             path = tool_args.get("path", "")
             full_path = self._resolve_path(path)
             if full_path.exists():
+                # Autonomous mode (no human to answer): allow overwrites of
+                # ordinary workspace files — the agent MUST be able to fix
+                # its own files or it deadlocks (D9: the model tried to fix
+                # tsconfig.json 4 times, every overwrite was intercepted,
+                # and it gave up declaring "Finished" on a broken app).
+                # Critical paths (secrets/.env) and dangerous commands
+                # still block — those are the real safety rails.
+                if os.environ.get("PULSEAI_AUTO_APPROVE_WRITES", "").strip() == "1":
+                    if self._is_critical_path(path):
+                        return False, self._critical_file_warning(path)
+                    return True, ""
                 return False, self._overwrite_warning(path)
 
         # --- File edit check ---

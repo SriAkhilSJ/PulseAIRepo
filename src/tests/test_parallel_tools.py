@@ -375,4 +375,95 @@ def test_repair_tool_call_ids_noop_when_unique():
     ]
     repaired, changed = repair_tool_call_ids(calls)
     assert changed is False
-    assert repaired is calls
+
+
+# ------------------------------------------------------------ D11 guard
+
+
+def test_unsafe_call_in_batch_denied_alone_rest_execute(tmp_path, monkeypatch):
+    """D11: the old guard rejected the ENTIRE batch when one call was
+    unsafe (and fabricated an AIMessage that read as the model's own
+    words). Under autonomous mode a mixed batch must deny only the
+    unsafe call (ToolMessage, model adapts in one turn) and still
+    execute the safe ones."""
+    monkeypatch.setenv("PULSEAI_AUTO_APPROVE_WRITES", "1")
+    log: list = []
+
+    def write_file(path: str = "", content: str = "") -> str:
+        log.append("w")
+        (tmp_path / path).write_text(content)
+        return "wrote"
+
+    def read_file(path: str = "") -> str:
+        log.append("r")
+        return "read"
+
+    def run_terminal(command: str = "") -> str:
+        log.append("t")
+        return "ran"
+
+    tools = [
+        StructuredTool.from_function(write_file, name="write_file",
+                                     description="fake writer"),
+        StructuredTool.from_function(read_file, name="read_file",
+                                     description="fake reader"),
+        StructuredTool.from_function(run_terminal, name="run_terminal",
+                                     description="fake terminal"),
+    ]
+    node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
+    st = _state(_calls(
+        ("run_terminal", {"command": "rm -rf keep"}),               # unsafe
+        ("read_file", {"path": "other.txt"}),                      # safe
+        ("write_file", {"path": "fresh.txt", "content": "N"}),   # safe
+    ))
+    out = _reach_node(node, st, _cfg(tmp_path))
+    msgs = [m for m in out["messages"] if isinstance(m, ToolMessage)]
+    assert len(msgs) == 3, f"expected 3 results (1 denial + 2 runs), got {len(msgs)}"
+    # Denial for the dangerous command, in the model's original order.
+    denied = msgs[0]
+    assert denied.tool_call_id == "tc0"
+    assert denied.status == "error"
+    assert "BLOCKED" in denied.content and "rm -rf" in denied.content
+    assert "confirmation first" not in denied.content
+    assert "do not wait for approval" in denied.content
+    # Safe calls executed.
+    assert msgs[1].tool_call_id == "tc1" and msgs[1].content == "read"
+    assert msgs[2].tool_call_id == "tc2" and msgs[2].content == "wrote"
+    assert log == ["r", "w"], "safe calls must run; only the unsafe one is denied"
+    assert "t" not in log, "the dangerous command must never execute"
+    # No fabricated AIMessage pretending the model asked for confirmation.
+    assert not any(isinstance(m, AIMessage) for m in out["messages"])
+
+
+def test_auto_approve_writes_allows_ordinary_overwrite(tmp_path, monkeypatch):
+    """D11: PULSEAI_AUTO_APPROVE_WRITES=1 (autonomous eval, no human)
+    lets the agent overwrite ordinary workspace files — it must be able
+    to FIX its own files or it deadlocks (D9: tsconfig fix blocked 4x,
+    model declared Finished on a broken app). Critical paths and
+    dangerous commands still block."""
+    monkeypatch.setenv("PULSEAI_AUTO_APPROVE_WRITES", "1")
+    guard = SafetyGuard(str(tmp_path))
+    (tmp_path / "page.tsx").write_text("old")
+    ok, warning = guard.check_tool_call(
+        "write_file", {"path": "page.tsx", "content": "new"})
+    assert ok is True, "ordinary overwrite must pass under auto-approve"
+    # Critical path still blocks.
+    (tmp_path / ".env").write_text("SECRET=1")
+    ok2, warning2 = guard.check_tool_call(
+        "write_file", {"path": ".env", "content": "SECRET=2"})
+    assert ok2 is False, "critical path must still block under auto-approve"
+    # Dangerous command still blocks.
+    ok3, _ = guard.check_tool_call("run_terminal", {"command": "rm -rf /x"})
+    assert ok3 is False, "dangerous commands must still block under auto-approve"
+
+
+def test_without_auto_approve_overwrite_still_flagged(tmp_path, monkeypatch):
+    """Interactive default unchanged: overwrite of an existing file is
+    still flagged for a human to confirm (auto-approve is opt-in)."""
+    monkeypatch.delenv("PULSEAI_AUTO_APPROVE_WRITES", raising=False)
+    guard = SafetyGuard(str(tmp_path))
+    (tmp_path / "keep.txt").write_text("old")
+    ok, warning = guard.check_tool_call(
+        "write_file", {"path": "keep.txt", "content": "new"})
+    assert ok is False
+    assert "overwrite" in warning.lower()

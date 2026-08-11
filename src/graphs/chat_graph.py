@@ -2128,21 +2128,84 @@ class SafeToolNode:
                 state["messages"] = messages[:-1] + [_repaired_ai]
             return _with_repaired(self._node.invoke(state, config)["messages"])
 
-        for tc in tool_calls:
-            tool_name = tc.get("name", "")
-            tool_args = tc.get("args", {})
-            is_safe, warning = guard.check_tool_call(tool_name, tool_args)
-            if not is_safe:
-                # Return a tool result that looks like a blocked execution
-                # This triggers the agent to ask the user
-                blocked_msg = AIMessage(
+        verdicts = [
+            (tc, *guard.check_tool_call(tc.get("name", ""), tc.get("args", {})))
+            for tc in tool_calls
+        ]
+        unsafe = [v for v in verdicts if not v[1]]
+        autonomous = os.environ.get("PULSEAI_AUTO_APPROVE_WRITES", "").strip() == "1"
+        if unsafe and autonomous:
+            # D11: per-call DENIAL instead of a fabricated AIMessage — the
+            # AUTONOMOUS path (no human to answer). The old main-thread
+            # path returned an AIMessage that READ as the model's own
+            # words ("🛑 I was about to run write_file but I need your
+            # confirmation first") — in a session with no human it dead-
+            # ended: the model waited for a reply that never came, looped
+            # through ask_user, and declared "Finished" on broken code
+            # (D9 transcript: that text appears 4x, plus 2 ask_user
+            # stalls). It ALSO rejected the ENTIRE batch when one call
+            # was unsafe — teaching the model that batching loses work,
+            # which is the measured cause of the 1-call-per-turn pattern.
+            # Autonomous unsafe calls become denial ToolMessages (model
+            # adapts in one turn, hermes delegate policy), safe calls in
+            # the same batch still execute, order preserved.
+            import logging
+            log = logging.getLogger("pulseai.safety")
+            denials: dict[str, ToolMessage] = {}
+            for tc, _, warning in unsafe:
+                first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
+                denials[tc["id"]] = ToolMessage(
                     content=(
-                        f"🛑 I was about to run `{tool_name}` but I need your confirmation first.\n\n"
-                        f"{warning}\n\n"
-                        f"Please reply so I know how to proceed."
-                    )
+                        f"⛔ BLOCKED (safety policy): `{tc.get('name', '')}` was not "
+                        f"executed. {first_line}\n"
+                        f"Choose a safe alternative (edit_file for small "
+                        f"changes, a different path, or a non-destructive "
+                        f"command) and continue — do not wait for approval."
+                    ),
+                    tool_call_id=tc["id"],
+                    name=tc.get("name", ""),
+                    status="error",
                 )
-                return {"messages": [blocked_msg]}
+                log.warning(
+                    "BLOCKED %s args=%s", tc.get("name", ""), str(tc.get("args", {}))[:160]
+                )
+
+            safe_tcs = [tc for tc, ok, _ in verdicts if ok]
+            results: dict[str, ToolMessage] = dict(denials)
+            if safe_tcs:
+                filtered_ai = AIMessage(
+                    content=last_msg.content,
+                    tool_calls=safe_tcs,
+                    id=getattr(last_msg, "id", None),
+                )
+                filtered_state = dict(state)
+                filtered_state["messages"] = messages[:-1] + [filtered_ai]
+                executed = self._node.invoke(filtered_state, config)
+                for m in executed.get("messages", []):
+                    if isinstance(m, ToolMessage):
+                        results[m.tool_call_id] = m
+
+            # Return results in the model's original tool_call order so
+            # pairing/order invariants hold regardless of which batch
+            # members were denied.
+            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+            return _with_repaired(ordered)
+
+        if unsafe:
+            # INTERACTIVE main thread (a human is reading): the first
+            # unsafe call returns an approval-question AIMessage and
+            # nothing executes — the human confirms and the model
+            # continues.
+            tc, _, warning = unsafe[0]
+            blocked_msg = AIMessage(
+                content=(
+                    f"🛑 I was about to run `{tc.get('name', '')}` but I need your "
+                    f"confirmation first.\n\n"
+                    f"{warning}\n\n"
+                    f"Please reply so I know how to proceed."
+                )
+            )
+            return {"messages": [blocked_msg]}
 
         # All safe — proceed to real tool execution.
         # D34 (§46): the tool-batch gate. ToolNode runs multi-call batches
