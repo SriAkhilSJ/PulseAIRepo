@@ -1986,6 +1986,27 @@ class SafeToolNode:
             workspace = config["configurable"].get("workspace", ".")
             thread_id = str(config["configurable"].get("thread_id", ""))
 
+        # hermes _uniquify_tool_call_ids (#58327): models occasionally
+        # reuse or omit call ids inside one batch — a reused id silently
+        # loses the later call's result. Repair deterministically and
+        # rewrite the assistant message (same id, so add_messages replaces
+        # it) so result pairing stays consistent for the next model call.
+        from src.graphs.parallel_tools import repair_tool_call_ids
+        _repaired_tcs, _ids_changed = repair_tool_call_ids(tool_calls)
+        _repaired_ai = None
+        if _ids_changed:
+            tool_calls = _repaired_tcs
+            _repaired_ai = AIMessage(
+                content=last_msg.content,
+                tool_calls=_repaired_tcs,
+                id=getattr(last_msg, "id", None),
+            )
+
+        def _with_repaired(msg_list: list) -> dict:
+            if _repaired_ai is None:
+                return {"messages": msg_list}
+            return {"messages": [_repaired_ai, *msg_list]}
+
         from pathlib import Path
         ws_key = str(Path(workspace).resolve())
         guard = self._guards_by_workspace.get(ws_key)
@@ -2048,7 +2069,7 @@ class SafeToolNode:
             # pairing/order invariants (see §28 crash-net round) must hold
             # regardless of which batch members were denied.
             ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
-            return {"messages": ordered}
+            return _with_repaired(ordered)
 
         if thread_id.startswith("sub-"):
             import logging
@@ -2058,7 +2079,10 @@ class SafeToolNode:
                 thread_id, len(tool_calls),
                 [tc.get("name", "") for tc in tool_calls],
             )
-            return self._node.invoke(state, config)
+            if _repaired_ai is not None:
+                state = dict(state)
+                state["messages"] = messages[:-1] + [_repaired_ai]
+            return _with_repaired(self._node.invoke(state, config)["messages"])
 
         for tc in tool_calls:
             tool_name = tc.get("name", "")
@@ -2095,13 +2119,16 @@ class SafeToolNode:
             tool_calls, self._tools_by_name, config, workspace
         )
         if parallel is not None:
-            return {"messages": parallel}
+            return _with_repaired(parallel)
         sequential = try_sequential_batch(
             tool_calls, self._tools_by_name, config, workspace
         )
         if sequential is not None:
-            return {"messages": sequential}
-        return self._node.invoke(state, config)
+            return _with_repaired(sequential)
+        if _repaired_ai is not None:
+            state = dict(state)
+            state["messages"] = messages[:-1] + [_repaired_ai]
+        return _with_repaired(self._node.invoke(state, config)["messages"])
 
 tool_node = SafeToolNode(tools, SafetyGuard())
 

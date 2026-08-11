@@ -344,3 +344,35 @@ def test_wiring_returns_parallel_results_without_touching_toolnode(
                         lambda *a, **k: sentinel)
     out = node(_state(_calls(("p", {}), ("q", {}))), _cfg(tmp_path))
     assert out == {"messages": sentinel}
+
+
+def test_repair_tool_call_ids_deduplicates_deterministically():
+    """hermes _uniquify_tool_call_ids (#58327): reused call ids in one
+    batch silently lose the later call's result. Repair must dedupe with
+    a STABLE scheme (cache prefixes must not churn)."""
+    from src.graphs.parallel_tools import repair_tool_call_ids
+    calls = [
+        {"name": "write_file", "args": {"path": "a.ts"}, "id": "dup", "type": "tool_call"},
+        {"name": "write_file", "args": {"path": "b.ts"}, "id": "dup", "type": "tool_call"},
+        {"name": "write_file", "args": {"path": "c.ts"}, "id": "", "type": "tool_call"},
+    ]
+    repaired, changed = repair_tool_call_ids(calls)
+    assert changed is True
+    ids = [c["id"] for c in repaired]
+    assert len(set(ids)) == 3, f"ids must be unique: {ids}"
+    assert ids[0] == "dup", "first occurrence keeps its id"
+    assert ids[1].startswith("call_") and ids[2].startswith("call_")
+    # deterministic: same input -> same ids
+    again, _ = repair_tool_call_ids(calls)
+    assert [c["id"] for c in again] == ids
+
+
+def test_repair_tool_call_ids_noop_when_unique():
+    from src.graphs.parallel_tools import repair_tool_call_ids
+    calls = [
+        {"name": "read_file", "args": {"path": "a"}, "id": "x1", "type": "tool_call"},
+        {"name": "read_file", "args": {"path": "b"}, "id": "x2", "type": "tool_call"},
+    ]
+    repaired, changed = repair_tool_call_ids(calls)
+    assert changed is False
+    assert repaired is calls

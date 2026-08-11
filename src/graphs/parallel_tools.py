@@ -149,6 +149,43 @@ def _run_one(tools_by_name: dict, tc: dict, config) -> ToolMessage:
         )
 
 
+def repair_tool_call_ids(tool_calls: list[dict]) -> tuple[list[dict], bool]:
+    """hermes _uniquify_tool_call_ids (message_sanitization.py, #58327
+    loss class): models occasionally reuse or omit call ids inside ONE
+    batch — a reused id silently loses the later call's result, because
+    results pair by id and a duplicate pair collapses. Repair
+    deterministically (sha256 of name:args:index -> call_<12hex>, hermes'
+    own scheme) so prompt-cache prefixes stay byte-stable, and return
+    (repaired_calls, changed). No-op (identity, False) when ids are
+    already unique and present."""
+    if len(tool_calls) < 2:
+        return tool_calls, False
+    import hashlib
+    import json as _json
+
+    seen: set[str] = set()
+    changed = False
+    repaired: list[dict] = []
+    for i, tc in enumerate(tool_calls):
+        cid = str(tc.get("id") or "").strip()
+        if not cid or cid in seen:
+            seed = (
+                f"{tc.get('name', '')}:"
+                f"{_json.dumps(tc.get('args', {}), sort_keys=True)}:{i}"
+            )
+            cid = "call_" + hashlib.sha256(
+                seed.encode("utf-8", errors="replace")
+            ).hexdigest()[:12]
+            changed = True
+        seen.add(cid)
+        new_tc = dict(tc)
+        new_tc["id"] = cid
+        repaired.append(new_tc)
+    if not changed:
+        return tool_calls, False
+    return repaired, True
+
+
 def try_parallel_batch(
     tool_calls: list[dict],
     tools_by_name: dict,
