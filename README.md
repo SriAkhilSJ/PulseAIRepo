@@ -80,6 +80,14 @@ Long-running sessions must survive retries, provider switches, and provider (mis
 
 ### Efficiency (fewer calls, fewer tokens)
 - **`execute_code` (PTC) batching:** the agent is taught to collapse multi-step exploration/checks into ONE script call instead of many separate tool calls — the direct fix for the Test-2 50-call pattern.
+- **Parallel tool calls (hermes `PARALLEL_TOOL_CALL_GUIDANCE`):** independent reads, searches, and writes on different files are batched into ONE assistant turn — the runtime (`D34` gate) executes disjoint calls concurrently and orders conflicting writes deterministically, so N files cost ~1 round trip instead of N. Tool-call ids in a batch are repaired deterministically (`_uniquify_tool_call_ids`, hermes #58327) so a reused id can never silently lose a later result.
+- **Execution discipline (hermes `TOOL_USE_ENFORCEMENT`, qwen-gated):** act, don't describe — every response either makes progress via tool calls or delivers a final result; when the choice is obvious, act instead of asking; keep calling tools until the task is complete **and** verified.
+
+### Autonomous safety (D11)
+The `SafetyGuard` blocks **dangerous** operations, not the agent's own work:
+
+- **`PULSEAI_AUTO_APPROVE_WRITES=1`** (autonomous/batch mode): ordinary file overwrites are allowed — the agent MUST be able to fix its own files. Critical paths (`.env`, secrets) and dangerous commands still block. Interactive sessions keep the human-approval prompt.
+- **Per-call denial instead of batch rejection:** an unsafe call in a batch becomes a denial `ToolMessage` (model adapts in one turn) while the safe calls still execute — the old path rejected the whole batch and fabricated an approval-prompt `AIMessage` that dead-ended a session with no human, which was the measured root cause of the Test-2 1-call-per-turn collapse.
 - **Tool-output summarization:** >8000-char tool outputs are summarized by the cheap auxiliary model (`SUMMARIZER_LLM=aux`), memoized per unique output so each big result costs one janitor-rate call, not one per turn.
 - **Full context window:** `PROVIDER_SAFE_LIMIT=0` unlocks the model's real window (live-probed, margin-reserved) instead of the conservative 6000-token cap that starved the agent into blind re-discovery.
 
