@@ -2305,6 +2305,7 @@ builder.add_conditional_edges(
         "recovery_limit": "recovery_limit",
         "finalize": "finalize",
         "pivot": "pivot",
+        "finish_gate": "finish_gate",
     },
 )
 

@@ -431,6 +431,27 @@ def test_after_progress_plan_complete_verified_finalizes():
     assert after_progress(state) == "finalize"
 
 
+def test_progress_conditional_edges_include_finish_gate():
+    """D9 crash: after_progress returned "finish_gate" (D7 bypass fix) but
+    the progress conditional-edges MAPPING omitted it — KeyError at runtime
+    when a plan-complete task hit the unverified finalize path. The function
+    test passed while the graph wiring was broken. Pin the compiled wiring."""
+    from src.graphs.chat_graph import builder, memory
+    # LangGraph stores conditional edges per source node; find the mapping
+    # that includes the keys after_progress can return, and require
+    # finish_gate to be wired to a real node.
+    nodes = set(builder.compile(checkpointer=memory).get_graph().nodes)
+    branch = builder.branches.get("progress")
+    assert branch is not None, "progress node must have a conditional branch"
+    # branch is {func_name: BranchSpec}; merge all specs' ends mappings
+    mapping = {}
+    for spec in branch.values():
+        mapping.update(getattr(spec, "ends", {}) or {})
+    for key in ("ai", "replanner", "recovery_limit", "finalize", "pivot", "finish_gate"):
+        assert key in mapping, f"progress mapping missing {key}"
+        assert mapping[key] in nodes, f"progress mapping target {mapping[key]} is not a node"
+
+
 def test_after_progress_verify_budget_exhausted_allows_finalize():
     """Bounded: after 2 verify nudges the plan-complete route finalizes
     even if the model refused to verify — gates must not starve."""
