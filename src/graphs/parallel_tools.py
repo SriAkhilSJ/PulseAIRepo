@@ -60,7 +60,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 FILE_PATH_TOOLS = frozenset({
     "read_file", "list_files", "search_code", "write_file", "edit_file",
@@ -184,6 +184,85 @@ def repair_tool_call_ids(tool_calls: list[dict]) -> tuple[list[dict], bool]:
     if not changed:
         return tool_calls, False
     return repaired, True
+
+
+# ---------------------------------------------------------------------------
+# Text-tool-call repair (Hermes-pattern: never trust the model's output FORMAT)
+# ---------------------------------------------------------------------------
+# Some providers (notably sarvam-105b) intermittently emit tool calls as TEXT
+# in the assistant content instead of structured `tool_calls`:
+#   <tool_call>write_file
+#   <arg_key>path</arg_key>
+#   <arg_value>components/ui/x.tsx</arg_value>
+#   <arg_key>content</arg_key>
+#   <arg_value>...code...</arg_value>
+# When that happens the runtime sees plain text (no tool_calls), the loop
+# finalizes on an empty deliverable, and the run stalls. This parser converts
+# that text back into real structured tool calls so the loop can execute —
+# the same "repair what the model fumbled" stance as repair_tool_call_ids.
+import json as _tc_json
+import re as _tc_re
+
+
+def _coerce_arg_value(raw: str):
+    """Interpret a text arg value: JSON for numbers/arrays/objects, else str."""
+    s = raw.strip()
+    if not s:
+        return ""
+    if s[0] in "{[\"0123456789-ntf" or s in ("true", "false", "null"):
+        try:
+            return _tc_json.loads(s)
+        except Exception:
+            return raw  # keep original (unstripped) for code strings
+    return raw
+
+
+def parse_text_tool_calls(content: str) -> list[dict]:
+    """Parse sarvam-style <tool_call> text into structured tool-call dicts."""
+    if not isinstance(content, str) or "<tool_call>" not in content:
+        return []
+    import hashlib
+    calls: list[dict] = []
+    for block in content.split("<tool_call>")[1:]:
+        block = block.split("</tool_call>")[0]
+        # name = text before the FIRST <arg_key> (keep the full block for the
+        # pair scan so the first arg is not lost — re.split would eat its tag).
+        first_tag = _tc_re.search(r"<arg_key>", block)
+        if first_tag:
+            name_blob = block[: first_tag.start()]
+        else:
+            name_blob = block
+        name_lines = [ln for ln in name_blob.splitlines() if ln.strip()]
+        name = name_lines[-1].strip() if name_lines else ""
+        if not name:
+            continue
+        pairs = _tc_re.findall(
+            r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>",
+            block, _tc_re.DOTALL,
+        )
+        args = {k.strip(): _coerce_arg_value(v) for k, v in pairs}
+        cid = "call_txt_" + hashlib.sha256(
+            f"{name}:{_tc_json.dumps(args, sort_keys=True)}:{len(calls)}".encode()
+        ).hexdigest()[:12]
+        calls.append({"name": name, "args": args, "id": cid})
+    return calls
+
+
+def repair_text_tool_calls(message):
+    """Return a new AIMessage with parsed tool_calls if `message` is an
+    AIMessage carrying <tool_call> text but no structured tool_calls.
+    Otherwise returns the message unchanged."""
+    if not isinstance(message, AIMessage):
+        return message
+    if getattr(message, "tool_calls", None):
+        return message
+    content = getattr(message, "content", "")
+    if not isinstance(content, str) or "<tool_call>" not in content:
+        return message
+    parsed = parse_text_tool_calls(content)
+    if not parsed:
+        return message
+    return AIMessage(content="", tool_calls=parsed, id=getattr(message, "id", None))
 
 
 def try_parallel_batch(

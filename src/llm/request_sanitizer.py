@@ -149,6 +149,29 @@ def _dedup_byte_identical_results(
     return out, removed
 
 
+def _ensure_nonempty_tool_content(messages: list[BaseMessage]) -> tuple[list[BaseMessage], int]:
+    """Strict providers (e.g. Sarvam) HTTP-400 a ToolMessage whose content is an
+    empty string ("String should have at least 1 character"). A tool that returns
+    "" (empty dir listing, no-op, etc.) produces exactly that. Replace empty
+    content with a minimal placeholder so the request is always accepted.
+    Lossless for non-empty content; never raises."""
+    out: list[BaseMessage] = []
+    fixed = 0
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            content = getattr(msg, "content", "")
+            if not isinstance(content, str) or content == "":
+                out.append(ToolMessage(
+                    content="(tool returned no output)",
+                    tool_call_id=getattr(msg, "tool_call_id", "") or "",
+                    name=getattr(msg, "name", None) or "",
+                ))
+                fixed += 1
+                continue
+        out.append(msg)
+    return out, fixed
+
+
 def sanitize_request_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     """Lossless pre-send cleanup. Never raises; returns the input unchanged
     on any unexpected error."""
@@ -156,16 +179,17 @@ def sanitize_request_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
         return messages
     try:
         out = messages
-        n1 = n2 = n3 = 0
+        n1 = n2 = n3 = n4 = 0
         out, n1 = _collapse_duplicate_tool_calls(out)
         out, n2 = _drop_reused_result_ids(out)
         out, n3 = _dedup_byte_identical_results(out)
-        total = n1 + n2 + n3
+        out, n4 = _ensure_nonempty_tool_content(out)
+        total = n1 + n2 + n3 + n4
         if total:
             print(
-                f"[RequestSanitizer] removed {total} item(s) pre-send "
+                f"[RequestSanitizer] removed/fixed {total} item(s) pre-send "
                 f"(dup tool_calls={n1}, re-used tool_call_id={n2}, "
-                f"byte-identical results={n3})"
+                f"byte-identical results={n3}, empty-tool-content={n4})"
             )
             return out
         # Nothing removed: hand back the INPUT object so callers can gate on

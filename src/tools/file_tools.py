@@ -30,6 +30,17 @@ def resolve_workspace_path(
 
     workspace_path = Path(workspace).resolve()
 
+    # Models routinely write the conventional path "/components/ui/x.tsx"
+    # with a LEADING SLASH (it reads as project-root-relative). Under Path
+    # join semantics an absolute-looking second operand DISCARDS the
+    # workspace base ("/tmp/ws" / "/components" == "/components") and the
+    # containment check rejects it — which stalled write_file/list_files/
+    # read_file on every sarvam run. Strip a leading slash and treat it as
+    # workspace-relative. Containment still holds: "/etc/x" -> "etc/x" ->
+    # <workspace>/etc/x (inside the workspace, never the real /etc).
+    if isinstance(path, str):
+        path = path.lstrip("/")
+
     # Models frequently prefix paths with the workspace folder's own leaf
     # name (writing "workspace_d/app/page.tsx" while already inside the
     # workspace). Strip one leading component equal to the workspace
@@ -142,6 +153,22 @@ def write_file(
 
     workspace = config["configurable"]["workspace"]
 
+    # Empty-content guard: a model that can't fit a large file into a
+    # structured tool-call sometimes emits content="" (or omits it). An empty
+    # write SILENTLY overwrites the target with garbage — observed in Test 3,
+    # where the agent's correct copy was blocked and it fell back to
+    # write_file(content='') then looped. Refuse and redirect to the working
+    # verbatim-copy path (the read_file/write_file script stubs).
+    if not isinstance(content, str) or not content.strip():
+        return (
+            "⛔ write_file refused: `content` is empty. An empty write would "
+            "destroy the file. To copy a provided file VERBATIM, use ONE "
+            "execute_code script: "
+            "write_file('components/ui/<name>.tsx', read_file('_provided/<name>.tsx')) "
+            "— the read_file/write_file FUNCTIONS inside a script copy bytes "
+            "exactly. (open() is disabled in scripts; never pass content=\"\".)"
+        )
+
     safe_path = resolve_workspace_path(
         workspace,
         path
@@ -191,6 +218,36 @@ def write_file(
     invalidate_repo_map(workspace)
 
     return f"File written: {path}"
+
+@tool
+def copy_file(
+    src: str,
+    dst: str,
+    config: RunnableConfig,
+) -> str:
+    """
+    Copy a file VERBATIM within the workspace (byte-for-byte).
+
+    WHEN TO USE:
+    - Placing a PROVIDED source file into its destination without retyping
+      its contents (e.g. copy _provided/x.tsx -> components/ui/x.tsx). This
+      is the reliable way to integrate a large provided file: you never have
+      to emit the content, so it cannot be truncated or lost.
+    - Duplicating an existing file.
+
+    Both src and dst resolve inside the workspace.
+    """
+    import shutil
+
+    workspace = config["configurable"]["workspace"]
+    safe_src = resolve_workspace_path(workspace, src)
+    safe_dst = resolve_workspace_path(workspace, dst)
+
+    if not safe_src.exists() or not safe_src.is_file():
+        return f"⛔ copy_file failed: source not found: {src}"
+    safe_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(safe_src, safe_dst)
+    return f"Copied: {src} -> {dst} ({safe_dst.stat().st_size} bytes)"
 
 @tool
 def search_code(

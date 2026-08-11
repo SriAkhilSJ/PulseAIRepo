@@ -85,9 +85,16 @@ def test_d35_growth_bound():
     actions, stalling on ask_user, and declaring Finished on a broken
     app, which is exactly what that block forbids. Ceiling sized for
     batch guidance + finish-job + enforcement; any further paste breaks
-    it loudly."""
+    it loudly.
+
+    P0-C raised the ceiling: the Programmatic-Tool-Calling default block
+    (~1.5k chars) is the single highest-leverage efficiency instruction —
+    it is what stops the 1-call-1-tool collapse by teaching a concrete
+    execute_code script pattern. ~4.2k growth for a constant, cache-safe
+    (Law #1) prefix that pays back the first time a task avoids 4+
+    round-trips is a deliberate, bounded trade."""
     growth = len(system_persona()) - len(CLAUDE_SYSTEM_PERSONA)
-    assert growth < 2800, f"persona grew by {growth} chars — too fat"
+    assert growth < 4800, f"persona grew by {growth} chars — too fat"
 
 
 # ------------------------------------------------------------ kill-switch
@@ -105,6 +112,38 @@ def test_d35_finish_job_section_isolated():
     assert _D35_FINISH_JOB.startswith("\n\n## Execution Discipline")
     assert "## Finishing the Job" not in CLAUDE_SYSTEM_PERSONA
     assert "## Execution Discipline" not in CLAUDE_SYSTEM_PERSONA
+
+
+# ------------------------------------------------------------ P0-C: PTC default
+
+def test_p0c_ptc_default_block_present_on_mode():
+    """P0-C: the composed persona teaches execute_code as the DEFAULT for
+    multi-step work, with a concrete worked script (not just an abstract
+    mention). This is what stops the 1-call-1-tool collapse on weak models."""
+    p = system_persona()
+    assert "Programmatic Tool Calling = your default" in p, (
+        "PTC must be framed as the DEFAULT, not an option"
+    )
+    # A copy-pasteable script example is the actual lever (abstract advice
+    # already existed and did not change behavior).
+    assert "read_file(p)" in p, "the worked example must call a real tool"
+    assert "ONE round-trip" in p, (
+        "the cost framing (each call resends the conversation) must be stated"
+    )
+
+
+def test_p0c_ptc_default_absent_from_legacy_constant():
+    """The PTC block is composed ON, never baked into the frozen constant —
+    so the kill-switch stays a true byte-identical restore."""
+    assert "Programmatic Tool Calling = your default" not in CLAUDE_SYSTEM_PERSONA
+
+
+def test_p0c_killswitch_drops_ptc_block(monkeypatch):
+    monkeypatch.setenv("PULSEAI_PERSONA_GUIDANCE", "off")
+    p = system_persona()
+    assert "Programmatic Tool Calling = your default" not in p, (
+        "off-mode leaked the PTC block — kill-switch must restore legacy only"
+    )
 
 
 # ------------------------------------------------------------ wiring

@@ -55,3 +55,6 @@ lab/workspace_*/*.pid
 lab/*.start
 lab/*.err
 lab/*.err.log
+
+# P0: VSCode fork deferred to Phase 2 — removed from tree
+desktop/

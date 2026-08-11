@@ -10,28 +10,29 @@ call produces the closing summary; should_continue then finalizes.
 from langchain_core.messages import AIMessage, SystemMessage
 
 import src.graphs.chat_graph as cg
+from src.graphs import budget as bg  # P0-D: budget funcs moved to their own module
 from src.context.token_tracker import TokenUsage
 
 
 def test_iteration_budget_default_clamps_and_tolerates_garbage(monkeypatch):
     monkeypatch.delenv("AGENT_ITERATION_BUDGET", raising=False)
-    assert cg._iteration_budget() == cg._ITERATION_BUDGET_DEFAULT
+    assert bg._iteration_budget() == bg._ITERATION_BUDGET_DEFAULT
 
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "5")
-    assert cg._iteration_budget() == 5
+    assert bg._iteration_budget() == 5
 
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "999")
-    assert cg._iteration_budget() == cg._ITERATION_BUDGET_CLAMP, "must clamp"
+    assert bg._iteration_budget() == bg._ITERATION_BUDGET_CLAMP, "must clamp"
 
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "abc")
-    assert cg._iteration_budget() == cg._ITERATION_BUDGET_DEFAULT
+    assert bg._iteration_budget() == bg._ITERATION_BUDGET_DEFAULT
 
 
 def test_budget_exhausted_boundary(monkeypatch):
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "3")
-    assert cg._budget_exhausted({"iteration_used": 2}) is False
-    assert cg._budget_exhausted({"iteration_used": 3}) is True
-    assert cg._budget_exhausted({}) is False
+    assert bg._budget_exhausted({"iteration_used": 2}) is False
+    assert bg._budget_exhausted({"iteration_used": 3}) is True
+    assert bg._budget_exhausted({}) is False
 
 
 def _message_state(last, **extra):

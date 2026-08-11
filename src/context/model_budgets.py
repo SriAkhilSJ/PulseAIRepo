@@ -55,6 +55,11 @@ MODEL_WINDOWS: dict[str, int] = {
     "gpt-oss-120b": 131_072,
     "gpt-oss-20b": 131_072,
     "mixtral-8x7b-32768": 32_768,
+    # Sarvam AI (api.sarvam.ai) — sarvam-105b verified to accept ≥40k input;
+    # registered conservatively inside verified territory so the context
+    # engine uses the real window instead of the 8k unknown-model default.
+    "sarvam-105b": 32_768,
+    "sarvam-105b-conversations": 32_768,
     # Unknown / local / unverified: deliberately small.
     "default": 8_192,
 }

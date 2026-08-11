@@ -277,6 +277,33 @@ PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g.
 
 ---
 
+## 🔧 Recent Changes — Robustness & Test-3 Pass (2026-08-11)
+
+A session of root-causing real bugs surfaced by live agent runs (Test 3: integrate a React component into a shadcn project). All fixes are unit-tested; the full suite is green modulo documented environmental gaps.
+
+### New capability
+- **`copy_file(src, dst)` tool** (`src/tools/file_tools.py`, CORE toolset) — copies a file **byte-for-byte** within the workspace. The reliable way to place a large *provided* file: the model never emits its contents, so the copy cannot be truncated, lost, or fabricated. The decisive fix that turned Test 3 from repeated failure into a pass.
+
+### Bug fixes (all in code, all tested)
+- **`write_file` empty-content guard** — emitting `content=""` silently overwrote targets with garbage. Now refused, with a redirect to `copy_file`/PTC.
+- **Leading-slash path normalization** (`resolve_workspace_path`) — `/components/ui/x` no longer "escapes workspace"; treated as workspace-relative (containment holds).
+- **Text-tool-call repair** (`src/graphs/parallel_tools.py`) — `<tool_call>` text emitted by some models is parsed into structured calls so the loop executes instead of stalling (Hermes-pattern: never trust the model's output format).
+- **Empty-ToolMessage sanitizer** (`src/llm/request_sanitizer.py`) — strict providers (e.g. Sarvam) HTTP-400 empty tool content; now guaranteed non-empty pre-send.
+- **`.env` hygiene** — `PULSEAI_AUTO_APPROVE_WRITES` moved out of `.env` (it leaked into pytest via `load_dotenv()`); `.env` = secrets/endpoint only.
+
+### Architecture (Hermes-alignment, Phase 0)
+- **Toolset waist** (`src/tools/toolsets.py`) — narrow CORE + task-gated toolsets; non-UI tasks bind 22 tools not 30 (browser gated). Cache-safe per-task.
+- **God-file split** — `chat_graph.py` → `graphs/state.py`, `budget.py`, `gates.py` (−401 lines).
+
+### Provider / model notes
+- `sarvam-105b` / `sarvam-105b-conversations` registered at 32k in `model_budgets.py` (was defaulting to 8k).
+- **Test 3 passes on `sarvam-105b-conversations`** (follows tool instructions, uses `copy_file`). Base `sarvam-105b` and the FreeLLM `auto/*` pool do **not** reliably complete multi-step integration. GLM-5.2 is **not** served by Sarvam (API 400).
+
+### Test 3 result
+✅ **PASS** — both components copied **verbatim** into `components/ui` (byte-identical to source), full shadcn/TS/Tailwind scaffold, all deps installed. Remaining `tsc` errors are inherent to the provided component's bleeding-edge WebGPU/TSL API (identical in the original source), not integration defects.
+
+---
+
 ## 🗺️ Roadmap
 
 - [x] 6-Step Claude-Quality Transformation
