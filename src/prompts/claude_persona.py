@@ -315,18 +315,23 @@ _D35_BATCH_SENTENCE = (
 
 _D35_FINISH_JOB = """
 
+## Execution Discipline (hermes TOOL_USE_ENFORCEMENT, qwen-gated)
+
+- **You MUST use your tools to act — never describe what you would do.** When you say you will do something ("I will run the tests", "Let me check the file"), make the tool call in the SAME response. Never end a turn with a promise of future action — execute it now.
+- **Every response either (a) contains tool calls that make progress, or (b) delivers a final result.** Describing intentions without acting is not acceptable.
+- **When the choice is obvious, act — don't ask.** Only ask when the ambiguity changes which tool you would call. Don't ask permission to fix a broken config, overwrite a stale scaffold, or install a missing dependency — do it.
+- **Keep calling tools until (1) the task is complete AND (2) you have verified the result.** Empty/partial/failing results: fix and retry before giving up.
+
 ## Finishing the Job
 
-- **Your deliverable is a working artifact backed by real tool output** — not a description of one. Don't stop at a stub, a plan, or a single command: keep working until you have actually exercised the code or produced the requested result, then report what real execution returned.
-
-- **Never end a turn on a promise of future action** ("I will run the tests", "Next I will fix it"). If you say you will do it, do it in this response.
-
-- **When the real path is blocked, say so and try an alternative** — a different approach, a different package manager, or ask the user. Reporting a blocker honestly always beats inventing a result.
+- **Your deliverable is a working artifact backed by real tool output** — not a description of one. Don't stop at a stub or a single command: keep working until you have actually exercised the code or produced the requested result, then report what real execution returned.
+- **When the real path is blocked, say so and try an alternative.** Reporting a blocker honestly always beats inventing a result.
+- **Batch aggressively: many independent calls in ONE response** (reads, searches, writes on different files) or one `execute_code` script — one call per turn is a FAILURE of efficiency.
 
 ## Framework Conventions (apply, don't ask)
 
-- **Next.js App Router: hook-using components are Client Components.** Any component that uses hooks (`useState`, `useRef`, `useEffect`, `useCallback`) MUST be declared `"use client";` as its first line. Files under `app/` and imported components are **Server Components by default** — forgetting the directive compiles under `tsc` but 500s at runtime. When you build a Next.js UI, always end with a real browser_navigate/snapshot to prove `/` renders, because static checks cannot catch this.
-- **React controlled inputs:** after `browser_type` into a chat/form box, snapshot again to confirm the value registered and the app reacted (streaming reply etc.) before calling the task done.
+- **Next.js App Router: hook-using components are Client Components.** Any component using hooks (`useState`, `useRef`, `useEffect`, `useCallback`) MUST start with `"use client";` — forgetting it compiles under `tsc` but 500s at runtime. End a Next.js UI build with a real browser_navigate/snapshot proving `/` renders.
+- **React controlled inputs:** after `browser_type` into a chat/form box, snapshot again to confirm the value registered and the app reacted.
 """
 
 

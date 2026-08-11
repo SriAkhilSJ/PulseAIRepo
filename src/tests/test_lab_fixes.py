@@ -499,6 +499,90 @@ def test_verify_gate_latest_typecheck_result_wins():
     assert should_continue(state) == "finalize"
 
 
+def test_verify_gate_raw_tsc_error_via_run_terminal_is_failure():
+    """D9: the model ran `npx tsc --noEmit` through run_terminal and the
+    tool returned raw `error TS2688:` STDOUT — the marker scan (which only
+    looked for "❌ typecheck_workspace:") never saw it, so the broken app
+    finalized as verified. Raw compiler errors are the same failure class."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "run_terminal", "args": {}, "id": "1", "type": "tool_call"}]),
+        ToolMessage(
+            content="STDOUT:\nerror TS2688: Cannot find type definition file for 'node'.\n"
+                    "The file is in the program because:\n"
+                    "  Entry point of type library 'node' specified in compilerOptions",
+            tool_call_id="1", name="run_terminal"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: components/ChatLayout.tsx"],
+        "current_task": "Build an EaseMize-style chat application from scratch",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_verify_gate_tsc_skip_is_not_evidence():
+    """D9: typecheck_workspace returned "ℹ️ typescript is not installed —
+    skipped" and that counted as verification. A skipped check proves
+    NOTHING — no compiler ran, so no evidence exists."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "1", "type": "tool_call"}]),
+        ToolMessage(
+            content="ℹ️ typecheck_workspace: typescript is not installed in this workspace "
+                    "(node_modules/typescript missing) — skipped.",
+            tool_call_id="1", name="typecheck_workspace"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "Build an EaseMize-style chat application from scratch",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_finalize_unverified_stamps_warning_not_finished():
+    """D9: finalize_node stamped "## ✅ Finished" unconditionally — a
+    budget-exhausted run with a failing typecheck closed with a green
+    checkmark. Unverified finalize must say so plainly."""
+    from src.graphs.chat_graph import finalize_node, should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "run_terminal", "args": {}, "id": "1", "type": "tool_call"}]),
+        ToolMessage(
+            content="STDOUT:\nerror TS2688: Cannot find type definition file for 'node'.",
+            tool_call_id="1", name="run_terminal"),
+        AIMessage(content="I'm done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: components/ChatLayout.tsx"],
+        "current_task": "Build an EaseMize-style chat application from scratch",
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+        "failed_steps": [],
+        "plan": [],
+        "iteration_used": 0,
+    }
+    # The gate must fire (unverified + execution task)
+    assert should_continue(state) == "finish_gate"
+    # And if the run somehow finalizes anyway, the message is honest
+    out = finalize_node(dict(state), {"configurable": {}})
+    final_text = out["messages"][0].content
+    assert "## ✅ Finished" not in final_text
+    assert "unverified" in final_text
+    assert out["task_completed"] is False
+
+
 def test_verify_gate_skips_non_execution_tasks():
     """Explanation tasks with file writes aren't forced to verify."""
     from src.graphs.chat_graph import should_continue

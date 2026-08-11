@@ -805,7 +805,27 @@ def _verification_failed(state: AgentState) -> bool:
         if name == "typecheck_workspace":
             # The LAST typecheck result decides (later ✅ supersedes
             # an earlier ❌ — the agent fixed and re-verified).
-            return content.startswith(_VERIFY_FAIL_MARKERS)
+            # ℹ️ "typescript is not installed — skipped" also counts as
+            # unsatisfied: no compiler ran, so no evidence exists (D9
+            # shipped this hole — typecheck_workspace returned ℹ️-skip,
+            # then npx tsc via run_terminal FAILED with TS2688/TS5107 in
+            # raw STDOUT, and the gate let the broken app finalize).
+            return (
+                content.startswith(_VERIFY_FAIL_MARKERS)
+                or content.startswith("ℹ️")
+            )
+        if name == "run_terminal":
+            # Raw tsc failure through the terminal is the SAME failure
+            # class as a ❌ typecheck_workspace result (D9: the model ran
+            # `npx tsc --noEmit` directly and the tool returned
+            # "error TS2688: ..." in plain STDOUT — the marker scan
+            # never saw it). Detect the compiler's own error shape.
+            # `error TS<digits>` is the TypeScript compiler's own error
+            # shape — no other output form produces it, so it is a safe
+            # failure signal even in plain STDOUT.
+            if re.search(r"\berror TS\d+", content):
+                return True
+            continue
         if name == "browser_navigate":
             low = content.lower()
             if any(marker in low for marker in _BROWSER_FAIL_MARKERS):
@@ -861,9 +881,18 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # Feedback loop: record FAILURE if the task ended with failed steps,
     # otherwise success. (Previously success was recorded unconditionally,
     # so the learning loop only ever saw wins.)
+    #
+    # D9: a run that finalizes with UNVERIFIED code (budget exhausted or
+    # the model stopped early) is a failure, not a success — record it as
+    # such so the learning loop never rewards an unproven "finished".
+    unverified = (
+        _looks_like_execution_task(current_task)
+        and _wrote_code_files(state)
+        and _verify_unsatisfied(state)
+    )
     try:
         engine = get_context_engine(config)
-        if state.get("failed_steps"):
+        if state.get("failed_steps") or unverified:
             engine.record_feedback(success=False, task=current_task)
         else:
             engine.record_feedback(success=True, task=current_task)
@@ -871,11 +900,26 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         pass  # Feedback is best-effort; never block finalization
 
 
-    # Build a beautiful completion message
+    # Build a beautiful completion message. Honesty gate (D9): the
+    # finalize node used to stamp "## ✅ Finished" unconditionally — a
+    # budget-exhausted run with a failing typecheck and a broken app
+    # still closed with a green checkmark. When verification never
+    # passed, say so plainly instead of claiming success.
     lines = []
     task_display = current_task[:70] if current_task else "Task"
-    lines.append(f"## ✅ Finished: {task_display}")
-    lines.append("")
+    if unverified:
+        lines.append(f"## ⚠️ Ended unverified: {task_display}")
+        lines.append("")
+        lines.append(
+            "**This run did NOT pass verification.** Code was written but "
+            "no check proved it sound — typecheck failed or never ran, and "
+            "the app was not proven to render. Do not treat this as a "
+            "working deliverable until verification passes."
+        )
+        lines.append("")
+    else:
+        lines.append(f"## ✅ Finished: {task_display}")
+        lines.append("")
 
     # Summarize what was done
     if steps_completed:
@@ -937,7 +981,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 
     return {
         "plan": plan,
-        "task_completed": True,
+        "task_completed": not unverified,
         "messages": [AIMessage(content="\n".join(lines))],
     }
 

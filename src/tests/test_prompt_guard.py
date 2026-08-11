@@ -62,7 +62,7 @@ def test_d35_finish_job_patterns_present():
     p = system_persona()
     for marker in (
         "working artifact backed by real tool output",
-        "Never end a turn on a promise of future action",
+        "Never end a turn with a promise of future action",
         "blocked, say so",
     ):
         assert marker in p, f"finish-the-job pattern missing: {marker!r}"
@@ -78,11 +78,16 @@ def test_d35_anti_fabrication_deliberately_not_doubled():
 
 
 def test_d35_growth_bound():
-    """Token-budget guard: the steal is two tight paragraphs, not hermes'
-    3,111-line corpus. ~1,300 chars growth ceiling (~330 tokens once per
-    turn at the stable tier)."""
+    """Token-budget guard: the steal is tight guidance, not hermes'
+    3,111-line corpus. The D40 (D9) round added the hermes
+    TOOL_USE_ENFORCEMENT block (~650 chars, qwen-gated upstream; our
+    model IS qwen) — the D9 transcript showed the model promising
+    actions, stalling on ask_user, and declaring Finished on a broken
+    app, which is exactly what that block forbids. Ceiling sized for
+    batch guidance + finish-job + enforcement; any further paste breaks
+    it loudly."""
     growth = len(system_persona()) - len(CLAUDE_SYSTEM_PERSONA)
-    assert growth < 2200, f"persona grew by {growth} chars — too fat"
+    assert growth < 2800, f"persona grew by {growth} chars — too fat"
 
 
 # ------------------------------------------------------------ kill-switch
@@ -97,8 +102,9 @@ def test_d35_killswitch_restores_byte_identical_legacy(monkeypatch):
 def test_d35_finish_job_section_isolated():
     """The appended block is one contiguous tail, so 'off' cannot leak
     fragments of it."""
-    assert _D35_FINISH_JOB.startswith("\n\n## Finishing the Job")
+    assert _D35_FINISH_JOB.startswith("\n\n## Execution Discipline")
     assert "## Finishing the Job" not in CLAUDE_SYSTEM_PERSONA
+    assert "## Execution Discipline" not in CLAUDE_SYSTEM_PERSONA
 
 
 # ------------------------------------------------------------ wiring
