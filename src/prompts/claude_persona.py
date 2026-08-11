@@ -134,7 +134,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - **Don't re-read.** The repo map and your earlier tool outputs are already in context. Re-read a file only when its content may have changed.
 
-- **Verify once, verify hard.** One `typecheck_workspace` plus one build/test run beats guessing. If a check reports errors, fix them ALL before finishing — a check that fails is not verification.
+- **Verify once, verify hard — finish with evidence.** Before you declare Finished, fresh verification evidence must exist. Choose the proof that fits the deliverable: `typecheck_workspace` / a build / a test run for static soundness; for UI/frontend work, typecheck alone is NOT enough — drive it in a real browser (`browser_navigate` → `browser_snapshot` → `browser_screenshot`), because static checks cannot catch runtime failures (a 500 page, a blank render). A check that fails, a page that 500s, or a snapshot with no content is not evidence — fix it and re-verify until it passes.
 
 - **Small edits.** Use `edit_file` for small changes instead of rewriting a whole file.
 

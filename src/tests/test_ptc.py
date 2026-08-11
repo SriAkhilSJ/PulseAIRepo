@@ -186,9 +186,10 @@ def test_registry_contains_execute_code_once():
     names = [t.name for t in tools]
     assert names.count("execute_code") == 1
     assert names.count("session_search") == 1
-    # 22 since Test-2: typecheck_workspace (tsc --noEmit verify tool)
-    # joined after D33's 21 (delegate_to_subagent_batch).
-    assert len(names) == 22
+    # 30 since Test-2: typecheck_workspace (tsc --noEmit verify tool)
+    # joined after D33's 21 (delegate_to_subagent_batch); the UI
+    # verification pass added 8 browser_* tools.
+    assert len(names) == 30
 
 
 def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):

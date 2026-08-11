@@ -694,19 +694,36 @@ def should_continue(state: AgentState):
                 return "finish_gate"
 
     # Verify gate: code files were written but the code is NOT proven
-    # sound — either no verification tool ran, or the last typecheck
-    # result reported errors. A check that ran and failed is as
+    # sound — either no verification tool ran, or the last verification
+    # result reported failure. A check that ran and failed is as
     # unsatisfied as no check at all (Test-2 hardening).
     # (Bounded via verify_nudges; both gates share the finish_gate node,
     # which picks the right nudge + counter.)
-    if state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET:
-        if _looks_like_execution_task(state.get("current_task", "")):
-            if _wrote_code_files(state) and (
-                not _ran_verification(state) or _verification_failed(state)
-            ):
-                return "finish_gate"
+    if _verify_unsatisfied(state):
+        return "finish_gate"
 
     return "finalize"
+
+
+def _verify_unsatisfied(state: AgentState) -> bool:
+    """True when the bounded verify gate must fire: an execution task
+    where code was written but not proven sound.
+
+    Shared by should_continue (ai -> finish_gate) AND after_progress
+    (plan-complete shortcut, D7). Without the after_progress check a
+    model can self-mark every plan step complete — including
+    "verify in browser" it never did — and the plan-complete route goes
+    STRAIGHT to finalize, bypassing should_continue entirely (D7:
+    typecheck ran once and failed 57 errors, zero browser calls, no dev
+    server, yet 8/8 plan steps self-marked and the run finalized clean).
+    """
+    if state.get("verify_nudges", 0) >= _VERIFY_NUDGE_BUDGET:
+        return False
+    if not _looks_like_execution_task(state.get("current_task", "")):
+        return False
+    if not _wrote_code_files(state):
+        return False
+    return not _ran_verification(state) or _verification_failed(state)
 
 
 def _wrote_code_files(state: AgentState) -> bool:
@@ -723,18 +740,19 @@ def _wrote_code_files(state: AgentState) -> bool:
 def _ran_verification(state: AgentState) -> bool:
     """True when the agent already called a verification tool this turn.
 
-    For UI/frontend tasks a typecheck is NOT verification — the deliverable
-    must have been driven in a real browser (a browser_* call), otherwise a
-    tsc-pass can hide a runtime 500 (Test-2 retest D5: missing "use client"
-    on a hook-using component passed tsc but 500'd in the browser).
+    Policy-only (hermes verification_stop: "intentionally policy-only...
+    requires fresh evidence when the model tries to finish after editing
+    code"). The loop never dictates WHICH tool proves the work — the
+    persona teaches commensurate choice (typecheck for static soundness;
+    a real browser for UI/frontend runtime proof, because a tsc-pass can
+    hide a runtime 500 — D5's missing "use client"). The QUALITY of the
+    evidence is judged separately by _verification_failed (a ❌ typecheck,
+    a 500 navigate, an empty snapshot, or a timed-out screenshot is not
+    evidence).
     """
-    require_browser = _looks_like_ui_task(state.get("current_task", ""))
     for m in state.get("messages", []):
         for tc in getattr(m, "tool_calls", None) or []:
-            name = tc.get("name") or ""
-            if name.startswith("browser_"):
-                return True
-            if not require_browser and name in _VERIFY_TOOL_NAMES:
+            if (tc.get("name") or "") in _VERIFY_TOOL_NAMES:
                 return True
     return False
 
@@ -1490,8 +1508,17 @@ def is_plan_complete(state: AgentState) -> bool:
 
 def after_progress(state: AgentState) -> str:
     """Route after tool progress. Decision lives in ph.next_after_progress
-    (unit-testable); this node adds plan-completeness and delegates."""
-    return ph.next_after_progress(
+    (unit-testable); this node adds plan-completeness and delegates.
+
+    D7 hardening: next_after_progress finalizes a plan-complete task
+    WITHOUT consulting the verify gate — and plan completion is model-
+    DECLARED (self-marked steps). A model that marks "verify in browser"
+    complete without doing it used to finalize clean (D7: typecheck
+    failed 57 errors, zero browser calls, 8/8 steps self-marked). When
+    the plan-complete route would finalize but verification is
+    unsatisfied, route through finish_gate so the bounded nudge fires.
+    """
+    route = ph.next_after_progress(
         recovery_mode=state.get("recovery_mode", False),
         recovery_attempts=state.get("recovery_attempts", 0),
         replan_needed=state.get("replan_needed", False),
@@ -1499,6 +1526,9 @@ def after_progress(state: AgentState) -> str:
         env_failures=state.get("env_failures", 0),
         pivot_count=state.get("pivot_count", 0),
     )
+    if route == "finalize" and _verify_unsatisfied(state):
+        return "finish_gate"
+    return route
 
 def recovery_limit_node(state: AgentState, config: RunnableConfig):
     failed_steps = state.get("failed_steps", [])

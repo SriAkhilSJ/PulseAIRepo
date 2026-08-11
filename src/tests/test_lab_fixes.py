@@ -180,9 +180,13 @@ def test_verify_gate_allows_passing_typecheck():
     assert should_continue(state) == "finalize"
 
 
-def test_verify_gate_ui_requires_browser_not_typecheck():
-    """UI deliverable: tsc pass alone is NOT verification — the app 500s on
-    a missing 'use client' with tsc clean (Test-2 retest D5). Gate nudges."""
+def test_verify_gate_ui_typecheck_is_valid_evidence():
+    """Policy-only gate (hermes verification_stop): the loop requires fresh
+    verification EVIDENCE, never a specific tool. A passing typecheck is
+    evidence the agent chose — the persona teaches that UI/frontend work
+    additionally needs runtime proof in a real browser, but the gate does
+    not hardcode browser-as-mandatory. The gate's job: evidence ran and
+    is not failed."""
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
@@ -202,7 +206,7 @@ def test_verify_gate_ui_requires_browser_not_typecheck():
         "verify_nudges": 0,
         "finish_nudges": 0,
     }
-    assert should_continue(state) == "finish_gate"
+    assert should_continue(state) == "finalize"
 
 
 def test_verify_gate_ui_allows_after_browser():
@@ -363,6 +367,86 @@ def test_verify_gate_ui_rendered_snapshot_supersedes_failed_navigate():
         "finish_nudges": 0,
     }
     assert should_continue(state) == "finalize"
+
+
+def test_after_progress_plan_complete_but_unverified_routes_to_finish_gate():
+    """D7 bypass: the model self-marked all 8 plan steps complete
+    (including 'verify in browser' it never did), the last typecheck
+    FAILED (57 errors), zero browser calls, no dev server — yet the
+    plan-complete route in after_progress finalized clean with 0 nudges.
+    Plan completion is model-DECLARED, so the plan-complete shortcut must
+    consult the verify gate."""
+    from src.graphs.chat_graph import after_progress
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="❌ typecheck_workspace: 57 type error(s) found. Fix ALL of them before finishing:",
+            tool_call_id="2", name="typecheck_workspace"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx", "Wrote file: components/ChatLayout.tsx"],
+        "current_task": "Build an EaseMize-style chat application from scratch",
+        "plan": [
+            {"id": "1", "status": "completed", "description": "scaffold"},
+            {"id": "2", "status": "completed", "description": "components"},
+            {"id": "3", "status": "completed", "description": "typecheck"},
+            {"id": "4", "status": "completed", "description": "browser verify"},
+        ],
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+        "recovery_mode": False, "recovery_attempts": 0, "replan_needed": False,
+        "env_failures": 0, "pivot_count": 0,
+    }
+    assert after_progress(state) == "finish_gate"
+
+
+def test_after_progress_plan_complete_verified_finalizes():
+    """Plan complete AND verification satisfied (typecheck ✅) -> finalize."""
+    from src.graphs.chat_graph import after_progress
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="x", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage(content="x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="2", name="typecheck_workspace"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "Build a REST API server in Python",
+        "plan": [{"id": "1", "status": "completed", "description": "all done"}],
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+        "recovery_mode": False, "recovery_attempts": 0, "replan_needed": False,
+        "env_failures": 0, "pivot_count": 0,
+    }
+    assert after_progress(state) == "finalize"
+
+
+def test_after_progress_verify_budget_exhausted_allows_finalize():
+    """Bounded: after 2 verify nudges the plan-complete route finalizes
+    even if the model refused to verify — gates must not starve."""
+    from src.graphs.chat_graph import after_progress
+    from langchain_core.messages import AIMessage
+    state = {
+        "messages": [AIMessage(content="done")],
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "current_task": "build a chat app with Next.js",
+        "plan": [{"id": "1", "status": "completed", "description": "all done"}],
+        "verify_nudges": 2,
+        "finish_nudges": 0,
+        "recovery_mode": False, "recovery_attempts": 0, "replan_needed": False,
+        "env_failures": 0, "pivot_count": 0,
+    }
+    assert after_progress(state) == "finalize"
 
 
 def test_verify_gate_latest_typecheck_result_wins():
