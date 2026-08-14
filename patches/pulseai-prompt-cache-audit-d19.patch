@@ -1,0 +1,2554 @@
+From 05a20282fb3945905522e48823e328d867ed76ae Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 09:00:42 +0000
+Subject: [PATCH 1/3] feat(tools): execute_code -- programmatic tool calling
+ (D18, hermes steal #1) -- model writes ONE script calling the 14
+ file/terminal/web tools in-process, only print() output re-enters the window
+ (measured 26,850 -> 256 chars, 5 calls -> 1 on this repo); no-RPC design,
+ per-thread settrace deadline, SafetyGuard re-checked + auto-denied per inner
+ call, AST allowlist, caps 120s/50 calls/50KB; +25 pins, 207 green
+
+---
+ ARCHITECTURE_REVIEW.md      |  66 +++++
+ src/graphs/chat_graph.py    |   5 +
+ src/tests/test_ptc.py       | 206 +++++++++++++++
+ src/tools/code_exec_tool.py | 487 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 764 insertions(+)
+ create mode 100644 src/tests/test_ptc.py
+ create mode 100644 src/tools/code_exec_tool.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 1cd88611..2da173c5 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1084,3 +1084,69 @@ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~ —
+ remaining: D9, D10, D13, D14, D15-remainder, D16 (session-search shape),
+ D18 (PTC), D19 (prompt-cache audit), D20 (subagent auto-deny), D21
+ (aux-model routing), D22 (compaction pack), C1, P2.
++
++## 30. D18 — execute_code: Programmatic Tool Calling (2026-08-07)
++
++First hermes-agent steal landed (§29 adoption step #1). The model can now
++write ONE Python script that calls the file/terminal/web tools as
++in-process functions; only the script's print() output re-enters the
++window. Receipt in their tree: tools/code_execution_tool.py:1-22 (caps
++300s/50 calls/50KB stdout; iterations refunded, agent/iteration_budget.py
++:28-29).
++
++Measured on this repo, same 5-step inspection both ways:
++- old: 5 tool calls + 5 model turns -> 26,850 chars parked in the window
++- PTC: 1 tool call + 1 model turn -> 256 chars (104.9x fewer chars)
++
++Design deltas from hermes (each verified against OUR stack first):
++- No RPC: their UDS/file-RPC layer exists because their tools can live on
++  remote machines (Docker/SSH); ours are in-process Python -> the
++  transport is a function call. The whole socket layer is skipped.
++- Custom print buffer, not redirect_stdout: this is a long-lived server
++  process; dashboard/event-bus/other sessions share sys.stdout.
++- Deadline via per-thread sys.settrace: signal.alarm is main-thread only
++  and ToolNode executes tools on worker threads. Honest limit, kept in
++  the module docstring: a single pathological C-level expression runs no
++  Python lines and can overshoot; run_terminal is additionally time-boxed
++  on a bounded daemon thread because it wraps subprocess.run with no
++  internal timeout.
++- SafetyGuard re-checked per inner call: SafeToolNode's guard inspects
++  args by tool NAME only (safety_guard.py:38-63), so script text sails
++  past the graph-level check. write_file-overwrite, edit_file-critical-
++  path and run/start_terminal-dangerous-command are re-validated inside
++  the dispatcher and auto-DENIED with "ask the user, then run it as a
++  normal tool call" guidance (hermes delegate_tool.py:63-91 auto-deny
++  policy for non-interactive contexts; a script cannot surface the human
++  approval prompt).
++- Budget treatment: hermes refunds PTC iterations from their iteration
++  budget; ours is structural -- LangGraph budgets node executions, and an
++  execute_code turn is exactly ONE tool call no matter how many inner
++  calls it makes. The refund is built in.
++
++Allowlist (full text in src/tools/code_exec_tool.py docstring): no
++imports (re, json, math, datetime, collections, itertools, functools,
++textwrap, statistics, string, random preloaded), no open/eval/exec/
++compile/getattr/dunder access; 14 inner functions = 5 file + 7 terminal +
++2 web. Caps: 120s wall, 50 inner calls, 50KB stdout, 16KB script. These
++are guardrails for cooperative model-written scripts, not a security
++boundary; the real boundaries remain per-tool workspace path resolution
++and SafetyGuard checkpoints.
++
++Registry recount while wiring: 18 tools before this round (4 meta + 5
++file + 7 terminal + 2 web) — earlier rounds quoted 17; the audited count
++stands. 19 with execute_code.
++
++Pins: src/tests/test_ptc.py 25/25 — pipeline collapse (raw file bodies
++absent from the window), no-print hint, runner-tail filtering, 50KB cap,
++50-call budget, worker-thread deadline, oversize rejection, nine banned-
++construct rejections incl. zero-side-effect pre-validation, preloaded
++modules present/os absent, destructive command denied with target file
++provably surviving, overwrite checkpoint denying-then-continuing, tool
++failures as strings not script death, registry cardinality, the name-
++based-graph-guard/inner-guard-is-the-control policy pin, no recursion/
++delegation inside scripts, workspace path isolation. Suite: 207 green
++(74s).
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ — remaining: D9, D10, D13, D14, D15-remainder, D16 (session-
++search shape), D19, D20, D21, D22, C1, P2.
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index 82cd8544..b5e6bc88 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -63,6 +63,7 @@ from src.tools.terminal_tools import (
+     read_terminal_output
+ )
+ from src.tools.web_tools import web_search, web_fetch
++from src.tools.code_exec_tool import execute_code
+ from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
+ 
+ from src.agents.cost_router import cost_router
+@@ -276,6 +277,10 @@ tools = [
+     # Web tools
+     web_search,
+     web_fetch,
++
++    # Programmatic tool calling: ONE scripted call can chain the tools
++    # above and return only printed output (D18, hermes PTC pattern).
++    execute_code,
+ ]
+ 
+ 
+diff --git a/src/tests/test_ptc.py b/src/tests/test_ptc.py
+new file mode 100644
+index 00000000..31be2395
+--- /dev/null
++++ b/src/tests/test_ptc.py
+@@ -0,0 +1,206 @@
++"""Pins for execute_code (D18, programmatic tool calling).
++
++Every test asserts a BEHAVIOR the design doc claims:
++- only print() output returns, chained tools run in-process
++- caps: 50KB stdout, 50 tool calls, wall-clock deadline (in worker threads)
++- AST allowlist rejects imports/builtins bypasses BEFORE any execution
++- SafetyGuard checkpoints are re-enforced INSIDE scripts (overwrite,
++  destructive shell) -- auto-deny + guidance, operations never execute
++- tool failures inside scripts degrade to strings, not script death
++- registry/guard wiring matches the documented design
++"""
++
++from __future__ import annotations
++
++import os
++from concurrent.futures import ThreadPoolExecutor
++
++import pytest
++
++from src.tools import code_exec_tool
++from src.tools.code_exec_tool import execute_code
++
++
++@pytest.fixture()
++def ws(tmp_path):
++    (tmp_path / "a.py").write_text("def login():\n    return 1\n" * 100)
++    (tmp_path / "b.py").write_text("def logout():\n    return 2\n" * 80)
++    (tmp_path / "keep").mkdir()
++    (tmp_path / "keep" / "precious.txt").write_text("do not delete")
++    return tmp_path
++
++
++@pytest.fixture()
++def cfg(ws):
++    return {"configurable": {"workspace": str(ws), "thread_id": "ptc-test"}}
++
++
++def run(code: str, cfg) -> str:
++    return execute_code.invoke({"code": code}, config=cfg)
++
++
++# ---------------------------------------------------------------- pipeline
++def test_chained_pipeline_returns_only_print_output(ws, cfg):
++    script = (
++        'a = read_file("a.py")\n'
++        'b = read_file("b.py")\n'
++        'hits = search_code("def login", ".")\n'
++        'print(f"a={len(a)}ch b={len(b)}ch | {hits.splitlines()[0]}")'
++    )
++    result = run(script, cfg)
++    assert "a=2600ch b=2160ch" in result
++    assert "a.py:1" in result
++    # The whole point: raw tool payloads never enter the window.
++    assert "return 1" not in result
++    assert len(result) < 200
++
++
++def test_no_print_gets_friendly_hint(cfg):
++    result = run("x = 1 + 1", cfg)
++    assert "printed nothing" in result
++    assert "print()" in result
++
++
++def test_runner_output_collapses_to_tail_lines(cfg):
++    script = (
++        'out = run_terminal("seq 1 500")\n'
++        "nums = [l for l in out.splitlines() if l.isdigit()]\n"
++        "print(len(nums))\n"
++        "print(nums[-1])"
++    )
++    result = run(script, cfg)
++    lines = result.strip().splitlines()
++    assert lines[0] == "500"       # line count computed IN the script
++    assert lines[1] == "500"       # 500 lines of seq output never returned
++    assert len(result) < 80
++
++# ------------------------------------------------------------------ caps
++def test_stdout_capped_at_50k(cfg):
++    result = run("print('x' * 120000)", cfg)
++    assert "truncated at 50000" in result
++    assert len(result) < 50_100
++
++
++def test_tool_call_budget_enforced(cfg):
++    script = (
++        "for i in range(60):\n"
++        '    list_files(".")\n'
++        'print("should never see this")'
++    )
++    result = run(script, cfg)
++    assert "50" in result and "budget" in result
++    assert "should never see this" not in result
++
++
++def test_deadline_kills_infinite_loop_inside_worker_thread(cfg, monkeypatch):
++    monkeypatch.setattr(code_exec_tool, "_PTC_TIMEOUT_S", 0.5)
++    with ThreadPoolExecutor(max_workers=1) as pool:
++        future = pool.submit(run, "while True:\n    pass", cfg)
++        result = future.result(timeout=15)   # must come back, not hang
++    assert "time budget" in result
++
++
++def test_oversized_script_rejected(cfg):
++    result = run("print(1)\n" + "# pad\n" * 4000, cfg)
++    assert "exceeds the" in result and "16000" in result
++
++# -------------------------------------------------------- AST allowlist
++REJECTED_SNIPPETS = [
++    "import os",
++    "from os import getcwd",
++    "open('a.py')",
++    "x = (1).__class__",
++    "getattr([], 'append')",
++    "exec('print(1)')",
++    "eval('1+1')",
++    "__import__('os')",
++    "async def f():\n    pass",
++]
++
++
++@pytest.mark.parametrize("snippet", REJECTED_SNIPPETS)
++def test_banned_constructs_rejected(snippet, cfg):
++    assert "rejected" in run(snippet, cfg).lower()
++
++
++def test_rejection_happens_before_any_execution(ws, cfg):
++    script = 'write_file("evil.txt", "x")\nimport os'
++    result = run(script, cfg)
++    assert "rejected" in result.lower()
++    assert not (ws / "evil.txt").exists(), "rejected script must have zero side effects"
++
++
++def test_preloaded_modules_present_but_os_absent(cfg):
++    good = run("print(json.dumps({'r': len(re.findall('a', 'banana')), 's': math.sqrt(16)}))", cfg)
++    assert '"r": 3' in good and '"s": 4.0' in good
++    bad = run("os.getcwd()", cfg)
++    assert "Script error" in bad and "os" in bad
++
++# --------------------------------------------- safety inside the script
++def test_destructive_command_denied_and_never_runs(ws, cfg):
++    script = (
++        'r = run_terminal("rm -rf keep")\n'
++        "print(r.splitlines()[0])"
++    )
++    result = run(script, cfg)
++    assert "⛔" in result and "Safety guard" in result
++    # Real proof nothing executed: the target survived.
++    assert (ws / "keep" / "precious.txt").read_text() == "do not delete"
++
++
++def test_overwrite_checkpoint_enforced_inside_scripts(ws, cfg):
++    script = (
++        'deny = write_file("a.py", "overwritten!")\n'
++        'ok = write_file("fresh.txt", "brand new")\n'
++        "print(deny.splitlines()[0])\n"
++        "print(ok)"
++    )
++    result = run(script, cfg)
++    assert "⛔" in result                       # existing file: denied
++    assert "File written: fresh.txt" in result # new file: allowed, script CONTINUED
++    assert ws.joinpath("a.py").read_text().startswith("def login")
++    assert (ws / "fresh.txt").read_text() == "brand new"
++
++
++def test_tool_failures_degrade_to_strings_not_script_death(cfg):
++    script = (
++        'r = read_file("missing.txt")\n'
++        "print(r[:5])\n"
++        'print("still alive")'
++    )
++    result = run(script, cfg)
++    assert "Error" in result
++    assert "still alive" in result
++
++# ------------------------------------------------------------- wiring
++def test_registry_contains_execute_code_once():
++    from src.graphs.chat_graph import tools
++    names = [t.name for t in tools]
++    assert names.count("execute_code") == 1
++    assert len(names) == 19
++
++
++def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):
++    """Pins the documented two-layer policy: SafeToolNode's SafetyGuard only
++    inspects tool args by NAME, so execute_code is 'safe' at graph level no
++    matter the script text -- the per-inner-call re-check (proven above) is
++    the real control. If someone later 'fixes' the graph guard to string-scan
++    script code, this pin forces a conscious revisit of that policy."""
++    from src.context.safety_guard import SafetyGuard
++    is_safe, _ = SafetyGuard(".").check_tool_call(
++        "execute_code", {"code": 'run_terminal("rm -rf /")'}
++    )
++    assert is_safe is True
++    # ...and the inner guard still catches the SAME command (defense in depth):
++    assert "⛔" in run('print(run_terminal("rm -rf /"))', cfg)
++
++
++def test_no_recursion_no_delegation_inside_scripts(cfg):
++    assert "Script error" in run("execute_code('print(1)')", cfg)
++    assert "Script error" in run('delegate_to_subagent("code", "x")', cfg)
++
++
++def test_workspace_paths_resolve_to_session_workspace(ws, cfg):
++    run('write_file("nested/rel.txt", "here")', cfg)
++    assert (ws / "nested" / "rel.txt").read_text() == "here"
++    assert not os.path.exists(os.path.join(os.getcwd(), "nested", "rel.txt"))
+diff --git a/src/tools/code_exec_tool.py b/src/tools/code_exec_tool.py
+new file mode 100644
+index 00000000..dfaa8449
+--- /dev/null
++++ b/src/tools/code_exec_tool.py
+@@ -0,0 +1,487 @@
++"""
++execute_code -- Programmatic Tool Calling (PTC)
++================================================
++
++Lets the LLM write ONE Python script that calls PulseAI's in-process tools
++directly, collapsing multi-step tool chains into a single tool call. Only
++the script's ``print()`` output re-enters the conversation window.
++
++Pattern lifted from NousResearch hermes-agent
++(``tools/code_execution_tool.py``, ledger §29 -> debt D18). Design deltas
++from their version, all verified before writing:
++
++* **No RPC.** Their tools can live on remote machines (Docker/SSH) so they
++  shuttle calls over a Unix socket / request files. Ours are in-process
++  Python functions -- the "transport" is a function call. The whole UDS
++  layer is skipped.
++* **Custom print, not redirect_stdout.** This process is a server: the
++  dashboard, event bus and other threads share sys.stdout. A script-scoped
++  capped buffer replaces ``print`` instead of hijacking the global stream.
++* **Deadline via per-thread sys.settrace.** ToolNode runs tool calls on
++  worker threads; ``signal.alarm`` is main-thread-only. A line-level trace
++  hook enforces the wall-clock budget in ANY thread. Honest limit: a single
++  pathological C-level expression (``10**10**9``) runs no Python lines and
++  can overshoot until it finishes; ``run_terminal`` is additionally
++  time-boxed by running it on a bounded daemon thread.
++* **SafetyGuard is re-checked per inner call.** The graph-level guard only
++  inspects top-level tool args by tool NAME (SafetyGuard.check_tool_call),
++  so script text sails past it. Every inner call of write_file (overwrite),
++  edit_file (critical path) and run_terminal/start_terminal (dangerous
++  command) is re-validated; unsafe ops are DENIED with guidance (auto-deny,
++  hermes delegate_tool.py worker-thread policy) because a script cannot
++  surface the human approval prompt.
++* **Iteration budget.** Hermes refunds PTC iterations from their budget.
++  Our analog is structural: LangGraph budgets node executions, and an
++  execute_code turn is exactly ONE tool call no matter how many inner calls
++  it makes -- the refund is built in.
++
++This is a set of guardrails for cooperative model-written scripts on the
++user's own machine, NOT a security boundary against malicious code: the
++real boundaries remain workspace path resolution inside every tool and the
++SafetyGuard approval checkpoints.
++"""
++
++import ast
++import builtins
++import collections
++import datetime
++import functools
++import itertools
++import json
++import math
++import random
++import re
++import statistics
++import string
++import sys
++import textwrap
++import threading
++import time
++from pathlib import Path
++from typing import Any
++
++from langchain_core.runnables import RunnableConfig
++from langchain_core.tools import tool
++
++from src.context.safety_guard import SafetyGuard
++from src.tools.file_tools import (
++    read_file,
++    list_files,
++    search_code,
++    write_file,
++    edit_file,
++)
++from src.tools.terminal_tools import (
++    run_terminal,
++    start_terminal,
++    check_terminal,
++    stop_terminal,
++    list_terminal_processes,
++    cleanup_terminal_processes,
++    read_terminal_output,
++)
++from src.tools.web_tools import web_search, web_fetch
++
++# ---------------------------------------------------------------------------
++# Budgets (hermes: 300s / 50 calls / 50KB stdout -- verified §29)
++# ---------------------------------------------------------------------------
++_PTC_TIMEOUT_S = 120.0
++_PTC_MAX_TOOL_CALLS = 50
++_PTC_MAX_STDOUT_CHARS = 50_000
++_PTC_MAX_SCRIPT_CHARS = 16_000
++
++# Pure-stdlib helper modules preloaded into the script namespace. Import
++# statements are rejected outright, so this allowlist IS the module menu.
++_PRELOADED_MODULES: dict[str, Any] = {
++    "re": re,
++    "json": json,
++    "math": math,
++    "datetime": datetime,
++    "collections": collections,
++    "itertools": itertools,
++    "functools": functools,
++    "textwrap": textwrap,
++    "statistics": statistics,
++    "string": string,
++    "random": random,
++}
++
++# Names a script may not load. getattr/setattr/delattr are banned because
++# they'd defeat the dunder-attribute ban with string-built names
++# (getattr(x, "__" + "class__")); open/eval/exec/compile are obvious.
++_BANNED_NAMES = frozenset({
++    "exec", "eval", "compile", "open", "input", "globals", "locals",
++    "vars", "dir", "getattr", "setattr", "delattr", "help", "exit",
++    "quit", "breakpoint", "super", "memoryview", "__import__",
++    "__builtins__",
++})
++
++# Builtin callables kept available, plus exception types for try/except.
++_SAFE_BUILTIN_NAMES = (
++    "abs", "all", "any", "bin", "bool", "bytearray", "bytes", "chr",
++    "complex", "dict", "divmod", "enumerate", "filter", "float",
++    "format", "frozenset", "hash", "hex", "int", "isinstance",
++    "issubclass", "iter", "len", "list", "map", "max", "min", "next",
++    "oct", "ord", "pow", "range", "repr", "reversed", "round", "set",
++    "slice", "sorted", "str", "sum", "tuple", "type", "zip",
++    "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
++    "RuntimeError", "StopIteration", "ZeroDivisionError",
++    "AttributeError", "NameError", "NotImplementedError", "OSError",
++)
++_SAFE_BUILTINS: dict[str, Any] = {
++    name: getattr(builtins, name) for name in _SAFE_BUILTIN_NAMES
++}
++_SAFE_BUILTINS.update({"True": True, "False": False, "None": None})
++
++
++class _DeadlineExceeded(Exception):
++    """Raised by the trace hook when the wall-clock budget is spent."""
++
++
++class _CallBudgetExceeded(Exception):
++    """Raised by a tool stub past _PTC_MAX_TOOL_CALLS inner calls."""
++
++
++class _CappedStdout:
++    """Script-private stdout: appends up to the cap, then drops and flags.
++
++    Deliberately NOT sys.stdout redirection -- other threads (dashboard,
++    event bus) share the process stream.
++    """
++
++    def __init__(self, cap: int = _PTC_MAX_STDOUT_CHARS):
++        self._cap = cap
++        self._chunks: list[str] = []
++        self._len = 0
++        self.truncated = False
++
++    def write(self, text: str) -> None:
++        if self._len >= self._cap:
++            self.truncated = True
++            return
++        remaining = self._cap - self._len
++        if len(text) > remaining:
++            self._chunks.append(text[:remaining])
++            self._len = self._cap
++            self.truncated = True
++        else:
++            self._chunks.append(text)
++            self._len += len(text)
++
++    def getvalue(self) -> str:
++        return "".join(self._chunks)
++
++
++def _validate_script(tree: ast.AST) -> str | None:
++    """Reject scripts outside the cooperative-script allowlist.
++
++    Returns a human/model-readable reason, or None if the script is OK.
++    Checked BEFORE anything executes: a rejected script has zero effects.
++    """
++    for node in ast.walk(tree):
++        if isinstance(node, (ast.Import, ast.ImportFrom)):
++            return (
++                f"line {node.lineno}: import statements are disabled inside "
++                f"execute_code. Preloaded modules: "
++                f"{', '.join(sorted(_PRELOADED_MODULES))}."
++            )
++        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
++            return (
++                f"line {node.lineno}: private/dunder attribute access "
++                f"(.{node.attr}) is disabled."
++            )
++        if (
++            isinstance(node, ast.Name)
++            and isinstance(node.ctx, ast.Load)
++            and node.id in _BANNED_NAMES
++        ):
++            return (
++                f"line {node.lineno}: '{node.id}' is not available "
++                f"inside execute_code."
++            )
++        if isinstance(node, (ast.AsyncFunctionDef, ast.AsyncFor, ast.AsyncWith, ast.Await)):
++            return f"line {node.lineno}: async constructs are not supported in scripts."
++    return None
++
++
++class _InnerCallDispatcher:
++    """Builds the script-visible tool functions over the real tool objects.
++
++    Every stub: (1) counts against the call budget, (2) re-runs the
++    SafetyGuard for checkpointed operations and auto-denies, (3) converts
++    tool exceptions into error strings so one bad call in a loop doesn't
++    kill the script. Budget/deadline exception types always re-raise.
++    """
++
++    # Inner ops that must pass SafetyGuard before dispatch, mirroring the
++    # graph-level checkpoints the script text bypasses (see module docstring).
++    # Values map the stub's args dict -> the args shape the guard inspects.
++    _GUARDED_KEY = {
++        "write_file": "path",
++        "edit_file": "path",
++        "run_terminal": "command",
++        "start_terminal": "command",
++    }
++
++    # Guards are stateless apart from their workspace, so keep one per
++    # distinct workspace (SafeToolNode's caching pattern, same reasoning).
++    _guards: dict[str, SafetyGuard] = {}
++    _guards_lock = threading.Lock()
++
++    def __init__(self, config: RunnableConfig):
++        self._config = config
++        workspace = (config or {}).get("configurable", {}).get("workspace", ".")
++        self._workspace = str(Path(workspace).resolve())
++        self._calls = 0
++        self._deadline = 0.0
++
++    def set_deadline(self, deadline: float) -> None:
++        self._deadline = deadline
++
++    def _guard(self) -> SafetyGuard:
++        with self._guards_lock:
++            guard = self._guards.get(self._workspace)
++            if guard is None:
++                guard = SafetyGuard(self._workspace)
++                self._guards[self._workspace] = guard
++            return guard
++
++    def _deny(self, name: str, warning: str) -> str:
++        first_line = warning.strip().splitlines()[0] if warning else "unsafe operation"
++        return (
++            f"⛔ Safety guard blocked {name}() inside the script: {first_line}\n"
++            "A script cannot ask the human for approval. Ask the user first, "
++            f"then run {name} as a normal tool call so they can confirm."
++        )
++
++    def _count_call(self) -> None:
++        self._calls += 1
++        if self._calls > _PTC_MAX_TOOL_CALLS:
++            raise _CallBudgetExceeded(
++                f"script made more than {_PTC_MAX_TOOL_CALLS} tool calls "
++                f"({_PTC_MAX_TOOL_CALLS} is the budget per script)"
++            )
++
++    def _remaining(self) -> float:
++        return max(1.0, self._deadline - time.monotonic())
++
++    def _dispatch(self, name: str, tool_obj, args: dict[str, Any], needs_config: bool) -> str:
++        self._count_call()
++
++        guard_key = self._GUARDED_KEY.get(name)
++        if guard_key is not None:
++            is_safe, warning = self._guard().check_tool_call(name, {guard_key: args.get(guard_key, "")})
++            if not is_safe:
++                return self._deny(name, warning)
++
++        def _invoke() -> Any:
++            if needs_config:
++                return tool_obj.invoke(args, config=self._config)
++            return tool_obj.invoke(args)
++
++        try:
++            # run_terminal is the one unbounded inner call (subprocess.run
++            # with no timeout). Give it only the script's remaining budget
++            # on a daemon thread so a hung command cannot outlive the script.
++            if name == "run_terminal":
++                box: dict[str, Any] = {}
++
++                def _run() -> None:
++                    try:
++                        box["result"] = _invoke()
++                    except Exception as error:  # converted to string below
++                        box["error"] = error
++
++                worker = threading.Thread(target=_run, daemon=True)
++                worker.start()
++                worker.join(self._remaining())
++                if worker.is_alive():
++                    return (
++                        f"⏱️ Error: run_terminal({args.get('command', '')!r}) did not "
++                        "finish within the script's time budget. For long commands "
++                        "use start_terminal + check_terminal instead."
++                    )
++                if "error" in box:
++                    raise box["error"]
++                result = box.get("result")
++            else:
++                result = _invoke()
++        except (_DeadlineExceeded, _CallBudgetExceeded):
++            raise
++        except Exception as error:
++            return f"Error: {name}() failed: {type(error).__name__}: {error}"
++
++        return result if isinstance(result, str) else str(result)
++
++    def namespace(self) -> dict[str, Any]:
++        """Script-visible tool functions with friendly signatures."""
++        return {
++            # File tools
++            "read_file": lambda path: self._dispatch(
++                "read_file", read_file, {"path": path}, True),
++            "list_files": lambda path=".": self._dispatch(
++                "list_files", list_files, {"path": path}, True),
++            "search_code": lambda query, path=".": self._dispatch(
++                "search_code", search_code, {"query": query, "path": path}, True),
++            "write_file": lambda path, content: self._dispatch(
++                "write_file", write_file, {"path": path, "content": content}, True),
++            "edit_file": lambda path, old_text, new_text: self._dispatch(
++                "edit_file", edit_file,
++                {"path": path, "old_text": old_text, "new_text": new_text}, True),
++            # Terminal tools
++            "run_terminal": lambda command: self._dispatch(
++                "run_terminal", run_terminal, {"command": command}, True),
++            "start_terminal": lambda command: self._dispatch(
++                "start_terminal", start_terminal, {"command": command}, True),
++            "check_terminal": lambda process_id, wait_seconds=0: self._dispatch(
++                "check_terminal", check_terminal,
++                {"process_id": process_id, "wait_seconds": wait_seconds}, False),
++            "stop_terminal": lambda process_id: self._dispatch(
++                "stop_terminal", stop_terminal, {"process_id": process_id}, False),
++            "list_terminal_processes": lambda: self._dispatch(
++                "list_terminal_processes", list_terminal_processes, {}, False),
++            "cleanup_terminal_processes": lambda: self._dispatch(
++                "cleanup_terminal_processes", cleanup_terminal_processes, {}, False),
++            "read_terminal_output": lambda process_id, start_line=1, end_line=200: self._dispatch(
++                "read_terminal_output", read_terminal_output,
++                {"process_id": process_id, "start_line": start_line, "end_line": end_line}, False),
++            # Web tools
++            "web_search": lambda query, max_results=5: self._dispatch(
++                "web_search", web_search, {"query": query, "max_results": max_results}, False),
++            "web_fetch": lambda url, max_chars=12_000: self._dispatch(
++                "web_fetch", web_fetch, {"url": url, "max_chars": max_chars}, False),
++        }
++
++
++def _run_script(code: str, config: RunnableConfig) -> str:
++    """Validate, sandbox-execute, and return ONLY what the script prints."""
++    if len(code) > _PTC_MAX_SCRIPT_CHARS:
++        return (
++            f"⛔ Script rejected: {len(code)} chars exceeds the "
++            f"{_PTC_MAX_SCRIPT_CHARS}-char limit. Split the work into smaller scripts."
++        )
++
++    try:
++        tree = ast.parse(code)
++    except SyntaxError as error:
++        return f"⛔ Script has a Python syntax error (line {error.lineno}): {error.msg}"
++
++    rejection = _validate_script(tree)
++    if rejection is not None:
++        return f"⛔ Script rejected: {rejection}"
++
++    out = _CappedStdout()
++
++    def _ptc_print(*args: Any, sep: str = " ", end: str = "\n", file: Any = None, flush: bool = False) -> None:
++        # `file` is accepted for signature familiarity and deliberately
++        # ignored: everything the script "prints" goes to its private buffer.
++        out.write(sep.join(str(a) for a in args) + end)
++
++    dispatcher = _InnerCallDispatcher(config)
++    dispatcher.set_deadline(time.monotonic() + _PTC_TIMEOUT_S)
++
++    namespace: dict[str, Any] = {"__builtins__": dict(_SAFE_BUILTINS), "print": _ptc_print}
++    namespace.update(_PRELOADED_MODULES)
++    namespace.update(dispatcher.namespace())
++
++    previous_trace = sys.gettrace()
++
++    def _tracer(frame, event, arg):  # noqa: ANN001, ANN202 - CPython trace API
++        if event in ("line", "call"):
++            if time.monotonic() > dispatcher._deadline:
++                raise _DeadlineExceeded(
++                    f"script exceeded its {_PTC_TIMEOUT_S:.0f}s time budget"
++                )
++        return _tracer
++
++    error_report: str | None = None
++    sys.settrace(_tracer)
++    try:
++        exec(compile(tree, "<execute_code>", "exec"), namespace)  # noqa: S102 - guarded sandbox
++    except _DeadlineExceeded as error:
++        error_report = f"⏱️ {error}"
++    except _CallBudgetExceeded as error:
++        error_report = f"⛔ {error}"
++    except Exception as error:
++        line = "?"
++        tb = sys.exc_info()[2]
++        while tb is not None:
++            if tb.tb_frame.f_code.co_filename == "<execute_code>":
++                line = str(tb.tb_lineno)
++                break
++            tb = tb.tb_next
++        error_report = (
++            f"⛔ Script error (line {line}): "
++            f"{type(error).__name__}: {error}"
++        )
++    finally:
++        sys.settrace(previous_trace)
++
++    stdout = out.getvalue()
++    if out.truncated:
++        stdout += f"\n... [stdout truncated at {_PTC_MAX_STDOUT_CHARS} chars]"
++
++    if error_report is not None:
++        if stdout.strip():
++            return f"{error_report}\n--- partial output before the failure ---\n{stdout}"
++        return error_report
++
++    if not stdout.strip():
++        return (
++            "✅ Script finished but printed nothing. "
++            "Only print() output is returned -- print the result you want back."
++        )
++    return stdout
++
++
++@tool
++def execute_code(code: str, config: RunnableConfig) -> str:
++    """
++    Run ONE Python script that can call the file/terminal/web tools as
++    functions, then return ONLY what the script prints.
++
++    WHEN TO USE:
++    - A task needs 3+ chained tool steps (read several files, search, then
++      run a check) -- the script does them all in ONE call instead of many
++      separate tool calls.
++    - Raw tool output would be huge (whole files, long test logs): let the
++      script filter it and print only the few lines that matter.
++
++    WHEN NOT TO USE:
++    - A single simple action (one read, one edit) -- call the tool directly.
++    - Anything needing human approval (overwriting an existing file, editing
++      secrets, destructive shell commands): those are DENIED inside scripts.
++      Run them as normal tool calls so the user can confirm.
++
++    FUNCTIONS AVAILABLE INSIDE THE SCRIPT (same behavior as the tools):
++        read_file(path)                       -> file contents
++        list_files(path=".")                  -> directory listing
++        search_code(query, path=".")          -> grep-style matches
++        write_file(path, content)             -> write (blocked if file exists)
++        edit_file(path, old_text, new_text)   -> targeted edit
++        run_terminal(command)                 -> stdout/stderr of a shell command
++        start_terminal(command)               -> long-running process
++        check_terminal(process_id, wait_seconds=0)
++        stop_terminal(process_id)
++        list_terminal_processes()
++        cleanup_terminal_processes()
++        read_terminal_output(process_id, start_line=1, end_line=200)
++        web_search(query, max_results=5)
++        web_fetch(url, max_chars=12000)
++
++    RULES:
++    - No import statements. Preloaded modules: re, json, math, datetime,
++      collections, itertools, functools, textwrap, statistics, string, random.
++    - No open/eval/exec/getattr or dunder attributes.
++    - Budgets: 120s wall clock, 50 tool calls, 50KB of printed output.
++    - Errors inside the script come back as strings; inspect them and adapt.
++    - ALWAYS print() your final result -- only printed text is returned.
++
++    EXAMPLE:
++        report = read_file("app.py")
++        matches = search_code("def login", "src")
++        tests = run_terminal("python -m pytest -q")
++        last = tests.strip().splitlines()[-1]
++        print(f"app.py: {len(report)} chars | login defs at:\\n{matches}\\n{last}")
++    """
++    return _run_script(code, config)
+-- 
+2.47.3
+
+
+From 9fdb15e0027fa66e42b29c8be03d0576cf7b52dd Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 09:34:07 +0000
+Subject: [PATCH 2/3] feat(context+tools): session_search -- zero-LLM
+ past-session recall (D16, hermes steal #2) -- FTS5 index over checkpoint
+ threads w/ latest-checkpoint watermark sync, langgraph-serde decode,
+ bookended discovery cards + anchored scroll + browse; sub-agent demotion +
+ compaction-payload ingest skip (their #19434/#43175 lessons); tool #20; +18
+ pins, 225 green
+
+---
+ ARCHITECTURE_REVIEW.md           |  57 +++++
+ src/context/session_index.py     | 364 +++++++++++++++++++++++++++++++
+ src/graphs/chat_graph.py         |   4 +
+ src/tests/test_ptc.py            |   3 +-
+ src/tests/test_session_search.py | 232 ++++++++++++++++++++
+ src/tools/session_search_tool.py | 229 +++++++++++++++++++
+ 6 files changed, 888 insertions(+), 1 deletion(-)
+ create mode 100644 src/context/session_index.py
+ create mode 100644 src/tests/test_session_search.py
+ create mode 100644 src/tools/session_search_tool.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 2da173c5..da901814 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1150,3 +1150,60 @@ delegation inside scripts, workspace path isolation. Suite: 207 green
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ — remaining: D9, D10, D13, D14, D15-remainder, D16 (session-
+ search shape), D19, D20, D21, D22, C1, P2.
++
++## 31. D16 — session_search: zero-LLM recall of past sessions (2026-08-07)
++
++Second hermes steal landed (§29 adoption step #2; D16 spec REDESIGNED at
++§29 from "LLM playbook" to their session-search shape). New tool #20:
++`session_search` — three modes inferred from args (their single-shape
++design, tools/session_search_tool.py:1-46): DISCOVERY (query -> top
++sessions with match window + first/last-3-message bookends), SCROLL
++(session_id + around_message_id -> anchored window with page hints),
++BROWSE (recent sessions). Bonus: session_id alone = overview. Cost of
++recall: ONE sqlite query, ZERO model calls.
++
++Their two hard-won lessons are adopted, not just copied:
++- #19434 (summaries drift + cron blindness): full message TEXT is
++  indexed, never summaries; sub-agent threads (our automation class,
++  `sub-` prefix) are demoted exactly like their cron sessions — shown
++  ONLY when no interactive session matches, and labeled.
++- #43175 (compaction payloads re-inflate context): machine handoff
++  summaries skipped AT INGEST; we adopt their marker prefixes so D22's
++  future compressor emits markers the index already ignores.
++
++Storage-side facts verified empirically before building (suite pins them):
++- Checkpoints live at ~/.pulseai/sessions.db, msgpack-serialized; decode
++  MUST use langgraph's own serde (SqliteSaver.serde.loads_typed) — never
++  hand-parse (verified against a live SqliteSaver-written DB).
++- The latest checkpoint per thread holds the FULL message list
++  (channel state), so ingest = latest-checkpoint-per-thread with a
++  last-checkpoint-id watermark (same shape as chunk_index's mtime sync;
++  unchanged sync is one no-op scan — pinned).
++- Context layers never pollute recall: build_ai_messages returns a fresh
++  request-only list (context_engine.py:415-461), state untouched — so
++  only user/assistant text is indexed; system personas and tool dumps are
++  BM25 poison and excluded at ingest (pinned with sentinel strings).
++
++Budgets: 300-row FTS scan before per-thread dedup, 5 discovery cards,
++message previews 400 chars, cards ~8KB total, scroll window <= 20.
++
++Pins: src/tests/test_session_search.py 18/18 against REAL SqliteSaver-
++written fixtures — discovery card contract, current-thread exclusion,
++sub-agent demotion both directions, compaction/persona/tool payloads
++unsearchable, list-content flattening, query-over-args precedence, scroll
++windows + page hints both directions, bad-anchor friendliness, browse
++order + exclusion, overview, long-message caps, incremental re-ingest on
++checkpoint bump, free unchanged sync, fresh-install friendliness, zero-
++LLM source pin (module can never import an LLM without red tests),
++20-tool registry. Suite: 225 green (107s).
++
++Sandbox-eats-work interlude (recorded, ledger honesty): mid-round the
++workspace rolled back to a PARTIAL snapshot (no .git, no src/context,
++no src/tests) while building this. Full clone + `git am` of the D18
++patch restored everything in minutes — proof the patch-per-round flow is
++the real durability layer. The founder's repo is source of truth; the
++sandbox is a scratchpad.
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ — remaining: D9, D10, D13, D14, D15-remainder, D19,
++D20, D21, D22, C1, P2.
+diff --git a/src/context/session_index.py b/src/context/session_index.py
+new file mode 100644
+index 00000000..0f3eaa4b
+--- /dev/null
++++ b/src/context/session_index.py
+@@ -0,0 +1,364 @@
++"""
++SessionIndex -- zero-LLM long-term conversation recall
++======================================================
++
++FTS5 full-text index over PAST conversations (LangGraph checkpoint
++threads). Shape lifted from hermes-agent's session_search_tool (§29 ->
++D16), including their hard-won lessons:
++
++* **No LLM in the search path.** They once indexed LLM session summaries;
++  a cron job demoted them and recall went blind (#19434). Full text never
++  drifts; summaries do. This module imports no LLM code and never will.
++* **Source demotion** (#19434's other half): automation sessions must not
++  starve interactive ones. Our automation class is sub-agent threads
++  (``sub-`` prefix); they are returned ONLY when no interactive session
++  matches, and are labeled.
++* **Compaction-payload exclusion** (#43175): machine-generated handoff
++  summaries are skipped AT INGEST (we adopt their marker prefixes so D22's
++  compressor writes markers the index already knows to skip).
++
++Storage-side facts these choices stand on (verified, not assumed):
++
++* LangGraph SqliteSaver at ``~/.pulseai/sessions.db`` keeps one row per
++  checkpoint, msgpack-serialized; the LATEST checkpoint per thread holds
++  the full message list. Decoding MUST go through langgraph's own serde
++  (``SqliteSaver.serde.loads_typed``) -- never hand-parse the blob.
++* The context engine's 16 layers are REQUEST-ONLY
++  (context_engine.build_ai_messages returns a fresh list; state is never
++  mutated), so persisted threads are clean user/assistant/tool history.
++  Only user + assistant text is indexed; system personas and tool dumps
++  would poison BM25 with repeated boilerplate.
++* Watermark sync: per thread we store the ingested checkpoint_id; a sync
++  re-ingests only threads whose latest checkpoint moved. Same shape as
++  chunk_index's per-file mtime sync.
++"""
++
++from __future__ import annotations
++
++import os
++import sqlite3
++import threading
++from typing import Any
++
++# chat_graph.py:_CHECKPOINT_DB duplicates this path (graph checkpointer).
++# Keep the literal in both places: importing chat_graph from here would be
++# circular (chat_graph imports the tool that imports this).
++DEFAULT_CHECKPOINT_DB = os.path.join(
++    os.path.expanduser("~"), ".pulseai", "sessions.db"
++)
++DEFAULT_INDEX_DB = os.path.join(
++    os.path.expanduser("~"), ".pulseai", "session_index.db"
++)
++
++# Machine-generated handoff summaries (never user content). Adopted from
++# hermes (#43175); our D22 compressor will write these same markers.
++_COMPACTION_PREFIXES = (
++    "[CONTEXT COMPACTION",
++    "[CONTEXT SUMMARY]:",
++)
++
++# How many raw FTS rows discovery scans before per-thread dedup. Well above
++# the handful of sessions a query returns, so interactive matches buried
++# under a wall of sub-agent hits still surface (their _DISCOVER_SCAN_LIMIT).
++_DISCOVER_SCAN_LIMIT = 300
++
++_SUBAGENT_PREFIX = "sub-"
++_UA_ROLES = ("user", "assistant")
++
++
++def _content_to_text(content: Any) -> str:
++    """Flatten LangChain message content (str or list-of-parts) to text."""
++    if isinstance(content, str):
++        return content
++    if isinstance(content, list):
++        parts = []
++        for part in content:
++            if isinstance(part, dict) and part.get("type") == "text":
++                parts.append(str(part.get("text", "")))
++            elif isinstance(part, str):
++                parts.append(part)
++        return "\n".join(p for p in parts if p)
++    return ""
++
++
++def _is_compaction_summary(text: str) -> bool:
++    stripped = text.lstrip()
++    return any(stripped.startswith(p) for p in _COMPACTION_PREFIXES)
++
++
++class SessionIndex:
++    """Incremental FTS5 index over checkpointed conversation threads."""
++
++    def __init__(
++        self,
++        checkpoint_db: str = DEFAULT_CHECKPOINT_DB,
++        index_db: str = DEFAULT_INDEX_DB,
++    ):
++        self._checkpoint_db = checkpoint_db
++        self._index_db = index_db
++        self._lock = threading.Lock()
++        os.makedirs(os.path.dirname(os.path.abspath(index_db)), exist_ok=True)
++        self._fts_ok = True
++        with self._connect() as con:
++            con.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS sessions(
++                    thread_id TEXT PRIMARY KEY,
++                    title TEXT,
++                    started_ts TEXT,
++                    last_ts TEXT,
++                    msg_count INTEGER,
++                    source TEXT,
++                    last_checkpoint_id TEXT
++                );
++                CREATE TABLE IF NOT EXISTS messages(
++                    id INTEGER PRIMARY KEY AUTOINCREMENT,
++                    thread_id TEXT NOT NULL,
++                    idx INTEGER NOT NULL,
++                    role TEXT NOT NULL,
++                    content TEXT NOT NULL
++                );
++                CREATE INDEX IF NOT EXISTS idx_messages_thread
++                    ON messages(thread_id, idx);
++                """
++            )
++            try:
++                con.executescript(
++                    """
++                    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
++                        content,
++                        thread_id UNINDEXED,
++                        message_id UNINDEXED
++                    );
++                    """
++                )
++            except sqlite3.OperationalError:
++                # FTS5 unavailable (exotic sqlite build): discovery falls
++                # back to LIKE scans over `messages`. Same spirit as
++                # chunk_index's degraded paths -- recall should degrade,
++                # not die.
++                self._fts_ok = False
++
++    # ------------------------------------------------------------ plumbing
++    def _connect(self) -> sqlite3.Connection:
++        con = sqlite3.connect(self._index_db, timeout=30)
++        con.execute("PRAGMA journal_mode=WAL")
++        return con
++
++    # ---------------------------------------------------------------- sync
++    def sync(self) -> dict[str, int]:
++        """Re-ingest threads whose latest checkpoint moved. Watermark-cheap:
++        one scan of the checkpoints table when nothing changed."""
++        if not os.path.exists(self._checkpoint_db):
++            return {"threads": 0, "reingested": 0}
++
++        from langgraph.checkpoint.sqlite import SqliteSaver
++
++        src = sqlite3.connect(self._checkpoint_db, timeout=30)
++        try:
++            latest = src.execute(
++                """
++                SELECT thread_id, checkpoint_id, type, checkpoint
++                FROM checkpoints
++                WHERE checkpoint_ns = ''
++                  AND rowid IN (
++                      SELECT MAX(rowid) FROM checkpoints
++                      WHERE checkpoint_ns = '' GROUP BY thread_id
++                  )
++                """
++            ).fetchall()
++        except sqlite3.OperationalError:
++            # checkpoints table not created yet (fresh install).
++            src.close()
++            return {"threads": 0, "reingested": 0}
++
++        saver = SqliteSaver(src)  # only used for its serde; no .setup()
++
++        stats = {"threads": len(latest), "reingested": 0}
++        with self._lock, self._connect() as con:
++            alive_ids = set()
++            for thread_id, ckpt_id, typ, blob in latest:
++                alive_ids.add(thread_id)
++                done = con.execute(
++                    "SELECT last_checkpoint_id FROM sessions WHERE thread_id = ?",
++                    (thread_id,),
++                ).fetchone()
++                if done and done[0] == ckpt_id:
++                    continue  # watermark: unchanged thread
++                try:
++                    checkpoint = saver.serde.loads_typed((typ, blob))
++                except Exception:
++                    continue  # one corrupt checkpoint must not stall sync
++                self._ingest_thread(con, thread_id, ckpt_id, checkpoint)
++                stats["reingested"] += 1
++
++            # Threads pruned from the checkpoint DB disappear from recall
++            # too (they're gone; pretending otherwise would resurrect them).
++            stale = con.execute(
++                "SELECT thread_id FROM sessions"
++            ).fetchall()
++            for (tid,) in stale:
++                if tid not in alive_ids:
++                    self._delete_thread(con, tid)
++        src.close()
++        return stats
++
++    def _delete_thread(self, con: sqlite3.Connection, thread_id: str) -> None:
++        con.execute("DELETE FROM sessions WHERE thread_id = ?", (thread_id,))
++        con.execute("DELETE FROM messages WHERE thread_id = ?", (thread_id,))
++        if self._fts_ok:
++            con.execute("DELETE FROM messages_fts WHERE thread_id = ?", (thread_id,))
++
++    def _ingest_thread(
++        self, con: sqlite3.Connection, thread_id: str, ckpt_id: str, checkpoint: dict
++    ) -> None:
++        """Replace a thread's rows transactionally (caller holds the txn)."""
++        raw_msgs = checkpoint.get("channel_values", {}).get("messages", [])
++        ts = str(checkpoint.get("ts", ""))
++
++        ua: list[tuple[str, str]] = []
++        for msg in raw_msgs:
++            kind = type(msg).__name__
++            if kind == "HumanMessage":
++                role = "user"
++            elif kind == "AIMessage":
++                role = "assistant"
++            else:
++                continue  # system personas, tool dumps: BM25 poison
++            text = _content_to_text(getattr(msg, "content", ""))
++            if not text.strip() or _is_compaction_summary(text):
++                continue
++            ua.append((role, text))
++
++        self._delete_thread(con, thread_id)
++        for idx, (role, text) in enumerate(ua):
++            cur = con.execute(
++                "INSERT INTO messages(thread_id, idx, role, content) VALUES(?,?,?,?)",
++                (thread_id, idx, role, text),
++            )
++            if self._fts_ok:
++                con.execute(
++                    "INSERT INTO messages_fts(content, thread_id, message_id) VALUES(?,?,?)",
++                    (text, thread_id, cur.lastrowid),
++                )
++
++        title = next((t for r, t in ua if r == "user"), "(no user messages)")
++        title = title.strip().splitlines()[0][:80] if title.strip() else "(empty)"
++        source = "sub" if str(thread_id).startswith(_SUBAGENT_PREFIX) else "interactive"
++        con.execute(
++            """
++            INSERT OR REPLACE INTO sessions
++                (thread_id, title, started_ts, last_ts, msg_count, source, last_checkpoint_id)
++            VALUES (?, ?, ?, ?, ?, ?, ?)
++            """,
++            (thread_id, title, ts, ts, len(ua), source, ckpt_id),
++        )
++
++    # -------------------------------------------------------------- queries
++    def fts_hits(self, query: str, scan_limit: int = _DISCOVER_SCAN_LIMIT) -> list[dict]:
++        """BM25-ordered raw hits: [{thread_id, message_id, snippet}]."""
++        with self._lock, self._connect() as con:
++            if self._fts_ok:
++                try:
++                    rows = con.execute(
++                        """
++                        SELECT thread_id, message_id,
++                               snippet(messages_fts, 0, '', '', '…', 32)
++                        FROM messages_fts
++                        WHERE messages_fts MATCH ?
++                        ORDER BY rank LIMIT ?
++                        """,
++                        (query, scan_limit),
++                    ).fetchall()
++                    return [
++                        {"thread_id": t, "message_id": m, "snippet": s}
++                        for t, m, s in rows
++                    ]
++                except sqlite3.OperationalError:
++                    return []  # un-parseable MATCH syntax = no hits
++            # LIKE fallback (FTS5 missing)
++            like = f"%{query}%"
++            rows = con.execute(
++                "SELECT id, thread_id, content FROM messages WHERE content LIKE ? LIMIT ?",
++                (like, scan_limit),
++            ).fetchall()
++            out = []
++            for mid, tid, content in rows:
++                pos = content.lower().find(query.lower())
++                start = max(0, pos - 60)
++                out.append({
++                    "thread_id": tid,
++                    "message_id": mid,
++                    "snippet": ("…" if start else "") + content[start:pos + 60] + "…",
++                })
++            return out
++
++    def sessions_for(self, thread_ids: list[str]) -> dict[str, dict]:
++        """Session metadata rows keyed by thread_id (preserves input order)."""
++        if not thread_ids:
++            return {}
++        marks = ",".join("?" for _ in thread_ids)
++        with self._lock, self._connect() as con:
++            rows = con.execute(
++                f"SELECT thread_id, title, started_ts, msg_count, source "
++                f"FROM sessions WHERE thread_id IN ({marks})",
++                thread_ids,
++            ).fetchall()
++        by_id = {
++            r[0]: {"title": r[1], "started_ts": r[2], "msg_count": r[3], "source": r[4]}
++            for r in rows
++        }
++        return {tid: by_id[tid] for tid in thread_ids if tid in by_id}
++
++    def message_by_id(self, message_id: int) -> tuple[str, int] | None:
++        with self._lock, self._connect() as con:
++            row = con.execute(
++                "SELECT thread_id, idx FROM messages WHERE id = ?", (message_id,)
++            ).fetchone()
++        return (row[0], row[1]) if row else None
++
++    def window(self, thread_id: str, center_idx: int, radius: int) -> list[dict]:
++        """Messages idx in [center-radius, center+radius] for a thread."""
++        with self._lock, self._connect() as con:
++            rows = con.execute(
++                "SELECT idx, role, content FROM messages "
++                "WHERE thread_id = ? AND idx BETWEEN ? AND ? ORDER BY idx",
++                (thread_id, center_idx - radius, center_idx + radius),
++            ).fetchall()
++        return [{"idx": i, "role": r, "content": c} for i, r, c in rows]
++
++    def bookends(self, thread_id: str, n: int = 3) -> tuple[list[dict], list[dict]]:
++        """First n and last n user/assistant messages (their bookend shape)."""
++        with self._lock, self._connect() as con:
++            first = con.execute(
++                "SELECT idx, role, content FROM messages WHERE thread_id = ? "
++                "ORDER BY idx LIMIT ?",
++                (thread_id, n),
++            ).fetchall()
++            last = con.execute(
++                "SELECT idx, role, content FROM messages WHERE thread_id = ? "
++                "ORDER BY idx DESC LIMIT ?",
++                (thread_id, n),
++            ).fetchall()
++        head = [{"idx": i, "role": r, "content": c} for i, r, c in first]
++        tail = [{"idx": i, "role": r, "content": c} for i, r, c in reversed(last)]
++        return head, tail
++
++    def recent_sessions(self, limit: int = 10, exclude_thread: str | None = None) -> list[dict]:
++        with self._lock, self._connect() as con:
++            rows = con.execute(
++                "SELECT thread_id, title, started_ts, msg_count, source "
++                "FROM sessions WHERE thread_id IS NOT ? "
++                "ORDER BY last_ts DESC LIMIT ?",
++                (exclude_thread or "", limit),
++            ).fetchall()
++        return [
++            {
++                "thread_id": t,
++                "title": ti,
++                "started_ts": st,
++                "msg_count": mc,
++                "source": src_,
++            }
++            for t, ti, st, mc, src_ in rows
++        ]
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index b5e6bc88..a332fd83 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -64,6 +64,7 @@ from src.tools.terminal_tools import (
+ )
+ from src.tools.web_tools import web_search, web_fetch
+ from src.tools.code_exec_tool import execute_code
++from src.tools.session_search_tool import session_search
+ from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA
+ 
+ from src.agents.cost_router import cost_router
+@@ -281,6 +282,9 @@ tools = [
+     # Programmatic tool calling: ONE scripted call can chain the tools
+     # above and return only printed output (D18, hermes PTC pattern).
+     execute_code,
++
++    # Zero-LLM recall of past sessions (D16, hermes session-search shape).
++    session_search,
+ ]
+ 
+ 
+diff --git a/src/tests/test_ptc.py b/src/tests/test_ptc.py
+index 31be2395..f5d588df 100644
+--- a/src/tests/test_ptc.py
++++ b/src/tests/test_ptc.py
+@@ -177,7 +177,8 @@ def test_registry_contains_execute_code_once():
+     from src.graphs.chat_graph import tools
+     names = [t.name for t in tools]
+     assert names.count("execute_code") == 1
+-    assert len(names) == 19
++    assert names.count("session_search") == 1
++    assert len(names) == 20
+ 
+ 
+ def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):
+diff --git a/src/tests/test_session_search.py b/src/tests/test_session_search.py
+new file mode 100644
+index 00000000..5f21186e
+--- /dev/null
++++ b/src/tests/test_session_search.py
+@@ -0,0 +1,232 @@
++"""Pins for session_search (D16, zero-LLM recall of past sessions).
++
++Fixtures write REAL LangGraph SqliteSaver checkpoints (msgpack path
++included) -- the index is tested against the storage it will meet in
++production, not a mock of it.
++"""
++
++from __future__ import annotations
++
++import inspect
++import sqlite3
++
++import pytest
++
++import src.tools.session_search_tool as st
++from src.context.session_index import SessionIndex
++
++
++def _seed_checkpoint_db(path, threads: dict[str, list], day: int = 1):
++    """Write each thread's final checkpoint via a REAL SqliteSaver."""
++    from langgraph.checkpoint.sqlite import SqliteSaver
++
++    conn = sqlite3.connect(str(path))
++    saver = SqliteSaver(conn)
++    saver.setup()
++    for tid, msgs in threads.items():
++        cp = {
++            "v": 1,
++            "ts": f"2026-08-0{day}T10:00:00+00:00",
++            "id": f"{day}-{tid}",
++            "channel_values": {"messages": msgs},
++            "channel_versions": {},
++            "versions_seen": {},
++        }
++        saver.put(
++            {"configurable": {"thread_id": tid, "checkpoint_ns": "", "checkpoint_id": None}},
++            cp,
++            {"source": "loop", "step": 1},
++            {},
++        )
++    conn.commit()
++    conn.close()
++
++
++@pytest.fixture()
++def index(tmp_path):
++    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
++
++    ckpt = tmp_path / "sessions.db"
++    _seed_checkpoint_db(ckpt, {
++        "alpha-login": [
++            SystemMessage(content="SENTINEL-PERSONA you are a coding agent"),
++            HumanMessage(content="how do we fix the login timeout bug?"),
++            AIMessage(content="The login timeout is in auth.py line 42."),
++            ToolMessage(content="SENTINEL-TOOLDUMP grep results ...", tool_call_id="t1"),
++            HumanMessage(content="[CONTEXT SUMMARY]: zorptoken machine handoff"),
++            AIMessage(content=[{"type": "text", "text": "also flushed the login cache afterwards"}]),
++            AIMessage(content="Remember to refresh the token cache too."),
++        ],
++        "beta-dash": [
++            HumanMessage(content="add a revenue chart to the dashboard"),
++            AIMessage(content="Chart added with quarterly data."),
++        ],
++        "sub-searcher": [
++            HumanMessage(content="subtask: investigate login flows"),
++        ],
++    }, day=3)
++    idx = SessionIndex(str(ckpt), str(tmp_path / "index.db"))
++    return idx
++
++
++@pytest.fixture()
++def call(index, monkeypatch):
++    monkeypatch.setattr(st, "_index", index)
++
++    def _invoke(**kwargs):
++        kwargs.setdefault("config", {"configurable": {"workspace": ".", "thread_id": "current-thread"}})
++        return st.session_search.invoke(kwargs, config=kwargs.pop("config"))
++
++    return _invoke
++
++
++# ------------------------------------------------------------- discovery
++def test_discovery_card_shape(call):
++    out = call(query="login timeout")
++    assert "alpha-login" in out and "login timeout bug" in out
++    assert "match:" in out and "session start:" in out and "session end:" in out
++    assert 'scroll: session_id="alpha-login"' in out
++    assert "beta-dash" not in out
++
++
++def test_current_thread_excluded_from_discovery(index, monkeypatch):
++    monkeypatch.setattr(st, "_index", index)
++    out = st.session_search.invoke(
++        {"query": "login timeout"},
++        config={"configurable": {"workspace": ".", "thread_id": "alpha-login"}},
++    )
++    assert "No past sessions matched" in out
++
++
++def test_subagent_demoted_when_interactive_matches(call):
++    out = call(query="login")
++    assert "alpha-login" in out
++    assert "sub-searcher" not in out
++
++
++def test_subagent_shown_only_when_only_match(call):
++    out = call(query="subtask investigate")
++    assert "sub-searcher" in out
++    assert "sub-agent" in out and "Only sub-agent runs matched" in out
++
++
++def test_compaction_payloads_never_indexed(call):
++    assert "No past sessions matched" in call(query="zorptoken")
++
++
++def test_system_and_tool_messages_not_indexed(call):
++    assert "No past sessions matched" in call(query="SENTINEL-PERSONA")
++    assert "No past sessions matched" in call(query="SENTINEL-TOOLDUMP")
++
++
++def test_list_content_messages_are_flattened(call):
++    assert "alpha-login" in call(query="flushed cache")
++
++
++def test_query_wins_over_session_args_precedence(call):
++    out = call(query="dashboard", session_id="alpha-login", around_message_id=0)
++    assert out.startswith("Matches for 'dashboard'")
++
++
++# ---------------------------------------------------------------- scroll
++def test_scroll_windows_and_page_hints(call):
++    out = call(session_id="alpha-login", around_message_id=2, window=1)
++    assert "#1 " in out and "#2 " in out and "#3 " in out
++    assert "#0 " not in out and "#4 " not in out
++    assert "older: around_message_id=0" in out
++    assert "newer:" not in out  # anchor 2 + radius 1 reaches the last message
++
++    out = call(session_id="alpha-login", around_message_id=0, window=1)
++    assert "#0 " in out and "#1 " in out and "#2 " not in out
++    assert "newer: around_message_id=2" in out
++
++
++def test_scroll_bad_anchor_is_friendly(call):
++    assert "No messages found" in call(session_id="alpha-login", around_message_id=99)
++
++
++# -------------------------------------------------------- browse/overview
++def test_browse_recent_first_current_excluded(index, monkeypatch):
++    monkeypatch.setattr(st, "_index", index)
++    out = st.session_search.invoke(
++        {}, config={"configurable": {"workspace": ".", "thread_id": "beta-dash"}}
++    )
++    assert "alpha-login" in out and "sub-searcher" in out
++    assert "beta-dash" not in out
++    assert "revenue chart" not in out or "beta" not in out.split("revenue chart")[0]
++
++
++def test_overview_mode(call):
++    out = call(session_id="beta-dash")
++    assert "revenue chart" in out and "2 messages" in out
++    assert "read the middle" in out
++
++
++# --------------------------------------------------------------- hygiene
++def test_long_messages_capped_in_scroll(call, index, tmp_path):
++    from langchain_core.messages import AIMessage
++    from langgraph.checkpoint.sqlite import SqliteSaver
++    c = sqlite3.connect(str(tmp_path / "sessions.db"))
++    saver = SqliteSaver(c)
++    saver.put(
++        {"configurable": {"thread_id": "gamma-long", "checkpoint_ns": "", "checkpoint_id": None}},
++        {"v": 1, "ts": "2026-08-05T10:00:00+00:00", "id": "5-gamma",
++         "channel_values": {"messages": [AIMessage(content="aha " * 2000)]},
++         "channel_versions": {}, "versions_seen": {}},
++        {"source": "loop", "step": 1}, {},
++    )
++    c.commit(); c.close()
++    out = call(session_id="gamma-long", around_message_id=0, window=0)
++    assert "…" in out and len(out) < 1_200
++
++
++def test_incremental_sync_sees_new_checkpoint(call, index, tmp_path):
++    call(query="login")  # first sync
++    from langchain_core.messages import HumanMessage
++    c = sqlite3.connect(str(tmp_path / "sessions.db"))
++    from langgraph.checkpoint.sqlite import SqliteSaver
++    saver = SqliteSaver(c)
++    saver.put(
++        {"configurable": {"thread_id": "alpha-login", "checkpoint_ns": "", "checkpoint_id": "3-alpha-login"}},
++        {"v": 1, "ts": "2026-08-04T10:00:00+00:00", "id": "4-alpha-login",
++         "channel_values": {"messages": [
++             HumanMessage(content="the login timeout regressed again, reopening"),
++         ]},
++         "channel_versions": {}, "versions_seen": {}},
++        {"source": "loop", "step": 2}, {},
++    )
++    c.commit(); c.close()
++    assert "alpha-login" in call(query="regressed reopening")
++
++
++def test_watermark_makes_unchanged_sync_free(index):
++    assert index.sync()["reingested"] == 3
++    assert index.sync()["reingested"] == 0  # stable watermark: no work
++
++
++def test_missing_checkpoint_db_is_friendly(tmp_path, monkeypatch):
++    monkeypatch.setattr(st, "_index", SessionIndex(
++        str(tmp_path / "nope.db"), str(tmp_path / "idx.db")
++    ))
++    out = st.session_search.invoke(
++        {}, config={"configurable": {"workspace": ".", "thread_id": "x"}}
++    )
++    assert "No past sessions yet" in out
++
++
++def test_zero_llm_pure_search_source_pin():
++    """The whole point of D16: recall must never spend a model call. If
++    someone later adds 'LLM summaries' to the search path, this pin makes
++    them argue with the ledger (hermes lesson #19434)."""
++    import src.context.session_index as si
++    for module in (si, st):
++        src = inspect.getsource(module)
++        assert "get_llm" not in src
++        assert "llm.factory" not in src
++        assert ".invoke_messages" not in src
++
++
++def test_registry_twenty_tools():
++    from src.graphs.chat_graph import tools
++    assert len([t for t in tools]) == 20
++    assert "session_search" in [t.name for t in tools]
+diff --git a/src/tools/session_search_tool.py b/src/tools/session_search_tool.py
+new file mode 100644
+index 00000000..708b414c
+--- /dev/null
++++ b/src/tools/session_search_tool.py
+@@ -0,0 +1,229 @@
++"""
++session_search -- search PAST conversations with zero LLM cost
++==============================================================
++
++Single-shape tool, three modes inferred from args (no mode parameter --
++hermes session_search_tool.py:1-46 shape, D16/§29):
++
++    DISCOVERY  pass ``query``                          -> FTS5 over all past
++    SCROLL     pass ``session_id`` + ``around_message_id``  sessions, top
++    BROWSE     pass nothing                            sessions w/ bookends
++
++OVERVIEW (``session_id`` only) returns a session's bookends + stats.
++
++Everything here is SQLite + string formatting: no model calls, so recall
++of "how did we fix X last week?" is free and lands in milliseconds.
++"""
++
++from datetime import datetime
++from typing import Any
++
++from langchain_core.runnables import RunnableConfig
++from langchain_core.tools import tool
++
++from src.context.session_index import SessionIndex
++
++_DISCOVERY_SESSIONS = 5
++_BROWSE_SESSIONS = 10
++_MSG_PREVIEW = 400
++_RESULT_BUDGET = 8_000
++_WINDOW_MAX = 20
++
++
++def _plural(n) -> str:
++    return f"{n} message{'s' if n != 1 else ''}"
++
++_index = SessionIndex()  # module-level: watermark sync makes reuse cheap
++
++
++def _fmt_ts(ts: str) -> str:
++    """ISO checkpoint timestamp -> "August 01, 2026 at 10:00 AM"."""
++    if not ts:
++        return "unknown date"
++    try:
++        return datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime(
++            "%B %d, %Y at %I:%M %p"
++        )
++    except ValueError:
++        return ts[:16]
++
++
++def _preview(text: str, cap: int = _MSG_PREVIEW) -> str:
++    text = " ".join(text.split())
++    return text if len(text) <= cap else text[:cap] + "…"
++
++
++def _clip(result: str) -> str:
++    if len(result) <= _RESULT_BUDGET:
++        return result
++    return result[:_RESULT_BUDGET] + "\n… [result clipped; narrow the query]"
++
++
++def _role_tag(role: str) -> str:
++    return "U" if role == "user" else "A"
++
++
++def _format_msgs(msgs: list[dict]) -> str:
++    return " | ".join(f"{_role_tag(m['role'])}: {_preview(m['content'], 120)}" for m in msgs)
++
++
++def _discovery(query: str, exclude_thread: str) -> str:
++    hits = _index.fts_hits(query)
++    if not hits:
++        return f"No past sessions matched '{query}'."
++
++    # First hit per thread wins (BM25 order), then split interactive vs
++    # sub-agent. Lesson #19434: interactive matches ALWAYS win when both
++    # match; sub-agent sessions surface only when nothing interactive did.
++    order: list[str] = []
++    best_hit: dict[str, dict] = {}
++    for hit in hits:
++        tid = hit["thread_id"]
++        if tid == exclude_thread or tid in best_hit:
++            continue
++        best_hit[tid] = hit
++        order.append(tid)
++    metas = _index.sessions_for(order)
++
++    interactive = [t for t in order if metas.get(t, {}).get("source") != "sub"]
++    demoted = [t for t in order if metas.get(t, {}).get("source") == "sub"]
++    chosen = (interactive or demoted)[:_DISCOVERY_SESSIONS]
++    if not chosen:
++        return f"No past sessions matched '{query}'."
++
++    cards = []
++    for n, tid in enumerate(chosen, 1):
++        meta = metas[tid]
++        hit = best_hit[tid]
++        head, tail = _index.bookends(tid, 3)
++        where = _index.message_by_id(hit["message_id"])
++        center = where[1] if where else 0
++        around = _index.window(tid, center, 2)
++        label = " *(sub-agent run)*" if meta["source"] == "sub" else ""
++        card = (
++            f"[{n}] “{meta['title']}”{label}\n"
++            f"    session {tid} — {_fmt_ts(meta['started_ts'])}, "
++            f"{_plural(meta['msg_count'])}\n"
++            f"    match: …{hit['snippet']}…\n"
++            f"    around match: {_format_msgs(around)}\n"
++            f"    session start: {_format_msgs(head)}"
++        )
++        # Bookend tail only when it shows messages the head didn't.
++        head_ids = {m["idx"] for m in head}
++        tail_new = [m for m in tail if m["idx"] not in head_ids]
++        if tail_new:
++            card += f"\n    session end: {_format_msgs(tail_new)}"
++        card += f'\n    scroll: session_id="{tid}", around_message_id={center}'
++        cards.append(card)
++
++    note = ""
++    if not interactive and demoted:
++        note = "Only sub-agent runs matched (interactive sessions had no hits):\n\n"
++    return _clip(note + f"Matches for '{query}' in past sessions:\n\n" + "\n\n".join(cards))
++
++
++def _scroll(session_id: str, around_message_id: int, window: int) -> str:
++    window = max(1, min(window, _WINDOW_MAX))
++    msgs = _index.window(session_id, around_message_id, window)
++    if not msgs:
++        return (
++            f"No messages found for session '{session_id}' around "
++            f"message {around_message_id}. Check the ids from a discovery card."
++        )
++    lo, hi = msgs[0]["idx"], msgs[-1]["idx"]
++    meta = _index.sessions_for([session_id]).get(session_id, {})
++    total = meta.get("msg_count", "?")
++    lines = [
++        f"Session {session_id} — messages {lo}..{hi} of ~{total}:",
++        "",
++    ]
++    for m in msgs:
++        lines.append(f"#{m['idx']} {_role_tag(m['role'])}: {_preview(m['content'])}")
++    hints = []
++    if lo > 0:
++        hints.append(f"older: around_message_id={max(0, lo - window)}")
++    if isinstance(total, int) and hi < total - 1:
++        hints.append(f"newer: around_message_id={hi + window}")
++    if hints:
++        lines.append(f"\n(scroll {' | '.join(hints)})")
++    return _clip("\n".join(lines))
++
++
++def _overview(session_id: str) -> str:
++    meta = _index.sessions_for([session_id]).get(session_id)
++    if meta is None:
++        return f"No session found with id '{session_id}'."
++    head, tail = _index.bookends(session_id, 3)
++    out = (
++        f"Session {session_id}\n"
++        f"“{meta['title']}” — {_fmt_ts(meta['started_ts'])}, "
++        f"{_plural(meta['msg_count'])} ({meta['source']})\n\n"
++        f"start:\n{_format_msgs(head)}\n\nend:\n{_format_msgs(tail)}"
++    )
++    center = tail[-1]["idx"] if tail else 0
++    return _clip(out + f'\n\n(read the middle: around_message_id={center})')
++
++
++def _browse(exclude_thread: str) -> str:
++    sessions = _index.recent_sessions(_BROWSE_SESSIONS, exclude_thread)
++    if not sessions:
++        return (
++            "No past sessions yet. Sessions appear here automatically "
++            "as conversations happen."
++        )
++    lines = [f"{len(sessions)} most recent past sessions:", ""]
++    for n, s in enumerate(sessions, 1):
++        label = " *(sub-agent)*" if s["source"] == "sub" else ""
++        lines.append(
++            f"[{n}] “{s['title']}”{label}\n"
++            f"    {s['thread_id']} — {_fmt_ts(s['started_ts'])}, "
++            f"{_plural(s['msg_count'])}"
++        )
++    return _clip("\n".join(lines))
++
++
++@tool
++def session_search(
++    query: str = "",
++    session_id: str = "",
++    around_message_id: int = -1,
++    window: int = 6,
++    config: RunnableConfig = None,
++) -> str:
++    """
++    Search PAST conversations (all previous sessions) with zero LLM cost —
++    pure full-text search, no summaries, no model calls.
++
++    WHEN TO USE:
++    - The user references earlier work: "how did we fix...", "what did we
++      decide about...", "continue what we did last week".
++    - You need facts from a prior session that are not in the current context.
++
++    WHEN NOT TO USE:
++    - Anything about THIS session — it is already in your context (the
++      current session is excluded from discovery and browse results).
++    - Searching code or files: use search_code/read_file instead.
++
++    THREE MODES (picked automatically from the args):
++    1. DISCOVERY — pass query. Returns the top past sessions with the
++       matching snippet, a few messages around it, and the first/last
++       messages of each session so you can judge relevance.
++    2. SCROLL — pass session_id + around_message_id (from a discovery
++       card). Returns messages around that anchor; use the printed
++       newer/older hints to walk the conversation.
++    3. BROWSE — pass nothing. Lists the most recent past sessions.
++    (session_id alone gives that session's overview: bookends + stats.)
++
++    Only user and assistant messages are searchable. Sub-agent runs are
++    shown only when no interactive session matched.
++    """
++    _index.sync()  # watermark-cheap; fresh recall every call
++    current_thread = str((config or {}).get("configurable", {}).get("thread_id", ""))
++
++    if query.strip():
++        return _discovery(query.strip(), current_thread)
++    if session_id and around_message_id >= 0:
++        return _scroll(session_id, around_message_id, window)
++    if session_id:
++        return _overview(session_id)
++    return _browse(current_thread)
+-- 
+2.47.3
+
+
+From 04edcbf1d8ea32b6e8424cf886313292cbcb5458 Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 09:58:30 +0000
+Subject: [PATCH 3/3] feat(context): prompt-cache prefix audit + canonical
+ layer emission (D19, hermes steal #3) -- per-turn byte-prefix recorder
+ (in-memory + opt-in JSONL) wired into build_ai_messages; MEASURED: reorder
+ hypothesis REFUTED (feedback never flips order), real leak = volatile
+ git_context mid-block (22.2% stable on edit turns); fix = score-driven
+ selection kept, canonical emission order w/ volatile last (70.3%); D23 filed
+ for volatile-after-history; +9 pins, 234 green
+
+---
+ ARCHITECTURE_REVIEW.md               |  47 +++++++
+ scripts/cache_audit_measure.py       | 180 +++++++++++++++++++++++++
+ src/context/context_engine.py        |  55 +++++++-
+ src/context/prompt_cache_audit.py    | 192 +++++++++++++++++++++++++++
+ src/tests/test_prompt_cache_audit.py | 181 +++++++++++++++++++++++++
+ 5 files changed, 651 insertions(+), 4 deletions(-)
+ create mode 100644 scripts/cache_audit_measure.py
+ create mode 100644 src/context/prompt_cache_audit.py
+ create mode 100644 src/tests/test_prompt_cache_audit.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index da901814..f090090a 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1207,3 +1207,50 @@ sandbox is a scratchpad.
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ — remaining: D9, D10, D13, D14, D15-remainder, D19,
+ D20, D21, D22, C1, P2.
++
++## 32. D19 — prompt-cache audit: measured verdict + canonical emission (2026-08-07)
++
++Third hermes steal (§29 step #3), run measure-first per plan. New:
++`src/context/prompt_cache_audit.py` (per-turn byte-prefix recorder wired
++into build_ai_messages; per-session, in-memory ring, opt-in JSONL sink via
++PULSEAI_CACHE_AUDIT_JSONL) + `scripts/cache_audit_measure.py` (realistic
++turn sequences through the REAL engine: tmp git repo, growing history,
++alternating feedback, noisy embeddings, git edits mid-session).
++
++Measured verdict (harness output, before -> after fix):
++
++| scenario | before | after | verdict |
++|---|---|---|---|
++| A double-fire (identical state) | 100% | 100% | healthy |
++| B continuation, no feedback | 93-95% @ history boundary | same | healthy |
++| C + feedback EVERY turn | 93-95% @ history | same | REFUTED: learned-weight nudges never flipped emission order (5- and 20-turn horizons); ties break deterministically (stable sort) |
++| C2 + embedding jitter | 90-93% @ history | 94-95% @ history | healthy |
++| D task switch | 5% @ task layer | 20.6% @ task layer | legitimate (bigger head survives now) |
++| E git change mid-session | **22.2%** | **70.3%** | THE ONE REAL LEAK, fixed |
++
++The one real leak was PLACEMENT, not reordering: volatile git_context
++(rebuilt every turn by design) sat mid-block in score-sorted emission, so
++every `git add`/commit — i.e. every turn a coding agent does work — busted
++~78% of the request prefix including the entire history.
++
++Fix shipped this round: `_assemble_hierarchical` keeps score-driven
++SELECTION (budget fit + compression walk untouched, byte-identical fitted
++sets) but emits in CANONICAL order (`_BUILDER_ORDER`, unknowns by name,
++volatile dead last). Hermes' invariant, adopted: default-path emissions
++are byte-boring. All 182 pre-existing engine/budget tests pass unchanged.
++
++Residual, filed as **D23** (not shipped — semantic change needs its own
++quality gate): git_context still sits BEFORE history, so on edit turns
++history re-reads; moving volatile layers after history would lift E-turn
++stability 70% -> ~95% but reorders what the model reads last. Deliberate
++follow-up, not a drive-by.
++
++Pins: src/tests/test_prompt_cache_audit.py 9/9 — chunk-skip first-diff,
++first-turn/identical/append/blame attribution, ring buffer, JSONL opt-in
++only, engine integration (git_context provably LAST layer + edit-turn
++breaker + ratio >= 0.55 floor vs measured 0.703), selection-score-vs-
++placement-canonical split. Suite: 234 green (128s).
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ — remaining: D9, D10, D13, D14, D15-remainder,
++D20, D21, D22, D23 (volatile-layers-after-history, from §32), C1, P2.
+diff --git a/scripts/cache_audit_measure.py b/scripts/cache_audit_measure.py
+new file mode 100644
+index 00000000..095a8189
+--- /dev/null
++++ b/scripts/cache_audit_measure.py
+@@ -0,0 +1,180 @@
++"""D19 measurement harness -- runs realistic turn sequences through the
++REAL ContextEngine and reports prompt-cache prefix stability per scenario.
++
++Usage:  python3 scripts/cache_audit_measure.py
++
++Scenarios:
++  A  dashboard double-fire (identical state, two builds)
++  B  normal continuation, no feedback recorded      (expected: healthy)
++  C  continuation WITH record_feedback each turn    (the suspect)
++  C2 C + noisy embedding scores (float jitter)      (compound suspect)
++  D  task switch mid-session                        (legit break)
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++import tempfile
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
++
++from src.context.context_engine import ContextEngine
++
++
++def _make_workspace() -> str:
++    import subprocess
++
++    ws = tempfile.mkdtemp(prefix="cache-audit-")
++    with open(os.path.join(ws, "app.py"), "w") as f:
++        f.write("def main():\n    print('hello')\n\nif __name__ == '__main__':\n    main()\n")
++    with open(os.path.join(ws, "util.py"), "w") as f:
++        f.write("def helper(x):\n    return x * 2\n")
++    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
++    subprocess.run(["git", "add", "."], cwd=ws, check=True)
++    subprocess.run(
++        ["git", "-c", "user.email=a@b.c", "-c", "user.name=audit", "commit", "-qm", "init"],
++        cwd=ws, check=True,
++    )
++    return ws
++
++
++def _engine(ws: str) -> ContextEngine:
++    eng = ContextEngine(max_tokens=12_000, model="gpt-4o-mini", probe_window=False)
++    # Isolate the learning loop from the founder's real feedback store.
++    engine_tmp = tempfile.mkdtemp(prefix="cache-audit-fb-")
++    eng._feedback_path = os.path.join(engine_tmp, "feedback.jsonl")
++    eng._feedback_history = []
++    return eng
++
++
++def _state(ws: str, msgs, task: str):
++    return {
++        "messages": msgs,
++        "current_task": task,
++        "latest_instruction": task,
++        "task_status": "in_progress",
++        "plan": [{"step": 1, "description": "inspect", "status": "done"},
++                 {"step": 2, "description": "patch", "status": "active"}],
++        "steps_completed": ["inspect"],
++        "workspace": ws,
++    }
++
++
++def _run(label, ws, turns: list[dict], feedback: list[bool] | None = None,
++         patch_noise: bool = False) -> None:
++    restore = None
++    if patch_noise:
++        import random
++        import src.llm.factory as factory
++        import src.context.context_engine as ce
++
++        rng = random.Random(7)
++
++        def _det_vec(text: str) -> list[float]:
++            base = [((hash(text + str(i)) % 1000) / 1000.0) - 0.5 for i in range(16)]
++            return base
++
++        class _FakeCache:
++            def encode(self, embedder, texts):
++                return [[v + rng.uniform(-0.02, 0.02) for v in _det_vec(t)] for t in texts]
++
++        restore = (factory.get_embedder, ce.get_embedding_cache)
++        factory.get_embedder = lambda: object()
++        ce.get_embedding_cache = lambda: _FakeCache()
++
++    eng = _engine(ws)
++    msgs: list = []
++    try:
++        for i, turn_cfg in enumerate(turns):
++            msgs = msgs + turn_cfg.get("append", [])
++            task = turn_cfg.get("task", turns[0]["task"])
++            eng.build_ai_messages(_state(ws, msgs, task), SystemMessage(content="PERSONA"))
++            if feedback is not None and turn_cfg.get("feedback", True):
++                eng.record_feedback(feedback[i % len(feedback)], task)
++    finally:
++        if restore is not None:
++            import src.llm.factory as factory
++            import src.context.context_engine as ce
++            factory.get_embedder, ce.get_embedding_cache = restore
++
++    stats = eng.cache_audit_stats()
++    print(f"\n=== {label} ===")
++    for t in stats["recent"]:
++        if t["stable_ratio"] is None:
++            print(f"  turn {t['turn']}: first build ({t['total_chars']} chars)")
++        else:
++            print(
++                f"  turn {t['turn']}: stable {t['stable_chars']}/{t['total_chars']} "
++                f"({t['stable_ratio']:.1%}) -- broke at {t['breaker']}"
++            )
++    print(
++        f"  >> mean {stats['mean_stable_ratio']}, min {stats['min_stable_ratio']}, "
++        f"prefix-reached-history {stats['prefix_reached_history_pct']}, "
++        f"breakers {stats['breaker_histogram']}"
++    )
++
++
++def main() -> None:
++    ws = _make_workspace()
++    task = "fix the login timeout bug"
++    pair = lambda u, a: [HumanMessage(content=u), AIMessage(content=a)]
++    convo = [pair(f"question {i} about the login fix", f"answer {i} with details") for i in range(6)]
++    turns = [{"append": msgs, "task": task} for msgs in convo]
++
++    # A: dashboard double-fire -- identical state twice
++    _run("A double-fire (identical state x2)", ws,
++         [{"append": convo[0], "task": task}, {"append": [], "task": task}])
++
++    # B: healthy continuation, no feedback
++    _run("B continuation, NO feedback", ws, turns)
++
++    # C: production shape -- feedback recorded per turn
++    _run("C continuation + feedback each turn", ws, turns, feedback=[True, False])
++
++    # C2: + embedding noise (float jitter in semantic scores)
++    _run("C2 feedback + embedding noise", ws, turns, feedback=[True, False], patch_noise=True)
++
++    # D: task switch (legitimate break)
++    _run("D task switch", ws,
++         [{"append": convo[0], "task": task}, {"append": convo[1], "task": "add a dashboard chart"}])
++
++    # E: the agent edits files mid-session -> git status changes -> the
++    # VOLATILE git_context layer rebuilds with different bytes. Where does
++    # the prefix break, and how much does it cost?
++    import subprocess
++
++    eng = _engine(ws)
++    msgs = []
++    for i, add in enumerate(convo + [pair("commit that", "committed as abc123")]):
++        msgs = msgs + add
++        eng.build_ai_messages(
++            _state(ws, msgs, task), SystemMessage(content="PERSONA")
++        )
++        if i == 2:  # after turn 3: simulate an agent edit cycle
++            with open(os.path.join(ws, "app.py"), "a") as f:
++                f.write("\ndef new_feature():\n    return 42\n")
++            subprocess.run(["git", "add", "."], cwd=ws, check=True)
++    stats = eng.cache_audit_stats()
++    print("\n=== E file edit + git add between turns (volatile git_context) ===")
++    for t in stats["recent"]:
++        if t["stable_ratio"] is not None:
++            print(
++                f"  turn {t['turn']}: stable {t['stable_chars']}/{t['total_chars']} "
++                f"({t['stable_ratio']:.1%}) -- broke at {t['breaker']}"
++            )
++    print(f"  >> prefix-reached-history {stats['prefix_reached_history_pct']}, "
++          f"breakers {stats['breaker_histogram']}")
++
++    # G: long feedback horizon -- 20 turns, alternated outcomes. Does the
++    # learned-weight drift EVER flip the emitted layer order?
++    _run("G 20-turn feedback drift horizon", ws,
++         [{"append": msgs_i, "task": task} for msgs_i in
++          (pair(f"q{i}", f"a{i}") for i in range(20))],
++         feedback=[True, False])
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/context/context_engine.py b/src/context/context_engine.py
+index 333823d5..4ef24138 100644
+--- a/src/context/context_engine.py
++++ b/src/context/context_engine.py
+@@ -254,6 +254,11 @@ class ContextEngine:
+         # attribution instead of snapshotting the session-wide layer cache.
+         self._last_layers_sent: list[str] = []
+ 
++        # D19 prompt-cache prefix audit: lazily created per-session recorder
++        # (see prompt_cache_audit.py). Records how much of each assembled
++        # request is byte-identical to the previous turn's.
++        self._cache_audit = None
++
+         # Per-instance copy: _apply_learned_weights() mutates these weights,
+         # and the class-level dict would otherwise leak learned drift across
+         # ALL engine instances in the process (dashboard sessions, threads).
+@@ -318,6 +323,21 @@ class ContextEngine:
+     # differential cache — see _build_context_layers().
+     VOLATILE_LAYERS: frozenset[str] = frozenset({"git_context"})
+ 
++    # Canonical EMISSION order (D19, measured in §32). Provider prompt
++    # caches pay on exact byte prefixes: scoring still governs SELECTION
++    # (which layers fit the budget), but placement must be boring — same
++    # selected set => same byte prefix, every turn. Volatile layers emit
++    # dead last so their byte churn (git status changes whenever the agent
++    # edits/commits) busts nothing after them except themselves.
++    # Unknown layers (hand-built messages) sort deterministically by name
++    # after known ones, before volatile — see _emission_sort_key.
++    _BUILDER_ORDER: tuple[str, ...] = (
++        "repo_map", "relevant_chunks", "task", "plan", "progress",
++        "recovery", "replan", "attempt_history", "long_term_memory",
++        "tool_memory", "ambiguity", "tone", "quality", "conventions",
++        "memory_validation", "reflections", "skills",
++    )
++
+     LAYER_RELEVANCE: dict[str, dict[TaskType, float]] = {
+         "repo_map": {
+             # Demoted from v2: chunk-level retrieval (relevant_chunks) now
+@@ -464,8 +484,21 @@ class ContextEngine:
+         # 10. Cache for next turn
+         self._last_state_hash = current_hash
+ 
++        # 11. D19 audit: measure prompt-cache prefix stability turn-over-turn
++        # (one prefix compare; cheap enough to be always on).
++        if self._cache_audit is None:
++            from src.context.prompt_cache_audit import CachePrefixAudit
++            self._cache_audit = CachePrefixAudit()
++        self._cache_audit.record(final_messages)
++
+         return final_messages
+ 
++    def cache_audit_stats(self) -> dict:
++        """D19: prompt-cache prefix-stability report for this session."""
++        if self._cache_audit is None:
++            return {"turns": 0}
++        return self._cache_audit.stats()
++
+     def _build_context_layers(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
+         """Build organized layers, but skip irrelevant ones for this task type."""
+         layers = []
+@@ -662,21 +695,35 @@ class ContextEngine:
+ 
+         return [layer for idx, layer in enumerate(scored_layers) if idx not in to_remove]
+ 
++    def _emission_sort_key(self, msg: SystemMessage) -> tuple:
++        """D19: canonical placement. Known non-volatile layers in
++        _BUILDER_ORDER, unknowns by name, volatile layers dead last —
++        see the class note on _BUILDER_ORDER for the cache economics."""
++        name = self._infer_layer_name(msg)
++        if name in self.VOLATILE_LAYERS:
++            return (2, name)
++        try:
++            return (0, self._BUILDER_ORDER.index(name))
++        except ValueError:
++            return (1, name)
++
+     def _assemble_hierarchical(
+         self,
+         scored_layers: list[tuple[float, SystemMessage, int]],
+         budget: int,
+     ) -> list[SystemMessage]:
+         """
+-        Fit as many high-relevance layers as possible.
+-        If a layer is too expensive, try to compress it (summary/truncation).
++        Fit as many high-relevance layers as possible (SELECTION is
++        score-driven), then emit them in canonical order (PLACEMENT is
++        fixed, D19). If a layer is too expensive, try to compress it.
+         """
+         if not scored_layers:
+             return []
+ 
+         total = sum(tokens for _, _, tokens in scored_layers)
+         if total <= budget:
+-            return [msg for _, msg, _ in scored_layers]
++            fitted = [msg for _, msg, _ in scored_layers]
++            return sorted(fitted, key=self._emission_sort_key)
+ 
+         result = []
+         remaining = budget
+@@ -693,7 +740,7 @@ class ContextEngine:
+                 result.append(compressed)
+                 remaining -= count_tokens([compressed], self.model)
+ 
+-        return result
++        return sorted(result, key=self._emission_sort_key)
+ 
+     def _compress_layer(self, msg: SystemMessage, max_tokens: int) -> Optional[SystemMessage]:
+         """Compress a single layer to fit a token budget."""
+diff --git a/src/context/prompt_cache_audit.py b/src/context/prompt_cache_audit.py
+new file mode 100644
+index 00000000..13a03e74
+--- /dev/null
++++ b/src/context/prompt_cache_audit.py
+@@ -0,0 +1,192 @@
++"""
++Prompt-cache prefix audit (D19)
++===============================
++
++Measures, per turn, how much of the assembled LLM request is BYTE-IDENTICAL
++to the previous turn's request — the exact quantity provider prompt caches
++(Anthropic/OpenAI KV prefix reuse) pay out on. Hermes treats "the default
++path leaves the request byte-identical" as a hard invariant
++(their context_engine.py cache-prefix contract, §29); PulseAI never
++measured it. This module is the meter.
++
++Design notes:
++
++* **Request-proxy serialization.** We serialize role + flattened text in
++  request order and compare consecutive turns. The provider's exact wire
++  framing is not replicated, but framing is constant per role — so any
++  conclusion 'the prefix held through message K' is framing-independent.
++* **Breaker classification.** Each message boundary records what owns it:
++  the persona, a named context layer (identity tag stamped by the builder
++  loop — never string-sniffed), or history user/assistant/tool. The verdict
++  question is 'did the stable prefix reach the history boundary?'.
++* **Cheap always-on.** One prefix-compare of two strings per turn; the
++  per-session engine already serializes nothing else. Optional JSONL sink
++  via env PULSEAI_CACHE_AUDIT_JSONL=path (or =1 for the default
++  ~/.pulseai/cache_audit.jsonl) for cross-session forensics; in-memory
++  ring buffer otherwise.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import threading
++from typing import Any
++
++_DEFAULT_JSONL = os.path.join(
++    os.path.expanduser("~"), ".pulseai", "cache_audit.jsonl"
++)
++_jsonl_lock = threading.Lock()
++
++
++def _flatten(content: Any) -> str:
++    if isinstance(content, str):
++        return content
++    if isinstance(content, list):
++        parts = []
++        for part in content:
++            if isinstance(part, dict) and part.get("type") == "text":
++                parts.append(str(part.get("text", "")))
++            elif isinstance(part, str):
++                parts.append(part)
++        return "\n".join(parts)
++    return ""
++
++
++def _serialize(messages: list) -> tuple[str, list[tuple[int, str]]]:
++    """Deterministic request-proxy string + (end_offset, owner) boundaries.
++
++    Owner strings: 'persona', 'layer:<name>', 'history:user',
++    'history:assistant', 'history:tool', 'history:system'.
++    """
++    chunks: list[str] = []
++    boundaries: list[tuple[int, str]] = []
++    offset = 0
++    for i, msg in enumerate(messages):
++        layer = None
++        try:
++            layer = (msg.response_metadata or {}).get("layer")
++        except Exception:
++            layer = None
++        kind = type(msg).__name__
++        if kind == "SystemMessage":
++            owner = "persona" if i == 0 and not layer else f"layer:{layer or 'unknown'}"
++        elif kind == "HumanMessage":
++            owner = "history:user"
++        elif kind == "AIMessage":
++            owner = "history:assistant"
++        elif kind == "ToolMessage":
++            owner = "history:tool"
++        else:
++            owner = f"history:{kind.lower()}"
++        # Tool calls change the wire payload too; mark their presence so a
++        # same-text/different-call pair never compares equal.
++        tool_calls = getattr(msg, "tool_calls", None) or ""
++        chunk = f"<{kind}:{owner}>\n{_flatten(msg.content)}\n<toolcalls>{tool_calls}</toolcalls>\n"
++        chunks.append(chunk)
++        offset += len(chunk)
++        boundaries.append((offset, owner))
++    return "".join(chunks), boundaries
++
++
++def _first_diff(a: str, b: str) -> int:
++    """First index where a and b diverge (== len(shorter) if one prefixes)."""
++    n = min(len(a), len(b))
++    step = 4096
++    pos = 0
++    # Whole-chunk skip (fast on 100KB+ strings), then a bounded char walk.
++    while pos + step <= n and a[pos:pos + step] == b[pos:pos + step]:
++        pos += step
++    while pos < n and a[pos] == b[pos]:
++        pos += 1
++    return pos
++
++
++class CachePrefixAudit:
++    """Per-session recorder: ring buffer of turn records + aggregates."""
++
++    def __init__(self, keep: int = 200, jsonl_path: str | None = None):
++        self._keep = keep
++        self._turns: list[dict] = []
++        self._prev_text: str | None = None
++        self._prev_owners: list[str] = []
++        env = os.environ.get("PULSEAI_CACHE_AUDIT_JSONL", "")
++        self._jsonl_path = jsonl_path or (
++            _DEFAULT_JSONL if env.strip() == "1" else (env.strip() or None)
++        )
++
++    def record(self, final_messages: list) -> dict:
++        text, boundaries = _serialize(final_messages)
++        owners = [owner for _, owner in boundaries]
++
++        if self._prev_text is None:
++            rec = {
++                "turn": len(self._turns) + 1,
++                "total_chars": len(text),
++                "stable_chars": None,          # no previous turn to compare
++                "stable_ratio": None,
++                "breaker": "first_turn",
++                "break_msg_idx": None,
++            }
++        else:
++            stable = _first_diff(text, self._prev_text) if text != self._prev_text else len(text)
++            breaker = "identical"
++            break_idx = None
++            if stable < len(text):
++                for i, (end, owner) in enumerate(boundaries):
++                    if stable < end:
++                        breaker = owner
++                        break_idx = i
++                        break
++                else:
++                    breaker = owners[-1] if owners else "unknown"
++            rec = {
++                "turn": len(self._turns) + 1,
++                "total_chars": len(text),
++                "stable_chars": stable,
++                "stable_ratio": round(stable / max(len(text), 1), 4),
++                "breaker": breaker,
++                "break_msg_idx": break_idx,
++            }
++
++        self._turns.append(rec)
++        if len(self._turns) > self._keep:
++            self._turns = self._turns[-self._keep:]
++        self._prev_text = text
++        self._prev_owners = owners
++        self._sink(rec)
++        return rec
++
++    def _sink(self, rec: dict) -> None:
++        if not self._jsonl_path:
++            return
++        try:
++            os.makedirs(os.path.dirname(os.path.abspath(self._jsonl_path)), exist_ok=True)
++            with _jsonl_lock, open(self._jsonl_path, "a", encoding="utf-8") as f:
++                f.write(json.dumps(rec) + "\n")
++        except OSError:
++            pass  # forensics must never break a turn
++
++    def stats(self) -> dict:
++        comparable = [t for t in self._turns if t["stable_ratio"] is not None]
++        histogram: dict[str, int] = {}
++        for t in comparable:
++            histogram[t["breaker"]] = histogram.get(t["breaker"], 0) + 1
++
++        reached_history = sum(
++            1 for t in comparable
++            if t["breaker"] == "identical" or t["breaker"].startswith("history:")
++        )
++        ratios = [t["stable_ratio"] for t in comparable]
++        verdict = (
++            round(reached_history / len(comparable), 3) if comparable else None
++        )
++        return {
++            "turns": len(self._turns),
++            "comparable_turns": len(comparable),
++            "mean_stable_ratio": round(sum(ratios) / len(ratios), 4) if ratios else None,
++            "min_stable_ratio": min(ratios) if ratios else None,
++            "prefix_reached_history_pct": verdict,
++            "breaker_histogram": dict(sorted(histogram.items(), key=lambda kv: -kv[1])),
++            "recent": self._turns[-10:],
++        }
+diff --git a/src/tests/test_prompt_cache_audit.py b/src/tests/test_prompt_cache_audit.py
+new file mode 100644
+index 00000000..991e0442
+--- /dev/null
++++ b/src/tests/test_prompt_cache_audit.py
+@@ -0,0 +1,181 @@
++"""Pins for the D19 prompt-cache prefix audit + canonical emission order.
++
++The MEASURED facts these pins defend (scripts/cache_audit_measure.py, §32):
++pre-fix, a git-state change mid-session held only 22.2% of the request
++prefix because volatile git_context sat mid-block in score order; post-fix
++(same scenario) 70.3%, with git_context emitting dead last. Learned-weight
++feedback never flipped emission order at 20-turn horizons (pre- or
++post-fix) -- selection stays score-driven, placement is now boring.
++"""
++
++from __future__ import annotations
++
++import os
++import subprocess
++
++import pytest
++from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
++
++from src.context.prompt_cache_audit import CachePrefixAudit, _first_diff
++
++
++def _layer(name: str, text: str) -> SystemMessage:
++    msg = SystemMessage(content=text)
++    msg.response_metadata["layer"] = name
++    return msg
++
++
++# ------------------------------------------------------------------ unit
++def test_first_diff_equal_prefix_and_midpoint():
++    assert _first_diff("abc", "abc") == 3
++    assert _first_diff("abc", "abcdef") == 3
++    assert _first_diff("abXdef", "abYdef") == 2
++    assert _first_diff("", "abc") == 0
++    big_a = "x" * 100_000 + "A"
++    big_b = "x" * 100_000 + "B"
++    assert _first_diff(big_a, big_b) == 100_000  # chunk-skip path correct
++
++
++def test_first_turn_has_no_ratio():
++    audit = CachePrefixAudit()
++    rec = audit.record([SystemMessage(content="persona")])
++    assert rec["stable_ratio"] is None and rec["breaker"] == "first_turn"
++
++
++def test_identical_second_turn_is_fully_stable():
++    msgs = [SystemMessage(content="persona"), _layer("task", "T"), HumanMessage(content="hi")]
++    audit = CachePrefixAudit()
++    audit.record(msgs)
++    rec = audit.record([SystemMessage(content="persona"), _layer("task", "T"), HumanMessage(content="hi")])
++    assert rec["stable_ratio"] == 1.0 and rec["breaker"] == "identical"
++
++
++def test_appended_history_breaks_at_history_boundary():
++    base = [SystemMessage(content="persona"), _layer("task", "TASK"), HumanMessage(content="q1")]
++    audit = CachePrefixAudit()
++    audit.record(base)
++    rec = audit.record(base + [AIMessage(content="a1"), HumanMessage(content="q2")])
++    # stable prefix = the ENTIRE previous request; the first appended
++    # message owns the break point.
++    assert rec["breaker"] == "history:assistant"
++    assert rec["break_msg_idx"] == 3
++
++
++def test_layer_byte_change_blamed_to_named_layer():
++    audit = CachePrefixAudit()
++    audit.record([SystemMessage(content="persona"), _layer("task", "one"), _layer("plan", "p")])
++    rec = audit.record([SystemMessage(content="persona"), _layer("task", "TWO"), _layer("plan", "p")])
++    assert rec["breaker"] == "layer:task" and rec["break_msg_idx"] == 1
++
++
++def test_stats_shape_histogram_and_ring_buffer():
++    audit = CachePrefixAudit(keep=5)
++    audit.record([HumanMessage(content="a")])
++    for i in range(8):
++        audit.record([HumanMessage(content="a" * (i + 2))])
++    stats = audit.stats()
++    assert stats["turns"] == 5  # ring buffer honored
++    assert stats["comparable_turns"] == 5  # ring kept only post-first turns
++    assert "breaker_histogram" in stats and "prefix_reached_history_pct" in stats
++
++
++def test_jsonl_sink_only_when_configured(tmp_path, monkeypatch):
++    monkeypatch.delenv("PULSEAI_CACHE_AUDIT_JSONL", raising=False)
++    quiet = CachePrefixAudit()
++    assert quiet._jsonl_path is None
++    loud = CachePrefixAudit(jsonl_path=str(tmp_path / "audit.jsonl"))
++    loud.record([HumanMessage(content="x")])
++    loud.record([HumanMessage(content="xy")])
++    lines = (tmp_path / "audit.jsonl").read_text().strip().splitlines()
++    assert len(lines) == 2 and '"stable_ratio"' in lines[1]
++
++
++# -------------------------------------------------- engine integration
++def _git_workspace(tmp_path) -> str:
++    ws = tmp_path / "repo"
++    ws.mkdir()
++    (ws / "app.py").write_text("def main():\n    return 1\n")
++    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
++    subprocess.run(["git", "add", "."], cwd=ws, check=True)
++    subprocess.run(
++        ["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qm", "init"],
++        cwd=ws, check=True,
++    )
++    return str(ws)
++
++
++@pytest.fixture()
++def engine(tmp_path):
++    from src.context.context_engine import ContextEngine
++    eng = ContextEngine(max_tokens=12_000, model="gpt-4o-mini", probe_window=False)
++    eng._feedback_path = str(tmp_path / "fb.jsonl")
++    eng._feedback_history = []
++    return eng
++
++
++def _state(ws, msgs):
++    return {
++        "messages": msgs,
++        "current_task": "fix the login timeout bug",
++        "latest_instruction": "fix the login timeout bug",
++        "task_status": "in_progress",
++        "plan": [{"step": 1, "description": "inspect", "status": "active"}],
++        "workspace": ws,
++    }
++
++
++def test_engine_audits_and_git_context_emits_last(engine, tmp_path):
++    ws = _git_workspace(tmp_path)
++    persona = SystemMessage(content="PERSONA")
++    msgs = [HumanMessage(content="q1"), AIMessage(content="a1")]
++
++    first = engine.build_ai_messages(_state(ws, msgs), persona)
++    # git_context must be the LAST layer-tagged message, even though it is
++    # built early and scores mid-pack (the D19 placement invariant).
++    tagged = [m for m in first
++              if isinstance(m, SystemMessage) and m.response_metadata.get("layer")]
++    assert tagged, "expected context layers in the request"
++    assert tagged[-1].response_metadata["layer"] == "git_context"
++
++    # Simulate the agent's edit cycle between turns.
++    (tmp_path / "repo" / "app.py").write_text("def main():\n    return 2\n")
++    subprocess.run(["git", "add", "."], cwd=ws, check=True)
++
++    msgs2 = msgs + [HumanMessage(content="q2"), AIMessage(content="a2")]
++    engine.build_ai_messages(_state(ws, msgs2), persona)
++    stats = engine.cache_audit_stats()
++    rec = stats["recent"][-1]
++    assert rec["breaker"] == "layer:git_context"
++    # Measured 70.3% on the harness fixture post-fix (22.2% pre-fix).
++    # Pin well below the harness number so fixture details stay flexible.
++    assert rec["stable_ratio"] >= 0.55
++
++
++def test_selection_score_driven_placement_canonical(engine):
++    """Over budget, the FIT walk still prefers high scores; only the
++    emitted ORDER is canonical (never score order)."""
++    from src.context.token_budget import count_tokens
++
++    def triple(score, name, text):
++        msg = _layer(name, text)
++        return (score, msg, count_tokens([msg], engine.model))
++
++    layers = [
++        triple(0.99, "skills", "S"),      # scores highest, emits late
++        triple(0.50, "task", "T"),        # scores lowest, emits early
++        triple(0.75, "repo_map", "R"),
++    ]
++    big_budget = 10_000
++    emitted = engine._assemble_hierarchical(layers, big_budget)
++    order = [m.content for m in emitted]
++    assert order == ["R", "T", "S"]  # _BUILDER_ORDER, not score order
++
++    # Budget pressure path: walk is score-ordered, so the LOW scorer is
++    # first dropped/compressed — selection semantics preserved.
++    budget = min(t for _, _, t in layers)  # room for ~1 layer
++    emitted = engine._assemble_hierarchical(layers, budget)
++    kept = [m.content for m in emitted]
++    assert len(kept) <= 2                  # compression may rescue one
++    assert kept and kept[0] in {"S", "R"}  # a HIGH scorer survives
++    if len(kept) == 1:
++        assert kept[0] == "S"              # highest scorer wins outright
+-- 
+2.47.3
+

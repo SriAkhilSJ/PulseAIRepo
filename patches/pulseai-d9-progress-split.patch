@@ -1,0 +1,1049 @@
+From d379dec142ea3ce83aee1f27992ca0935b342fd0 Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 12:21:04 +0000
+Subject: [PATCH] refactor(graph): D9 progress_node split -- 340-line god-block
+ extracted into src/graphs/progress_helpers.py (pure helpers: tri-state
+ outcome, trace/memory anchor precedence, failure+recovery bookkeeping incl.
+ first-failure-wins slot and same-command-clear rule, events-as-data,
+ byte-pinned reflection prompt); node is now an ~80-line orchestrator,
+ plan/replan/recovery suite green unchanged = zero behavior delta; +13 pins,
+ 305 green
+
+---
+ ARCHITECTURE_REVIEW.md             |  45 ++++
+ src/graphs/chat_graph.py           | 345 ++++++-----------------------
+ src/graphs/progress_helpers.py     | 281 +++++++++++++++++++++++
+ src/tests/test_progress_helpers.py | 270 ++++++++++++++++++++++
+ 4 files changed, 659 insertions(+), 282 deletions(-)
+ create mode 100644 src/graphs/progress_helpers.py
+ create mode 100644 src/tests/test_progress_helpers.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 9bb7ae1..09528e2 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1644,3 +1644,48 @@ script fallback, plain-text passthrough, scheme guard). Suite: 292 green.
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+ ~~D24~~ ~~D10~~ — remaining: D9, D15-remainder, D23, P2.
++
++---
++
++## §40 — D9 FIXED: progress_node split (god-block -> tested helpers + thin orchestrator)
++
++**Debt D9 closed.** progress_node was a ~340-line function owning tool-
++outcome classification, trace recording, semantic tool-memory, failure/
++recovery bookkeeping (with sneaky forks: check_terminal "running" skips
++EVEN trace recording; the recovery command slot is set by the FIRST
++run/check failure only; "other tool" failures count attempts only while
++already recovering; recovery clears only when the SAME command succeeds),
++replan consultation, plan updates, event emissions, step labels, and the
++reflection-prompt injection. Untestable in isolation; any edit risked
++breaking plan/recovery semantics.
++
++Fix: new src/graphs/progress_helpers.py — pure, side-effect-light helpers
++(events returned as DATA and emitted by the node): latest_tool_messages,
++find_tool_args, classify_tool_outcome (tri-state incl. SKIP), make_trace_
++entry, tool_memory_anchor + record_tool_memory (never raises), build_
++failure, maybe_replan, success_step_label, resolve_recovery_on_success,
++PROGRESS_REFLECTION_PROMPT (byte-pinned). progress_node is now ~80 lines:
++ordering contract trace -> memory -> failure/success -> dedupe kept
++verbatim; should_replan/update_plan_from_tool moved out of chat_graph's
++import block (single responsibility restored).
++
++Zero-behavior-change proof: the entire plan/replan/recovery suite (30+
++tests: plan_approval/cancel/mode/revision, replan_graph/replan_recovery,
++agent_regression/status) green through the NEW orchestrator unchanged.
++
++Founder's metrics: pure code health — no user-visible change; the value is
++that the NEXT recovery-loop change (and the agent's own self-edits of this
++file) now happen against 13 focused pins instead of a god-block. Latency/
++context/tokens/LLM calls: untouched by construction.
++
++Pins: src/tests/test_progress_helpers.py NEW FILE 13/13 (extraction order,
++arg lookup, every classification fork incl. terminal rules + skip, memory
++anchor precedence/head-vs-tail/no-raise, failure variants + attempt rules,
++replan short-circuit + monkeypatched consult, labels/events per tool,
++same-command recovery clearing, reflection bytes; plus 3 integration
++tests through the real progress_node: success path, failure->recovery,
++running-check-records-nothing-but-reflection). Suite: 305 green (10.6s).
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
++~~D24~~ ~~D10~~ ~~D9~~ — remaining: D15-remainder, D23, P2.
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index fbe0025..ea94a2e 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -38,12 +38,11 @@ from src.agents.planner import (
+     create_replan,
+     revise_plan,
+     should_create_plan,
+-    should_replan,
+     start_next_plan_step,
+-    update_plan_from_tool,
+     finalize_plan,
+     check_ambiguity,
+ )
++from src.graphs import progress_helpers as ph
+ from src.tools.file_tools import (
+     read_file,
+     list_files,
+@@ -762,312 +761,103 @@ def progress_node(
+     state: AgentState,
+     config: RunnableConfig,
+ ):
+-    """Track successful and failed tool operations."""
++    """Track successful and failed tool operations.
+ 
+-    messages = state.get("messages", [])
+-
+-    plan = list(
+-        state.get("plan", [])
+-    )
++    D9 (§40): this node is now a thin orchestrator over
++    src/graphs/progress_helpers.py — every fork of the bookkeeping lives
++    there unit-tested; the ORDER of operations below is the behavior
++    contract (trace -> memory -> failure/success -> dedupe).
++    """
+ 
+-    steps_completed = list(
+-        state.get("steps_completed", [])
+-    )
++    messages = state.get("messages", [])
+ 
+-    failed_steps = list(
+-        state.get("failed_steps", [])
+-    )
+-    
+-    execution_trace = list(
+-        state.get("execution_trace", [])
+-    )
+-    recovery_attempts = state.get(
+-    "recovery_attempts",
+-    0,
+-)
++    plan = list(state.get("plan", []))
++    steps_completed = list(state.get("steps_completed", []))
++    failed_steps = list(state.get("failed_steps", []))
++    execution_trace = list(state.get("execution_trace", []))
++    recovery_attempts = state.get("recovery_attempts", 0)
+     recovery_mode = state.get("recovery_mode", False)
+     tool_failures = state.get("tool_failures", 0)
+-    recovery_command = state.get(
+-    "recovery_command"
+-)
++    recovery_command = state.get("recovery_command")
+     replan_needed = state.get("replan_needed", False)
+     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
+ 
+-    # ==========================================
+-    # FIND LATEST TOOL MESSAGES
+-    # ==========================================
+-
+-    latest_tools: list[ToolMessage] = []
+-
+-    for message in reversed(messages):
+-        if isinstance(message, ToolMessage):
+-            latest_tools.append(message)
+-        else:
+-            break
+-
+-    latest_tools.reverse()
+-
+-    # ==========================================
+-    # PROCESS TOOL MESSAGES
+-    # ==========================================
++    latest_tools = ph.latest_tool_messages(messages)
+ 
+     for message in latest_tools:
+         tool_name = message.name or "unknown_tool"
+         result = str(message.content)
+-        result_lower = result.lower()
++        tool_args = ph.find_tool_args(messages, message.tool_call_id)
+ 
+-        # ------------------------------------------
+-        # Find matching tool arguments FIRST
+-        # ------------------------------------------
++        outcome = ph.classify_tool_outcome(tool_name, result)
++        if outcome == ph.OUTCOME_SKIP:
++            continue  # check_terminal still running: record NOTHING
+ 
+-        tool_args = {}
++        failed = outcome == ph.OUTCOME_FAILED
+ 
+-        for previous_message in reversed(messages):
+-            if not hasattr(previous_message, "tool_calls"):
+-                continue
+-
+-            for tool_call in previous_message.tool_calls:
+-                if tool_call.get("id") == message.tool_call_id:
+-                    tool_args = tool_call.get("args", {})
+-                    break
+-
+-            if tool_args:
+-                break
+-
+-        # ------------------------------------------
+-        # Determine success / failure
+-        # ------------------------------------------
+-
+-        failed = (
+-            "error:" in result_lower
+-            or "traceback" in result_lower
+-            or "unknown process id" in result_lower
+-            or "path escapes workspace" in result_lower
++        # Trace comes before memory/failure/success handling (pre-D9 order).
++        execution_trace.append(
++            ph.make_trace_entry(tool_name, tool_args, result, failed)
+         )
+ 
+-        if tool_name == "run_terminal":
+-            if "exit code: 0" not in result_lower:
+-                failed = True
+-
+-        elif tool_name == "check_terminal":
+-            if "status: running" in result_lower:
+-                continue
+-
+-            if "status: completed" in result_lower:
+-                if "exit code: 0" not in result_lower:
+-                    failed = True
+-
+-        # ------------------------------------------
+-        # Record trace
+-        # ------------------------------------------
+-        trace_entry = {
+-            "type": "tool",
+-            "tool": tool_name,
+-            "args": tool_args.copy(),
+-            "status": "failed" if failed else "success",
+-            "result": result[-1000:],
+-        }
+-        execution_trace.append(trace_entry)
+-
+-        # ------------------------------------------
+-        # Store tool output for semantic retrieval
+-        # (feeds the "RELEVANT PAST TOOL OUTPUTS" layer)
+-        # ------------------------------------------
+-        if result.strip() and tool_name != "think":
+-            try:
+-                # Anchor the memory with the tool's target so later tasks
+-                # mentioning the same file/command/query can retrieve it.
+-                anchor = ""
+-                for key in ("path", "command", "query", "process_id"):
+-                    val = tool_args.get(key)
+-                    if val:
+-                        anchor = f"{key}={val}"
+-                        break
+-
+-                # Failures: the error lives at the tail of the output.
+-                # Successes: the useful content starts at the head.
+-                if failed:
+-                    summary = result[-300:].replace("\n", " ")
+-                else:
+-                    summary = result[:300].replace("\n", " ")
+-
+-                memory_manager.store_tool_memory(
+-                    tool_name=tool_name,
+-                    query=state.get("current_task", ""),
+-                    summary=f"{'FAILED' if failed else 'OK'} {anchor} | {summary}",
+-                    full_output=result[:2000],
+-                )
+-            except Exception:
+-                pass  # Tool memory is best-effort; never block execution
+-
+-        # ------------------------------------------
+-        # Record failure
+-        # ------------------------------------------
++        # Store tool output for semantic retrieval (best-effort inside).
++        ph.record_tool_memory(
++            memory_manager,
++            tool_name,
++            state.get("current_task", ""),
++            result,
++            tool_args,
++            failed,
++        )
+ 
+         if failed:
+-            tool_failures += 1
+-
+-            if tool_name == "run_terminal":
+-                command = tool_args.get(
+-                    "command",
+-                    "unknown command",
+-                )
+-
+-                # Every failed terminal execution counts.
+-                recovery_attempts += 1
+-
+-                if not recovery_mode:
+-                    recovery_mode = True
+-                    recovery_command = command
+-
+-                failure = (
+-                    f"Command failed: {command}\n"
+-                    f"Actual tool output:\n{result[-3000:]}"
+-                )
+-
+-            elif tool_name == "check_terminal":
+-                process_id = tool_args.get(
+-                    "process_id",
+-                    "unknown",
+-                )
+-
+-                recovery_attempts += 1
+-
+-                if not recovery_mode:
+-                    recovery_mode = True
+-                    recovery_command = f"process:{process_id}"
+-
+-                failure = (
+-                    f"Terminal process failed: {process_id}\n"
+-                    f"Actual tool output:\n{result[-3000:]}"
+-                )
+-
+-            else:
+-                if recovery_mode:
+-                    recovery_attempts += 1
+-
+-                failure = f"Tool failed: {tool_name}"
++            failure, updates = ph.build_failure(
++                tool_name, result, tool_args, recovery_mode, recovery_command
++            )
++            tool_failures += updates["tool_failures_inc"]
++            recovery_attempts += updates["recovery_attempts_inc"]
++            recovery_mode = updates["recovery_mode"]
++            recovery_command = updates["recovery_command"]
+ 
+             if failure not in failed_steps:
+                 failed_steps.append(failure)
+ 
+-            if plan:
+-                configurable = config["configurable"]
+-
+-                usages: list[TokenUsage] = []
+-
+-                replan_needed = should_replan(
+-                    task=state.get("current_task", ""),
+-                    plan=plan,
+-                    failure=failure,
+-                    provider=configurable["provider"],
+-                    model=configurable["model"],
+-                    usage_list=usages,
+-                )
+-
++            needed, usages = ph.maybe_replan(
++                task=state.get("current_task", ""),
++                plan=plan,
++                failure=failure,
++                provider=config["configurable"]["provider"],
++                model=config["configurable"]["model"],
++            )
++            if usages:
++                replan_needed = needed
+                 for usage in usages:
+                     total_usage = total_usage + usage
+-
+             continue
+ 
+-        # ------------------------------------------
+-        # Record success
+-        # ------------------------------------------
+-
++        # ---------------- success ----------------
+         if plan:
+-            plan = update_plan_from_tool(
++            plan = ph.update_plan_from_tool(
+                 plan=plan,
+                 tool_name=tool_name,
+                 tool_args=tool_args,
+                 failed=False,
+             )
+ 
+-        if tool_name == "read_file":
+-            path = tool_args.get("path", "unknown")
+-            step = f"Read file: {path}"
+-
+-        elif tool_name == "write_file":
+-            path = tool_args.get("path", "unknown")
+-            step = f"Wrote file: {path}"
+-            
+-            content = tool_args.get("content", "")
+-            event_bus.emit("diff.show", {
+-                "file": path,
+-                "lines": content.split("\n")[:20],
+-            })
+-            event_bus.emit("files.changed", {
+-                "messageId": message.tool_call_id,
+-                "files": [path],
+-            })
+-
+-        elif tool_name == "edit_file":
+-            path = tool_args.get("path", "unknown")
+-            step = f"Edited file: {path}"
+-
+-            event_bus.emit("files.changed", {
+-                "messageId": message.tool_call_id,
+-                "files": [path],
+-            })
+-
+-        elif tool_name == "search_code":
+-            query = tool_args.get("query", "")
+-            path = tool_args.get("path", ".")
+-            step = f"Searched for '{query}' inside {path}"
+-
+-        elif tool_name == "list_files":
+-            path = tool_args.get("path", ".")
+-            step = f"Listed files: {path}"
+-
+-        elif tool_name == "run_terminal":
+-            command = tool_args.get(
+-                "command",
+-                "unknown command",
+-            )
+-            step = f"Ran command successfully: {command}"
+-
+-            # Recovery only finishes when the SAME operation
+-            # that originally failed now succeeds.
+-            if (
+-                recovery_mode
+-                and recovery_command is not None
+-                and command == recovery_command
+-            ):
+-                recovery_mode = False
+-                recovery_command = None
+-
+-        elif tool_name == "start_terminal":
+-            command = tool_args.get(
+-                "command",
+-                "unknown command",
+-            )
+-            step = f"Started background command: {command}"
+-
+-        elif tool_name == "check_terminal":
+-            process_id = tool_args.get(
+-                "process_id",
+-                "unknown",
+-            )
+-            step = (
+-                "Terminal process completed successfully: "
+-                f"{process_id}"
+-            )
+-
+-        elif tool_name == "stop_terminal":
+-            process_id = tool_args.get(
+-                "process_id",
+-                "unknown",
+-            )
+-            step = f"Stopped terminal process: {process_id}"
+-
+-        else:
+-            step = f"Completed tool: {tool_name}"
++        label, events = ph.success_step_label(
++            tool_name, tool_args, message.tool_call_id
++        )
++        for event_name, payload in events:
++            event_bus.emit(event_name, payload)
+ 
+-        if step not in steps_completed:
+-            steps_completed.append(step)
++        # Same-operation rule: recovery clears only when the command that
++        # originally failed now succeeds.
++        recovery_mode, recovery_command = ph.resolve_recovery_on_success(
++            tool_name, tool_args, recovery_mode, recovery_command
++        )
+ 
+-    # ==========================================
+-    # RETURN AFTER THE LOOP
+-    # ==========================================
++        if label not in steps_completed:
++            steps_completed.append(label)
+ 
+     result = {
+         "steps_completed": steps_completed,
+@@ -1084,16 +874,7 @@ def progress_node(
+ 
+     if latest_tools:
+         result["messages"] = [
+-            SystemMessage(
+-                content=(
+-                    "You just received a tool result. Take a moment to evaluate it:\n"
+-                    "- Did the tool succeed or fail?\n"
+-                    "- Does the output match what you expected?\n"
+-                    "- Should you proceed, fix something, ask the user, or replan?\n\n"
+-                    "Use verify() when the result needs explicit validation. "
+-                    "Don't verify meta-tools like think(), verify(), or ask_user()."
+-                )
+-            )
++            SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
+         ]
+ 
+     return result
+diff --git a/src/graphs/progress_helpers.py b/src/graphs/progress_helpers.py
+new file mode 100644
+index 0000000..dc14fa8
+--- /dev/null
++++ b/src/graphs/progress_helpers.py
+@@ -0,0 +1,281 @@
++# src/graphs/progress_helpers.py
++"""
++Progress-node helpers — D9 (§40)
++=================================
++
++Extracted from the ~340-line progress_node god-block so every fork of the
++tool-progress bookkeeping is unit-testable in isolation. progress_node in
++chat_graph.py is now a thin orchestrator over these helpers.
++
++Behavior contract (every rule preserved verbatim from the pre-D9 code,
++pinned in src/tests/test_progress_helpers.py):
++
++- a check_terminal message reporting "status: running" is SKIPPED ENTIRELY
++  (tri-state "skip") — no trace, no memory, no outcome handling;
++- every other latest tool message appends a trace entry (result tail 1000)
++  BEFORE memory/failure/success handling;
++- tool memory: only for non-empty results and tool != "think"; anchor
++  precedence path > command > query > process_id; failures store the
++  result TAIL (300), successes the HEAD (300), full_output the head 2000;
++  storage is best-effort (never raises);
++- failures: tool_failures increments for ANY failed tool;
++  recovery_attempts increments for run_terminal/check_terminal failures,
++  and for other tools ONLY while already in recovery_mode;
++  recovery_mode/recovery_command are set by the FIRST run/check failure
++  (later failures do not steal the command slot);
++- success on run_terminal clears recovery ONLY when the command equals
++  the stored recovery_command (same-operation rule);
++- write_file successes emit diff.show + files.changed; edit_file emits
++  files.changed; no other tool emits events;
++- step labels are deduped by exact string before appending;
++- replan is consulted only on failure AND a non-empty plan.
++"""
++
++from __future__ import annotations
++
++from typing import Any, Optional
++
++from langchain_core.messages import ToolMessage
++
++from src.agents.planner import should_replan, update_plan_from_tool
++
++# Shown to the model after any tool result (kept byte-identical to the
++# pre-D9 inline string).
++PROGRESS_REFLECTION_PROMPT = (
++    "You just received a tool result. Take a moment to evaluate it:\n"
++    "- Did the tool succeed or fail?\n"
++    "- Does the output match what you expected?\n"
++    "- Should you proceed, fix something, ask the user, or replan?\n\n"
++    "Use verify() when the result needs explicit validation. "
++    "Don't verify meta-tools like think(), verify(), or ask_user()."
++)
++
++OUTCOME_SUCCESS = "success"
++OUTCOME_FAILED = "failed"
++OUTCOME_SKIP = "skip"      # check_terminal still running: record NOTHING
++
++_TRACE_RESULT_TAIL = 1000
++_MEMORY_SNIPPET = 300
++_MEMORY_FULL_OUTPUT = 2000
++_FAILURE_RESULT_TAIL = 3000
++
++
++def latest_tool_messages(messages: list) -> list[ToolMessage]:
++    """The trailing run of ToolMessages at the end of the conversation."""
++    latest: list[ToolMessage] = []
++    for message in reversed(messages):
++        if isinstance(message, ToolMessage):
++            latest.append(message)
++        else:
++            break
++    latest.reverse()
++    return latest
++
++
++def find_tool_args(messages: list, tool_call_id: str) -> dict:
++    """Locate the arguments of the tool call that produced this result."""
++    for previous_message in reversed(messages):
++        if not hasattr(previous_message, "tool_calls"):
++            continue
++        for tool_call in previous_message.tool_calls:
++            if tool_call.get("id") == tool_call_id:
++                return tool_call.get("args", {})
++    return {}
++
++
++def classify_tool_outcome(tool_name: str, result: str) -> str:
++    """The success/failure/skip verdict, preserving every legacy fork."""
++    result_lower = result.lower()
++
++    failed = (
++        "error:" in result_lower
++        or "traceback" in result_lower
++        or "unknown process id" in result_lower
++        or "path escapes workspace" in result_lower
++    )
++
++    if tool_name == "run_terminal":
++        if "exit code: 0" not in result_lower:
++            failed = True
++    elif tool_name == "check_terminal":
++        if "status: running" in result_lower:
++            return OUTCOME_SKIP
++        if "status: completed" in result_lower:
++            if "exit code: 0" not in result_lower:
++                failed = True
++
++    return OUTCOME_FAILED if failed else OUTCOME_SUCCESS
++
++
++def make_trace_entry(tool_name: str, tool_args: dict, result: str, failed: bool) -> dict:
++    return {
++        "type": "tool",
++        "tool": tool_name,
++        "args": dict(tool_args),
++        "status": "failed" if failed else "success",
++        "result": result[-_TRACE_RESULT_TAIL:],
++    }
++
++
++def tool_memory_anchor(tool_args: dict) -> str:
++    """First present anchor in the legacy precedence order."""
++    for key in ("path", "command", "query", "process_id"):
++        val = tool_args.get(key)
++        if val:
++            return f"{key}={val}"
++    return ""
++
++
++def record_tool_memory(memory_manager: Any, tool_name: str, task: str,
++                       result: str, tool_args: dict, failed: bool) -> None:
++    """Store tool output for the semantic-retrieval layer. Best-effort:
++    never raises, never stores empty results or think() internals."""
++    if not result.strip() or tool_name == "think" or memory_manager is None:
++        return
++    try:
++        anchor = tool_memory_anchor(tool_args)
++        # Failures: the error lives at the tail of the output.
++        # Successes: the useful content starts at the head.
++        summary = (result[-_MEMORY_SNIPPET:] if failed
++                   else result[:_MEMORY_SNIPPET]).replace("\n", " ")
++        memory_manager.store_tool_memory(
++            tool_name=tool_name,
++            query=task,
++            summary=f"{'FAILED' if failed else 'OK'} {anchor} | {summary}",
++            full_output=result[:_MEMORY_FULL_OUTPUT],
++        )
++    except Exception:
++        pass  # Tool memory is best-effort; never block execution
++
++
++def build_failure(tool_name: str, result: str, tool_args: dict,
++                  recovery_mode: bool, recovery_command: Optional[str]):
++    """Failure bookkeeping for one failed tool message.
++
++    Returns (failure_text, updates) where updates carries the deltas/state
++    the node applies:
++        tool_failures_inc / recovery_attempts_inc (ints)
++        recovery_mode / recovery_command (new state)
++    """
++    updates = {
++        "tool_failures_inc": 1,
++        "recovery_attempts_inc": 0,
++        "recovery_mode": recovery_mode,
++        "recovery_command": recovery_command,
++    }
++
++    if tool_name == "run_terminal":
++        command = tool_args.get("command", "unknown command")
++        updates["recovery_attempts_inc"] = 1
++        if not recovery_mode:
++            updates["recovery_mode"] = True
++            updates["recovery_command"] = command
++        failure = (
++            f"Command failed: {command}\n"
++            f"Actual tool output:\n{result[-_FAILURE_RESULT_TAIL:]}"
++        )
++    elif tool_name == "check_terminal":
++        process_id = tool_args.get("process_id", "unknown")
++        updates["recovery_attempts_inc"] = 1
++        if not recovery_mode:
++            updates["recovery_mode"] = True
++            updates["recovery_command"] = f"process:{process_id}"
++        failure = (
++            f"Terminal process failed: {process_id}\n"
++            f"Actual tool output:\n{result[-_FAILURE_RESULT_TAIL:]}"
++        )
++    else:
++        if recovery_mode:
++            updates["recovery_attempts_inc"] = 1
++        failure = f"Tool failed: {tool_name}"
++
++    return failure, updates
++
++
++def maybe_replan(task: str, plan: list, failure: str,
++                 provider: str, model: str):
++    """Consult the replanner (failure + non-empty plan only).
++
++    Returns (replan_needed, usages) — usages for token accounting; the
++    empty-plan case short-circuits without touching the LLM path.
++    """
++    if not plan:
++        return False, []
++    usages: list = []
++    needed = should_replan(
++        task=task,
++        plan=plan,
++        failure=failure,
++        provider=provider,
++        model=model,
++        usage_list=usages,
++    )
++    return needed, usages
++
++
++def success_step_label(tool_name: str, tool_args: dict,
++                       tool_call_id: str):
++    """The human label for a successful tool, plus the events the node
++    must emit (returned as data so helpers stay side-effect-free).
++
++    Returns (label, events) where events is a list of (name, payload).
++    """
++    events: list[tuple[str, dict]] = []
++
++    if tool_name == "read_file":
++        label = f"Read file: {tool_args.get('path', 'unknown')}"
++    elif tool_name == "write_file":
++        path = tool_args.get("path", "unknown")
++        label = f"Wrote file: {path}"
++        content = tool_args.get("content", "")
++        events.append(("diff.show", {
++            "file": path,
++            "lines": content.split("\n")[:20],
++        }))
++        events.append(("files.changed", {
++            "messageId": tool_call_id,
++            "files": [path],
++        }))
++    elif tool_name == "edit_file":
++        path = tool_args.get("path", "unknown")
++        label = f"Edited file: {path}"
++        events.append(("files.changed", {
++            "messageId": tool_call_id,
++            "files": [path],
++        }))
++    elif tool_name == "search_code":
++        label = (f"Searched for '{tool_args.get('query', '')}'"
++                 f" inside {tool_args.get('path', '.')}")
++    elif tool_name == "list_files":
++        label = f"Listed files: {tool_args.get('path', '.')}"
++    elif tool_name == "run_terminal":
++        label = (f"Ran command successfully: "
++                 f"{tool_args.get('command', 'unknown command')}")
++    elif tool_name == "start_terminal":
++        label = (f"Started background command: "
++                 f"{tool_args.get('command', 'unknown command')}")
++    elif tool_name == "check_terminal":
++        label = (f"Terminal process completed successfully: "
++                 f"{tool_args.get('process_id', 'unknown')}")
++    elif tool_name == "stop_terminal":
++        label = (f"Stopped terminal process: "
++                 f"{tool_args.get('process_id', 'unknown')}")
++    else:
++        label = f"Completed tool: {tool_name}"
++
++    return label, events
++
++
++def resolve_recovery_on_success(tool_name: str, tool_args: dict,
++                                recovery_mode: bool,
++                                recovery_command: Optional[str]):
++    """Same-operation rule: a run_terminal success clears recovery only
++    when its command IS the stored recovery_command."""
++    if (
++        tool_name == "run_terminal"
++        and recovery_mode
++        and recovery_command is not None
++        and tool_args.get("command", "unknown command") == recovery_command
++    ):
++        return False, None
++    return recovery_mode, recovery_command
+diff --git a/src/tests/test_progress_helpers.py b/src/tests/test_progress_helpers.py
+new file mode 100644
+index 0000000..ff3f9c2
+--- /dev/null
++++ b/src/tests/test_progress_helpers.py
+@@ -0,0 +1,270 @@
++"""D9 pins (§40): the progress_node split.
++
++Every fork of the pre-D9 god-block is pinned in isolation against
++src/graphs/progress_helpers.py, plus integration tests through the real
++progress_node. The rest of the plan/replan suite (30+ tests) exercises
++the orchestrator end-to-end and must stay green — that is the
++no-behavior-change proof.
++"""
++
++from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
++
++import src.graphs.progress_helpers as ph
++
++
++# ---------------------------------------------------------------------
++# extraction / lookup
++# ---------------------------------------------------------------------
++
++def test_d9_latest_tool_messages_trailing_run_only():
++    msgs = [
++        HumanMessage(content="hi"),
++        ToolMessage(content="old", tool_call_id="0", name="read_file"),
++        AIMessage(content="thinking"),
++        ToolMessage(content="a", tool_call_id="1", name="read_file"),
++        ToolMessage(content="b", tool_call_id="2", name="list_files"),
++    ]
++    got = ph.latest_tool_messages(msgs)
++    assert [m.tool_call_id for m in got] == ["1", "2"]  # order restored
++
++
++def test_d9_find_tool_args_matches_call_id():
++    msgs = [
++        AIMessage(content="", tool_calls=[
++            {"id": "aa", "name": "read_file", "args": {"path": "x.py"}},
++            {"id": "bb", "name": "run_terminal", "args": {"command": "ls"}},
++        ]),
++    ]
++    assert ph.find_tool_args(msgs, "bb") == {"command": "ls"}
++    assert ph.find_tool_args(msgs, "nope") == {}
++
++
++# ---------------------------------------------------------------------
++# outcome classification (every legacy fork)
++# ---------------------------------------------------------------------
++
++def test_d9_classify_terminal_rules():
++    ok = "files listed\nexit code: 0"
++    bad = "oops\nexit code: 1"
++    assert ph.classify_tool_outcome("run_terminal", ok) == ph.OUTCOME_SUCCESS
++    assert ph.classify_tool_outcome("run_terminal", bad) == ph.OUTCOME_FAILED
++    # no exit-code line at all is a failure for run_terminal
++    assert ph.classify_tool_outcome("run_terminal", "done") == ph.OUTCOME_FAILED
++    assert ph.classify_tool_outcome(
++        "check_terminal", "status: running") == ph.OUTCOME_SKIP
++    assert ph.classify_tool_outcome(
++        "check_terminal", "status: completed\nexit code: 0") == ph.OUTCOME_SUCCESS
++    assert ph.classify_tool_outcome(
++        "check_terminal", "status: completed\nexit code: 2") == ph.OUTCOME_FAILED
++    # generic markers on any other tool
++    assert ph.classify_tool_outcome("read_file", "error: not found") == ph.OUTCOME_FAILED
++    assert ph.classify_tool_outcome("read_file", "Traceback (most recent") == ph.OUTCOME_FAILED
++    assert ph.classify_tool_outcome(
++        "read_file", "unknown process id") == ph.OUTCOME_FAILED
++    assert ph.classify_tool_outcome(
++        "write_file", "path escapes workspace") == ph.OUTCOME_FAILED
++    assert ph.classify_tool_outcome("read_file", "file contents here") == ph.OUTCOME_SUCCESS
++
++
++# ---------------------------------------------------------------------
++# tool memory
++# ---------------------------------------------------------------------
++
++class _Mem:
++    def __init__(self):
++        self.calls = []
++
++    def store_tool_memory(self, **kw):
++        self.calls.append(kw)
++
++
++def test_d9_memory_rules():
++    mem = _Mem()
++    ph.record_tool_memory(mem, "think", "task", "some output", {}, False)
++    ph.record_tool_memory(mem, "read_file", "task", "   ", {}, False)
++    ph.record_tool_memory(None, "read_file", "task", "data", {}, False)
++    assert mem.calls == []
++
++    ph.record_tool_memory(mem, "read_file", "task", "HEAD " + "x" * 400,
++                          {"path": "a.py", "command": "ls"}, False)
++    ph.record_tool_memory(mem, "run_terminal", "task", "y" * 400 + " TAIL",
++                          {"command": "make"}, True)
++    ok, fail = mem.calls
++    assert ok["summary"].startswith("OK path=a.py | HEAD")  # anchor precedence path>command
++    assert fail["summary"].startswith("FAILED command=make |")
++    assert fail["summary"].endswith("TAIL")                  # failure keeps the tail
++    assert ok["full_output"].startswith("HEAD") and len(ok["full_output"]) == 405
++
++
++def test_d9_memory_never_raises_even_when_store_explodes():
++    class _Boom:
++        def store_tool_memory(self, **kw):
++            raise RuntimeError("db down")
++
++    ph.record_tool_memory(_Boom(), "read_file", "t", "data", {}, False)
++
++
++# ---------------------------------------------------------------------
++# failure bookkeeping
++# ---------------------------------------------------------------------
++
++def test_d9_build_failure_terminal_variants():
++    f, up = ph.build_failure("run_terminal", "boom output", {"command": "make"},
++                             False, None)
++    assert f.startswith("Command failed: make\nActual tool output:\n")
++    assert up == {"tool_failures_inc": 1, "recovery_attempts_inc": 1,
++                  "recovery_mode": True, "recovery_command": "make"}
++
++    # already in recovery: command slot NOT stolen
++    f, up = ph.build_failure("run_terminal", "x", {"command": "make2"},
++                             True, "make")
++    assert up["recovery_command"] == "make"
++    assert up["recovery_attempts_inc"] == 1
++
++    f, up = ph.build_failure("check_terminal", "x", {"process_id": "p9"},
++                             False, None)
++    assert f.startswith("Terminal process failed: p9")
++    assert up["recovery_command"] == "process:p9"
++
++    # generic tool: attempts only move while already in recovery
++    f, up = ph.build_failure("read_file", "x", {}, False, None)
++    assert f == "Tool failed: read_file"
++    assert up["recovery_attempts_inc"] == 0 and up["recovery_mode"] is False
++    f, up = ph.build_failure("read_file", "x", {}, True, "make")
++    assert up["recovery_attempts_inc"] == 1 and up["recovery_mode"] is True
++
++
++def test_d9_maybe_replan(monkeypatch):
++    needed, usages = ph.maybe_replan("t", [], "f", "p", "m")
++    assert needed is False and usages == []
++
++    captured = {}
++
++    def _fake(task, plan, failure, provider, model, usage_list):
++        captured.update(task=task, failure=failure, provider=provider, model=model)
++        usage_list.append("U1")
++        return True
++
++    monkeypatch.setattr(ph, "should_replan", _fake)
++    needed, usages = ph.maybe_replan("fix auth", [{"step": 1}], "boom", "groq", "llama")
++    assert needed is True and usages == ["U1"]
++    assert captured["failure"] == "boom" and captured["provider"] == "groq"
++
++
++# ---------------------------------------------------------------------
++# success labels / events / recovery clearing
++# ---------------------------------------------------------------------
++
++def test_d9_success_labels_and_events():
++    label, events = ph.success_step_label("write_file",
++                                          {"path": "a.py", "content": "l1\nl2"}, "tc1")
++    assert label == "Wrote file: a.py"
++    assert [e for e, _ in events] == ["diff.show", "files.changed"]
++    assert events[0][1] == {"file": "a.py", "lines": ["l1", "l2"]}
++    assert events[1][1] == {"messageId": "tc1", "files": ["a.py"]}
++
++    label, events = ph.success_step_label("edit_file", {"path": "b.py"}, "tc2")
++    assert label == "Edited file: b.py"
++    assert [e for e, _ in events] == ["files.changed"]
++
++    label, events = ph.success_step_label("read_file", {"path": "c.py"}, "tc3")
++    assert label == "Read file: c.py" and events == []
++
++    label, _ = ph.success_step_label("run_terminal", {"command": "make"}, "t")
++    assert label == "Ran command successfully: make"
++    label, _ = ph.success_step_label("custom_tool", {}, "t")
++    assert label == "Completed tool: custom_tool"
++
++
++def test_d9_recovery_clears_only_same_command():
++    mode, cmd = ph.resolve_recovery_on_success(
++        "run_terminal", {"command": "make"}, True, "make")
++    assert (mode, cmd) == (False, None)
++    mode, cmd = ph.resolve_recovery_on_success(
++        "run_terminal", {"command": "make clean"}, True, "make")
++    assert (mode, cmd) == (True, "make")
++    mode, cmd = ph.resolve_recovery_on_success(
++        "read_file", {"path": "a.py"}, True, "make")
++    assert (mode, cmd) == (True, "make")
++
++
++def test_d9_reflection_prompt_bytes():
++    assert ph.PROGRESS_REFLECTION_PROMPT.startswith(
++        "You just received a tool result. Take a moment to evaluate it:"
++    )
++    assert ph.PROGRESS_REFLECTION_PROMPT.endswith(
++        "Don't verify meta-tools like think(), verify(), or ask_user()."
++    )
++
++
++# ---------------------------------------------------------------------
++# integration through the real node
++# ---------------------------------------------------------------------
++
++def _cfg():
++    return {"configurable": {"provider": "p", "model": "m", "thread_id": "t9"}}
++
++
++def test_d9_progress_node_success_path():
++    from src.graphs.chat_graph import progress_node
++
++    state = {
++        "messages": [
++            AIMessage(content="", tool_calls=[
++                {"id": "t1", "name": "run_terminal", "args": {"command": "ls"}},
++            ]),
++            ToolMessage(content="files here\nexit code: 0",
++                        tool_call_id="t1", name="run_terminal"),
++        ],
++        "current_task": "list files",
++    }
++    out = progress_node(state, _cfg())
++    assert out["steps_completed"] == ["Ran command successfully: ls"]
++    assert out["failed_steps"] == []
++    assert out["execution_trace"][0]["status"] == "success"
++    assert out["execution_trace"][0]["tool"] == "run_terminal"
++    assert isinstance(out["messages"][0], SystemMessage)
++    assert out["messages"][0].content == ph.PROGRESS_REFLECTION_PROMPT
++    assert "token_usage" in out
++
++
++def test_d9_progress_node_failure_sets_recovery():
++    from src.graphs.chat_graph import progress_node
++
++    state = {
++        "messages": [
++            AIMessage(content="", tool_calls=[
++                {"id": "t1", "name": "run_terminal", "args": {"command": "make"}},
++            ]),
++            ToolMessage(content="boom\nexit code: 1",
++                        tool_call_id="t1", name="run_terminal"),
++        ],
++        "current_task": "build it",
++    }
++    out = progress_node(state, _cfg())
++    assert out["recovery_mode"] is True
++    assert out["recovery_command"] == "make"
++    assert out["recovery_attempts"] == 1
++    assert out["tool_failures"] == 1
++    assert out["failed_steps"][0].startswith("Command failed: make")
++
++
++def test_d9_progress_node_running_check_records_nothing():
++    from src.graphs.chat_graph import progress_node
++
++    state = {
++        "messages": [
++            AIMessage(content="", tool_calls=[
++                {"id": "t1", "name": "check_terminal", "args": {"process_id": "p1"}},
++            ]),
++            ToolMessage(content="status: running",
++                        tool_call_id="t1", name="check_terminal"),
++        ],
++        "current_task": "watch it",
++    }
++    out = progress_node(state, _cfg())
++    assert out["execution_trace"] == []
++    assert out["steps_completed"] == []
++    assert out["failed_steps"] == []
++    # ...but the reflection message still fires (a tool message DID arrive)
++    assert isinstance(out["messages"][0], SystemMessage)
+-- 
+2.47.3
+

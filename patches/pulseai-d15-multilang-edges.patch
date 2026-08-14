@@ -1,0 +1,595 @@
+From 5ce484c3b47766f2867be56e5945d0181a1f8e59 Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 12:32:29 +0000
+Subject: [PATCH] feat(context): D15-remainder multi-language import edges --
+ JS/TS (import/export/require/dynamic, relative+index resolution), Go
+ (package-dir longest-trim, stdlib drop), Rust (mod/use crate/self/super with
+ item-vs-module parent probe, extern drop), Java (layout prefixes + package
+ dir, wildcard skip); dispatcher by suffix; user_version 3 migration; ALSO
+ fixed latent v2 bug: full index_workspace never inserted edges at all (fresh
+ repos had empty detective mode); v1 pin inverted deliberately + renamed; +6
+ pins, 311 green
+
+---
+ ARCHITECTURE_REVIEW.md            |  54 +++++++++
+ src/context/chunk_index.py        |  63 +++++++---
+ src/context/lang_extractors.py    | 188 ++++++++++++++++++++++++++++++
+ src/tests/test_detective_mode.py  |  17 ++-
+ src/tests/test_lang_extractors.py | 145 +++++++++++++++++++++++
+ 5 files changed, 450 insertions(+), 17 deletions(-)
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 09528e2..eca63fb 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1689,3 +1689,57 @@ running-check-records-nothing-but-reflection). Suite: 305 green (10.6s).
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+ ~~D24~~ ~~D10~~ ~~D9~~ — remaining: D15-remainder, D23, P2.
++
++---
++
++## §41 — D15-remainder FIXED: import edges for JS/TS, Go, Rust, Java (+ a latent v2-era bug found by the pin)
++
++**Debt D15-remainder closed.** The chunk extraction grammars already
++handled five non-Python languages (D5); import EDGES — the "related files"
++detective-mode layer — were Python-only.
++
++New resolvers in lang_extractors.py (bounded candidate checks, pure FS,
++no walks/DB reads — indexing-order independent, never raise; false edge
++from a comment documented as harmless metadata):
++- JS/TS: import/export-from, require(), dynamic import(), side-effect;
++  relative specifiers only (bare 'react' dropped); explicit-ext, ext
++  probe, and index.* resolution in this order.
++- Go: single/grouped/aliased imports; a Go import names a PACKAGE DIR —
++  module-prefix trimmed longest-first (4 deep), dir -> up to 5 .go files.
++  stdlib ("fmt") drops for free (no workspace dir).
++- Rust: `mod name;` declarations (file.rs | file/mod.rs) and
++  `use crate::/self::/super::` paths with super:: climbing; item-vs-module
++  ambiguity resolved full-path-first then parent-path (caught by pins on
++  first run — `use super::auth::s` needed the parent probe); external
++  crates dropped. Wildcard item lists/re-exports get the PATH edge.
++- Java: import + static import, dotted path under layout prefixes
++  ["", src/main/java, src], then importer's package dir; wildcard imports
++  skipped (no single bounded candidate).
++Dispatcher: chunk_index._edges_for routes by suffix; import_edges table
++shared by all languages; schema user_version bumped 2 -> 3 (v3 = multi-
++language) so existing users get ONE clean full-rebuild to gain the new
++edges — and that rebuild now actually inserts them, because:
++
++**Latent v2-era bug, found by the §41 integration pin:** index_workspace
++(full rebuild: first run + forced-upgrade path) only DELETEd import_edges
++and never inserted any — fresh workspaces had ZERO edges (detective mode
++empty) until per-file syncs caught up. sync_file had the edge insertion;
++the full path never did. Fixed: rebuild inserts edges per file inside the
++write lock alongside chunk rows. A v1-era detective-mode pin codified the
++Python-only contract ("edges == 0 by design") — INVERTED DELIBERATELY
++(test renamed, note inside) since the debt it documented is now fixed.
++
++Founder's metrics: context quality — related-files ("edits may BREAK X")
++now covers the whole polyglot workspace; token budget — edges were always
++capped (_MAX_RELATED_FILES=4); latency — resolvers are a handful of
++is_file checks per file at index time only; LLM calls — zero.
++
++Pins: test_lang_extractors.py 23/23 (5 new per-language suites: JS/TS all
++forms+bare-drop, Go package-dir+stdlib-drop, Rust mod/use+super+item-vs-
++module, Java layouts+drops, integration mixed-workspace rows incl. the
++full-rebuild coverage, garbage never-raises); test_detective_mode.py
++contract-inverted pin. Suite: 311 green (10.6s).
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python+remainder)~~ ~~D7~~
++~~D17~~ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~
++~~D14~~ ~~D24~~ ~~D10~~ ~~D9~~ — remaining: D23, P2.
+diff --git a/src/context/chunk_index.py b/src/context/chunk_index.py
+index 8ab6554..b124a77 100644
+--- a/src/context/chunk_index.py
++++ b/src/context/chunk_index.py
+@@ -24,11 +24,12 @@ Design notes (each one is a verified lesson, not a guess):
+   to vector distances.
+ - Embedded text is hard-capped (~200 tokens) for all-MiniLM-L6-v2; the full
+   (display-truncated) body is stored separately for the LLM.
+-- import_edges (schema user_version=2): file->file import graph powering the
+-  "related files" section of the context layer ("detective mode"). Python-
+-  only, stdlib-ast, full dotted-path resolution to workspace files (the
+-  repo_map graph's first-segment module names can't produce file->file
+-  edges — verified). Rows live/die in the SAME transactions as chunk
++- import_edges (schema user_version=3): file->file import graph powering the
++  "related files" section of the context layer ("detective mode"). Python
++  via a stdlib-ast full dotted-path resolver (the repo_map graph's
++  first-segment module names can't produce file->file edges — verified);
++  JS/TS, Go, Rust, Java via bounded-candidate resolvers in lang_extractors
++  (D15-remainder, §41). Rows live/die in the SAME transactions as chunk
+   rows, so edges cannot drift from code.
+ """
+ 
+@@ -46,9 +47,14 @@ from pathlib import Path
+ from typing import Any, Optional
+ 
+ from src.context.lang_extractors import (
++    _EXT_JS_FAMILY as _EXT_JS_FAMILY_LANG,
+     _sha256_id,
+     _truncate_for_embedding,
+     extract_chunks_treesitter,
++    extract_js_import_edges,
++    extract_go_import_edges,
++    extract_rust_import_edges,
++    extract_java_import_edges,
+     source_extensions,
+ )
+ 
+@@ -457,12 +463,14 @@ class ChunkIndex:
+         # re-sync rebuilds them; PRAGMA user_version marks it done so this
+         # never loops. (Files with zero imports produce zero edge rows, so
+         # "table empty" alone can NOT be the migration signal.)
+-        if self.conn.execute("PRAGMA user_version").fetchone()[0] < 2:
++        # v2 = Python edges (D15), v3 = multi-language edges (D15-remainder
++        # §41): existing v2 DBs get ONE more full re-sync pick-up pass.
++        if self.conn.execute("PRAGMA user_version").fetchone()[0] < 3:
+             has_chunks = self.conn.execute(
+                 "SELECT 1 FROM code_chunks LIMIT 1"
+             ).fetchone()
+             self._needs_edge_resync = bool(has_chunks)
+-            self.conn.execute("PRAGMA user_version = 2")
++            self.conn.execute("PRAGMA user_version = 3")
+             self.conn.commit()
+ 
+     # ------------------------------------------------------------------
+@@ -485,8 +493,21 @@ class ChunkIndex:
+         for i, fpath in enumerate(files):
+             try:
+                 chunks = extract_source_chunks(fpath, self.workspace)
+-                if chunks:
+-                    self._insert_chunks(chunks, fpath.stat().st_mtime, commit=False)
++                rel = str(fpath.relative_to(self.workspace))
++                edges = self._edges_for(fpath, rel)
++                if chunks or edges:
++                    with self._write_lock:
++                        if chunks:
++                            self._insert_chunks_no_commit(chunks, fpath.stat().st_mtime)
++                        # Full rebuild now inserts edges too — pre-D15-remainder
++                        # it only DELETEed them, so freshly-indexed workspaces
++                        # had detective mode empty until per-file syncs caught up
++                        # (found by the §41 integration pin).
++                        for target in edges:
++                            self.conn.execute(
++                                "INSERT OR IGNORE INTO import_edges (importer, imported) VALUES (?, ?)",
++                                (rel, target),
++                            )
+             except Exception:
+                 continue
+             if (i + 1) % 25 == 0:
+@@ -687,15 +708,31 @@ class ChunkIndex:
+                     )
+ 
+     def _edges_for(self, file_path: Path, rel: str) -> set[str]:
+-        """Resolved in-repo import targets of one Python file (empty set for
+-        non-Python or unparseable sources — edges are a bonus, never fatal)."""
+-        if file_path.suffix.lower() != ".py":
++        """Resolved in-repo import targets of one source file (D15):
++        Python via stdlib-ast resolver; JS/TS, Go, Rust, Java via the
++        lang_extractors resolvers (§41). Empty set for unsupported or
++        unparseable sources — edges are a bonus, never fatal."""
++        suffix = file_path.suffix.lower()
++        if suffix == ".py":
++            resolver = _extract_py_import_edges
++        elif suffix in _EXT_JS_FAMILY_LANG:
++            resolver = extract_js_import_edges
++        elif suffix == ".go":
++            resolver = extract_go_import_edges
++        elif suffix == ".rs":
++            resolver = extract_rust_import_edges
++        elif suffix == ".java":
++            resolver = extract_java_import_edges
++        else:
+             return set()
+         try:
+             source = file_path.read_text(encoding="utf-8", errors="ignore")
+         except OSError:
+             return set()
+-        return _extract_py_import_edges(source, Path(rel), self.workspace)
++        try:
++            return resolver(source, Path(rel), self.workspace)
++        except Exception:
++            return set()
+ 
+     def sync_workspace(self) -> int:
+         """Re-index files whose mtime is newer than what we stored. Returns count."""
+diff --git a/src/context/lang_extractors.py b/src/context/lang_extractors.py
+index c627ba2..28dc8d3 100644
+--- a/src/context/lang_extractors.py
++++ b/src/context/lang_extractors.py
+@@ -39,6 +39,7 @@ from __future__ import annotations
+ 
+ import hashlib
+ import importlib
++import re
+ import threading
+ from pathlib import Path
+ from typing import Any, Callable, Optional
+@@ -448,3 +449,190 @@ def _walk_generic(
+                 # go structs have none to embed (methods are top-level).
+                 _add_chunk(chunks, child, name, "class", child, src, lines,
+                            rel_path, comment_types, methods, "    // (truncated) ...")
++
++
++# ---------------------------------------------------------------------
++# IMPORT EDGES (D15-remainder, §41): JS/TS, Go, Rust, Java
++# ---------------------------------------------------------------------
++# The Python resolver (verified in the D15 Python slice) lives in
++# chunk_index.py; these are its siblings for the D5 languages. Same
++# doctrine: bounded candidate checks against the filesystem (no repo
++# walks, no DB reads — determinism independent of indexing order), edges
++# only between workspace files, never raises — edges are a retrieval
++# bonus, not a failure mode. Extraction is regex/line based on purpose
++# (fast, dependency-free); a false edge from a comment is harmless
++# metadata compared to the cost of full AST parses per sync.
++
++_EXT_JS_FAMILY = frozenset(set(_EXT_JS) | set(_EXT_TS) | set(_EXT_TSX))
++_JS_RESOLVE_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
++
++
++def extract_js_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
++    """JS/TS: import/export-from, require(), dynamic import(), side-effect
++    imports. Only RELATIVE specifiers resolve (bare 'react' etc. dropped —
++    monorepo alias mapping is a future bonus, not correctness)."""
++    specs: set[str] = set()
++    for m in re.finditer(r"""(?:import|export)\s[^;'"]*?from\s*['"]([^'"]+)['"]""", source):
++        specs.add(m.group(1))
++    for m in re.finditer(r"""import\s*['"]([^'"]+)['"]""", source):  # side-effect
++        specs.add(m.group(1))
++    for m in re.finditer(r"""require\(\s*['"]([^'"]+)['"]\s*\)""", source):
++        specs.add(m.group(1))
++    for m in re.finditer(r"""import\(\s*['"]([^'"]+)['"]\s*\)""", source):
++        specs.add(m.group(1))
++
++    targets: set[str] = set()
++    for spec in specs:
++        if not spec.startswith("."):
++            continue
++        base = importer_rel.parent / spec
++        candidates: list[Path] = []
++        if base.suffix.lower() in _EXT_JS_FAMILY:
++            candidates.append(base)                       # explicit ext
++        else:
++            candidates.extend(Path(str(base) + e) for e in _JS_RESOLVE_EXTS)
++            candidates.extend(base / f"index{e}" for e in _JS_RESOLVE_EXTS)
++        for cand in candidates:
++            try:
++                if (workspace / cand).is_file():
++                    targets.add(str(cand))
++                    break
++            except OSError:
++                continue
++    targets.discard(str(importer_rel))
++    return targets
++
++
++def extract_go_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
++    """Go: single + grouped (+ aliased/dot) imports. A Go import names a
++    PACKAGE directory, not a file — resolve the module-path tail to a
++    workspace directory (longest match wins, stdlib like "fmt" has no
++    workspace dir so drops for free), then edge to up to 5 .go files in it."""
++    specs: set[str] = set()
++    for m in re.finditer(r"import\s*\(([^)]*)\)", source, re.DOTALL):
++        for q in re.finditer(r'"([^"]+)"', m.group(1)):
++            specs.add(q.group(1))
++    for m in re.finditer(r'import\s+(?:[\w.]+\s+)?"([^"]+)"', source):
++        specs.add(m.group(1))
++
++    targets: set[str] = set()
++    for spec in specs:
++        parts = spec.split("/")
++        # progressively trim module-prefix segments; longest dir match wins
++        # (trim may go down to the last segment: module "mod" + pkg tail
++        # resolves "mod/pkg" -> "pkg" when ./mod/pkg doesn't exist).
++        for trim in range(0, min(4, len(parts))):
++            cand_dir = Path(*parts[trim:])
++            try:
++                if (workspace / cand_dir).is_dir():
++                    for f in sorted((workspace / cand_dir).glob("*.go"))[:5]:
++                        rel = f.relative_to(workspace)
++                        if str(rel) != str(importer_rel):
++                            targets.add(str(rel))
++                    break
++            except OSError:
++                continue
++    return targets
++
++
++def _rust_file_candidates(base: Path) -> list[Path]:
++    return [base.with_suffix(".rs"), base / "mod.rs"]
++
++
++def extract_rust_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
++    """Rust: `mod name;` declarations and `use crate::/self::/super::` paths
++    (external crates like serde:: dropped). Leaf resolves to .rs or mod.rs.
++    `use a::b::{c, d}` resolves the PATH part (a/b) — item-level edges are
++    not needed for file->file."""
++    targets: set[str] = set()
++    importer_str = str(importer_rel)
++
++    def _add(base: Path) -> None:
++        # The LAST ::segment of a use-path is usually an ITEM inside the
++        # parent module's file (use crate::auth::Session -> src/auth.rs),
++        # so check the parent path as well as the full path. Full path wins
++        # (module-file over item ambiguity).
++        bases = [base]
++        if base.name:
++            bases.append(base.parent)
++        for b in bases:
++            for cand in _rust_file_candidates(b):
++                try:
++                    if (workspace / cand).is_file():
++                        targets.add(str(cand))
++                        return
++                except OSError:
++                    continue
++
++    for m in re.finditer(r"(?m)^\s*(?:pub\s+)?mod\s+([A-Za-z_]\w*)\s*;", source):
++        name = m.group(1)
++        if name not in {"self", "super", "crate"}:
++            _add(importer_rel.parent / name)
++
++    for m in re.finditer(r"(?m)^\s*(?:pub\s+)?use\s+([^;]+);", source):
++        body = m.group(1).split("{")[0]           # drop item lists
++        body = re.sub(r"\s+as\s+\w+", "", body)   # drop renames
++        segs = [s for s in body.strip().strip(":").split("::") if s]
++        if not segs:
++            continue
++        head, rest = segs[0], segs[1:]
++        if head == "crate":
++            base = Path("")
++        elif head == "self":
++            base = importer_rel.parent
++        elif head == "super":
++            climbs = 1
++            while rest and rest[0] == "super":
++                climbs += 1
++                rest = rest[1:]
++            base = importer_rel.parent
++            for _ in range(climbs):
++                base = base.parent
++        else:
++            continue                                # external crate: dropped
++        base = base / Path(*rest) if rest else base
++        _add(base)
++
++    targets.discard(importer_str)
++    return targets
++
++
++def extract_java_import_edges(source: str, importer_rel: Path, workspace: Path) -> set[str]:
++    """Java: import (incl. static) dotted paths. Bounded candidates:
++    layout prefixes ["", src/main/java, src] + dotted path, then the
++    importer's own package dir (same-package files need no import, but
++    nested test projects often import their siblings). Wildcard imports
++    resolve the PACKAGE only when it maps to a single obvious sibling dir —
++    skipped otherwise (bounded-check doctrine)."""
++    targets: set[str] = set()
++    importer_str = str(importer_rel)
++    prefixes = [Path(""), Path("src/main/java"), Path("src")]
++
++    for m in re.finditer(r"(?m)^\s*import\s+(?:static\s+)?([\w.]+)(\.\*)?\s*;", source):
++        parts = m.group(1).split(".")
++        wildcard = bool(m.group(2))
++        if wildcard:
++            continue  # package-level: no single bounded candidate
++        rel_path = Path(*parts).with_suffix(".java")
++        hit = None
++        for pre in prefixes:
++            cand = pre / rel_path
++            try:
++                if (workspace / cand).is_file():
++                    hit = cand
++                    break
++            except OSError:
++                continue
++        if hit is None:
++            tail = Path(*parts[-1:]).with_suffix(".java")
++            cand = importer_rel.parent / tail
++            try:
++                if (workspace / cand).is_file():
++                    hit = cand
++            except OSError:
++                pass
++        if hit is not None:
++            targets.add(str(hit))
++
++    targets.discard(importer_str)
++    return targets
+diff --git a/src/tests/test_detective_mode.py b/src/tests/test_detective_mode.py
+index 674d26d..0995009 100644
+--- a/src/tests/test_detective_mode.py
++++ b/src/tests/test_detective_mode.py
+@@ -216,7 +216,12 @@ def test_v2_migration_forces_one_resync(ws_and_index, tmp_path):
+ # Non-Python tolerance
+ # ---------------------------------------------------------------------
+ 
+-def test_js_files_index_without_edges_no_crash(tmp_path, monkeypatch):
++def test_js_files_index_with_edges_and_related_files(tmp_path, monkeypatch):
++    # §41 CONTRACT CHANGE: this pin used to be
++    # "test_js_files_index_without_edges_no_crash" and asserted n_edges == 0
++    # ("v1 edges are Python-only by design"). D15-remainder fixed exactly
++    # that debt: JS/TS (and Go/Rust/Java) now produce import edges. The
++    # assertion inversion is deliberate, not a regression.
+     pytest.importorskip("tree_sitter_javascript")
+     ws = tmp_path / "proj"
+     ws.mkdir()
+@@ -230,7 +235,11 @@ def test_js_files_index_without_edges_no_crash(tmp_path, monkeypatch):
+                      embedder=FakeEmbedder())
+     idx.sync_workspace()
+     with idx._write_lock:
+-        n_edges = idx.conn.execute("SELECT COUNT(*) FROM import_edges").fetchone()[0]
+-    assert n_edges == 0  # v1 edges are Python-only by design
+-    assert _related_files_lines(idx, {"app.js"}) == []
++        rows = idx.conn.execute(
++            "SELECT importer, imported FROM import_edges").fetchall()
++    assert (Path("app.js").as_posix(), Path("util.js").as_posix()) in {
++        (Path(a).as_posix(), Path(b).as_posix()) for a, b in rows
++    }
++    related = _related_files_lines(idx, {"app.js"})
++    assert any("util.js" in ln for ln in related)
+     idx.conn.close()
+diff --git a/src/tests/test_lang_extractors.py b/src/tests/test_lang_extractors.py
+index 2c65460..75ea4c2 100644
+--- a/src/tests/test_lang_extractors.py
++++ b/src/tests/test_lang_extractors.py
+@@ -8,6 +8,8 @@ import sys
+ 
+ import pytest
+ 
++from pathlib import Path
++
+ from src.context.chunk_index import ChunkIndex, extract_chunks, extract_source_chunks
+ from src.context import lang_extractors as le
+ 
+@@ -374,3 +376,146 @@ def test_iter_source_files_yields_all_supported(tmp_path):
+     assert {"a.py", "b.js", "c.tsx"} <= found
+     assert "d.css" not in found
+     assert "e.js" not in found  # skip-dirs still apply
++
++
++# ---------------------------------------------------------------------
++# D15-remainder pins (§41): import edges for JS/TS, Go, Rust, Java
++# ---------------------------------------------------------------------
++
++from src.context.lang_extractors import (
++    extract_js_import_edges,
++    extract_go_import_edges,
++    extract_rust_import_edges,
++    extract_java_import_edges,
++)
++
++
++def _mk(tmp_path, files):
++    for rel, text in files.items():
++        p = tmp_path / rel
++        p.parent.mkdir(parents=True, exist_ok=True)
++        p.write_text(text)
++    return tmp_path
++
++
++def test_d15_js_ts_edges(tmp_path):
++    ws = _mk(tmp_path, {
++        "src/util.ts": "export const u = 1;\n",
++        "src/lib/api.ts": "export const a = 1;\n",
++        "src/lib/index.ts": "export * from './api';\n",
++        "node_modules_skip.ts": "",
++    })
++    src = (
++        "import { u } from './util';\n"
++        "export { a } from './lib/api';\n"
++        "const dyn = import('./util');\n"
++        "const rq = require('./lib');\n"
++        "import './util';\n"
++        "import React from 'react';\n"
++    )
++    edges = extract_js_import_edges(src, Path("src/app.ts"), ws)
++    assert str(Path("src/util.ts")) in edges
++    assert str(Path("src/lib/api.ts")) in edges          # export-from + ./lib -> index.ts
++    assert str(Path("src/lib/index.ts")) in edges
++    assert all("react" not in e for e in edges)          # bare specifier dropped
++
++
++def test_d15_go_edges_package_dirs(tmp_path):
++    ws = _mk(tmp_path, {
++        "go.mod": "module github.com/me/proj\n",
++        "cmd/server/main.go": "package main\n",
++        "internal/auth/session.go": "package auth\n",
++        "internal/auth/helpers.go": "package auth\n",
++    })
++    src = (
++        "package main\n\n"
++        "import (\n"
++        '    "fmt"\n'
++        '    "github.com/me/proj/internal/auth"\n'
++        ")\n\n"
++        'import alias "github.com/me/proj/internal/auth"\n'
++    )
++    edges = extract_go_import_edges(src, Path("cmd/server/main.go"), ws)
++    assert str(Path("internal/auth/session.go")) in edges
++    assert str(Path("internal/auth/helpers.go")) in edges
++    assert all("fmt" not in e for e in edges)
++
++
++def test_d15_rust_edges(tmp_path):
++    ws = _mk(tmp_path, {
++        "src/main.rs": "fn main() {}\n",
++        "src/auth.rs": "pub fn s() {}\n",
++        "src/store/mod.rs": "pub mod mem;\n",
++        "src/store/mem.rs": "pub fn m() {}\n",
++    })
++    src_main = (
++        "mod auth;\n"
++        "mod store;\n"
++        "use crate::auth::s;\n"
++        "use serde::Serialize;\n"
++    )
++    edges = extract_rust_import_edges(src_main, Path("src/main.rs"), ws)
++    assert str(Path("src/auth.rs")) in edges
++    assert str(Path("src/store/mod.rs")) in edges        # mod declaration
++    assert all("serde" not in e for e in edges)          # external crate dropped
++
++    # use self:: / super:: from a nested module
++    edges2 = extract_rust_import_edges(
++        "use super::auth::s;\n", Path("src/store/mem.rs"), ws)
++    assert str(Path("src/auth.rs")) in edges2
++
++
++def test_d15_java_edges(tmp_path):
++    ws = _mk(tmp_path, {
++        "src/main/java/com/example/app/Main.java": "class Main {}\n",
++        "src/main/java/com/example/auth/Session.java": "class Session {}\n",
++        "src/main/java/com/example/auth/Tokens.java": "class Tokens {}\n",
++    })
++    src = (
++        "package com.example.app;\n\n"
++        "import com.example.auth.Session;\n"
++        "import static com.example.auth.Tokens;\n"
++        "import java.util.List;\n"
++        "import com.external.lib.*;\n"
++    )
++    edges = extract_java_import_edges(
++        src, Path("src/main/java/com/example/app/Main.java"), ws)
++    assert str(Path("src/main/java/com/example/auth/Session.java")) in edges
++    assert str(Path("src/main/java/com/example/auth/Tokens.java")) in edges
++    assert not any("java/util" in e or "external" in e for e in edges)
++
++
++def test_d15_edges_flow_into_index(tmp_path):
++    """Integration: a mixed workspace indexes edges for ALL languages into
++    the SAME import_edges table, in the chunk-row transactions."""
++    from src.context.chunk_index import ChunkIndex
++
++    ws = _mk(tmp_path, {
++        "core.py": "import util\n",
++        "util.py": "X = 1\n",
++        "app.ts": "import { u } from './helper';\n",
++        "helper.ts": "export const u = 1;\n",
++        "main.go": 'package main\n\nimport "mod/pkg"\n',
++        "pkg/p.go": "package pkg\n",
++    })
++    (ws / "go.mod").write_text("module mod\n")
++    # embedder=None: edges are storage-level metadata, embedding-independent
++    idx = ChunkIndex(ws, db_path=str(tmp_path / "idx.db"), embedder=None, watch=False)
++    idx.index_workspace()
++    rows = set(idx.conn.execute(
++        "SELECT importer, imported FROM import_edges").fetchall())
++    assert (str(Path("core.py")), str(Path("util.py"))) in rows
++    assert (str(Path("app.ts")), str(Path("helper.ts"))) in rows
++    assert (str(Path("main.go")), str(Path("pkg/p.go"))) in rows
++
++
++def test_d15_edges_never_raise_on_garbage(tmp_path):
++    ws = _mk(tmp_path, {"a.ts": "x\n"})
++    for fn, rel in (
++        (extract_js_import_edges, "a.ts"),
++        (extract_go_import_edges, "a.go"),
++        (extract_rust_import_edges, "a.rs"),
++        (extract_java_import_edges, "A.java"),
++    ):
++        assert fn("!!!!(((({{{{", Path(rel), ws) == set()
++        assert fn("", Path(rel), ws) == set()
+-- 
+2.47.3
+

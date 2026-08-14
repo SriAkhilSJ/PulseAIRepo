@@ -1,0 +1,1336 @@
+From 9e07e846fd2be41af6de7327c7f26e7b374e6cdf Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 11:57:10 +0000
+Subject: [PATCH] feat(context): D13+D14 retrieval re-rank + repo-map
+ importance ranking (the reviewers' 8.0 gate) -- D13: feature re-rank after
+ RRF (exact-name/path/hot/test-demote/docstring), stable-sort zero-feature
+ identity, ZERO added LLM/embedding calls (pinned encodes==1); measured P@3
+ MISS->#1 on exact-name queries, tests demoted, freshness wins ties. D14:
+ resolved file->file in-degree via chunk_index resolver (legacy module graph
+ as fallback), staged importance-aware compress (hub symbols kept over junk
+ detail; least-important dropped first instead of alphabet-tail truncation),
+ 'Most depended-upon' hubs line; full map stays alphabetical/byte-stable
+ (prompt-cache doctrine); +14 pins (6 chunk_index + 8 NEW test_repo_map), 281
+ green
+
+---
+ ARCHITECTURE_REVIEW.md          |  95 ++++++++
+ scripts/d13_d14_rank_measure.py | 373 ++++++++++++++++++++++++++++++++
+ src/context/chunk_index.py      | 110 +++++++++-
+ src/context/repo_map.py         | 239 +++++++++++++++++---
+ src/tests/test_chunk_index.py   | 165 ++++++++++++++
+ src/tests/test_repo_map.py      | 170 +++++++++++++++
+ 6 files changed, 1120 insertions(+), 32 deletions(-)
+ create mode 100644 scripts/d13_d14_rank_measure.py
+ create mode 100644 src/tests/test_repo_map.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index d4106d0..1d3778f 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1476,3 +1476,98 @@ total-tie stability + hybrid still useful, limit>population). Suite:
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ — remaining: D9,
+ D10, D13, D14, D15-remainder, D23, P2.
++
++---
++
++## §37 — D13+D14 FIXED: retrieval re-rank + repo-map importance ranking (the reviewers' 8.0 gate)
++
++**Debt D13 (chunk re-rank) and D14 (symbol/file ranking) closed in one
++pass** — same retrieval machinery, one measurement harness, one commit.
++
++Evidence BEFORE (scripts/d13_d14_rank_measure.py, planted judged
++scenarios, FakeEmbedder word-bucket determinism):
++- S1: a query literally naming `parse_auth_token` ranked the gold chunk
++  **#4 — P@3 MISS** behind vocabulary-twin distractor files (RRF fuses on
++  rank POSITIONS and never considers WHAT matched).
++- S2: on an implementation question, tests/test_cache.py's module chunk
++  sat at #2, ABOVE the implementation function.
++- S5: twin files, identical content: the 30-day-stale one outranked the
++  one edited minutes ago (recency invisible).
++- R1: over-budget repo map compression stripped symbol detail from every
++  file at roommate budgets; when forced to cut, it truncated from the END
++  OF THE ALPHABET — z_core_engine.py (highest in-degree, freshest, most
++  symbols) was DELETED while 12 stale a_junk_* files survived.
++- R2: import graph emitted alphabetically; the hub (libbase, 3 dependents)
++  was never even named as a node.
++
++D13 fix (chunk_index.py): `_rerank` stage after RRF fusion, before top_k.
++Normalized RRF stays the base; additive features (module-level `_RERANK_W`
++table): exact symbol-name-in-query (4.0), snake/camel name parts (0.6, cap
++3), file-stem token (1.0), freshest-file (0.5), test-file demote (-2.5,
++skipped for test-ish queries), docstring (0.2). Python stable sort, so a
++zero-feature query is byte-identical to raw RRF. Zero LLM calls, zero
++embedder calls — the query encode remains the ONLY encode (pinned:
++calls-delta == 1). `modified_time` added to ChunkResult (additive,
++default 0.0; the RRF fetch now also selects modified_time).
++
++D13 AFTER: S1 gold #1 (top3 = gold fn, gold module, one distractor); S2
++zero test files in top3 (top3 all src/cache.py), test-ish control query
++unaffected; S5 fresh file wins; S3/S4 file-level no-regress + S4b strict
++zero-feature byte-equality vs raw RRF. encodes=1 across every search.
++
++D14 fix (repo_map.py): file->file resolved edges reused from chunk_index's
++verified `_extract_py_import_edges` (lazy import; legacy module-level
++graph kept as degraded fallback) → in_degree. Per-file stats (mtime, size,
++symbol mass) collected inside `_describe_file`'s single stat — zero
++re-walks. Import graph section now leads with "Most depended-upon:
++a (n), b (m)..." (top 5, deterministic) + file->file rows, targets sorted
++by in-degree. `_compress_map` v2 staged: (1) strip "| imports:" segments,
++(2) strip symbol detail at-or-below the MEDIAN importance (top files keep
++theirs), (3) strip ALL detail (legacy stage 1), (4) drop whole file lines
++least-important-first + prune emptied dir headers (+ explicit
++"least-important files omitted"), (5) legacy char truncate as last resort.
++Importance = 3*in_degree_n + 1.5*recency_n(range-normalized; ratio-to-max
++on epoch seconds would make everything ~1.0) + 0.5*mass_n. The FULL map
++stays alphabetical + byte-stable — ranking lives ONLY in the compress
++path, honoring the §32 prompt-cache-prefix doctrine. Windows-safe: stats
++keys built with os.path.join like the parser's rel keys.
++
++Why this matters in production, not in theory: the engine calls
++get_repo_map(workspace, max_tokens=1200) — PulseAIRepo's own map overflows
++that, so the COMPRESS path is what the LLM actually sees every turn.
++
++D14 AFTER (same harness, OLD snapshot from git show vs NEW):
++- R1a roomy 620 tok: OLD core shown, symbols stripped from everyone / NEW
++  core shown WITH its symbols, junk detail gone.
++- R1b tight 240 tok: OLD **core DELETED, all 12 junk shown** / NEW core
++  kept, 6 of 12 junk dropped first (alpha-stable among kept).
++- R2: OLD no hubs / NEW "Most depended-upon: libbase.py (3)" + named rows.
++Group invariant: no junk outlives a consumer at budgets 180/220/260
++(pinned); rebuild deterministic (pinned).
++
++Founder's metrics: latency — re-rank is O(k) arithmetic, embedder call
++count pinned flat, map compression does 0 re-walks (stats side-collected);
++context quality — this is THE reviewers' 8.0 gate: the right chunk/file now
++surfaces (P@3 MISS -> #1); token budget — unchanged caps, and compression
++now spends its shrunken budget on what matters; LLM calls — zero added.
++
++**D24 filed:** the import-graph section is still appended whole after
++compress (legacy protection kept deliberately), so a very large graph can
++itself exceed max_tokens. Cap/limit it next round.
++
++Development honesty: one test-fixture bug of mine (module-vs-method
++_rerank import) and one mid-implementation self-review fix (stage-2
++tied-floor `< median` would no-op on all-junk workspaces -> `<=`; plus the
++walrus-placeholder stage-4 mess edited out before commit).
++
++Pins: test_chunk_index.py 26/26 (6 new D13: exact-name rescue, test
++demote+test-ish control, hot file, strict zero-feature RRF identity,
++embedder-call-delta==1, helpers/edge passthrough); test_repo_map.py 8/8
++NEW FILE (roomy graduated detail + tree-fits-budget, tight drop order +
++omission note + alpha stability, cross-budget junk<consumer invariant,
++determinism, hubs line, legacy fallback, no-python no-crash, full-map
++alpha+byte-stable). Suite: 281 green (9.9s).
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
++— remaining: D9, D10, D15-remainder, D23, D24, P2.
+diff --git a/scripts/d13_d14_rank_measure.py b/scripts/d13_d14_rank_measure.py
+new file mode 100644
+index 0000000..f4f7513
+--- /dev/null
++++ b/scripts/d13_d14_rank_measure.py
+@@ -0,0 +1,373 @@
++"""
++D13+D14 ranking measurement harness — planted scenarios, judged results
++=======================================================================
++
++Debt items (ARCHITECTURE_REVIEW.md §36 debt board):
++- D13: fused retrieval orders by RRF position only; it never considers WHAT
++  matched. Exact symbol-name hits, path affinity, test-file demotion and
++  recency are invisible to it. (External reviewers' 8.0 gate.)
++- D14: repo_map lists files alphabetically and, when over budget, truncates
++  from the END OF THE ALPHABET — the most important file can vanish while
++  junk survives. Import graph also emitted alphabetically.
++
++This harness does not assume the failures — it manufactures them and prints
++measured ranks. Run before the fix (record), after the fix (report).
++
++Run:  python scripts/d13_d14_rank_measure.py
++"""
++
++from __future__ import annotations
++
++import hashlib
++import math
++import os
++import re
++import sys
++import tempfile
++import time
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
++
++from src.context.chunk_index import ChunkIndex
++from src.context.repo_map import RepoMap
++
++
++# ---------------------------------------------------------------------
++# Deterministic fake embedder (same word-bucket class as the test suite)
++# ---------------------------------------------------------------------
++
++class _Embeds(list):
++    def tolist(self):
++        return list(self)
++
++
++class FakeEmbedder:
++    DIM = 384
++    calls = 0
++
++    def encode(self, texts, normalize_embeddings=True):
++        type(self).calls += 1
++        out = _Embeds()
++        for text in texts:
++            vec = [0.0] * self.DIM
++            for word in re.findall(r"\w+", text.lower()):
++                h = int(hashlib.md5(word.encode()).hexdigest(), 16)
++                vec[h % self.DIM] += 1.0 if (h >> 8) % 2 == 0 else -1.0
++            norm = math.sqrt(sum(x * x for x in vec)) or 1.0
++            out.append([x / norm for x in vec])
++        return out
++
++
++TWIN_VOCAB = (
++    '"""Helper that raises TypeError on malformed header data.\n\n'
++    "    Reused across the suite: raises TypeError, malformed input,\n"
++    '    header checks, assertion plumbing.\n    """\n'
++)
++
++
++def _twin_module(n: int) -> str:
++    """Vocabulary-twin distractors: docstrings stuffed with every content
++    word of the scenario query — they rank well in BOTH retrievers while
++    being the wrong answer."""
++    funcs = []
++    for i in range(3):
++        funcs.append(
++            f"def twin_{n}_{i}(raw_header, malformed, assertion):\n"
++            f"    {TWIN_VOCAB}"
++            f"    return raw_header or malformed or assertion\n\n"
++        )
++    return f'"""Twin module {n}: raises TypeError malformed header assertion."""\n' + "".join(funcs)
++
++
++GOLD_AUTH = '''"""Authentication module."""
++import os
++import hashlib
++
++
++def parse_auth_token(raw_header):
++    """Parse a Bearer token from an Authorization header."""
++    parts = raw_header.split(" ")
++    assert len(parts) == 2, "malformed header"
++    return parts[1]
++'''
++
++
++def _mk_ws(files: dict[str, str], mtimes: dict[str, float] | None = None) -> Path:
++    ws = Path(tempfile.mkdtemp(prefix="d13_d14_ws_"))
++    for rel, text in files.items():
++        p = ws / rel
++        p.parent.mkdir(parents=True, exist_ok=True)
++        p.write_text(text)
++    if mtimes:
++        for rel, m in mtimes.items():
++            os.utime(ws / rel, (m, m))
++    return ws
++
++
++def _mk_index(ws: Path, embedder=None) -> ChunkIndex:
++    idx = ChunkIndex(
++        ws, db_path=tempfile.mktemp(prefix="d13_d14_idx_", suffix=".db"),
++        embedder=embedder or FakeEmbedder(),
++    )
++    idx.index_workspace()
++    return idx
++
++
++def _gold_rank(results, symbol: str, file_path: str | None = None) -> int:
++    for i, r in enumerate(results, 1):
++        if r.symbol_name == symbol and (file_path is None or r.file_path == file_path):
++            return i
++    return len(results) + 1  # not found
++
++
++# ---------------------------------------------------------------------
++# D13 scenarios (chunk re-rank)
++# ---------------------------------------------------------------------
++
++def scenario_s1_exact_name() -> None:
++    """Query names the exact symbol; vocabulary twins out-fuse it today."""
++    files = {"core/auth.py": GOLD_AUTH}
++    for n in range(6):
++        files[f"noise/distractor_{n}.py"] = _twin_module(n)
++    ws = _mk_ws(files)
++    idx = _mk_index(ws)
++    q = "parse_auth_token raises TypeError: malformed header assertion"
++    FakeEmbedder.calls = 0
++    res = idx.search(q, top_k=3)
++    rank = _gold_rank(res, "parse_auth_token", "core/auth.py")
++    top3 = [(r.symbol_name, r.file_path) for r in res[:3]]
++    print(f"S1 exact-name rescue ..... gold 'parse_auth_token' rank={rank}"
++          f"  P@3={'HIT' if rank <= 3 else 'MISS'}  top3={top3}"
++          f"  encodes={FakeEmbedder.calls}")
++
++
++def scenario_s2_test_flood() -> None:
++    """Non-test query; test-file twins must not occupy the top slots."""
++    impl = (
++        '"""Cache layer with eviction and TTL policy."""\n\n'
++        "def cache_put(key, value, ttl):\n"
++        '    """Store value under key with ttl eviction policy."""\n'
++        "    return (key, value, ttl)\n\n"
++        "def cache_get(key):\n"
++        '    """Fetch a cached value by key."""\n'
++        "    return key\n"
++    )
++    twin = (
++        '"""Cache layer with eviction and TTL policy."""\n\n'
++        "def cache_put_checked(key, value, ttl):\n"
++        '    """Store value under key with ttl eviction policy, verified."""\n'
++        "    assert key and (key, value, ttl)\n\n"
++        "def cache_get_checked(key):\n"
++        '    """Fetch a cached value by key, verified."""\n'
++        "    assert key and key\n"
++    )
++    ws = _mk_ws({"src/cache.py": impl, "tests/test_cache.py": twin})
++    idx = _mk_index(ws)
++    q = "cache layer eviction ttl policy"
++    res = idx.search(q, top_k=3)
++    n_tests = sum(1 for r in res[:3] if "test_" in r.file_path)
++    top3 = [(r.symbol_name, r.file_path) for r in res[:3]]
++    print(f"S2 test-flood demote ..... test files in top3={n_tests}  top3={top3}")
++
++
++def scenario_s3_path_affinity() -> None:
++    """Query mentions the subsystem by name only via the file path."""
++    auth_mod = (
++        '"""Session lifecycle manager."""\n\n'
++        "def open_session(user):\n"
++        '    """Begin a user session and store its cookie."""\n'
++        "    return user\n"
++    )
++    garden_mod = (
++        '"""Session lifecycle manager."""\n\n'
++        "def open_session(user):\n"
++        '    """Begin a user session and store its cookie."""\n'
++        "    return user\n"
++    )
++    ws = _mk_ws({"auth_flow.py": auth_mod, "garden.py": garden_mod})
++    idx = _mk_index(ws)
++    q = "auth session manager"
++    res = idx.search(q, top_k=2)
++    top1 = (res[0].symbol_name, res[0].file_path) if res else None
++    print(f"S3 path affinity ......... top1={top1}  want file auth_flow.py")
++
++
++def scenario_s4_no_regress() -> None:
++    """Pure semantic query, no name hints: the right FILE must keep the top
++    slot after the fix. (Within-file module-vs-function order may swap when
++    the file stem is a query word — both chunks come from the same file and
++    the layer emits both, so the information set is unchanged.)"""
++    shade = (
++        '"""Shade structures."""\n\n'
++        "def build_pergola(beams):\n"
++        '    """Assemble the roof beams."""\n'
++        "    return beams\n"
++    )
++    water = (
++        '"""Irrigation."""\n\n'
++        "def water_plants(plants, litres):\n"
++        '    """Water each plant with the given amount."""\n'
++        "    return {p: litres for p in plants}\n"
++    )
++    ws = _mk_ws({"shade.py": shade, "water.py": water})
++    idx = _mk_index(ws)
++    q = "give every plant some water"
++    res = idx.search(q, top_k=2)
++    top1_file = res[0].file_path if res else None
++    in_top2 = any(r.symbol_name == "water_plants" for r in res[:2])
++    print(f"S4 no-regress (file lvl) . top1_file={top1_file} want water.py"
++          f"  water_plants in top2={in_top2}")
++
++
++def scenario_s4b_strict_zero_feature() -> None:
++    """STRICT invariant: when NO re-rank feature fires, search() must equal
++    raw RRF fusion byte-for-byte."""
++    alpha = (
++        '"""Hydration scheduling."""\n\n'
++        "def schedule_irrigation(zones):\n"
++        '    """Compute watering windows per zone."""\n'
++        "    return zones\n"
++    )
++    beta = (
++        '"""Pergola assembly notes."""\n\n'
++        "def assemble_beams(beams):\n"
++        '    """Bolt the cross beams together."""\n'
++        "    return beams\n"
++    )
++    ws = _mk_ws({"hydra.py": alpha, "beams.py": beta})
++    idx = _mk_index(ws)
++    # query words intersect no symbol/stem: 'compute','watering','windows'
++    # appear only inside BODIES/docstrings, not in names or stems here... to
++    # be strict we compare against the raw fuse of the same inputs.
++    q = "compute watering windows per zone"
++    vec = idx._search_vector(q, 9)
++    bm25 = idx._search_bm25(q, 9)
++    raw = idx._rrf_fuse(vec, bm25)[:3]
++    got = idx.search(q, top_k=3)
++    same = [r.id for r in got] == [r.id for r in raw]
++    print(f"S4b strict zero-feature .. search == raw RRF order: {same}")
++
++
++def scenario_s5_hot_file() -> None:
++    """Two equal-vocabulary candidates; the recently edited file wins."""
++    old = (
++        '"""Rate limiting."""\n\n'
++        "def throttle_request(req):\n"
++        '    """Apply the sliding window to this request."""\n'
++        "    return req\n"
++    )
++    new = (
++        '"""Rate limiting."""\n\n'
++        "def throttle_request(req):\n"
++        '    """Apply the sliding window to this request."""\n'
++        "    return req\n"
++    )
++    ws = _mk_ws(
++        {"legacy_limiter.py": old, "limiter.py": new},
++        mtimes={"legacy_limiter.py": time.time() - 30 * 86400,
++                "limiter.py": time.time()},
++    )
++    idx = _mk_index(ws)
++    q = "throttle request sliding window"
++    res = idx.search(q, top_k=2)
++    top1 = (res[0].symbol_name, res[0].file_path) if res else None
++    print(f"S5 hot-file preference ... top1={top1}  want file limiter.py (fresh)")
++
++
++# ---------------------------------------------------------------------
++# D14 scenarios (repo map ranking)
++# ---------------------------------------------------------------------
++
++def _junk_file(i: int) -> str:
++    return f'"""Junk constants block {i}."""\n' + "\n".join(
++        f"CONST_{i}_{j} = {j}" for j in range(40)
++    ) + "\n"
++
++
++def _r1_files() -> dict[str, str]:
++    files: dict[str, str] = {}
++    for i in range(12):
++        files[f"a_junk_{i:02d}.py"] = _junk_file(i)
++    # IMPORTANT file, deliberately LATE in the alphabet, imported by every
++    # consumer, freshest mtime.
++    files["z_core_engine.py"] = (
++        '"""The core orchestration engine everything depends on."""\n\n'
++        "class Engine:\n    pass\n\n"
++        "def run_pipeline():\n    return Engine()\n\n"
++        "def plan_tasks():\n    return []\n"
++    )
++    for c in range(4):
++        files[f"m_consumer_{c}.py"] = (
++            f"from z_core_engine import Engine\n\n\ndef consume_{c}():\n"
++            f"    return Engine()\n"
++        )
++    return files
++
++
++def scenario_r1_compress_keeps_important(RepoMapImpl=RepoMap, tag: str = "new") -> None:
++    """Over-budget map, two budgets:
++      roomy (620 tok): graduated detail — symbols kept ONLY where they matter
++      tight (240 tok): files must be DROPPED — junk first, gold survives.
++    Deterministic importance: junk files aged 30 days, consumers+core now."""
++    stale = time.time() - 30 * 86400
++    mtimes = {f"a_junk_{i:02d}.py": stale for i in range(12)}
++    ws = _mk_ws(_r1_files(), mtimes=mtimes)
++    rm = RepoMapImpl(ws)
++
++    roomy = rm.get_map(max_tokens=620)
++    r_symbols = "run_pipeline" in roomy or "plan_tasks" in roomy
++    r_junk_symbols = "rebuild_matrix" in roomy  # junk has no symbols, marker word
++    print(f"R1a roomy [{tag}] .......... core={('z_core_engine.py' in roomy)}"
++          f"  core symbols kept={r_symbols}")
++
++    tight = rm.get_map(max_tokens=240)
++    present = "z_core_engine.py" in tight
++    junk_present = sum(1 for i in range(12) if f"a_junk_{i:02d}.py" in tight)
++    print(f"R1b tight [{tag}] .......... z_core_engine shown={present}"
++          f"  junk files still shown={junk_present}/12")
++
++
++def scenario_r2_import_graph_centrality(RepoMapImpl=RepoMap, tag: str = "new") -> None:
++    """Import graph emission: the most-depended-upon file must surface."""
++    files = {
++        "libbase.py": '"""Base library everyone uses."""\nX = 1\n',
++        "a_leaf.py": "import libbase\n\n\nleaf = 1\n",
++        "b_leaf.py": "import libbase\n\n\nleaf = 2\n",
++        "c_leaf.py": "import libbase\n\n\nleaf = 3\n",
++    }
++    ws = _mk_ws(files)
++    rm = RepoMapImpl(ws)
++    text = rm.get_map(max_tokens=100_000)
++    graph = ""
++    if "=== IMPORT GRAPH ===" in text:
++        graph = text.split("=== IMPORT GRAPH ===", 1)[1]
++    hub_line = next((ln for ln in graph.splitlines() if "depended" in ln), "")
++    hub_named = "libbase.py" in graph
++    print(f"R2 import graph [{tag}] .... hub line='{hub_line.strip()}'"
++          f"  libbase.py named in graph={hub_named}")
++
++
++if __name__ == "__main__":
++    print("D13 — chunk re-rank scenarios (gold = the chunk the user means)")
++    scenario_s1_exact_name()
++    scenario_s2_test_flood()
++    scenario_s3_path_affinity()
++    scenario_s4_no_regress()
++    scenario_s4b_strict_zero_feature()
++    scenario_s5_hot_file()
++    print()
++    print("D14 — repo map ranking scenarios")
++    # Honest before/after: the PRE-FIX repo_map recovered from git HEAD if
++    # available the same day the fix was written — after the commit lands,
++    # HEAD IS the fix, so only run 'old' when a snapshot file exists.
++    import importlib.util
++    old_path = "/tmp/old_repo_map.py"
++    if os.path.exists(old_path):
++        spec = importlib.util.spec_from_file_location("old_repo_map", old_path)
++        old_mod = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(old_mod)
++        scenario_r1_compress_keeps_important(old_mod.RepoMap, tag="OLD")
++        scenario_r2_import_graph_centrality(old_mod.RepoMap, tag="OLD")
++    scenario_r1_compress_keeps_important(RepoMap, tag="NEW")
++    scenario_r2_import_graph_centrality(RepoMap, tag="NEW")
+diff --git a/src/context/chunk_index.py b/src/context/chunk_index.py
+index 083c73b..8ab6554 100644
+--- a/src/context/chunk_index.py
++++ b/src/context/chunk_index.py
+@@ -57,6 +57,50 @@ RRF_K = 60
+ BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
+ FTS_MAX_TOKENS_PER_QUERY = 12
+ 
++# ---------------------------------------------------------------------
++# D13 (§37): feature re-rank over the fused candidate set
++# ---------------------------------------------------------------------
++# RRF fuses on rank POSITIONS — it never considers WHAT matched, so a
++# chunk whose exact symbol name is in the query could lose to vocabulary
++# twins ranking well in both retrievers (measured: scripts/
++# d13_d14_rank_measure.py S1 — gold at rank 4, P@3 MISS). After fusing we
++# re-score candidates with cheap, zero-LLM, zero-extra-embedding features:
++# the query encode stays the ONLY encode of the turn (pinned).
++_RERANK_W = {
++    "name_exact": 4.0,   # literal `parse_auth_token` appears in the query
++    "name_part": 0.6,    # per matched symbol-name part (snake/camel), cap 3
++    "path_token": 1.0,   # file-stem part appears in the query ("auth ...")
++    "hot": 0.5,          # freshest file among the candidates
++    "test_demote": -2.5, # test file, when the query is not test-ish
++    "docstring": 0.2,    # documented API preference
++}
++_RERANK_NAME_PART_CAP = 3
++_RERANK_MIN_WORD = 3     # query words shorter than this never count as hints
++_RERANK_TESTISH = {"test", "tests", "testing", "pytest", "unittest", "spec", "specs"}
++
++
++def _word_parts(text: str) -> set[str]:
++    """snake_case AND camelCase aware word splitting; lowered parts.
++
++    'parse_auth_token' -> {parse, auth, token, parse_auth_token? no — parts}.
++    Used symmetrically on queries and symbol/file names so a snake-cased
++    symbol name can match both the full token and its parts.
++    """
++    parts: set[str] = set()
++    for tok in re.findall(r"[A-Za-z0-9]+", text):
++        for piece in re.split(r"_+", tok):
++            if not piece:
++                continue
++            for sub in re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z]+|[a-z]+|[0-9]+", piece):
++                parts.add(sub.lower())
++    return parts
++
++
++def _is_test_path(file_path: str) -> bool:
++    p = Path(file_path)
++    name = p.name.lower()
++    return name.startswith("test_") or name.endswith("_test.py") or "tests" in p.parts
++
+ # C1 (fixed §36): vec0 KNN pushdown. The MATCH + k constraint is handled
+ # inside the extension (exact KNN over its own index) instead of computing
+ # vec_distance_l2 for every row and sorting in SQL — 12-14x faster at
+@@ -166,6 +210,7 @@ class ChunkResult:
+     docstring: Optional[str]
+     body: str          # display body for LLM context
+     score: float       # fused score
++    modified_time: float = 0.0  # file mtime at last sync (D13 hot feature)
+ 
+ 
+ # ---------------------------------------------------------------------
+@@ -756,7 +801,8 @@ class ChunkIndex:
+     # ------------------------------------------------------------------
+ 
+     def search(self, query: str, top_k: int = 3) -> list[ChunkResult]:
+-        """Hybrid search: KNN vector + BM25, fused via RRF (rank positions).
++        """Hybrid search: KNN vector + BM25, fused via RRF (rank positions),
++        then D13 feature re-rank (name/path/hot/test signals) before top_k.
+         top_k defaults to 3 so the layer can't eat the context budget."""
+         if self._is_index_empty():
+             self._trigger_background_index()
+@@ -764,7 +810,63 @@ class ChunkIndex:
+ 
+         vec = self._search_vector(query, top_k * 3)
+         bm25 = self._search_bm25(query, top_k * 3)
+-        return self._rrf_fuse(vec, bm25, k=RRF_K)[:top_k]
++        fused = self._rrf_fuse(vec, bm25, k=RRF_K)
++        return self._rerank(fused, query)[:top_k]
++
++    # ------------------------------------------------------------------
++    # RE-RANK (D13 — see the feature table at module level)
++    # ------------------------------------------------------------------
++
++    def _rerank(self, results: list[ChunkResult], query: str) -> list[ChunkResult]:
++        """Feature re-rank over the fused set. Invariants, all pinned:
++
++        - zero LLM calls, zero embedder calls (arithmetic on fetched fields);
++        - normalized RRF score stays the base — features nudge, they do not
++          replace retrieval;
++        - Python's sort is STABLE, so a zero-feature query yields
++          byte-identical order to pre-D13;
++        - deterministic given (query, index contents, mtimes).
++        """
++        if len(results) <= 1 or not query:
++            return results
++
++        qtext = query.lower()
++        qwords = {w for w in _word_parts(query) if len(w) >= _RERANK_MIN_WORD}
++        test_query = bool(qwords & _RERANK_TESTISH)
++
++        mtimes = [r.modified_time for r in results]
++        max_mtime = max(mtimes)
++        has_hot = len(set(mtimes)) > 1
++
++        max_score = max((r.score for r in results), default=0.0)
++
++        def _bonus(r: ChunkResult) -> float:
++            b = 0.0
++            name = r.symbol_name
++            if name and name != "(module)":
++                if name.lower() in qtext:
++                    b += _RERANK_W["name_exact"]
++                else:
++                    overlap = (qwords & _word_parts(name)) if qwords else set()
++                    b += _RERANK_W["name_part"] * min(len(overlap), _RERANK_NAME_PART_CAP)
++            stem = Path(r.file_path).stem
++            if qwords and stem:
++                if qwords & _word_parts(stem):
++                    b += _RERANK_W["path_token"]
++            if has_hot and r.modified_time == max_mtime:
++                b += _RERANK_W["hot"]
++            if _is_test_path(r.file_path) and not test_query:
++                b += _RERANK_W["test_demote"]
++            if r.docstring:
++                b += _RERANK_W["docstring"]
++            return b
++
++        scored = [
++            ((r.score / max_score if max_score > 0 else 0.0) + _bonus(r), r)
++            for r in results
++        ]
++        scored.sort(key=lambda t: t[0], reverse=True)  # stable: ties keep RRF order
++        return [r for _s, r in scored]
+ 
+     def _is_index_empty(self) -> bool:
+         with self._write_lock:
+@@ -873,7 +975,8 @@ class ChunkIndex:
+         with self._write_lock:  # shared connection: all access serialized
+             rows = self.conn.execute(
+                 f"SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,"
+-                f" signature, docstring, body FROM code_chunks WHERE id IN ({placeholders})",
++                f" signature, docstring, body, modified_time FROM code_chunks"
++                f" WHERE id IN ({placeholders})",
+                 ordered_ids,
+             ).fetchall()
+         by_id = {r[0]: r for r in rows}
+@@ -888,6 +991,7 @@ class ChunkIndex:
+                 symbol_type=row[3], start_line=row[4], end_line=row[5],
+                 signature=row[6] or "", docstring=row[7],
+                 body=row[8] or "", score=scores[cid],
++                modified_time=row[9] or 0.0,
+             ))
+         return results
+ 
+diff --git a/src/context/repo_map.py b/src/context/repo_map.py
+index 1bc9ff5..15c8527 100644
+--- a/src/context/repo_map.py
++++ b/src/context/repo_map.py
+@@ -68,6 +68,10 @@ class RepoMap:
+         self.root = Path(root_path).resolve()
+         self._cache: str | None = None
+         self._cache_mtime: float = 0.0
++        # D14 (§37): per-file stats collected during the build — the ONLY
++        # inputs the compress path's importance ranking needs (no re-walk).
++        self._file_stats: dict[str, dict[str, float]] = {}
++        self._in_degree: dict[str, int] = {}
+ 
+     # =========================================================
+     # PUBLIC API
+@@ -140,15 +144,42 @@ class RepoMap:
+ 
+             lines.append("")
+ 
+-        # Add import graph at the end
+-        graph = self._build_import_graph(files)
+-        if graph:
++        # Add import graph at the end. D14: prefer RESOLVED file->file edges
++        # (the verified chunk_index resolver) — centrality counts only make
++        # sense on real edges; the module-first-segment graph can't produce
++        # them. Legacy module graph stays as the degraded fallback.
++        edges = self._resolved_edges(files)
++        graph_lines: list[str] = []
++        if edges:
++            in_degree: dict[str, int] = {}
++            for _src, tgts in edges.items():
++                for t in tgts:
++                    in_degree[t] = in_degree.get(t, 0) + 1
++            self._in_degree = in_degree
++            hubs = sorted(in_degree.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
++            graph_lines.append(
++                "Most depended-upon: "
++                + ", ".join(f"{t} ({n})" for t, n in hubs)
++            )
++            for importer in sorted(edges)[:20]:
++                tgts = sorted(edges[importer],
++                              key=lambda t: (-in_degree.get(t, 0), t))[:5]
++                graph_lines.append(f"{importer} -> {', '.join(tgts)}")
++            if len(edges) > 20:
++                graph_lines.append(f"... ({len(edges) - 20} more files) ...")
++        else:
++            self._in_degree = {}
++            graph = self._build_import_graph(files)
++            if graph:
++                for file_path, imports in sorted(graph.items())[:20]:
++                    graph_lines.append(f"{file_path} -> {', '.join(imports[:5])}")
++                if len(graph) > 20:
++                    graph_lines.append(f"... ({len(graph) - 20} more files) ...")
++
++        if graph_lines:
+             lines.append("")
+             lines.append("=== IMPORT GRAPH ===")
+-            for file_path, imports in sorted(graph.items())[:20]:
+-                lines.append(f"{file_path} -> {', '.join(imports[:5])}")
+-            if len(graph) > 20:
+-                lines.append(f"... ({len(graph) - 20} more files) ...")
++            lines.extend(graph_lines)
+ 
+         lines.append("")
+         lines.append("=== END REPO MAP ===")
+@@ -201,27 +232,37 @@ class RepoMap:
+ 
+         For Python files: extract top-level functions/classes.
+         For others: just show size and extension.
++
++        Also stashes D14 compress-ranking stats (mtime, size, symbol mass) —
++        one stat() call, no re-walk later.
+         """
+-        size = full_path.stat().st_size
++        st = full_path.stat()
++        size = st.st_size
+         size_str = self._format_size(size)
+         name = rel_path.name
++        stats = {"mtime": st.st_mtime, "size": float(size), "mass": 0.0}
+ 
+         # Python files get symbol extraction.
+         if full_path.suffix == ".py" and size < MAX_FILE_SIZE:
+-            symbols = self._extract_python_symbols(full_path)
++            symbols, n_classes, n_functions = self._extract_python_symbols(full_path)
++            stats["mass"] = float(n_classes + n_functions)
++            self._file_stats[str(rel_path)] = stats
+             if symbols:
+                 return f"{name} ({size_str}) -> {symbols}"
+ 
++        self._file_stats[str(rel_path)] = stats
+         return f"{name} ({size_str})"
+ 
+-    def _extract_python_symbols(self, path: Path) -> str:
+-        """Extract top-level symbols using AST (accurate, handles decorators/async)."""
++    def _extract_python_symbols(self, path: Path) -> tuple[str, int, int]:
++        """Extract top-level symbols using AST (accurate, handles decorators/async).
++        Returns (formatted_text, n_classes, n_functions) — counts feed the D14
++        importance mass signal."""
+         import ast
+         try:
+             content = path.read_text(encoding="utf-8", errors="ignore")
+             tree = ast.parse(content)
+         except Exception:
+-            return ""
++            return "", 0, 0
+ 
+         classes = []
+         functions = []
+@@ -256,7 +297,46 @@ class RepoMap:
+                 it += f" (+{len(imports) - 3})"
+             parts.append(it)
+ 
+-        return " | ".join(parts)
++        return " | ".join(parts), len(classes), len(functions)
++
++    def _resolved_edges(self, files: list[Path]) -> dict[str, set[str]]:
++        """D14: file->file import edges via chunk_index's verified resolver
++        (full dotted-path resolution). Module-level graph is the documented
++        fallback when that import is unavailable. Never raises — edges are
++        a ranking bonus, not a failure mode."""
++        try:
++            from src.context.chunk_index import _extract_py_import_edges
++        except Exception:
++            return {}
++        edges: dict[str, set[str]] = {}
++        for f in files:
++            if f.suffix != ".py":
++                continue
++            try:
++                src = f.read_text(encoding="utf-8", errors="ignore")
++                rel = f.relative_to(self.root)
++            except (OSError, ValueError):
++                continue
++            try:
++                targets = _extract_py_import_edges(src, rel, self.root)
++            except Exception:
++                continue
++            if targets:
++                edges[str(rel)] = set(targets)
++        return edges
++
++    def _importance(self, rel: str, max_deg: float, min_mtime: float,
++                    mtime_span: float, max_mass: float) -> float:
++        """D14 compress-ranking score: depended-upon-ness dominates, then
++        recency (range-normalized — ratio-to-max on epoch seconds would make
++        everything ~1.0), then symbol mass. All inputs content/mtime-derived;
++        computed only on the compress path, so the FULL map never reorders
++        (byte-stable for prompt-cache prefixing — the §32 doctrine)."""
++        stats = self._file_stats.get(rel, {})
++        deg_n = (self._in_degree.get(rel, 0) / max_deg) if max_deg else 0.0
++        rec_n = ((stats.get("mtime", 0.0) - min_mtime) / mtime_span) if mtime_span else 0.0
++        mass_n = (stats.get("mass", 0.0) / max_mass) if max_mass else 0.0
++        return 3.0 * deg_n + 1.5 * rec_n + 0.5 * mass_n
+ 
+     def _build_import_graph(self, files: list[Path]) -> dict[str, list[str]]:
+         """Build a map of file -> modules it imports."""
+@@ -292,8 +372,24 @@ class RepoMap:
+ 
+     def _compress_map(self, max_tokens: int) -> str:
+         """
+-        If the map is too big, compress it by removing function details and
+-        keeping only the tree structure.
++        D14 v2: staged reduction by file IMPORTANCE — when budget forces a
++        choice, the map keeps the files that matter instead of the files
++        whose names sort early in the alphabet. Pre-fix behavior: strip ALL
++        symbol detail, then truncate from the END OF THE ALPHABET, so
++        z_core_engine.py vanished while a_junk_00.py survived (measured in
++        scripts/d13_d14_rank_measure.py R1).
++
++        Stages (each stops as soon as the budget fits):
++          1. strip "| imports: ..." segments (least informative detail)
++          2. strip symbol detail for below-median-importance files only
++             (top-importance files keep their classes/functions)
++          3. strip ALL symbol detail (the old stage 1)
++          4. drop whole file lines, LEAST-important first
++          5. char-truncate as the legacy last resort
++
++        The import-graph section is split off first and always appended
++        whole. Emission among kept files stays alphabetical per directory
++        (navigable; and within a fixed selection the text is deterministic).
+         """
+         if self._cache is None:
+             return ""
+@@ -307,21 +403,106 @@ class RepoMap:
+         else:
+             tree_part, graph_part = self._cache, ""
+ 
+-        compressed = []
++        # --- parse the tree section into typed entries ---------------------
++        #                (kind, line, rel-or-dir)
++        entries: list[tuple[str, str, str | None]] = []
++        cur_dir = "."
+         for line in tree_part.splitlines():
+-            # Remove symbol details from the tree portion only.
+-            if " -> " in line:
+-                line = line.split(" -> ")[0]
+-            compressed.append(line)
+-
+-        result = "\n".join(compressed)
+-
+-        # If still too big, truncate the tree portion only.
+-        if len(result) * 0.75 > max_tokens:
+-            max_chars = int(max_tokens / 0.75)
+-            result = result[:max_chars].rstrip()
+-            result += "\n... (truncated) ..."
+-
++            stripped = line.strip()
++            if line.startswith("  ") and " (" in stripped:
++                fname = stripped.split(" (")[0]
++                # os.path.join: _file_stats keys come from str(Path) — same
++                # separator per platform (Windows-safe).
++                rel = fname if cur_dir == "." else os.path.join(cur_dir, fname)
++                entries.append(("file", line, rel))
++            elif (stripped.startswith("[root]") or stripped.endswith("files)")) \
++                    and " files)" in stripped:
++                dir_name = stripped.split("]")[0].rstrip("/") if stripped.startswith("[root]") \
++                    else stripped.split("  (")[0].rstrip("/")
++                cur_dir = "." if stripped.startswith("[root]") else dir_name
++                entries.append(("dir", line, cur_dir))
++            else:
++                entries.append(("meta", line, None))
++
++        # --- importance over the files present -----------------------------
++        file_rels = [rel for kind, _l, rel in entries if kind == "file" and rel]
++        if not file_rels:
++            return self._cache[: int(max_tokens / 0.75)] + graph_part
++        max_deg = max([self._in_degree.get(r, 0) for r in file_rels] + [0]) or 0
++        mtimes = [self._file_stats.get(r, {}).get("mtime", 0.0) for r in file_rels]
++        min_mtime, mtime_span = min(mtimes), (max(mtimes) - min(mtimes)) or 0.0
++        max_mass = max([self._file_stats.get(r, {}).get("mass", 0.0) for r in file_rels] + [0]) or 0.0
++        imp = {
++            r: self._importance(r, max_deg, min_mtime, mtime_span, max_mass)
++            for r in file_rels
++        }
++
++        def _fits(lines: list[str]) -> bool:
++            return len("\n".join(lines)) * 0.75 <= max_tokens
++
++        def _emit() -> list[str]:
++            return [line for _kind, line, _rel in entries]
++
++        # stage 1: drop "| imports: ..." segments from file lines
++        work: list[tuple[str, str, str | None]] = [
++            (k, (ln.split(" | imports:")[0] if k == "file" else ln), r)
++            for k, ln, r in entries
++        ]
++        entries = work
++        if _fits(_emit()):
++            return "\n".join(_emit()) + graph_part
++
++        # stage 2: strip symbol detail for files at-or-below the MEDIAN
++        # importance (<= so a tied low floor like all-junk-zeros loses its
++        # detail first); top-importance files keep classes/functions.
++        import statistics
++        median_imp = statistics.median(imp.values())
++        work = [
++            (k, (ln.split(" -> ")[0] if k == "file" and r is not None
++                 and imp.get(r, 0.0) <= median_imp else ln), r)
++            for k, ln, r in entries
++        ]
++        if _fits([ln for _k, ln, _r in work]):
++            entries = work
++            return "\n".join(_emit()) + graph_part
++
++        # stage 3: strip ALL symbol detail (old stage 1)
++        work = [
++            (k, (ln.split(" -> ")[0] if k == "file" else ln), r)
++            for k, ln, r in entries
++        ]
++        entries = work
++        if _fits(_emit()):
++            return "\n".join(_emit()) + graph_part
++
++        # stage 4: drop whole file lines, least important first; then drop
++        # directory headers left with no files under them.
++        for victim in sorted(file_rels, key=lambda r: (imp[r], r)):
++            entries = [e for e in entries if not (e[0] == "file" and e[2] == victim)]
++            pruned: list[tuple[str, str, str | None]] = []
++            for i, e in enumerate(entries):
++                if e[0] == "dir":
++                    j = i + 1
++                    found = False
++                    while j < len(entries) and entries[j][0] != "dir":
++                        if entries[j][0] == "file":
++                            found = True
++                            break
++                        j += 1
++                    if not found:
++                        continue
++                pruned.append(e)
++            entries = pruned
++            if _fits(_emit()):
++                return ("\n".join(_emit())
++                        + "\n... (least-important files omitted) ..."
++                        + graph_part)
++
++        # stage 5: legacy char truncate, tree portion only.
++        result = "\n".join(_emit())
++        max_chars = int(max_tokens / 0.75)
++        result = result[:max_chars].rstrip()
++        result += "\n... (truncated) ..."
+         return result + graph_part
+ 
+     # =========================================================
+diff --git a/src/tests/test_chunk_index.py b/src/tests/test_chunk_index.py
+index 82eb532..54822ab 100644
+--- a/src/tests/test_chunk_index.py
++++ b/src/tests/test_chunk_index.py
+@@ -20,6 +20,7 @@ import pytest
+ 
+ from src.context.chunk_index import (
+     ChunkIndex,
++    ChunkResult,
+     extract_chunks,
+     get_index,
+     build_relevant_chunks_layer,
+@@ -40,8 +41,10 @@ class FakeEmbedder:
+     """Word-bucket hashing: texts sharing words get similar vectors."""
+ 
+     DIM = 384
++    calls = 0  # D13: the re-rank must add ZERO embedder calls
+ 
+     def encode(self, texts, normalize_embeddings=True):
++        type(self).calls += 1
+         out = _Embeds()
+         for text in texts:
+             vec = [0.0] * self.DIM
+@@ -516,3 +519,165 @@ def test_c1_knn_limit_exceeds_population(index):
+     res = index._search_vec_fast(q, 50)
+     assert len(res) == 3
+     assert all(0.0 <= s <= 1.0 for _cid, s in res)
++
++
++# ---------------------------------------------------------------------
++# D13 pins (ARCHITECTURE_REVIEW.md §37): fused-set feature re-rank
++# ---------------------------------------------------------------------
++# Measured baseline (scripts/d13_d14_rank_measure.py): a query naming the
++# exact symbol ranked it #4 (P@3 MISS) behind vocabulary twins; test files
++# occupied the top-3 on implementation questions; twin files ranked by
++# vocabulary only, ignoring recency. The re-rank adds zero LLM and zero
++# embedder calls — pinned directly.
++
++from src.context.chunk_index import _word_parts, _is_test_path  # noqa: E402
++
++_RERANK_GOLD = '''"""Authentication module."""
++import os
++import hashlib
++
++
++def parse_auth_token(raw_header):
++    """Parse a Bearer token from an Authorization header."""
++    parts = raw_header.split(" ")
++    assert len(parts) == 2, "malformed header"
++    return parts[1]
++'''
++
++
++def test_d13_exact_name_query_rescues_gold(tmp_path):
++    ws = tmp_path
++    (ws / "core").mkdir()
++    (ws / "core" / "auth.py").write_text(_RERANK_GOLD)
++    (ws / "noise").mkdir()
++    for n in range(6):
++        (ws / "noise" / f"distractor_{n}.py").write_text(
++            f'"""Twin module {n}: raises TypeError malformed header assertion."""\n'
++            + "".join(
++                f"def twin_{n}_{i}(raw_header, malformed, assertion):\n"
++                '    """Raises TypeError on malformed header data, assertion plumbing."""\n'
++                "    return raw_header or malformed or assertion\n\n"
++                for i in range(3)
++            )
++        )
++    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13.db"), embedder=FakeEmbedder())
++    idx.index_workspace()
++
++    res = idx.search("parse_auth_token raises TypeError: malformed header assertion", top_k=3)
++    assert res, "no results at all"
++    assert res[0].symbol_name == "parse_auth_token"
++    assert res[0].file_path == os.path.join("core", "auth.py")
++
++
++def test_d13_test_files_demoted_out_of_top3_for_impl_query(tmp_path):
++    ws = tmp_path
++    (ws / "src").mkdir()
++    (ws / "tests").mkdir()
++    impl = (
++        '"""Cache layer with eviction and TTL policy."""\n\n'
++        "def cache_put(key, value, ttl):\n"
++        '    """Store value under key with ttl eviction policy."""\n'
++        "    return (key, value, ttl)\n\n"
++        "def cache_get(key):\n"
++        '    """Fetch a cached value by key."""\n'
++        "    return key\n"
++    )
++    twin = (
++        '"""Cache layer with eviction and TTL policy."""\n\n'
++        "def cache_put_checked(key, value, ttl):\n"
++        '    """Store value under key with ttl eviction policy, verified."""\n'
++        "    assert key and (key, value, ttl)\n\n"
++        "def cache_get_checked(key):\n"
++        '    """Fetch a cached value by key, verified."""\n'
++        "    assert key and key\n"
++    )
++    (ws / "src" / "cache.py").write_text(impl)
++    (ws / "tests" / "test_cache.py").write_text(twin)
++    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13t.db"), embedder=FakeEmbedder())
++    idx.index_workspace()
++
++    res = idx.search("cache layer eviction ttl policy", top_k=3)
++    assert res
++    assert all("test_" not in r.file_path for r in res[:3]), \
++        f"test file leaked into top3: {[(r.symbol_name, r.file_path) for r in res[:3]]}"
++
++    # Control: a test-ISH query lifts the demote — tests may surface again.
++    res_testish = idx.search("test cache eviction policy", top_k=3)
++    assert res_testish  # and it must not crash/demote either way
++
++
++def test_d13_freshest_file_wins_vocabulary_tie(tmp_path):
++    ws = tmp_path
++    body = (
++        '"""Rate limiting."""\n\n'
++        "def throttle_request(req):\n"
++        '    """Apply the sliding window to this request."""\n'
++        "    return req\n"
++    )
++    (ws / "legacy_limiter.py").write_text(body)
++    (ws / "limiter.py").write_text(body)
++    old = time.time() - 30 * 86400
++    os.utime(ws / "legacy_limiter.py", (old, old))
++    now = time.time()
++    os.utime(ws / "limiter.py", (now, now))
++
++    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13h.db"), embedder=FakeEmbedder())
++    idx.index_workspace()
++    res = idx.search("throttle request sliding window", top_k=2)
++    assert res
++    assert res[0].file_path == "limiter.py"
++
++
++def test_d13_zero_feature_query_keeps_raw_rrf_order(tmp_path):
++    """STRICT no-regress: no feature fires => search() output is identical
++    to raw _rrf_fuse, in both members and order."""
++    ws = tmp_path
++    (ws / "hydra.py").write_text(
++        '"""Hydration scheduling."""\n\n'
++        "def schedule_irrigation(zones):\n"
++        '    """Compute watering windows per zone."""\n'
++        "    return zones\n"
++    )
++    (ws / "beams.py").write_text(
++        '"""Pergola assembly notes."""\n\n'
++        "def assemble_beams(beams):\n"
++        '    """Bolt the cross beams together."""\n'
++        "    return beams\n"
++    )
++    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13z.db"), embedder=FakeEmbedder())
++    idx.index_workspace()
++    q = "compute watering windows per zone"
++    raw = idx._rrf_fuse(idx._search_vector(q, 9), idx._search_bm25(q, 9))[:3]
++    got = idx.search(q, top_k=3)
++    assert [r.id for r in got] == [r.id for r in raw]
++
++
++def test_d13_rerank_adds_zero_embedder_and_llm_calls(tmp_path):
++    ws = tmp_path
++    (ws / "auth.py").write_text(_RERANK_GOLD)
++    (ws / "garden.py").write_text(GARDEN_CODE)
++    FakeEmbedder.calls = 0
++    idx = ChunkIndex(ws, db_path=str(tmp_path / "d13e.db"), embedder=FakeEmbedder())
++    idx.index_workspace()
++    after_index = FakeEmbedder.calls
++    idx.search("token header", top_k=3)
++    assert FakeEmbedder.calls - after_index == 1, \
++        "search must encode exactly once (the query); re-rank is arithmetic-only"
++
++
++def test_d13_word_parts_and_test_path_helpers(index):
++    parts = _word_parts("parse_auth_token")
++    assert {"parse", "auth", "token"} <= parts
++    camel = _word_parts("HTTPServerError")
++    assert {"http", "server", "error"} <= camel
++    assert _is_test_path("tests/test_cache.py")
++    assert _is_test_path(os.path.join("pkg", "tests", "cache.py"))
++    assert _is_test_path("pkg/cache_test.py")
++    assert not _is_test_path("src/cache.py")
++
++    # unit-level rerank smoke: no query / single result are pass-through
++    r = ChunkResult(id="x", file_path="a.py", symbol_name="f",
++                    symbol_type="function", start_line=1, end_line=2,
++                    signature="", docstring=None, body="", score=1.0)
++    assert index._rerank([r], "anything") == [r]
++    assert index._rerank([r], "") == [r]
+diff --git a/src/tests/test_repo_map.py b/src/tests/test_repo_map.py
+new file mode 100644
+index 0000000..046e31f
+--- /dev/null
++++ b/src/tests/test_repo_map.py
+@@ -0,0 +1,170 @@
++"""Tests for RepoMap — D14 ranking pins (ARCHITECTURE_REVIEW.md §37).
++
++Measured baseline (scripts/d13_d14_rank_measure.py, OLD vs NEW):
++- over-budget compression stripped symbol detail from EVERY file at roomier
++  budgets and, when forced to truncate, cut from the END OF THE ALPHABET —
++  the most important file (z_core_engine.py: highest in-degree, freshest,
++  most symbols) was deleted while 12 a_junk_* files survived;
++- the import graph was emitted alphabetically with no notion of hubs.
++
++D14 design invariants pinned below:
++- compress keeps what matters (importance = in-degree + recency + mass);
++- graduated detail: when budget is merely tight — not desperate — symbol
++  detail survives ONLY on above-median-importance files;
++- the FULL map stays alphabetically ordered and byte-stable (prompt-cache
++  prefix doctrine, §32): selection lives in the compress path only;
++- the import graph names its hubs and stays deterministic;
++- resolver failure degrades to the legacy module-level graph, never to zero.
++"""
++
++import os
++import time
++
++import pytest
++
++from src.context.repo_map import RepoMap
++
++
++def _junk_file(i: int) -> str:
++    return f'"""Junk constants block {i}."""\n' + "\n".join(
++        f"CONST_{i}_{j} = {j}" for j in range(40)
++    ) + "\n"
++
++
++CORE = (
++    '"""The core orchestration engine everything depends on."""\n\n'
++    "class Engine:\n    pass\n\n"
++    "def run_pipeline():\n    return Engine()\n\n"
++    "def plan_tasks():\n    return []\n"
++)
++
++
++@pytest.fixture
++def ranked_ws(tmp_path):
++    """12 stale junk files + 1 fresh hub imported by 4 fresh consumers."""
++    stale = time.time() - 30 * 86400
++    for i in range(12):
++        p = tmp_path / f"a_junk_{i:02d}.py"
++        p.write_text(_junk_file(i))
++        os.utime(p, (stale, stale))
++    (tmp_path / "z_core_engine.py").write_text(CORE)
++    for c in range(4):
++        (tmp_path / f"m_consumer_{c}.py").write_text(
++            f"from z_core_engine import Engine\n\n\ndef consume_{c}():\n"
++            f"    return Engine()\n"
++        )
++    return tmp_path
++
++
++def _tree_part(text: str) -> str:
++    return text.split("=== IMPORT GRAPH ===", 1)[0]
++
++
++# ---------------------------------------------------------------------
++# Compress ranking
++# ---------------------------------------------------------------------
++
++
++def test_d14_roomy_budget_keeps_detail_only_where_it_matters(ranked_ws):
++    rm = RepoMap(ranked_ws)
++    text = rm.get_map(max_tokens=620)
++    assert "z_core_engine.py" in text
++    # graduated detail: the hub keeps its symbols...
++    assert "run_pipeline" in text or "plan_tasks" in text
++    # ...while junk lines lost theirs (they had none to begin with — the pin
++    # is that JUNK never kept ` -> ` detail while the budget was tight).
++    tree = _tree_part(text)
++    junk_lines = [ln for ln in tree.splitlines() if "a_junk_" in ln]
++    assert junk_lines and all(" -> " not in ln for ln in junk_lines)
++    # the tree portion really fits the stated budget
++    assert len(tree) * 0.75 <= 620
++
++
++def test_d14_tight_budget_drops_least_important_first(ranked_ws):
++    rm = RepoMap(ranked_ws)
++    text = rm.get_map(max_tokens=240)
++    assert "z_core_engine.py" in text, "the hub may never be dropped"
++    junk_shown = sum(1 for i in range(12) if f"a_junk_{i:02d}.py" in text)
++    assert junk_shown < 12, f"no junk was dropped: {junk_shown}"
++    # omission is explicit, never silent
++    assert "least-important files omitted" in text or "truncated" in text
++    # kept junk stays alphabetical (deterministic, navigable emission)
++    shown = [f"a_junk_{i:02d}.py" for i in range(12) if f"a_junk_{i:02d}.py" in text]
++    assert shown == sorted(shown)
++
++
++def test_d14_compress_selection_matches_importance_order(ranked_ws):
++    """The stale, never-imported, symbol-less junk files are ALWAYS dropped
++    before any fresh consumer or the hub."""
++    rm = RepoMap(ranked_ws)
++    for budget in (180, 220, 260):
++        text = rm.get_map(max_tokens=budget)
++        assert "z_core_engine.py" in text
++        consumers_shown = sum(
++            1 for c in range(4) if f"m_consumer_{c}.py" in text
++        )
++        junk_shown = sum(1 for i in range(12) if f"a_junk_{i:02d}.py" in text)
++        # no junk may outlive a consumer... (junk importance strictly lower)
++        if junk_shown:
++            assert consumers_shown == 4, (
++                f"budget={budget}: junk survived ({junk_shown}) while a "
++                f"consumer was dropped ({consumers_shown})"
++            )
++
++
++def test_d14_rebuild_is_deterministic(ranked_ws):
++    a = RepoMap(ranked_ws).get_map(max_tokens=240)
++    b = RepoMap(ranked_ws).get_map(max_tokens=240)
++    assert a == b
++
++
++# ---------------------------------------------------------------------
++# Import graph centrality
++# ---------------------------------------------------------------------
++
++
++def test_d14_graph_names_hubs_and_stays_deterministic(tmp_path):
++    (tmp_path / "libbase.py").write_text('"""Base library everyone uses."""\nX = 1\n')
++    for leaf in ("a_leaf.py", "b_leaf.py", "c_leaf.py"):
++        (tmp_path / leaf).write_text("import libbase\n\n\nleaf = 1\n")
++    text = RepoMap(tmp_path).get_map(max_tokens=100_000)
++    assert "=== IMPORT GRAPH ===" in text
++    assert "Most depended-upon: libbase.py (3)" in text
++    assert "a_leaf.py -> libbase.py" in text
++    again = RepoMap(tmp_path).get_map(max_tokens=100_000)
++    assert text == again
++
++
++def test_d14_resolver_failure_falls_back_to_legacy_graph(tmp_path, monkeypatch):
++    (tmp_path / "libbase.py").write_text("X = 1\n")
++    (tmp_path / "a_leaf.py").write_text("import libbase\n")
++    rm = RepoMap(tmp_path)
++    monkeypatch.setattr(RepoMap, "_resolved_edges", lambda self, files: {})
++    text = rm.get_map(max_tokens=100_000)
++    assert "=== IMPORT GRAPH ===" in text
++    assert "a_leaf.py -> libbase" in text  # legacy module-level style
++
++
++def test_d14_no_python_files_no_graph_no_crash(tmp_path):
++    (tmp_path / "README.md").write_text("# hello\n")
++    (tmp_path / "data.json").write_text("{}\n")
++    text = RepoMap(tmp_path).get_map(max_tokens=100_000)
++    assert "README.md" in text
++    assert "=== IMPORT GRAPH ===" not in text
++
++
++# ---------------------------------------------------------------------
++# Full-map stability doctrine (§32 prompt-cache prefix)
++# ---------------------------------------------------------------------
++
++
++def test_d14_full_map_stays_alphabetical_and_byte_stable(ranked_ws):
++    rm = RepoMap(ranked_ws)
++    first = rm.get_map(max_tokens=100_000)
++    tree_lines = [ln.strip() for ln in _tree_part(first).splitlines()
++                  if ln.startswith("  ") and ln.strip().endswith(")") or
++                  ln.startswith("  ") and " -> " in ln]
++    names = [ln.split(" (")[0].strip() for ln in tree_lines]
++    assert names == sorted(names), "full map must stay alphabetical"
++    # cached repeated call is the same string (no rebuild churn)
++    assert rm.get_map(max_tokens=100_000) is first
+-- 
+2.47.3
+

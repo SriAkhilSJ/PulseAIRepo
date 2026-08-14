@@ -1,0 +1,64 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+.env
+
+
+# Temp run artifacts
+logs/
+
+# Generated agent artifacts
+generated/
+*.log
+
+# Tooling / IDE
+venv/
+.vscode/
+.idea/
+*.swp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local PulseAI runtime state (if ever created repo-local)
+.pulseai/
+
+# VSCode fork (desktop/) build outputs — never vendor these
+node_modules/
+desktop/out/
+desktop/out-build/
+desktop/.build/
+
+# Desktop fork (VS Code) — leftover artifacts not covered by its nested .gitignore
+desktop/*.log
+desktop/**/*.backup
+desktop/_tmp_*
+desktop/code-oss-dev@1.130.0
+desktop/npm-run-all2
+
+# Lab eval workspaces: never commit installed deps
+lab/workspace_*/node_modules/
+lab/npm-cache/
+pytest-tmp/
+lab/workspace_*/.next/
+lab/workspace_*/dev.*
+lab/workspace_*/*.pid
+lab/*.start
+lab/*.err
+lab/*.err.log
+
+# P0: VSCode fork deferred to Phase 2 — removed from tree
+desktop/
+
+# Scratch / local runtime state (never commit)
+.freebuff/
+claude_test/

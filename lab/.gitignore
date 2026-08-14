@@ -1,0 +1,8 @@
+# Lab sandbox junk — keep evidence (reports, scripts, screenshots) committable
+node_modules/
+**/node_modules/
+*.log
+__pycache__/
+.screenshots/
+screenshots/
+.venv*

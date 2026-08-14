@@ -1,0 +1,571 @@
+From 7f814309629a8bf28bab728c173614bc520eccfd Mon Sep 17 00:00:00 2001
+From: ArenaAgent <agent@arena.local>
+Date: Sat, 8 Aug 2026 09:48:34 +0000
+Subject: [PATCH] P2 Phase 0 (0.3 rebrand + 0.5 contrib/pulse skeleton, base
+ c780ea96) -- product.json: PulseCode branding (applicationName pulsecode,
+ dataFolderName .pulsecode, -shared, mutex). NEW
+ src/vs/workbench/contrib/pulse/: common/protocol.ts (bridge v1 TS mirror of
+ PulseAIRepo src/bridge), common/pulseEngineService.ts (service
+ decorator+interface), electron-browser/pulseEngineServiceImpl.ts
+ (IPulseTransport seam + LoopbackTransport so the UI loop demos pre-wiring;
+ stdio attach lands exactly once at M1 wiring), browser/pulse.contribution.ts
+ (Activity-bar container + Pulse Agent view + focus command),
+ browser/pulseChatView.ts (Kilo-study layout:
+ header/timeline/messages/dock-zone/prompt; dock slots reserved for M2-M4),
+ browser/cards/toolCard.ts (basic card + refused/error states for D32/D34
+ refusals), browser/media/pulse.css (theme variables only). Upstream touched
+ ONLY per the 2-line rule: product.json + 1 import line in
+ workbench.common.main.ts. Typecheck/first build pending Phase 0.2 (founder's
+ machine, documented in roadmap).
+
+---
+ product.json                                  |  12 +-
+ .../contrib/pulse/browser/cards/toolCard.ts   |  43 +++++++
+ .../contrib/pulse/browser/media/pulse.css     |  31 +++++
+ .../pulse/browser/pulse.contribution.ts       |  75 +++++++++++
+ .../contrib/pulse/browser/pulseChatView.ts    |  92 +++++++++++++
+ .../contrib/pulse/common/protocol.ts          |  58 +++++++++
+ .../pulse/common/pulseEngineService.ts        |  32 +++++
+ .../pulseEngineServiceImpl.ts                 | 121 ++++++++++++++++++
+ src/vs/workbench/workbench.common.main.ts     |   3 +
+ 9 files changed, 461 insertions(+), 6 deletions(-)
+ create mode 100644 src/vs/workbench/contrib/pulse/browser/cards/toolCard.ts
+ create mode 100644 src/vs/workbench/contrib/pulse/browser/media/pulse.css
+ create mode 100644 src/vs/workbench/contrib/pulse/browser/pulse.contribution.ts
+ create mode 100644 src/vs/workbench/contrib/pulse/browser/pulseChatView.ts
+ create mode 100644 src/vs/workbench/contrib/pulse/common/protocol.ts
+ create mode 100644 src/vs/workbench/contrib/pulse/common/pulseEngineService.ts
+ create mode 100644 src/vs/workbench/contrib/pulse/electron-browser/pulseEngineServiceImpl.ts
+
+diff --git a/product.json b/product.json
+index 395cc7ed..20d77bcc 100644
+--- a/product.json
++++ b/product.json
+@@ -1,10 +1,10 @@
+ {
+-	"nameShort": "Code - OSS",
+-	"nameLong": "Code - OSS",
+-	"applicationName": "code-oss",
+-	"dataFolderName": ".vscode-oss",
+-	"sharedDataFolderName": ".vscode-oss-shared",
+-	"win32MutexName": "vscodeoss",
++	"nameShort": "PulseCode",
++	"nameLong": "PulseCode",
++	"applicationName": "pulsecode",
++	"dataFolderName": ".pulsecode",
++	"sharedDataFolderName": ".pulsecode-shared",
++	"win32MutexName": "pulsecode",
+ 	"licenseName": "MIT",
+ 	"licenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+ 	"serverLicenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+diff --git a/src/vs/workbench/contrib/pulse/browser/cards/toolCard.ts b/src/vs/workbench/contrib/pulse/browser/cards/toolCard.ts
+new file mode 100644
+index 00000000..48c89efe
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/browser/cards/toolCard.ts
+@@ -0,0 +1,43 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) PulseCode. Licensed under the MIT License.
++ *  P2 M1 — the basic tool-call card (Kilo `basic-tool` / `tool-error-card`
++ *  design, native): header row (icon + tool name + status), expandable
++ *  body with args/result, error variant for refusals (D32 stale-write,
++ *  D34 batch refusals) and crashes (crash-net ToolMessages).
++ *--------------------------------------------------------------------------------------------*/
++
++import * as DOM from 'vs/base/browser/dom';
++
++export type PulseToolCardState = 'running' | 'ok' | 'refused' | 'error';
++
++export interface PulseToolCardData {
++	readonly name: string;
++	readonly state: PulseToolCardState;
++	readonly summary: string;
++	readonly detail?: string;
++}
++
++const STATE_LABEL: Record<PulseToolCardState, string> = {
++	running: '…',
++	ok: '✓',
++	refused: '🛑 refused',
++	error: '⛔ error',
++};
++
++/** Renders one tool card into `container`; returns the root element so
++ *  callers can replace it on tool_call_end. */
++export function renderToolCard(container: HTMLElement, data: PulseToolCardData): HTMLElement {
++	const el = DOM.append(container, DOM.$(`.pulse-tool-card.pulse-tool-${data.state}`));
++	const head = DOM.append(el, DOM.$('.pulse-tool-head'));
++	DOM.append(head, DOM.$('.pulse-tool-state')).textContent = STATE_LABEL[data.state];
++	DOM.append(head, DOM.$('.pulse-tool-name')).textContent = data.name;
++	DOM.append(head, DOM.$('.pulse-tool-summary')).textContent = data.summary;
++	if (data.detail) {
++		head.classList.add('pulse-clickable');
++		head.title = 'Click to expand';
++		head.onclick = () => el.classList.toggle('pulse-open');
++		const body = DOM.append(el, DOM.$('.pulse-tool-body'));
++		body.textContent = data.detail;
++	}
++	return el;
++}
+diff --git a/src/vs/workbench/contrib/pulse/browser/media/pulse.css b/src/vs/workbench/contrib/pulse/browser/media/pulse.css
+new file mode 100644
+index 00000000..fe482186
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/browser/media/pulse.css
+@@ -0,0 +1,31 @@
++/* P2 M1 — Pulse chat view skeleton styles. VS Code theme variables only
++   (never hardcode colors — the fork ships with theme support for free). */
++
++.pulse-chat { display: flex; flex-direction: column; height: 100%; }
++
++.pulse-header { padding: 4px 8px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, transparent); }
++.pulse-status { font-size: 11px; color: var(--vscode-descriptionForeground); }
++
++.pulse-message-list { flex: 1; overflow-y: auto; padding: 8px; }
++.pulse-msg { margin: 4px 0; padding: 6px 8px; border-radius: 4px; white-space: pre-wrap; }
++.pulse-msg-user { background: var(--vscode-editor-inactiveSelectionBackground); }
++.pulse-msg-assistant { background: var(--vscode-editorWidget-background); }
++.pulse-msg-tool { font-family: var(--vscode-editor-font-family); font-size: 11px; color: var(--vscode-descriptionForeground); }
++
++/* Dock zone (M2 permission dock / M4 revert banner — Kilo "pinned above
++   input" rule from the UX study). */
++.pulse-dock { border-top: 1px solid var(--vscode-sideBarSectionHeader-border, transparent); }
++
++.pulse-prompt-row { padding: 8px; }
++.pulse-prompt { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; resize: none; }
++.pulse-prompt:disabled { opacity: 0.6; }
++
++/* Tool cards */
++.pulse-tool-card { margin: 4px 0; border: 1px solid var(--vscode-editorWidget-border, transparent); border-radius: 4px; }
++.pulse-tool-head { display: flex; gap: 6px; padding: 4px 8px; align-items: center; font-family: var(--vscode-editor-font-family); font-size: 11px; }
++.pulse-tool-head.pulse-clickable { cursor: pointer; }
++.pulse-tool-ok .pulse-tool-state { color: var(--vscode-testing-iconPassed); }
++.pulse-tool-running .pulse-tool-state { color: var(--vscode-progressBar-background); }
++.pulse-tool-refused .pulse-tool-state, .pulse-tool-error .pulse-tool-state { color: var(--vscode-testing-iconFailed); }
++.pulse-tool-body { display: none; padding: 4px 8px; font-size: 11px; white-space: pre-wrap; border-top: 1px solid var(--vscode-editorWidget-border, transparent); }
++.pulse-tool-card.pulse-open .pulse-tool-body { display: block; }
+diff --git a/src/vs/workbench/contrib/pulse/browser/pulse.contribution.ts b/src/vs/workbench/contrib/pulse/browser/pulse.contribution.ts
+new file mode 100644
+index 00000000..f3568ced
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/browser/pulse.contribution.ts
+@@ -0,0 +1,75 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) PulseCode. Licensed under the MIT License.
++ *  P2 M1 — Pulse contrib registration. ONE import line added upstream
++ *  (workbench.common.main.ts) — the 2-line rule (roadmap) holds.
++ *--------------------------------------------------------------------------------------------*/
++
++import { localize, localize2 } from 'vs/nls';
++import { Codicon } from 'vs/base/common/codicons';
++import { SyncDescriptor } from 'vs/platform/instantiation/common/descriptors';
++import { Registry } from 'vs/platform/registry/common/platform';
++import {
++	Extensions as ViewContainerExtensions,
++	IViewContainersRegistry,
++	ViewContainerLocation,
++	Extensions as ViewsExtensions,
++	IViewsRegistry,
++} from 'vs/workbench/common/views';
++import { ViewPaneContainer } from 'vs/workbench/browser/parts/views/viewPaneContainer';
++import { registerAction2, Action2 } from 'vs/platform/actions/common/actions';
++import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
++import { IViewsService } from 'vs/workbench/services/views/common/viewsService';
++import { PulseChatViewPane, PULSE_CHAT_VIEW_ID } from './pulseChatView.js';
++
++const PULSE_CONTAINER_ID = 'pulse';
++
++// 1) The Activity-bar container (single-view container, merges header).
++const container = Registry.as<IViewContainersRegistry>(
++	ViewContainerExtensions.ViewContainersRegistry
++).registerViewContainer(
++	{
++		id: PULSE_CONTAINER_ID,
++		title: localize2('pulse.viewContainer.title', 'Pulse'),
++		icon: Codicon.pulse,
++		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [
++			PULSE_CONTAINER_ID,
++			{ mergeViewWithContainerWhenSingleView: true },
++		]),
++	},
++	ViewContainerLocation.Sidebar
++);
++
++// 2) The chat view inside it.
++Registry.as<IViewsRegistry>(ViewsExtensions.ViewsRegistry).registerViews(
++	[
++		{
++			id: PULSE_CHAT_VIEW_ID,
++			name: localize('pulse.chatView.name', 'Pulse Agent'),
++			containerIcon: Codicon.pulse,
++			canToggleVisibility: true,
++			canMoveView: false,
++			ctorDescriptor: new SyncDescriptor(PulseChatViewPane),
++		},
++	],
++	container
++);
++
++// 3) Command: focus the Pulse view (palette + keybinding hookup upstream
++//    stays untouched — commands surface via the palette automatically).
++registerAction2(
++	class OpenPulseViewAction extends Action2 {
++		constructor() {
++			super({
++				id: 'pulse.focusChat',
++				title: localize2('pulse.focusChat.title', 'Pulse: Focus Agent Chat'),
++				f1: true,
++			});
++		}
++		run(accessor: ServicesAccessor): Promise<void> {
++			return accessor
++				.get(IViewsService)
++				.openView(PULSE_CHAT_VIEW_ID, true)
++				.then(() => undefined);
++		}
++	}
++);
+diff --git a/src/vs/workbench/contrib/pulse/browser/pulseChatView.ts b/src/vs/workbench/contrib/pulse/browser/pulseChatView.ts
+new file mode 100644
+index 00000000..ec3f30cc
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/browser/pulseChatView.ts
+@@ -0,0 +1,92 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) PulseCode. Licensed under the MIT License.
++ *  P2 M1 — the chat view skeleton: message list + input. Engine events
++ *  arrive later via PulseEngineService (electron-browser). Layout and
++ *  dock zones follow the Kilo UX study (docs/P2-kilocode-ux-analysis.md):
++ *  header / timeline / messages / dock (permissions+questions+revert)
++ *  / prompt. For M1 the dock renders nothing — zones are placeholders
++ *  so M2-M4 fill slots, not redesign.
++ *--------------------------------------------------------------------------------------------*/
++
++import * as DOM from 'vs/base/browser/dom';
++import { localize } from 'vs/nls';
++import { IViewPaneOptions, ViewPane } from 'vs/workbench/browser/parts/views/viewPane';
++import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
++import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
++import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
++import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
++import { IViewDescriptorService } from 'vs/workbench/common/views';
++import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
++import { IOpenerService } from 'vs/platform/opener/common/opener';
++import { IThemeService } from 'vs/platform/theme/common/themeService';
++import { IHoverService } from 'vs/platform/hover/browser/hover';
++
++export const PULSE_CHAT_VIEW_ID = 'pulse.chatView';
++
++export class PulseChatViewPane extends ViewPane {
++	static readonly ID = PULSE_CHAT_VIEW_ID;
++
++	private listEl!: HTMLElement;
++	private promptEl!: HTMLTextAreaElement;
++	private statusEl!: HTMLElement;
++
++	constructor(
++		options: IViewPaneOptions,
++		@IKeybindingService keybindingService: IKeybindingService,
++		@IContextMenuService contextMenuService: IContextMenuService,
++		@IConfigurationService configurationService: IConfigurationService,
++		@IContextKeyService contextKeyService: IContextKeyService,
++		@IViewDescriptorService viewDescriptorService: IViewDescriptorService,
++		@IInstantiationService instantiationService: IInstantiationService,
++		@IOpenerService openerService: IOpenerService,
++		@IThemeService themeService: IThemeService,
++		@IHoverService hoverService: IHoverService,
++	) {
++		super(
++			options, keybindingService, contextMenuService, configurationService,
++			contextKeyService, viewDescriptorService, instantiationService,
++			openerService, themeService, hoverService,
++		);
++	}
++
++	protected override renderBody(container: HTMLElement): void {
++		super.renderBody(container);
++		const root = DOM.append(container, DOM.$('.pulse-chat'));
++
++		// Header (M3 slots: budget bar + usage card live here later).
++		const header = DOM.append(root, DOM.$('.pulse-header'));
++		this.statusEl = DOM.append(header, DOM.$('.pulse-status'));
++		this.statusEl.textContent = localize('pulse.status.offline', 'engine: not started');
++
++		// Message list (M1: chat round-trip renders here).
++		this.listEl = DOM.append(root, DOM.$('.pulse-message-list'));
++
++		// Dock zone (M2 permission dock / question dock, M4 revert banner —
++		//   the Kilo study's pinned-above-input rule; M1 keeps it empty).
++		DOM.append(root, DOM.$('.pulse-dock'));
++
++		// Prompt row.
++		const promptRow = DOM.append(root, DOM.$('.pulse-prompt-row'));
++		this.promptEl = DOM.append(promptRow, DOM.$('textarea.pulse-prompt'));
++		this.promptEl.placeholder = localize('pulse.prompt.placeholder', 'Ask Pulse to build, fix, or explain…');
++		this.promptEl.rows = 3;
++		this.promptEl.disabled = true; // enabled when the engine connects (M1 wiring)
++		this.promptEl.title = localize('pulse.prompt.disabled', 'Engine not connected yet — M1 wiring lands with PulseEngineService');
++	}
++
++	protected override layoutBody(height: number, width: number): void {
++		super.layoutBody(height, width);
++		this.listEl.style.height = `${Math.max(0, height - 140)}px`;
++	}
++
++	/** M1 hook: engine service feeds frames here when wired. */
++	appendMessage(role: 'user' | 'assistant' | 'tool', text: string): void {
++		const row = DOM.append(this.listEl, DOM.$(`.pulse-msg.pulse-msg-${role}`));
++		row.textContent = text;
++		row.scrollIntoView({ block: 'end' });
++	}
++
++	setStatus(text: string): void {
++		this.statusEl.textContent = text;
++	}
++}
+diff --git a/src/vs/workbench/contrib/pulse/common/protocol.ts b/src/vs/workbench/contrib/pulse/common/protocol.ts
+new file mode 100644
+index 00000000..bb720622
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/common/protocol.ts
+@@ -0,0 +1,58 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) PulseCode. Licensed under the MIT License.
++ *  P2 M1 — Bridge protocol v1 (FROZEN, docs/P2-roadmap.md Phase 0.4).
++ *  Mirror of PulseAIRepo:src/bridge/protocol.py — keep the two in sync
++ *  by hand; any change is a roadmap amendment, not an edit.
++ *--------------------------------------------------------------------------------------------*/
++
++export const PULSE_PROTOCOL_VERSION = 1;
++
++export type PulseClientMethod = 'hello' | 'prompt' | 'safety_reply' | 'shutdown';
++
++export type PulseServerEvent =
++	| 'hello' | 'token' | 'tool_call_start' | 'tool_call_end'
++	| 'safety_request' | 'telemetry' | 'turn_done'
++	| 'checkpoint_event' | 'echo' | 'error';
++
++export interface PulseHello {
++	readonly type: 'hello';
++	readonly protocol: number;
++	readonly engine?: 'pulseai';
++	readonly engine_version?: string;
++}
++
++export interface PulsePrompt {
++	readonly type: 'prompt';
++	readonly text: string;
++	readonly workspace: string;
++	readonly thread_id: string;
++}
++
++export interface PulseSafetyReply {
++	readonly type: 'safety_reply';
++	readonly request_id: string;
++	readonly approved: boolean;
++}
++
++export interface PulseFrame {
++	readonly type: string;
++	readonly [key: string]: unknown;
++}
++
++export interface PulseTurnDone {
++	readonly type: 'turn_done';
++	readonly thread_id: string;
++	/** Honest Phase-0 flag: true while the engine streaming wiring has
++	 *  not landed yet — the UI must badge stub turns, not present them
++	 *  as engine output. */
++	readonly stub?: boolean;
++	readonly message?: string;
++}
++
++export function isPulseServerEvent(value: unknown): value is PulseServerEvent {
++	return typeof value === 'string' && [
++		'hello', 'token', 'tool_call_start', 'tool_call_end',
++		'safety_request', 'telemetry', 'turn_done',
++		'checkpoint_event', 'echo', 'error',
++	].includes(value);
++}
+diff --git a/src/vs/workbench/contrib/pulse/common/pulseEngineService.ts b/src/vs/workbench/contrib/pulse/common/pulseEngineService.ts
+new file mode 100644
+index 00000000..6b3294e4
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/common/pulseEngineService.ts
+@@ -0,0 +1,32 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) PulseCode. Licensed under the MIT License.
++ *  P2 M1 — the engine service INTERFACE (common layer). The spawn lives
++ *  on the node side; both sides speak bridge protocol v1.
++ *--------------------------------------------------------------------------------------------*/
++
++import { Event } from 'vs/base/common/event';
++import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
++import { PulseFrame } from './protocol.js';
++
++export const IPulseEngineService = createDecorator<IPulseEngineService>('pulseEngineService');
++
++export type PulseEngineState = 'stopped' | 'starting' | 'ready' | 'crashed';
++
++export interface IPulseEngineService {
++	readonly _serviceBrand: undefined;
++
++	/** Fires whenever the engine process changes state. */
++	readonly onDidChangeState: Event<PulseEngineState>;
++	/** Fires for every decoded bridge frame from the engine. */
++	readonly onFrame: Event<PulseFrame>;
++
++	readonly state: PulseEngineState;
++
++	/** Spawn `python -m src.bridge` in the given workspace and run the
++	 *  hello handshake. Rejects on protocol mismatch. */
++	start(workspace: string): Promise<void>;
++	/** Send one client frame (prompt / safety_reply / shutdown). */
++	send(frame: PulseFrame): void;
++	/** Graceful shutdown (sends `shutdown`, then kills after grace). */
++	stop(): Promise<void>;
++}
+diff --git a/src/vs/workbench/contrib/pulse/electron-browser/pulseEngineServiceImpl.ts b/src/vs/workbench/contrib/pulse/electron-browser/pulseEngineServiceImpl.ts
+new file mode 100644
+index 00000000..dd4a4417
+--- /dev/null
++++ b/src/vs/workbench/contrib/pulse/electron-browser/pulseEngineServiceImpl.ts
+@@ -0,0 +1,121 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) PulseCode. Licensed under the MIT License.
++ *  P2 M1 — engine service, node-side implementation SKELETON.
++ *
++ *  Integration note (fixed by the roadmap's 2-line rule): the frame
++ *  transport is an injectable seam (`IPulseTransport`) so the process
++ *  attachment lands exactly once at M1 wiring — as a node-side channel
++ *  (same pattern the terminal's pty host uses via
++ *  src/vs/platform/terminal/node). Until then the service runs a
++ *  LoopbackTransport so the view is demoable end-to-end without an
++ *  engine process. No upstream files are edited.
++ *--------------------------------------------------------------------------------------------*/
++
++import { Emitter } from 'vs/base/common/event';
++import { Disposable } from 'vs/base/common/lifecycle';
++import {
++	IPulseEngineService,
++	PulseEngineState,
++} from '../common/pulseEngineService.js';
++import {
++	PULSE_PROTOCOL_VERSION,
++	PulseFrame,
++} from '../common/protocol.js';
++
++/** One decoded-frame transport under the service (stdio of the spawned
++ *  bridge; the loopback below implements it for the skeleton). */
++export interface IPulseTransport {
++	write(frame: PulseFrame): void;
++	onFrame(cb: (frame: PulseFrame) => void): void;
++	onExit(cb: (code: number | null) => void): void;
++	dispose(): void;
++}
++
++/** Demo-only transport: answers hello from itself, echoes turn_done with
++ *  the honest stub flag. Lets M1 build the full UI loop with zero
++ *  engine; swapped for the real stdio transport at M1 wiring. */
++export class LoopbackTransport implements IPulseTransport {
++	private frameCb: (frame: PulseFrame) => void = () => undefined;
++	private exitCb: (code: number | null) => void = () => undefined;
++
++	write(frame: PulseFrame): void {
++		if (frame['type'] === 'hello') {
++			this.frameCb({ type: 'hello', protocol: PULSE_PROTOCOL_VERSION, engine: 'pulseai', engine_version: 'loopback-skeleton' });
++		} else if (frame['type'] === 'prompt') {
++			this.frameCb({ type: 'turn_done', stub: true, thread_id: frame['thread_id'] ?? '', message: 'loopback transport — stdio engine wiring lands at M1' });
++		} else if (frame['type'] === 'shutdown') {
++			this.exitCb(0);
++		}
++	}
++	onFrame(cb: (frame: PulseFrame) => void): void { this.frameCb = cb; }
++	onExit(cb: (code: number | null) => void): void { this.exitCb = cb; }
++	dispose(): void { /* nothing held */ }
++}
++
++export class PulseEngineService extends Disposable implements IPulseEngineService {
++	readonly _serviceBrand: undefined;
++
++	private readonly _onDidChangeState = this._register(new Emitter<PulseEngineState>());
++	readonly onDidChangeState = this._onDidChangeState.event;
++	private readonly _onFrame = this._register(new Emitter<PulseFrame>());
++	readonly onFrame = this._onFrame.event;
++
++	private _state: PulseEngineState = 'stopped';
++	get state(): PulseEngineState { return this._state; }
++
++	private transport: IPulseTransport | undefined;
++
++	constructor(private readonly transportFactory: () => IPulseTransport = () => new LoopbackTransport()) {
++		super();
++	}
++
++	async start(_workspace: string): Promise<void> {
++		if (this._state !== 'stopped' && this._state !== 'crashed') {
++			return;
++		}
++		this.setState('starting');
++		this.transport = this.transportFactory();
++		this.transport.onFrame(f => this.handleFrame(f));
++		this.transport.onExit(() => {
++			if (this._state !== 'stopped') {
++				this.setState('crashed');
++			}
++		});
++		this.transport.write({ type: 'hello', protocol: PULSE_PROTOCOL_VERSION });
++		// The hello reply flips us to 'ready' in handleFrame — with a
++		// mismatch guard: the frame must carry our protocol version.
++	}
++
++	send(frame: PulseFrame): void {
++		if (this._state !== 'ready') {
++			throw new Error(`PulseEngineService: cannot send while ${this._state}`);
++		}
++		this.transport?.write(frame);
++	}
++
++	async stop(): Promise<void> {
++		try {
++			this.transport?.write({ type: 'shutdown' });
++		} finally {
++			this.transport?.dispose();
++			this.transport = undefined;
++			this.setState('stopped');
++		}
++	}
++
++	private handleFrame(frame: PulseFrame): void {
++		if (frame['type'] === 'hello') {
++			if (frame['protocol'] !== PULSE_PROTOCOL_VERSION) {
++				this.setState('crashed');
++				return;
++			}
++			this.setState('ready');
++		}
++		this._onFrame.fire(frame);
++	}
++
++	private setState(state: PulseEngineState): void {
++		this._state = state;
++		this._onDidChangeState.fire(state);
++	}
++}
+diff --git a/src/vs/workbench/workbench.common.main.ts b/src/vs/workbench/workbench.common.main.ts
+index 7df36a50..7181df6e 100644
+--- a/src/vs/workbench/workbench.common.main.ts
++++ b/src/vs/workbench/workbench.common.main.ts
+@@ -240,6 +240,9 @@ import './contrib/mcp/browser/mcp.contribution.js';
+ import './contrib/mcp/browser/mcp.view.contribution.js';
+ import './contrib/chat/browser/chatSessions/chatSessions.contribution.js';
+ import './contrib/chat/browser/contextContrib/chatContext.contribution.js';
++
++// PulseAI (P2 — contrib/pulse; the roadmap's 2-line rule, line 2 of 2)
++import './contrib/pulse/browser/pulse.contribution.js';
+ import './contrib/imageCarousel/browser/imageCarousel.contribution.js';
+ 
+ // Interactive
+-- 
+2.47.3
+

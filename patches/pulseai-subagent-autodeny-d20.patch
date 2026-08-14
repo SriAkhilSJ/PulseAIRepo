@@ -1,0 +1,341 @@
+From 4c5a4b4890d247e4f9a44dab87791e0f1aeeaac2 Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 10:18:44 +0000
+Subject: [PATCH] feat(graph): sub-agent safety auto-deny (D20, hermes steal
+ #4) -- sub- threads get denial ToolMessages (partial execution for mixed
+ batches, original tool_call order, audit logging) instead of approval prompts
+ addressed to a reader who does not exist; interactive checkpoint unchanged;
+ PULSEAI_SUBAGENT_AUTO_APPROVE=1 opt-in hatch; +7 pins, 241 green
+
+---
+ ARCHITECTURE_REVIEW.md              |  48 +++++++++
+ src/graphs/chat_graph.py            |  84 +++++++++++++++-
+ src/tests/test_subagent_autodeny.py | 148 ++++++++++++++++++++++++++++
+ 3 files changed, 279 insertions(+), 1 deletion(-)
+ create mode 100644 src/tests/test_subagent_autodeny.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index f090090a..2f5040b3 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1254,3 +1254,51 @@ placement-canonical split. Suite: 234 green (128s).
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ — remaining: D9, D10, D13, D14, D15-remainder,
+ D20, D21, D22, D23 (volatile-layers-after-history, from §32), C1, P2.
++
++## 33. D20 — sub-agent safety auto-deny (2026-08-07)
++
++Fourth hermes steal (§29 step #4). Baseline proven first: a `sub-` thread
++hitting a dangerous command received the IDENTICAL "please confirm"
++AIMessage as an interactive thread — a prompt addressed to a reader who
++does not exist (dead-end loop fuel, recursion-cap crash fodder for D7).
++Adopted their delegate_tool.py:63-91 policy for our single choke point:
++SafeToolNode now branches on thread prefix. Interactive: unchanged human
++checkpoint. Sub-agent: unsafe calls become denial ToolMessages
++(status=error, exact ids) telling the model to NOT retry and to report
++the step as needing the human; safe calls in the SAME batch still execute
++(partial execution — the old all-or-nothing block was itself a waste);
++merged results preserve the model's original tool_call order (§28 pairing
++invariants). Both paths audit-log (their logger.warning rule); opt-in
++escape hatch PULSEAI_SUBAGENT_AUTO_APPROVE=1 = their subagent_auto_approve
++for batch/cron, also logged, ignored by interactive threads (pinned).
++
++Consistency note: execute_code's inner guard (D18) already auto-denies
++inside scripts — sub-authors now meet the same policy at both layers.
++
++Testing archaeology (ledger honesty): the first test draft called
++tool_node bare and died `Missing required config key 'N/A' for 'tools'` —
++the §27 bare-ToolNode trap, stepped into AGAIN despite knowing it. Pin
++fixture now goes through a compiled mini-graph (crash-net pattern) and a
++repro probe re-verified the runtime-key flow: ToolNode._func(input,
++config, runtime: Runtime) resolves runtime from config's runtime key,
++which langgraph injects for ANY node position and forwards fine through
++the opaque SafeToolNode wrapper.
++
++Pins: src/tests/test_subagent_autodeny.py 7/7 — interactive prompt
++unchanged (file intact), denial ToolMessage contract (id pairing, error
++status, guidance text, command never executed, audit log), mixed batch
++partial execution with original order preserved incl. middle-slot denial,
++all-safe normal run, unsafe-only batch, escape hatch executes + logs,
++flag-ignored-for-mains. Suite: 241 green (124s).
++
++Workspace-durability log: two more mid-round rollbacks (3rd, 4th today;
++same partial-snapshot signature) plus a NEW hazard — GitHub IP rate-limit
++(403 on clone). Recovery playbook now: codeload tarball (different host,
++not rate-limited) + git am of shipped patches + --skip on already-applied
++(the founder had meanwhile pushed D18; skip-flow handled it exactly as
++designed). RULE LEARNED the expensive way: never rm the broken tree
++before confirming network; tarball-then-replace is the order.
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ — remaining: D9, D10, D13, D14,
++D15-remainder, D21, D22, D23, C1, P2.
+diff --git a/src/graphs/chat_graph.py b/src/graphs/chat_graph.py
+index a332fd83..b35d33b8 100644
+--- a/src/graphs/chat_graph.py
++++ b/src/graphs/chat_graph.py
+@@ -1489,6 +1489,19 @@ from src.context.safety_guard import SafetyGuard
+ class SafeToolNode:
+     """
+     Wrapper around ToolNode that checks safety before executing.
++
++    Interactive threads (human reading): an unsafe call returns an
++    approval-question AIMessage and nothing executes.
++
++    Sub-agent threads (``sub-`` prefix, no human reading): that prompt is
++    a dead end — verified pre-fix that sub-agents got the identical "please
++    confirm" message as mains, facing a reader who does not exist. D20
++    adopts hermes' delegate_tool.py policy: non-interactive AUTO-DENY.
++    Unsafe calls become denial ToolMessages (model adapts in one turn
++    instead of looping to the recursion cap), safe calls in the same batch
++    still execute, and every denial is audit-logged. Opt-in escape hatch
++    for batch/cron-style runs: PULSEAI_SUBAGENT_AUTO_APPROVE=1 (their
++    ``subagent_auto_approve`` config), also audit-logged.
+     """
+     def __init__(self, tools, safety_guard: SafetyGuard):
+         # handle_tool_errors=True — the crash net, decided by experiment
+@@ -1521,10 +1534,12 @@ class SafeToolNode:
+         if not tool_calls:
+             return self._node.invoke(state, config)
+ 
+-        # Get workspace from config
++        # Get workspace + thread from config
+         workspace = "."
++        thread_id = ""
+         if config and "configurable" in config:
+             workspace = config["configurable"].get("workspace", ".")
++            thread_id = str(config["configurable"].get("thread_id", ""))
+ 
+         from pathlib import Path
+         ws_key = str(Path(workspace).resolve())
+@@ -1533,6 +1548,73 @@ class SafeToolNode:
+             guard = SafetyGuard(workspace)
+             self._guards_by_workspace[ws_key] = guard
+ 
++        # --- D20: sub-agent threads auto-deny instead of prompting -------
++        if thread_id.startswith("sub-") and os.environ.get(
++            "PULSEAI_SUBAGENT_AUTO_APPROVE", ""
++        ).strip() != "1":
++            verdicts = [
++                (tc, *guard.check_tool_call(tc.get("name", ""), tc.get("args", {})))
++                for tc in tool_calls
++            ]
++            unsafe = [v for v in verdicts if not v[1]]
++            if not unsafe:
++                return self._node.invoke(state, config)
++
++            import logging
++            log = logging.getLogger("pulseai.safety")
++            denials: dict[str, ToolMessage] = {}
++            for tc, _, warning in unsafe:
++                first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
++                denials[tc["id"]] = ToolMessage(
++                    content=(
++                        f"⛔ AUTO-DENIED (sub-agent safety policy): "
++                        f"`{tc.get('name', '')}` was blocked. {first_line}\n"
++                        "Sub-agents cannot ask the human for approval, so "
++                        "dangerous operations are denied immediately. Do not "
++                        "retry this operation; either accomplish the task a "
++                        "safe way, or finish and report that this step needs "
++                        "the human to run it directly in the main session."
++                    ),
++                    tool_call_id=tc["id"],
++                    name=tc.get("name", ""),
++                    status="error",
++                )
++                log.warning(
++                    "sub-agent %s AUTO-DENIED %s args=%s",
++                    thread_id, tc.get("name", ""), str(tc.get("args", {}))[:160],
++                )
++
++            safe_tcs = [tc for tc, ok, _ in verdicts if ok]
++            results: dict[str, ToolMessage] = dict(denials)
++            if safe_tcs:
++                filtered_ai = AIMessage(
++                    content=last_msg.content,
++                    tool_calls=safe_tcs,
++                    id=getattr(last_msg, "id", None),
++                )
++                filtered_state = dict(state)
++                filtered_state["messages"] = messages[:-1] + [filtered_ai]
++                executed = self._node.invoke(filtered_state, config)
++                for m in executed.get("messages", []):
++                    if isinstance(m, ToolMessage):
++                        results[m.tool_call_id] = m
++
++            # Return ToolMessages in the model's original tool_call order:
++            # pairing/order invariants (see §28 crash-net round) must hold
++            # regardless of which batch members were denied.
++            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
++            return {"messages": ordered}
++
++        if thread_id.startswith("sub-"):
++            import logging
++            logging.getLogger("pulseai.safety").warning(
++                "sub-agent %s AUTO-APPROVED %d tool call(s) unchecked "
++                "(PULSEAI_SUBAGENT_AUTO_APPROVE=1): %s",
++                thread_id, len(tool_calls),
++                [tc.get("name", "") for tc in tool_calls],
++            )
++            return self._node.invoke(state, config)
++
+         for tc in tool_calls:
+             tool_name = tc.get("name", "")
+             tool_args = tc.get("args", {})
+diff --git a/src/tests/test_subagent_autodeny.py b/src/tests/test_subagent_autodeny.py
+new file mode 100644
+index 00000000..8dbd6139
+--- /dev/null
++++ b/src/tests/test_subagent_autodeny.py
+@@ -0,0 +1,148 @@
++"""Pins for D20: sub-agent safety auto-deny (hermes delegate_tool.py:63-91).
++
++Baseline proven before building: a sub-thread hitting a dangerous command
++received the IDENTICAL "please confirm" AIMessage as an interactive
++thread — a prompt addressed to a reader who does not exist (dead end ->
++looped turns -> possible recursion-cap crash caught by D7's net).
++
++D20 contract:
++- interactive threads: UNCHANGED (approval prompt, nothing executes)
++- sub threads: unsafe calls -> denial ToolMessages (status=error, ids
++  paired, original tool_call order preserved); safe calls in the same
++  batch STILL EXECUTE; every denial is audit-logged
++- opt-in escape hatch: PULSEAI_SUBAGENT_AUTO_APPROVE=1 (batch/cron YOLO,
++  hermes' subagent_auto_approve), also audit-logged
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++
++import pytest
++from langchain_core.messages import AIMessage, ToolMessage
++from langgraph.graph import END, START, MessagesState, StateGraph
++
++from src.graphs.chat_graph import tool_node
++
++
++def _invoke(state, cfg):
++    """Reach the node the production way only: bare ToolNode.invoke dies
++    on runtime config keys outside a compiled graph (learned in §27, same
++    fixture as the crash-net pins)."""
++    g = StateGraph(MessagesState)
++    g.add_node("tools", tool_node)
++    g.add_edge(START, "tools")
++    g.add_edge("tools", END)
++    out = g.compile().invoke(state, config=cfg)
++    # add_messages reducer: response = original + appended tail
++    return {"messages": out["messages"][len(state["messages"]):]}
++
++
++@pytest.fixture()
++def ws(tmp_path):
++    (tmp_path / "keep").mkdir()
++    (tmp_path / "keep" / "precious.txt").write_text("do not delete")
++    (tmp_path / "data.txt").write_text("line one\nline two\n")
++    return tmp_path
++
++
++def _cfg(ws, tid):
++    return {"configurable": {"workspace": str(ws), "thread_id": tid,
++                             "provider": "x", "model": "y"}}
++
++
++def _state(*tool_calls):
++    calls = []
++    for i, (name, args) in enumerate(tool_calls):
++        calls.append({"name": name, "args": args, "id": f"tc{i}", "type": "tool_call"})
++    return {"messages": [AIMessage(content="", tool_calls=calls)]}
++
++
++# ------------------------------------------------ interactive: unchanged
++def test_main_thread_still_prompts_human(ws):
++    out = _invoke(_state(("run_terminal", {"command": "rm -rf keep"})), _cfg(ws, "main-1"))
++    msg = out["messages"][0]
++    assert isinstance(msg, AIMessage) and not isinstance(msg, ToolMessage)
++    assert "confirmation" in msg.content
++    assert (ws / "keep" / "precious.txt").read_text() == "do not delete"
++
++
++# ------------------------------------------------------ sub-agents: deny
++def test_subagent_denial_is_toolmessage_not_prompt(ws, caplog):
++    with caplog.at_level(logging.WARNING, logger="pulseai.safety"):
++        out = _invoke(_state(("run_terminal", {"command": "rm -rf keep"})), _cfg(ws, "sub-w-7"))
++    msg = out["messages"][0]
++    assert isinstance(msg, ToolMessage)
++    assert msg.tool_call_id == "tc0" and msg.status == "error"
++    assert "AUTO-DENIED" in msg.content
++    assert "Do not retry" in msg.content
++    assert "main session" in msg.content          # guidance, not a dead end
++    assert (ws / "keep" / "precious.txt").read_text() == "do not delete"
++    assert any("AUTO-DENIED" in r.message and "run_terminal" in r.message
++               for r in caplog.records)           # hermes: both paths audit-log
++
++
++def test_subagent_mixed_batch_partial_execution_order_preserved(ws):
++    out = _invoke(
++        _state(
++            ("read_file", {"path": "data.txt"}),
++            ("run_terminal", {"command": "rm -rf keep"}),
++            ("list_files", {"path": "."}),
++        ),
++        _cfg(ws, "sub-w-7"),
++    )
++    msgs = out["messages"]
++    assert len(msgs) == 3 and all(isinstance(m, ToolMessage) for m in msgs)
++    # Original tool_call order + exact id pairing, denial in the middle.
++    assert [m.tool_call_id for m in msgs] == ["tc0", "tc1", "tc2"]
++    assert "line one" in msgs[0].content          # safe call #1 really ran
++    assert "AUTO-DENIED" in msgs[1].content       # denial kept its slot
++    assert "data.txt" in msgs[2].content          # safe call #2 really ran
++    assert (ws / "keep" / "precious.txt").exists()
++
++
++def test_subagent_all_safe_calls_execute_normally(ws):
++    out = _invoke(
++        _state(("read_file", {"path": "data.txt"}), ("list_files", {"path": "."})),
++        _cfg(ws, "sub-w-7"),
++    )
++    msgs = out["messages"]
++    assert len(msgs) == 2
++    assert "line one" in msgs[0].content
++    assert all("AUTO-DENIED" not in m.content for m in msgs)
++
++
++def test_subagent_unsafe_only_batch_never_prompts(ws):
++    out = _invoke(
++        _state(
++            ("run_terminal", {"command": "rm -rf keep"}),
++            ("write_file", {"path": "data.txt", "content": "overwrite"}),
++        ),
++        _cfg(ws, "sub-w-7"),
++    )
++    msgs = out["messages"]
++    assert len(msgs) == 2 and all(isinstance(m, ToolMessage) for m in msgs)
++    assert all("AUTO-DENIED" in m.content for m in msgs)
++    assert ws.joinpath("data.txt").read_text() == "line one\nline two\n"  # overwrite denied
++
++
++def test_auto_approve_escape_hatch(ws, monkeypatch, caplog):
++    monkeypatch.setenv("PULSEAI_SUBAGENT_AUTO_APPROVE", "1")
++    with caplog.at_level(logging.WARNING, logger="pulseai.safety"):
++        out = _invoke(_state(("run_terminal", {"command": "echo approved > ok.txt"})),
++                        _cfg(ws, "sub-cron-3"))
++    msg = out["messages"][0]
++    assert isinstance(msg, ToolMessage)
++    assert "AUTO-DENIED" not in msg.content
++    assert (ws / "ok.txt").exists()               # really executed
++    assert any("AUTO-APPROVED" in r.message for r in caplog.records)
++
++
++def test_env_default_off_and_main_unaffected_by_flag(ws, monkeypatch):
++    # Flag set but thread is interactive: main path ignores it entirely.
++    monkeypatch.setenv("PULSEAI_SUBAGENT_AUTO_APPROVE", "1")
++    out = _invoke(_state(("run_terminal", {"command": "rm -rf keep"})), _cfg(ws, "main-1"))
++    assert isinstance(out["messages"][0], AIMessage)  # still the human prompt
++    assert (ws / "keep" / "precious.txt").exists()
++    monkeypatch.delenv("PULSEAI_SUBAGENT_AUTO_APPROVE")
+-- 
+2.47.3
+

@@ -1,0 +1,756 @@
+From 14660dc8f7856f1c773cc9308ea71d4d5d2110fb Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 11:04:17 +0000
+Subject: [PATCH] feat(context): compaction hardening pack (D22, hermes steal
+ #6) -- prune-first placeholders w/ absolute head(turn)+tail(20K) protection,
+ structural stage quarantined to expendable middle, iterative aux-model
+ running summary (D21 client, REFERENCE-ONLY prefix, plain-append degrade),
+ anti-thrash suppression, telemetry; request-only copies so checkpoint store
+ can never be polluted (their #43175 class); PULSEAI_COMPACTION=off
+ kill-switch; +13 pins, 262 green
+
+---
+ ARCHITECTURE_REVIEW.md        |  60 +++++++
+ src/context/compaction.py     | 316 ++++++++++++++++++++++++++++++++++
+ src/context/context_engine.py |  56 +++++-
+ src/tests/test_compaction.py  | 256 +++++++++++++++++++++++++++
+ 4 files changed, 686 insertions(+), 2 deletions(-)
+ create mode 100644 src/context/compaction.py
+ create mode 100644 src/tests/test_compaction.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 095626e..94a71a1 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1349,3 +1349,63 @@ rate-limit; content-identical, remote re-added, patches unaffected.
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ — remaining: D9, D10, D13, D14,
+ D15-remainder, D22, D23, C1, P2.
++
++## 35. D22 — compaction hardening pack (2026-08-07)
++
++Sixth and final hermes steal (§29 step #6) — all four pack patterns
++(context_compressor.py receipts re-verified this session):
++
++1. PRUNE-FIRST (their :399 placeholder, verbatim marker text): old tool
++   outputs in the unprotected middle are replaced with
++   "[Old tool output cleared to save context space]" before ANY structural
++   dropping is considered. Zero LLM. The structural stage (existing
++   turn-atomic SmartCompressor) now fires only when pruned+per-tool-
++   summarized history STILL overflows — hermes' two-trigger model.
++2. ABSOLUTE protection: head (first complete turn, protocol-pair-safe)
++   and tail (newest ~20K tokens, pair-boundary-safe) are never handed to
++   the structural stage at all; it compresses only the expendable middle
++   with budget-minus-reserved. Protection is structural, not scoring luck.
++3. ITERATIVE summary (their #5): whatever the middle drops is folded into
++   a running per-session summary by the AUX client (D21) — each round
++   extends the previous summary (extend-not-rebuild pin: second call's
++   prompt contains the first summary). Injected as a SystemMessage right
++   after the head with their anti-confusion REFERENCE-ONLY prefix
++   (trimmed). Aux failure degrades to bounded plain-append (<=3000 chars)
++   — compaction degrades, never breaks.
++4. ANTI-THRASH telemetry: per-session counters (compaction_stats());
++   a compaction reclaiming <15% counts ineffective; 3 in a row suppress
++   the LLM summary step for 10 rounds (pruning continues).
++
++CRITICAL structural advantage over hermes, in our favor: all of this runs
++on the REQUEST-ONLY history copy in build_ai_messages — the checkpoint
++store is never mutated. Their store-pollution bug (#43175, which forced
++discovery-time summary filtering) cannot occur here; pinned by the
++state-contents-unchanged test. Markers deliberately match D16's
++ingest-skip prefixes anyway (belt and suspenders, also pinned).
++Kill-switch: PULSEAI_COMPACTION=off restores the legacy pipeline.
++
++Development note (ledger honesty): two rounds of test-fixture bugs were
++mine (fat heads + BPE-compressible dump text masking middles; a leftover
++sketch line). The final fixture suite sets budgets by MEASURED token
++counts so tokenizer mood can't flake them. The real-product behavior was
++correct from the first build — the 6 red tests were the fixtures lying.
++
++Pins: src/tests/test_compaction.py 13/13 — prune middle-only + source
++immutability + pairing preserved, short-output/small-history no-ops,
++tail pair boundary, prune-fits skips structural (spy), fast path zero-work,
++head+tail absent from structural input (spy-captured), dropped-turns
++summary placement + prefix, iterative extend, aux-failure bounded append,
++anti-thrash freeze, marker/index-prefix consistency, env kill-switch,
++engine non-mutation + wiring. Suite: 262 green (10s).
++
++Workspace ops interlude (founder-directed): desktop/ (54MB/6,988 files —
++the Electron shell) excluded from the sandbox checkout via
++sparse-checkout + tarball excludes; sandbox footprint 55MB -> 3.3MB.
++Upstream repo UNTOUCHED (desktop/ = future P2 home; deletion upstream is
++a product decision, not a maintenance one). Rollback #6 struck during
++the chore; recovered via the ritual; sparse guard re-applied and is now
++part of the standard rebuild order.
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ — remaining: D9, D10,
++D13, D14, D15-remainder, D23, C1, P2.
+diff --git a/src/context/compaction.py b/src/context/compaction.py
+new file mode 100644
+index 0000000..1cc99a5
+--- /dev/null
++++ b/src/context/compaction.py
+@@ -0,0 +1,316 @@
++"""
++compaction.py -- D22: the hermes compaction hardening pack for PulseAI
++=====================================================================
++
++Four patterns from NousResearch hermes-agent (§29, receipts re-verified
++against their context_compressor.py), fitted to OUR history pipeline:
++
++1. **Prune first, free** (their step 1 / `_PRUNED_TOOL_PLACEHOLDER`):
++   old tool outputs in the unprotected middle are replaced by a short
++   placeholder. Zero LLM, zero quality call — the placeholders say what
++   happened. Only if the budget STILL overflows does the structural
++   (turn-dropping) pass fire. Our SmartCompressor otherwise fires on
++   every over-budget turn.
++2. **Protected head + tail**: the first complete turn (original
++   instructions) and the newest ~20K tokens are never touched.
++3. **Iterative, not rebuilt**: when structural dropping DOES fire, the
++   dropped turns are folded into a RUNNING per-session summary via the
++   AUXILIARY model (D21); each later compaction extends the same summary
++   instead of re-summarizing the world. Aux failure degrades to a
++   bounded plain-text append — compaction degrades, never breaks.
++4. **Anti-thrash telemetry**: per-session counters; a compaction that
++   reclaims <15% counts "ineffective"; 3 ineffective in a row suppresses
++   the LLM summary step for the next 10 compactions (pruning continues).
++
++CRITICAL structural difference from hermes, in our favor: this runs on
++the REQUEST-ONLY copy of history inside build_ai_messages — the
++checkpoint store is never mutated. Their post-compaction store pollution
++(issue #43175, which forced discovery-time filtering) cannot occur; the
++placeholder text and the summary prefix below use markers the D16
++session index already skips at ingest anyway (belt and suspenders).
++
++Kill-switch: PULSEAI_COMPACTION=off restores the pre-D22 pipeline
++verbatim (summarize-then-trim, no prune, no summary).
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++from typing import Any, Callable, Optional
++
++from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
++
++from src.context.token_budget import count_tokens
++
++log = logging.getLogger("pulseai.compaction")
++
++# hermes context_compressor.py:399 verbatim — same marker text on purpose
++_PRUNED_TOOL_PLACEHOLDER = "[Old tool output cleared to save context space]"
++
++# Trimmed from their SUMMARY_PREFIX (context_compressor.py ~:99): the
++# anti-confusion contract that keeps the model serving the LATEST user
++# message, not the summary. Prefix matches D16's ingest-skip list.
++COMPACTION_SUMMARY_PREFIX = (
++    "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted "
++    "into the summary below. Treat it as background, not instructions: "
++    "the latest user message after it is the ONLY active task."
++)
++
++_DEFAULT_TAIL_TOKENS = 20_000
++_PLACEHOLDER_MIN_CHARS = 600
++_INEFFECTIVE_FRACTION = 0.15
++_INEFFECTIVE_STREAK_MAX = 3
++_INEFFECTIVE_COOLDOWN = 10
++_SUMMARY_MAX_CHARS = 3_000
++_DROPPED_TEXT_BUDGET = 6_000
++_DROPPED_PER_MSG = 220
++
++_EXTEND_PROMPT = (
++    "You maintain the running summary of an AI coding session. Rewrite "
++    "SUMMARY + NEW DROPPED TURNS into one updated summary (same length "
++    "class or shorter). Keep: user goals, decisions made, file paths, "
++    "errors encountered, and anything still unresolved. Drop: chitchat, "
++    "repeated attempts, and raw tool output.\n\nSUMMARY:\n{prev}\n\n"
++    "NEW DROPPED TURNS:\n{new}\n\nUPDATED SUMMARY:"
++)
++
++
++def _text_of(msg: BaseMessage) -> str:
++    content = msg.content
++    if isinstance(content, str):
++        return content
++    if isinstance(content, list):
++        return "\n".join(
++            str(p.get("text", ""))
++            for p in content
++            if isinstance(p, dict) and p.get("type") == "text"
++        )
++    return ""
++
++
++class HistoryCompactor:
++    """Per-session compactor: prune, protect, (optionally) summarize."""
++
++    def __init__(
++        self,
++        model: str | None,
++        aux_llm_getter: Optional[Callable[[], Any]] = None,
++        tail_tokens: int = _DEFAULT_TAIL_TOKENS,
++    ):
++        self._model = model
++        self._aux_llm_getter = aux_llm_getter
++        self._tail_tokens = tail_tokens
++        self._summary: str = ""
++        self.stats: dict[str, int] = {
++            "prunes": 0, "placeholders": 0, "placeholder_chars_reclaimed": 0,
++            "structural_compactions": 0, "llm_summary_calls": 0,
++            "llm_suppressed": 0, "ineffective_streak": 0,
++        }
++        self._suppress_llm_for = 0  # remaining compactions w/o LLM summary
++
++    # ---------------------------------------------------------- head/tail
++    def _head_len(self, history: list[BaseMessage]) -> int:
++        """First complete turn = protected head (their 'first exchange').
++        Protocol-safe: never sever an AI(tool_calls)/ToolMessage pair."""
++        from langchain_core.messages import HumanMessage
++
++        for i, msg in enumerate(history):
++            if isinstance(msg, HumanMessage):
++                # turn ends at the next HumanMessage (exclusive)
++                for j in range(i + 1, len(history)):
++                    if isinstance(history[j], HumanMessage):
++                        return j
++                return len(history)
++        return min(1, len(history))  # preamble-only history
++
++    def _tail_start(self, history: list[BaseMessage], head: int) -> int:
++        """Newest messages totaling ~tail_tokens are protected (walk back).
++        Never splits an AI(tool_calls,[id]) / ToolMessage(id) pair."""
++        total = 0
++        start = len(history)
++        for i in range(len(history) - 1, head - 1, -1):
++            msg_tokens = count_tokens([history[i]], self._model)
++            if total + msg_tokens > self._tail_tokens and start < len(history):
++                break
++            total += msg_tokens
++            start = i
++        # if a ToolMessage sits at the boundary, pull its answering
++        # AI(tool_calls) into the tail too (pairing invariant §28)
++        while start > head and start < len(history) and isinstance(history[start], ToolMessage):
++            start -= 1
++        return max(start, head)
++
++    # ---------------------------------------------------------------- prune
++    def prune(self, history: list[BaseMessage]) -> tuple[list[BaseMessage], int, int]:
++        """Replace long tool outputs in the UNPROTECTED middle with the
++        placeholder. Returns (new_messages, replacements, chars_reclaimed).
++        Source messages are never mutated (request-only copies)."""
++        if not history:
++            return [], 0, 0
++        head = self._head_len(history)
++        tail = self._tail_start(history, head)
++
++        out: list[BaseMessage] = list(history[:head]) + list(history[head:])
++        replaced = 0
++        reclaimed = 0
++        for i in range(head, tail):
++            msg = history[i]
++            if not isinstance(msg, ToolMessage):
++                continue
++            text = _text_of(msg)
++            if len(text) < _PLACEHOLDER_MIN_CHARS:
++                continue
++            out[i] = ToolMessage(
++                content=_PRUNED_TOOL_PLACEHOLDER,
++                name=getattr(msg, "name", ""),
++                tool_call_id=msg.tool_call_id,
++                id=getattr(msg, "id", None),
++            )
++            replaced += 1
++            reclaimed += len(text) - len(_PRUNED_TOOL_PLACEHOLDER)
++
++        self.stats["prunes"] += 1
++        self.stats["placeholders"] += replaced
++        self.stats["placeholder_chars_reclaimed"] += reclaimed
++        return out, replaced, reclaimed
++
++    # -------------------------------------------------------------- summary
++    def _dropped_text(self, dropped: list[BaseMessage]) -> str:
++        parts = []
++        total = 0
++        for msg in dropped:
++            role = type(msg).__name__.replace("Message", "")
++            body = " ".join(_text_of(msg).split())[:_DROPPED_PER_MSG]
++            if not body:
++                continue
++            line = f"{role}: {body}"
++            total += len(line)
++            if total > _DROPPED_TEXT_BUDGET:
++                break
++            parts.append(line)
++        return "\n".join(parts)
++
++    def _update_summary(self, dropped: list[BaseMessage]) -> None:
++        """Iterative extend (their pattern #5): prev summary + only the
++        newly dropped turns -> rolled summary. LLM via AUX client (D21);
++        degrades to bounded plain append; thrash suppression applies."""
++        new_text = self._dropped_text(dropped)
++        if not new_text:
++            return
++
++        use_llm = self._suppress_llm_for == 0
++        if use_llm and self._aux_llm_getter is not None:
++            try:
++                llm = self._aux_llm_getter()
++                prompt = _EXTEND_PROMPT.format(prev=self._summary or "(empty)", new=new_text)
++                response = llm.invoke(prompt)
++                text = getattr(response, "content", str(response))
++                self._summary = " ".join(str(text).split())[:_SUMMARY_MAX_CHARS]
++                self.stats["llm_summary_calls"] += 1
++                return
++            except Exception as error:
++                log.warning("compaction aux summary failed, plain-append: %s", error)
++
++        if not use_llm:
++            self.stats["llm_suppressed"] += 1
++            self._suppress_llm_for -= 1
++        merged = (self._summary + "\n" + new_text).strip()
++        # bounded plain append: prefer recency, keep under cap
++        self._summary = merged[-_SUMMARY_MAX_CHARS:]
++
++    def _note_effectiveness(self, before: int, after: int) -> None:
++        if before <= 0:
++            return
++        savings = (before - after) / before
++        if savings < _INEFFECTIVE_FRACTION:
++            self.stats["ineffective_streak"] += 1
++            if self.stats["ineffective_streak"] == _INEFFECTIVE_STREAK_MAX:
++                self._suppress_llm_for = _INEFFECTIVE_COOLDOWN
++                log.warning(
++                    "compaction anti-thrash: %d ineffective compactions — "
++                    "LLM summary suppressed for %d", _INEFFECTIVE_STREAK_MAX,
++                    _INEFFECTIVE_COOLDOWN,
++                )
++                self.stats["ineffective_streak"] = 0
++        else:
++            self.stats["ineffective_streak"] = 0
++
++    # -------------------------------------------------------------- driver
++    def compact(
++        self,
++        history: list[BaseMessage],
++        budget: int,
++        summarize_tools: Callable[[list[BaseMessage]], list[BaseMessage]],
++        structural_compress: Callable[[list[BaseMessage], int], list[BaseMessage]],
++        fallback_trim: Callable[[list[BaseMessage], int], list[BaseMessage]],
++    ) -> list[BaseMessage]:
++        """The full pipeline: prune -> per-tool summaries -> structural
++        (only if still over) -> summary injection for whatever dropped.
++
++        Head and tail are never handed to the structural stage at all —
++        protection is absolute (their pattern #2), not scoring luck."""
++        if not history:
++            return []
++
++        before_tokens = count_tokens(history, self._model)
++        if before_tokens <= budget:
++            return history  # fast path: nothing to do, zero cost
++
++        # 1+2. FREE prune with protected head/tail — hermes' first trigger.
++        pruned, _, _ = self.prune(history)
++        summarized = summarize_tools(pruned)
++
++        if count_tokens(summarized, self._model) <= budget:
++            return self._with_summary(summarized)
++
++        # 3. Still over: separate the absolutely-protected material (head /
++        #    tail spans are index-stable after the 1:1 placeholder swaps and
++        #    per-tool summaries), and let the structural stage work ONLY on
++        #    the expendable middle with its own shrunken budget.
++        head_n = self._head_len(summarized)
++        tail_i = self._tail_start(summarized, head_n)
++        head_msgs = summarized[:head_n]
++        middle = summarized[head_n:tail_i]
++        tail_msgs = summarized[tail_i:]
++
++        reserved = count_tokens(head_msgs, self._model) + count_tokens(tail_msgs, self._model)
++        middle_budget = max(0, budget - reserved)
++        if middle_budget > 0 and middle:
++            compressed_middle = structural_compress(middle, middle_budget)
++            if count_tokens(compressed_middle, self._model) > middle_budget:
++                compressed_middle = fallback_trim(compressed_middle, middle_budget)
++        else:
++            compressed_middle = []
++
++        dropped = self._diff(middle, compressed_middle)
++        self._update_summary(dropped)
++        self.stats["structural_compactions"] += 1
++        final = head_msgs + compressed_middle + tail_msgs
++        self._note_effectiveness(before_tokens, count_tokens(final, self._model))
++
++        return self._with_summary(final)
++
++    @staticmethod
++    def _diff(before: list[BaseMessage], after: list[BaseMessage]) -> list[BaseMessage]:
++        kept = {id(m) for m in after}
++        return [m for m in before if id(m) not in kept]
++
++    def _with_summary(self, messages: list[BaseMessage]) -> list[BaseMessage]:
++        """Inject the running summary right after the protected head."""
++        if not self._summary:
++            return messages
++        head = self._head_len(messages)
++        summary_msg = SystemMessage(
++            content=f"{COMPACTION_SUMMARY_PREFIX}\n\n{self._summary}",
++            response_metadata={"compaction": True},
++        )
++        return list(messages[:head]) + [summary_msg] + list(messages[head:])
++
++    @property
++    def summary(self) -> str:
++        return self._summary
++
++    @property
++    def llm_suppressed(self) -> bool:
++        return self._suppress_llm_for > 0
+diff --git a/src/context/context_engine.py b/src/context/context_engine.py
+index 4ef2413..6524642 100644
+--- a/src/context/context_engine.py
++++ b/src/context/context_engine.py
+@@ -259,6 +259,10 @@ class ContextEngine:
+         # request is byte-identical to the previous turn's.
+         self._cache_audit = None
+ 
++        # D22 per-session history compactor (compaction.py); lazy so the
++        # constructor stays I/O-free.
++        self._compactor = None
++
+         # Per-instance copy: _apply_learned_weights() mutates these weights,
+         # and the class-level dict would otherwise leak learned drift across
+         # ALL engine instances in the process (dashboard sessions, threads).
+@@ -475,8 +479,7 @@ class ContextEngine:
+ 
+         # 8. Smart history
+         raw_history = list(state.get("messages", []))
+-        raw_history = self._summarize_tool_messages(raw_history)
+-        trimmed_history = self._trim_history(raw_history, history_budget)
++        trimmed_history = self._compact_history(raw_history, history_budget)
+ 
+         # 9. Assemble final
+         final_messages = [system_message] + context_messages + trimmed_history
+@@ -1370,6 +1373,55 @@ class ContextEngine:
+ 
+         return result
+ 
++    def _compact_history(
++        self,
++        history: list[BaseMessage],
++        budget: int,
++    ) -> list[BaseMessage]:
++        """D22 hermes pack (compaction.py): prune-first with protected
++        head/tail, structural dropping only if still over budget, dropped
++        turns folded into an iterative AUX-model summary with anti-thrash
++        suppression. PULSEAI_COMPACTION=off restores the legacy pipeline."""
++        import os as _os
++
++        if _os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
++            return self._trim_history(self._summarize_tool_messages(history), budget)
++
++        if self._compactor is None:
++            from src.context.compaction import HistoryCompactor
++            from src.llm.factory import get_auxiliary_llm
++
++            self._compactor = HistoryCompactor(
++                model=self.model,
++                aux_llm_getter=get_auxiliary_llm,  # D21's janitor client
++            )
++
++        from src.context.smart_compressor import SmartCompressor
++        compressor = SmartCompressor(model=self.model)
++        return self._compactor.compact(
++            history,
++            budget,
++            summarize_tools=self._summarize_tool_messages,
++            structural_compress=lambda h, b: compressor.compress(
++                h,
++                budget=b,
++                token_counter=lambda msgs, model: count_tokens(msgs, model),
++                task=self._current_task or "",
++            ),
++            fallback_trim=lambda h, b: trim_messages_to_budget(h, b, self.model),
++        )
++
++    def compaction_stats(self) -> dict:
++        """D22 telemetry: prune/compaction counters for this session."""
++        if self._compactor is None:
++            return {"prunes": 0, "structural_compactions": 0, "llm_summary_calls": 0,
++                    "llm_suppressed": 0, "ineffective_streak": 0, "summary_chars": 0,
++                    "placeholders": 0, "placeholder_chars_reclaimed": 0}
++        stats = dict(self._compactor.stats)
++        stats["summary_chars"] = len(self._compactor.summary)
++        stats["llm_suppressed_active"] = self._compactor.llm_suppressed
++        return stats
++
+     def _trim_history(
+         self,
+         history: list[BaseMessage],
+diff --git a/src/tests/test_compaction.py b/src/tests/test_compaction.py
+new file mode 100644
+index 0000000..eb14334
+--- /dev/null
++++ b/src/tests/test_compaction.py
+@@ -0,0 +1,256 @@
++"""Pins for D22: the hermes compaction hardening pack (compaction.py).
++
++Contract verified against their context_compressor.py (§29 receipts):
++prune-first (free) with ABSOLUTE head/tail protection, structural stage
++only on the expendable middle, dropped turns folded into an iterative
++aux-model summary, anti-thrash suppression, and the checkpoint store never
++sees any of it (request-only copies — their #43175 cannot occur here).
++"""
++
++from __future__ import annotations
++
++import pytest
++from langchain_core.messages import (
++    AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage,
++)
++
++from src.context.compaction import (
++    COMPACTION_SUMMARY_PREFIX,
++    HistoryCompactor,
++    _PRUNED_TOOL_PLACEHOLDER,
++)
++
++
++def mk(pair_id: str, size: int = 2000) -> list[BaseMessage]:
++    """One agent turn with a big tool dump."""
++    return [
++        HumanMessage(content=f"question {pair_id}"),
++        AIMessage(content=f"doing {pair_id}",
++                  tool_calls=[{"name": "t", "args": {}, "id": f"tc-{pair_id}"}]),
++        ToolMessage(content=f"dump-{pair_id} " + "x" * size,
++                    tool_call_id=f"tc-{pair_id}", name="t"),
++    ]
++
++
++@pytest.fixture()
++def history() -> list[BaseMessage]:
++    msgs = mk("head")
++    for i in range(8):
++        msgs += mk(str(i))
++    return msgs
++
++
++@pytest.fixture()
++def compactor() -> HistoryCompactor:
++    return HistoryCompactor(model="gpt-4o-mini", aux_llm_getter=None, tail_tokens=500)
++
++
++ident = lambda h: h
++
++
++def _structural_scenario(turns: int = 7, tail_tokens: int = 150):
++    """History with a SMALL head (fat heads dominate budgets and mask
++    middles) and a compactor whose tiny slim-tail leaves a real middle."""
++    hist = mk("head", size=60)
++    for i in range(turns):
++        hist += mk(str(i))
++    compactor = HistoryCompactor(model="gpt-4o-mini", tail_tokens=tail_tokens)
++    return hist, compactor
++
++
++def _budget_forcing_structural(compactor, history, margin=40):
++    from src.context.token_budget import count_tokens
++    pruned, _, _ = compactor.prune(history)
++    return max(1, count_tokens(pruned, "gpt-4o-mini") - margin)
++
++
++def boom_structural(h, b):
++    raise AssertionError("structural stage must not fire")
++
++
++# ------------------------------------------------------------------ prune
++def test_prune_replaces_middle_only_and_never_mutates(history, compactor):
++    original_contents = [m.content for m in history]
++    pruned, replaced, reclaimed = compactor.prune(history)
++
++    assert replaced == 7                      # head + last turn protected
++    assert reclaimed > 10_000
++    placeholders = [i for i, m in enumerate(pruned)
++                    if isinstance(m, ToolMessage) and m.content == _PRUNED_TOOL_PLACEHOLDER]
++    assert all(i >= 3 for i in placeholders)  # nothing in the protected head
++    assert pruned[2].content.startswith("dump-head")   # head verbatim
++    assert [m.content for m in history] == original_contents  # source untouched
++    # pairing survived: every placeholder still carries its tool_call_id
++    for m in pruned:
++        if isinstance(m, ToolMessage):
++            assert m.tool_call_id.startswith("tc-")
++
++
++def test_short_tool_outputs_and_tiny_histories_untouched(compactor):
++    small = [HumanMessage(content="hi"), AIMessage(content="ok",
++             tool_calls=[{"name": "t", "args": {}, "id": "a"}]),
++             ToolMessage(content="short", tool_call_id="a", name="t")]
++    pruned, replaced, _ = compactor.prune(small)
++    assert replaced == 0 and pruned[2].content == "short"
++    assert compactor.prune([]) == ([], 0, 0)
++
++
++def test_tail_boundary_never_splits_tool_pair(compactor, history):
++    # tail boundary rules: if the boundary message is a ToolMessage, its
++    # answering AI(tool_calls) must be pulled into the tail as well.
++    tail = compactor._tail_start(history, compactor._head_len(history))
++    if tail < len(history) and isinstance(history[tail], ToolMessage):
++        pytest.fail("tail starts on a ToolMessage — pair would split")
++
++
++# ------------------------------------------------------------- two stages
++def test_prune_alone_skips_structural_stage(history, compactor):
++    # Budget fits AFTER placeholders: structural must never run (spy).
++    # Budget measured after prune so it FITS regardless of tokenizer mood.
++    pruned, _, _ = compactor.prune(history)
++    from src.context.token_budget import count_tokens
++    fits = count_tokens(pruned, "gpt-4o-mini")
++    compactor2 = HistoryCompactor(model="gpt-4o-mini", tail_tokens=500)
++    out = compactor2.compact(history, budget=fits + 200, summarize_tools=ident,
++                             structural_compress=boom_structural,
++                             fallback_trim=boom_structural)
++    assert compactor2.stats["structural_compactions"] == 0
++    assert any(isinstance(m, ToolMessage) and m.content == _PRUNED_TOOL_PLACEHOLDER for m in out)
++
++
++def test_fast_path_no_work(history, compactor):
++    out = compactor.compact(history, budget=10**9, summarize_tools=ident,
++                            structural_compress=boom_structural, fallback_trim=boom_structural)
++    assert compactor.stats["prunes"] == 0 and out is history
++
++
++def test_head_tail_never_reach_structural_stage(history, compactor):
++    seen: list[list[BaseMessage]] = []
++
++    def spy_structural(h, b):
++        seen.append(h)
++        return h[:1]  # butcher the middle deliberately
++
++    history, compactor = _structural_scenario()
++    out = compactor.compact(history, budget=_budget_forcing_structural(compactor, history), summarize_tools=ident,
++                            structural_compress=spy_structural, fallback_trim=lambda h, b: h)
++    middle = seen[0]
++    # absolute protection: head turn + tail never presented to the stage
++    assert middle and not any(m.content.startswith("question head") for m in middle)
++    assert out[0].content.startswith("question head")         # head leads final
++    assert out[-1] is not None
++    assert [type(m).__name__ for m in out[-3:]] == ["HumanMessage", "AIMessage", "ToolMessage"]
++
++
++# ---------------------------------------------------------------- summary
++def test_dropped_turns_become_summary_after_head(history, compactor):
++    history, compactor = _structural_scenario()
++    compactor._aux_llm_getter = None
++    out = compactor.compact(history, budget=_budget_forcing_structural(compactor, history), summarize_tools=ident,
++                            structural_compress=lambda h, b: h[:1],
++                            fallback_trim=lambda h, b: h)
++    summaries = [m for m in out if isinstance(m, SystemMessage)
++                 and m.response_metadata.get("compaction")]
++    assert len(summaries) == 1
++    assert summaries[0].content.startswith(COMPACTION_SUMMARY_PREFIX[:40])
++    head_len = compactor._head_len(out) if any(
++        isinstance(m, HumanMessage) for m in out) else 0
++    assert out.index(summaries[0]) <= 3       # right after protected head
++    assert compactor.summary                  # running text exists
++
++
++def test_iterative_summary_extends_previous_via_aux():
++    prompts: list[str] = []
++
++    class FakeAux:
++        def invoke(self, prompt):
++            prompts.append(prompt)
++            class R: content = "rolled-summary-v" + str(len(prompts))
++            return R()
++
++    hist1, c = _structural_scenario()
++    c._aux_llm_getter = lambda: FakeAux()
++    c.compact(hist1, budget=_budget_forcing_structural(c, hist1), summarize_tools=ident,
++              structural_compress=lambda h, b: h[:1], fallback_trim=lambda h, b: h)
++    first = c.summary
++    c.compact(hist1, budget=_budget_forcing_structural(c, hist1), summarize_tools=ident,
++              structural_compress=lambda h, b: h[:1], fallback_trim=lambda h, b: h)
++    assert c.stats["llm_summary_calls"] == 2
++    assert first in prompts[-1]               # extend-not-rebuild proof
++
++
++def test_aux_failure_plain_appends_bounded(compactor):
++    def _boom():
++        raise RuntimeError("provider down")
++
++    hist, compactor = _structural_scenario()
++    compactor._aux_llm_getter = _boom
++    out = compactor.compact(
++        hist, budget=_budget_forcing_structural(compactor, hist), summarize_tools=ident,
++        structural_compress=lambda h, b: h[:1], fallback_trim=lambda h, b: h)
++    assert compactor.stats["llm_summary_calls"] == 0
++    assert len(compactor.summary) <= 3000
++    assert any(isinstance(m, SystemMessage) for m in out)  # still informed
++
++
++def test_anti_thrash_suppresses_llm_after_three_ineffective():
++    calls = []
++
++    class FakeAux:
++        def invoke(self, prompt):
++            calls.append(prompt)
++            class R: content = "s"
++            return R()
++
++    c = HistoryCompactor(model="gpt-4o-mini", aux_llm_getter=lambda: FakeAux())
++    for _ in range(3):
++        c._update_summary([HumanMessage(content="x" * 100)])
++        c._note_effectiveness(before=1000, after=960)     # <15% savings
++    n = len(calls)
++    assert c.llm_suppressed
++    c._update_summary([HumanMessage(content="y" * 100)])
++    assert len(calls) == n                                # LLM frozen out
++    assert c.stats["llm_suppressed"] == 1
++
++
++# ---------------------------------------------------------------- markers
++def test_markers_match_session_index_ingest_skip_list():
++    from src.context.session_index import _COMPACTION_PREFIXES
++    assert COMPACTION_SUMMARY_PREFIX.startswith("[CONTEXT COMPACTION")
++    assert any(COMPACTION_SUMMARY_PREFIX.startswith(p) for p in _COMPACTION_PREFIXES)
++
++
++# ------------------------------------------------------------- engine glue
++def test_engine_compact_history_kill_switch(engine_setup):
++    eng, monkeypatch = engine_setup
++    monkeypatch.setenv("PULSEAI_COMPACTION", "off")
++    called = {}
++    original = eng._trim_history
++    def spy(hist, budget):
++        called["hit"] = True
++        return original(hist, budget)
++    monkeypatch.setattr(eng, "_trim_history", spy)
++    eng._compact_history([HumanMessage(content="hi")], 10**9)
++    assert called.get("hit") and eng._compactor is None
++
++
++@pytest.fixture()
++def engine_setup(tmp_path, monkeypatch):
++    from src.context.context_engine import ContextEngine
++    eng = ContextEngine(max_tokens=8_000, model="gpt-4o-mini", probe_window=False)
++    eng._feedback_path = str(tmp_path / "fb.jsonl")
++    eng._feedback_history = []
++    return eng, monkeypatch
++
++
++def test_engine_request_only_state_never_mutated(engine_setup):
++    eng, _ = engine_setup
++    msgs = mk("head")
++    for i in range(6):
++        msgs += mk(str(i))
++    snapshot = [m.content for m in msgs]
++    out = eng._compact_history(list(msgs), budget=200)
++    assert [m.content for m in msgs] == snapshot           # checkpoint copy safe
++    assert len(out) <= len(msgs)
++    stats = eng.compaction_stats()                          # wiring live
++    assert "placeholders" in stats and "llm_summary_calls" in stats
+-- 
+2.47.3
+

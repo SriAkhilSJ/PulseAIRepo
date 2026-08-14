@@ -1,0 +1,4 @@
+[chat_graph] Long-term memory DISABLED (boot degraded): VectorMemory requires an embedder. Install sentence-transformers or configure an embedding provider. Error: No module named 'sentence_transformers'
+============================================================
+AGENT STDOUT (live stream capture)
+============================================================

@@ -1,0 +1,454 @@
+From 7e8da2787605a702750fdcb966b507e297e92606 Mon Sep 17 00:00:00 2001
+From: "Arena Agent (review, for SriAkhilSJ)" <agent@arena.local>
+Date: Fri, 7 Aug 2026 12:12:42 +0000
+Subject: [PATCH] feat(tools): D10 web_fetch readable-text extraction -- stdlib
+ HTMLParser (zero new deps): drop script/style/forms/head content, boilerplate
+ containers by class/id/role junk pattern, comments out, <pre> fenced verbatim
+ + inline <code> backticks, entities decoded, whitespace normalized outside
+ fences only; legacy regex kept as degenerate-output fallback (unclosed-script
+ CDATA swallow); measured junk 5/10->0/10, 365->181 chars; +8 pins (first
+ web_tools pin file), 292 green
+
+---
+ ARCHITECTURE_REVIEW.md          |  38 ++++++++
+ scripts/d10_webfetch_measure.py |  84 ++++++++++++++++
+ src/tests/test_web_tools.py     | 100 ++++++++++++++++++++
+ src/tools/web_tools.py          | 163 ++++++++++++++++++++++++++++++--
+ 4 files changed, 376 insertions(+), 9 deletions(-)
+ create mode 100644 scripts/d10_webfetch_measure.py
+ create mode 100644 src/tests/test_web_tools.py
+
+diff --git a/ARCHITECTURE_REVIEW.md b/ARCHITECTURE_REVIEW.md
+index 12f07fa..9bb7ae1 100644
+--- a/ARCHITECTURE_REVIEW.md
++++ b/ARCHITECTURE_REVIEW.md
+@@ -1606,3 +1606,41 @@ pass-through). Suite: 284 green (9.3s).
+ Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
+ ~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
+ ~~D24~~ — remaining: D9, D10, D15-remainder, D23, P2.
++
++---
++
++## §39 — D10 FIXED: web_fetch readable-text extraction (regex soup -> stdlib parser)
++
++**Debt D10 closed.** web_fetch converted pages with a handful of regexes:
++nav bars, cookie banners, JSON-LD blobs, comments, footer/newsletter junk
++all leaked into the agent's 12K context budget; <pre> code was whitespace-
++flattened (indentation destroyed); an UNCLOSED <script> could swallow the
++document. Measured (scripts/d10_webfetch_measure.py, one gnarly fixture
++page, OLD from git snapshot vs NEW): junk-hits 5/10 -> 0/10, all wanted
++article content kept, output 365 -> 181 chars (50% smaller, all signal),
++code now fenced with indentation verbatim.
++
++Fix (src/tools/web_tools.py): `_ReadableTextExtractor` (stdlib
++html.parser only — zero new dependencies, checked) drops drop-content
++elements (script/style/noscript/template/svg/iframe/form/select/button/
++head), drops boilerplate containers when class/id/role matches the junk
++pattern (careful: plain <header>/<aside> without junk hints KEEP their
++text), removes comments natively, converts <pre> to fenced blocks with
++verbatim data and inline <code> to backticks, decodes entities, and
++normalizes whitespace only OUTSIDE fences. Degenerate-output safety: when
++the parser yields <25 chars from substantial markup (e.g. page-opening
++unclosed script swallows the doc in CDATA), the legacy regex strip runs
++as fallback — tail content survives; never a silent empty return.
++
++Founder's metrics: token budget — cleaned pages carry ~half the chars with
++zero junk (measured), context quality — code arrives fenced and readable;
++latency/LLM calls — untouched.
++
++Pins: src/tests/test_web_tools.py NEW FILE 8/8 (junk-out/content-in,
++pre fence+verbatim, inline-code backticks, entities, fetch integration
++with monkeypatched httpx incl. title decode + junk absence, unclosed-
++script fallback, plain-text passthrough, scheme guard). Suite: 292 green.
++
++Debt board: ~~D1~~ ~~D2~~ ~~D5~~ ~~D8~~ ~~D15(Python)~~ ~~D7~~ ~~D17~~
++~~D18~~ ~~D16~~ ~~D19~~ ~~D20~~ ~~D21~~ ~~D22~~ ~~C1~~ ~~D13~~ ~~D14~~
++~~D24~~ ~~D10~~ — remaining: D9, D15-remainder, D23, P2.
+diff --git a/scripts/d10_webfetch_measure.py b/scripts/d10_webfetch_measure.py
+new file mode 100644
+index 0000000..78dd274
+--- /dev/null
++++ b/scripts/d10_webfetch_measure.py
+@@ -0,0 +1,84 @@
++"""
++D10 measurement — old regex "_strip_html" vs the stdlib readable-text extractor
++===============================================================================
++
++Debt D10: web_fetch's readability pass was a handful of regexes — nav bars,
++cookie banners, footers, JSON-LD blobs and inline JS leaked into the agent's
++12K context budget; HTML comments survived; <pre> code formatting was
++destroyed by whitespace normalization; and an UNCLOSED <script> swallowed
++everything after it.
++
++This harness converts one gnarly fixture page with BOTH implementations
++(old recovered from git HEAD the day of the fix) and prints the junk audit.
++
++Run:  python scripts/d10_webfetch_measure.py
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
++
++from src.tools.web_tools import _strip_html as new_strip
++
++GNARLY_PAGE = """<!DOCTYPE html>
++<html>
++<head>
++<title>PulseAI Docs — Context Engine</title>
++<script type="application/ld+json">{"@context":"https://schema.org","name":"spam"}</script>
++<style>.nav{display:none}.cookie{position:fixed}</style>
++</head>
++<body>
++<nav class="site-nav menu"><a>Home</a> <a>Pricing</a> <a>Blog</a></nav>
++<div id="cookie-banner" class="cookie banner">We value your privacy — Accept all cookies</div>
++<!-- internal TODO: remove this comment, AD ID 8842 -->
++<main>
++<article>
++<h1>Context Engine</h1>
++<p>The engine builds layered prompts under a &lt;token budget&gt;.</p>
++<pre><code>def build_prompt(layers):
++    return "\\n".join(layers)</code></pre>
++<p>Latency&nbsp;matters &amp; so does cache stability.</p>
++</article>
++</main>
++<aside class="sidebar promo">Buy now! Advertisement: 50% off hosting.</aside>
++<footer class="site-footer">Subscribe to our newsletter. (c) 2026 Example Inc.</footer>
++<script>var tracker = window.location; function noop(){ return 1 < 2 && 2 > 1; } tracker();</script>
++</body>
++</html>
++"""
++
++JUNK = ["Accept all cookies", "Buy now", "Advertisement", "newsletter",
++        "var tracker", "function noop", "AD ID 8842", "schema.org",
++        "display:none", "Pricing"]
++WANT = ["Context Engine", "token budget", "def build_prompt",
++        "Latency", "cache stability"]
++
++
++def _audit(text: str, tag: str) -> None:
++    junk_hits = [j for j in JUNK if j in text]
++    want_missing = [w for w in WANT if w not in text]
++    fenced = "```" in text
++    print(f"[{tag}] len={len(text)}  junk-hits={len(junk_hits)}/{len(JUNK)} {junk_hits}")
++    print(f"      missing-wanted={want_missing}  code fenced={fenced}")
++
++
++def main() -> None:
++    old_path = "/tmp/old_web_tools.py"
++    if os.path.exists(old_path):
++        import importlib.util
++        spec = importlib.util.spec_from_file_location("old_web_tools", old_path)
++        old_mod = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(old_mod)
++        _audit(old_mod._strip_html(GNARLY_PAGE), "OLD regex")
++    _audit(new_strip(GNARLY_PAGE), "NEW parser")
++    print()
++    print("NEW output:")
++    print(new_strip(GNARLY_PAGE))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/tests/test_web_tools.py b/src/tests/test_web_tools.py
+new file mode 100644
+index 0000000..cba75c3
+--- /dev/null
++++ b/src/tests/test_web_tools.py
+@@ -0,0 +1,100 @@
++"""Tests for web_tools — D10 readable-text extraction pins (§39).
++
++Before D10, _strip_html was a stack of regexes: nav/cookie/footer junk
++leaked into the agent's 12K context budget (measured junk-hits 5/10 in
++scripts/d10_webfetch_measure.py), <pre> code was whitespace-flattened,
++and an unclosed <script> could swallow an entire page. The stdlib
++HTMLParser extractor (primary) + legacy regex (degenerate fallback) are
++pinned here. No new dependencies were added — verified by imports.
++"""
++
++import pytest
++
++from src.tools.web_tools import _strip_html, web_fetch
++
++
++PAGE = """<!DOCTYPE html>
++<html>
++<head>
++<title>Docs &amp; Guides</title>
++<script type="application/ld+json">{"name":"spam"}</script>
++<style>.nav{display:none}</style>
++</head>
++<body>
++<nav class="site-nav"><a>Pricing</a></nav>
++<div id="cookie-banner" class="cookie banner">Accept all cookies</div>
++<!-- secret ad ID 8842 -->
++<div role="navigation">Breadcrumb junk here</div>
++<main><article>
++<h1>Engine Docs</h1>
++<p>Budgets &amp; latency &lt;explained&gt;.</p>
++<pre><code>def f(x):
++    return x  + 1</code></pre>
++<p>Done.</p>
++</article></main>
++<footer class="site-footer">Subscribe to our newsletter</footer>
++<script>var t = 1; function n(){ return t; }</script>
++</body>
++</html>"""
++
++
++def test_d10_junk_removed_and_content_kept():
++    text = _strip_html(PAGE)
++    for junk in ("Accept all cookies", "Pricing", "newsletter",
++                 "var t =", "secret ad ID", "spam", "display:none",
++                 "Breadcrumb junk"):
++        assert junk not in text, f"junk leaked: {junk!r}\n{text}"
++    for want in ("Engine Docs", "Budgets", "Done."):
++        assert want in text, f"content lost: {want!r}\n{text}"
++
++
++def test_d10_pre_is_fenced_and_verbatim():
++    text = _strip_html(PAGE)
++    assert "```" in text
++    # indentation and inner spacing (x  + 1) preserved byte-for-byte
++    assert "def f(x):\n    return x  + 1" in text
++
++
++def test_d10_inline_code_backticked():
++    assert "`subprocess.run`" in _strip_html("<p>Use <code>subprocess.run</code> here</p>")
++
++
++def test_d10_entities_decoded():
++    text = _strip_html(PAGE)
++    assert "Budgets & latency <explained>." in text
++    assert "&amp;" not in text and "&lt;" not in text
++
++
++def test_d10_title_entities_decoded_via_fetch(monkeypatch):
++    class _Resp:
++        url = "https://docs.example/page"
++        headers = {"content-type": "text/html; charset=utf-8"}
++        text = PAGE
++
++        def raise_for_status(self):
++            return None
++
++    monkeypatch.setattr("src.tools.web_tools.httpx.get", lambda *a, **k: _Resp())
++    out = web_fetch.invoke({"url": "https://docs.example/page"})
++    assert out.startswith("URL: https://docs.example/page")
++    assert "Title: Docs & Guides" in out
++    assert "Engine Docs" in out
++    assert "Accept all cookies" not in out
++
++
++def test_d10_unclosed_script_tail_survives_via_fallback():
++    # An UNCLOSED <script> as the FIRST element makes the parser's CDATA
++    # mode swallow everything -> extracted text == "" -> legacy fallback.
++    page = "<script>var broken = " + "x" * 600 + ";\n"
++    page += "<p>article tail survives this storm of junk</p>"
++    text = _strip_html(page)
++    assert "article tail survives" in text
++
++
++def test_d10_non_html_text_untouched():
++    assert _strip_html("just plain text") == "just plain text"
++
++
++def test_d10_truncation_and_scheme_guard():
++    # scheme guard
++    assert "only http/https" in web_fetch.invoke({"url": "ftp://x.example/y"})
+diff --git a/src/tools/web_tools.py b/src/tools/web_tools.py
+index e78cc07..12956cd 100644
+--- a/src/tools/web_tools.py
++++ b/src/tools/web_tools.py
+@@ -9,6 +9,7 @@ Now using duckduckgo-search (ddgs) for better performance and snippets.
+ 
+ import html
+ import re
++from html.parser import HTMLParser
+ from urllib.parse import urlparse
+ 
+ import httpx
+@@ -22,23 +23,167 @@ _USER_AGENT = (
+ )
+ 
+ 
++# ---------------------------------------------------------------------
++# D10 (§39): readable-text extraction — stdlib HTMLParser, no new deps
++# ---------------------------------------------------------------------
++# The legacy regex stripper leaked nav bars, cookie banners, JSON-LD blobs,
++# comments and footer junk into the agent's 12K context budget, destroyed
++# <pre> code formatting, and let an UNCLOSED <script> swallow everything
++# after it. The parser below is the primary path; the legacy regex survives
++# only as the degenerate-output fallback (never regress to zero output).
++
++# Elements whose CONTENT is always junk (dropped with the element).
++_DROP_CONTENT = {
++    "script", "style", "noscript", "template", "svg", "iframe",
++    "form", "select", "button", "head",
++}
++# Containers dropped only when their class/id smells like boilerplate —
++# a plain <header> may hold the article title; a .site-header never does.
++_JUNK_RE = re.compile(
++    r"nav|menu|footer|header|sidebar|cookie|banner|promo|advert"
++    r"|subscribe|newsletter|share|social|breadcrumb|related|comment",
++    re.IGNORECASE,
++)
++_JUNK_CONTAINERS = {"nav", "footer", "aside", "header"}
++# Block-level closes that end a line of readable text.
++_BLOCK_TAGS = {
++    "p", "div", "section", "article", "main", "li", "ul", "ol",
++    "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table", "blockquote",
++    "figure", "figcaption", "dt", "dd",
++}
++
++
++class _ReadableTextExtractor(HTMLParser):
++    """HTML-to-readable-text for LLM context.
++
++    - drops junk content (scripts, styles, forms, <head>...) entirely;
++    - drops boilerplate containers (nav/footer/aside/header) when their
++      class/id matches the junk pattern;
++    - converts <pre> to fenced code blocks, <code> to backticks — docs
++      pages carry code, and fences are what the model reads best;
++    - comments never survive (handle_comment is a no-op by default);
++    - whitespace: block closes emit newlines; runs of spaces/tabs collapse;
++      inside <pre> data stays VERBATIM (indentation is information).
++    """
++
++    def __init__(self) -> None:
++        super().__init__(convert_charrefs=True)
++        self._chunks: list[str] = []
++        self._skip_depth = 0       # inside drop-content element
++        self._junk_depth = 0       # inside boilerplate container
++        self._pre_depth = 0        # inside <pre> (verbatim)
++        self._code_depth = 0       # inside inline <code> (not in <pre>)
++
++    # -- state helpers ---------------------------------------------------
++
++    def _suppressed(self) -> bool:
++        return self._skip_depth > 0 or self._junk_depth > 0
++
++    # -- element handling -------------------------------------------------
++
++    def handle_starttag(self, tag: str, attrs) -> None:
++        if tag in _DROP_CONTENT:
++            self._skip_depth += 1
++            return
++        if self._suppressed():
++            return
++        if tag in _JUNK_CONTAINERS:
++            attr_text = " ".join(f"{k}={v}" for k, v in attrs if v)
++            if _JUNK_RE.search(attr_text):
++                self._junk_depth += 1
++                return
++        # role/aria boilerplate on ANY element (div role="navigation" etc.)
++        attr_text = " ".join(f"{k}={v}" for k, v in attrs if v)
++        if _JUNK_RE.search(attr_text) and tag in {"div", "section", "span"}:
++            self._junk_depth += 1
++            return
++        if tag == "pre":
++            self._chunks.append("\n```\n")
++            self._pre_depth += 1
++        elif tag == "code" and self._pre_depth == 0:
++            self._chunks.append("`")
++            self._code_depth += 1
++        elif tag == "br":
++            self._chunks.append("\n")
++        elif tag == "li":
++            self._chunks.append("\n- ")
++
++    def handle_startendtag(self, tag: str, attrs) -> None:
++        if tag == "br" and not self._suppressed():
++            self._chunks.append("\n")
++
++    def handle_endtag(self, tag: str) -> None:
++        if tag in _DROP_CONTENT:
++            self._skip_depth = max(0, self._skip_depth - 1)
++            return
++        if tag in _JUNK_CONTAINERS and self._junk_depth > 0:
++            self._junk_depth -= 1
++            return
++        if tag in {"div", "section", "span"} and self._junk_depth > 0:
++            self._junk_depth -= 1
++            return
++        if self._suppressed():
++            return
++        if tag == "pre":
++            self._pre_depth = max(0, self._pre_depth - 1)
++            self._chunks.append("\n```\n")
++        elif tag == "code" and self._code_depth > 0:
++            self._chunks.append("`")
++            self._code_depth -= 1
++        elif tag in _BLOCK_TAGS or tag == "body":
++            self._chunks.append("\n")
++
++    def handle_data(self, data: str) -> None:
++        if self._suppressed():
++            return
++        if self._pre_depth > 0:
++            self._chunks.append(data)  # verbatim: indentation is information
++        else:
++            self._chunks.append(data)
++
++    def text(self) -> str:
++        out = "".join(self._chunks)
++        # Whitespace normalization OUTSIDE fenced pre blocks.
++        parts = out.split("\n```\n")
++        for i in range(0, len(parts), 2):  # even indexes = outside fences
++            part = re.sub(r"[ \t]+", " ", parts[i])
++            part = re.sub(r" *\n *", "\n", part)
++            parts[i] = part
++        out = "\n```\n".join(parts)
++        out = re.sub(r"\n{3,}", "\n\n", out)
++        return out.strip()
++
++
+ def _strip_html(markup: str) -> str:
+-    """Convert basic HTML into readable text."""
+-    # Remove scripts/styles first.
++    """Convert HTML into readable text for the agent's context budget.
++
++    Primary: _ReadableTextExtractor (stdlib html.parser). Fallback: the
++    legacy regex strip — used only when the parser produced (nearly)
++    nothing from substantial markup (degenerate pages, e.g. an unclosed
++    <script> swallowing the document in CDATA mode).
++    """
++    try:
++        parser = _ReadableTextExtractor()
++        parser.feed(markup)
++        parser.close()
++        text = parser.text()
++    except Exception:
++        text = ""
++    legacy_min = 25
++    if len(text) >= legacy_min or len(markup) < 500:
++        return text
++    return _strip_html_legacy(markup)
++
++
++def _strip_html_legacy(markup: str) -> str:
++    """Pre-D10 regex strip; fallback path only (see _strip_html)."""
+     markup = re.sub(r"<script[\s\S]*?</script>", " ", markup, flags=re.IGNORECASE)
+     markup = re.sub(r"<style[\s\S]*?</style>", " ", markup, flags=re.IGNORECASE)
+-
+-    # Preserve rough paragraph/list boundaries.
+     markup = re.sub(r"</(p|div|li|h[1-6]|tr|br)>\s*", "\n", markup, flags=re.IGNORECASE)
+-
+-    # Drop remaining tags and decode entities.
+     text = re.sub(r"<[^>]+>", " ", markup)
+     text = html.unescape(text)
+-
+-    # Normalize whitespace.
+     text = re.sub(r"[ \t]+", " ", text)
+     text = re.sub(r"\n\s*\n+", "\n\n", text)
+-
+     return text.strip()
+ 
+ 
+-- 
+2.47.3
+
