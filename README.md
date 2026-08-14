@@ -82,6 +82,7 @@ Long-running sessions must survive retries, provider switches, and provider (mis
 - **`execute_code` (PTC) batching:** the agent is taught to collapse multi-step exploration/checks into ONE script call instead of many separate tool calls — the direct fix for the Test-2 50-call pattern.
 - **Parallel tool calls (hermes `PARALLEL_TOOL_CALL_GUIDANCE`):** independent reads, searches, and writes on different files are batched into ONE assistant turn — the runtime (`D34` gate) executes disjoint calls concurrently and orders conflicting writes deterministically, so N files cost ~1 round trip instead of N. Tool-call ids in a batch are repaired deterministically (`_uniquify_tool_call_ids`, hermes #58327) so a reused id can never silently lose a later result.
 - **Execution discipline (hermes `TOOL_USE_ENFORCEMENT`, qwen-gated):** act, don't describe — every response either makes progress via tool calls or delivers a final result; when the choice is obvious, act instead of asking; keep calling tools until the task is complete **and** verified.
+- **Grounding (hermes `OPENAI_MODEL_EXECUTION_GUIDANCE`, qwen-gated):** never answer facts (math, time, system state, file contents, git, live docs) from memory — always use a tool; missing context is looked up first, ask only when no tool can retrieve it, and assumptions are labeled.
 
 ### Autonomous safety (D11)
 The `SafetyGuard` blocks **dangerous** operations, not the agent's own work:
@@ -185,6 +186,7 @@ PulseAIRepo/
 │   │   ├── context_engine.py       # Task-aware, budgeted context assembly
 │   │   ├── chunk_index.py          # Chunked code index (sqlite-vec KNN + FTS5 BM25 → RRF)
 │   │   ├── cache_preservation.py   # Byte-stable prompt prefix across provider failover
+│   │   ├── prompt_cache_plan.py    # Cache-breakpoint planner for the stable prefix (P1, default off)
 │   │   ├── self_curation.py        # Bounded post-run memory-review daemon (aux model)
 │   │   ├── repo_map.py             # AST repo map + import graph
 │   │   ├── smart_compressor.py     # Semantic history compression
@@ -268,6 +270,8 @@ The suite is Windows-green: 483 passed, 1 skipped (the POSIX file-mode test — 
 - `test_model_budgets`: Model-window lookup, dynamic resolution chain, provider safe-limit capping (explicit + AUTO).
 - `test_shadow_checkpoints`: Pre-mutation workspace snapshots (D31) — store, dedup, undo-the-undo, cross-project guard.
 - `test_request_sanitizer` / `test_cache_preservation` / `test_self_curation` / `test_skill_lifecycle`: The D-round durability and self-maintenance machinery.
+- `test_prompt_guard`: Pins the persona switch-point (batch guidance, finish-the-job, execution discipline, PTC default, D36 grounding) and the kill-switch that restores the byte-identical legacy persona.
+- `test_iteration_budget` / `test_progress_helpers` / `test_lab_fixes`: The retest-hardening pins — `execute_code` iteration refund, grace-call tool-pair stripping, identical-failure cap, POSIX-dialect guard, evidence ledger + on-disk deliverable gates.
 
 ---
 
@@ -276,6 +280,38 @@ The suite is Windows-green: 483 passed, 1 skipped (the POSIX file-mode test — 
 PulseAI classifies every tool call. If a tool is marked as **destructive** (e.g., `write_file`, `run_terminal`), the agent pauses and waits for user approval via the Dashboard or CLI. This prevents the agent from making unwanted changes without oversight.
 
 ---
+
+## 🔧 Recent Changes — Test-3 Retest Hardening (2026-08-13)
+
+Second hardening pass, driven by the Test-3 E2/R3 retests (both "Finished" with 0 files on disk). The finish gate, retry loops, and model grounding were root-caused and fixed in code; every fix is unit-tested.
+
+### Stop semantics: you cannot "Finish" with nothing delivered
+- **Delivery-only work bar** (`src/graphs/gates.py`) — the finish gate now counts only `write_file` / `edit_file` / `copy_file` as "real work". Shell toil and scratchpad calls no longer satisfy it (E2 burned 13 shadcn-CLI iterations via `run_terminal` with zero files written).
+- **Evidence ledger (R3-4)** — a state-carried ledger classifies verification per named deliverable: `unverified` / `stale` (edited after a pass) / `passed`. `✅ Finished` with zero on-disk deliverables is structurally impossible, even on the budget-exhausted grace path.
+- **On-disk deliverable check** — a task that names target files (`copy-paste … to src/components/ui/hero-futuristic.tsx`) cannot finalize through the plan-complete shortcut while those files are missing; the copy-task nudge fires instead.
+- **Copy-task nudge** — names the `copy_file` tool and the provided source explicitly, so a copy/compose task can't be mistaken for a scaffold task.
+
+### Retry-loop guards
+- **Identical-failure cap (R3-1)** — a failed `run_terminal`/`execute_code` command is fingerprinted; the 3rd identical failure injects a "stop this loop" nudge. R3 burned 25 identical `mkdir -p /tmp/…` calls against Windows.
+- **POSIX-on-Windows guard** (`src/tools/terminal_tools.py`) — POSIX-only verbs (`mkdir -p`, `which`, `chmod`, `/tmp` paths) sent to a Windows shell are detected **before spawning** and pivoted, instead of failing fast 25 times.
+
+### Iteration budget & grace path
+- **Grace call drops tool pairs (D40)** — the no-tools farewell call strips `AIMessage(tool_calls)` + `ToolMessage` from history; OpenAI-compat providers 400 on "tool messages but no tools provided". Text-only reasoning survives.
+- **`execute_code` iteration refund** — a turn whose only tool call is `execute_code` (PTC, cheap RPC-style) no longer consumes the budget; 42 PTC calls no longer starve the run before the real deliverable.
+- Budget clamp raised `45 → 50` for retest harness headroom.
+
+### Model grounding (prompt engineering)
+- **D36 Grounding block** (`src/prompts/claude_persona.py`, kill-switched by `PULSEAI_PERSONA_GUIDANCE=off`) — ported the remaining hermes `OPENAI_MODEL_EXECUTION_GUIDANCE` patterns: never answer facts (math/time/system/file/git/web) from memory, missing-context = lookup-first / ask-only-when-no-tool / label assumptions, and a pre-finalize verification checklist. Guard-pinned in `test_prompt_guard.py`.
+
+### Prompt caching & boot reliability
+- **P1 prompt-cache plan** (`src/context/prompt_cache_plan.py`) — marks the byte-stable prefix head with cache breakpoints, hermes `prompt_caching.py` shape. **Default off** (`PULSEAI_PROMPT_CACHE=1` + allowlisted provider); pure, never raises, undoable by the failover stripper.
+- **`browser_mcp` lazy import** — the `mcp` package (and its Windows `pywintypes` requirement) is imported lazily so the engine boots even without the optional stack.
+
+### Test-3 retest result
+✅ **PASS** — both components placed **verbatim** (byte-identical via `copy_file`), full scaffold, `tsc` proves soundness; remaining errors are inherent to the provided component's bleeding-edge WebGPU/TSL API. Eval artifacts under `lab/` (`TEST3_E2_REPORT.md`, `report_test3_retest.json`, `test3_expected/`, harness scripts).
+
+---
+
 
 ## 🔧 Recent Changes — Robustness & Test-3 Pass (2026-08-11)
 
@@ -324,6 +360,11 @@ A session of root-causing real bugs surfaced by live agent runs (Test 3: integra
 - [x] Post-turn self-curation review (D38): bounded, aux-billed memory-grooming daemon
 - [x] Skill lifecycle (D39): provenance, pinning, usage telemetry, archive curator for agent-created skills
 - [x] Model-budget tests honor both explicit caps and AUTO mode
+- [x] Retest hardening: delivery-only finish bar + evidence ledger (R3-4), named-deliverable check, copy-task nudge
+- [x] Identical-failure retry cap + POSIX-on-Windows dialect guard (R3-1)
+- [x] D36 grounding persona (never answer facts from memory) + kill-switch
+- [x] Grace-call tool-pair stripping (D40) + `execute_code` iteration refund
+- [x] P1 prompt-cache plan (byte-stable prefix breakpoints, default off)
 - [ ] Layer attribution of feedback (record which layers were sent per task)
 - [ ] Per-session cost reports in PDF format
 - [ ] Benchmark harness: calls/tokens/human-helps per task, before vs after efficiency pass
