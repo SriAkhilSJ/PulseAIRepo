@@ -20,9 +20,11 @@ from src.graphs.state import AgentState
 # _budget_grace_call loop) produces the final summary instead of cutting the
 # model off. The budget is the intended safety valve; the graph
 # recursion_limit is sized (via _recursion_limit) well above it so the grace
-# path is always reachable. Default 30; clamped to <=45 regardless of env.
+# path is always reachable. Default 30; clamped to <=50 regardless of env.
+# 50 gives the retest harness (scaffold + npm install + copy + typecheck with
+# retries) the headroom it needs without a runaway loop burning the budget.
 _ITERATION_BUDGET_DEFAULT = 30
-_ITERATION_BUDGET_CLAMP = 45
+_ITERATION_BUDGET_CLAMP = 50
 
 _GRACE_NUDGE = (
     "[System: The agent iteration budget for this run is exhausted. Do NOT "

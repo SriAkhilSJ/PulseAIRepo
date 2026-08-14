@@ -34,6 +34,25 @@ from src.llm.factory import get_llm, get_auxiliary_llm
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
+
+
+def _drop_tool_pairs(messages: list) -> list:
+    """Strip tool-call/result pairs from a message list so it is a valid
+    NO-TOOLS request. The grace call binds no tools, so any AIMessage with
+    tool_calls and the ToolMessages answering them must not be sent —
+    OpenAI-compat providers hard-400 on "Tool messages found but no tools
+    provided". Text-only AIMessages survive (they carry reasoning)."""
+    out: list = []
+    for m in messages:
+        if isinstance(m, ToolMessage):
+            continue
+        tcs = getattr(m, "tool_calls", None)
+        if tcs:
+            continue
+        out.append(m)
+    return out
+
+
 from src.agents.planner import (
     create_plan,
     create_replan,
@@ -83,6 +102,9 @@ from src.graphs.budget import (
     _recursion_limit,
 )
 from src.graphs.gates import (
+    _deliverable_targets,
+    _deliverables_missing_on_disk,
+    _looks_like_copy_task,
     _looks_like_execution_task,
     _verify_unsatisfied,
     _wrote_code_files,
@@ -447,6 +469,13 @@ def ai_node(
         call_llm = llm  # unhidden tools: the model cannot make more calls
         if not grace_done:
             messages = [SystemMessage(content=_GRACE_NUDGE)] + messages
+        # D40 (lab retest 2026-08-13): the grace call binds NO tools, but
+        # the raw history still ends in an AIMessage(tool_calls) +
+        # ToolMessage tail. OpenAI-compat providers reject "Tool messages
+        # found but no tools provided" with a 400 — the harness paid for
+        # a full budget run (54 calls) and died on the FAREWELL call.
+        # Drop tool pairs so the no-tools request is a clean text chat.
+        messages = _drop_tool_pairs(messages)
 
     try:
         result = call_llm.invoke(messages)
@@ -492,10 +521,23 @@ def ai_node(
         [call_usage],
     )
 
+    # Hermes iteration refund (code_execution_tool / conversation_loop):
+    # a turn whose ONLY tool call is execute_code is a cheap RPC-style PTC
+    # turn — it must not eat the iteration budget. The retest wrecked
+    # itself this way: 42 execute_code calls consumed nearly the whole
+    # 50-slot budget and the run died on the grace call instead of doing
+    # the copy_file deliverable. Refund such turns so script retry loops
+    # no longer starve the run budget.
+    next_used = iteration_used + 1
+    result_tc = getattr(result, "tool_calls", None) or []
+    if (not budget_exhausted and result_tc
+            and all(tc.get("name") == "execute_code" for tc in result_tc)):
+        next_used = iteration_used  # refund: PTC turn is free
+
     return {
         "messages": [result],
         "token_usage": token_usage,
-        "iteration_used": iteration_used + 1,
+        "iteration_used": next_used,
         "grace_done": 1 if budget_exhausted else grace_done,
     }
 
@@ -1073,8 +1115,10 @@ def progress_node(
     replan_needed = state.get("replan_needed", False)
     env_failures = state.get("env_failures", 0)
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
+    command_retries = dict(state.get("command_retries", {}))
 
     latest_tools = ph.latest_tool_messages(messages)
+    injected: list = []
 
     for message in latest_tools:
         tool_name = message.name or "unknown_tool"
@@ -1112,6 +1156,28 @@ def progress_node(
             recovery_command = updates["recovery_command"]
             if updates["env_failure"]:
                 env_failures += 1
+
+            # R3-1: identical-retry cap. Fingerprint a failed terminal/exec
+            # call by its command; when the SAME command has failed 3+ times
+            # identically, stop the loop HERE with a directive (R3 burned 25
+            # identical `mkdir -p /tmp/...` calls against Windows back-to-back —
+            # the model was re-learning the same error every turn). The nudge
+            # appends as a SystemMessage routed back to the model BEFORE the
+            # next ai call, and a count == 3 means it fires exactly once per
+            # fingerprint.
+            if tool_name in ("run_terminal", "execute_code") and tool_args:
+                fingerprint = ph.command_fingerprint(tool_name, tool_args)
+                if fingerprint:
+                    command_retries[fingerprint] = command_retries.get(fingerprint, 0) + 1
+                    if command_retries[fingerprint] == 3:
+                        injected.append(
+                            SystemMessage(
+                                content=ph.IDENTICAL_FAILURE_NUDGE.format(
+                                    tool_name=tool_name,
+                                    count=command_retries[fingerprint],
+                                )
+                            )
+                        )
 
             if failure not in failed_steps:
                 failed_steps.append(failure)
@@ -1176,6 +1242,11 @@ def progress_node(
         result["messages"] = [
             SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
         ]
+        if injected:
+            result["messages"] = result["messages"] + injected
+
+    if command_retries:
+        result["command_retries"] = command_retries
 
     return result
 
@@ -1203,6 +1274,9 @@ def after_progress(state: AgentState) -> str:
     failed 57 errors, zero browser calls, 8/8 steps self-marked). When
     the plan-complete route would finalize but verification is
     unsatisfied, route through finish_gate so the bounded nudge fires.
+    E2-1: likewise, a named deliverable missing on disk must not
+    finalize through the plan-complete shortcut — the E2 copy nudge
+    fires instead.
     """
     route = ph.next_after_progress(
         recovery_mode=state.get("recovery_mode", False),
@@ -1212,7 +1286,10 @@ def after_progress(state: AgentState) -> str:
         env_failures=state.get("env_failures", 0),
         pivot_count=state.get("pivot_count", 0),
     )
-    if route == "finalize" and _verify_unsatisfied(state):
+    if route == "finalize" and (
+        _verify_unsatisfied(state)
+        or _deliverables_missing_on_disk(state, state.get("workspace", "."))
+    ):
         return "finish_gate"
     return route
 

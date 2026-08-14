@@ -583,6 +583,33 @@ def test_finalize_unverified_stamps_warning_not_finished():
     assert out["task_completed"] is False
 
 
+def test_grace_call_drops_tool_pairs():
+    """D40 lab retest (2026-08-13): a run that spent its whole iteration
+    budget died on the FAREWELL call — the grace call binds NO tools but
+    the raw history still ends in AIMessage(tool_calls) + ToolMessage,
+    and the OpenAI-compat provider 400'd with "Tool messages found but no
+    tools provided". The no-tools request must be stripped of tool pairs;
+    text-only AIMessages (reasoning) must survive."""
+    from src.graphs.chat_graph import _drop_tool_pairs
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+    msgs = [
+        SystemMessage("preamble"),
+        HumanMessage("build it"),
+        AIMessage("thinking aloud"),
+        AIMessage(content="", tool_calls=[
+            {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        ToolMessage(content="ok", tool_call_id="1", name="write_file"),
+        AIMessage("## ✅ Finished"),
+    ]
+    out = _drop_tool_pairs(msgs)
+    assert all(not isinstance(m, ToolMessage) for m in out)
+    assert all(not getattr(m, "tool_calls", None) for m in out)
+    kinds = [type(m).__name__ for m in out]
+    assert "SystemMessage" in kinds and "HumanMessage" in kinds
+    assert "thinking aloud" in [m.content for m in out]  # text survives
+    assert [m.content for m in out][-1] == "## ✅ Finished"
+
+
 def test_verify_gate_skips_non_execution_tasks():
     """Explanation tasks with file writes aren't forced to verify."""
     from src.graphs.chat_graph import should_continue
@@ -673,3 +700,504 @@ def test_resolve_workspace_path_plain_relative_unchanged():
     root = Path("D:/pulseAIrepo/PulseAIRepo/lab/workspace_d")
     got = resolve_workspace_path(str(root), "app/page.tsx")
     assert got == root / "app" / "page.tsx"
+
+
+# =====================================================================
+# TEST-3 E2 FIXES — the empty-deliverable hole (run_terminal counted as
+# "work"; a model that ran 13 shadcn-CLI iterations, wrote nothing, and
+# declared Finished finalized clean). Now only write/edit/copy count as
+# work, copy_file produces a recognizable step, and copy-task nudges name
+# the copy operation instead of a generic nudge.
+# =====================================================================
+
+def test_finish_gate_terminal_alone_is_not_work():
+    """E2: run_terminal/execute_code are NOT deliverable-producing work.
+    A run that only ran terminal commands (13 shadcn iterations in E2) and
+    wrote no files is an early stop, not completion."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, HumanMessage
+    msgs = [
+        HumanMessage("Integrate the component"),
+        AIMessage("x", tool_calls=[
+            {"name": "run_terminal", "args": {"command": "npx shadcn init"}, "id": "1", "type": "tool_call"}]),
+        AIMessage("x", tool_calls=[
+            {"name": "run_terminal", "args": {"command": "npx shadcn init"}, "id": "2", "type": "tool_call"}]),
+        AIMessage("x", tool_calls=[
+            {"name": "execute_code", "args": {"code": "1"}, "id": "3", "type": "tool_call"}]),
+        AIMessage("## ✅ Finished"),
+    ]
+    state = {
+        "messages": msgs,
+        "current_task": "integrate the react component into components/ui",
+        "finish_nudges": 0,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_finish_gate_copy_task_nudge_names_copy_file():
+    """E2: for a copy/compose task with zero files written, the nudge must
+    teach the copy operation (copy_file + the provided source) — a generic
+    "do more work" message is exactly what the E2 model ignored."""
+    from src.graphs.chat_graph import finish_gate_node
+    from langchain_core.messages import AIMessage, HumanMessage
+    msgs = [
+        HumanMessage(
+            "Copy-paste this component to /components/ui folder: hero-futuristic.tsx and demo.tsx"
+        ),
+        AIMessage("x", tool_calls=[
+            {"name": "run_terminal", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage("## ✅ Finished"),
+    ]
+    state = {
+        "messages": msgs,
+        "current_task": (
+            "Integrate an existing React component. Copy-paste this component to "
+            "/components/ui folder: [hero-futuristic.tsx code] and [demo.tsx code]. "
+            "Install three, @react-three/drei, @react-three/fiber."
+        ),
+        "finish_nudges": 0,
+    }
+    out = finish_gate_node(dict(state))
+    content = out["messages"][0].content
+    assert "copy_file" in content
+    assert out["finish_nudges"] == 1
+
+
+def test_copy_file_step_counts_as_code_file_work():
+    """The verify/finish gates must recognize a successful copy_file as
+    real deliverable work (E2's deliverable was exactly 2 copy_file calls
+    away). A copy step satisfies the FINISH gate (no empty-deliverable
+    bypass), and the VERIFY gate then demands proof — copy is real code
+    work, so it must be verified like any write."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage
+    msgs = [
+        AIMessage("x", tool_calls=[
+            {"name": "copy_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage("done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": ["Copied file: src/components/ui/hero-futuristic.tsx"],
+        "current_task": "integrate the react component into components/ui",
+        "finish_nudges": 0,
+        "verify_nudges": 0,
+    }
+    # write/edit/copy happened -> finish gate won't fire with a generic
+    # "no work" nudge; the verify gate fires the typecheck nudge instead.
+    assert should_continue(state) == "finish_gate"
+
+
+def test_copy_file_then_typecheck_finalizes():
+    """E2 full path: copy the provided files then typecheck — the run
+    finalizes. This is the exact 2-copy call deliverable the resume nudge
+    prescribed."""
+    from src.graphs.chat_graph import should_continue
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage("x", tool_calls=[
+            {"name": "copy_file", "args": {}, "id": "1", "type": "tool_call"}]),
+        AIMessage("x", tool_calls=[
+            {"name": "copy_file", "args": {}, "id": "2", "type": "tool_call"}]),
+        AIMessage("x", tool_calls=[
+            {"name": "typecheck_workspace", "args": {}, "id": "3", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="3", name="typecheck_workspace"),
+        AIMessage("done"),
+    ]
+    state = {
+        "messages": msgs,
+        "steps_completed": [
+            "Copied file: src/components/ui/hero-futuristic.tsx",
+            "Copied file: src/components/ui/demo.tsx",
+        ],
+        "current_task": "integrate the react component into components/ui",
+        "finish_nudges": 0,
+        "verify_nudges": 0,
+    }
+    assert should_continue(state) == "finalize"
+
+
+def test_generic_copy_marker_detection():
+    from src.graphs.chat_graph import (
+        _looks_like_copy_task,
+        _deliverable_targets,
+    )
+    task = (
+        "Integrate an existing React component. Copy-paste this component to "
+        "/components/ui folder: [hero-futuristic.tsx code] and [demo.tsx code]. "
+        "Install three, @react-three/drei, @react-three/fiber."
+    )
+    assert _looks_like_copy_task(task)
+    targets = _deliverable_targets(task)
+    assert any("hero-futuristic.tsx" in t for t in targets)
+    assert any("demo.tsx" in t for t in targets)
+
+
+def test_terminal_timeout_env_returns_pivot_message():
+    """E2 guard: without a guard, `npx shadcn init` (interactive prompt,
+    no TTY) blocks forever. With a short timeout the tool must return a
+    pivot message — not a hang. Uses an obviously-hanging command."""
+    import os
+    from src.tools.terminal_tools import run_terminal
+    from langchain_core.runnables import RunnableConfig
+    cfg = RunnableConfig({"configurable": {"workspace": "."}})
+    old = os.environ.get("PULSEAI_TERMINAL_TIMEOUT")
+    os.environ["PULSEAI_TERMINAL_TIMEOUT"] = "1"
+    try:
+        out = run_terminal.invoke({"command": "ping -n 60 127.0.0.1 >NUL"}, cfg)
+    finally:
+        if old is None:
+            os.environ.pop("PULSEAI_TERMINAL_TIMEOUT", None)
+        else:
+            os.environ["PULSEAI_TERMINAL_TIMEOUT"] = old
+    assert "timed out" in out
+    assert "ENVIRONMENT failure" in out
+    assert "retry" in out
+
+
+# =====================================================================
+# P1 — prompt-cache plan (hermes prompt_caching.py shape). Pure functions,
+# zero LLM calls. DEFAULT OFF: markers only when PULSEAI_PROMPT_CACHE=1 AND
+# the provider is allowlisted.
+# =====================================================================
+
+def test_cache_plan_is_off_by_default():
+    import os
+    from langchain_core.messages import SystemMessage
+    from src.context.prompt_cache_plan import build_prompt_cache_plan
+    old = os.environ.get("PULSEAI_PROMPT_CACHE")
+    os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+    try:
+        msgs = [SystemMessage(content="persona"), SystemMessage(content="layer")]
+        out, info = build_prompt_cache_plan(msgs, "openai", "gpt-4.1")
+    finally:
+        if old is None:
+            os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+        else:
+            os.environ["PULSEAI_PROMPT_CACHE"] = old
+    assert out is msgs  # untouched by identity when disabled
+    assert info["enabled"] is False
+
+
+def test_cache_plan_marks_stable_head_when_enabled():
+    import os
+    from langchain_core.messages import SystemMessage, HumanMessage
+    from src.context.prompt_cache_plan import build_prompt_cache_plan
+    old = os.environ.get("PULSEAI_PROMPT_CACHE")
+    os.environ["PULSEAI_PROMPT_CACHE"] = "1"
+    try:
+        msgs = [
+            SystemMessage(content="persona"),
+            SystemMessage(content="repo_map"),
+            SystemMessage(content="task"),
+            SystemMessage(content="plan"),
+            HumanMessage(content="hi"),
+        ]
+        out, info = build_prompt_cache_plan(msgs, "openai", "gpt-4.1")
+    finally:
+        if old is None:
+            os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+        else:
+            os.environ["PULSEAI_PROMPT_CACHE"] = old
+    assert info["enabled"] is True
+    assert info["markers"] >= 1
+    # only SystemMessages on the stable head carry markers
+    marked = [m for m in out if (m.additional_kwargs or {}).get("cache_control")]
+    assert all(type(m).__name__ == "SystemMessage" for m in marked)
+    # content preserved verbatim
+    assert [m.content for m in out] == [m.content for m in msgs]
+
+
+def test_cache_plan_custom_provider_requires_opt_in():
+    """The custom/base_url route (Sarvam on this box) must NOT be decorated
+    unless explicitly verified — an endpoint that rejects unknown fields
+    would 4xx the whole turn."""
+    import os
+    from langchain_core.messages import SystemMessage
+    from src.context.prompt_cache_plan import build_prompt_cache_plan
+    old_pc = os.environ.get("PULSEAI_PROMPT_CACHE")
+    old_c = os.environ.get("PULSEAI_PROMPT_CACHE_CUSTOM")
+    os.environ["PULSEAI_PROMPT_CACHE"] = "1"
+    os.environ.pop("PULSEAI_PROMPT_CACHE_CUSTOM", None)
+    try:
+        msgs = [SystemMessage(content="persona")]
+        out, info = build_prompt_cache_plan(msgs, "custom", "sarvam-105b-conversations")
+    finally:
+        if old_pc is None:
+            os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+        else:
+            os.environ["PULSEAI_PROMPT_CACHE"] = old_pc
+        if old_c is None:
+            os.environ.pop("PULSEAI_PROMPT_CACHE_CUSTOM", None)
+        else:
+            os.environ["PULSEAI_PROMPT_CACHE_CUSTOM"] = old_c
+    assert out is msgs
+    assert info["enabled"] is False
+
+
+def test_cache_plan_never_raises_on_bad_input():
+    from src.context.prompt_cache_plan import build_prompt_cache_plan
+    out, info = build_prompt_cache_plan(None, "openai")
+    assert out is None
+    out2, info2 = build_prompt_cache_plan("not-a-list", "openai")
+    assert out2 == "not-a-list"
+
+
+# =====================================================================
+# R3-1 — POSIX-on-Windows guard (the R3 retest loop was 25 identical
+# POSIX commands against a Windows cmd shell; detect BEFORE spawning).
+# =====================================================================
+
+def test_posix_guard_flags_posix_mkdir_tmp():
+    """R3's exact loop shape must be refused before spawn."""
+    from src.tools.terminal_tools import _posix_violations, run_terminal
+    from langchain_core.runnables import RunnableConfig
+    import os
+    if os.name != "nt":
+        return
+    cmd = "mkdir -p /tmp/next-scaffold && cd /tmp/next-scaffold && npx create-next-app@latest . --yes"
+    violations = _posix_violations(cmd)
+    assert violations, "expected POSIX violations for the R3 loop command"
+    cfg = RunnableConfig({"configurable": {"workspace": "."}})
+    out = run_terminal.invoke({"command": cmd}, cfg)
+    assert "do NOT retry" in out.lower() or "do not retry" in out.lower()
+    assert "POSIX" in out
+
+
+def test_posix_guard_flags_which_npx():
+    import os
+    from src.tools.terminal_tools import _posix_violations
+    if os.name != "nt":
+        return
+    violations = _posix_violations("which npx && npx --version")
+    assert any("which" in v for v in violations)
+
+
+def test_posix_guard_allows_windows_safe_commands():
+    from src.tools.terminal_tools import _posix_violations
+    safe = [
+        "npm install --save three @react-three/drei @react-three/fiber",
+        "node --version && npm --version",
+        "npx tsc --noEmit",
+        r"C:\Program Files\node\node.exe --version",
+        "git status",
+    ]
+    for cmd in safe:
+        assert _posix_violations(cmd) == [], f"false positive: {cmd}"
+
+
+def test_posix_guard_allows_windows_temp_inside_workspace():
+    import os
+    from src.tools.terminal_tools import _posix_violations
+    if os.name != "nt":
+        return
+    cmd = "mkdir temp_app && cd temp_app && npx create-next-app@latest . --typescript --tailwind --yes"
+    assert _posix_violations(cmd) == [], "legit Windows scaffold must pass"
+
+
+def test_posix_guard_non_windows_noop():
+    """On POSIX the guard is a no-op — POSIX shell IS the native dialect."""
+    import src.tools.terminal_tools as tt
+    originally = tt._IS_WINDOWS
+    tt._IS_WINDOWS = False
+    try:
+        assert tt._posix_violations("mkdir -p /tmp/x && which npx") == []
+    finally:
+        tt._IS_WINDOWS = originally
+
+
+# ---------------------------------------------------------------------------
+# E2-1: named deliverable targets missing on disk (MDX-style tasks)
+# ---------------------------------------------------------------------------
+
+def tmpdir_ws():
+    import tempfile
+    return tempfile.mkdtemp(prefix="e21-")
+
+
+def test_deliverable_targets_rejects_page_scaffold_text():
+    """E2-1 false-positive guard: T3 regression — 'Create a page using
+    Next.js App Router' matched the target regex ('Next.js') and could
+    fabricate a 'named target' from prose. Without named targets the
+    plan-complete shortcut must finalize clean."""
+    import tempfile
+    from src.graphs.gates import _deliverables_missing_on_disk
+
+    ws = tempfile.mkdtemp()
+    state = {
+        "messages": [],
+        "current_task": "Create a page using Next.js App Router and Tailwind",
+        "workspace": ws,
+    }
+    assert _deliverables_missing_on_disk(state, ws) == []
+
+
+def test_named_deliverable_missing_on_disk_routes_to_finish_gate():
+    """E2-1: task names deliverable files that were never created. The
+    verify-gate evidence only proves written code sound — it proves nothing
+    about the named file. before finalize, route to finish_gate so the
+    E2 copy nudge fires."""
+    from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+    from src.graphs.chat_graph import after_progress, should_continue
+    msgs = [
+        AIMessage("scaffold", tool_calls=[]),
+        AIMessage("## ✅ Finished"),
+    ]
+    state = {
+        "messages": msgs,
+        "current_task": (
+            "Build the MDX docs page. Create src/components/ui/hero.md containing "
+            "the intro, and src/components/ui/demo.md containing the demo."
+        ),
+        "workspace": tmpdir_ws(),
+        "plan": [],
+        "steps_completed": ["Wrote file: src/components/ui/hero.md"],
+        "plan_complete": True,
+    }
+    assert should_continue(state) == "finish_gate"
+
+
+def test_named_deliverable_missing_routes_via_after_progress_as_well():
+    """E2-1 DOM: the plan-complete shortcut finalizes without consulting
+    the verify gate — named deliverable missing on disk must ALSO redirect
+    through that path, not only the ai-node exit router."""
+    from src.graphs.chat_graph import after_progress, is_plan_complete
+    state = {
+        "messages": [],
+        "current_task": (
+            "Build the MDX docs page. Create src/components/ui/hero.md and "
+            "src/components/ui/demo.md."
+        ),
+        "workspace": tmpdir_ws(),
+        "plan": [
+            {"id": "1", "description": "Write hero.md", "status": "completed"},
+            {"id": "2", "description": "Write demo.md", "status": "completed"},
+        ],
+        "steps_completed": [
+            "Wrote file: src/components/ui/hero.md",
+            "Wrote file: src/components/ui/demo.md",
+        ],
+    }
+    assert is_plan_complete(state)
+    # the shortcut would finalize; the missing named deliverable redirects
+    assert after_progress(state) == "finish_gate"
+
+
+def test_finish_gate_named_deliverable_uses_copy_nudge():
+    """E2-1: when the task names its deliverable files and they don't exist
+    on disk, finish_gate_node picks the copy/placement nudge — even for a
+    non-copy task — so the model is told to produce the named artifact,
+    not just 'do more work'."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from src.graphs.chat_graph import finish_gate_node
+    msgs = [
+        HumanMessage(
+            "Create src/components/ui/hero.md and src/components/ui/demo.md"
+        ),
+        AIMessage("## ✅ Finished"),
+    ]
+    state = {
+        "messages": msgs,
+        "current_task": (
+            "Build the MDX docs page. Create src/components/ui/hero.md containing "
+            "the intro, and src/components/ui/demo.md containing the demo."
+        ),
+        "workspace": tmpdir_ws(),
+        "finish_nudges": 0,
+    }
+    out = finish_gate_node(dict(state))
+    content = out["messages"][0].content
+    assert "copy_file" in content
+    assert out["finish_nudges"] == 1
+
+
+def test_named_deliverable_exists_on_disk_finalizes():
+    """E2-1: the on-disk check must NOT fire once the named deliverable
+    actually exists — the copy nudge does not immortalize itself."""
+    from langchain_core.messages import AIMessage
+    from src.graphs.chat_graph import should_continue
+    import os
+    ws = tmpdir_ws()
+    for f in ("src/components/ui/hero.md", "src/components/ui/demo.md"):
+        path = os.path.join(ws, *f.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("# hello\n")
+    state = {
+        "messages": [
+            AIMessage(content="x", tool_calls=[
+                {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
+            AIMessage("## ✅ Finished"),
+        ],
+        "current_task": (
+            "Build the MDX docs page. Create src/components/ui/hero.md and "
+            "src/components/ui/demo.md."
+        ),
+        "workspace": ws,
+        "steps_completed": ["Wrote file: src/components/ui/hero.md"],
+    }
+    assert should_continue(state) == "finalize"
+
+
+# ---------------------------------------------------------------------------
+# R3 / Test-3 retest regression: "✅ Finished" with zero placed components must
+# be structurally impossible for a copy/compose task, even after the generic
+# finish-nudge budget is exhausted. The retest (lab-test3-retest, 32s, 0 files)
+# escaped because the E2-1 on-disk check was gated by finish_nudges, and the
+# candidate scan never looked under src/components/ui/ for a bare filename.
+# ---------------------------------------------------------------------------
+
+_RETEST_TASK = (
+    "Integrate an existing React component. The sources are in _provided/. "
+    "Place _provided/hero-futuristic.tsx and _provided/demo.tsx into "
+    "src/components/ui/ byte-for-byte using the copy_file tool "
+    "(copy_file src=_provided/hero-futuristic.tsx "
+    "dst=src/components/ui/hero-futuristic.tsx, and same for demo.tsx). "
+    "Finish only when both files exist on disk at src/components/ui/."
+)
+
+
+def _retest_state(ws, finish_nudges=0, messages=None):
+    from langchain_core.messages import AIMessage
+    return {
+        "messages": messages or [AIMessage("## ✅ Finished")],
+        "current_task": _RETEST_TASK,
+        "workspace": ws,
+        "finish_nudges": finish_nudges,
+        "steps_completed": [],
+    }
+
+
+def test_retest_copy_task_blocked_from_finalize_even_after_nudge_budget():
+    """R3: a copy task that names its deliverables cannot finalize with zero
+    placed files, even when finish_nudges is already at the budget (2). The
+    old code returned 'finalize' here, letting the retest escape empty."""
+    import tempfile
+    from src.graphs.chat_graph import should_continue
+    ws = tempfile.mkdtemp(prefix="r3-")
+    state = _retest_state(ws, finish_nudges=2)
+    assert should_continue(state) == "finish_gate"
+
+
+def test_retest_copy_task_finalizes_once_components_placed():
+    """R3: once both named components exist on disk (under src/components/ui/),
+    the on-disk check must clear and the run finalizes — the candidate scan
+    must recognize a bare 'demo.tsx' placed under the component dir."""
+    import os, tempfile
+    from src.graphs.chat_graph import should_continue
+    ws = tempfile.mkdtemp(prefix="r3-")
+    placed = (
+        "src/components/ui/hero-futuristic.tsx",
+        "src/components/ui/demo.tsx",
+        "_provided/hero-futuristic.tsx",
+        "_provided/demo.tsx",
+    )
+    for f in placed:
+        p = os.path.join(ws, *f.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("// component\n")
+    state = _retest_state(ws, finish_nudges=2)
+    assert should_continue(state) == "finalize"

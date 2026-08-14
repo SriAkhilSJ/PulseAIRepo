@@ -94,6 +94,34 @@ class RetryLLMProxy:
                 messages_arg = sanitized
 
         # ------------------------------------------------------------------
+        # P1 PROMPT-CACHE PLAN: decorate the byte-stable prefix head with
+        # cache breakpoints (hermes prompt_caching.py shape). DEFAULT OFF —
+        # only applied when PULSEAI_PROMPT_CACHE=1 AND the provider/model is
+        # allowlisted (an OpenAI-compatible endpoint that rejects unknown
+        # content fields must never 4xx a turn). Pure, never raises; the
+        # failover stripper (cache_preservation.py) can always undo it.
+        # ------------------------------------------------------------------
+        if isinstance(messages_arg, list):
+            cls = type(self._llm).__name__.lower()
+            provider = (
+                "gemini" if "google" in cls
+                else "groq" if "groq" in cls
+                else "custom" if "openai" in cls  # includes the base_url custom route
+                else cls
+            )
+            try:
+                from src.context.prompt_cache_plan import build_prompt_cache_plan
+                planned, _info = build_prompt_cache_plan(messages_arg, provider, self.model)
+                if planned is not messages_arg:
+                    if args:
+                        args = (planned,) + args[1:]
+                    else:
+                        kwargs["messages"] = planned
+                    messages_arg = planned
+            except Exception:
+                pass  # cache decoration must never break a send
+
+        # ------------------------------------------------------------------
         # PRE-SEND TOKEN GUARD (503 mitigation)
         # Guard ONLY the messages arg — never any other positional arg.
         # ------------------------------------------------------------------

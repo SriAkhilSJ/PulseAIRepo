@@ -335,6 +335,44 @@ _D35_FINISH_JOB = """
 """
 
 
+# D36 — hermes OPENAI_MODEL_EXECUTION_GUIDANCE, grounding patterns. The
+# D35 steal closed finish-the-job + batching + enforcement, but left the
+# three grounding gaps that block was written for:
+#   1. "never answer from memory" — the persona forbade *inventing* output
+#      but never told the model to REACH FOR TOOLS instead of mental math
+#      for facts. Weak open-weights models (our model IS qwen, in hermes'
+#      TOOL_USE_ENFORCEMENT_MODELS) answer facts from memory by default.
+#   2. missing-context rule — the legacy persona defaulted ask_user-first;
+#      hermes' block inverts it (tool lookup FIRST, ask only when no tool
+#      can retrieve, label assumptions when proceeding under uncertainty).
+#   3. verification checklist — the persona had "verify" as a workflow step
+#      but no compact pre-finalize checklist (correctness/grounding/format).
+# Kill-switch gate: same PULSEAI_PERSONA_GUIDANCE=off as D35 — composed on-mode.
+_D35_GROUNDING = """
+
+## Grounding — never answer facts from memory
+
+NEVER answer these from memory or mental math — ALWAYS use a tool:
+- Math, arithmetic, hashes, checksums - run_terminal or execute_code
+- Current time, date, timezone - run_terminal
+- System state (OS, CPU, memory, disk, ports, processes) - run_terminal
+- File contents, sizes, line counts - read_file or search_code
+- Git history, branches, diffs - run_terminal
+- Live facts (docs, versions, API behavior) - web_search
+Your memory describes the codebase you have seen in this session, not the
+live system you run on.
+
+Missing context: do NOT guess or hallucinate. Look it up with the right tool
+(search_code, read_file, web_search). Use ask_user only when no tool can
+retrieve it; if you must proceed with incomplete information, label the
+assumption explicitly.
+
+Before finalizing, verify: correctness (every stated requirement met),
+grounding (claims backed by tool output), formatting (matches the request
+format or schema).
+"""
+
+
 # P0-C (hermes PTC pattern): make execute_code the TAUGHT DEFAULT for any
 # multi-step task, with a concrete worked example. The capability already
 # existed (code_exec_tool.py), but the persona only described it abstractly,
@@ -405,4 +443,5 @@ def system_persona() -> str:
         )
         + _D35_FINISH_JOB
         + _D35_PTC_DEFAULT
+        + _D35_GROUNDING
     )

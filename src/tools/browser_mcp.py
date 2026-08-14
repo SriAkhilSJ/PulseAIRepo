@@ -37,8 +37,10 @@ import time
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+# mcp is imported LAZILY inside BrowserMCPSession._start (not at module
+# import): on Windows the mcp package requires pywintypes (pywin32), and
+# the whole engine must boot even when that optional stack is missing.
+# The class docstring's "never raises into a turn" contract starts here.
 
 # The globally-installed puppeteer MCP server (verified present on the lab
 # box; overridable PULSEAI_PUPPETEER_INDEX for tests / alternate installs).
@@ -92,6 +94,11 @@ class BrowserMCPSession:
         self._ensure_loop()
         if self._session is not None:
             return
+
+        # Lazy import — the mcp stack (and its Windows pywintypes
+        # requirement) is optional; the engine must boot without it.
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
 
         async def _go() -> None:
             params = StdioServerParameters(

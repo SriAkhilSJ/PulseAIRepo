@@ -124,3 +124,64 @@ def test_ai_node_normal_path_binds_tools_and_increments(monkeypatch):
     assert not any("iteration budget" in m.content for m in llm.bound.sent_messages)
     assert out["iteration_used"] == 1
     assert out["grace_done"] == 0
+
+
+def _patch_env_tool_reply(monkeypatch, budget, tool_names):
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", str(budget))
+    llm = _FakeToolLLM(tool_names)
+    monkeypatch.setattr(cg, "get_llm", lambda provider, model: llm)
+    monkeypatch.setattr(cg, "get_context_engine", lambda config: _FakeEngine())
+    monkeypatch.setattr(cg.cost_router, "route", lambda t, p: ("groq", "m"))
+    return llm
+
+
+class _FakeToolLLM:
+    """Fake LLM whose reply carries tool calls (exercises the refund)."""
+
+    def __init__(self, tool_names):
+        self.tool_names = tool_names
+        self.model = "m"
+        self.bound = None
+        self.sent_messages = None
+
+    def bind_tools(self, tools):
+        b = _FakeToolLLM(self.tool_names)
+        self.bound = b
+        return b
+
+    def invoke(self, messages, **kwargs):
+        self.sent_messages = messages
+        return AIMessage(content="", id="r1", tool_calls=[
+            {"id": f"c{i}", "name": name, "args": {}}
+            for i, name in enumerate(self.tool_names)
+        ])
+
+
+def test_ai_node_refunds_execute_code_only_turn(monkeypatch):
+    """Hermes iteration refund: a turn whose ONLY tool call is execute_code
+    (PTC — "cheap RPC-style calls that shouldn't eat the budget") must NOT
+    consume an iteration slot. The retest burned 42 execute_code calls
+    against a 50-slot budget and died on the grace call; refunded, the run
+    keeps its budget for the real deliverable."""
+    _patch_env_tool_reply(monkeypatch, budget=10, tool_names=["execute_code"])
+    state = {"iteration_used": 3, "current_task": "fix bug", "messages": []}
+    out = cg.ai_node(state, _config())
+    assert out["iteration_used"] == 3, "PTC-only turn refunded, not consumed"
+
+
+def test_ai_node_no_refund_for_mixed_turns(monkeypatch):
+    """Hermes refunds ONLY when the tool-call set is exactly {"execute_code"}.
+    A turn mixing execute_code with a real tool still consumes an iteration."""
+    _patch_env_tool_reply(
+        monkeypatch, budget=10, tool_names=["execute_code", "copy_file"])
+    state = {"iteration_used": 3, "current_task": "fix bug", "messages": []}
+    out = cg.ai_node(state, _config())
+    assert out["iteration_used"] == 4, "mixed turn consumes an iteration"
+
+
+def test_ai_node_no_refund_on_grace_path(monkeypatch):
+    """The grace call may not refund — budget is flat-out spent there."""
+    _patch_env_tool_reply(monkeypatch, budget=5, tool_names=["execute_code"])
+    state = {"iteration_used": 5, "current_task": "fix bug", "messages": []}
+    out = cg.ai_node(state, _config())
+    assert out["iteration_used"] == 6, "grace call consumes, never refunds"

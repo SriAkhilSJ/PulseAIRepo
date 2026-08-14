@@ -84,3 +84,5 @@ class AgentState(TypedDict, total=False):
     workspace: str  # Root path of the active project
     iteration_used: int     # D40: ai-node LLM calls this run (iteration budget)
     grace_done: int         # D40: grace (text-only) call already performed
+    command_retries: dict[str, int]  # R3-1: failed-command fingerprint -> count (identical-retry cap)
+    marked_edits: list[str]  # R3-4: paths edited/written/copied (evidence ledger input)

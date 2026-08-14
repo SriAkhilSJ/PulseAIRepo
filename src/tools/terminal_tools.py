@@ -1,3 +1,6 @@
+import os
+import platform
+import re
 import subprocess
 import threading
 import uuid
@@ -5,6 +8,68 @@ import time
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+
+
+# R3-1: POSIX-on-Windows guard. R3 (Test-3 retest) burned 25 identical calls
+# sending POSIX shell (`mkdir -p /tmp/...`, `which npx`, `cp X /tmp`) against
+# a Windows cmd/PowerShell shell — every one failed fast with "syntax
+# incorrect" / "'which' is not recognized", yet the model retried the same
+# shape. Hermes never sends a POSIX-only command to Windows; it translates
+# paths (MSYS) and keeps temp dirs under its own cache, never /tmp. We detect
+# the dialect mismatch BEFORE spawning and return a typed pivot so the loop
+# learns the environment, not just the error.
+_IS_WINDOWS = platform.system() == "Windows"
+
+# A command is treated as POSIX-dialect when it reaches a POSIX-only verb or
+# a /tmp (or Unix-style) path. Words are split on whitespace and shell
+# metachars so `mkdir -p` inside quotes is still caught, but a legit Windows
+# path like `C:\Program Files` is not (it contains a backslash, not /tmp).
+_POSIX_ONLY_VERBS = frozenset({
+    "mkdir", "mv", "cp", "rm", "chmod", "chown", "which", "pwd",
+    "touch", "ls", "grep", "sed", "awk", "cat", "tar", "unzip",
+})
+_POSIX_FLAGS = ("-p", "-rf", "-R", "-f", "+x")
+_POSIX_TMP_RE = re.compile(
+    r"(?:^|\s)(?:/tmp/|/var/tmp/|~/?|\.?/\.{1,2}(?:\s|$)|/mnt/[a-z]/)",
+    re.IGNORECASE,
+)
+_WINDOWS_SHELL_BAD_RE = re.compile(r"mkdir\s+-p\b|\bwhich\b|\bchmod\b|\bsudo\b|\brm\s+-")
+
+
+def _posix_violations(command: str) -> list[str]:
+    """Return a list of POSIX-dialect violations in `command`, or [] when the
+    command is shell-dialect-agnostic (safe to run on this platform)."""
+    if not _IS_WINDOWS:
+        return []
+    if not command or not command.strip():
+        return []
+    violations: list[str] = []
+    # Strip quoted segments for the verb scan so strings don't false-positive,
+    # but keep them for the /tmp scan (a quoted /tmp path is still POSIX).
+    stripped = re.sub(r'["\'][^"\']*["\']', "", command)
+    words = re.findall(r"[^\s;&|()<>]+", stripped)
+    for i, w in enumerate(words):
+        verb = w.lstrip("([{").rstrip(")]};,")
+        if verb in _POSIX_ONLY_VERBS:
+            flags = [x for x in words[i + 1:i + 3] if x.startswith("-")]
+            if verb in ("mkdir", "cp", "mv", "rm") and flags and flags[0] in _POSIX_FLAGS:
+                violations.append(
+                    f"{verb} with POSIX flag `{flags[0]}` has no Windows equivalent "
+                    f"(use PowerShell: New-Item -ItemType Directory, Copy-Item, "
+                    f"Move-Item, Remove-Item — or cmd: mkdir/copy/move/del)."
+                )
+            elif verb in ("which", "chmod", "chown", "touch", "sudo"):
+                violations.append(
+                    f"`{verb}` is a POSIX-only command with no Windows equivalent. "
+                    f"Use PowerShell Get-Command/Get-Item, or cmd `where`."
+                )
+    if _POSIX_TMP_RE.search(command):
+        violations.append(
+            "The command references a POSIX path (/tmp, /var/tmp, ~, ./..). On "
+            "Windows, use a directory INSIDE the workspace (e.g. temp_app\\ or "
+            ".\\temp_app\\) — /tmp does not exist here."
+        )
+    return violations
 
 
 # Stores currently known background processes
@@ -269,6 +334,22 @@ def run_terminal(
 
     workspace = config["configurable"]["workspace"]
 
+    # R3-1: POSIX-dialect guard. Detect POSIX-only verbs/paths being sent to a
+    # Windows shell and pivot BEFORE spawning — R3's 25-command retry loop was
+    # the SAME dialect error ("syntax incorrect" / "which not recognized")
+    # repeated; each would otherwise spawn and fail fast, re-learning nothing.
+    violations = _posix_violations(command)
+    if violations:
+        return (
+            "⛔ run_terminal: this command uses POSIX-only shell that does not "
+            "exist on this Windows environment — refusing to run it. Do NOT "
+            "retry this command. "
+            + " ".join(violations)
+            + " Pivot: use the PowerShell/cmd equivalents shown, or keep all "
+            "temp paths inside the workspace. Windows temp/fixtures belong under "
+            "the workspace folder, e.g. .\\temp_app\\."
+        )
+
     # D31: shadow snapshot BEFORE shell commands — `rm`, `git reset --hard`,
     # move/rename accidents are the #1 destruction vector. Per-turn dedup
     # makes this a no-op after the first mutation of the turn.
@@ -276,13 +357,34 @@ def run_terminal(
     _reason = "run_terminal: " + " ".join(command.split())[:80]
     checkpoint_before_mutation(workspace, _reason)
 
+    # E2 guard: a blocking interactive CLI (e.g. `shadcn init` prompting
+    # "Use arrow-keys") would otherwise hang forever in a headless agent.
+    # Cap foreground time (default 120s, env-tunable) so a wedged subprocess
+    # returns a parseable failure instead of eating a turn. 120s clears
+    # legitimate first-run installs (E2's npm install took 36s) without
+    # letting a dead interactive prompt block the loop forever.
+    try:
+        timeout = int(os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "120"))
+    except (TypeError, ValueError):
+        timeout = 120
+
+    # E2 guard: non-interactive transport. Interactive prompts read a TTY
+    # that does not exist here, so a command that NEEDS one is an
+    # environment failure, not something retrying harder can fix (the E2
+    # model piped `printf '1\n1\n'` 13x at the same dead prompt).
+    env = dict(os.environ)
+    env["CI"] = "1"
+    env["NO_COLOR"] = "1"
+
     try:
         result = subprocess.run(
             command,
             cwd=workspace,
             shell=True,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=timeout,
+            env=env,
         )
 
         output = ""
@@ -296,6 +398,17 @@ def run_terminal(
         output += f"\nExit code: {result.returncode}"
 
         return output.strip()
+
+    except subprocess.TimeoutExpired:
+        return (
+            "⛔ run_terminal timed out after "
+            f"{timeout}s (blocking/interactive prompt detected or command "
+            f"hung): {command}. TIP: this is an ENVIRONMENT failure — do "
+            "NOT retry the same interactive command or pipe canned input. "
+            "Pivot: use non-interactive flags (e.g. --yes, --no-input), "
+            "write/place the files directly, or use start_terminal for a "
+            "long-running process."
+        )
 
     except Exception as error:
         return f"Terminal error: {error}"

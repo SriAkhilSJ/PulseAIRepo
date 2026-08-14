@@ -289,6 +289,35 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
     return failure, updates
 
 
+def command_fingerprint(tool_name: str, tool_args: dict) -> Optional[str]:
+    """R3-1: stable fingerprint of a (presumed to be failing, retried)
+    command so progress_node can cap identical retries.
+
+    Terminal.execute_code both take a `command` arg (execute_code on some
+    providers uses `code` instead). Crawls the dict for the first string
+    arg keyed `command`/`code`/`cmd`, normalizes incidental whitespace, and
+    returns the lower-cased marker. Returns None when there is nothing
+    command-like (call can never be capped because it has no retry-able
+    identity).
+    """
+    candidate: Optional[str] = None
+    for key in ("command", "code", "cmd", "script"):
+        if tool_args.get(key):
+            candidate = tool_args.get(key)
+            break
+    if not candidate:
+        return None
+    return re.sub(r"\s+", " ", str(candidate)).strip().lower()
+
+
+IDENTICAL_FAILURE_NUDGE = (
+    "You have now failed the same {tool_name} command {count} times in a "
+    "row. Retrying it a fourth time is very likely to fail identically. "
+    "Stop this loop NOW: pick a different command, a different tool, a "
+    "different approach, or ask a human."
+)
+
+
 def maybe_replan(task: str, plan: list, failure: str,
                  provider: str, model: str):
     """Consult the replanner (failure + non-empty plan only).
@@ -339,6 +368,14 @@ def success_step_label(tool_name: str, tool_args: dict,
         events.append(("files.changed", {
             "messageId": tool_call_id,
             "files": [path],
+        }))
+    elif tool_name == "copy_file":
+        dest = tool_args.get("destination", tool_args.get("dest", "unknown"))
+        src = tool_args.get("source", tool_args.get("src", "unknown"))
+        label = f"Copied file: {dest}"
+        events.append(("files.changed", {
+            "messageId": tool_call_id,
+            "files": [dest],
         }))
     elif tool_name == "search_code":
         label = (f"Searched for '{tool_args.get('query', '')}'"

@@ -58,3 +58,7 @@ lab/*.err.log
 
 # P0: VSCode fork deferred to Phase 2 — removed from tree
 desktop/
+
+# Scratch / local runtime state (never commit)
+.freebuff/
+claude_test/

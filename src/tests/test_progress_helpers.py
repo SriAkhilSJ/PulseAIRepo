@@ -271,3 +271,84 @@ def test_d9_progress_node_running_check_records_nothing():
     assert out["failed_steps"] == []
     # ...but the reflection message still fires (a tool message DID arrive)
     assert isinstance(out["messages"][0], SystemMessage)
+
+
+# ---------------------------------------------------------------------
+# R3-1: identical-retry cap
+# ---------------------------------------------------------------------
+
+def test_r3_1_command_fingerprint_extracts_and_normalizes():
+    assert ph.command_fingerprint("run_terminal", {"command": "  mkdir -p /tmp/x  "}) \
+        == "mkdir -p /tmp/x"
+    assert ph.command_fingerprint("execute_code", {"code": "  npm run build "}) \
+        == "npm run build"
+    assert ph.command_fingerprint("run_terminal", {"cmd": "path/to/script.ps1"}) \
+        == "path/to/script.ps1"
+    # missing command-like arg -> None (no retry-able identity)
+    assert ph.command_fingerprint("run_terminal", {"path": "x"}) is None
+    assert ph.command_fingerprint("run_terminal", {}) is None
+
+
+def test_r3_1_identical_failure_injects_nudge_at_third_attempt():
+    from src.graphs.chat_graph import progress_node
+
+    def state(count):
+        msgs = [
+            AIMessage(content="", tool_calls=[
+                {"id": f"t{i}", "name": "run_terminal",
+                 "args": {"command": "mkdir -p /tmp/x"}} for i in range(count)
+            ]),
+        ]
+        for i in range(count):
+            msgs.append(
+                ToolMessage(content="not recognized as an internal or external command\n"
+                                    "exit code: 1",
+                            tool_call_id=f"t{i}", name="run_terminal")
+            )
+        return {"messages": msgs, "current_task": "scaffold project"}
+
+    # Second failure: count == 2, still no nudge.
+    out2 = progress_node(state(2), _cfg())
+    assert out2["command_retries"]["mkdir -p /tmp/x"] == 2
+    assert not any("failed the same" in m.content for m in out2["messages"])
+
+    # Third failure: the cap fires exactly once.
+    out3 = progress_node(state(3), _cfg())
+    assert out3["command_retries"]["mkdir -p /tmp/x"] == 3
+    nudges3 = [m for m in out3["messages"]
+               if "failed the same" in m.content]
+    assert len(nudges3) == 1
+    assert "run_terminal" in nudges3[0].content and "3 times" in nudges3[0].content
+
+
+def test_r3_1_different_commands_do_not_share_a_retry_counter():
+    from src.graphs.chat_graph import progress_node
+
+    msgs = [
+        AIMessage(content="", tool_calls=[
+            {"id": "a", "name": "run_terminal", "args": {"command": "mkdir -p /x"}},
+            {"id": "b", "name": "run_terminal", "args": {"command": "cd /x"}},
+        ]),
+        ToolMessage(content="boom\nexit code: 1",
+                    tool_call_id="a", name="run_terminal"),
+        ToolMessage(content="boom\nexit code: 1",
+                    tool_call_id="b", name="run_terminal"),
+    ]
+    out = progress_node({"messages": msgs, "current_task": "t"}, _cfg())
+    assert out["command_retries"] == {"mkdir -p /x": 1, "cd /x": 1}
+    assert not any("failed the same" in m.content for m in out["messages"])
+
+
+def test_r3_1_no_fingerprint_no_retry_tracking():
+    from src.graphs.chat_graph import progress_node
+
+    msgs = [
+        AIMessage(content="", tool_calls=[
+            {"id": "a", "name": "read_file", "args": {"path": "x.py"}},
+        ]),
+        ToolMessage(content="error: not found",
+                    tool_call_id="a", name="read_file"),
+    ]
+    out = progress_node({"messages": msgs, "current_task": "t"}, _cfg())
+    assert "command_retries" not in out
+    assert len(out["failed_steps"]) == 1

@@ -14,6 +14,7 @@ import pytest
 from src.prompts.claude_persona import (
     CLAUDE_SYSTEM_PERSONA,
     _D35_FINISH_JOB,
+    _D35_GROUNDING,
     _D35_LEGACY_BATCH_SENTENCE,
     system_persona,
 )
@@ -92,9 +93,17 @@ def test_d35_growth_bound():
     it is what stops the 1-call-1-tool collapse by teaching a concrete
     execute_code script pattern. ~4.2k growth for a constant, cache-safe
     (Law #1) prefix that pays back the first time a task avoids 4+
-    round-trips is a deliberate, bounded trade."""
+    round-trips is a deliberate, bounded trade.
+
+    D36 raised it again (~1.0k): the Grounding block ported the hermes
+    OPENAI_MODEL_EXECUTION_GUIDANCE grounding patterns — mandatory tool
+    use for facts (math/time/system/file/git/web), missing-context
+    handling (lookup first, ask only when no tool can retrieve, label
+    assumptions), and a compact pre-finalize verification checklist.
+    This closes the remaining qwen failure mode: answering facts from
+    memory instead of tools."""
     growth = len(system_persona()) - len(CLAUDE_SYSTEM_PERSONA)
-    assert growth < 4800, f"persona grew by {growth} chars — too fat"
+    assert growth < 6200, f"persona grew by {growth} chars — too fat"
 
 
 # ------------------------------------------------------------ kill-switch
@@ -155,3 +164,44 @@ def test_d35_graph_consumes_persona_via_function():
         "raw constant must not be consumed directly — it would bypass "
         "the kill-switch"
     )
+
+
+# ------------------------------------------------------------ D36: grounding
+
+def test_d36_grounding_present_on_mode():
+    p = system_persona()
+    for marker in (
+        "Never answer facts from memory",
+        "Missing context",
+        "label the",
+        "Before finalizing, verify",
+    ):
+        assert marker.lower() in p.lower(), f"grounding pattern missing: {marker!r}"
+
+
+def test_d36_grounding_absent_from_legacy():
+    """Grounding is composed ON — never baked into the frozen constant."""
+    assert "Facts from memory" not in CLAUDE_SYSTEM_PERSONA
+    assert _D35_GROUNDING not in CLAUDE_SYSTEM_PERSONA
+
+
+def test_d36_mandatory_tool_use_lists_concrete_tools():
+    """The block must name the actual PulseAI tools (no phantom tools)."""
+    p = system_persona()
+    for tool in ("run_terminal", "read_file", "search_code", "web_search", "execute_code"):
+        assert tool in p, f"grounding block must name real tool {tool!r}"
+
+
+def test_d36_grounding_composed_after_ptc():
+    """Composition order: legacy ∪ finish-job ∪ ptc ∪ grounding."""
+    p = system_persona()
+    assert p.index("Programmatic Tool Calling") < p.index("Grounding"), (
+        "grounding must append after the PTC block"
+    )
+
+
+def test_d36_killswitch_drops_grounding(monkeypatch):
+    monkeypatch.setenv("PULSEAI_PERSONA_GUIDANCE", "off")
+    p = system_persona()
+    assert p == CLAUDE_SYSTEM_PERSONA, "off-mode must restore legacy only"
+    assert "Grounding" not in p, "off-mode leaked the grounding block"
