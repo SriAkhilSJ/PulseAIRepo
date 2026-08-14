@@ -39,11 +39,12 @@ class TestDashboardServer:
     def test_sse_stream_receives_events(self, client):
         # Clear bus first
         event_bus.clear()
+        # Seed one event before opening the lazy Flask test-client iterator;
+        # EventBus history replay guarantees it is the first SSE data frame.
+        event_bus.emit("test.sse", {"data": "hello"})
         response = client.get("/api/stream")
         assert response.status_code == 200
         assert "text/event-stream" in response.content_type
-        # Emit an event and read it from the stream
-        event_bus.emit("test.sse", {"data": "hello"})
         # Read the SSE stream
         chunks = []
         for chunk in response.response:

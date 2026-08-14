@@ -70,23 +70,36 @@ def _send(proc, obj):
 
 @pytest.fixture()
 def sidecar():
+    import os
+    env = dict(os.environ)
+    env["PULSEAI_BRIDGE_RUNNER"] = "echo"
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True,
+        stderr=subprocess.PIPE, text=True, env=env,
     )
     yield proc
     proc.kill()
 
 
-def test_sidecar_hello_then_prompt_stub(sidecar):
+def test_sidecar_hello_then_real_runtime_shape(sidecar):
     r = _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
     assert r["type"] == "hello" and r["protocol"] == PROTOCOL_VERSION
-    r = _send(sidecar, {"type": "prompt", "text": "hi", "thread_id": "t1"})
-    # Honest stub: the fork reads this flag and knows the engine
-    # streaming wiring hasn't landed yet.
-    assert r["type"] == "turn_done" and r["stub"] is True
-    assert r["thread_id"] == "t1"
+    sidecar.stdin.write(json.dumps({
+        "type": "prompt", "text": "hi", "session_id": "t1", "workspace": "."
+    }) + "\n")
+    sidecar.stdin.flush()
+    frames = []
+    while len(frames) < 5:
+        frame = json.loads(sidecar.stdout.readline())
+        frames.append(frame)
+        if frame["type"] == "turn_done":
+            break
+    assert [f["type"] for f in frames] == ["turn_started", "token", "turn_done"]
+    done = frames[-1]
+    assert done["stub"] is False and done["session_id"] == "t1"
+    assert done["turn_id"].startswith("turn-")
+    assert done["workspace_id"].startswith("ws-")
 
 
 def test_sidecar_never_dies_on_garbage(sidecar):

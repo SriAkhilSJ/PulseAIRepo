@@ -318,6 +318,30 @@ IDENTICAL_FAILURE_NUDGE = (
 )
 
 
+def read_fingerprint(tool_name: str, tool_args: dict, result: str) -> Optional[str]:
+    """Stable identity for a successful read-only observation.
+
+    A repeated successful read can still be a no-progress loop: the tool keeps
+    returning the same fact while the model misinterprets it. Include the
+    result digest so a changed file/listing is a genuinely new observation.
+    """
+    if tool_name not in {"list_files", "read_file", "search_code"}:
+        return None
+    import hashlib
+    import json
+    args = json.dumps(tool_args or {}, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(str(result).encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"read:{tool_name}:{args}:{digest}"
+
+
+IDENTICAL_READ_NUDGE = (
+    "NO-PROGRESS GUARD: {tool_name} has returned the same successful result "
+    "{count} times. Do NOT call it again. Trust the result already in context "
+    "and perform the next mutating deliverable, verification step, replan, or "
+    "ask the user if the result is genuinely ambiguous."
+)
+
+
 def maybe_replan(task: str, plan: list, failure: str,
                  provider: str, model: str):
     """Consult the replanner (failure + non-empty plan only).

@@ -23,6 +23,32 @@ _SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024   # 2 MB: minified bundles, logs
 _SEARCH_MAX_FILES = 2_000                   # worst-case scan budget
 _SEARCH_MAX_RESULTS = 500                   # context budget, not grep's
 
+def _record_workspace_edit(config: RunnableConfig, workspace: str, paths: list[str]) -> None:
+    """Persist edit invalidation and project it to clients; never hide failure.
+
+    The file mutation already landed when this hook runs. A ledger failure is
+    surfaced as a degraded event rather than silently pretending evidence is
+    still fresh.
+    """
+    try:
+        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        from src.runtime.factory import get_runtime_services
+        status = get_runtime_services().verification.mark_edited(
+            session_id=session_id, workspace=workspace, paths=paths,
+        )
+        from src.dashboard.event_bus import event_bus
+        event_bus.emit("verification.updated", {**status, "thread_id": session_id})
+    except Exception as exc:
+        try:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("runtime.degraded", {
+                "thread_id": str((config or {}).get("configurable", {}).get("thread_id", "default")),
+                "component": "verification_ledger", "error": str(exc),
+            })
+        except Exception:
+            pass
+
+
 def resolve_workspace_path(
     workspace: str,
     path: str
@@ -216,6 +242,7 @@ def write_file(
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map
     invalidate_repo_map(workspace)
+    _record_workspace_edit(config, workspace, [str(safe_path)])
 
     return f"File written: {path}"
 
@@ -246,7 +273,18 @@ def copy_file(
     if not safe_src.exists() or not safe_src.is_file():
         return f"⛔ copy_file failed: source not found: {src}"
     safe_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(safe_src, safe_dst)
+    from src.tools.shadow_checkpoints import checkpoint_before_mutation
+    checkpoint_before_mutation(workspace, f"copy_file: {src} -> {dst}")
+    from src.tools import file_state
+    with file_state.lock_path(safe_dst):
+        stale = file_state.check_stale(file_state.task_id_from_config(config), safe_dst)
+        if stale is not None:
+            return stale
+        shutil.copy2(safe_src, safe_dst)
+        file_state.note_write(file_state.task_id_from_config(config), safe_dst)
+    from src.context.repo_map import invalidate_repo_map
+    invalidate_repo_map(workspace)
+    _record_workspace_edit(config, workspace, [str(safe_dst)])
     return f"Copied: {src} -> {dst} ({safe_dst.stat().st_size} bytes)"
 
 @tool
@@ -497,6 +535,50 @@ def _esbuild_check(code: str, loader: str) -> str | None:
     return None
 
 
+def _tree_sitter_syntax_check(code: str, suffix: str) -> str | None:
+    """Declared-dependency fallback when global esbuild is unavailable.
+
+    Unlike the old fail-open path, a fresh install still receives a real
+    TS/TSX/JS/JSX grammar check. Esbuild remains preferred because its errors
+    are friendlier; tree-sitter supplies portable correctness evidence.
+    """
+    try:
+        from tree_sitter import Language, Parser
+        if suffix in {".ts", ".tsx"}:
+            import tree_sitter_typescript as grammar
+            capsule = (
+                grammar.language_tsx()
+                if suffix == ".tsx"
+                else grammar.language_typescript()
+            )
+        else:
+            import tree_sitter_javascript as grammar
+            capsule = grammar.language()
+        parser = Parser(Language(capsule))
+        tree = parser.parse(code.encode("utf-8"))
+        if not tree.root_node.has_error:
+            return None
+
+        # Find the first concrete ERROR/MISSING node for an actionable line.
+        stack = [tree.root_node]
+        bad = None
+        while stack:
+            node = stack.pop(0)
+            if node.type == "ERROR" or node.is_missing:
+                bad = node
+                break
+            stack[0:0] = list(node.children)
+        if bad is None:
+            return "tree-sitter parser reported invalid syntax"
+        line, col = bad.start_point
+        kind = "missing syntax" if bad.is_missing else "syntax error"
+        return f"{kind} at line {line + 1}, col {col + 1}"
+    except Exception:
+        # Parser setup failure is still fail-open: infrastructure absence must
+        # not destroy a user's file. The verify gate will keep the task honest.
+        return None
+
+
 def _json_syntax_receipt(original: str, updated: str) -> str | None:
     def _parse(text: str) -> str | None:
         try:
@@ -532,6 +614,12 @@ def _syntax_receipt(path: Path, original: str, updated: str) -> str | None:
         return None
     orig_err = _esbuild_check(original, loader)
     new_err = _esbuild_check(updated, loader)
+    # _esbuild_probe=False means the global binary/module was unavailable,
+    # not that both snippets parsed. Fall back to the declared tree-sitter
+    # grammars instead of silently turning the syntax gate off.
+    if _esbuild_probe is False:
+        orig_err = _tree_sitter_syntax_check(original, suffix)
+        new_err = _tree_sitter_syntax_check(updated, suffix)
     if orig_err is None and new_err is not None:
         return (
             f"❌ Edit rejected: the result would not be valid "
@@ -539,6 +627,23 @@ def _syntax_receipt(path: Path, original: str, updated: str) -> str | None:
             f"File left unchanged — fix the edit and retry."
         )
     return None
+
+
+def _record_explicit_verification(
+    config: RunnableConfig, workspace: str, *, ok: bool, output: str
+) -> None:
+    try:
+        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        from src.runtime.factory import get_runtime_services
+        evidence = get_runtime_services().verification.record_command(
+            session_id=session_id, workspace=workspace,
+            command="npm run typecheck", exit_code=0 if ok else 1, output=output,
+        )
+        if evidence:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("verification.updated", {**evidence, "thread_id": session_id})
+    except Exception:
+        pass
 
 
 @tool
@@ -560,20 +665,38 @@ def typecheck_workspace(config: RunnableConfig) -> str:
     workspace_path = Path(workspace).resolve()
 
     if not (workspace_path / "tsconfig.json").exists():
-        return (
+        message = (
             "ℹ️ typecheck_workspace: no tsconfig.json in the workspace — "
             "TypeScript isn't set up here, so there is nothing to typecheck. "
             "(If you expected a TS project, verify your setup.)"
         )
+        try:
+            session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+            from src.runtime.factory import get_runtime_services
+            get_runtime_services().verification.mark_unavailable(
+                session_id=session_id, workspace=workspace, reason=message,
+            )
+        except Exception:
+            pass
+        return message
 
     tsc_js = workspace_path / "node_modules" / "typescript" / "bin" / "tsc"
     node = shutil.which("node")
     if node is None or not tsc_js.exists():
-        return (
+        message = (
             "ℹ️ typecheck_workspace: typescript is not installed in this "
             "workspace (node_modules/typescript missing) — skipped. Install "
             "typescript if you want tsc-level verification."
         )
+        try:
+            session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+            from src.runtime.factory import get_runtime_services
+            get_runtime_services().verification.mark_unavailable(
+                session_id=session_id, workspace=workspace, reason=message,
+            )
+        except Exception:
+            pass
+        return message
 
     try:
         proc = subprocess.run(
@@ -589,7 +712,9 @@ def typecheck_workspace(config: RunnableConfig) -> str:
 
     output = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode == 0 or not output.strip():
-        return "✅ typecheck_workspace: tsc --noEmit passed with 0 errors."
+        message = "✅ typecheck_workspace: tsc --noEmit passed with 0 errors."
+        _record_explicit_verification(config, workspace, ok=True, output=message)
+        return message
 
     # tsc error shape: `path(line,col): error TSxxxx: message`
     _tsc_line = re.compile(
@@ -603,10 +728,12 @@ def typecheck_workspace(config: RunnableConfig) -> str:
 
     if not errors:
         tail = output.strip().splitlines()[-8:]
-        return (
+        message = (
             "⚠️ typecheck_workspace: tsc reported issues (unparsed output):\n"
             + "\n".join(tail)
         )
+        _record_explicit_verification(config, workspace, ok=False, output=message)
+        return message
 
     by_file: dict[str, list[str]] = {}
     for fname, line, code, msg in errors:
@@ -628,7 +755,9 @@ def typecheck_workspace(config: RunnableConfig) -> str:
                 break
     if shown_total < len(errors):
         parts.append(f"... {len(errors) - shown_total} more error(s) omitted")
-    return "\n".join(parts)
+    message = "\n".join(parts)
+    _record_explicit_verification(config, workspace, ok=False, output=message)
+    return message
 
 
 def _atomic_write(path, content: str) -> None:
@@ -732,6 +861,7 @@ def edit_file(
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map
     invalidate_repo_map(workspace)
+    _record_workspace_edit(config, workspace, [str(safe_path)])
 
     # Lazy import: chat_graph imports file_tools at module load time — a
     # module-level import here would be circular.
@@ -752,6 +882,7 @@ def edit_file(
     # (it has the real tool_call_id for messageId).
     from src.dashboard.event_bus import event_bus
     event_bus.emit("diff.show", {
+        "thread_id": str((config or {}).get("configurable", {}).get("thread_id", "default")),
         "file": path,
         "lines": preview_lines[:20],
     })

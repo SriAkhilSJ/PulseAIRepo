@@ -116,8 +116,9 @@ class TestApprovalQueue:
         t2.join(timeout=3.0)
         assert results["decision"]["decision"] is False
 
-    def test_timeout_returns_none(self):
+    def test_timeout_denies_by_default(self):
         aq = ApprovalQueue()
         aq.request("tool-3", "edit", {})
         result = aq.wait_for_decision("tool-3", timeout=0.05)
-        assert result is None
+        assert result["decision"] is False
+        assert result["timeout"] is True

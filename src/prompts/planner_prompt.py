@@ -35,6 +35,8 @@ Each step must be:
 6. If the task involves modifying existing code, include an inspection step first.
 7. Keep plans concise: usually 3-8 steps, rarely more than 12.
 8. Do not include reasoning, headings, markdown bullets, duplicate steps, or filler.
+9. When the task names existing `_provided/` source files and explicit copy_file destinations, put those copy_file deliverables before expensive scaffolding or dependency installation. The deliverable must land even if environment setup later fails. Do not plan full read_file calls for byte-for-byte sources; list the names and copy them directly.
+10. For a fresh Next.js workspace that contains `_provided/`, plan `scaffold_nextjs(packages=[...])`; never plan `create-next-app .` or `<workspace>/<workspace>` because both are known-wrong paths.
 
 ## Examples
 Bad plan:

@@ -188,14 +188,12 @@ def test_tool_failures_degrade_to_strings_not_script_death(cfg):
 
 # ------------------------------------------------------------- wiring
 def test_registry_contains_execute_code_once():
+    """Behavior contract: critical tools are unique; registry size may grow."""
     from src.graphs.chat_graph import tools
     names = [t.name for t in tools]
+    assert len(names) == len(set(names)), "tool registry contains duplicate names"
     assert names.count("execute_code") == 1
     assert names.count("session_search") == 1
-    # 30 since Test-2: typecheck_workspace (tsc --noEmit verify tool)
-    # joined after D33's 21 (delegate_to_subagent_batch); the UI
-    # verification pass added 8 browser_* tools.
-    assert len(names) == 30
 
 
 def test_graph_guard_is_name_based_inner_guard_is_the_control(cfg):

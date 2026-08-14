@@ -680,24 +680,22 @@ def test_syntax_receipt_bad_json_rejected():
     assert r is not None
 
 
-def test_resolve_workspace_path_strips_workspace_leaf_prefix():
-    """Test-2 retest bug: model wrote 'workspace_d/app/page.tsx' while inside
-    workspace_d, double-nesting under workspace_d/workspace_d/. A leading
-    component equal to the workspace's own basename must resolve to root."""
-    from pathlib import Path
+def test_resolve_workspace_path_strips_workspace_leaf_prefix(tmp_path):
+    """A workspace-prefixed model path must not double-nest the workspace."""
     from src.tools.file_tools import resolve_workspace_path
 
-    root = Path("D:/pulseAIrepo/PulseAIRepo/lab/workspace_d")
+    root = (tmp_path / "workspace_d").resolve()
+    root.mkdir()
     got = resolve_workspace_path(str(root), "workspace_d/app/page.tsx")
     assert got == root / "app" / "page.tsx"
     assert got.is_relative_to(root)
 
 
-def test_resolve_workspace_path_plain_relative_unchanged():
-    from pathlib import Path
+def test_resolve_workspace_path_plain_relative_unchanged(tmp_path):
     from src.tools.file_tools import resolve_workspace_path
 
-    root = Path("D:/pulseAIrepo/PulseAIRepo/lab/workspace_d")
+    root = (tmp_path / "workspace_d").resolve()
+    root.mkdir()
     got = resolve_workspace_path(str(root), "app/page.tsx")
     assert got == root / "app" / "page.tsx"
 
@@ -836,17 +834,18 @@ def test_generic_copy_marker_detection():
 
 
 def test_terminal_timeout_env_returns_pivot_message():
-    """E2 guard: without a guard, `npx shadcn init` (interactive prompt,
-    no TTY) blocks forever. With a short timeout the tool must return a
-    pivot message — not a hang. Uses an obviously-hanging command."""
+    """A platform-neutral sleeping child must hit the foreground timeout."""
     import os
+    import shlex
+    import sys
     from src.tools.terminal_tools import run_terminal
     from langchain_core.runnables import RunnableConfig
     cfg = RunnableConfig({"configurable": {"workspace": "."}})
     old = os.environ.get("PULSEAI_TERMINAL_TIMEOUT")
     os.environ["PULSEAI_TERMINAL_TIMEOUT"] = "1"
+    command = f"{shlex.quote(sys.executable)} -c \"import time; time.sleep(60)\""
     try:
-        out = run_terminal.invoke({"command": "ping -n 60 127.0.0.1 >NUL"}, cfg)
+        out = run_terminal.invoke({"command": command}, cfg)
     finally:
         if old is None:
             os.environ.pop("PULSEAI_TERMINAL_TIMEOUT", None)

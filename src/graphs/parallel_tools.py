@@ -69,7 +69,7 @@ MUTATING_TOOLS = frozenset({"write_file", "edit_file"})
 WILDCARD_TOOLS = frozenset({
     "execute_code", "run_terminal", "start_terminal", "check_terminal",
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
-    "read_terminal_output", "ask_user",
+    "read_terminal_output", "scaffold_nextjs", "ask_user",
     "delegate_to_subagent", "delegate_to_subagent_batch",
 })
 
@@ -124,30 +124,28 @@ def is_eligible(
 
 
 def _run_one(tools_by_name: dict, tc: dict, config) -> ToolMessage:
-    """One call -> exactly one ToolMessage (pairing is sacred, §27)."""
+    """One call through the unified durable middleware chokepoint."""
     name = tc.get("name", "")
+    args = dict(tc.get("args") or {})
     try:
         tool = tools_by_name[name]
-        result = tool.invoke(dict(tc.get("args") or {}), config=config)
-        if isinstance(result, ToolMessage):
-            # Normalize provider-required fields (rare for our string tools).
-            result.tool_call_id = result.tool_call_id or tc["id"]
-            result.name = result.name or name
-            return result
-        if not isinstance(result, str):  # Command/ddict-shaped: ours never
-            result = str(result)       # return Command; stringified honestly
-        return ToolMessage(content=result, tool_call_id=tc["id"], name=name)
-    except Exception as exc:
-        return ToolMessage(
-            content=(
-                f"⛔ Error executing tool `{name}`: "
-                f"{type(exc).__name__}: {exc}"
-            ),
-            tool_call_id=tc["id"],
-            name=name,
-            status="error",
+        from src.runtime.tool_middleware import execute_tool_transaction
+        outcome = execute_tool_transaction(
+            name=name, args=args, tool_call_id=tc["id"], config=config,
+            invoke=lambda: tool.invoke(args, config=config),
         )
-
+        return ToolMessage(
+            content=outcome.content, tool_call_id=tc["id"], name=name,
+            status="error" if outcome.status == "error" else "success",
+        )
+    except Exception as exc:
+        # Intent-persistence failure lands here BEFORE invoke() and therefore
+        # guarantees no side effect. Result-persistence failure is surfaced
+        # loudly so the loop stops rather than compounding unaudited work.
+        return ToolMessage(
+            content=f"⛔ Tool not executed or runtime halted: {exc}",
+            tool_call_id=tc["id"], name=name, status="error",
+        )
 
 def repair_tool_call_ids(tool_calls: list[dict]) -> tuple[list[dict], bool]:
     """hermes _uniquify_tool_call_ids (message_sanitization.py, #58327
@@ -263,6 +261,13 @@ def repair_text_tool_calls(message):
     if not parsed:
         return message
     return AIMessage(content="", tool_calls=parsed, id=getattr(message, "id", None))
+
+
+def run_durable_batch_sequential(
+    tool_calls: list[dict], tools_by_name: dict, config
+) -> list[ToolMessage]:
+    """Known calls through the durable transaction path in input order."""
+    return [_run_one(tools_by_name, tc, config) for tc in tool_calls]
 
 
 def try_parallel_batch(

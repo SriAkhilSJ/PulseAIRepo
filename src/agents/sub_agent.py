@@ -57,6 +57,7 @@ class SubAgentCoordinator:
         parent_thread_id: str,
         provider: str = LLM_PROVIDER,
         model: str = LLM_MODEL,
+        allowed_capabilities: tuple[str, ...] | None = None,
     ) -> str:
         """
         Spawn a sub-agent with a focused task.
@@ -104,12 +105,18 @@ class SubAgentCoordinator:
         # the tool stack, because langgraph>=1.1's default ToolNode handler
         # re-raises non-validation exceptions, killing the parent's turn.
         try:
-            result = invoke_agent(
-                message=focused_task,
-                thread_id=agent_id,
-                provider=provider,
-                model=model,
-            )
+            invoke_kwargs = {
+                "message": focused_task,
+                "thread_id": agent_id,
+                "provider": provider,
+                "model": model,
+            }
+            # Preserve the legacy call shape for ordinary delegation and test
+            # doubles. Managed lifecycle launches pass an explicit tuple and
+            # therefore activate strict child capability binding.
+            if allowed_capabilities is not None:
+                invoke_kwargs["scope_capabilities"] = allowed_capabilities
+            result = invoke_agent(**invoke_kwargs)
         except Exception as exc:
             result = (
                 f"⛔ Sub-agent crashed: {exc!r}\n"

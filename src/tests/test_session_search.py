@@ -226,15 +226,12 @@ def test_zero_llm_pure_search_source_pin():
         assert ".invoke_messages" not in src
 
 
-def test_registry_twenty_tools():
-    """Tool registry count. Renamed in spirit (§45): now 30 — D33 added
-    delegate_to_subagent_batch, verify gate added typecheck_workspace, and
-    the UI-verification pass added 8 browser_* tools (Test-2 retest D5:
-    typecheck alone can't prove a frontend renders). The name stays so
-    history diffs loudly."""
+def test_registry_exposes_required_capabilities_without_freezing_count():
+    """Behavior contract: required capabilities exist and names are unique."""
     from src.graphs.chat_graph import tools
-    assert len([t for t in tools]) == 30
-    assert "session_search" in [t.name for t in tools]
-    assert "delegate_to_subagent_batch" in [t.name for t in tools]
-    assert "typecheck_workspace" in [t.name for t in tools]
-    assert "browser_navigate" in [t.name for t in tools]
+    names = [t.name for t in tools]
+    assert len(names) == len(set(names))
+    assert "session_search" in names
+    assert "delegate_to_subagent_batch" in names
+    assert "typecheck_workspace" in names
+    assert "browser_navigate" in names

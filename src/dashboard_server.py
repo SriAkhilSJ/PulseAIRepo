@@ -29,7 +29,24 @@ from src.dashboard.event_bus import event_bus, approval_queue
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
 
 app = Flask(__name__)
-CORS(app)
+_ALLOWED_ORIGINS = [
+    origin.strip() for origin in os.environ.get(
+        "PULSEAI_ALLOWED_ORIGINS",
+        "http://127.0.0.1:8080,http://localhost:8080",
+    ).split(",") if origin.strip()
+]
+CORS(app, resources={r"/api/*": {"origins": _ALLOWED_ORIGINS}})
+_DASHBOARD_TOKEN = os.environ.get("PULSEAI_DASHBOARD_TOKEN", "").strip()
+
+@app.before_request
+def _dashboard_auth():
+    """Optional bearer auth; required by policy for non-loopback deployment."""
+    if not _DASHBOARD_TOKEN or not request.path.startswith("/api/"):
+        return None
+    supplied = request.headers.get("Authorization", "")
+    if supplied != f"Bearer {_DASHBOARD_TOKEN}":
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
 
 # ---------------------------------------------------------------
 # INPUT VALIDATION (round-12 review: nothing was checked)
@@ -79,8 +96,13 @@ def stream():
     Browser opens this once and keeps it open.
     We push every agent event as an SSE data packet.
     """
+    thread_id = str(request.args.get("thread_id", "")).strip() or None
+    # Subscribe eagerly at request time. Flask response iterators are lazy; a
+    # subscription created inside the generator misses events emitted between
+    # returning the Response and the client consuming its first chunk.
+    q = event_bus.subscribe(thread_id=thread_id)
+
     def event_generator():
-        q = event_bus.subscribe()
         try:
             while True:
                 try:
@@ -144,6 +166,9 @@ def chat():
                     model=LLM_MODEL,
                     workspace=".",
                     execution_mode=mode,
+                    approval_channel=True,
+                    approval_timeout=300.0,
+                    approval_policy=("workspace_session" if auto_approve else "ask"),
                 )
 
                 event_bus.emit("message.agent.end", {
@@ -170,11 +195,15 @@ def approve():
     tool_id = payload.get("tool_id")
     approved = payload.get("approved", False)
     always_allow = payload.get("always_allow", False)
+    thread_id = str(payload.get("thread_id", "")).strip() or None
 
     if not tool_id:
         return jsonify({"error": "Missing tool_id"}), 400
 
-    approval_queue.resolve(tool_id, approved, always_allow)
+    if not approval_queue.resolve(
+        tool_id, approved, always_allow, session_id=thread_id
+    ):
+        return jsonify({"error": "Unknown approval or session mismatch"}), 404
     
     event_bus.emit("tool.approval.done", {
         "tool_id": tool_id,
@@ -286,4 +315,9 @@ if __name__ == "__main__":
     print("   PulseAI IDE Dashboard — Production Streaming")
     print("   Open http://localhost:8080 in your browser")
     print("=" * 55)
-    app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
+    host = os.environ.get("PULSEAI_DASHBOARD_HOST", "127.0.0.1").strip()
+    if host not in {"127.0.0.1", "localhost", "::1"} and not _DASHBOARD_TOKEN:
+        raise RuntimeError(
+            "Refusing non-loopback dashboard bind without PULSEAI_DASHBOARD_TOKEN"
+        )
+    app.run(host=host, port=8080, debug=False, threaded=True)

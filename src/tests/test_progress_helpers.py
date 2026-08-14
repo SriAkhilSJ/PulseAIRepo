@@ -339,6 +339,36 @@ def test_r3_1_different_commands_do_not_share_a_retry_counter():
     assert not any("failed the same" in m.content for m in out["messages"])
 
 
+def test_r3_2_successful_identical_reads_trigger_no_progress_nudge():
+    from src.graphs.chat_graph import progress_node
+
+    def state(count):
+        calls = [
+            {"id": f"r{i}", "name": "list_files", "args": {"path": "."}}
+            for i in range(count)
+        ]
+        msgs = [AIMessage(content="", tool_calls=calls)]
+        msgs.extend(
+            ToolMessage(content="_provided", tool_call_id=f"r{i}", name="list_files")
+            for i in range(count)
+        )
+        return {"messages": msgs, "current_task": "integrate component"}
+
+    out2 = progress_node(state(2), _cfg())
+    assert not any("NO-PROGRESS GUARD" in m.content for m in out2["messages"])
+
+    out3 = progress_node(state(3), _cfg())
+    nudges = [m for m in out3["messages"] if "NO-PROGRESS GUARD" in m.content]
+    assert len(nudges) == 1
+    assert "list_files" in nudges[0].content and "3 times" in nudges[0].content
+
+
+def test_r3_2_changed_read_result_does_not_share_counter():
+    assert ph.read_fingerprint("list_files", {"path": "."}, "a") != \
+        ph.read_fingerprint("list_files", {"path": "."}, "a\nb")
+    assert ph.read_fingerprint("write_file", {"path": "x"}, "ok") is None
+
+
 def test_r3_1_no_fingerprint_no_retry_tracking():
     from src.graphs.chat_graph import progress_node
 

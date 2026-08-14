@@ -258,7 +258,7 @@ $env:TMP="D:\pytest-tmp"; $env:TEMP="D:\pytest-tmp"
 .venv\Scripts\python.exe -m pytest src\tests -q --no-header --ignore=src/tests/test_session_engines.py
 ```
 
-The suite is Windows-green: 483 passed, 1 skipped (the POSIX file-mode test — Windows has no mode bits). Point `TMP` at a drive with free space; a full C: drive makes sqlite/IO tests fail. The provider-cap tests (`test_model_budgets`) assert both explicit-cap budgets and AUTO mode (`PROVIDER_SAFE_LIMIT=0`, where the engine trusts the discovered window), so they stay green for either a host `.env` or the shipped default.
+Current README-command-equivalent result (2026-08-14): **589 passed** on Linux/Python 3.14 with `test_session_engines.py` excluded. The same selection is intended for Windows; the POSIX file-mode case may skip there because Windows has no POSIX mode bits. Point `TMP`/`TEMP` at a drive with free space and outside the repository; a full system drive makes sqlite/IO tests fail, while a temp directory inside the repo can invalidate git-context tests. The provider-cap tests (`test_model_budgets`) assert both explicit-cap budgets and AUTO mode (`PROVIDER_SAFE_LIMIT=0`, where the engine trusts the discovered window), so they stay green for either a host `.env` or the shipped default.
 
 **Key Test Modules:**
 - `test_lab_fixes`: Pins the Test-2 fixes — syntax receipt (all languages), verify gate, typecheck tool.
@@ -307,8 +307,27 @@ Second hardening pass, driven by the Test-3 E2/R3 retests (both "Finished" with 
 - **P1 prompt-cache plan** (`src/context/prompt_cache_plan.py`) — marks the byte-stable prefix head with cache breakpoints, hermes `prompt_caching.py` shape. **Default off** (`PULSEAI_PROMPT_CACHE=1` + allowlisted provider); pure, never raises, undoable by the failover stripper.
 - **`browser_mcp` lazy import** — the `mcp` package (and its Windows `pywintypes` requirement) is imported lazily so the engine boots even without the optional stack.
 
-### Test-3 retest result
-✅ **PASS** — both components placed **verbatim** (byte-identical via `copy_file`), full scaffold, `tsc` proves soundness; remaining errors are inherent to the provided component's bleeding-edge WebGPU/TSL API. Eval artifacts under `lab/` (`TEST3_E2_REPORT.md`, `report_test3_retest.json`, `test3_expected/`, harness scripts).
+### Test-3 retest result — Lab Report 3
+
+![Lab Report 3 — Test-3 run screenshot](lab/lab-report3.png)
+
+**Verdict: ✅ PASS** — same task, same provided files, opposite outcome from the first agent. Evidence independently re-verified on disk (byte-identical SHA-256 hashes, real PNG browser screenshot, and a live `tsc --noEmit` re-run with 0 errors).
+
+| Run | Engine state | Files on disk | Outcome |
+|---|---|---|---|
+| First agent — E2 (`lab-test3-e2`) | pre-fix: no `copy_file`, POSIX commands on Windows | **0** | ❌ "Finished" with nothing delivered (32 calls) |
+| First agent — R3 retest (`lab-test3-retest`) | pre-fix | **0** | ❌ status `recovering`, ~25 identical command failures, 0 files |
+| **Retest-3 v2** (`lab-test3-scaffold-fix`) | `scaffold_nextjs` + `copy_file` + evidence ledger | **2, byte-identical** | ✅ PASS — `tsc --noEmit` 0 errors (12 calls, $0.12) |
+| **Retest-3 Believe** (+ browser proof) | same engine + browser MCP | **2, byte-identical + PNG screenshot** | ✅ PASS — rendered in Chromium, screenshot on disk |
+
+**Success vs the first agent:**
+
+- **First agent:** 0 files delivered; retried the same crashing command 25× against Windows; ended "✅ Finished" with only `_provided/` on disk; pre-`copy_file` it fabricated component bodies instead of copying them.
+- **Retest-3:** 2 real `copy_file` calls placed `src/components/ui/hero-futuristic.tsx` + `demo.tsx` **byte-for-byte** (SHA-256 `f66c4f9c…` / `cf8e41c9…`, matching `_provided/`); `scaffold_nextjs` merged a genuine TS+Tailwind scaffold at the workspace root with `three`/`@react-three/drei`/`@react-three/fiber`; final `tsc --noEmit` = **0 errors** against `three@0.185`; the Believe run additionally opened a headless browser and captured a real 1280×800 screenshot (`lab/retest-visual-proof.png`).
+
+*Honest note:* the README previously cited `report_test3_retest.json` as the retest evidence — that file is the **failing** R3 run (0 files). The real passes are the v2/Believe runs above.
+
+**Reports:** [`LAB_REPORT_TEST3.md`](LAB_REPORT_TEST3.md) · [`lab/REPORT_TEST3_FINAL2_PASS.md`](lab/REPORT_TEST3_FINAL2_PASS.md) · [`lab/REPORT_TEST3_BELIEVE_PASS.md`](lab/REPORT_TEST3_BELIEVE_PASS.md) · raw JSON under [`lab/`](lab/) (`report_test3_final2.json`, `report_test3_believe.json`, `report_test3_believe_visual2.json`).
 
 ---
 

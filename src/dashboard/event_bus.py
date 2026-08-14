@@ -1,149 +1,161 @@
-"""
-Event Bus for PulseAI Dashboard
-================================
-Thread-safe event streaming between the agent and the web UI.
-The agent emits events. The Flask server reads them and pushes
-to the browser via Server-Sent Events (SSE).
+"""Session-scoped runtime events and pre-execution approval broker."""
+from __future__ import annotations
 
-Event Types:
-- message.user          : User sent a message
-- message.agent.start   : Agent began responding
-- message.agent.chunk   : Streaming text token
-- message.agent.end     : Agent finished
-- message.agent.error   : Agent hit an error
-- tool.call             : Agent wants to call a tool
-- tool.result           : Tool returned output
-- tool.approval.request : Needs user approval
-- tool.approval.done    : Approval resolved
-- plan.created          : Plan generated
-- plan.step.complete    : Step finished
-- plan.step.fail        : Step failed
-- diff.show             : File diff to render
-- analytics.update      : Cost / tokens / timing
-- session.status        : Agent online/offline/busy
-"""
-
-import json
 import queue
 import threading
 import time
-from typing import Any, Callable
+import uuid
+from typing import Any
+
 
 class EventBus:
+    """Thread-safe event projection with session-filtered replay.
+
+    `thread_id=None` is the compatibility/admin subscription and receives all
+    sessions. User-facing clients must subscribe with their session id.
     """
-    Thread-safe event bus for agent ↔ dashboard communication.
-    """
+
     def __init__(self):
-        self._queues: list[queue.Queue] = []
+        self._queues: list[tuple[queue.Queue, str | None]] = []
         self._lock = threading.Lock()
         self._history: list[dict] = []
         self._max_history = 500
 
-    def subscribe(self) -> queue.Queue:
-        """Create a new subscriber queue. Used by Flask SSE endpoint."""
+    @staticmethod
+    def _session_of(event: dict) -> str | None:
+        payload = event.get("payload") or {}
+        return str(payload.get("thread_id") or payload.get("session_id") or "") or None
+
+    def subscribe(self, thread_id: str | None = None) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=200)
+        wanted = str(thread_id) if thread_id else None
         with self._lock:
-            # Replay history so new subscriber catches up
             for evt in self._history:
+                if wanted is not None and self._session_of(evt) != wanted:
+                    continue
                 try:
                     q.put_nowait(evt)
                 except queue.Full:
                     break
-            self._queues.append(q)
+            self._queues.append((q, wanted))
         return q
 
     def unsubscribe(self, q: queue.Queue) -> None:
         with self._lock:
-            if q in self._queues:
-                self._queues.remove(q)
+            self._queues = [(candidate, sid) for candidate, sid in self._queues if candidate is not q]
 
-    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
-        """
-        Emit an event to all subscribers.
-        Call this from anywhere in the agent code.
-        """
+    def emit(self, event_type: str, payload: dict[str, Any]) -> dict:
         event = {
+            "event_id": f"evt-{uuid.uuid4().hex}",
             "type": event_type,
             "payload": payload,
             "timestamp": time.time(),
         }
+        event_session = self._session_of(event)
         with self._lock:
             self._history.append(event)
             if len(self._history) > self._max_history:
                 self._history = self._history[-self._max_history:]
-
-            dead = []
-            for q in self._queues:
+            dead: list[queue.Queue] = []
+            for q, wanted in self._queues:
+                if wanted is not None and event_session != wanted:
+                    continue
                 try:
                     q.put_nowait(event)
                 except queue.Full:
                     dead.append(q)
-            for q in dead:
-                self._queues.remove(q)
+            if dead:
+                self._queues = [(q, sid) for q, sid in self._queues if q not in dead]
+        return event
 
-    def clear(self) -> None:
+    def clear(self, thread_id: str | None = None) -> None:
+        wanted = str(thread_id) if thread_id else None
         with self._lock:
-            self._history.clear()
-            for q in self._queues:
+            if wanted is None:
+                self._history.clear()
+            else:
+                self._history = [e for e in self._history if self._session_of(e) != wanted]
+            for q, sid in self._queues:
+                if wanted is not None and sid not in (None, wanted):
+                    continue
+                kept = []
                 try:
-                    while not q.empty():
-                        q.get_nowait()
+                    while True:
+                        evt = q.get_nowait()
+                        if wanted is not None and self._session_of(evt) != wanted:
+                            kept.append(evt)
                 except queue.Empty:
                     pass
+                for evt in kept:
+                    try: q.put_nowait(evt)
+                    except queue.Full: break
+
 
 class ApprovalQueue:
-    """
-    Holds pending tool approvals from the UI.
-    The agent checks this before executing destructive tools.
-    """
+    """Session-scoped approval requests; timeout and errors deny by default."""
+
     def __init__(self):
         self._pending: dict[str, dict] = {}
-        self._lock = threading.Lock()
-        self._event = threading.Event()
+        self._conditions: dict[str, threading.Condition] = {}
+        self._lock = threading.RLock()
 
-    def request(self, tool_id: str, tool_name: str, tool_args: dict) -> None:
+    def request(
+        self, tool_id: str, tool_name: str, tool_args: dict,
+        *, session_id: str = "default", diff: dict | None = None,
+    ) -> dict:
         with self._lock:
-            self._pending[tool_id] = {
-                "tool_name": tool_name,
-                "tool_args": tool_args,
-                "status": "pending",
-                "decision": None,
+            condition = self._conditions.setdefault(tool_id, threading.Condition(self._lock))
+            item = {
+                "id": tool_id, "session_id": session_id,
+                "tool_name": tool_name, "tool_args": tool_args,
+                "diff": diff, "status": "pending", "decision": None,
+                "always_allow": False, "created_at": time.time(),
             }
-        self._event.clear()
+            self._pending[tool_id] = item
+            return dict(item)
 
-    def resolve(self, tool_id: str, approved: bool, always_allow: bool = False) -> None:
+    def resolve(
+        self, tool_id: str, approved: bool, always_allow: bool = False,
+        *, session_id: str | None = None,
+    ) -> bool:
         with self._lock:
-            if tool_id in self._pending:
-                self._pending[tool_id]["status"] = "resolved"
-                self._pending[tool_id]["decision"] = approved
-                self._pending[tool_id]["always_allow"] = always_allow
-        self._event.set()
+            item = self._pending.get(tool_id)
+            if item is None or (session_id and item["session_id"] != session_id):
+                return False
+            item.update(status="resolved", decision=bool(approved), always_allow=bool(always_allow))
+            self._conditions.setdefault(tool_id, threading.Condition(self._lock)).notify_all()
+            return True
 
     def wait_for_decision(self, tool_id: str, timeout: float = 300.0) -> dict | None:
-        """
-        Block until the user approves/denies, or timeout.
-        Returns the decision dict or None on timeout.
-        """
-        # wait_for_decision logic refinement: 
-        # Since we use self._event.wait(), we must ensure we check the specific tool_id
-        # because many tools could be waiting.
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            with self._lock:
-                if self._pending.get(tool_id, {}).get("status") == "resolved":
-                    return self._pending.get(tool_id)
-            if self._event.wait(timeout=1.0):
-                self._event.clear() # Reset event for next notification
-        return None
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._lock:
+            condition = self._conditions.setdefault(tool_id, threading.Condition(self._lock))
+            while True:
+                item = self._pending.get(tool_id)
+                if item and item.get("status") == "resolved":
+                    result = dict(item)
+                    self._pending.pop(tool_id, None)
+                    self._conditions.pop(tool_id, None)
+                    return result
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if item:
+                        item.update(status="resolved", decision=False, timeout=True)
+                        result = dict(item)
+                        self._pending.pop(tool_id, None)
+                        self._conditions.pop(tool_id, None)
+                        return result
+                    return None
+                condition.wait(timeout=remaining)
 
-    def get_pending(self) -> list[dict]:
+    def get_pending(self, session_id: str | None = None) -> list[dict]:
         with self._lock:
             return [
-                {"id": k, **v}
-                for k, v in self._pending.items()
-                if v["status"] == "pending"
+                dict(item) for item in self._pending.values()
+                if item["status"] == "pending"
+                and (session_id is None or item["session_id"] == session_id)
             ]
 
-# Global singletons — shared across the whole app
+
 event_bus = EventBus()
 approval_queue = ApprovalQueue()

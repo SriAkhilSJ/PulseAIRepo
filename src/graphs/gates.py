@@ -72,21 +72,45 @@ _COPY_NUDGE = (
     "finish only when the files exist on disk.]"
 )
 
+_ARTIFACT_NUDGE = (
+    "[System: The user requested a named deliverable, but that artifact does "
+    "not exist on disk yet. Scope is a general IDE agent: produce the actual "
+    "file, not a description or a code block. Use the appropriate workspace "
+    "tool or execute_code/terminal workflow for its format, then verify that "
+    "the exact requested path exists and is non-empty before finishing. If "
+    "the format cannot be produced in this environment, report the concrete "
+    "blocker instead of claiming completion.]"
+)
+
 
 def _looks_like_copy_task(task: str) -> bool:
     t = (task or "").lower()
     return any(marker in t for marker in _COPY_TASK_MARKERS)
 
 
+_NAMED_DELIVERABLE_EXTENSIONS = (
+    # Code and project text
+    "tsx", "ts", "jsx", "js", "py", "css", "html", "json", "md", "mdx",
+    "yaml", "yml", "toml", "xml", "sql", "sh", "ps1",
+    # Scope IDE's non-coding artifact surface
+    "txt", "csv", "tsv", "svg", "png", "jpg", "jpeg", "webp",
+    "pdf", "docx", "xlsx", "pptx", "mp3", "wav", "mp4",
+)
+_NAMED_DELIVERABLE_RE = re.compile(
+    r"[A-Za-z0-9_./\\-]+\.(?:" + "|".join(_NAMED_DELIVERABLE_EXTENSIONS) + r")\b",
+    re.IGNORECASE,
+)
+_NON_CODE_ARTIFACT_EXTENSIONS = frozenset({
+    ".txt", ".csv", ".tsv", ".svg", ".png", ".jpg", ".jpeg", ".webp",
+    ".pdf", ".docx", ".xlsx", ".pptx", ".mp3", ".wav", ".mp4",
+})
+
+
 def _deliverable_targets(task: str) -> list[str]:
-    """The explicit file paths/names a copy/compose task asks for, in order.
-    Includes .md/.mdx so MDX-style tasks ("Create src/components/ui/x.md")
-    get the same named-deliverable protection (E2-1)."""
+    """Explicit named outputs for code *and* general IDE artifact tasks."""
     targets: list[str] = []
-    for m in re.finditer(
-        r"[A-Za-z0-9_./-]+\.(?:tsx|ts|jsx|js|py|css|json|md|mdx)\b", task or ""
-    ):
-        name = m.group(0).strip().strip("/")
+    for m in _NAMED_DELIVERABLE_RE.finditer(task or ""):
+        name = m.group(0).strip().strip("/\\")
         if name not in targets:
             targets.append(name)
     return targets
@@ -313,7 +337,13 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
         if not target:
             continue
         if not is_copy and "/" not in target and "\\" not in target:
-            continue  # bare filename in prose is not a named deliverable
+            # A bare code-ish filename in prose can be a library/version token
+            # (the historical `Next.js` false positive), so keep requiring a
+            # path for code. A requested non-code artifact such as report.pdf,
+            # analysis.xlsx, or slides.pptx is unambiguously a deliverable and
+            # should be protected even at the workspace root.
+            if Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS:
+                continue
         exists = False
         for cand in _deliverable_candidates(workspace, target):
             try:
@@ -325,6 +355,30 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
         if not exists:
             missing.append(target)
     return missing
+
+
+def _named_deliverables_exist(state: AgentState, workspace: str = ".") -> bool:
+    """True when the task names eligible outputs and every one exists.
+
+    This lets a general Scope task create a binary artifact through
+    execute_code/terminal without being falsely treated as "no work" merely
+    because the delivery-only work counter intentionally excludes shell calls.
+    """
+    task = state.get("current_task", "")
+    is_copy = _looks_like_copy_task(task)
+    eligible: list[str] = []
+    for target in _deliverable_targets(task):
+        has_dir = "/" in target or "\\" in target
+        if not is_copy and not has_dir:
+            if Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS:
+                continue
+        eligible.append(target)
+    if not eligible:
+        return False
+    for target in eligible:
+        if not any(candidate.is_file() for candidate in _deliverable_candidates(workspace, target)):
+            return False
+    return True
 
 
 def _deliverable_candidates(workspace: str, target: str):
@@ -359,6 +413,8 @@ def _deliverable_candidates(workspace: str, target: str):
 
 def should_continue(state: AgentState):
     last_message = state["messages"][-1]
+    if bool(getattr(last_message, "additional_kwargs", {}).get("pulse_cancelled")):
+        return "finalize"
 
     # D40: once the ai iteration budget is spent, this run must conclude.
     # The grace call produced a text answer (or a tool_call the no-tools
@@ -389,7 +445,12 @@ def should_continue(state: AgentState):
     # finalize.
     if state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
         if _looks_like_execution_task(state.get("current_task", "")):
-            if _tool_call_count(state) < 1:
+            if (
+                _tool_call_count(state) < 1
+                and not _named_deliverables_exist(
+                    state, state.get("workspace", ".")
+                )
+            ):
                 return "finish_gate"
 
     # Verify gate: code files were written but the code is NOT proven
@@ -580,8 +641,13 @@ def finish_gate_node(state: AgentState) -> dict:
     # target files must exist before finalize.
     missing = _deliverables_missing_on_disk(state, state.get("workspace", "."))
     if missing:
+        artifact_only = all(
+            Path(path).suffix.lower() in _NON_CODE_ARTIFACT_EXTENSIONS
+            for path in missing
+        )
+        nudge = _ARTIFACT_NUDGE if artifact_only else _COPY_NUDGE
         return {
-            "messages": [SystemMessage(content=_COPY_NUDGE)],
+            "messages": [SystemMessage(content=nudge)],
             "finish_nudges": state.get("finish_nudges", 0) + 1,
         }
     if _wrote_code_files(state) and (

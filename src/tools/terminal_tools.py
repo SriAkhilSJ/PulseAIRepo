@@ -316,6 +316,30 @@ def check_terminal(
     return result
 
 
+def _record_verification_result(
+    config: RunnableConfig, workspace: str, command: str, exit_code: int, output: str
+) -> None:
+    try:
+        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        from src.runtime.factory import get_runtime_services
+        evidence = get_runtime_services().verification.record_command(
+            session_id=session_id, workspace=workspace, command=command,
+            exit_code=exit_code, output=output,
+        )
+        if evidence:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("verification.updated", {**evidence, "thread_id": session_id})
+    except Exception as exc:
+        try:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("runtime.degraded", {
+                "thread_id": str((config or {}).get("configurable", {}).get("thread_id", "default")),
+                "component": "verification_ledger", "error": str(exc),
+            })
+        except Exception:
+            pass
+
+
 @tool
 def run_terminal(
     command: str,
@@ -377,27 +401,61 @@ def run_terminal(
     env["NO_COLOR"] = "1"
 
     try:
-        result = subprocess.run(
-            command,
-            cwd=workspace,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
+        popen_kwargs = dict(
+            cwd=workspace, shell=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, env=env,
         )
+        if _IS_WINDOWS:
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(command, **popen_kwargs)
+        started = time.monotonic()
+        stdout = stderr = ""
+        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        from src.runtime.turn_control import turn_controls
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                if turn_controls.cancelled(session_id):
+                    try:
+                        if _IS_WINDOWS:
+                            process.terminate()
+                        else:
+                            import signal
+                            os.killpg(process.pid, signal.SIGTERM)
+                    except Exception:
+                        process.kill()
+                    stdout, stderr = process.communicate(timeout=5)
+                    return (
+                        "⛔ Terminal command cancelled by the user before completion. "
+                        f"Command: {command}"
+                    )
+                if time.monotonic() - started >= timeout:
+                    try:
+                        if _IS_WINDOWS:
+                            process.kill()
+                        else:
+                            import signal
+                            os.killpg(process.pid, signal.SIGKILL)
+                    except Exception:
+                        process.kill()
+                    process.communicate()
+                    raise subprocess.TimeoutExpired(command, timeout)
 
         output = ""
-
-        if result.stdout:
-            output += f"STDOUT:\n{result.stdout}"
-
-        if result.stderr:
-            output += f"\nSTDERR:\n{result.stderr}"
-
-        output += f"\nExit code: {result.returncode}"
-
-        return output.strip()
+        if stdout:
+            output += f"STDOUT:\n{stdout}"
+        if stderr:
+            output += f"\nSTDERR:\n{stderr}"
+        output += f"\nExit code: {process.returncode}"
+        final_output = output.strip()
+        _record_verification_result(
+            config, workspace, command, process.returncode, final_output
+        )
+        return final_output
 
     except subprocess.TimeoutExpired:
         return (

@@ -42,17 +42,24 @@ from langchain_core.runnables import RunnableConfig
 # the whole engine must boot even when that optional stack is missing.
 # The class docstring's "never raises into a turn" contract starts here.
 
-# The globally-installed puppeteer MCP server (verified present on the lab
-# box; overridable PULSEAI_PUPPETEER_INDEX for tests / alternate installs).
-_SERVER_DIR = (
-    r"C:\Users\Administrator\AppData\Roaming\npm"
-    r"\node_modules\@modelcontextprotocol\server-puppeteer"
-)
+# Globally-installed puppeteer MCP server. Keep the Windows lab default, but
+# discover the standard Linux global-npm location so browser proof is not
+# silently Windows-only. An explicit environment override always wins.
+if os.name == "nt":
+    _DEFAULT_SERVER_DIR = (
+        r"C:\Users\Administrator\AppData\Roaming\npm"
+        r"\node_modules\@modelcontextprotocol\server-puppeteer"
+    )
+    _DEFAULT_CACHE = r"D:\puppeteer-cache"
+else:
+    _DEFAULT_SERVER_DIR = "/usr/lib/node_modules/@modelcontextprotocol/server-puppeteer"
+    _DEFAULT_CACHE = os.path.expanduser("~/.cache/puppeteer")
 _SERVER_INDEX = os.environ.get(
     "PULSEAI_PUPPETEER_INDEX",
-    os.path.join(_SERVER_DIR, "dist", "index.js"),
+    os.path.join(_DEFAULT_SERVER_DIR, "dist", "index.js"),
 )
-_PUPPETEER_CACHE = os.environ.get("PUPPETEER_CACHE_DIR", r"D:\puppeteer-cache")
+_SERVER_DIR = os.path.dirname(os.path.dirname(_SERVER_INDEX))
+_PUPPETEER_CACHE = os.environ.get("PUPPETEER_CACHE_DIR", _DEFAULT_CACHE)
 
 _NAVIGATE_TIMEOUT = 180.0   # a first Next.js compile can take a while
 _DEFAULT_TIMEOUT = 60.0
@@ -108,6 +115,13 @@ class BrowserMCPSession:
                 env={
                     **os.environ,
                     "PUPPETEER_CACHE_DIR": _PUPPETEER_CACHE,
+                    # The MCP package defaults to headful mode when it is not
+                    # running in Docker, which fails on headless Linux without
+                    # an X server. Preserve explicit caller configuration.
+                    "PUPPETEER_LAUNCH_OPTIONS": os.environ.get(
+                        "PUPPETEER_LAUNCH_OPTIONS",
+                        '{"headless":true}' if os.name != "nt" else "{}",
+                    ),
                     # Server writes its rough HTML artifacts here; harmless.
                     "PUPPETEER_PROJECT_DIR": os.environ.get(
                         "PULSEAI_PUPPETEER_PROJECT_DIR", _SERVER_DIR

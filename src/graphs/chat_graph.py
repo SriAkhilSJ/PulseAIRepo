@@ -86,6 +86,7 @@ from src.tools.terminal_tools import (
 from src.tools.web_tools import web_search, web_fetch
 from src.tools.browser_mcp import BROWSER_TOOLS
 from src.tools.code_exec_tool import execute_code
+from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.session_search_tool import session_search
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
@@ -323,6 +324,10 @@ tools = [
     # above and return only printed output (D18, hermes PTC pattern).
     execute_code,
 
+    # Deterministic UI-project setup that preserves _provided inputs and
+    # prevents create-next-app workspace/workspace nesting.
+    scaffold_nextjs,
+
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
 
@@ -416,6 +421,16 @@ def ai_node(
     config: RunnableConfig,
 ):
     configurable = config["configurable"]
+    session_id = str(configurable.get("thread_id") or "default")
+    from src.runtime.turn_control import turn_controls
+    if turn_controls.cancelled(session_id):
+        return {
+            "messages": [AIMessage(
+                content="Operation cancelled by the user.",
+                additional_kwargs={"pulse_cancelled": True},
+            )],
+            "iteration_used": int(state.get("iteration_used", 0)),
+        }
 
     base_provider = configurable["provider"]
     base_model = configurable["model"]
@@ -462,6 +477,13 @@ def ai_node(
         state=dict(state),
         system_message=system_message,
     )
+    steers = turn_controls.drain_steer(session_id)
+    if steers:
+        messages.append(SystemMessage(content=(
+            "=== OUT-OF-BAND USER STEER ===\n"
+            "The user sent this correction during the active turn. Adjust now; "
+            "do not repeat already-completed work.\n" + "\n".join(steers)
+        )))
 
     call_model = model
     call_llm = llm_with_tools
@@ -545,6 +567,14 @@ def ai_node(
 
 
 def finalize_node(state: AgentState, config: RunnableConfig):
+    last = state.get("messages", [])[-1] if state.get("messages") else None
+    if bool(getattr(last, "additional_kwargs", {}).get("pulse_cancelled")):
+        return {
+            "task_completed": False,
+            "task_status": "cancelled",
+            "messages": [AIMessage(content="Operation cancelled by the user.")],
+        }
+
     plan = finalize_plan(
         plan=list(state.get("plan", [])),
         task_succeeded=True,
@@ -648,7 +678,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     completion_tokens = usage.get("completion_tokens", 0)
     call_count = usage.get("calls_made", 0)
 
+    _final_thread_id = str(config.get("configurable", {}).get("thread_id", "default"))
     event_bus.emit("analytics.update", {
+        "thread_id": _final_thread_id,
         "totalCost": cost_usd,
         "tokensIn": prompt_tokens,
         "tokensOut": completion_tokens,
@@ -660,6 +692,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     })
 
     event_bus.emit("suggestions", {
+        "thread_id": _final_thread_id,
         "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
     })
 
@@ -1201,6 +1234,23 @@ def progress_node(
             continue
 
         # ---------------- success ----------------
+        # A successful read may still be a no-progress loop when the model
+        # repeatedly receives the same observation but fails to act on it.
+        # Nudge after the third identical name+args+result, before an external
+        # watchdog has to kill the fourth call.
+        read_fp = ph.read_fingerprint(tool_name, tool_args, result)
+        if read_fp:
+            command_retries[read_fp] = command_retries.get(read_fp, 0) + 1
+            if command_retries[read_fp] == 3:
+                injected.append(
+                    SystemMessage(
+                        content=ph.IDENTICAL_READ_NUDGE.format(
+                            tool_name=tool_name,
+                            count=command_retries[read_fp],
+                        )
+                    )
+                )
+
         if plan:
             plan = ph.update_plan_from_tool(
                 plan=plan,
@@ -1213,7 +1263,10 @@ def progress_node(
             tool_name, tool_args, message.tool_call_id
         )
         for event_name, payload in events:
-            event_bus.emit(event_name, payload)
+            event_bus.emit(event_name, {
+                **payload,
+                "thread_id": str(config.get("configurable", {}).get("thread_id", "default")),
+            })
 
         # Same-operation rule: recovery clears only when the command that
         # originally failed now succeeds.
@@ -1731,6 +1784,36 @@ class SafeToolNode:
             str(safety_guard.workspace): safety_guard
         }
 
+    def _execute_durable(self, tool_calls: list[dict], config) -> list[ToolMessage]:
+        """Execute known calls through the journaled transaction path."""
+        from src.graphs.parallel_tools import run_durable_batch_sequential
+        return run_durable_batch_sequential(
+            tool_calls, self._tools_by_name, config
+        )
+
+    def _diff_payload(self, tool_call: dict, workspace: str) -> dict | None:
+        name = tool_call.get("name", "")
+        args = tool_call.get("args", {}) or {}
+        if name not in {"write_file", "edit_file", "copy_file"}:
+            return None
+        try:
+            from src.tools.file_tools import resolve_workspace_path
+            path_arg = args.get("path") or args.get("dst") or ""
+            path = resolve_workspace_path(workspace, str(path_arg))
+            old = path.read_text(encoding="utf-8") if path.is_file() else None
+            if name == "write_file":
+                new = str(args.get("content", ""))
+            elif name == "edit_file":
+                needle = str(args.get("old_text", ""))
+                replacement = str(args.get("new_text", ""))
+                new = old.replace(needle, replacement, 1) if old is not None and needle in old else replacement
+            else:
+                src = resolve_workspace_path(workspace, str(args.get("src", "")))
+                new = src.read_text(encoding="utf-8", errors="replace") if src.is_file() else ""
+            return {"path": str(path), "old_text": old, "new_text": new}
+        except Exception as exc:
+            return {"error": f"could not prepare diff: {exc}"}
+
     def __call__(self, state, config=None):
         # Check the last AI message for tool calls
         messages = state.get("messages", [])
@@ -1787,7 +1870,7 @@ class SafeToolNode:
             ]
             unsafe = [v for v in verdicts if not v[1]]
             if not unsafe:
-                return self._node.invoke(state, config)
+                return _with_repaired(self._execute_durable(tool_calls, config))
 
             import logging
             log = logging.getLogger("pulseai.safety")
@@ -1823,10 +1906,8 @@ class SafeToolNode:
                 )
                 filtered_state = dict(state)
                 filtered_state["messages"] = messages[:-1] + [filtered_ai]
-                executed = self._node.invoke(filtered_state, config)
-                for m in executed.get("messages", []):
-                    if isinstance(m, ToolMessage):
-                        results[m.tool_call_id] = m
+                for m in self._execute_durable(safe_tcs, config):
+                    results[m.tool_call_id] = m
 
             # Return ToolMessages in the model's original tool_call order:
             # pairing/order invariants (see §28 crash-net round) must hold
@@ -1842,10 +1923,7 @@ class SafeToolNode:
                 thread_id, len(tool_calls),
                 [tc.get("name", "") for tc in tool_calls],
             )
-            if _repaired_ai is not None:
-                state = dict(state)
-                state["messages"] = messages[:-1] + [_repaired_ai]
-            return _with_repaired(self._node.invoke(state, config)["messages"])
+            return _with_repaired(self._execute_durable(tool_calls, config))
 
         verdicts = [
             (tc, *guard.check_tool_call(tc.get("name", ""), tc.get("args", {})))
@@ -1899,10 +1977,8 @@ class SafeToolNode:
                 )
                 filtered_state = dict(state)
                 filtered_state["messages"] = messages[:-1] + [filtered_ai]
-                executed = self._node.invoke(filtered_state, config)
-                for m in executed.get("messages", []):
-                    if isinstance(m, ToolMessage):
-                        results[m.tool_call_id] = m
+                for m in self._execute_durable(safe_tcs, config):
+                    results[m.tool_call_id] = m
 
             # Return results in the model's original tool_call order so
             # pairing/order invariants hold regardless of which batch
@@ -1910,7 +1986,70 @@ class SafeToolNode:
             ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
             return _with_repaired(ordered)
 
+        approval_channel = bool(
+            (config or {}).get("configurable", {}).get("approval_channel", False)
+        )
+        approval_policy = str(
+            (config or {}).get("configurable", {}).get("approval_policy", "ask")
+        )
+        unsafe_by_id = {tc.get("id"): warning for tc, _, warning in unsafe}
+        mutation_names = {"write_file", "edit_file", "copy_file", "scaffold_nextjs"}
+        approval_candidates = []
+        if approval_channel:
+            for tc in tool_calls:
+                warning = unsafe_by_id.get(tc.get("id"), "")
+                is_mutation = tc.get("name") in mutation_names
+                auto_safe_mutation = (
+                    is_mutation
+                    and approval_policy in {"workspace_session", "session"}
+                    and tc.get("id") not in unsafe_by_id
+                )
+                if tc.get("id") in unsafe_by_id or (is_mutation and not auto_safe_mutation):
+                    approval_candidates.append((tc, False, warning))
+        if approval_candidates and approval_channel:
+            # Real pre-execution UI approval: publish the proposed diff, wait
+            # on this session's request, deny on timeout/failure, then execute
+            # only approved + originally-safe calls through the durable path.
+            from src.dashboard.event_bus import approval_queue
+            timeout = float(
+                (config or {}).get("configurable", {}).get("approval_timeout", 300.0)
+            )
+            unsafe_ids = {tc.get("id") for tc, _, _ in approval_candidates}
+            approved_ids: set[str] = set()
+            denials: dict[str, ToolMessage] = {}
+            for tc, _, warning in approval_candidates:
+                tool_id = str(tc.get("id") or "")
+                request_item = approval_queue.request(
+                    tool_id, tc.get("name", ""), tc.get("args", {}) or {},
+                    session_id=thread_id or "default",
+                    diff=self._diff_payload(tc, workspace),
+                )
+                event_bus.emit("tool.approval.request", {
+                    **request_item, "thread_id": thread_id or "default",
+                    "warning": warning,
+                })
+                decision = approval_queue.wait_for_decision(tool_id, timeout=timeout)
+                if decision and decision.get("decision") is True:
+                    approved_ids.add(tool_id)
+                else:
+                    reason = "timed out" if decision and decision.get("timeout") else "denied"
+                    denials[tool_id] = ToolMessage(
+                        content=f"⛔ Tool `{tc.get('name', '')}` {reason} before execution.",
+                        tool_call_id=tool_id, name=tc.get("name", ""), status="error",
+                    )
+            runnable = [
+                tc for tc in tool_calls
+                if tc.get("id") not in unsafe_ids or tc.get("id") in approved_ids
+            ]
+            results = {m.tool_call_id: m for m in self._execute_durable(runnable, config)}
+            results.update(denials)
+            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+            return _with_repaired(ordered)
+
         if unsafe:
+            # CLI fallback without an approval transport: return a human-readable
+            # pause. Dashboard/IDE paths always set approval_channel=True.
+            # No side effect has happened.
             # INTERACTIVE main thread (a human is reading): the first
             # unsafe call returns an approval-question AIMessage and
             # nothing executes — the human confirms and the model
@@ -1951,6 +2090,17 @@ class SafeToolNode:
         )
         if sequential is not None:
             return _with_repaired(sequential)
+        if os.environ.get("PULSEAI_PARALLEL_TOOLS", "").strip().lower() == "off":
+            # Explicit compatibility kill-switch: restore ToolNode's historical
+            # execution semantics (including its concurrent batch behavior).
+            if _repaired_ai is not None:
+                state = dict(state)
+                state["messages"] = messages[:-1] + [_repaired_ai]
+            return _with_repaired(self._node.invoke(state, config)["messages"])
+        if all(tc.get("name", "") in self._tools_by_name for tc in tool_calls):
+            return _with_repaired(self._execute_durable(tool_calls, config))
+        # Unknown names remain ToolNode's responsibility so its canonical
+        # validation error and tool-call pairing behavior are preserved.
         if _repaired_ai is not None:
             state = dict(state)
             state["messages"] = messages[:-1] + [_repaired_ai]
@@ -2170,8 +2320,13 @@ from src.context.persistent_memory import PersistentMemoryWrapper
 # matching the ContextEngine's documented fallback pattern (all memory layers
 # already treat None as "feature off").
 try:
-    base_memory = MemoryManager()
-    memory_manager = PersistentMemoryWrapper(base_memory)
+    if os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }:
+        memory_manager = None
+    else:
+        base_memory = MemoryManager()
+        memory_manager = PersistentMemoryWrapper(base_memory)
 except Exception as exc:  # e.g. RuntimeError from VectorMemory
     print(f"[chat_graph] Long-term memory DISABLED (boot degraded): {exc}")
     memory_manager = None
@@ -2283,6 +2438,7 @@ def invoke_agent(
     model: str = LLM_MODEL,
     workspace: str = ".",
     execution_mode: Literal["agent", "plan"] = "agent",
+    scope_capabilities: tuple[str, ...] | None = None,
 ) -> str:
 
     config: RunnableConfig = {
@@ -2291,6 +2447,8 @@ def invoke_agent(
             "provider": provider,
             "model": model,
             "workspace": workspace,
+            "scope_capabilities": list(scope_capabilities or ()),
+            "scope_capabilities_strict": scope_capabilities is not None,
         },
         "recursion_limit": _recursion_limit(),
     }
@@ -2325,9 +2483,15 @@ def stream_agent(
     model: str = LLM_MODEL,
     workspace: str = ".",
     execution_mode: Literal["agent", "plan"] = "agent",
+    approval_channel: bool = False,
+    approval_timeout: float = 300.0,
+    approval_policy: str = "ask",
+    turn_id: str | None = None,
 ) -> str:
     from src.context.convention_learner import ConventionLearner
     ConventionLearner().scan_workspace(workspace)
+    from src.runtime.turn_control import turn_controls
+    turn_controls.begin(thread_id)
     
     event_bus.emit("session.status", {"status": "busy", "thread_id": thread_id})
 
@@ -2337,6 +2501,10 @@ def stream_agent(
             "provider": provider,
             "model": model,
             "workspace": workspace,
+            "approval_channel": approval_channel,
+            "approval_timeout": approval_timeout,
+            "approval_policy": approval_policy,
+            "turn_id": turn_id,
         },
         "recursion_limit": _recursion_limit(),
     }
@@ -2490,6 +2658,7 @@ def stream_agent(
         except Exception:
             pass
 
+    turn_controls.end(thread_id)
     return final_response
 
 from src.agents.agent_status import build_agent_status

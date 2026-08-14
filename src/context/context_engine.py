@@ -1071,6 +1071,21 @@ class ContextEngine:
         if latest_instruction:
             content += f"Latest instruction: {latest_instruction}\n"
 
+        low = f"{current_task}\n{latest_instruction}".lower()
+        if "_provided/" in low and "copy_file" in low:
+            content += (
+                "\nCOPY-FIRST DELIVERY RULE:\n"
+                "- The named _provided files are the cheapest, highest-priority deliverables. "
+                "Place them with copy_file before spending turns on optional setup.\n"
+                "- When the user requires byte-for-byte copying, do NOT read the full source "
+                "contents first. Confirm the names with list_files and use copy_file directly; "
+                "reading large verbatim inputs only wastes context and cannot improve the copy.\n"
+                "- If a new Next.js project is required, use scaffold_nextjs(packages=[...]). "
+                "Do NOT run create-next-app at `.` (it conflicts with _provided) and do NOT "
+                "create a child named after the workspace (workspace/workspace nesting).\n"
+                "- After scaffolding, continue immediately to copy_file; never re-run the scaffold.\n"
+            )
+
         return SystemMessage(content=content)
 
     def _plan_layer(self, state: dict[str, Any]) -> SystemMessage:

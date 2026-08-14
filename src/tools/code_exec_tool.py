@@ -379,10 +379,21 @@ class _InnerCallDispatcher:
             if not is_safe:
                 return self._deny(name, warning)
 
-        def _invoke() -> Any:
+        def _invoke_raw() -> Any:
             if needs_config:
                 return tool_obj.invoke(args, config=self._config)
             return tool_obj.invoke(args)
+
+        def _invoke() -> Any:
+            # Inner PTC calls cross the same durable middleware as direct and
+            # parallel calls; execute_code is not an audit/approval bypass.
+            from src.runtime.tool_middleware import execute_tool_transaction
+            outcome = execute_tool_transaction(
+                name=name, args=args,
+                tool_call_id=f"ptc-{threading.get_ident()}-{self._calls}",
+                config=self._config, invoke=_invoke_raw,
+            )
+            return outcome.content
 
         try:
             # run_terminal is the one unbounded inner call (subprocess.run

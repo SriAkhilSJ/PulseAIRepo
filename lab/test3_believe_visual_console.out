@@ -1,0 +1,20 @@
+/home/user/.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/multiprocessing/resource_tracker.py:475: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown: {'/loky-18902-rkdxw_ux'}
+  warnings.warn(
+Puppeteer MCP Server closed
+file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/@modelcontextprotocol/sdk/dist/shared/protocol.js:257
+            throw new Error("Not connected");
+                  ^
+
+Error: Not connected
+    at Server.notification (file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/@modelcontextprotocol/sdk/dist/shared/protocol.js:257:19)
+    at file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/dist/index.js:149:20
+    at file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/puppeteer-core/lib/esm/third_party/mitt/mitt.js:36:7
+    at Array.map (<anonymous>)
+    at Object.emit (file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/puppeteer-core/lib/esm/third_party/mitt/mitt.js:35:20)
+    at CdpPage.emit (file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/puppeteer-core/lib/esm/puppeteer/common/EventEmitter.js:77:23)
+    at #onLogEntryAdded (file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Page.js:391:18)
+    at file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/puppeteer-core/lib/esm/third_party/mitt/mitt.js:36:7
+    at Array.map (<anonymous>)
+    at Object.emit (file:///usr/lib/node_modules/@modelcontextprotocol/server-puppeteer/node_modules/puppeteer-core/lib/esm/third_party/mitt/mitt.js:35:20)
+
+Node.js v20.20.2
