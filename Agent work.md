@@ -1,5 +1,12 @@
 # Agent Work — First Native PulseAI IDE Boot
 
+> **Session report (2026-08-15):** the overlay refactor is committed and pushed.
+> - Commit `3b8ccf60` moved the full Pulse overlay into the canonical fork: `desktop/vscode/product.json`, `desktop/vscode/build/buildfile.ts`, branded platform resources, the first-party contribution (`src/vs/workbench/contrib/pulseai/`), and the `extensionPoints.json` registration. The old selective `desktop/` overlay layout (`desktop/product.json`, `desktop/resources/`, `desktop/build/`) was deleted.
+> - The bridge protocol generator and the desktop syntax checker now target the fork path (`scripts/generate_bridge_protocol.py`, `ui/scripts/check-desktop-syntax.mjs`).
+> - `.gitignore` keeps local fork dependencies/build outputs on disk but never committed (node_modules, `build/*` except `build/buildfile.ts`, `**/.vscode/`, `extensions/**/build/`).
+> - Focused desktop verification: **27 passed** (`test_desktop_contrib_overlay`, `test_desktop_renderer_architecture`, `test_desktop_sidecar_architecture`, `test_pulseai_branding`, `test_bridge_protocol_v2`).
+> - **Next:** `npm install` in `desktop/vscode/` (npm only), then Section 5 semantic checks.
+
 This checklist is for validating PulseAI inside the **canonical vendored Code OSS fork** at `PulseAIRepo/desktop/vscode/`. The Pulse overlay is committed in place inside that fork; the build runs directly there. Do this on a machine with enough disk space.
 
 ## Goal
