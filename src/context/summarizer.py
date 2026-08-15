@@ -126,8 +126,13 @@ class SmartSummarizer:
     def _summarize_file_content(self, lines: list[str], total_lines: int, total_chars: int) -> str:
         """Summarize a file read: show start, end, and key stats."""
         if total_lines <= 50:
-            # Small file, just note it's complete
-            return f"[File content: {total_lines} lines, {total_chars} chars — shown in full above]"
+            # Keep the actual content. A placeholder saying "shown in full"
+            # replaced the only copy in request-local history and could erase
+            # exports/config values the next decision needed.
+            return (
+                f"[Complete file: {total_lines} lines, {total_chars} chars]\n"
+                + "\n".join(lines)
+            )
 
         # Big file: show first 20 lines + ... + last 10 lines
         first_n = 20

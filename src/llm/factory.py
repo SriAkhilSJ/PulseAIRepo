@@ -319,11 +319,20 @@ def get_llm(provider, model):
         return RetryLLMProxy(llm)
 
     if provider == "custom":
+        import os
+        streaming = os.environ.get("PULSEAI_LLM_STREAMING", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        try:
+            timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "60"))
+        except (TypeError, ValueError):
+            timeout = 60.0
         llm = ChatOpenAI(
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
             model=model,
-            request_timeout=60,
+            request_timeout=max(10.0, min(timeout, 300.0)),
+            streaming=streaming,
         )
         return RetryLLMProxy(llm)
 

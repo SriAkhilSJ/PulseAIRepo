@@ -109,14 +109,17 @@ def test_verify_gate_blocks_unverified_code_finish():
 
 
 def test_verify_gate_allows_after_typecheck():
-    """Non-UI execution: writes + typecheck_workspace -> finalize allowed."""
+    """Non-UI execution: a passing typecheck receipt permits finalize."""
     from src.graphs.chat_graph import should_continue
-    from langchain_core.messages import AIMessage
+    from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
         AIMessage(content="x", tool_calls=[
             {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
         AIMessage(content="x", tool_calls=[
             {"name": "typecheck_workspace", "args": {}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="2", name="typecheck_workspace"),
         AIMessage(content="done"),
     ]
     state = {
@@ -180,13 +183,8 @@ def test_verify_gate_allows_passing_typecheck():
     assert should_continue(state) == "finalize"
 
 
-def test_verify_gate_ui_typecheck_is_valid_evidence():
-    """Policy-only gate (hermes verification_stop): the loop requires fresh
-    verification EVIDENCE, never a specific tool. A passing typecheck is
-    evidence the agent chose — the persona teaches that UI/frontend work
-    additionally needs runtime proof in a real browser, but the gate does
-    not hardcode browser-as-mandatory. The gate's job: evidence ran and
-    is not failed."""
+def test_verify_gate_ui_typecheck_without_visual_receipts_is_blocked():
+    """A compiler receipt alone cannot prove a requested rendered app."""
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
@@ -206,27 +204,27 @@ def test_verify_gate_ui_typecheck_is_valid_evidence():
         "verify_nudges": 0,
         "finish_nudges": 0,
     }
-    assert should_continue(state) == "finalize"
+    assert should_continue(state) == "finish_gate"
 
 
 def test_verify_gate_ui_allows_after_browser():
-    """UI deliverable verified with a real browser_navigate + snapshot ->
-    finalize allowed."""
+    """UI completion requires static, navigate, snapshot, and screenshot receipts."""
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage, ToolMessage
+    calls = AIMessage(content="x", tool_calls=[
+        {"name": "typecheck_workspace", "args": {}, "id": "t", "type": "tool_call"},
+        {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "n", "type": "tool_call"},
+        {"name": "browser_snapshot", "args": {}, "id": "s", "type": "tool_call"},
+        {"name": "browser_screenshot", "args": {"name": "proof"}, "id": "p", "type": "tool_call"},
+    ])
     msgs = [
         AIMessage(content="x", tool_calls=[
             {"name": "write_file", "args": {}, "id": "1", "type": "tool_call"}]),
-        AIMessage(content="x", tool_calls=[
-            {"name": "browser_navigate", "args": {"url": "http://localhost:3000"}, "id": "2", "type": "tool_call"}]),
-        ToolMessage(
-            content="Current URL: http://localhost:3000\nTitle: Chat App\nHow Can I Help You?",
-            tool_call_id="2", name="browser_navigate"),
-        AIMessage(content="x", tool_calls=[
-            {"name": "browser_snapshot", "args": {}, "id": "3", "type": "tool_call"}]),
-        ToolMessage(
-            content='{"url":"http://localhost:3000","title":"Chat App","text":"How Can I Help You?"}',
-            tool_call_id="3", name="browser_snapshot"),
+        calls,
+        ToolMessage(content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.", tool_call_id="t", name="typecheck_workspace"),
+        ToolMessage(content="Navigated to http://localhost:3000", tool_call_id="n", name="browser_navigate"),
+        ToolMessage(content='{"url":"http://localhost:3000","title":"Chat App","text":"How Can I Help You?"}', tool_call_id="s", name="browser_snapshot"),
+        ToolMessage(content="✅ Screenshot saved: screenshots/proof.png. VISUAL QUALITY PASSED", tool_call_id="p", name="browser_screenshot"),
         AIMessage(content="done"),
     ]
     state = {
@@ -337,9 +335,8 @@ def test_verify_gate_ui_blocks_screenshot_timeout():
     assert should_continue(state) == "finish_gate"
 
 
-def test_verify_gate_ui_rendered_snapshot_supersedes_failed_navigate():
-    """UI deliverable: a later snapshot that shows real content supersedes
-    an earlier failed navigate — the app was fixed and re-verified."""
+def test_verify_gate_ui_snapshot_alone_cannot_supersede_failed_navigate():
+    """A snapshot alone cannot replace fresh navigation/static/screenshot receipts."""
     from src.graphs.chat_graph import should_continue
     from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
@@ -366,7 +363,7 @@ def test_verify_gate_ui_rendered_snapshot_supersedes_failed_navigate():
         "verify_nudges": 0,
         "finish_nudges": 0,
     }
-    assert should_continue(state) == "finalize"
+    assert should_continue(state) == "finish_gate"
 
 
 def test_after_progress_plan_complete_but_unverified_routes_to_finish_gate():

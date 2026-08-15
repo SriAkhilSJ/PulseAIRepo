@@ -80,7 +80,8 @@ class AgentState(TypedDict, total=False):
     prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
     finish_nudges: int      # hermes-style early-finish nudges applied (bounded)
     verify_nudges: int      # Test-2: nudges to run a verification tool (bounded)
-    token_usage: dict[str, Any]  # Tracks tokens and cost for this task
+    token_usage: dict[str, Any]  # Cumulative tokens/cost for the active task/session
+    turn_token_usage: dict[str, Any]  # Turn-scoped safety budget; resets on each user turn
     workspace: str  # Root path of the active project
     iteration_used: int     # D40: ai-node LLM calls this run (iteration budget)
     grace_done: int         # D40: grace (text-only) call already performed

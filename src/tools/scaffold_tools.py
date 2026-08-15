@@ -22,6 +22,30 @@ from langchain_core.tools import tool
 _PACKAGE_RE = re.compile(r"^(?:@[a-z0-9._-]+/)?[a-z0-9._-]+(?:@[a-zA-Z0-9._~^*<>=|-]+)?$")
 
 
+def _normalize_generated_layout(workspace: Path) -> bool:
+    """Repair create-next-app's occasionally unresolved generated LayoutProps.
+
+    This is scaffold ownership, not task-specific application code: the same
+    generator defect appeared in multiple independent labs. Return whether a
+    normalization landed.
+    """
+    path = workspace / "src" / "app" / "layout.tsx"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    updated = re.sub(
+        r":\s*LayoutProps<\s*[\"']/[\"']\s*>",
+        ": { children: React.ReactNode }",
+        text,
+        count=1,
+    )
+    if updated == text:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def _run(argv: list[str], *, cwd: Path, timeout: int) -> tuple[int, str]:
     env = dict(os.environ)
     env.update({"CI": "1", "NO_COLOR": "1"})
@@ -123,6 +147,8 @@ def scaffold_nextjs(
     # are being resolved together. A fresh generated app has no user lockfile
     # contract to protect yet, so legacy peer resolution is the deterministic
     # non-interactive choice here (and avoids a second expensive install turn).
+    _normalize_generated_layout(workspace)
+
     install_argv = [npm, "install", *extras, "--legacy-peer-deps"]
     code, install_output = _run(install_argv, cwd=workspace, timeout=240)
     if code != 0:

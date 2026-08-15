@@ -663,6 +663,30 @@ def typecheck_workspace(config: RunnableConfig) -> str:
 
     workspace = config["configurable"]["workspace"]
     workspace_path = Path(workspace).resolve()
+    session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+
+    # Hermes-style verification receipt reuse: a passing full typecheck stays
+    # valid until a mutation marks the ledger stale. Reads and model turns do
+    # not justify paying another compiler run or another provider correction
+    # cycle for the identical workspace generation.
+    try:
+        from src.runtime.factory import get_runtime_services
+        cached = get_runtime_services().verification.status(
+            session_id=session_id, workspace=workspace,
+        )
+        evidence = cached.get("evidence") or {}
+        if (
+            cached.get("status") == "passed"
+            and not cached.get("changed_paths")
+            and evidence.get("kind") == "typecheck"
+            and evidence.get("scope") == "full"
+        ):
+            return (
+                "✅ typecheck_workspace: cached full tsc --noEmit receipt "
+                "is still fresh; workspace has not changed (0 errors)."
+            )
+    except Exception:
+        pass
 
     if not (workspace_path / "tsconfig.json").exists():
         message = (

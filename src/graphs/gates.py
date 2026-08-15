@@ -122,7 +122,7 @@ def _deliverable_targets(task: str) -> list[str]:
 _VERIFY_NUDGE_BUDGET = 2
 
 _VERIFY_TOOL_NAMES = frozenset({
-    "typecheck_workspace",
+    "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes", "run_terminal",
     "browser_navigate", "browser_snapshot", "browser_screenshot",
     "browser_click", "browser_type",
 })
@@ -133,25 +133,27 @@ _VERIFY_TOOL_NAMES = frozenset({
 # word-based on purpose: a naive substring "ui" also hits inside "build".
 _UI_TASK_PHRASES = (
     "web app", "web application", "webapp", "chat app", "chatbot",
-    "user interface", "frontend app", "front-end app", "next.js",
-    "nextjs", "react app", "single page app",
+    "user interface", "frontend app", "front-end app", "next.js app",
+    "nextjs app", "react app", "single page app", "build ui", "create ui",
+    "ui/ux", "render in browser", "visual proof",
 )
+# Runtime proof is mandatory only when the task asks for a rendered surface.
+# Merely copying or refactoring a React *component* is a static integration task
+# unless the user also asks to render/preview/screenshot it.
 _UI_TASK_WORDS = {
-    "app", "ui", "web", "chat", "frontend", "front-end", "browser",
-    "dashboard", "component", "page", "website", "interface", "react",
-    "vue", "screenshot",
+    "app", "browser", "dashboard", "page", "website", "screenshot", "preview",
 }
 
 _VERIFY_NUDGE = (
     "[System: You wrote code files but never verified them. You must not "
     "finish an execution task with unverified code — run a verification "
     "tool right now. For TypeScript/JS projects run typecheck_workspace "
-    "(tsc --noEmit). For a UI/frontend deliverable that is NOT enough: "
-    "start the app (start_terminal, read_terminal_output for the port), "
-    "then prove it with the browser tools — browser_navigate to the URL, "
-    "browser_snapshot to read what rendered, browser_screenshot for visual "
-    "proof, and for chat/forms use browser_type + browser_click. Fix any "
-    "errors BEFORE finishing, then re-verify until it passes.]"
+    "(tsc --noEmit). For a UI/frontend deliverable that is NOT enough: prefer "
+    "ONE verify_ui_workspace call, which deterministically typechecks, starts "
+    "the app, navigates, snapshots, captures a screenshot, rejects near-blank "
+    "proof, and cleans up. Use individual browser tools only for interactive "
+    "flows that need browser_type/browser_click. Fix any errors BEFORE "
+    "finishing, then re-verify until it passes.]"
 )
 
 # Test-2 hardening: a verification tool that RAN but FAILED is not
@@ -256,12 +258,13 @@ def _evidence_for(state: AgentState, path: str) -> str:
 
 
 def _verification_ran_and_passed(state: AgentState) -> bool:
-    """True when a verification tool ran AND its result is not flagged
-    as failed. Mirrors the verify-gate predicate (a check that ran but
-    failed is not evidence)."""
-    if not _ran_verification(state):
-        return False
-    return not _verification_failed(state)
+    """True only when every task-required verification receipt is fresh.
+
+    A lone passing typecheck cannot prove a UI task, and invoking a browser
+    tool is not evidence unless navigate, non-empty snapshot, and a meaningful
+    saved screenshot all succeeded after the last mutation.
+    """
+    return _verification_receipt_status(state)["passed"]
 
 
 def _edits_after_last_pass(state: AgentState) -> bool:
@@ -521,24 +524,104 @@ def _wrote_code_files(state: AgentState) -> bool:
     return False
 
 
-def _ran_verification(state: AgentState) -> bool:
-    """True when the agent already called a verification tool this turn.
+def _fresh_verification_messages(state: AgentState) -> list[ToolMessage]:
+    """Verification results after the newest successful workspace mutation."""
+    messages = list(state.get("messages", []))
+    last_edit = -1
+    for i, message in enumerate(messages):
+        if isinstance(message, ToolMessage) and getattr(message, "name", "") in _WORK_TOOLS:
+            content = str(getattr(message, "content", "") or "").lower()
+            if not content.startswith(("error:", "❌")):
+                last_edit = i
+    return [
+        m for m in messages[last_edit + 1:]
+        if isinstance(m, ToolMessage) and getattr(m, "name", "") in _VERIFY_TOOL_NAMES
+    ]
 
-    Policy-only (hermes verification_stop: "intentionally policy-only...
-    requires fresh evidence when the model tries to finish after editing
-    code"). The loop never dictates WHICH tool proves the work — the
-    persona teaches commensurate choice (typecheck for static soundness;
-    a real browser for UI/frontend runtime proof, because a tsc-pass can
-    hide a runtime 500 — D5's missing "use client"). The QUALITY of the
-    evidence is judged separately by _verification_failed (a ❌ typecheck,
-    a 500 navigate, an empty snapshot, or a timed-out screenshot is not
-    evidence).
+
+def _verification_receipt_status(state: AgentState) -> dict[str, object]:
+    """Aggregate evidence by domain instead of trusting the newest check.
+
+    This is the stop-semantics analogue of Hermes' passive evidence ledger:
+    every required domain must have a fresh successful receipt. Later receipts
+    supersede earlier receipts only within their own domain.
     """
-    for m in state.get("messages", []):
-        for tc in getattr(m, "tool_calls", None) or []:
-            if (tc.get("name") or "") in _VERIFY_TOOL_NAMES:
-                return True
-    return False
+    ui_task = _looks_like_ui_task(state.get("current_task", ""))
+    receipts = _fresh_verification_messages(state)
+    status = {
+        "static": False,
+        "typecheck": False,
+        "navigate": False,
+        "snapshot": False,
+        "screenshot": False,
+    }
+    seen: set[str] = set()
+    all_messages = list(state.get("messages", []))
+
+    def tool_args(message: ToolMessage) -> dict:
+        call_id = getattr(message, "tool_call_id", "")
+        for prior in reversed(all_messages):
+            for call in getattr(prior, "tool_calls", None) or []:
+                if call.get("id") == call_id:
+                    return call.get("args") or {}
+        return {}
+
+    for message in receipts:
+        name = getattr(message, "name", "")
+        content = str(getattr(message, "content", "") or "")
+        low = content.lower()
+        seen.add(name)
+        if name in {"verify_ui_workspace", "verify_ui_routes"}:
+            passed = content.startswith((
+                "✅ UI VERIFICATION PASSED", "✅ UI ROUTE VERIFICATION PASSED"
+            ))
+            status["static"] = passed
+            status["typecheck"] = passed
+            status["navigate"] = passed
+            status["snapshot"] = passed
+            status["screenshot"] = passed
+        elif name == "typecheck_workspace":
+            passed = content.startswith("✅") and "0 errors" in low
+            status["typecheck"] = passed
+            status["static"] = passed
+        elif name == "run_terminal":
+            command = str(tool_args(message).get("command", "")).lower()
+            is_check = any(token in command for token in (
+                "pytest", " test", "npm test", "typecheck", "tsc ",
+                " lint", " build", "cargo check", "go test",
+            ))
+            if is_check:
+                status["static"] = "exit code: 0" in low
+        elif name == "browser_navigate":
+            status["navigate"] = not any(marker.lower() in low for marker in _BROWSER_FAIL_MARKERS) \
+                and ("navigated" in low or "http" in low)
+        elif name == "browser_snapshot":
+            status["snapshot"] = _snapshot_shows_content(content)
+        elif name == "browser_screenshot":
+            status["screenshot"] = (
+                "screenshot saved" in low
+                and "visual quality failed" not in low
+                and "timed out" not in low
+                and "could not save" not in low
+            )
+
+    required = ["static"]
+    if ui_task:
+        required.extend(["navigate", "snapshot", "screenshot"])
+    missing = [name for name in required if not bool(status[name])]
+    return {
+        **status,
+        "ui_task": ui_task,
+        "required": required,
+        "missing": missing,
+        "ran_any": bool(seen),
+        "passed": not missing,
+    }
+
+
+def _ran_verification(state: AgentState) -> bool:
+    """Whether any fresh verification receipt exists (quality is separate)."""
+    return bool(_verification_receipt_status(state)["ran_any"])
 
 
 def _looks_like_ui_task(task: str) -> bool:
@@ -565,63 +648,8 @@ def _snapshot_shows_content(content: str) -> bool:
 
 
 def _verification_failed(state: AgentState) -> bool:
-    """True when the LAST verification RESULT reported a failure.
-
-    Scans ToolMessages (results) in reverse so a later result supersedes
-    an earlier one — the agent fixed things and re-verified. Failures:
-    - typecheck_workspace ❌ errors-found / ⚠️ timeout-unparsed shapes;
-    - a browser_navigate that failed to serve the page (HTTP 500 / load
-      error) — a page that 500s is unverified even if tsc passed; and,
-      UI tasks only:
-    - a browser_snapshot that returned NO rendered content — the page
-      never painted (D6: dev server still compiling, snapshot came back
-      {"title":"","text":""} and the agent declared Finished on a
-      page that 500'd at runtime);
-    - a browser_screenshot that timed out — visual proof never captured.
-    A snapshot that shows real content supersedes earlier failures.
-    """
-    ui_task = _looks_like_ui_task(state.get("current_task", ""))
-    for m in reversed(state.get("messages", [])):
-        if not isinstance(m, ToolMessage):
-            continue
-        name = getattr(m, "name", "")
-        content = str(getattr(m, "content", "") or "")
-        if name == "typecheck_workspace":
-            # The LAST typecheck result decides (later ✅ supersedes
-            # an earlier ❌ — the agent fixed and re-verified).
-            # ℹ️ "typescript is not installed — skipped" also counts as
-            # unsatisfied: no compiler ran, so no evidence exists (D9
-            # shipped this hole — typecheck_workspace returned ℹ️-skip,
-            # then npx tsc via run_terminal FAILED with TS2688/TS5107 in
-            # raw STDOUT, and the gate let the broken app finalize).
-            return (
-                content.startswith(_VERIFY_FAIL_MARKERS)
-                or content.startswith("ℹ️")
-            )
-        if name == "run_terminal":
-            # Raw tsc failure through the terminal is the SAME failure
-            # class as a ❌ typecheck_workspace result (D9: the model ran
-            # `npx tsc --noEmit` directly and the tool returned
-            # "error TS2688: ..." in plain STDOUT — the marker scan
-            # never saw it). Detect the compiler's own error shape.
-            # `error TS<digits>` is the TypeScript compiler's own error
-            # shape — no other output form produces it, so it is a safe
-            # failure signal even in plain STDOUT.
-            if re.search(r"\berror TS\d+", content):
-                return True
-            continue
-        if name == "browser_navigate":
-            low = content.lower()
-            if any(marker in low for marker in _BROWSER_FAIL_MARKERS):
-                return True
-            continue
-        if ui_task and name == "browser_snapshot":
-            return not _snapshot_shows_content(content)
-        if ui_task and name == "browser_screenshot":
-            if "timed out" in content.lower():
-                return True
-            continue
-    return False
+    """True when one or more required fresh evidence domains are missing."""
+    return not bool(_verification_receipt_status(state)["passed"])
 
 
 def finish_gate_node(state: AgentState) -> dict:

@@ -87,6 +87,7 @@ from src.tools.web_tools import web_search, web_fetch
 from src.tools.browser_mcp import BROWSER_TOOLS
 from src.tools.code_exec_tool import execute_code
 from src.tools.scaffold_tools import scaffold_nextjs
+from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.session_search_tool import session_search
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
@@ -101,6 +102,7 @@ from src.graphs.budget import (
     _GRACE_NUDGE,
     _iteration_budget,
     _recursion_limit,
+    _budget_exhausted,
 )
 from src.graphs.gates import (
     _deliverable_targets,
@@ -331,10 +333,11 @@ tools = [
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
 
-    # Test-2 verification: workspace tsc --noEmit (tsconfig-aware). The
-    # verify gate nudges the agent here when code was written but nothing
-    # verified it — this is what stops 15-syntax-bug finishes.
+    # Verification receipts: static compiler proof and a deterministic UI
+    # pipeline that owns server/browser mechanics without extra model turns.
     typecheck_workspace,
+    verify_ui_workspace,
+    verify_ui_routes,
 
     # Test-2 retest (workspace_d): the agent's EYES. A real browser the
     # agent can navigate/snapshot/screenshot — the only thing that can
@@ -373,8 +376,24 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     names = resolve_toolset_names(
         state.get("current_task", ""), config
     )
+    from src.runtime.execution_phases import derive_execution_phase, filter_tool_names
+    phase = derive_execution_phase(dict(state))
+    names = filter_tool_names(names, phase)
+    # Persist the same allowlist into the tool-node config: textual tool-call
+    # repair or a provider quirk must not bypass phase-specific binding.
+    configurable = config.setdefault("configurable", {})
+    configurable["execution_phase"] = phase.name
+    configurable["phase_allowed_tools"] = list(names) if phase.allowed is not None else None
+    configurable["phase_max_file_mutations"] = phase.max_file_mutations_per_turn
+    configurable["phase_guidance"] = phase.guidance
     bound = [_TOOLS_BY_NAME[n] for n in names if n in _TOOLS_BY_NAME]
-    return bound or list(tools)
+    if bound:
+        return bound
+    # A guarded phase never falls back to the full registry. Keep ask_user as
+    # the safe escape hatch; general mode retains the historical safe superset.
+    if phase.allowed is not None and "ask_user" in _TOOLS_BY_NAME:
+        return [_TOOLS_BY_NAME["ask_user"]]
+    return list(tools)
 
 
 def _zero_token_usage() -> dict[str, Any]:
@@ -467,7 +486,7 @@ def ai_node(
     # text. iteration_used increments on BOTH paths so budget accounting is
     # monotonic.
     iteration_used = int(state.get("iteration_used", 0))
-    budget_exhausted = iteration_used >= _iteration_budget()
+    budget_exhausted = _budget_exhausted(state)
     grace_done = bool(state.get("grace_done", 0))
 
     # Use the Context Engine to build clean, organized messages.
@@ -477,6 +496,12 @@ def ai_node(
         state=dict(state),
         system_message=system_message,
     )
+    phase_guidance = str(configurable.get("phase_guidance") or "").strip()
+    if phase_guidance:
+        messages.append(SystemMessage(content=(
+            f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
+            + phase_guidance
+        )))
     steers = turn_controls.drain_steer(session_id)
     if steers:
         messages.append(SystemMessage(content=(
@@ -487,6 +512,12 @@ def ai_node(
 
     call_model = model
     call_llm = llm_with_tools
+    if configurable.get("execution_phase") == "deliver":
+        try:
+            delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+        except (TypeError, ValueError):
+            delivery_cap = 4096
+        call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
     if budget_exhausted:
         call_llm = llm  # unhidden tools: the model cannot make more calls
         if not grace_done:
@@ -524,6 +555,12 @@ def ai_node(
         messages, _d37_info = redecorate_for_failover(messages)
         call_model = model
         call_llm = llm_with_tools
+        if configurable.get("execution_phase") == "deliver":
+            try:
+                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+            except (TypeError, ValueError):
+                delivery_cap = 4096
+            call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
         if budget_exhausted:
             call_llm = llm
         result = call_llm.invoke(messages)
@@ -540,6 +577,10 @@ def ai_node(
     call_usage = TokenTracker.record_call(messages, result, call_model)
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
+        [call_usage],
+    )
+    turn_token_usage = _merge_token_usage(
+        state.get("turn_token_usage", {}),
         [call_usage],
     )
 
@@ -559,6 +600,7 @@ def ai_node(
     return {
         "messages": [result],
         "token_usage": token_usage,
+        "turn_token_usage": turn_token_usage,
         "iteration_used": next_used,
         "grace_done": 1 if budget_exhausted else grace_done,
     }
@@ -599,10 +641,14 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # D9: a run that finalizes with UNVERIFIED code (budget exhausted or
     # the model stopped early) is a failure, not a success — record it as
     # such so the learning loop never rewards an unproven "finished".
+    # Honesty is independent of the bounded nudge budget. A run that exhausted
+    # its continuation attempts is still unverified when required receipts are
+    # absent; bounded routing must never turn missing evidence into a PASS.
+    from src.graphs.gates import _verification_ran_and_passed
     unverified = (
         _looks_like_execution_task(current_task)
         and _wrote_code_files(state)
-        and _verify_unsatisfied(state)
+        and not _verification_ran_and_passed(state)
     )
     try:
         engine = get_context_engine(config)
@@ -973,10 +1019,13 @@ def task_manager_node(
             "recovery_mode": False,
             "tool_failures": 0,
             "recovery_command": None,
-            "plan": [],
-            "plan_goal": "",
-            "plan_created": False,
-            "plan_approved": False,
+            # Programmatic/IDE callers may seed an already-approved plan to
+            # avoid two advisory planner calls on deterministic workflows.
+            # Ordinary chat supplies no plan and retains the legacy path.
+            "plan": list(state.get("plan", [])),
+            "plan_goal": state.get("plan_goal", ""),
+            "plan_created": bool(state.get("plan_created") and state.get("plan")),
+            "plan_approved": bool(state.get("plan_approved")),
             "plan_revision_count": 0,
             "replan_needed": False,
             "replan_count": 0,
@@ -984,6 +1033,7 @@ def task_manager_node(
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": _zero_token_usage(),
+            "turn_token_usage": _zero_token_usage(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -1017,6 +1067,7 @@ def task_manager_node(
                 "task_completed": False,
                 "prior_attempts": [],
                 "token_usage": _zero_token_usage(),
+                "turn_token_usage": _zero_token_usage(),
                 "workspace": config["configurable"].get("workspace", "."),
             }
         return {
@@ -1113,6 +1164,9 @@ For "unrelated", preserve the existing active task exactly.
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": token_usage,
+            "turn_token_usage": _merge_token_usage({}, [call_usage]),
+            "iteration_used": 0,
+            "grace_done": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -1120,6 +1174,9 @@ For "unrelated", preserve the existing active task exactly.
         "current_task": updated_task,
         "task_action": decision.action,
         "token_usage": token_usage,
+        "turn_token_usage": _merge_token_usage({}, [call_usage]),
+        "iteration_used": 0,
+        "grace_done": 0,
         "workspace": config["configurable"].get("workspace", "."),
     }
 
@@ -1257,6 +1314,7 @@ def progress_node(
                 tool_name=tool_name,
                 tool_args=tool_args,
                 failed=False,
+                result=result,
             )
 
         label, events = ph.success_step_label(
@@ -1852,6 +1910,31 @@ class SafeToolNode:
             if _repaired_ai is None:
                 return {"messages": msg_list}
             return {"messages": [_repaired_ai, *msg_list]}
+
+        # Phase allowlist is enforced again at execution time. Binding is the
+        # normal control, but textual tool-call repair must not become a bypass.
+        phase_allowed = None
+        phase_name = "general"
+        if config and "configurable" in config:
+            phase_allowed = config["configurable"].get("phase_allowed_tools")
+            phase_name = str(config["configurable"].get("execution_phase") or "general")
+        if phase_allowed is not None:
+            denied = [tc for tc in tool_calls if tc.get("name", "") not in set(phase_allowed)]
+            if denied:
+                denied_names = ", ".join(sorted({tc.get("name", "") for tc in denied}))
+                return _with_repaired([
+                    ToolMessage(
+                        content=(
+                            f"⛔ PHASE POLICY DENIED batch in {phase_name}: {denied_names}. "
+                            "No calls in this batch executed. Use only the tools exposed for "
+                            "the current plan phase and make the required progress now."
+                        ),
+                        tool_call_id=tc.get("id", ""),
+                        name=tc.get("name", ""),
+                        status="error",
+                    )
+                    for tc in tool_calls
+                ])
 
         from pathlib import Path
         ws_key = str(Path(workspace).resolve())
@@ -2460,6 +2543,10 @@ def invoke_agent(
             ],
             "latest_instruction": message,
             "execution_mode": execution_mode,
+            # Safety budgets are turn-scoped even when checkpoint state is resumed.
+            "iteration_used": 0,
+            "grace_done": 0,
+            "turn_token_usage": _zero_token_usage(),
         },
         config=config,
     )
@@ -2487,6 +2574,7 @@ def stream_agent(
     approval_timeout: float = 300.0,
     approval_policy: str = "ask",
     turn_id: str | None = None,
+    initial_plan: list[dict[str, Any]] | None = None,
 ) -> str:
     from src.context.convention_learner import ConventionLearner
     ConventionLearner().scan_workspace(workspace)
@@ -2513,14 +2601,25 @@ def stream_agent(
     current_step = 0
     total_steps = 0
 
+    initial_state = {
+        "messages": [HumanMessage(content=message)],
+        "latest_instruction": message,
+        "execution_mode": execution_mode,
+        # Safety budgets are turn-scoped even when checkpoint state is resumed.
+        "iteration_used": 0,
+        "grace_done": 0,
+        "turn_token_usage": _zero_token_usage(),
+    }
+    if initial_plan is not None:
+        initial_state.update({
+            "plan": list(initial_plan),
+            "plan_goal": message,
+            "plan_created": bool(initial_plan),
+            "plan_approved": bool(initial_plan),
+        })
+
     for event in graph.stream(
-        {
-            "messages": [
-                HumanMessage(content=message)
-            ],
-            "latest_instruction": message,
-            "execution_mode": execution_mode,
-        },
+        initial_state,
         config=config,
         stream_mode="updates",
     ):

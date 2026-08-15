@@ -1,13 +1,15 @@
-# Retest-3 “Believe” — ✅ PASS with Agent-Captured Browser Proof
+# Retest-3 “Believe” — ⚠️ PARTIAL: Integration Pass, UI/UX Proof Not Passed
 
 **Date:** 2026-08-14  
 **Workspace:** `/home/user/test3_ws_believe` (preserved)  
 **Core thread:** `lab-test3-believe-final`  
 **Visual-proof thread:** `lab-test3-believe-visual-proof-2`  
 
+> **Correction (truthful final classification):** This must not be reported as a clean end-to-end PASS. The two named component files are present and byte-identical, dependencies are installed, and TypeScript passes. The agent also invoked the real browser screenshot tool. However, the PNG shows only `Scroll to explore` on a mostly blank canvas, not the intended finished UI/UX. An evaluator also simplified `src/app/page.tsx` between the core and visual phases to reduce browser compilation memory. Therefore: **component integration = PASS; full autonomous UI/UX visual proof = NOT PASS; overall = PARTIAL.**
+
 ## Verdict
 
-**PASS.** The final preserved workspace satisfies the component, scaffold, dependency, TypeScript, browser-render and screenshot requirements. The visual verification was completed as a focused monitored continuation after the core integration phase reached its iteration budget.
+**PARTIAL.** File delivery, dependency setup and compiler verification passed. Full UI/UX rendering evidence did not.
 
 ## 30-second monitoring — core integration
 

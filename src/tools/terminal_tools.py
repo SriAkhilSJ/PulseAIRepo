@@ -178,14 +178,18 @@ def start_terminal(
 
     process_id = str(uuid.uuid4())[:8]
 
-    process = subprocess.Popen(
-        command,
+    popen_kwargs = dict(
         cwd=workspace,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True
+        text=True,
     )
+    if _IS_WINDOWS:
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(command, **popen_kwargs)
 
     # Store the process
     with _process_lock:
@@ -523,13 +527,21 @@ def stop_terminal(process_id: str) -> str:
         )
 
     try:
-        process.terminate()
+        if _IS_WINDOWS:
+            process.terminate()
+        else:
+            import signal
+            os.killpg(process.pid, signal.SIGTERM)
 
         try:
             process.wait(timeout=5)
 
         except subprocess.TimeoutExpired:
-            process.kill()
+            if _IS_WINDOWS:
+                process.kill()
+            else:
+                import signal
+                os.killpg(process.pid, signal.SIGKILL)
             process.wait()
 
         return (

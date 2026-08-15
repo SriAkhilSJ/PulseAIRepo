@@ -190,7 +190,13 @@ def classify_tool_outcome(tool_name: str, result: str) -> str:
     result_lower = result.lower()
     failed = bool(_ERROR_MARKER_RE.search(result))
 
-    if tool_name == "run_terminal":
+    if tool_name == "typecheck_workspace":
+        # Compiler invocation is evidence only when it explicitly returns the
+        # green receipt. Unicode status markers are part of the tool contract.
+        failed = not result.lstrip().startswith("✅")
+    elif tool_name in {"verify_ui_workspace", "verify_ui_routes"}:
+        failed = not result.lstrip().startswith("✅")
+    elif tool_name == "run_terminal":
         if "exit code: 0" not in result_lower:
             failed = True
     elif tool_name == "check_terminal":

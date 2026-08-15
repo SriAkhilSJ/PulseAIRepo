@@ -419,107 +419,195 @@ def start_next_plan_step(
     return updated
 
 
+_READ_TOOLS = frozenset({"list_files", "read_file", "search_code", "session_search"})
+_WRITE_TOOLS = frozenset({"write_file", "edit_file"})
+
+
+def required_tool_receipts(description: str) -> dict[str, int]:
+    """Infer the minimum evidence contract for a plan step.
+
+    Hermes does not trust a prose plan status: completion is projected from
+    durable tool receipts. Keep this generic and description-driven so focused
+    IDE profiles gain strictness without hardcoding benchmark filenames.
+    """
+    d = (description or "").lower()
+    required: dict[str, int] = {}
+
+    def need(name: str, count: int = 1) -> None:
+        required[name] = max(required.get(name, 0), count)
+
+    if "screenshot" in d or "visual proof" in d:
+        need("browser_screenshot")
+    if "browser_navigate" in d or "navigate" in d and "browser" in d:
+        need("browser_navigate")
+    if "browser_snapshot" in d or "snapshot" in d and "browser" in d:
+        need("browser_snapshot")
+    if "typecheck" in d or "tsc" in d or "type check" in d:
+        need("typecheck_workspace")
+    if "scaffold" in d:
+        need("scaffold_nextjs")
+    if "copy" in d:
+        # A single plan step that explicitly joins two copy deliverables must
+        # receive two copy receipts. Repeated source markers are the strongest
+        # signal; "both" is a conservative fallback.
+        source_mentions = d.count("_provided/")
+        need("copy_file", max(2 if "both" in d else 1, source_mentions))
+    if "start" in d and ("server" in d or "development" in d):
+        need("start_terminal")
+    if "ready" in d and "server" in d:
+        need("check_terminal")
+    if "verify" in d and not required:
+        need("verify")
+    if any(word in d for word in ("create", "write", "edit", "modify", "implement", "update", "fix")) \
+            and not any(k in required for k in ("typecheck_workspace", "browser_screenshot")):
+        # Alternatives are represented by a synthetic receipt family. When a
+        # step names several concrete files, require one landed mutation per
+        # file so the first write cannot advance a four-file batch to verify.
+        paths = set(re.findall(
+            r"`([^`]+\.(?:py|ts|tsx|js|jsx|css|html|json|md|yaml|yml|toml))`",
+            description or "", re.IGNORECASE,
+        ))
+        need("__file_mutation__", max(1, min(len(paths), 12)))
+    if any(word in d for word in ("inspect", "read", "find", "search", "identify", "review")) \
+            and not required:
+        need("__read__")
+    if "install" in d and "scaffold_nextjs" not in required:
+        need("__install__")
+    return required
+
+
+def _receipt_name(tool_name: str) -> tuple[str, ...]:
+    names = [tool_name]
+    if tool_name in {"verify_ui_workspace", "verify_ui_routes"}:
+        names.extend((
+            "typecheck_workspace", "start_terminal", "check_terminal",
+            "browser_navigate", "browser_snapshot", "browser_screenshot",
+        ))
+    if tool_name in _READ_TOOLS:
+        names.append("__read__")
+    if tool_name in _WRITE_TOOLS:
+        names.append("__file_mutation__")
+    if tool_name in {"run_terminal", "scaffold_nextjs"}:
+        names.append("__install__")
+    return tuple(names)
+
+
+def required_file_paths(description: str) -> set[str]:
+    return set(re.findall(
+        r"`([^`]+\.(?:py|ts|tsx|js|jsx|css|html|json|md|yaml|yml|toml))`",
+        description or "", re.IGNORECASE,
+    ))
+
+
+def step_receipts_satisfied(step: dict) -> bool:
+    description = str(step.get("description", ""))
+    required = required_tool_receipts(description)
+    if not required:
+        return bool(step.get("evidence_receipts"))
+    observed = step.get("evidence_receipts") or {}
+    paths = required_file_paths(description)
+    if paths and "__file_mutation__" in required:
+        landed = set(step.get("evidence_paths") or [])
+        if not paths.issubset(landed):
+            return False
+    return all(int(observed.get(name, 0)) >= count for name, count in required.items())
+
+
 def update_plan_from_tool(
     plan: list[dict],
     tool_name: str,
     tool_args: dict,
     failed: bool,
+    result: str = "",
 ) -> list[dict]:
-    """Update the active plan step from the tool operation."""
-
+    """Advance only when the active step's evidence contract is satisfied."""
     updated = [step.copy() for step in plan]
-
     if failed:
         return updated
-
-    active = next(
-        (
-            step
-            for step in updated
-            if step.get("status") == "in_progress"
-        ),
-        None,
-    )
-
+    active = next((s for s in updated if s.get("status") == "in_progress"), None)
     if active is None:
         return updated
 
-    description = active.get("description", "").lower()
-
-    matched = False
-
-    if tool_name in {"list_files", "read_file", "search_code"}:
-        matched = any(
-            word in description
-            for word in (
-                "inspect",
-                "read",
-                "find",
-                "search",
-                "check",
-                "identify",
-                "review",
-            )
+    description = str(active.get("description", "")).lower()
+    required = required_tool_receipts(description)
+    receipt_names = _receipt_name(tool_name)
+    if required and not any(name in required for name in receipt_names):
+        return updated
+    if not required:
+        # Conservative fallback for prose the contract parser does not know:
+        # only semantically compatible tool families may advance it.
+        compatible = (
+            (tool_name in _READ_TOOLS and any(w in description for w in ("inspect", "read", "find", "search", "review")))
+            or (tool_name in _WRITE_TOOLS and any(w in description for w in ("create", "write", "edit", "modify", "implement", "add", "update", "fix")))
+            or (tool_name in {"run_terminal", "check_terminal"} and any(w in description for w in ("run", "execute", "test", "check")))
+            or (tool_name == "verify" and "verify" in description)
         )
+        if not compatible:
+            return updated
 
-    elif tool_name in {"write_file", "edit_file"}:
-        matched = any(
-            word in description
-            for word in (
-                "create",
-                "write",
-                "edit",
-                "modify",
-                "implement",
-                "add",
-                "update",
-                "fix",
-            )
+    # A running terminal is not readiness evidence. Likewise a browser/tool
+    # result that plainly failed cannot satisfy a prose step merely because the
+    # tool was invoked.
+    low_result = (result or "").lower()
+    if (
+        tool_name == "check_terminal"
+        and "status: running" in low_result
+        and not any(marker in low_result for marker in ("ready in", "local:", "listening on"))
+    ):
+        return updated
+    if any(marker in low_result for marker in (
+        "timed out", "failed to navigate", "internal server error",
+        "visual quality failed", "error: screenshot",
+    )):
+        return updated
+
+    required_paths = required_file_paths(description)
+    if tool_name in _WRITE_TOOLS | {"copy_file"} and required_paths:
+        landed_path = str(tool_args.get("path") or tool_args.get("dst") or "")
+        matched_path = landed_path if landed_path in required_paths else next(
+            (p for p in required_paths if p.rsplit("/", 1)[-1] == landed_path.rsplit("/", 1)[-1]),
+            "",
         )
+        if not matched_path:
+            return updated
+        landed = set(active.get("evidence_paths") or [])
+        # A rewrite of the same path is repair evidence, not delivery of a
+        # second named file.
+        already_landed = matched_path in landed
+        landed.add(matched_path)
+        active["evidence_paths"] = sorted(landed)
+    else:
+        already_landed = False
 
-    elif tool_name in {
-        "run_terminal",
-        "check_terminal",
-    }:
-        matched = any(
-            word in description
-            for word in (
-                "run",
-                "execute",
-                "test",
-                "verify",
-                "check",
-            )
-        )
+    receipts = dict(active.get("evidence_receipts") or {})
+    for name in receipt_names:
+        if name == "__file_mutation__" and already_landed:
+            continue
+        receipts[name] = receipts.get(name, 0) + 1
+    active["evidence_receipts"] = receipts
 
-    if not matched:
+    if required and not step_receipts_satisfied(active):
+        return updated
+    if not required and not receipts:
         return updated
 
     active["status"] = "completed"
-
     for step in updated:
         if step.get("status") == "pending":
             step["status"] = "in_progress"
             break
-
     return updated
+
 
 def finalize_plan(
     plan: list[dict],
     task_succeeded: bool,
 ) -> list[dict]:
-    """Finalize plan state after verified task completion."""
-
+    """Preserve receipt truth; finalization never fabricates completed steps."""
     updated = [step.copy() for step in plan]
-
     if not task_succeeded:
         return updated
-
     for step in updated:
-        if step.get("status") in {
-            "pending",
-            "in_progress",
-        }:
+        if step.get("status") in {"pending", "in_progress"} and step_receipts_satisfied(step):
             step["status"] = "completed"
-
     return updated

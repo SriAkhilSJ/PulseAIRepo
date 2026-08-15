@@ -287,9 +287,12 @@ def browser_screenshot(name: str, config: RunnableConfig) -> str:
         path = os.path.join(shot_dir, f"{safe}.png")
         with open(path, "wb") as f:
             f.write(raw)
+        from src.tools.visual_quality import analyze_screenshot, format_quality_receipt
+        quality = analyze_screenshot(path)
+        marker = "✅" if quality.get("passed") else "⚠️"
         return (
-            f"✅ Screenshot saved: {os.path.relpath(path, start=os.fspath(workspace))} "
-            f"({len(raw)} bytes). "
+            f"{marker} Screenshot saved: {os.path.relpath(path, start=os.fspath(workspace))} "
+            f"({len(raw)} bytes). {format_quality_receipt(quality)}"
         )
     except Exception as exc:  # noqa: BLE001
         return f"[browser_screenshot] could not save image: {type(exc).__name__}: {exc}"

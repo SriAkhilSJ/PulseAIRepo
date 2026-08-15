@@ -5,4 +5,7 @@ node_modules/
 __pycache__/
 .screenshots/
 screenshots/
+# Preserve final benchmark browser evidence referenced by the repository README.
+!test4_final_artifacts/screenshots/
+!test4_final_artifacts/screenshots/*.png
 .venv*

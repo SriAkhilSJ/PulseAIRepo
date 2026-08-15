@@ -37,7 +37,9 @@ _EXECUTION_TOOLS: tuple[str, ...] = (
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
 )
 _VERIFICATION_TOOLS: tuple[str, ...] = ("typecheck_workspace",)
-_UI_SCAFFOLD_TOOLS: tuple[str, ...] = ("scaffold_nextjs",)
+_UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
+    "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
+)
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",

@@ -43,6 +43,18 @@ def test_d9_find_tool_args_matches_call_id():
 # outcome classification (every legacy fork)
 # ---------------------------------------------------------------------
 
+def test_failed_verification_receipts_are_tool_failures():
+    assert ph.classify_tool_outcome(
+        "typecheck_workspace", "❌ typecheck_workspace: 1 error"
+    ) == ph.OUTCOME_FAILED
+    assert ph.classify_tool_outcome(
+        "typecheck_workspace", "✅ typecheck_workspace: passed with 0 errors"
+    ) == ph.OUTCOME_SUCCESS
+    assert ph.classify_tool_outcome(
+        "verify_ui_routes", "❌ UI ROUTE VERIFICATION FAILED"
+    ) == ph.OUTCOME_FAILED
+
+
 def test_d9_classify_terminal_rules():
     ok = "files listed\nexit code: 0"
     bad = "oops\nexit code: 1"

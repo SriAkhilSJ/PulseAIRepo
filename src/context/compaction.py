@@ -253,13 +253,19 @@ class HistoryCompactor:
         if not history:
             return []
 
+        # Always apply the free per-tool summarizer before the budget check.
+        # The old fast path replayed every raw result whenever history happened
+        # to fit, so a 6KB file read was re-billed on every later call. Hermes
+        # stores/replays bounded receipts; Pulse now does the same even below
+        # the structural-compaction threshold.
+        summarized_fast = summarize_tools(history)
         before_tokens = count_tokens(history, self._model)
-        if before_tokens <= budget:
-            return history  # fast path: nothing to do, zero cost
+        if count_tokens(summarized_fast, self._model) <= budget:
+            return summarized_fast
 
         # 1+2. FREE prune with protected head/tail — hermes' first trigger.
-        pruned, _, _ = self.prune(history)
-        summarized = summarize_tools(pruned)
+        pruned, _, _ = self.prune(summarized_fast)
+        summarized = pruned
 
         if count_tokens(summarized, self._model) <= budget:
             return self._with_summary(summarized)

@@ -52,6 +52,28 @@ def _recursion_limit() -> int:
     return max(200, _iteration_budget() * 4 + 40)
 
 
+_TOKEN_BUDGET_DEFAULT = 120_000
+_TOKEN_BUDGET_CLAMP = 2_000_000
+
+
+def _token_budget() -> int | None:
+    """Known provider-token ceiling for one run; 0 disables the token cap."""
+    raw = os.environ.get("AGENT_TOKEN_BUDGET", str(_TOKEN_BUDGET_DEFAULT))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = _TOKEN_BUDGET_DEFAULT
+    if value <= 0:
+        return None
+    return min(max(10_000, value), _TOKEN_BUDGET_CLAMP)
+
+
 def _budget_exhausted(state: AgentState) -> bool:
     used = int(state.get("iteration_used", 0))
-    return used >= _iteration_budget()
+    if used >= _iteration_budget():
+        return True
+    token_cap = _token_budget()
+    if token_cap is None:
+        return False
+    usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
+    return int(usage.get("total_tokens", 0) or 0) >= token_cap
