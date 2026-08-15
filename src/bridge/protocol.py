@@ -1,10 +1,11 @@
-"""Scope Agent Protocol v1 newline-delimited JSON codec (stdlib only)."""
+"""PulseAI Bridge Protocol v2 newline-delimited JSON codec (stdlib only)."""
 from __future__ import annotations
 
 import json
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+SUPPORTED_PROTOCOL_VERSIONS = frozenset({1, PROTOCOL_VERSION})
 MAX_LINE_BYTES = 1 << 20
 
 CLIENT_METHODS = frozenset({
@@ -45,9 +46,11 @@ def decode_line(line: bytes) -> dict[str, Any]:
     return obj
 
 
-def hello(engine_version: str) -> dict[str, Any]:
+def hello(engine_version: str, *, protocol: int = PROTOCOL_VERSION) -> dict[str, Any]:
+    if protocol not in SUPPORTED_PROTOCOL_VERSIONS:
+        raise ProtocolError(f"unsupported negotiated protocol: {protocol!r}")
     return {
-        "type": "hello", "protocol": PROTOCOL_VERSION,
+        "type": "hello", "protocol": protocol,
         "engine": "pulseai", "engine_version": engine_version,
         "capabilities": sorted(CLIENT_METHODS - {"hello", "shutdown"}),
     }
@@ -60,9 +63,11 @@ def error_frame(message: str, *, fatal: bool = False, request_id: str | None = N
     return frame
 
 
-def check_client_hello(frame: dict[str, Any]) -> None:
+def check_client_hello(frame: dict[str, Any]) -> int:
     if frame.get("type") != "hello":
         raise ProtocolError("first frame must be 'hello'")
     their = frame.get("protocol")
-    if their != PROTOCOL_VERSION:
-        raise ProtocolError(f"protocol mismatch: client {their!r}, engine {PROTOCOL_VERSION}")
+    if their not in SUPPORTED_PROTOCOL_VERSIONS:
+        supported = ", ".join(str(value) for value in sorted(SUPPORTED_PROTOCOL_VERSIONS))
+        raise ProtocolError(f"protocol mismatch: client {their!r}, engine supports {supported}")
+    return int(their)

@@ -19,6 +19,7 @@ ENGINE_VERSION = "0.2.0-runtime"
 class BridgeServer:
     def __init__(self):
         self.greeted = False
+        self.protocol_version: int | None = None
         self._write_lock = threading.Lock()
         self._sessions: dict[str, dict] = {}
         self._workers: dict[str, threading.Thread] = {}
@@ -127,9 +128,9 @@ class BridgeServer:
             if self.greeted:
                 self.emit(error_frame("duplicate hello"))
                 return True
-            check_client_hello(frame)
+            self.protocol_version = check_client_hello(frame)
             self.greeted = True
-            self.emit(hello(ENGINE_VERSION))
+            self.emit(hello(ENGINE_VERSION, protocol=self.protocol_version))
             return True
         if not self.greeted:
             self.emit(error_frame("hello handshake required first"))

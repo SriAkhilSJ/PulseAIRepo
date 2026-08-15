@@ -16,6 +16,7 @@ import pytest
 from src.bridge.protocol import (
     MAX_LINE_BYTES,
     PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS,
     ProtocolError,
     check_client_hello,
     decode_line,
@@ -51,7 +52,9 @@ def test_codec_size_guard():
 def test_hello_handshake_rules():
     good = hello("v")
     assert good["protocol"] == PROTOCOL_VERSION and good["engine"] == "pulseai"
-    check_client_hello({"type": "hello", "protocol": PROTOCOL_VERSION})  # no raise
+    assert check_client_hello({"type": "hello", "protocol": PROTOCOL_VERSION}) == PROTOCOL_VERSION
+    assert SUPPORTED_PROTOCOL_VERSIONS == {1, 2}
+    assert hello("v", protocol=1)["protocol"] == 1
     with pytest.raises(ProtocolError, match="mismatch"):
         check_client_hello({"type": "hello", "protocol": 999})
     with pytest.raises(ProtocolError, match="first frame"):
@@ -100,6 +103,12 @@ def test_sidecar_hello_then_real_runtime_shape(sidecar):
     assert done["stub"] is False and done["session_id"] == "t1"
     assert done["turn_id"].startswith("turn-")
     assert done["workspace_id"].startswith("ws-")
+
+
+def test_sidecar_negotiates_legacy_v1_without_downgrading_latest(sidecar):
+    r = _send(sidecar, {"type": "hello", "protocol": 1})
+    assert r["type"] == "hello" and r["protocol"] == 1
+    assert PROTOCOL_VERSION == 2
 
 
 def test_sidecar_never_dies_on_garbage(sidecar):

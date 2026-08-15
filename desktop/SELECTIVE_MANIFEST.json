@@ -1,0 +1,27 @@
+{
+  "upstream_repository": "https://github.com/microsoft/vscode",
+  "upstream_commit": "6c27443ce6fdf6ac798c64025d45175e2e23c4b4",
+  "files": {
+    "build/buildfile.ts": {
+      "upstream_sha256": "aa6bba8088e65560583c8426c609cc4b76f8910b1f52e210fed48d77220de9bc",
+      "overlay_sha256": "1805b2fe0eca032d4b08173889b8a031651253b8dd0c88f1598c8489a7f00319",
+      "modified": true
+    },
+    "product.json": {
+      "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
+      "overlay_sha256": "914f7880cec8063aef10d80f875e7a4cdb314233cc3a0ea77e292e43402c7ef6",
+      "modified": true
+    },
+    "src/vs/workbench/workbench.common.main.ts": {
+      "upstream_sha256": "d11142346b159434f4914d56e83b825917689f394089147a5182b8a70dbf1093",
+      "overlay_sha256": "7deac7d52748b39399c306a12e72fd9b6eba74be5548ea2ff981072b27d8ad27",
+      "modified": true
+    },
+    "src/vs/workbench/workbench.desktop.main.ts": {
+      "upstream_sha256": "712e88e07b41b8f515e58a76ed8268df1575acbbd1aea18ff84653fb6089bc17",
+      "overlay_sha256": "f0607ecd1e335496e43610cfe16ad6e657a2b4ffcd8f099fc679b241a6e1739a",
+      "modified": true
+    }
+  },
+  "custom_root": "src/vs/workbench/contrib/pulseai/"
+}

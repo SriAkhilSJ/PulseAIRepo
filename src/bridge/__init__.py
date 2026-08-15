@@ -1,13 +1,12 @@
-"""PulseAI bridge (P2 M1) — the ONLY door between the fork and the engine.
+"""PulseAI Bridge — the only door between PulseAI IDE and the engine.
 
-The VS Code fork (PulseCode, contrib/pulse) spawns this module as a
-sidecar process and talks newline-delimited JSON-RPC over stdio. The
-engine's internals stay frozen at 437 green; everything the fork can
-ask for flows through this file's protocol v1.
+The first-party Code OSS contribution (`contrib/pulseai`) starts this module as
+a local sidecar and exchanges newline-delimited JSON frames over stdio. Bridge
+Protocol v2 covers sessions, streaming, tools, approvals, turn control,
+verification, checkpoints, sub-agents, telemetry, and event replay. Legacy v1
+handshakes remain accepted during the editor transition; each hello response
+returns the negotiated version.
 
-Protocol v1 (frozen, see docs/P2-roadmap.md Phase 0.4):
-  client -> engine : hello | prompt | safety_reply | shutdown
-  engine -> client : hello | token | tool_call_start | tool_call_end
-                     | safety_request | telemetry | turn_done
-                     | checkpoint_event | echo | error
+Canonical method/event names live in `protocol_v2.json` and generate the
+TypeScript name contract used by the selective desktop overlay.
 """

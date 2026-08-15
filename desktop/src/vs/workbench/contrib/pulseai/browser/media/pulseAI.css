@@ -1,0 +1,505 @@
+/* Shared first-party Pulse renderer. Dense, flat, and entirely theme-token driven. */
+.pulseai-view,
+.pulseai-render-root {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+}
+
+.pulseai-render-root {
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	overflow: hidden;
+}
+
+.pulseai-render-root *,
+.pulseai-render-root *::before,
+.pulseai-render-root *::after { box-sizing: border-box; }
+
+.pulseai-render-root button,
+.pulseai-render-root select,
+.pulseai-render-root textarea {
+	color: inherit;
+	font: inherit;
+}
+
+.pulseai-render-root button { cursor: pointer; }
+
+.pulseai-agent-shell {
+	display: grid;
+	grid-template-rows: 34px auto minmax(0, 1fr) auto auto;
+	height: 100%;
+	background: var(--vscode-sideBar-background);
+}
+
+.pulseai-agent-header,
+.pulseai-agent-selectors,
+.pulseai-manager-titlebar,
+.pulseai-manager-tabs,
+.pulseai-manager-pane-head {
+	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+}
+
+.pulseai-agent-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 10px;
+}
+
+.pulseai-agent-brand {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-size: 12px;
+}
+
+.pulseai-agent-brand > .codicon,
+.pulseai-assistant-label > .codicon { color: var(--pulseai-accent); }
+
+.pulseai-engine-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	white-space: nowrap;
+}
+
+.pulseai-status-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--vscode-descriptionForeground);
+	flex: none;
+}
+
+.pulseai-engine-status.is-ready .pulseai-status-dot,
+.pulseai-status-dot.is-ready { background: var(--pulseai-verified); }
+.pulseai-engine-status.is-running .pulseai-status-dot,
+.pulseai-status-dot.is-running { background: var(--pulseai-running); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pulseai-running) 18%, transparent); }
+.pulseai-engine-status.is-failed .pulseai-status-dot { background: var(--pulseai-failed); }
+
+.pulseai-agent-selectors {
+	display: flex;
+	gap: 1px;
+	padding: 5px 7px;
+	background: var(--vscode-sideBar-background);
+}
+
+.pulseai-selector {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+	flex: 1 1 0;
+}
+
+.pulseai-selector > span {
+	padding-left: 2px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 9px;
+	line-height: 11px;
+	text-transform: uppercase;
+}
+
+.pulseai-native-select {
+	width: 100%;
+	height: 24px;
+	padding: 0 18px 0 5px;
+	border: 1px solid transparent;
+	outline: none;
+	background: var(--vscode-dropdown-background);
+	color: var(--vscode-dropdown-foreground);
+	font-size: 11px;
+}
+
+.pulseai-native-select:focus { border-color: var(--vscode-focusBorder); }
+
+.pulseai-transcript-scroll {
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+.pulseai-transcript-lane {
+	width: 100%;
+	max-width: 760px;
+	margin: 0 auto;
+	padding: 10px;
+}
+
+.pulseai-user-message {
+	margin: 0 0 12px 24px;
+	padding: 7px 9px;
+	border-left: 2px solid var(--vscode-textBlockQuote-border);
+	background: var(--vscode-textBlockQuote-background);
+	line-height: 1.45;
+	white-space: pre-wrap;
+}
+
+.pulseai-assistant-message { margin: 0 0 9px; }
+
+.pulseai-assistant-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 20px;
+	font-size: 11px;
+}
+
+.pulseai-stream-label {
+	margin-left: auto;
+	color: var(--pulseai-running);
+	font-size: 10px;
+	font-weight: normal;
+}
+
+.pulseai-assistant-copy {
+	margin: 4px 0 0;
+	line-height: 1.55;
+	white-space: pre-wrap;
+}
+
+.pulseai-reasoning {
+	margin: 3px 0 5px 19px;
+	padding-left: 8px;
+	border-left: 1px solid var(--vscode-panel-border);
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.4;
+}
+
+.pulseai-tool-list {
+	margin: 7px 0;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+}
+
+.pulseai-tool-row {
+	border-bottom: 1px solid var(--vscode-panel-border, transparent);
+	background: transparent;
+}
+
+.pulseai-tool-row[open] { background: var(--vscode-sideBar-background); }
+.pulseai-manager-main .pulseai-tool-row[open] { background: var(--vscode-editorWidget-background); }
+
+.pulseai-tool-summary {
+	display: grid;
+	grid-template-columns: 14px 14px auto minmax(44px, 1fr) auto auto 12px;
+	align-items: center;
+	gap: 6px;
+	min-height: 29px;
+	padding: 3px 2px;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+}
+
+.pulseai-tool-summary::-webkit-details-marker { display: none; }
+.pulseai-tool-summary:hover { background: var(--vscode-list-hoverBackground); }
+.pulseai-tool-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-tool-row[open] .pulseai-tool-summary > .codicon-chevron-right { transform: rotate(90deg); }
+.pulseai-tool-row.is-passed .pulseai-tool-summary > :first-child { color: var(--pulseai-verified); }
+.pulseai-tool-row.is-failed .pulseai-tool-summary > :first-child { color: var(--pulseai-failed); }
+.pulseai-tool-row.is-approval .pulseai-tool-summary > :first-child { color: var(--pulseai-approval); }
+.pulseai-tool-row.is-running .pulseai-tool-summary > :first-child { color: var(--pulseai-running); }
+
+.pulseai-tool-summary strong { font-weight: 600; white-space: nowrap; }
+.pulseai-tool-target { min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-tool-duration { color: var(--vscode-descriptionForeground); font-size: 10px; }
+
+.pulseai-tool-state {
+	padding: 1px 4px;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: 9px;
+	line-height: 14px;
+	text-transform: uppercase;
+}
+.pulseai-tool-state.is-running { color: var(--pulseai-running); }
+.pulseai-tool-state.is-passed { color: var(--pulseai-verified); }
+.pulseai-tool-state.is-failed { color: var(--pulseai-failed); }
+.pulseai-tool-state.is-approval { color: var(--pulseai-approval); }
+
+.pulseai-mini-spinner {
+	display: inline-block;
+	width: 11px;
+	height: 11px;
+	border: 1px solid color-mix(in srgb, var(--pulseai-running) 25%, transparent);
+	border-top-color: var(--pulseai-running);
+	border-radius: 50%;
+	animation: pulseai-spin 850ms linear infinite;
+}
+@keyframes pulseai-spin { to { transform: rotate(360deg); } }
+
+.pulseai-tool-body {
+	padding: 0 7px 8px 34px;
+	border-top: 1px solid color-mix(in srgb, var(--vscode-panel-border) 65%, transparent);
+}
+
+.pulseai-tool-field { padding-top: 6px; }
+.pulseai-tool-field-label { display: block; margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: 9px; text-transform: uppercase; }
+
+.pulseai-tool-pre,
+.pulseai-terminal-output {
+	max-height: 220px;
+	margin: 0;
+	padding: 7px 8px;
+	overflow: auto;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-textCodeBlock-background);
+	color: var(--vscode-editor-foreground);
+	font-family: var(--vscode-editor-font-family);
+	font-size: var(--vscode-editor-font-size, 12px);
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.pulseai-terminal-command {
+	display: flex;
+	gap: 7px;
+	padding: 7px 8px;
+	background: var(--vscode-terminal-background, var(--vscode-textCodeBlock-background));
+	font-family: var(--vscode-editor-font-family);
+	line-height: 1.4;
+}
+.pulseai-terminal-prompt { color: var(--pulseai-verified); }
+.pulseai-terminal-command code { overflow-wrap: anywhere; }
+.pulseai-terminal-output { max-height: 260px; border-top: 0; }
+.pulseai-terminal-result { display: flex; align-items: center; gap: 9px; min-height: 25px; color: var(--vscode-descriptionForeground); font-size: 10px; }
+
+.pulseai-tool-actions { display: flex; align-items: center; gap: 5px; padding-top: 5px; }
+.pulseai-turn-receipt {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 26px;
+	margin-top: 7px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+}
+.pulseai-turn-receipt.is-completed > .codicon { color: var(--pulseai-verified); }
+.pulseai-turn-receipt.is-cancelled > .codicon { color: var(--pulseai-approval); }
+.pulseai-turn-receipt.is-failed > .codicon { color: var(--pulseai-failed); }
+.pulseai-link-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 4px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-textLink-foreground);
+	font-size: 10px;
+}
+.pulseai-link-button:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+
+.pulseai-empty {
+	display: grid;
+	place-items: center;
+	padding: 36px 16px;
+	color: var(--vscode-descriptionForeground);
+	text-align: center;
+}
+.pulseai-empty > .codicon { margin-bottom: 8px; color: var(--pulseai-accent); font-size: 22px; }
+.pulseai-empty h3 { margin: 0 0 5px; color: var(--vscode-foreground); font-size: 13px; }
+.pulseai-empty p { max-width: 300px; margin: 0; line-height: 1.4; }
+
+.pulseai-error-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--pulseai-failed);
+	background: var(--vscode-inputValidation-errorBackground);
+	color: var(--vscode-inputValidation-errorForeground);
+	line-height: 1.35;
+}
+.pulseai-error-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
+.pulseai-approval-dock {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 9px;
+	border-top: 1px solid var(--pulseai-approval);
+	background: color-mix(in srgb, var(--pulseai-approval) 9%, var(--vscode-sideBar-background));
+}
+.pulseai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1; }
+.pulseai-approval-copy > .codicon { margin-top: 2px; color: var(--pulseai-approval); }
+.pulseai-approval-copy div { display: grid; min-width: 0; }
+.pulseai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-approval-actions { display: flex; gap: 5px; }
+
+.pulseai-button {
+	height: 24px;
+	padding: 0 9px;
+	border: 1px solid transparent;
+}
+.pulseai-button-primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.pulseai-button-primary:hover { background: var(--vscode-button-hoverBackground); }
+.pulseai-button-secondary { border-color: var(--vscode-button-secondaryBackground); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+
+.pulseai-composer {
+	padding: 7px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-composer-input {
+	display: block;
+	width: 100%;
+	min-height: 48px;
+	max-height: 130px;
+	padding: 7px 8px 27px;
+	resize: vertical;
+	border: 1px solid var(--vscode-input-border, transparent);
+	outline: none;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	line-height: 1.4;
+}
+.pulseai-composer-input:focus { border-color: var(--vscode-focusBorder); }
+.pulseai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+.pulseai-composer-controls { display: flex; align-items: center; gap: 5px; height: 24px; margin: -26px 3px 0; position: relative; }
+.pulseai-composer-pill,
+.pulseai-icon-button,
+.pulseai-send-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	height: 21px;
+	padding: 0 5px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+}
+.pulseai-composer-pill:hover,
+.pulseai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-composer-controls > .pulseai-icon-button { margin-left: auto; }
+.pulseai-send-button { margin-left: auto; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.pulseai-composer-controls > .pulseai-icon-button + .pulseai-send-button { margin-left: 0; }
+
+/* Pulse Manager occupies an editor tab, leaving source editors and the global menu intact. */
+.pulseai-manager-editor { display: block; }
+.pulseai-manager-shell {
+	display: grid;
+	grid-template-columns: minmax(200px, 18%) minmax(420px, 1fr) minmax(240px, 22%);
+	height: 100%;
+	min-width: 0;
+	background: var(--vscode-editor-background);
+}
+.pulseai-manager-sidebar,
+.pulseai-manager-inspector,
+.pulseai-manager-main { min-width: 0; min-height: 0; }
+.pulseai-manager-sidebar {
+	display: grid;
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
+	border-right: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-manager-inspector {
+	overflow: auto;
+	border-left: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-manager-main {
+	display: grid;
+	grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+
+.pulseai-manager-pane-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 48px;
+	padding: 7px 10px;
+}
+.pulseai-manager-pane-head h2 { margin: 1px 0 0; font-size: 13px; font-weight: 600; }
+.pulseai-eyebrow { color: var(--vscode-descriptionForeground); font-size: 8px; letter-spacing: .08em; }
+
+.pulseai-manager-search {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 29px;
+	margin: 7px;
+	padding: 0 7px;
+	border: 1px solid var(--vscode-input-border, transparent);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-placeholderForeground);
+}
+.pulseai-workspace-group { overflow: auto; }
+.pulseai-workspace-title { display: flex; align-items: center; gap: 5px; height: 27px; padding: 0 8px; font-size: 11px; }
+.pulseai-workspace-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-session-row {
+	display: grid;
+	grid-template-columns: 8px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	padding: 7px 8px 7px 20px;
+	border: 0;
+	border-left: 2px solid transparent;
+	background: transparent;
+	text-align: left;
+}
+.pulseai-session-row:hover { background: var(--vscode-list-hoverBackground); }
+.pulseai-session-row.is-active { border-left-color: var(--pulseai-accent); background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.pulseai-session-row > div { display: grid; min-width: 0; gap: 2px; }
+.pulseai-session-row strong,
+.pulseai-session-row div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-session-row div span,
+.pulseai-session-state { color: var(--vscode-descriptionForeground); font-size: 9px; }
+.pulseai-manager-sidebar-footer { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); font-size: 10px; }
+
+.pulseai-manager-titlebar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-height: 56px;
+	padding: 7px 12px;
+}
+.pulseai-manager-breadcrumb { color: var(--vscode-descriptionForeground); font-size: 10px; }
+.pulseai-manager-titlebar h1 { max-width: 680px; margin: 3px 0 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-manager-tabs { display: flex; height: 32px; padding-left: 7px; }
+.pulseai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.pulseai-manager-tabs button:hover { color: var(--vscode-foreground); }
+.pulseai-manager-tabs button.is-active { border-bottom-color: var(--pulseai-accent); color: var(--vscode-foreground); }
+.pulseai-manager-main .pulseai-transcript-lane { padding: 14px 18px; }
+.pulseai-manager-main .pulseai-composer { padding: 8px 16px 10px; background: var(--vscode-editor-background); }
+.pulseai-manager-main .pulseai-composer-input { min-height: 58px; }
+
+.pulseai-inspector-section { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.pulseai-inspector-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; font-size: 10px; text-transform: uppercase; }
+.pulseai-inspector-title strong { color: var(--vscode-descriptionForeground); font-size: 9px; font-weight: 500; }
+.pulseai-plan-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pulseai-plan-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; line-height: 1.35; }
+.pulseai-plan-list li.is-active { color: var(--vscode-foreground); }
+.pulseai-plan-list li.is-muted { opacity: .75; }
+.pulseai-evidence-row { display: flex; align-items: flex-start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; line-height: 1.35; }
+.pulseai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: 10px; }
+.pulseai-usage-grid strong { color: var(--vscode-foreground); font-weight: 500; }
+
+@media (max-width: 880px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(190px, 25%) minmax(380px, 1fr); }
+	.pulseai-manager-inspector { display: none; }
+}
+
+@media (max-width: 610px) {
+	.pulseai-manager-shell { grid-template-columns: 1fr; }
+	.pulseai-manager-sidebar { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pulseai-mini-spinner { animation: none; }
+}

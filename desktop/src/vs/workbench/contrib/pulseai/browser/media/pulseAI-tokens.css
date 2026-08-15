@@ -1,0 +1,18 @@
+/* PulseAI-specific semantic tokens. Layout consumes VS Code theme variables directly. */
+:root {
+	--pulseai-accent: #22d3ee;
+	--pulseai-running: #22d3ee;
+	--pulseai-verified: #49d190;
+	--pulseai-approval: #efb75c;
+	--pulseai-failed: #ed727c;
+	--pulseai-agent: #9b8cff;
+}
+
+.monaco-workbench.vs {
+	--pulseai-accent: #087f94;
+	--pulseai-running: #087f94;
+	--pulseai-verified: #178456;
+	--pulseai-approval: #9b620d;
+	--pulseai-failed: #be3d49;
+	--pulseai-agent: #6652d9;
+}

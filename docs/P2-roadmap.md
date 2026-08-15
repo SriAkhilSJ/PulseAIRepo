@@ -102,4 +102,21 @@ Phase 0 ≈ 2–3 rounds · M1 ≈ 6–8 · M2 ≈ 4–5 · M3 ≈ 2–3 · M4 �
 
 ---
 
-**Amendment log:** *(empty — amendments need your sign-off, dated, appended here)*
+## Amendment log
+
+### 2026-08-15 — Founder-approved product/UI amendment
+
+The founder explicitly approved the following changes before UI implementation:
+
+1. Public product name changes from **PulseCode** to **PulseAI IDE**; user-facing agent remains **Pulse**.
+2. The first-party workbench territory is `src/vs/workbench/contrib/pulseai/` (never `/extensions/`).
+3. Two product surfaces are in scope: compact **Agent UI** and wide **Pulse Manager**.
+4. A browser **UI Lab** is allowed as development/visual-verification tooling. It is not a browser product and does not change final `/contrib/` registration.
+5. The TaskTimeline/token/activity graph concept is rejected. Telemetry is numeric and evidence-based.
+6. Shared portable renderer + host adapters replaces a throwaway website-then-rewrite flow.
+7. The shipped Python bridge has outgrown the original v1 method list; a contract-tested Protocol v2 supersedes the stale hand-maintained TypeScript mirror before fork wiring.
+8. Code OSS services and installed language/platform extensions may provide editor, diagnostics, SCM, terminal, test, and language capabilities through a narrow first-party workbench host. Pulse itself remains a contribution.
+9. After the founder approved continuation with the desktop-sidecar constraint disclosed, the upstream-touch budget first expanded from two files to three: `product.json`, `workbench.common.main.ts`, and `workbench.desktop.main.ts`. The desktop import registers the utility-process Python sidecar without loading Electron APIs in web builds.
+10. During optimized-packaging inspection, pinned Code OSS `build/buildfile.ts` showed that string-addressed utility workers are emitted only when listed as bundle entry points. The founder explicitly approved a fourth and final upstream edit: `build/buildfile.ts` registers `vs/workbench/contrib/pulseai/node/pulseAIWorkerMain` in `workbenchDesktop` only. Deferring this would leave development working while packaged PulseAI IDE omitted the worker. The active upstream boundary is therefore exactly four files; this supersedes the earlier three-file count.
+
+Implementation began under `ui/`. Full host/API boundaries are recorded in `docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md`.
