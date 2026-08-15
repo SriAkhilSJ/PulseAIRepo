@@ -9,7 +9,7 @@
     },
     "product.json": {
       "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
-      "overlay_sha256": "914f7880cec8063aef10d80f875e7a4cdb314233cc3a0ea77e292e43402c7ef6",
+      "overlay_sha256": "d4195e6ef8bfd992bbe4e3103639e1345c5703d65e5b601f225780764990c7b5",
       "modified": true
     },
     "src/vs/workbench/workbench.common.main.ts": {
@@ -23,5 +23,52 @@
       "modified": true
     }
   },
-  "custom_root": "src/vs/workbench/contrib/pulseai/"
+  "custom_root": "src/vs/workbench/contrib/pulseai/",
+  "brand_assets": {
+    "resources/darwin/code.icns": {
+      "overlay_sha256": "e3a14ee53a62f511c04e5e2149db14e4976c0e61e156dca692319f2c41fd04a7",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/linux/code.png": {
+      "overlay_sha256": "ecf6d9aa39e64ce92f66a35a2cf3e20859ea0c7cb9cc37b31528f923707df4d9",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/server/code-192.png": {
+      "overlay_sha256": "712f93b8d04676c5519e6b5920de07f69cdc85a41ae5fcccbd47975a7e348bac",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/server/code-512.png": {
+      "overlay_sha256": "ecf6d9aa39e64ce92f66a35a2cf3e20859ea0c7cb9cc37b31528f923707df4d9",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/server/favicon.ico": {
+      "overlay_sha256": "158c0ecd64db099b8d20532ec86285c25888653678acc4bf4d13abf7655b7a08",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/win32/code.ico": {
+      "overlay_sha256": "9346112d9bbb9cf2d35271f616a644c1bc5992c22bfec06c2489a03b94c7f09c",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/win32/code_150x150.png": {
+      "overlay_sha256": "fcc599b9a3096fa00a6417f4dab0e645b2fae57050ae54c34766db95f25374cd",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/win32/code_70x70.png": {
+      "overlay_sha256": "aef334145fee79336f041ab424eec8e5cd4de687072e8681b1a2fbd3e9814c7b",
+      "replaces_upstream": true,
+      "generated_from": "branding/pulseai-mark.svg"
+    },
+    "resources/pulseai/pulseai-mark.svg": {
+      "overlay_sha256": "1ea5fa9da60c28a126d7e81456f6ea8c2094bde76d2bc5e9637faca3e7f76d44",
+      "replaces_upstream": false,
+      "generated_from": "branding/pulseai-mark.svg"
+    }
+  }
 }

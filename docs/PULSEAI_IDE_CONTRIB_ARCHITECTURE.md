@@ -168,4 +168,6 @@ Protocol types must not be maintained independently by hand.
 - Editor data: `.pulseai-ide`
 - Engine data: `.pulseai`
 
-Pulse cyan marks running/connected intelligence. Green is verification, amber is approval/warning, and red is failure/destructive action.
+Pulse cyan marks running/connected intelligence. Agent violet marks delegation and the endpoint node. Green is verification, amber is approval/warning, and red is failure/destructive action.
+
+The canonical app mark lives at `branding/pulseai-mark.svg` and generates the Code OSS Windows, macOS, Linux, server, and browser icon resources. Workbench chrome defaults are registered by `browser/pulseAIBranding.ts` for Dark 2026 and Light 2026. They are configuration defaults rather than forced CSS, so user customizations and high-contrast themes remain authoritative.

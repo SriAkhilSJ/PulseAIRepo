@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 test("agent UI renders the contrib contract and no activity graph", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("PulseAI", { exact: false }).first()).toBeVisible();
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/pulseai-mark.svg");
+  await expect(page.locator(".brand-mark circle")).toBeVisible();
   await expect(page.getByText("src/vs/workbench/contrib/pulseai/")).toBeVisible();
   await expect(page.getByText("Fix authentication redirect", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeVisible();

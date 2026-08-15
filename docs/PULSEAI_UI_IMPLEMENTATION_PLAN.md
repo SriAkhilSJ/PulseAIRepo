@@ -70,7 +70,7 @@ The browser UI now follows the approved wireframe direction:
 
 ### T4 — Selective Code OSS desktop overlay — FOUNDATION COMPLETE
 
-Pinned upstream `6c27443ce6fdf6ac798c64025d45175e2e23c4b4` without cloning the Code OSS working tree. The current selective desktop set is approximately 20 KB and contains product identity, Node pin, Protocol v2 draft, semantic tokens, and contribution documentation.
+Pinned upstream `6c27443ce6fdf6ac798c64025d45175e2e23c4b4` without cloning the Code OSS working tree. The current selective desktop set remains under 1 MB and contains product identity, the four upstream source overlays, generated platform icons, Protocol v2 contracts, semantic tokens, and the complete first-party contribution.
 
 Under `desktop/`, copy only:
 
@@ -81,6 +81,8 @@ Under `desktop/`, copy only:
 - a pin/manifest listing every copied upstream file and hash.
 
 Do not copy the full Code OSS tree. Additional upstream files are read remotely and copied only when they are genuinely modified.
+
+Branding now has one canonical pulse-and-agent-node SVG plus reproducible Windows ICO/tile, macOS ICNS, Linux PNG, server icon, and browser favicon outputs. Eight expected Code OSS resource replacements are receipt-pinned separately from the four-file source boundary. Pulse cyan/navy workbench chrome is registered from the first-party contribution as Dark 2026 / Light 2026 configuration defaults, preserving user overrides and high-contrast behavior.
 
 ### T5 — PulseAI Bridge Protocol v2 — CONTRACT FOUNDATION COMPLETE
 
@@ -115,9 +117,9 @@ The desktop-only sidecar chain is now implemented: existing Code OSS utility-pro
 
 The compact Agent `ViewPane` and Pulse Manager `EditorPane` now mount the same framework-neutral `pulseAIRenderer.ts` through one singleton `PulseAIRendererService`. That service owns the shared Protocol v2 event model, session/prompt routing, streaming text, tool lifecycle, approvals, plans, verification, telemetry, engine status, and workbench reveal intents. The native catalog covers the same 34 tool names as the browser catalog and selects family-specific disclosures. Terminal disclosures include command, bounded output, state/exit evidence, duration, copy, and reveal actions. Common/web construction is safe through a no-process fallback engine descriptor; the later desktop descriptor replaces it during service collection initialization.
 
-Current focused renderer/sidecar/capability/overlay/catalog/Protocol/bridge verification: **40 passed**. All **24** selective desktop TypeScript files—including the three upstream entrypoints—pass the decorator-aware syntax check. Optimized package inclusion is now structurally pinned through `buildfile.ts`; a complete pinned Code OSS type-check, build, and launch have not yet run.
+Current focused branding/renderer/sidecar/capability/overlay/catalog/Protocol/bridge verification: **46 passed**. All **25** selective desktop TypeScript files—including the three upstream entrypoints—pass the decorator-aware syntax check. The browser production build and **7/7** Chromium tests pass, with zero npm audit findings. Optimized package inclusion is structurally pinned through `buildfile.ts`; a complete pinned Code OSS type-check, build, and launch have not yet run.
 
-Engine retry now uses at most three exponential-backoff attempts while a Pulse surface is mounted. A successful restart resumes the active session, requests replay, and de-duplicates bounded `event_id` history before applying replayed frames. Startup failures release partially created workers and transition out of `starting`. Cancel is de-duplicated in the renderer, displays a `Stopping…` state, consumes the bridge's `cancel_requested` receipt, and maps `turn_done.completed = false` to an explicit cancelled-run receipt. Still required before T6 completes: non-shell-integration terminal fallback evidence, richer test/task output correlation, materializing before/after diff resources when engine receipts contain inline content instead of URIs, and validation in a complete pinned Code OSS tree.
+Engine retry now uses at most three exponential-backoff attempts while a Pulse surface is mounted. A successful restart resumes the active session, requests replay, and de-duplicates bounded `event_id` history before applying replayed frames. Startup failures release partially created workers and transition out of `starting`. Cancel is de-duplicated in the renderer, displays a `Stopping…` state, consumes the bridge's `cancel_requested` receipt, and maps `turn_done.completed = false` to an explicit cancelled-run receipt. Safety requests carrying `{ path, old_text, new_text }` now materialize bounded read-only `pulseai-diff:` models and open the native Code OSS diff editor; URI-backed receipts still use the direct path. Event-bus streaming/tool/approval fields and durable replay rows are normalized into Protocol v2 names before reaching the renderer. Still required before T6 completes: non-shell-integration terminal fallback evidence, richer test/task output correlation, and validation in a complete pinned Code OSS tree.
 
 Implementation scope:
 

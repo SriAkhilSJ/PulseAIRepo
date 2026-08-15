@@ -40,7 +40,7 @@ export type PulseServerEvent =
 	| ({ readonly type: 'plan_updated'; readonly steps: readonly unknown[] } & PulseIdentity)
 	| ({ readonly type: 'tool_call_start'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & PulseIdentity)
 	| ({ readonly type: 'tool_call_end'; readonly tool_id: string; readonly status: string; readonly result?: unknown } & PulseIdentity)
-	| ({ readonly type: 'safety_request'; readonly tool_id: string; readonly name: string; readonly diff?: unknown } & PulseIdentity)
+	| ({ readonly type: 'safety_request'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown; readonly diff?: unknown; readonly warning?: string } & PulseIdentity)
 	| ({ readonly type: 'verification_updated'; readonly status: string; readonly evidence?: unknown } & PulseIdentity)
 	| ({ readonly type: 'subagent_updated'; readonly subagent_id: string; readonly state: string } & PulseIdentity)
 	| ({ readonly type: 'telemetry'; readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number } & PulseIdentity)

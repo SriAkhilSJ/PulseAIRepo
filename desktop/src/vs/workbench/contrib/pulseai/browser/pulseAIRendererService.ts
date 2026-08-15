@@ -312,7 +312,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			if (this.approval?.toolId === frame.tool_id) { this.approval = undefined; }
 		} else if (frame.type === 'safety_request') {
 			const existing = this.tools.get(frame.tool_id);
-			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
+			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
 			this.approval = { toolId: frame.tool_id, name: frame.name, diff: frame.diff };
 		} else if (frame.type === 'verification_updated') {
 			this.verification = frame.status;
@@ -354,17 +354,35 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			const sources = [approval, tool?.result, tool?.arguments];
 			let original: string | undefined;
 			let modified: string | undefined;
+			let originalText: string | undefined;
+			let modifiedText: string | undefined;
+			let resource: string | undefined;
 			for (const source of sources) {
+				const value = valueRecord(source);
 				original ??= stringField(source, ['original_uri', 'original', 'before_uri', 'base_uri']);
-				modified ??= stringField(source, ['modified_uri', 'modified', 'after_uri', 'resource', 'file_path', 'path']);
+				modified ??= stringField(source, ['modified_uri', 'modified', 'after_uri']);
+				resource ??= stringField(source, ['resource', 'file_path', 'path']);
+				if (originalText === undefined && value && 'old_text' in value && (typeof value.old_text === 'string' || value.old_text === null)) {
+					originalText = typeof value.old_text === 'string' ? value.old_text : '';
+				}
+				if (modifiedText === undefined && typeof value?.new_text === 'string') { modifiedText = value.new_text; }
 			}
+			const label = `Pulse: ${tool?.name ?? 'proposed change'}`;
+			if (originalText !== undefined && modifiedText !== undefined) {
+				await this.workbenchService.openInlineDiff({
+					toolId, label, original: originalText, modified: modifiedText,
+					...(resource ? { resource } : {}),
+				});
+				return;
+			}
+			modified ??= resource;
 			if (!original || !modified) {
-				throw new Error('This tool receipt does not include native original/modified diff resources yet.');
+				throw new Error('This tool receipt does not include inline text or native original/modified diff resources.');
 			}
 			await this.workbenchService.openNativeDiff(
 				this.resourceUri(original).toString(),
 				this.resourceUri(modified).toString(),
-				`Pulse: ${tool?.name ?? 'proposed change'}`,
+				label,
 			);
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);

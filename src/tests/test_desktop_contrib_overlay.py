@@ -21,6 +21,12 @@ def test_product_brand_is_pulseai_ide():
     assert product["nameLong"] == "PulseAI IDE"
     assert product["applicationName"] == "pulseai"
     assert product["dataFolderName"] == ".pulseai-ide"
+    assert product["serverApplicationName"] == "pulseai-server"
+    assert product["win32DirName"] == "PulseAI IDE"
+    assert product["win32AppUserModelId"] == "PulseAI.IDE"
+    assert product["darwinBundleIdentifier"] == "com.pulseai.ide"
+    assert product["linuxIconName"] == "pulseai"
+    assert product["urlProtocol"] == "pulseai"
 
 
 def test_pulse_is_registered_once_as_a_workbench_contribution():
@@ -56,6 +62,9 @@ def test_selective_manifest_matches_overlay_files():
     for rel, receipt in manifest["files"].items():
         assert _sha(DESKTOP / rel) == receipt["overlay_sha256"]
         assert receipt["modified"] is True
+    for rel, receipt in manifest["brand_assets"].items():
+        assert _sha(DESKTOP / rel) == receipt["overlay_sha256"]
+        assert receipt["generated_from"] == "branding/pulseai-mark.svg"
 
 
 def test_selective_desktop_has_no_full_checkout_artifacts():

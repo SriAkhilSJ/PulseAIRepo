@@ -91,6 +91,14 @@ export interface PulseAIApplyResult {
 	readonly resources: readonly string[];
 }
 
+export interface PulseAIInlineDiffRequest {
+	readonly toolId: string;
+	readonly label: string;
+	readonly resource?: string;
+	readonly original: string;
+	readonly modified: string;
+}
+
 export interface PulseAITestItem {
 	readonly id: string;
 	readonly controllerId: string;
@@ -170,6 +178,7 @@ export interface IPulseAIWorkbenchService {
 
 	openResource(resource: string, range?: PulseAIRange): Promise<void>;
 	openNativeDiff(original: string, modified: string, label: string): Promise<void>;
+	openInlineDiff(request: PulseAIInlineDiffRequest): Promise<void>;
 	applyWorkspaceEdit(request: PulseAIWorkspaceEditRequest): Promise<PulseAIApplyResult>;
 	discoverTests(resources?: readonly string[]): Promise<readonly PulseAITestItem[]>;
 	runTests(request: PulseAITestRequest): Promise<PulseAITestReceipt>;

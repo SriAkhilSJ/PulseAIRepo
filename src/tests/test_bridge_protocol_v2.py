@@ -7,7 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.bridge.__main__ import BridgeServer
 from src.bridge.protocol import CLIENT_METHODS, SERVER_EVENTS
+from src.runtime.identity import TurnIdentity
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "src" / "bridge" / "protocol_v2.json"
@@ -59,6 +61,53 @@ def test_handwritten_payload_union_covers_every_generated_name():
     server, client = text.split("export type PulseClientMethod =", 1)
     assert _frame_names(server) == set(_manifest()["server_events"])
     assert _frame_names(client) == set(_manifest()["client_methods"])
+
+
+def test_event_bus_projection_normalizes_stream_tool_and_approval_fields(tmp_path):
+    identity = TurnIdentity.create(session_id="s1", workspace=str(tmp_path))
+    token = BridgeServer._project_event(
+        {"type": "message.agent.chunk", "event_id": "e1", "payload": {"chunk": "hello"}},
+        identity,
+    )
+    assert token["type"] == "token" and token["text"] == "hello"
+
+    started = BridgeServer._project_event({
+        "type": "tool.call", "event_id": "e2",
+        "payload": {"tool_id": "s1-call-7", "tool_name": "edit_file", "tool_args": {"path": "a.py"}},
+    }, identity)
+    assert started["tool_id"] == "call-7"
+    assert started["name"] == "edit_file"
+    assert started["arguments"] == {"path": "a.py"}
+
+    approval = BridgeServer._project_event({
+        "type": "tool.approval.request", "event_id": "e3",
+        "payload": {
+            "id": "call-7", "tool_name": "edit_file", "tool_args": {"path": "a.py"},
+            "diff": {"path": "a.py", "old_text": "old", "new_text": "new"},
+        },
+    }, identity)
+    assert approval["tool_id"] == "call-7"
+    assert approval["name"] == "edit_file"
+    assert approval["diff"]["new_text"] == "new"
+
+
+def test_durable_replay_projection_emits_protocol_tool_frames():
+    rows = [
+        {
+            "type": "tool.intent", "event_id": "e1", "session_id": "s", "turn_id": "t",
+            "workspace_id": "w", "tool_call_id": "tool-1",
+            "payload": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        {
+            "type": "tool.result", "event_id": "e2", "session_id": "s", "turn_id": "t",
+            "workspace_id": "w", "tool_call_id": "tool-1",
+            "payload": {"tool_name": "read_file", "status": "ok", "content": "done"},
+        },
+    ]
+    projected = BridgeServer._project_stored_events(rows)
+    assert [event["type"] for event in projected] == ["tool_call_start", "tool_call_end"]
+    assert projected[0]["arguments"] == {"path": "README.md"}
+    assert projected[1]["status"] == "ok" and projected[1]["result"] == "done"
 
 
 def test_selective_desktop_overlay_stays_tiny():

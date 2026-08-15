@@ -38,6 +38,7 @@ class BridgeServer:
 
     @staticmethod
     def _project_event(event: dict, identity: TurnIdentity) -> dict | None:
+        """Normalize internal event-bus fields into the stable Protocol v2 wire schema."""
         kind = event.get("type", "")
         payload = dict(event.get("payload") or {})
         mapping = {
@@ -55,11 +56,82 @@ class BridgeServer:
         target = mapping.get(kind)
         if target is None:
             return None
-        return {
-            "type": target, "event_id": event.get("event_id"),
-            "timestamp": event.get("timestamp"), **identity.event_fields(),
-            **payload,
+        base = {
+            "type": target,
+            "event_id": event.get("event_id"),
+            "timestamp": event.get("timestamp"),
+            **identity.event_fields(),
+            "lineage_id": identity.lineage_root_id,
         }
+
+        raw_tool_id = str(
+            payload.get("tool_id") or payload.get("tool_call_id")
+            or payload.get("id") or ""
+        )
+        prefix = f"{identity.session_id}-"
+        tool_id = raw_tool_id[len(prefix):] if raw_tool_id.startswith(prefix) else raw_tool_id
+        name = str(payload.get("name") or payload.get("tool_name") or "")
+
+        if target == "token":
+            return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
+        if target == "tool_call_start":
+            return {
+                **base, "tool_id": tool_id, "name": name,
+                "arguments": payload.get("arguments", payload.get("tool_args")),
+            }
+        if target == "tool_call_end":
+            return {
+                **base, "tool_id": tool_id, "name": name,
+                "status": str(payload.get("status") or "completed"),
+                "result": payload.get("result", payload.get("content")),
+            }
+        if target == "safety_request":
+            return {
+                **base, "tool_id": tool_id, "name": name,
+                "arguments": payload.get("arguments", payload.get("tool_args")),
+                "diff": payload.get("diff"), "warning": payload.get("warning"),
+            }
+        return {**base, **payload, "type": target}
+
+    @staticmethod
+    def _project_stored_event(event: dict) -> dict | None:
+        """Project durable journal rows before session resume/replay reaches the UI."""
+        kind = str(event.get("type") or "")
+        payload = dict(event.get("payload") or {})
+        target = {
+            "tool.intent": "tool_call_start",
+            "tool.result": "tool_call_end",
+            "message.agent.chunk": "token",
+        }.get(kind)
+        if target is None:
+            return event if kind in {
+                "turn_started", "token", "reasoning", "plan_updated",
+                "tool_call_start", "tool_call_end", "safety_request",
+                "verification_updated", "subagent_updated", "telemetry",
+                "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
+            } else None
+        base = {
+            "type": target,
+            "event_id": event.get("event_id"),
+            "timestamp": event.get("timestamp"),
+            "session_id": event.get("session_id"),
+            "turn_id": event.get("turn_id"),
+            "workspace_id": event.get("workspace_id"),
+            "tool_id": str(event.get("tool_call_id") or payload.get("tool_id") or ""),
+        }
+        if target == "token":
+            return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
+        name = str(payload.get("name") or payload.get("tool_name") or "")
+        if target == "tool_call_start":
+            return {**base, "name": name, "arguments": payload.get("arguments", payload.get("args"))}
+        return {
+            **base, "name": name, "status": str(payload.get("status") or "completed"),
+            "result": payload.get("result", payload.get("content")),
+        }
+
+    @classmethod
+    def _project_stored_events(cls, events: list[dict]) -> list[dict]:
+        return [projected for event in events if (projected := cls._project_stored_event(event))]
 
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
@@ -98,9 +170,12 @@ class BridgeServer:
                 approval_channel=True, approval_timeout=300.0,
                 turn_id=identity.turn_id,
             )
+            from src.runtime.turn_control import turn_controls
+            cancelled = turn_controls.cancelled(sid)
             self.emit({
                 "type": "turn_done", **identity.event_fields(),
-                "message": result, "completed": True, "stub": False,
+                "message": result, "completed": not cancelled,
+                "cancelled": cancelled, "stub": False,
             })
         except Exception as exc:
             self.emit({
@@ -146,7 +221,8 @@ class BridgeServer:
         elif kind in {"session_load", "session_resume"}:
             try:
                 from src.runtime.factory import get_runtime_services
-                events = get_runtime_services().journal.list_events(sid)
+                stored = get_runtime_services().journal.list_events(sid)
+                events = self._project_stored_events(stored)
                 from src.graphs.chat_graph import get_agent_status
                 status = get_agent_status(sid)
             except Exception:
@@ -250,9 +326,10 @@ class BridgeServer:
             })
         elif kind == "events_replay":
             from src.runtime.factory import get_runtime_services
-            events = get_runtime_services().journal.list_events(
+            stored = get_runtime_services().journal.list_events(
                 sid, after_seq=int(frame.get("after_seq") or 0),
             )
+            events = self._project_stored_events(stored)
             self.emit({"type": "events_replay", "session_id": sid, "events": events})
         return True
 

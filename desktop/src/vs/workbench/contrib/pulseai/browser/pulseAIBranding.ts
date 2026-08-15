@@ -1,0 +1,98 @@
+/*---------------------------------------------------------------------------------------------
+ * PulseAI IDE workbench chrome defaults. These are configuration defaults—not forced CSS—so
+ * user settings and accessibility/high-contrast themes remain authoritative.
+ *--------------------------------------------------------------------------------------------*/
+
+import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+
+const darkChrome = {
+	'focusBorder': '#22D3EE99',
+	'progressBar.background': '#22D3EE',
+	'textLink.foreground': '#42D9EC',
+	'button.background': '#087F94',
+	'button.foreground': '#FFFFFF',
+	'button.hoverBackground': '#0A91A8',
+	'badge.background': '#14505C',
+	'badge.foreground': '#E8FCFF',
+	'titleBar.activeBackground': '#071118',
+	'titleBar.activeForeground': '#E6F4F7',
+	'titleBar.inactiveBackground': '#09141B',
+	'titleBar.inactiveForeground': '#82939D',
+	'activityBar.background': '#071118',
+	'activityBar.foreground': '#D7E8EC',
+	'activityBar.inactiveForeground': '#71848E',
+	'activityBar.activeBorder': '#22D3EE',
+	'activityBar.border': '#17313A',
+	'activityBarBadge.background': '#22D3EE',
+	'activityBarBadge.foreground': '#061115',
+	'sideBar.background': '#0B141B',
+	'sideBar.border': '#1D3039',
+	'sideBarSectionHeader.background': '#0D1820',
+	'sideBarTitle.foreground': '#DCE8EC',
+	'editorGroupHeader.tabsBackground': '#091218',
+	'tab.activeBorderTop': '#22D3EE',
+	'tab.unfocusedActiveBorderTop': '#087F94',
+	'panel.background': '#091218',
+	'panel.border': '#1D3540',
+	'statusBar.background': '#0B3942',
+	'statusBar.foreground': '#DFFBFF',
+	'statusBar.border': '#17606E',
+	'statusBarItem.hoverBackground': '#14505C',
+	'list.activeSelectionBackground': '#12313A',
+	'list.inactiveSelectionBackground': '#10262E',
+	'list.highlightForeground': '#42D9EC',
+	'inputOption.activeBorder': '#22D3EE',
+	'terminal.tab.activeBorder': '#22D3EE',
+} as const;
+
+const lightChrome = {
+	'focusBorder': '#087F94AA',
+	'progressBar.background': '#087F94',
+	'textLink.foreground': '#087F94',
+	'button.background': '#087F94',
+	'button.foreground': '#FFFFFF',
+	'button.hoverBackground': '#066D80',
+	'badge.background': '#C8E9EE',
+	'badge.foreground': '#123A42',
+	'titleBar.activeBackground': '#EAF7FA',
+	'titleBar.activeForeground': '#102A31',
+	'titleBar.inactiveBackground': '#F1F8FA',
+	'titleBar.inactiveForeground': '#687D83',
+	'activityBar.background': '#E4F1F4',
+	'activityBar.foreground': '#203940',
+	'activityBar.inactiveForeground': '#71848A',
+	'activityBar.activeBorder': '#087F94',
+	'activityBar.border': '#BDD8DE',
+	'activityBarBadge.background': '#087F94',
+	'activityBarBadge.foreground': '#FFFFFF',
+	'sideBar.background': '#F2F8FA',
+	'sideBar.border': '#C9DCE1',
+	'sideBarSectionHeader.background': '#EAF3F6',
+	'sideBarTitle.foreground': '#203940',
+	'editorGroupHeader.tabsBackground': '#EDF5F7',
+	'tab.activeBorderTop': '#087F94',
+	'tab.unfocusedActiveBorderTop': '#68AFBA',
+	'panel.background': '#F6FAFB',
+	'panel.border': '#C9DCE1',
+	'statusBar.background': '#0D7182',
+	'statusBar.foreground': '#FFFFFF',
+	'statusBar.border': '#085967',
+	'statusBarItem.hoverBackground': '#0A6170',
+	'list.activeSelectionBackground': '#D5EEF2',
+	'list.inactiveSelectionBackground': '#E3F1F4',
+	'list.highlightForeground': '#087F94',
+	'inputOption.activeBorder': '#087F94',
+	'terminal.tab.activeBorder': '#087F94',
+} as const;
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
+	source: 'PulseAI IDE',
+	preventExperimentOverride: true,
+	overrides: {
+		'workbench.colorCustomizations': {
+			'[Dark 2026]': darkChrome,
+			'[Light 2026]': lightChrome,
+		},
+	},
+}]);

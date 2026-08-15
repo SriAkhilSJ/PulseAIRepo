@@ -6,7 +6,9 @@ import { isCodeEditor, isDiffEditor } from '../../../../editor/browser/editorBro
 import { IBulkEditService, ResourceTextEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IRange } from '../../../../editor/common/core/range.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -38,6 +40,7 @@ import {
 	PulseAIApplyResult,
 	PulseAIDiagnostic,
 	PulseAIEditorContext,
+	PulseAIInlineDiffRequest,
 	PulseAILanguageLocation,
 	PulseAIRange,
 	PulseAISCMRepository,
@@ -67,6 +70,9 @@ const MIN_TERMINAL_TIMEOUT_MS = 1_000;
 const MAX_TERMINAL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_TERMINAL_OUTPUT_CHARS = 64_000;
 const MAX_TERMINAL_OUTPUT_CHARS = 256_000;
+const PULSE_AI_DIFF_SCHEME = 'pulseai-diff';
+const MAX_INLINE_DIFF_CHARS = 512_000;
+const MAX_INLINE_DIFF_MODELS = 64;
 
 function range(value: IRange): PulseAIRange {
 	return {
@@ -116,12 +122,16 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 	private readonly _onDidChangeTests = this._register(new Emitter<PulseAITestReceipt>());
 	readonly onDidChangeTests: Event<PulseAITestReceipt> = this._onDidChangeTests.event;
 	private readonly queryBuilder: QueryBuilder;
+	private readonly inlineDiffModels = new Map<string, { content: string; languageResource?: URI }>();
+	private readonly inlineDiffOrder: string[] = [];
 
 	constructor(
 		@IEditorService private readonly editorService: IEditorService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IMarkerService private readonly markerService: IMarkerService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
+		@ILanguageService private readonly languageService: ILanguageService,
+		@IModelService private readonly modelService: IModelService,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
@@ -137,6 +147,17 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 	) {
 		super();
 		this.queryBuilder = instantiationService.createInstance(QueryBuilder);
+		this._register(this.textModelService.registerTextModelContentProvider(PULSE_AI_DIFF_SCHEME, {
+			provideTextContent: async resource => {
+				const existing = this.modelService.getModel(resource);
+				if (existing) { return existing; }
+				const entry = this.inlineDiffModels.get(resource.toString());
+				if (!entry) { return null; }
+				const firstLine = entry.content.split(/\r?\n/, 1)[0];
+				const language = this.languageService.createByFilepathOrFirstLine(entry.languageResource ?? resource, firstLine);
+				return this.modelService.createModel(entry.content, language, resource);
+			},
+		}));
 		this._register(this.markerService.onMarkerChanged(resources => {
 			this._onDidChangeDiagnostics.fire(this.getDiagnostics(resources.map(resource => resource.toString())));
 		}));
@@ -270,6 +291,23 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 			modified: { resource: URI.parse(modified) },
 			label,
 		});
+	}
+
+	async openInlineDiff(request: PulseAIInlineDiffRequest): Promise<void> {
+		if (!request.toolId.trim()) { throw new Error('Pulse inline diff is missing its tool id'); }
+		if (request.original.length > MAX_INLINE_DIFF_CHARS || request.modified.length > MAX_INLINE_DIFF_CHARS) {
+			throw new Error(`Pulse inline diff exceeds ${MAX_INLINE_DIFF_CHARS.toLocaleString()} characters per side`);
+		}
+		const languageResource = request.resource
+			? /^[a-z][a-z0-9+.-]*:/i.test(request.resource) ? URI.parse(request.resource) : URI.file(request.resource)
+			: undefined;
+		const fileName = languageResource?.path.split('/').pop() || 'proposed-change.txt';
+		const key = `${request.toolId.replace(/[^a-z0-9._-]/gi, '_').slice(0, 96)}-${Date.now().toString(36)}`;
+		const original = URI.from({ scheme: PULSE_AI_DIFF_SCHEME, authority: 'pulseai', path: `/${key}/before/${fileName}` });
+		const modified = URI.from({ scheme: PULSE_AI_DIFF_SCHEME, authority: 'pulseai', path: `/${key}/after/${fileName}` });
+		this.rememberInlineDiff(original, request.original, languageResource);
+		this.rememberInlineDiff(modified, request.modified, languageResource);
+		await this.openNativeDiff(original.toString(), modified.toString(), request.label);
 	}
 
 	async requestWorkspaceTrust(): Promise<boolean> {
@@ -564,6 +602,16 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 			fail(error);
 		}
 		return completion;
+	}
+
+	private rememberInlineDiff(resource: URI, content: string, languageResource?: URI): void {
+		const key = resource.toString();
+		this.inlineDiffModels.set(key, { content, languageResource });
+		this.inlineDiffOrder.push(key);
+		while (this.inlineDiffOrder.length > MAX_INLINE_DIFF_MODELS) {
+			const removed = this.inlineDiffOrder.shift();
+			if (removed) { this.inlineDiffModels.delete(removed); }
+		}
 	}
 
 	private testReceipt(result: ITestResult): PulseAITestReceipt {

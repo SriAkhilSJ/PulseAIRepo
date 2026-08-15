@@ -96,8 +96,9 @@ button { color: inherit; }
 .brand { gap: 8px; min-width: max-content; }
 .brand-mark { width: 27px; height: 27px; color: var(--accent); }
 .brand-mark svg { width: 100%; height: 100%; }
-.brand-mark rect { fill: var(--accent-soft); stroke: var(--accent-border); }
+.brand-mark rect { fill: #071118; stroke: var(--accent-border); }
 .brand-mark path { stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.brand-mark circle { fill: var(--violet); }
 .brand-word { color: var(--strong); font-size: 14px; font-weight: 680; letter-spacing: -.02em; }
 .brand-word > span { color: var(--accent); }
 .brand-word small { margin-left: 4px; color: var(--faint); font-size: 8px; letter-spacing: .14em; }

@@ -74,6 +74,8 @@ desktop/*
 !desktop/build/
 desktop/build/*
 !desktop/build/buildfile.ts
+!desktop/resources/
+!desktop/resources/**
 !desktop/src/
 desktop/src/*
 !desktop/src/vs/

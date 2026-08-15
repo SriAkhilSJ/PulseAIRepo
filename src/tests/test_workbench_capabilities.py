@@ -44,7 +44,7 @@ def test_host_contract_has_safe_context_and_actuation_seams():
     for method in (
         "getActiveEditorContext", "getDiagnostics", "getDocumentSymbols",
         "getDefinitions", "getReferences", "searchWorkspace", "getSCMState", "openNativeDiff",
-        "applyWorkspaceEdit", "discoverTasks", "runTask", "runTests", "runInTerminal", "requestWorkspaceTrust",
+        "openInlineDiff", "applyWorkspaceEdit", "discoverTasks", "runTask", "runTests", "runInTerminal", "requestWorkspaceTrust",
     ):
         assert method in text
     assert "expectedVersionId" in text
@@ -55,6 +55,7 @@ def test_phase_a_adapter_uses_dirty_buffers_markers_and_language_providers():
     text = IMPLEMENTATION.read_text(encoding="utf-8")
     for receipt in (
         "activeTextEditorControl", "textFileService.isDirty", "markerService.read",
+        "registerTextModelContentProvider", "PULSE_AI_DIFF_SCHEME", "MAX_INLINE_DIFF_CHARS",
         "documentSymbolProvider.ordered", "definitionProvider.ordered",
         "referenceProvider.ordered", "createModelReference", "openNativeDiff",
         "bulkEditService.apply", "expectedVersionId", "approvalToolId",

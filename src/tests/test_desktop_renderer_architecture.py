@@ -40,6 +40,8 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "onDidReceiveFrame" in service
     assert "PulseClientMethod" in service
     assert "openNativeDiff" in service
+    assert "openInlineDiff" in service
+    assert "old_text" in service and "new_text" in service
     assert "session_resume" in service
     assert "events_replay" in service
     assert "rememberEvent" in service

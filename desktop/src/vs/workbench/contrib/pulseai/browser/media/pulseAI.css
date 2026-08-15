@@ -61,6 +61,11 @@
 .pulseai-agent-brand > .codicon,
 .pulseai-assistant-label > .codicon { color: var(--pulseai-accent); }
 
+.pulseai-brand-mark { width: 21px; height: 21px; flex: none; }
+.pulseai-brand-mark rect { fill: #071118; stroke: color-mix(in srgb, var(--pulseai-accent) 42%, #245461); }
+.pulseai-brand-mark path { fill: none; stroke: var(--pulseai-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pulseai-brand-mark circle { fill: var(--pulseai-agent); }
+
 .pulseai-engine-status {
 	display: inline-flex;
 	align-items: center;

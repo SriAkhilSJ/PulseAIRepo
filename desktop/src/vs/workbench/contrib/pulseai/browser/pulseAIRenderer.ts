@@ -72,6 +72,28 @@ function icon(name: string): HTMLElement {
 	return node;
 }
 
+function brandMark(): SVGSVGElement {
+	const namespace = 'http://www.w3.org/2000/svg';
+	const svg = document.createElementNS(namespace, 'svg');
+	svg.classList.add('pulseai-brand-mark');
+	svg.setAttribute('viewBox', '0 0 32 32');
+	svg.setAttribute('aria-hidden', 'true');
+	const shell = document.createElementNS(namespace, 'rect');
+	shell.setAttribute('x', '1');
+	shell.setAttribute('y', '1');
+	shell.setAttribute('width', '30');
+	shell.setAttribute('height', '30');
+	shell.setAttribute('rx', '8');
+	const pulse = document.createElementNS(namespace, 'path');
+	pulse.setAttribute('d', 'M5 17h5l2.5-7 4.2 13 3.1-9 2.1 3H27');
+	const node = document.createElementNS(namespace, 'circle');
+	node.setAttribute('cx', '27');
+	node.setAttribute('cy', '17');
+	node.setAttribute('r', '1.7');
+	svg.append(shell, pulse, node);
+	return svg;
+}
+
 function button(label: string, className: string, action: () => void, iconName?: string): HTMLButtonElement {
 	const node = element('button', className, iconName ? icon(iconName) : undefined, label);
 	node.type = 'button';
@@ -293,7 +315,7 @@ function selector(label: string, values: readonly string[]): HTMLLabelElement {
 function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): void {
 	const shell = element('div', 'pulseai-agent-shell');
 	const header = element('header', 'pulseai-agent-header',
-		element('div', 'pulseai-agent-brand', icon('pulse'), element('strong', undefined, 'Pulse')),
+		element('div', 'pulseai-agent-brand', brandMark(), element('strong', undefined, 'Pulse')),
 		engineStatus(model),
 	);
 	const controls = element('div', 'pulseai-agent-selectors', selector('Mode', ['Agent', 'Plan', 'Ask']), selector('Model', ['Pulse Auto', 'Claude', 'GPT']), selector('Approval', ['Confirm edits', 'Always ask', 'Read only']));
