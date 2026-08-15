@@ -56,8 +56,9 @@ lab/*.start
 lab/*.err
 lab/*.err.log
 
-# P0: VSCode fork deferred to Phase 2 — removed from tree
-desktop/
+# VS Code fork (desktop/vscode) — vendored source; nested .gitignore guards build outputs
+desktop/vscode/.git/
+desktop/vscode/**/.git/
 
 # Scratch / local runtime state (never commit)
 .freebuff/
