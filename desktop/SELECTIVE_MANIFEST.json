@@ -23,7 +23,7 @@
       "modified": true
     }
   },
-  "custom_root": "src/vs/workbench/contrib/pulseai/",
+  "custom_root": "desktop/vscode/src/vs/workbench/contrib/pulseai/",
   "brand_assets": {
     "resources/darwin/code.icns": {
       "overlay_sha256": "e3a14ee53a62f511c04e5e2149db14e4976c0e61e156dca692319f2c41fd04a7",

@@ -22,6 +22,9 @@ import './workbench.common.main.js';
 import './electron-browser/desktop.main.js';
 import './electron-browser/desktop.contribution.js';
 
+// PulseAI IDE — desktop-only utility-process sidecar registration
+import './contrib/pulseai/electron-browser/pulseAI.desktop.contribution.js';
+
 //#endregion
 
 

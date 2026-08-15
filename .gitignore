@@ -76,18 +76,10 @@ desktop/build/*
 !desktop/build/buildfile.ts
 !desktop/resources/
 !desktop/resources/**
-!desktop/src/
-desktop/src/*
-!desktop/src/vs/
-desktop/src/vs/*
-!desktop/src/vs/workbench/
-desktop/src/vs/workbench/*
-!desktop/src/vs/workbench/workbench.common.main.ts
-!desktop/src/vs/workbench/workbench.desktop.main.ts
-!desktop/src/vs/workbench/contrib/
-desktop/src/vs/workbench/contrib/*
-!desktop/src/vs/workbench/contrib/pulseai/
-!desktop/src/vs/workbench/contrib/pulseai/**
+!desktop/vscode/src/vs/workbench/contrib/pulseai/
+!desktop/vscode/src/vs/workbench/contrib/pulseai/**
+!desktop/vscode/src/vs/workbench/workbench.common.main.ts
+!desktop/vscode/src/vs/workbench/workbench.desktop.main.ts
 
 # Scratch / local runtime state (never commit)
 .freebuff/

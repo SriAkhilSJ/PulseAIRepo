@@ -230,6 +230,9 @@ import './contrib/chat/browser/chat.shared.contribution.js';
 import './contrib/chat/browser/chat.contribution.js';
 import './contrib/chat/browser/agentSessions/agentHost/agentHost.contribution.js';
 import './contrib/chat/browser/chat.view.contribution.js';
+
+// PulseAI IDE — first-party workbench contribution
+import './contrib/pulseai/browser/pulseAI.contribution.js';
 import './contrib/inlineChat/browser/inlineChat.contribution.js';
 
 // Copilot Voice

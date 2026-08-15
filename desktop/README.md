@@ -4,7 +4,7 @@ This directory is intentionally **not a full VS Code checkout** during UI design
 
 - Upstream commit: see `UPSTREAM_PIN`
 - Product identity: `product.json`
-- First-party feature territory: `src/vs/workbench/contrib/pulseai/`
+- First-party feature territory: `vscode/src/vs/workbench/contrib/pulseai/`
 - Desktop bundle entry point: `build/buildfile.ts`
 - Branded platform resources: `resources/{darwin,linux,server,win32}/`
 - Required Node version: `.nvmrc`
@@ -15,7 +15,7 @@ When the first full build milestone begins, the same pinned commit can be hydrat
 
 ## Invariants
 
-1. Pulse is registered from `src/vs/workbench/contrib/pulseai/`.
+1. Pulse is registered from `vscode/src/vs/workbench/contrib/pulseai/`.
 2. Pulse never lives under `/extensions/`.
 3. `product.json` is the only upstream source edit for identity; generated platform icon replacements are recorded separately under `brand_assets` in the manifest.
 4. Workbench colors are contributed as theme-scoped configuration defaults from `/contrib/pulseai/`, never by rewriting a built-in theme extension or forcing global CSS.
