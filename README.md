@@ -201,7 +201,7 @@ PulseAIRepo/
 │   ├── providers/                  # Multi-LLM provider support (Groq, OpenAI, Gemini)
 │   ├── tests/                      # Regression suite
 │   └── tools/                      # File, Terminal, Web, and Math tools
-├── desktop/                        # VS Code fork (code-oss-dev 1.130.0) desktop app
+├── desktop/                        # Canonical Code OSS fork (vendored under desktop/vscode/)
 ├── dashboard.html                  # Agentic IDE Frontend
 ├── pyproject.toml                  # Dependencies & Project Meta
 └── uv.lock

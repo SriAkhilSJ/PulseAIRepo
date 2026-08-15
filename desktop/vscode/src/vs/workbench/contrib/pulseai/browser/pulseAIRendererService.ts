@@ -127,8 +127,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		}));
 	}
 
-	mount(root: HTMLElement, surface: PulseAISurface): IDisposable {
-		const mount = mountPulseAIRenderer(root, surface, this.host);
+	mount(root: unknown /* HTMLElement */, surface: PulseAISurface): IDisposable {
+		const mount = mountPulseAIRenderer(root as HTMLElement, surface, this.host);
 		this.mounts.add(mount);
 		mount.update(this.model);
 		if (this.configurationService.getValue<boolean>('pulseai.autoStart') !== false) {

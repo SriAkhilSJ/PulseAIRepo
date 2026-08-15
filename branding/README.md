@@ -13,6 +13,6 @@ The canonical mark is `pulseai-mark.svg`: a cyan execution pulse on the deep-nav
 | Approval amber | `#EFB75C` | permission and attention |
 | Failure red | `#ED727C` | failed or destructive state |
 
-Run `python branding/generate_icons.py` after changing the canonical geometry. It writes the Windows, macOS, Linux, server, and browser assets consumed by the selective Code OSS overlay. Pillow is required only for this branding generation step.
+Run `python branding/generate_icons.py` after changing the canonical geometry. It writes the Windows, macOS, Linux, server, and browser assets consumed by the canonical fork (`desktop/vscode/resources/`). Pillow is required only for this branding generation step.
 
 The app icon intentionally contains no text so it remains legible at 16–32 px. Product copy uses **PulseAI IDE**; the in-product agent remains **Pulse**.

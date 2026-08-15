@@ -16,6 +16,7 @@ MANIFEST = ROOT / "src" / "bridge" / "protocol_v2.json"
 OUTPUT = (
     ROOT
     / "desktop"
+    / "vscode"
     / "src"
     / "vs"
     / "workbench"

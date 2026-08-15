@@ -1,22 +1,36 @@
-"""Static pins for the selective first-party PulseAI Code OSS overlay."""
+"""Pins for the PulseAI overlay applied in place inside the canonical fork (desktop/vscode)."""
 from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DESKTOP = ROOT / "desktop"
-CONTRIB = DESKTOP / "src" / "vs" / "workbench" / "contrib" / "pulseai"
-MAIN = DESKTOP / "src" / "vs" / "workbench" / "workbench.common.main.ts"
+FORK = DESKTOP / "vscode"
+CONTRIB = FORK / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+MAIN = FORK / "src" / "vs" / "workbench" / "workbench.common.main.ts"
 
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _tracked(rel: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "--", rel],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def test_product_brand_is_pulseai_ide():
-    product = json.loads((DESKTOP / "product.json").read_text(encoding="utf-8"))
+    product = json.loads((FORK / "product.json").read_text(encoding="utf-8"))
     assert product["nameShort"] == "PulseAI"
     assert product["nameLong"] == "PulseAI IDE"
     assert product["applicationName"] == "pulseai"
@@ -36,7 +50,7 @@ def test_pulse_is_registered_once_as_a_workbench_contribution():
     contrib_files = list(CONTRIB.rglob("*.ts"))
     assert contrib_files
     assert any(path.name == "pulseAI.contribution.ts" for path in contrib_files)
-    assert not (DESKTOP / "extensions" / "pulseai").exists()
+    assert not (FORK / "extensions" / "pulseai").exists()
 
 
 def test_pulse_menu_and_view_commands_are_declared():
@@ -60,18 +74,23 @@ def test_selective_manifest_matches_overlay_files():
     manifest = json.loads((DESKTOP / "SELECTIVE_MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["upstream_commit"] == (DESKTOP / "UPSTREAM_PIN").read_text().strip()
     for rel, receipt in manifest["files"].items():
-        assert _sha(DESKTOP / rel) == receipt["overlay_sha256"]
+        assert _sha(FORK / rel) == receipt["overlay_sha256"]
         assert receipt["modified"] is True
     for rel, receipt in manifest["brand_assets"].items():
-        assert _sha(DESKTOP / rel) == receipt["overlay_sha256"]
+        assert _sha(FORK / rel) == receipt["overlay_sha256"]
         assert receipt["generated_from"] == "branding/pulseai-mark.svg"
 
 
-def test_selective_desktop_has_no_full_checkout_artifacts():
-    assert not (DESKTOP / ".git").exists()
-    assert not (DESKTOP / "node_modules").exists()
-    assert not (DESKTOP / "extensions").exists()
-    build_files = [path.relative_to(DESKTOP).as_posix() for path in (DESKTOP / "build").rglob("*") if path.is_file()]
-    assert build_files == ["build/buildfile.ts"]
-    size = sum(path.stat().st_size for path in DESKTOP.rglob("*") if path.is_file())
-    assert size < 1_000_000, f"selective desktop unexpectedly grew to {size:,} bytes"
+def test_canonical_fork_holds_the_overlay_without_runtime_artifacts():
+    assert (FORK / "package.json").exists()
+    assert (FORK / "build" / "buildfile.ts").exists()
+    assert (FORK / "resources" / "pulseai" / "pulseai-mark.svg").exists()
+    assert not (FORK / ".git").exists()
+    assert not (DESKTOP / "product.json").exists()
+    assert not (DESKTOP / "resources").exists()
+    assert not _tracked("desktop/vscode/node_modules/**"), "node_modules must never be committed"
+    assert not _tracked("desktop/vscode/.vscode/**"), ".vscode dirs must never be committed"
+    tracked_build = _tracked("desktop/vscode/build/**")
+    assert tracked_build == ["desktop/vscode/build/buildfile.ts"]
+    tracked_ext_builds = _tracked("desktop/vscode/extensions/**/build/**")
+    assert not tracked_ext_builds, "extension build outputs must never be committed"

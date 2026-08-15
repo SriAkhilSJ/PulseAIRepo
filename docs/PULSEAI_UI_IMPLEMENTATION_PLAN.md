@@ -2,15 +2,15 @@
 
 **Date:** 2026-08-15
 **Status:** Active
-**Founder constraints:** `/contrib/pulseai/`, no Pulse extension, no activity/token graph, no card-heavy or over-spaced dashboard, selective files only under `desktop/`.
+**Founder constraints:** `/contrib/pulseai/`, no Pulse extension, no activity/token graph, no card-heavy or over-spaced dashboard, canonical vendored fork only under `desktop/vscode/`.
 
 ## Capacity rules
 
-1. Never clone full Kilo or VS Code working trees into the sandbox.
+1. Never clone full Kilo or VS Code working trees into the sandbox (the vendored `desktop/vscode/` checkout is the single committed Code OSS tree).
 2. Kilo stays a blobless/no-checkout reference clone. Read individual blobs with `git show`.
-3. `desktop/` contains only the upstream files currently being changed plus our `contrib/pulseai/` files.
-4. Never create `desktop/node_modules`, build output, or a full Electron checkout during UI design.
-5. Check disk use after each major phase; stop if the selective desktop set exceeds 100 MB before the real build milestone.
+3. `desktop/` tracks only fork metadata (`README.md`, `SELECTIVE_MANIFEST.json`, `UPSTREAM_PIN`, `.nvmrc`) plus the vendored `vscode/` tree; all Pulse overlay edits are committed in place inside `desktop/vscode/`.
+4. Never create `desktop/vscode/node_modules`, build output, or a second Electron checkout during UI design; build artifacts inside the fork are protected by its nested `.gitignore`.
+5. Check disk use after each major phase; the vendored fork must stay under control before the real build milestone.
 6. Browser dependencies remain under ignored `ui/node_modules`; generated UI output remains ignored.
 
 ## Tasks
@@ -68,25 +68,17 @@ The browser UI now follows the approved wireframe direction:
 - Terminal is implemented as a default-open disclosure with command, exit code, output, copy, and native-terminal actions;
 - a UI Lab-only Tool Gallery exposes all 34 names and 13 family-specific disclosure bodies for browser review.
 
-### T4 — Selective Code OSS desktop overlay — FOUNDATION COMPLETE
+### T4 — Canonical Code OSS fork — FOUNDATION COMPLETE
 
-Pinned upstream `6c27443ce6fdf6ac798c64025d45175e2e23c4b4` without cloning the Code OSS working tree. The current selective desktop set remains under 1 MB and contains product identity, the four upstream source overlays, generated platform icons, Protocol v2 contracts, semantic tokens, and the complete first-party contribution.
+The full Code OSS checkout is vendored in-repo at `desktop/vscode/` and pinned to upstream commit `6c27443ce6fdf6ac798c64025d45175e2e23c4b4`. The Pulse overlay is applied **in place** inside the fork and committed along with it: `desktop/vscode/product.json`, `build/buildfile.ts`, the branded platform resources under `desktop/vscode/resources/`, and the first-party contribution under `desktop/vscode/src/vs/workbench/contrib/pulseai/`.
 
-Under `desktop/`, copy only:
-
-- pinned upstream `product.json`;
-- the common and desktop workbench registration entrypoints;
-- the desktop build entrypoint list required to emit the string-addressed utility worker;
-- new files under `src/vs/workbench/contrib/pulseai/`;
-- a pin/manifest listing every copied upstream file and hash.
-
-Do not copy the full Code OSS tree. Additional upstream files are read remotely and copied only when they are genuinely modified.
+No files are copied piecemeal into `desktop/`; the fork root itself carries only metadata (`README.md`, `SELECTIVE_MANIFEST.json`, `UPSTREAM_PIN`, `.nvmrc`). The manifest pins every overlay receipt and the upstream commit; `desktop/vscode/.gitignore` protects build outputs.
 
 Branding now has one canonical pulse-and-agent-node SVG plus reproducible Windows ICO/tile, macOS ICNS, Linux PNG, server icon, and browser favicon outputs. Eight expected Code OSS resource replacements are receipt-pinned separately from the four-file source boundary. Pulse cyan/navy workbench chrome is registered from the first-party contribution as Dark 2026 / Light 2026 configuration defaults, preserving user overrides and high-contrast behavior.
 
 ### T5 — PulseAI Bridge Protocol v2 — CONTRACT FOUNDATION COMPLETE
 
-The v2 JSON manifest now generates TypeScript frame-name/version constants, the handwritten payload union is parity-pinned against every current Python method/event, approvals are pinned to `tool_id`, and the selective overlay has a hard size gate. Focused protocol/bridge result: **13 passed**.
+The v2 JSON manifest now generates TypeScript frame-name/version constants, the handwritten payload union is parity-pinned against every current Python method/event, approvals are pinned to `tool_id`, and the fork overlay metadata has a hard size gate. Focused protocol/bridge result: **13 passed**.
 
 The Python sidecar now advertises v2, negotiates v1 for legacy clients, and returns the negotiated version in its hello frame. Remaining: reconnect replay integration through the workbench service.
 
@@ -103,9 +95,9 @@ Contract coverage:
 
 ### T6 — Workbench host — NATIVE RENDERER FOUNDATION COMPLETE
 
-The pinned current Code OSS registration patterns were read from Terminal and Getting Started without copying their trees. The selective overlay now contains the native Agent `ViewPane`, view container registration, Pulse top-level menu, command palette actions, engine service contract, semantic tokens, and the one upstream workbench import. Static overlay/tool/protocol/bridge verification: **20 passed**.
+The pinned current Code OSS registration patterns were read from Terminal and Getting Started without copying their trees (the vendored fork is the tree). The overlay inside the fork now contains the native Agent `ViewPane`, view container registration, Pulse top-level menu, command palette actions, engine service contract, semantic tokens, and the one upstream workbench import. Static overlay/tool/protocol/bridge verification: **20 passed**.
 
-Pulse Manager is now registered as a pinned, serializable `EditorInput` + `EditorPane` in the main editor area. The Pulse menu opens that editor tab, while the Activity Bar opens the compact Agent view. All eight selective contribution TypeScript files pass an automated decorator-aware syntax check.
+Pulse Manager is now registered as a pinned, serializable `EditorInput` + `EditorPane` in the main editor area. The Pulse menu opens that editor tab, while the Activity Bar opens the compact Agent view. All eight first-party contribution TypeScript files pass an automated decorator-aware syntax check.
 
 A 29-capability Code OSS audit and stable `IPulseAIWorkbenchService` sensor/actuator contract now cover dirty editor text, language providers, diagnostics, search, SCM, native bulk edits, terminal, tests, trust, extensions, debug, notebooks, MCP/editor tools and remote workspaces.
 
@@ -117,7 +109,7 @@ The desktop-only sidecar chain is now implemented: existing Code OSS utility-pro
 
 The compact Agent `ViewPane` and Pulse Manager `EditorPane` now mount the same framework-neutral `pulseAIRenderer.ts` through one singleton `PulseAIRendererService`. That service owns the shared Protocol v2 event model, session/prompt routing, streaming text, tool lifecycle, approvals, plans, verification, telemetry, engine status, and workbench reveal intents. The native catalog covers the same 34 tool names as the browser catalog and selects family-specific disclosures. Terminal disclosures include command, bounded output, state/exit evidence, duration, copy, and reveal actions. Common/web construction is safe through a no-process fallback engine descriptor; the later desktop descriptor replaces it during service collection initialization.
 
-Current focused branding/renderer/sidecar/capability/overlay/catalog/Protocol/bridge verification: **46 passed**. All **25** selective desktop TypeScript files—including the three upstream entrypoints—pass the decorator-aware syntax check. The browser production build and **7/7** Chromium tests pass, with zero npm audit findings. Optimized package inclusion is structurally pinned through `buildfile.ts`; a complete pinned Code OSS type-check, build, and launch have not yet run.
+Current focused branding/renderer/sidecar/capability/overlay/catalog/Protocol/bridge verification: **46 passed**. All **25** first-party contribution TypeScript files inside the fork—including the three upstream entrypoints—pass the decorator-aware syntax check. The browser production build and **7/7** Chromium tests pass, with zero npm audit findings. Optimized package inclusion is structurally pinned through `buildfile.ts`; a complete pinned Code OSS type-check, build, and launch have not yet run.
 
 Engine retry now uses at most three exponential-backoff attempts while a Pulse surface is mounted. A successful restart resumes the active session, requests replay, and de-duplicates bounded `event_id` history before applying replayed frames. Startup failures release partially created workers and transition out of `starting`. Cancel is de-duplicated in the renderer, displays a `Stopping…` state, consumes the bridge's `cancel_requested` receipt, and maps `turn_done.completed = false` to an explicit cancelled-run receipt. Safety requests carrying `{ path, old_text, new_text }` now materialize bounded read-only `pulseai-diff:` models and open the native Code OSS diff editor; URI-backed receipts still use the direct path. Event-bus streaming/tool/approval fields and durable replay rows are normalized into Protocol v2 names before reaching the renderer. Still required before T6 completes: non-shell-integration terminal fallback evidence, richer test/task output correlation, and validation in a complete pinned Code OSS tree.
 

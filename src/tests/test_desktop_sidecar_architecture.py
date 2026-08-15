@@ -1,4 +1,4 @@
-"""Structural pins for the Code OSS utility-process → Python sidecar chain."""
+"""Structural pins for the canonical-fork utility-process → Python sidecar chain."""
 from __future__ import annotations
 
 import json
@@ -6,7 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DESKTOP = ROOT / "desktop"
-PULSE = DESKTOP / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+FORK = DESKTOP / "vscode"
+PULSE = FORK / "src" / "vs" / "workbench" / "contrib" / "pulseai"
 
 
 def _text(*parts: str) -> str:
@@ -54,8 +55,8 @@ def test_workbench_uses_existing_utility_process_framework():
 
 
 def test_desktop_registration_is_isolated_from_common_and_web():
-    common_main = (DESKTOP / "src" / "vs" / "workbench" / "workbench.common.main.ts").read_text()
-    desktop_main = (DESKTOP / "src" / "vs" / "workbench" / "workbench.desktop.main.ts").read_text()
+    common_main = (FORK / "src" / "vs" / "workbench" / "workbench.common.main.ts").read_text()
+    desktop_main = (FORK / "src" / "vs" / "workbench" / "workbench.desktop.main.ts").read_text()
     assert common_main.count("pulseAI.contribution.js") == 1
     assert "pulseAI.desktop.contribution.js" not in common_main
     assert desktop_main.count("pulseAI.desktop.contribution.js") == 1
@@ -77,7 +78,7 @@ def test_selective_manifest_has_exactly_four_upstream_edits():
 
 
 def test_optimized_desktop_bundle_has_the_pulse_worker_entrypoint():
-    buildfile = (DESKTOP / "build" / "buildfile.ts").read_text(encoding="utf-8")
+    buildfile = (FORK / "build" / "buildfile.ts").read_text(encoding="utf-8")
     entry = "createModuleDescription('vs/workbench/contrib/pulseai/node/pulseAIWorkerMain')"
     desktop = buildfile.split("export const workbenchDesktop = [", 1)[1].split("];", 1)[0]
     server = buildfile.split("export const codeServer = [", 1)[1].split("];", 1)[0]

@@ -5,7 +5,7 @@
 
 ## Non-negotiable placement
 
-Pulse is a first-party Code OSS workbench contribution:
+Pulse is a first-party Code OSS workbench contribution, committed in place inside the canonical vendored fork at `desktop/vscode/`. All paths below are fork-relative:
 
 ```text
 src/vs/workbench/contrib/pulseai/
@@ -116,7 +116,7 @@ Language and platform extensions remain useful. Pulse consumes the capabilities 
 - test controllers;
 - remote workspace providers.
 
-Pulse itself still lives in `/contrib/pulseai/`. Extensions are capability providers, not the Pulse host.
+Pulse itself still lives in `src/vs/workbench/contrib/pulseai/` (committed in place inside `desktop/vscode/`). Extensions are capability providers, not the Pulse host.
 
 ## Native actions that must stay outside the UI renderer
 
@@ -141,7 +141,7 @@ Pulse View / Manager → IPulseAIEngineService
   → python -m src.bridge
 ```
 
-The utility worker validates the engine root and frames, spawns with `shell:false`, bounds stdout/stderr, negotiates Protocol v2, and terminates with the workbench window. A desktop-only registration import keeps Electron APIs out of web builds. Because Code OSS utility workers are string-addressed, optimized packages do not discover them through the workbench import graph; the founder-approved `build/buildfile.ts` overlay therefore lists `pulseAIWorkerMain` as a `workbenchDesktop` bundle entry point.
+The utility worker validates the engine root and frames, spawns with `shell:false`, bounds stdout/stderr, negotiates Protocol v2, and terminates with the workbench window. A desktop-only registration import keeps Electron APIs out of web builds. Because Code OSS utility workers are string-addressed, optimized packages do not discover them through the workbench import graph; the founder-approved `desktop/vscode/build/buildfile.ts` overlay therefore lists `pulseAIWorkerMain` as a `workbenchDesktop` bundle entry point.
 
 ## Bridge direction
 

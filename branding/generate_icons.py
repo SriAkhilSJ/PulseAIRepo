@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 BRANDING = ROOT / "branding"
-DESKTOP = ROOT / "desktop" / "resources"
+DESKTOP = ROOT / "desktop" / "vscode" / "resources"
 UI_PUBLIC = ROOT / "ui" / "public"
 SCALE = 4
 SIZE = 1024

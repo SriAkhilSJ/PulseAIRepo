@@ -106,7 +106,7 @@ Phase 0 ≈ 2–3 rounds · M1 ≈ 6–8 · M2 ≈ 4–5 · M3 ≈ 2–3 · M4 �
 
 ### 2026-08-15 — Founder-approved product/UI amendment
 
-The founder explicitly approved the following changes before UI implementation:
+The founder explicitly approved the following changes before UI implementation. Paths below are fork-root-relative: the canonical Code OSS checkout is vendored in-repo at `desktop/vscode/`, so `product.json` is `desktop/vscode/product.json`, `build/buildfile.ts` is `desktop/vscode/build/buildfile.ts`, and the contribution lives at `desktop/vscode/src/vs/workbench/contrib/pulseai/`.
 
 1. Public product name changes from **PulseCode** to **PulseAI IDE**; user-facing agent remains **Pulse**.
 2. The first-party workbench territory is `src/vs/workbench/contrib/pulseai/` (never `/extensions/`).

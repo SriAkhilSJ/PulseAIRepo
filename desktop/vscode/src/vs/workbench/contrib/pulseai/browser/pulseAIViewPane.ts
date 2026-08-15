@@ -16,7 +16,7 @@ import { IViewDescriptorService } from '../../../common/views.js';
 import { IPulseAIRendererService } from '../common/pulseAIRendererService.js';
 
 export class PulseAIViewPane extends ViewPane {
-	private body: HTMLElement | undefined;
+	private pulseBody: HTMLElement | undefined;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -47,8 +47,8 @@ export class PulseAIViewPane extends ViewPane {
 
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
-		this.body = DOM.append(container, DOM.$('.pulseai-view'));
-		const root = DOM.append(this.body, DOM.$('.pulseai-render-root'));
+		this.pulseBody = DOM.append(container, DOM.$('.pulseai-view'));
+		const root = DOM.append(this.pulseBody, DOM.$('.pulseai-render-root'));
 		root.dataset.surface = 'agent';
 		root.setAttribute('role', 'region');
 		root.setAttribute('aria-label', 'Pulse Agent');
@@ -57,10 +57,10 @@ export class PulseAIViewPane extends ViewPane {
 
 	protected override layoutBody(height: number, width: number): void {
 		super.layoutBody(height, width);
-		if (!this.body) {
+		if (!this.pulseBody) {
 			return;
 		}
-		this.body.style.width = `${width}px`;
-		this.body.style.height = `${height}px`;
+		this.pulseBody.style.width = `${width}px`;
+		this.pulseBody.style.height = `${height}px`;
 	}
 }

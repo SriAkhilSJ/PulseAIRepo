@@ -1,6 +1,6 @@
 # Agent Work — First Native PulseAI IDE Boot
 
-This checklist is for validating PulseAI inside a **complete pinned Code OSS checkout**. Do this on a machine with enough disk space; do not expand the selective `PulseAIRepo/desktop/` directory into a complete fork.
+This checklist is for validating PulseAI inside the **canonical vendored Code OSS fork** at `PulseAIRepo/desktop/vscode/`. The Pulse overlay is committed in place inside that fork; the build runs directly there. Do this on a machine with enough disk space.
 
 ## Goal
 
@@ -23,6 +23,7 @@ Pulse Agent / Pulse Manager
 - Required Code OSS commit: `6c27443ce6fdf6ac798c64025d45175e2e23c4b4`
 - Required Node version: `24.18.0`
 - Pulse contribution: `src/vs/workbench/contrib/pulseai/`
+- Canonical fork root: `PulseAIRepo/desktop/vscode/` (overlay committed in place)
 - Do not place Pulse under `/extensions/`.
 - Do not modify additional upstream source files while diagnosing failures.
 
@@ -54,82 +55,28 @@ Expected Node result:
 v24.18.0
 ```
 
-## 2. Create a separate full Code OSS checkout
+## 2. Point at the canonical fork
 
-Choose paths outside the selective `desktop/` directory:
+The full Code OSS checkout lives in the repo at `desktop/vscode/` with the Pulse overlay already applied and committed in place:
 
 ```bash
 export PULSE_REPO=/absolute/path/to/PulseAIRepo
-export VSCODE_ROOT=/absolute/path/to/pulseai-ide-full
+export VSCODE_ROOT="$PULSE_REPO/desktop/vscode"
+
+test -d "$VSCODE_ROOT" || { echo "fork missing"; exit 1; }
+printf 'Pin:  %s\n' "$(cat "$PULSE_REPO/desktop/UPSTREAM_PIN")"
+printf 'Fork: %s\n' "$VSCODE_ROOT"
 ```
 
-Clone and pin Code OSS:
+Confirm the required Node version again before building:
 
 ```bash
-git clone https://github.com/microsoft/vscode.git "$VSCODE_ROOT"
-cd "$VSCODE_ROOT"
-git checkout 6c27443ce6fdf6ac798c64025d45175e2e23c4b4
-git status --short
-git rev-parse HEAD
+node --version   # expect v24.18.0
 ```
 
-`git status --short` must be empty before applying the Pulse overlay.
+## 3. Verify the canonical fork overlay
 
-## 3. Verify the untouched upstream files
-
-Run this before copying anything:
-
-```bash
-export PULSE_REPO VSCODE_ROOT
-python - <<'PY'
-import hashlib
-import json
-import os
-from pathlib import Path
-
-pulse = Path(os.environ["PULSE_REPO"])
-target = Path(os.environ["VSCODE_ROOT"])
-manifest = json.loads((pulse / "desktop/SELECTIVE_MANIFEST.json").read_text())
-
-for relative, receipt in manifest["files"].items():
-    path = target / relative
-    actual = hashlib.sha256(path.read_bytes()).hexdigest()
-    expected = receipt["upstream_sha256"]
-    if actual != expected:
-        raise SystemExit(f"UPSTREAM HASH MISMATCH: {relative}\nexpected {expected}\nactual   {actual}")
-    print("upstream OK", relative)
-PY
-```
-
-Do not apply the overlay if any hash differs. Re-check the pinned commit instead.
-
-## 4. Apply the selective PulseAI overlay
-
-```bash
-cd "$VSCODE_ROOT"
-
-cp "$PULSE_REPO/desktop/product.json" product.json
-cp "$PULSE_REPO/desktop/build/buildfile.ts" build/buildfile.ts
-cp "$PULSE_REPO/desktop/src/vs/workbench/workbench.common.main.ts" src/vs/workbench/workbench.common.main.ts
-cp "$PULSE_REPO/desktop/src/vs/workbench/workbench.desktop.main.ts" src/vs/workbench/workbench.desktop.main.ts
-
-rm -rf src/vs/workbench/contrib/pulseai
-mkdir -p src/vs/workbench/contrib
-cp -R "$PULSE_REPO/desktop/src/vs/workbench/contrib/pulseai" src/vs/workbench/contrib/pulseai
-
-mkdir -p resources/darwin resources/linux resources/server resources/win32 resources/pulseai
-cp "$PULSE_REPO/desktop/resources/darwin/code.icns" resources/darwin/code.icns
-cp "$PULSE_REPO/desktop/resources/linux/code.png" resources/linux/code.png
-cp "$PULSE_REPO/desktop/resources/server/code-192.png" resources/server/code-192.png
-cp "$PULSE_REPO/desktop/resources/server/code-512.png" resources/server/code-512.png
-cp "$PULSE_REPO/desktop/resources/server/favicon.ico" resources/server/favicon.ico
-cp "$PULSE_REPO/desktop/resources/win32/code.ico" resources/win32/code.ico
-cp "$PULSE_REPO/desktop/resources/win32/code_150x150.png" resources/win32/code_150x150.png
-cp "$PULSE_REPO/desktop/resources/win32/code_70x70.png" resources/win32/code_70x70.png
-cp "$PULSE_REPO/desktop/resources/pulseai/pulseai-mark.svg" resources/pulseai/pulseai-mark.svg
-```
-
-## 5. Verify the applied overlay
+The fork is a git repository of its own vendored into the tree; verify that the Pulse-modified files match the manifest receipts before building:
 
 ```bash
 export PULSE_REPO VSCODE_ROOT
@@ -153,16 +100,23 @@ for section in ("files", "brand_assets"):
 PY
 ```
 
-## 6. Install Code OSS dependencies
+Also confirm the `pulseAI` contribution is registered and not placed under `/extensions/`:
+
+```bash
+test -d "$VSCODE_ROOT/src/vs/workbench/contrib/pulseai" || exit 1
+test ! -e "$VSCODE_ROOT/extensions/pulseai"
+```
+
+## 4. Install Code OSS dependencies
 
 ```bash
 cd "$VSCODE_ROOT"
 npm install
 ```
 
-Do not copy `node_modules` back into `PulseAIRepo/desktop/`.
+`node_modules` stays in `desktop/vscode/` and is never committed (the fork's nested `.gitignore` protects it).
 
-## 7. Run the semantic checks
+## 5. Run the semantic checks
 
 Start with the focused client type-check:
 
@@ -184,7 +138,7 @@ npm run compile
 
 Record the complete error output if any command fails. Do not hide errors with `--skipLibCheck` beyond the pinned script and do not add `any` casts merely to silence Code OSS APIs.
 
-## 8. Verify optimized worker packaging
+## 6. Verify optimized worker packaging
 
 The Pulse utility worker is string-addressed and must be emitted as its own desktop entry point.
 
@@ -205,7 +159,7 @@ Required evidence:
 - `workbench.desktop.main` contains the desktop registration.
 - Common/web bundles do not import `node:child_process` or Electron-only Pulse modules.
 
-## 9. Configure the PulseAI Engine
+## 7. Configure the PulseAI Engine
 
 In the launched IDE settings, set:
 
@@ -228,7 +182,7 @@ printf '%s\n' '{"type":"hello","protocol":2}' | python -m src.bridge
 
 Expected first response: a one-line JSON `hello` frame with protocol `2`.
 
-## 10. Launch PulseAI IDE
+## 8. Launch PulseAI IDE
 
 Linux/macOS:
 
@@ -244,7 +198,7 @@ cd $env:VSCODE_ROOT
 .\scripts\code.bat
 ```
 
-## 11. Visual acceptance checklist
+## 9. Visual acceptance checklist
 
 - [ ] Window/product title says **PulseAI IDE**.
 - [ ] PulseAI application icon appears in the window/taskbar/dock.
@@ -257,7 +211,7 @@ cd $env:VSCODE_ROOT
 - [ ] Opening Pulse Manager does not close or replace source-code editors.
 - [ ] Native File/Edit/Selection/View/Go/Run/Terminal/Help menus remain available.
 
-## 12. Real-engine vertical slice
+## 10. Real-engine vertical slice
 
 Run these in order:
 
@@ -277,12 +231,12 @@ Run these in order:
 - [ ] Session resume/replay does not duplicate event IDs or transcript rows.
 - [ ] Pulse Manager and Agent show the same active session state.
 
-## 13. Evidence to save
+## 11. Evidence to save
 
 Save the following outside generated build directories or attach them to the implementation report:
 
 1. `node --version`
-2. `git rev-parse HEAD` from the full Code OSS checkout
+2. `git rev-parse HEAD` from the fork (or the vendored commit confirmed against `desktop/UPSTREAM_PIN`)
 3. Output of `npm run typecheck-client`
 4. Output of `npm run valid-layers-check`
 5. Output of `npm run compile`
@@ -294,7 +248,7 @@ Save the following outside generated build directories or attach them to the imp
 11. Crash/restart/replay evidence
 12. Final `git diff --stat` from the full checkout
 
-## 14. Failure rules
+## 12. Failure rules
 
 If something fails:
 
@@ -303,7 +257,7 @@ If something fails:
 - Do not remove workspace-trust or approval checks.
 - Do not bypass Protocol v2 negotiation.
 - Do not add broad upstream edits without approval.
-- Do not copy the complete Code OSS checkout into `PulseAIRepo/desktop/`.
+- Install and drive builds from the canonical fork (`desktop/vscode/`); do not copy the complete Code OSS checkout elsewhere under `PulseAIRepo/desktop/`.
 - Preserve the exact error, file, line, command, platform, and Node version.
 
 ## Completion gate

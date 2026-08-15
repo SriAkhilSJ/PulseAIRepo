@@ -63,23 +63,24 @@ lab/*.err.log
 desktop/vscode/.git/
 desktop/vscode/**/.git/
 
-# PulseAI IDE selective Code OSS working set. Keep the sandbox lean: only
-# branding pins and our first-party contribution are tracked here.
+# PulseAI IDE canonical fork. desktop/ tracks only fork metadata (README,
+# manifest, pin, node version); desktop/vscode/ is the vendored Code OSS
+# checkout with the Pulse overlay applied in place. Local dependencies and
+# build outputs stay on disk for building, but are never committed.
 desktop/*
 !desktop/.nvmrc
 !desktop/README.md
 !desktop/SELECTIVE_MANIFEST.json
 !desktop/UPSTREAM_PIN
-!desktop/product.json
-!desktop/build/
-desktop/build/*
-!desktop/build/buildfile.ts
-!desktop/resources/
-!desktop/resources/**
-!desktop/vscode/src/vs/workbench/contrib/pulseai/
-!desktop/vscode/src/vs/workbench/contrib/pulseai/**
-!desktop/vscode/src/vs/workbench/workbench.common.main.ts
-!desktop/vscode/src/vs/workbench/workbench.desktop.main.ts
+!desktop/vscode/
+!desktop/vscode/**
+
+# Fork runtime artifacts the vendored nested .gitignore does not cover.
+# node_modules/ and out*/ are already matched above; these own the rest.
+desktop/vscode/**/.vscode/
+desktop/vscode/build/*
+!desktop/vscode/build/buildfile.ts
+desktop/vscode/extensions/**/build/
 
 # Scratch / local runtime state (never commit)
 .freebuff/

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PULSE = ROOT / "desktop" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
 UI = ROOT / "ui" / "src"
 
 

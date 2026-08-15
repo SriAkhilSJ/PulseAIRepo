@@ -7,8 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DESKTOP = ROOT / "desktop"
+FORK = DESKTOP / "vscode"
 BRANDING = ROOT / "branding"
-PULSE = DESKTOP / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+PULSE = FORK / "src" / "vs" / "workbench" / "contrib" / "pulseai"
 
 
 def _png_size(path: Path) -> tuple[int, int]:
@@ -24,13 +25,13 @@ def test_canonical_mark_and_generated_platform_assets_exist():
     assert "#9B8CFF" in mark
     assert "M164 536H292L372 306L486 746L584 382L672 552H860" in mark
 
-    assert _png_size(DESKTOP / "resources" / "linux" / "code.png") == (512, 512)
-    assert _png_size(DESKTOP / "resources" / "server" / "code-192.png") == (192, 192)
-    assert _png_size(DESKTOP / "resources" / "server" / "code-512.png") == (512, 512)
-    assert _png_size(DESKTOP / "resources" / "win32" / "code_150x150.png") == (150, 150)
-    assert _png_size(DESKTOP / "resources" / "win32" / "code_70x70.png") == (70, 70)
-    assert (DESKTOP / "resources" / "win32" / "code.ico").read_bytes()[:4] == b"\x00\x00\x01\x00"
-    assert (DESKTOP / "resources" / "darwin" / "code.icns").read_bytes()[:4] == b"icns"
+    assert _png_size(FORK / "resources" / "linux" / "code.png") == (512, 512)
+    assert _png_size(FORK / "resources" / "server" / "code-192.png") == (192, 192)
+    assert _png_size(FORK / "resources" / "server" / "code-512.png") == (512, 512)
+    assert _png_size(FORK / "resources" / "win32" / "code_150x150.png") == (150, 150)
+    assert _png_size(FORK / "resources" / "win32" / "code_70x70.png") == (70, 70)
+    assert (FORK / "resources" / "win32" / "code.ico").read_bytes()[:4] == b"\x00\x00\x01\x00"
+    assert (FORK / "resources" / "darwin" / "code.icns").read_bytes()[:4] == b"icns"
 
 
 def test_brand_asset_manifest_is_complete():
@@ -64,7 +65,7 @@ def test_pulse_chrome_is_a_theme_aware_default_not_forced_global_css():
 
 
 def test_product_identifiers_no_longer_ship_as_code_oss():
-    product = json.loads((DESKTOP / "product.json").read_text(encoding="utf-8"))
+    product = json.loads((FORK / "product.json").read_text(encoding="utf-8"))
     for key in (
         "serverApplicationName", "serverDataFolderName", "tunnelApplicationName",
         "win32DirName", "win32NameVersion", "win32RegValueName",

@@ -7,6 +7,7 @@ import { IBulkEditService, ResourceTextEdit } from '../../../../editor/browser/s
 import { Position } from '../../../../editor/common/core/position.js';
 import { IRange } from '../../../../editor/common/core/range.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { isLocationLink } from '../../../../editor/common/languages.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
@@ -243,10 +244,10 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 					const value = await Promise.resolve(provider.provideDefinition(model, position, CancellationToken.None));
 					const items = Array.isArray(value) ? value : value ? [value] : [];
 					for (const item of items) {
-						const linked = 'targetUri' in item;
+						const linked = isLocationLink(item);
 						result.push({
-							resource: (linked ? item.targetUri : item.uri).toString(),
-							range: range(linked ? item.targetSelectionRange : item.range),
+							resource: item.uri.toString(),
+							range: range(linked ? item.targetSelectionRange ?? item.range : item.range),
 						});
 					}
 				} catch { /* provider isolation */ }

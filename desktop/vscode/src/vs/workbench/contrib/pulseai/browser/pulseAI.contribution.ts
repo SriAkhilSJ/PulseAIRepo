@@ -177,7 +177,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: PulseAICommandId.OpenSettings,
-			title: localize({ key: 'pulseAI.openSettings', comment: ['PulseAI product settings'] }, 'Pulse Settings'),
+			title: localize2('pulseAI.openSettings', 'Pulse Settings'),
 			f1: true,
 			icon: Codicon.settingsGear,
 			menu: [{ id: PULSE_AI_MENU_ID, group: '4_settings', order: 1 }],

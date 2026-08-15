@@ -629,8 +629,8 @@ P2.
 Founder direction: *"continue D5 — use vscode fork apis if it's available."*
 
 **The fork-APIs verdict (verified against the remote tree, not assumed):**
-`desktop/` on GitHub IS a VS Code fork (`desktop/product.json`,
-`desktop/src/bootstrap-fork.ts`). Its language APIs are (a) TextMate
+`desktop/` on GitHub IS a VS Code fork (`desktop/vscode/product.json`,
+`desktop/vscode/src/bootstrap-fork.ts`). Its language APIs are (a) TextMate
 grammars — regex tokenizers, no AST — and (b) LSP servers — out-of-process
 daemons behind TypeScript extension-host IPC. **Neither is importable
 from the Python backend**, and spawning Electron/node just to parse files

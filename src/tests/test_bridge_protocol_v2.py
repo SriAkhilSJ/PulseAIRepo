@@ -1,4 +1,4 @@
-"""Contract pins for the selective PulseAI IDE Bridge Protocol v2 overlay."""
+"""Contract pins for the PulseAI IDE Bridge Protocol v2 inside the canonical fork."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ from src.runtime.identity import TurnIdentity
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "src" / "bridge" / "protocol_v2.json"
 GENERATED = (
-    ROOT / "desktop" / "src" / "vs" / "workbench" / "contrib" /
+    ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" /
     "pulseai" / "common" / "pulseAIProtocol.generated.ts"
 )
 PAYLOADS = GENERATED.with_name("pulseAIProtocol.ts")
@@ -22,6 +22,18 @@ PAYLOADS = GENERATED.with_name("pulseAIProtocol.ts")
 
 def _manifest() -> dict:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def _tracked(rel: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "--", rel],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return [line for line in result.stdout.splitlines() if line.strip()]
 
 
 def _frame_names(section: str) -> set[str]:
@@ -110,11 +122,25 @@ def test_durable_replay_projection_emits_protocol_tool_frames():
     assert projected[1]["status"] == "ok" and projected[1]["result"] == "done"
 
 
-def test_selective_desktop_overlay_stays_tiny():
+def test_selective_desktop_metadata_stays_tiny():
     desktop = ROOT / "desktop"
-    files = [path for path in desktop.rglob("*") if path.is_file()]
-    assert files
-    total = sum(path.stat().st_size for path in files)
-    assert total < 1_000_000, f"selective desktop overlay grew to {total:,} bytes"
+    metadata = [
+        desktop / ".nvmrc",
+        desktop / "README.md",
+        desktop / "SELECTIVE_MANIFEST.json",
+        desktop / "UPSTREAM_PIN",
+    ]
+    total = sum(path.stat().st_size for path in metadata if path.exists())
+    assert total < 10_000, f"desktop metadata grew to {total:,} bytes"
     assert not (desktop / "node_modules").exists()
-    assert not (desktop / "extensions").exists()
+    assert not _tracked("desktop/vscode/node_modules/**"), "fork node_modules must never be committed"
+    result = subprocess.run(
+        ["git", "check-ignore", "--", "desktop/vscode/node_modules/x", "desktop/vscode/.vscode/x",
+         "desktop/vscode/extensions/cpp/build/x"],
+        cwd=ROOT, capture_output=True, text=True, timeout=30,
+    )
+    ignored = result.stdout.splitlines()
+    assert "desktop/vscode/node_modules/x" in ignored
+    assert "desktop/vscode/.vscode/x" in ignored
+    assert "desktop/vscode/extensions/cpp/build/x" in ignored
+    assert not (desktop / "vscode" / "extensions" / "pulseai").exists()

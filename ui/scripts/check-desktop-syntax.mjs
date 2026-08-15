@@ -2,7 +2,7 @@ import ts from "typescript";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const root = resolve(import.meta.dirname, "../../desktop");
+const root = resolve(import.meta.dirname, "../../desktop/vscode/src/vs/workbench/contrib/pulseai");
 
 async function files(dir) {
   const result = [];
@@ -36,4 +36,4 @@ for (const path of inputs) {
   console.log(`syntax OK ${path.slice(root.length + 1)}`);
 }
 if (process.exitCode) process.exit(process.exitCode);
-console.log(`${inputs.length} selective desktop TypeScript files parsed`);
+console.log(`${inputs.length} first-party contribution TypeScript files parsed`);

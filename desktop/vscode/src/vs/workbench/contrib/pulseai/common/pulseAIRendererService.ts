@@ -11,5 +11,5 @@ export const IPulseAIRendererService = createDecorator<IPulseAIRendererService>(
 
 export interface IPulseAIRendererService {
 	readonly _serviceBrand: undefined;
-	mount(root: HTMLElement, surface: PulseAISurface): IDisposable;
+	mount(root: unknown /* HTMLElement */, surface: PulseAISurface): IDisposable;
 }

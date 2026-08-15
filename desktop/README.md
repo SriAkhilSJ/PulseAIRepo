@@ -1,25 +1,30 @@
-# PulseAI IDE — Selective Code OSS Working Set
+# PulseAI IDE — Canonical Code OSS Fork
 
-This directory is intentionally **not a full VS Code checkout** during UI design.
+`PulseAIRepo/desktop/` tracks two things:
 
-- Upstream commit: see `UPSTREAM_PIN`
-- Product identity: `product.json`
-- First-party feature territory: `vscode/src/vs/workbench/contrib/pulseai/`
-- Desktop bundle entry point: `build/buildfile.ts`
-- Branded platform resources: `resources/{darwin,linux,server,win32}/`
-- Required Node version: `.nvmrc`
+- **`vscode/`** — the canonical, vendored Code OSS checkout at the pinned commit. The full Pulse overlay is applied **in place**: `vscode/product.json`, `vscode/build/buildfile.ts`, and the branded platform resources under `vscode/resources/` are all committed as part of the fork.
+- **Fork metadata** at `desktop/` root: `README.md`, `SELECTIVE_MANIFEST.json`, `UPSTREAM_PIN`, `.nvmrc`.
 
-Only files that PulseAI directly changes are copied here. Upstream reference files are read remotely at the pinned commit and are not vendored unless they must be modified. This prevents a 30,000-file checkout from exhausting the sandbox. `SELECTIVE_MANIFEST.json` pins the upstream and overlay SHA-256 receipts for every copied upstream file.
+The build runs directly inside `vscode/`:
 
-When the first full build milestone begins, the same pinned commit can be hydrated on the founder's machine. The selective files here overlay that checkout.
+```bash
+cd desktop/vscode
+npm install
+npm run typecheck-client
+npm run valid-layers-check
+npm run compile
+npm run gulp minify-vscode
+```
+
+The pulseai worker entrypoint (`pulseAIWorkerMain`) is emitted by `vscode/build/buildfile.ts` as a desktop-only optimized bundle entry; string-addressed utility workers are not discovered from the workbench import graph.
 
 ## Invariants
 
 1. Pulse is registered from `vscode/src/vs/workbench/contrib/pulseai/`.
 2. Pulse never lives under `/extensions/`.
-3. `product.json` is the only upstream source edit for identity; generated platform icon replacements are recorded separately under `brand_assets` in the manifest.
+3. `vscode/product.json` is the only upstream source edit for identity; platform icon replacements are recorded separately under `brand_assets` in the manifest.
 4. Workbench colors are contributed as theme-scoped configuration defaults from `/contrib/pulseai/`, never by rewriting a built-in theme extension or forcing global CSS.
 5. `workbench.common.main.ts` registers the cross-platform UI contribution; `workbench.desktop.main.ts` separately registers the utility-process sidecar so web builds never load Electron APIs.
-6. `build/buildfile.ts` emits `pulseAIWorkerMain` as a desktop-only optimized bundle entry point; string-addressed utility workers are not discovered from the workbench import graph.
-7. Exactly four founder-approved upstream **source** files are modified: product branding, two registration files, and that desktop worker bundle entry. Eight platform icon files are intentional branding overlays, generated from `branding/pulseai-mark.svg`.
-8. No `node_modules`, build output, Electron binaries, or full upstream source in this sandbox working set.
+6. `vscode/build/buildfile.ts` emits `pulseAIWorkerMain` as a desktop-only optimized bundle entry point; string-addressed utility workers are not discovered from the workbench import graph.
+7. Exactly four upstream **source** files are modified in the fork: product branding, two registration files, and that desktop worker bundle entry. Eight platform icon files are intentional branding overlays, generated from `branding/pulseai-mark.svg`.
+8. Build outputs (`node_modules`, Electron binaries, `out-*`) produced inside `vscode/` are never committed — the vendored tree's nested `.gitignore` protects those.
