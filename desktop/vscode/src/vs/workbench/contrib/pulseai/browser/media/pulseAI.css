@@ -353,29 +353,69 @@
 .pulseai-button-secondary { border-color: var(--vscode-button-secondaryBackground); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 
 .pulseai-composer {
-	padding: 7px;
+	padding: 8px 10px 7px;
 	border-top: 1px solid var(--vscode-panel-border, transparent);
 	background: var(--vscode-sideBar-background);
 }
+.pulseai-composer-box {
+	border: 1px solid var(--vscode-input-border, transparent);
+	background: var(--vscode-input-background);
+}
+.pulseai-composer-box:focus-within { border-color: var(--vscode-focusBorder); }
 .pulseai-composer-input {
 	display: block;
 	width: 100%;
-	min-height: 48px;
+	min-height: 30px;
 	max-height: 130px;
-	padding: 7px 8px 27px;
+	padding: 8px 9px 4px;
 	resize: vertical;
-	border: 1px solid var(--vscode-input-border, transparent);
+	border: 0;
 	outline: none;
-	background: var(--vscode-input-background);
+	background: transparent;
 	color: var(--vscode-input-foreground);
 	line-height: 1.4;
 }
-.pulseai-composer-input:focus { border-color: var(--vscode-focusBorder); }
 .pulseai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
-.pulseai-composer-controls { display: flex; align-items: center; gap: 5px; height: 24px; margin: -26px 3px 0; position: relative; }
+.pulseai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 2px 5px 5px; }
+.pulseai-composer-left { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .pulseai-composer-pill,
-.pulseai-icon-button,
+.pulseai-composer-select {
+	display: inline-flex;
+	align-items: center;
+	height: 21px;
+	padding: 0 7px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	cursor: pointer;
+}
+.pulseai-composer-pill:hover,
+.pulseai-composer-select:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-composer-select { max-width: 110px; outline: none; }
+.pulseai-at-sign { color: var(--pulseai-accent); font-weight: 700; margin-right: 3px; }
 .pulseai-send-button {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: var(--pulseai-accent);
+	color: #061115;
+	font-size: 14px;
+	cursor: pointer;
+}
+.pulseai-send-button:hover { filter: brightness(1.08); }
+.pulseai-send-button.pulseai-send-stop {
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	outline: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+}
+.pulseai-send-button.pulseai-send-stop:hover { color: var(--vscode-foreground); }
+.pulseai-composer-hint { display: flex; justify-content: space-between; margin-top: 5px; color: var(--vscode-descriptionForeground); font-size: 9px; }
+.pulseai-icon-button {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -387,11 +427,7 @@
 	color: var(--vscode-descriptionForeground);
 	font-size: 10px;
 }
-.pulseai-composer-pill:hover,
 .pulseai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
-.pulseai-composer-controls > .pulseai-icon-button { margin-left: auto; }
-.pulseai-send-button { margin-left: auto; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.pulseai-composer-controls > .pulseai-icon-button + .pulseai-send-button { margin-left: 0; }
 
 /* Pulse Manager occupies an editor tab, leaving source editors and the global menu intact. */
 .pulseai-manager-editor { display: block; }

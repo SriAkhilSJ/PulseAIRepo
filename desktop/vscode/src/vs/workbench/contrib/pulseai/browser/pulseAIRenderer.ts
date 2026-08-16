@@ -276,10 +276,28 @@ function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLE
 	);
 }
 
+function compactSelect(label: string, values: readonly string[]): HTMLSelectElement {
+	const select = element('select', 'pulseai-composer-select') as HTMLSelectElement;
+	select.setAttribute('aria-label', label);
+	// First option is the dropdown's label (like the UI Lab's compact menus),
+	// so the control reads "Auto model" / "Ask" instead of the selected value.
+	const labelOption = element('option', undefined, label);
+	labelOption.value = '';
+	labelOption.disabled = true;
+	labelOption.selected = true;
+	select.append(labelOption);
+	for (const value of values) {
+		const option = element('option', undefined, value);
+		option.value = value;
+		select.append(option);
+	}
+	return select;
+}
+
 function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: boolean): HTMLElement {
 	const input = element('textarea', 'pulseai-composer-input') as HTMLTextAreaElement;
 	input.rows = manager ? 2 : 3;
-	input.placeholder = manager ? 'Steer this agent or add context…' : 'Ask Pulse…';
+	input.placeholder = manager ? 'Steer this agent or add context…' : 'Steer Pulse or add context…';
 	input.value = model.draft;
 	input.addEventListener('input', () => host.setDraft(input.value));
 	const submit = () => {
@@ -291,26 +309,39 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 	input.addEventListener('keydown', event => {
 		if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
 	});
-	const stop = model.running ? button(model.cancelRequested ? 'Stopping' : 'Stop', 'pulseai-icon-button', host.cancel, 'debug-stop') : undefined;
-	if (stop && model.cancelRequested) { stop.disabled = true; }
-	const controls = element('div', 'pulseai-composer-controls',
-		button('@ Context', 'pulseai-composer-pill', () => { input.value += '@'; host.setDraft(input.value); input.focus(); }),
-		stop,
-		button(manager && model.running ? 'Steer' : 'Send', 'pulseai-send-button', submit, 'send'),
+
+	// Mirrors the UI Lab composer: @ Context pill, model/approval dropdowns,
+	// and an icon-only send button that becomes Stop while a run is active.
+	const pill = element('button', 'pulseai-composer-pill') as HTMLButtonElement;
+	pill.type = 'button';
+	pill.setAttribute('aria-label', 'Insert @ context reference');
+	pill.append(element('span', 'pulseai-at-sign', '@'), document.createTextNode(' Context'));
+	pill.addEventListener('click', () => { input.value += '@'; host.setDraft(input.value); input.focus(); });
+
+	const left = element('div', 'pulseai-composer-left', pill);
+	if (!manager) {
+		left.append(
+			compactSelect('Auto model', ['Pulse Auto', 'Claude', 'GPT']),
+			compactSelect('Ask', ['Confirm edits', 'Always ask', 'Read only']),
+		);
+	}
+
+	const running = model.running;
+	const send = element('button', running ? 'pulseai-send-button pulseai-send-stop' : 'pulseai-send-button') as HTMLButtonElement;
+	send.type = 'button';
+	send.setAttribute('aria-label', running ? 'Stop' : 'Send');
+	send.append(icon(running ? 'debug-pause' : 'send'));
+	send.addEventListener('click', running ? host.cancel : submit);
+	if (running && model.cancelRequested) { send.disabled = true; }
+
+	const toolbar = element('div', 'pulseai-composer-toolbar', left, send);
+	const hint = element('div', 'pulseai-composer-hint',
+		element('span', undefined, 'Enter to send'),
+		element('span', undefined, 'Shift+Enter for new line'),
 	);
-	return element('footer', 'pulseai-composer', input, controls);
+	return element('footer', 'pulseai-composer', element('div', 'pulseai-composer-box', input, toolbar), hint);
 }
 
-function selector(label: string, values: readonly string[]): HTMLLabelElement {
-	const select = element('select', 'pulseai-native-select') as HTMLSelectElement;
-	select.setAttribute('aria-label', label);
-	for (const value of values) {
-		const option = element('option', undefined, value);
-		option.value = value;
-		select.append(option);
-	}
-	return element('label', 'pulseai-selector', element('span', undefined, label), select);
-}
 
 function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): void {
 	const shell = element('div', 'pulseai-agent-shell');
@@ -318,8 +349,7 @@ function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAI
 		element('div', 'pulseai-agent-brand', brandMark(), element('strong', undefined, 'Pulse')),
 		engineStatus(model),
 	);
-	const controls = element('div', 'pulseai-agent-selectors', selector('Mode', ['Agent', 'Plan', 'Ask']), selector('Model', ['Pulse Auto', 'Claude', 'GPT']), selector('Approval', ['Confirm edits', 'Always ask', 'Read only']));
-	shell.append(header, controls, transcript(model, host, openTools));
+	shell.append(header, transcript(model, host, openTools));
 	const approval = approvalDock(model, host);
 	if (approval) { shell.append(approval); }
 	shell.append(composer(model, host, false));
