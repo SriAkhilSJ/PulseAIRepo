@@ -14,6 +14,7 @@ import os
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -54,6 +55,11 @@ def _spawn_bridge(env_extra: dict | None = None):
     first read): probing showed a lazy reader combined with a single blocking
     queue.get() intermittently loses frames on Windows text-mode pipes, while
     an eager reader with short polling timeouts is stable across many runs.
+
+    stderr is drained into a tempfile.TemporaryFile() so the suite has no
+    dependency on local scratch directories like .freebuff/ (gitignored, and
+    absent from a clean checkout). _stop_bridge() must be called to reap the
+    process, close the pipes, and discard the temp stderr sink.
     """
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8")
@@ -69,14 +75,46 @@ def _spawn_bridge(env_extra: dict | None = None):
         cwd=ROOT, env=env,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-    err_file = open(ROOT / ".freebuff" / "test-child-stderr.log", "ab")
+    err_file = tempfile.TemporaryFile()
     err_drain = threading.Thread(
         target=lambda: [err_file.write(line) for line in proc.stderr],
         daemon=True,
+        name="bridge-stderr-drain",
     )
     err_drain.start()
     _READERS[proc] = _FrameReader(proc)
+    _SPAWNS[proc] = {"err_file": err_file, "err_drain": err_drain}
     return proc
+
+
+def _stop_bridge(proc) -> None:
+    """Reap a spawned bridge and release every resource it holds.
+
+    Kills the child if needed, waits for exit, joins the stderr drain thread,
+    closes the stdin/stdout/stderr handles, drops the reader/spawn state, and
+    discards the temporary stderr sink. Safe to call twice.
+    """
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+    _READERS.pop(proc, None)
+    state = _SPAWNS.pop(proc, None)
+    if state:
+        state["err_drain"].join(timeout=2)
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                if stream:
+                    stream.close()
+            except OSError:
+                pass
+        try:
+            state["err_file"].close()
+        except OSError:
+            pass
 
 
 def _send(proc, frame: dict) -> None:
@@ -125,6 +163,9 @@ class _FrameReader:
 # Keyed by the Popen object, not proc.pid: PIDs get recycled on Windows, and
 # a stale reader bound to a dead process's pipes would silently swallow frames.
 _READERS: dict[subprocess.Popen, _FrameReader] = {}
+
+# Per-spawn stderr drain state (tempfile sink + drain thread), reaped by _stop_bridge.
+_SPAWNS: dict[subprocess.Popen, dict] = {}
 
 
 def _read_frames(proc, predicate, timeout: float = 20.0):
@@ -243,7 +284,7 @@ def test_echo_turn_emits_progress_then_turn_done():
         assert kinds[-1] == "turn_done", kinds
         assert frames[-1]["completed"] is True
     finally:
-        proc.kill()
+        _stop_bridge(proc)
 
 
 # ------------------------------------------------- 5. fake approval: safety_request + exact-tool_id safety_reply
@@ -339,7 +380,7 @@ def test_read_frames_enforces_timeout_when_child_is_silent():
         elapsed = time.time() - t0
         assert elapsed < 6.0, f"timeout not enforced; took {elapsed:.1f}s"
     finally:
-        proc.kill()
+        _stop_bridge(proc)
 
 
 # ------------------------------------------------- 8. watchdog cancelled after a successful turn
@@ -421,4 +462,4 @@ def test_diagnostics_watchdog_env_does_not_break_bridge():
         frames = _read_frames(proc, lambda f: f.get("type") == "turn_done")
         assert frames[-1]["completed"] is True
     finally:
-        proc.kill()
+        _stop_bridge(proc)
