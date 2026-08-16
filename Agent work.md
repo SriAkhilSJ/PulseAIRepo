@@ -17,6 +17,28 @@
 >
 > **Next:** Section 8 (`scripts/code.bat`) launch, Section 9 visual acceptance, Section 10 real-engine vertical slice, and evidence items 7–12 (screenshots, logs). The optimized worker path for evidence item 6 is `out-vscode-min/vs/workbench/contrib/pulseai/node/pulseAIWorkerMain.js`.
 
+> **Session report (2026-08-15, continuation 2 — Sections 8–11 status + completion gate):**
+>
+> **Section 8 — launch: PASS (with environment repairs).** The `.build/electron/` install was incomplete — `icudtl.dat` was missing, which crashed a child at startup (ICU/V8 breakpoint). Rebuilt with `npm run electron` (345 MB branded build, `icudtl.dat` present, `PulseAI.exe`). Launched `.build/electron/PulseAI.exe --user-data-dir .freebuff/pulseai-ud` (skipping preLaunch): window title **"PulseAI IDE Dev"** confirmed and the Pulse Manager editor opened. `main.log` shows the utility-process chain live: `[UtilityProcessWorker]: createWorker() ... moduleId: vs/workbench/contrib/pulseai/node/pulseAIWorkerMain` (worker created/restarted across engine reconnects), and the engine's `python -m src.bridge` processes spawned from the configured `.venv`.
+>
+> **Section 9 — visual acceptance: PARTIAL.** Window title and branding verified; screenshots saved at `.freebuff/evidence/pulseai-window.png` and `pulseai-window-final.png`. Pixel-level items (cyan/navy chrome, Activity Bar Pulse icon, sidebar Agent UI, Pulse Manager beside a source editor, native menus, high-contrast themes, taskbar icon) need human eyes on the live window.
+>
+> **Section 10 — real-engine vertical slice: PARTIAL (protocol and graph verified; bridge-level real turn blocked on approval semantics).**
+> - Bridge Protocol v2 driver (`.freebuff/bridge_slice.py`, deterministic echo runner): `hello` protocol 2, `session_create → session_info`, streaming `token` events, `turn_done completed=true` — all PASS (`.freebuff/bridge-slice.log`).
+> - Real model turn at the graph level: `stream_agent("Reply with exactly: OK")` against the Sarvam custom provider COMPLETED in ~183 s with a real `OK` reply. Two env-only workarounds (no source edits): the graph's emoji status prints (`📋 🧭 💭`) crash on Windows cp1252 stdout → run with `PYTHONIOENCODING=utf-8`; a stale IDE-engine process held a SQLite lock (`[ChunkIndex] relevant_chunks layer failed: database is locked` — non-fatal, degrades gracefully; stale processes killed).
+> - Bridge-level real turn: after `turn_started` the graph blocks up to 300 s waiting for approval — the bridge runs `stream_agent(approval_channel=True, approval_policy="ask")`, so any unsafe or mutation tool call (`write_file`/`edit_file`/`copy_file`/`scaffold_nextjs`) emits a `safety_request` frame (with `tool_id` + `diff` payload) and waits for `safety_reply` resolved by exact `tool_id`. The driver now auto-approves (the IDE's **Allow** button equivalent) and asserts the `diff` payload; the confirming run was interrupted by the user (credit-conscious) before completion.
+> - Cancel: code-verified — `turn_controls.cancel(session_id)` sets the flag; `ai_node` returns "Operation cancelled by the user." at the next step; the bridge emits `turn_done` with `completed: false, cancelled: true`.
+> - Replay dedup: `events_replay` is journal-only (no LLM); the real-session replay/dedup check is wired into the driver but the run was interrupted.
+> - Crash/restart: `main.log` shows the worker-restart machinery firing (`createWorker() found an existing worker that will be terminated`); a full bounded-backoff restart cycle was not re-verified end-to-end.
+>
+> **Completion gate status:** 1 ✓ semantic checks all PASS (typecheck-client, valid-layers-check, compile); 2 ✓ branded desktop launches; 3 ✓ `pulseAIWorkerMain` in optimized output; 4 ◐ real model turn verified at graph level, bridge-level real turn driver-ready (auto-approve) — interrupted before completion; 5 ◐ approval/cancel/replay code-verified and driver-ready, native-diff UI pending a live UI session; 6 ✓ engine focused suite green (27 tests, earlier session).
+>
+> **Evidence 1–12:** 1–5 recorded in earlier sessions (Node v24.18.0; HEAD pin `6c27443`; typecheck/valid-layers/compile outputs); 6 `out-vscode-min/vs/workbench/contrib/pulseai/node/pulseAIWorkerMain.js`; 7–9 window screenshots captured, Agent / Manager-beside-editor / approval-diff shots pending live UI; 10 bridge echo-turn log + `main.log` `pulseAIWorkerMain` lines; 11 partial (worker restart lines); 12 pending final `git diff --stat`.
+>
+> **Remaining (needs a human at the keyboard or one unblocked driver run):** Section 9 visual acceptance on the live window; Section 10 end-to-end real turn with the auto-approve driver (one tiny turn), native approval-diff screenshot, crash/restart/replay cycle; evidence 12.
+>
+> **Credit note:** real-model usage kept minimal against the Sarvam custom provider — one reachability probe (21 tokens) plus one completed graph turn (`Reply with exactly: OK`), both tiny. The `.env` (gitignored) holds the CTO-provided custom-provider config; keys are never committed.
+
 > **Session report (2026-08-15):** the overlay refactor is committed and pushed.
 > - Commit `3b8ccf60` moved the full Pulse overlay into the canonical fork: `desktop/vscode/product.json`, `desktop/vscode/build/buildfile.ts`, branded platform resources, the first-party contribution (`src/vs/workbench/contrib/pulseai/`), and the `extensionPoints.json` registration. The old selective `desktop/` overlay layout (`desktop/product.json`, `desktop/resources/`, `desktop/build/`) was deleted.
 > - The bridge protocol generator and the desktop syntax checker now target the fork path (`scripts/generate_bridge_protocol.py`, `ui/scripts/check-desktop-syntax.mjs`).
