@@ -147,8 +147,8 @@
     <text x="406" y="112" text-anchor="end" class="sans faint xs">Shift+Enter for new line</text>
   </g>
 
-  <!-- status -->
-  <rect x="1" y="877" width="418" height="22" fill="#0b333b"/>
+  <!-- status (native-neutral per approved color direction) -->
+  <rect x="1" y="877" width="418" height="22" fill="#181818"/>
   <use href="#branch" x="10" y="881" width="13" height="13" class="accent"/>
   <text x="29" y="891" class="sans text xs">main*</text>
   <text x="330" y="891" class="sans cyan xs">Pulse ready</text>

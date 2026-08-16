@@ -35,7 +35,6 @@ import { PulseAIRendererService } from './pulseAIRendererService.js';
 import { PulseAIViewPane } from './pulseAIViewPane.js';
 import { PulseAIWorkbenchService } from './pulseAIWorkbenchService.js';
 import { PulseAIUnavailableEngineService } from './pulseAIUnavailableEngineService.js';
-import './pulseAIBranding.js';
 import './media/pulseAI-tokens.css';
 import './media/pulseAI.css';
 

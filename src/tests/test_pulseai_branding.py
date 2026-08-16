@@ -1,4 +1,8 @@
-"""Pins for PulseAI IDE identity, platform assets, and theme-aware chrome."""
+"""Pins for PulseAI IDE identity, platform assets, and native-neutral chrome.
+
+Approved direction: the IDE chrome stays VS Code Dark 2026 native-neutral;
+Pulse contributes semantic colors only (never global workbench chrome).
+"""
 from __future__ import annotations
 
 import json
@@ -51,17 +55,35 @@ def test_brand_asset_manifest_is_complete():
     assert len(replaced) == 8
 
 
-def test_pulse_chrome_is_a_theme_aware_default_not_forced_global_css():
-    branding = (PULSE / "browser" / "pulseAIBranding.ts").read_text(encoding="utf-8")
+def test_no_global_workbench_chrome_recoloring():
+    """The global cyan/navy workbench theme is removed; chrome is native Dark 2026."""
     contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
-    assert "registerDefaultConfigurations" in branding
-    assert "'workbench.colorCustomizations'" in branding
-    assert "'[Dark 2026]'" in branding
-    assert "'[Light 2026]'" in branding
-    assert "'activityBar.activeBorder': '#22D3EE'" in branding
-    assert "'statusBar.background': '#0B3942'" in branding
-    assert "High Contrast" not in branding
-    assert "import './pulseAIBranding.js';" in contribution
+    # The branding module is deleted and must not be imported.
+    assert not (PULSE / "browser" / "pulseAIBranding.ts").exists()
+    assert "import './pulseAIBranding.js';" not in contribution
+
+    # No workbench color defaults may be registered anywhere in the contribution.
+    for source in (PULSE / "browser").rglob("*.ts"):
+        text = source.read_text(encoding="utf-8")
+        assert "registerDefaultConfigurations" not in text, source
+        assert "workbench.colorCustomizations" not in text, source
+
+    # No global chrome overrides: title bar, Activity Bar, status bar, editor.
+    css = (PULSE / "browser" / "media" / "pulseAI.css").read_text(encoding="utf-8")
+    for global_selector in (".monaco-workbench", "titleBar", "activityBar", "statusBar"):
+        assert global_selector not in css, f"global chrome override leaked: {global_selector}"
+
+
+def test_pulse_semantic_colors_remain_but_never_as_large_chrome():
+    tokens = (PULSE / "browser" / "media" / "pulseAI-tokens.css").read_text(encoding="utf-8")
+    for semantic in ("#22d3ee", "#9b8cff", "#49d190", "#efb75c", "#ed727c"):
+        assert semantic in tokens
+    # The tokens file may only carry Pulse semantic variables, never workbench chrome.
+    for chrome_key in ("titleBar", "activityBar", "statusBar", "sideBar.background"):
+        assert chrome_key not in tokens
+
+    # High-contrast and user themes stay authoritative: no hardcoded overrides.
+    assert "High Contrast" not in tokens
 
 
 def test_product_identifiers_no_longer_ship_as_code_oss():

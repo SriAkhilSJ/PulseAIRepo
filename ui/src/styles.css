@@ -12,18 +12,21 @@ button, input, textarea { font: inherit; }
 button { color: inherit; }
 
 .theme-dark {
-  --bg: #080c11;
-  --chrome: #0d1218;
-  --surface: #10161d;
-  --surface-2: #141b23;
-  --surface-active: #17212b;
-  --editor: #0c1117;
-  --border: #29333e;
-  --border-soft: #202a34;
-  --text: #dce4ec;
-  --strong: #f5f8fa;
-  --muted: #8996a6;
-  --faint: #5c6978;
+  /* Native-neutral foundations (approved direction): the IDE chrome itself is
+     VS Code Dark 2026; Pulse semantic colors below are allowed only for Pulse
+     surfaces and states, never as large chrome backgrounds. */
+  --bg: #111111;
+  --chrome: #181818;
+  --surface: #181818;
+  --surface-2: #1d1d1d;
+  --surface-active: #2a2d2e;
+  --editor: #1f1f1f;
+  --border: #2b2b2b;
+  --border-soft: #252525;
+  --text: #cccccc;
+  --strong: #f0f0f0;
+  --muted: #8b8b8b;
+  --faint: #666666;
   --accent: #22d3ee;
   --accent-soft: #112d34;
   --accent-border: #27616c;
@@ -239,7 +242,7 @@ button { color: inherit; }
 .editor-minimap { position: absolute; right: 6px; top: 72px; bottom: 16px; width: 42px; opacity: .4; border-left: 1px solid var(--border-soft); }
 .editor-minimap span { position: absolute; right: 4px; height: 2px; background: var(--faint); }
 .editor-minimap span.mini-change { height: 6px; background: var(--accent); }
-.statusbar { grid-column: 1/-1; grid-row: 3; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: var(--muted); background: #0b333b; border-top: 1px solid var(--accent-border); font-size: 8px; }
+.statusbar { grid-column: 1/-1; grid-row: 3; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: var(--muted); background: var(--chrome); border-top: 1px solid var(--border); font-size: 8px; }
 .statusbar > div { gap: 12px; }
 .statusbar span { gap: 4px; }
 .pulse-statusbar { color: var(--accent); }
@@ -298,7 +301,7 @@ button { color: inherit; }
 .terminal-meta { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; gap: 7px; margin-bottom: 7px; color: var(--faint); font-size: 8px; }
 .terminal-meta strong { color: var(--text); font-weight: 550; }
 .terminal-meta .terminal-exit { color: var(--red); }
-.terminal-output { max-height: 132px; border-left-color: var(--red); color: var(--muted); background: #080c10; }
+.terminal-output { max-height: 132px; border-left-color: var(--red); color: var(--muted); background: #0c0c0c; }
 .terminal-command { color: var(--strong); }
 .terminal-pass { color: var(--green); }
 .terminal-fail { color: var(--red); }

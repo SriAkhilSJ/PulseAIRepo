@@ -74,7 +74,7 @@ The full Code OSS checkout is vendored in-repo at `desktop/vscode/` and pinned t
 
 No files are copied piecemeal into `desktop/`; the fork root itself carries only metadata (`README.md`, `SELECTIVE_MANIFEST.json`, `UPSTREAM_PIN`, `.nvmrc`). The manifest pins every overlay receipt and the upstream commit; `desktop/vscode/.gitignore` protects build outputs.
 
-Branding now has one canonical pulse-and-agent-node SVG plus reproducible Windows ICO/tile, macOS ICNS, Linux PNG, server icon, and browser favicon outputs. Eight expected Code OSS resource replacements are receipt-pinned separately from the four-file source boundary. Pulse cyan/navy workbench chrome is registered from the first-party contribution as Dark 2026 / Light 2026 configuration defaults, preserving user overrides and high-contrast behavior.
+Branding now has one canonical pulse-and-agent-node SVG plus reproducible Windows ICO/tile, macOS ICNS, Linux PNG, server icon, and browser favicon outputs. Eight expected Code OSS resource replacements are receipt-pinned separately from the four-file source boundary. The IDE chrome is VS Code Dark 2026 native-neutral: the earlier global cyan/navy workbench color defaults were removed, and Pulse contributes only semantic color tokens (cyan running/focus/primary, violet delegation, green verified, amber approval/warning, red failure), preserving user overrides and high-contrast behavior.
 
 ### T5 — PulseAI Bridge Protocol v2 — CONTRACT FOUNDATION COMPLETE
 

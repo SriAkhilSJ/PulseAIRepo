@@ -248,7 +248,8 @@ cd $env:VSCODE_ROOT
 
 - [ ] Window/product title says **PulseAI IDE**.
 - [ ] PulseAI application icon appears in the window/taskbar/dock.
-- [ ] Pulse cyan/navy chrome appears with Dark 2026 or Light 2026.
+- [ ] IDE chrome is **native-neutral Dark 2026** (no global cyan/navy workbench recoloring); hiding the Pulse panel leaves a stock-looking Code OSS window.
+- [ ] Pulse semantic colors appear only on Pulse surfaces/states (cyan running/focus/primary, violet delegation, green verified, amber approval, red failure).
 - [ ] High-contrast themes remain unchanged and usable.
 - [ ] User color customizations still override Pulse defaults.
 - [ ] Activity Bar contains **Pulse**.
