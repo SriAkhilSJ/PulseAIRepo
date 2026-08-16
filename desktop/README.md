@@ -16,7 +16,7 @@ npm run compile
 npm run gulp minify-vscode
 ```
 
-The pulseai worker entrypoint (`pulseAIWorkerMain`) is emitted by `vscode/build/buildfile.ts` as a desktop-only optimized bundle entry; string-addressed utility workers are not discovered from the workbench import graph.
+The pulseai worker entrypoint (`pulseAIWorkerMain`) is emitted as a desktop-only optimized bundle entry by **both** packaging paths: `vscode/build/buildfile.ts` (legacy gulp path) and `vscode/build/next/index.ts` (current esbuild path). String-addressed utility workers are not discovered from the workbench import graph, so each path lists the entry explicitly.
 
 ## Invariants
 
@@ -25,6 +25,6 @@ The pulseai worker entrypoint (`pulseAIWorkerMain`) is emitted by `vscode/build/
 3. `vscode/product.json` is the only upstream source edit for identity; platform icon replacements are recorded separately under `brand_assets` in the manifest.
 4. Workbench colors are contributed as theme-scoped configuration defaults from `/contrib/pulseai/`, never by rewriting a built-in theme extension or forcing global CSS.
 5. `workbench.common.main.ts` registers the cross-platform UI contribution; `workbench.desktop.main.ts` separately registers the utility-process sidecar so web builds never load Electron APIs.
-6. `vscode/build/buildfile.ts` emits `pulseAIWorkerMain` as a desktop-only optimized bundle entry point; string-addressed utility workers are not discovered from the workbench import graph.
-7. Exactly four upstream **source** files are modified in the fork: product branding, two registration files, and that desktop worker bundle entry. Eight platform icon files are intentional branding overlays, generated from `branding/pulseai-mark.svg`.
+6. `vscode/build/buildfile.ts` (legacy gulp path) and `vscode/build/next/index.ts` (current esbuild path) each emit `pulseAIWorkerMain` as a desktop-only optimized bundle entry point; string-addressed utility workers are not discovered from the workbench import graph.
+7. Exactly five upstream **source** files are modified in the fork: product branding, the two registration files, and the two desktop bundle entry files (`build/buildfile.ts` for the legacy gulp path, `build/next/index.ts` for the current esbuild path). Eight platform icon files are intentional branding overlays, generated from `branding/pulseai-mark.svg`.
 8. Build outputs (`node_modules`, Electron binaries, `out-*`) produced inside `vscode/` are never committed — the vendored tree's nested `.gitignore` protects those.

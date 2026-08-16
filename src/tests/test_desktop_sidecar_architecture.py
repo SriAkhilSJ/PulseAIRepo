@@ -66,10 +66,11 @@ def test_desktop_registration_is_isolated_from_common_and_web():
     assert "pulseai.pythonPath" in registration
 
 
-def test_selective_manifest_has_exactly_four_upstream_edits():
+def test_selective_manifest_has_exactly_five_upstream_edits():
     manifest = json.loads((DESKTOP / "SELECTIVE_MANIFEST.json").read_text())
     assert set(manifest["files"]) == {
         "build/buildfile.ts",
+        "build/next/index.ts",
         "product.json",
         "src/vs/workbench/workbench.common.main.ts",
         "src/vs/workbench/workbench.desktop.main.ts",
@@ -84,3 +85,14 @@ def test_optimized_desktop_bundle_has_the_pulse_worker_entrypoint():
     server = buildfile.split("export const codeServer = [", 1)[1].split("];", 1)[0]
     assert desktop.count(entry) == 1
     assert entry not in server
+
+
+def test_current_esbuild_bundle_has_the_pulse_worker_entrypoint():
+    index = (FORK / "build" / "next" / "index.ts").read_text(encoding="utf-8")
+    entry = "vs/workbench/contrib/pulseai/node/pulseAIWorkerMain"
+    assert index.count(entry) == 1
+    desktop = index.split("const desktopEntryPoints = [", 1)[1].split("];", 1)[0]
+    assert desktop.count(entry) == 1
+    for array_name in ("serverEntryPoints", "webEntryPoints", "webOnlyEntryPoints", "codeEntryPoints"):
+        block = index.split(f"const {array_name} = [", 1)[1].split("];", 1)[0]
+        assert entry not in block, f"{array_name} must not carry the Pulse worker"

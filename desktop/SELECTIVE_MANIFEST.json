@@ -7,6 +7,11 @@
       "overlay_sha256": "1805b2fe0eca032d4b08173889b8a031651253b8dd0c88f1598c8489a7f00319",
       "modified": true
     },
+    "build/next/index.ts": {
+      "upstream_sha256": "4e2b3a122788f4dd5dbd6b90ad764882e43caf78a927d136dcaf05836bfb27ea",
+      "overlay_sha256": "73df7aebe8a28780e6719f9f762da3e13c7b92a6be1b204741cf01e12fc326b0",
+      "modified": true
+    },
     "product.json": {
       "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
       "overlay_sha256": "d4195e6ef8bfd992bbe4e3103639e1345c5703d65e5b601f225780764990c7b5",

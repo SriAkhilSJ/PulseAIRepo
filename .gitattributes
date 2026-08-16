@@ -4,6 +4,7 @@
 # core.autocrlf=true still hash identically.
 desktop/SELECTIVE_MANIFEST.json text eol=lf
 desktop/vscode/build/buildfile.ts text eol=lf
+desktop/vscode/build/next/index.ts text eol=lf
 desktop/vscode/product.json text eol=lf
 desktop/vscode/src/vs/workbench/workbench.common.main.ts text eol=lf
 desktop/vscode/src/vs/workbench/workbench.desktop.main.ts text eol=lf
