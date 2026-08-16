@@ -1,0 +1,11 @@
+# PulseAI overlay: the SELECTIVE_MANIFEST receipts are sha256 of the
+# committed LF blobs. Force LF checkout for every manifest-pinned text
+# file (and the first-party pulseai tree) so Windows clones with
+# core.autocrlf=true still hash identically.
+desktop/SELECTIVE_MANIFEST.json text eol=lf
+desktop/vscode/build/buildfile.ts text eol=lf
+desktop/vscode/product.json text eol=lf
+desktop/vscode/src/vs/workbench/workbench.common.main.ts text eol=lf
+desktop/vscode/src/vs/workbench/workbench.desktop.main.ts text eol=lf
+desktop/vscode/resources/pulseai/pulseai-mark.svg text eol=lf
+desktop/vscode/src/vs/workbench/contrib/pulseai/** text eol=lf
