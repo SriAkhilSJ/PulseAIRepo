@@ -169,6 +169,10 @@ class BridgeServer:
 
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
+        watchdog = None
+        if os.environ.get("PULSEAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}:
+            import faulthandler
+            watchdog = faulthandler.dump_traceback_later(60, repeat=False, exit=False)
         self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
         if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
             self.emit({
@@ -191,10 +195,6 @@ class BridgeServer:
         )
         forwarder.start()
 
-        watchdog = None
-        if os.environ.get("PULSEAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}:
-            import faulthandler
-            watchdog = faulthandler.dump_traceback_later(60, repeat=False, exit=False)
         # Non-sensitive liveness frame before entering the real graph.
         self.emit({
             "type": "reasoning", **identity.event_fields(),
@@ -291,6 +291,13 @@ class BridgeServer:
                 depth = turn_controls.queue(sid, text)
                 self.emit({"type": "session_info", "session_id": sid, "queued": depth})
             else:
+                # Warm the heavy turn-path imports on the MAIN thread before
+                # dispatching the worker: numpy/transformers C-extension init
+                # deadlocks when imported on a non-main thread (Windows), which
+                # previously hung the real turn silently. Once cached in
+                # sys.modules, the worker's own imports are instant no-ops.
+                from src.dashboard.event_bus import event_bus  # noqa: F401
+                from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
                     target=self._run_turn, args=(sid, text, workspace),
                     name=f"bridge-turn-{sid}", daemon=True,
