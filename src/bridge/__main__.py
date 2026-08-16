@@ -18,6 +18,16 @@ ENGINE_VERSION = "0.2.0-runtime"
 
 class BridgeServer:
     def __init__(self):
+        # --- Strict stdout ownership (Protocol v2 transport) ---
+        # Protocol frames go to the original stdout buffer, captured once.
+        # All ordinary print() output is routed to stderr so that engine/
+        # graph diagnostics can never corrupt the JSON-lines wire protocol.
+        self._protocol_out = sys.stdout.buffer
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, OSError):
+            pass
+        sys.stdout = sys.stderr
         self.greeted = False
         self.protocol_version: int | None = None
         self._write_lock = threading.Lock()
@@ -28,8 +38,8 @@ class BridgeServer:
 
     def emit(self, frame: dict) -> None:
         with self._write_lock:
-            sys.stdout.buffer.write(encode(frame))
-            sys.stdout.buffer.flush()
+            self._protocol_out.write(encode(frame))
+            self._protocol_out.flush()
 
     def _session(self, requested: str | None, workspace: str = ".") -> str:
         sid = normalize_id(requested, prefix="session")
@@ -133,6 +143,30 @@ class BridgeServer:
     def _project_stored_events(cls, events: list[dict]) -> list[dict]:
         return [projected for event in events if (projected := cls._project_stored_event(event))]
 
+    def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event) -> None:
+        """Forward event-bus events to protocol frames; never dies silently."""
+        while not done.is_set():
+            try:
+                event = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                frame = self._project_event(event, identity)
+                if frame:
+                    self.emit(frame)
+            except Exception as exc:
+                print(
+                    f"[PulseAI bridge] event forwarder failed: {type(exc).__name__}: {exc}",
+                    file=sys.stderr, flush=True,
+                )
+                try:
+                    self.emit({
+                        "type": "runtime_degraded", **identity.event_fields(),
+                        "reason": f"event forwarder failed: {type(exc).__name__}",
+                    })
+                except Exception:
+                    pass
+
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
         self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
@@ -151,19 +185,21 @@ class BridgeServer:
         from src.graphs.chat_graph import stream_agent
         q = event_bus.subscribe(thread_id=sid)
         done = threading.Event()
-
-        def forward() -> None:
-            while not done.is_set():
-                try:
-                    event = q.get(timeout=0.1)
-                except queue.Empty:
-                    continue
-                frame = self._project_event(event, identity)
-                if frame:
-                    self.emit(frame)
-
-        forwarder = threading.Thread(target=forward, name=f"bridge-events-{sid}", daemon=True)
+        forwarder = threading.Thread(
+            target=self._forward_events, args=(q, identity, done),
+            name=f"bridge-events-{sid}", daemon=True,
+        )
         forwarder.start()
+
+        watchdog = None
+        if os.environ.get("PULSEAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}:
+            import faulthandler
+            watchdog = faulthandler.dump_traceback_later(60, repeat=False, exit=False)
+        # Non-sensitive liveness frame before entering the real graph.
+        self.emit({
+            "type": "reasoning", **identity.event_fields(),
+            "text": "Preparing workspace context…",
+        })
         try:
             result = stream_agent(
                 text, thread_id=sid, workspace=workspace,
@@ -183,6 +219,9 @@ class BridgeServer:
                 "error": str(exc), "completed": False,
             })
         finally:
+            if watchdog is not None:
+                import faulthandler
+                faulthandler.cancel_dump_traceback_later()
             done.set()
             forwarder.join(timeout=1.0)
             event_bus.unsubscribe(q)
