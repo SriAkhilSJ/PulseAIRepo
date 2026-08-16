@@ -69,6 +69,23 @@ RESULT reply='\nOK'
   forwarder hardening, watchdog, stderr draining, 7 transport tests).
 - `57e79921` — behavioral fix: main-thread import warm-up (numpy deadlock).
 
+## CTO corrections — DONE (commit `fea2ea1b`)
+1. **Watchdog cancellation fixed.** `faulthandler.dump_traceback_later()`
+   returns `None`, so the old `if watchdog is not None` cleanup never ran and
+   the scheduled dump leaked after successful turns. `_run_turn` now tracks an
+   explicit `diagnostics_enabled` flag and cancels inside a `try/finally` that
+   also covers the echo-runner branch.
+2. **Test timeouts now enforceable.** `_read_frames` previously called
+   `proc.stdout.readline()`, which blocks past the deadline. It now reads via a
+   dedicated stdout-reader thread feeding a `queue.Queue` with a real
+   `queue.get(timeout=...)` (Windows-safe, no `select` on pipes).
+3. **Flake root cause found and fixed.** `_read_frames` used
+   `dict.setdefault(proc, _FrameReader(proc))`; `setdefault` eagerly evaluates
+   its default argument, so EVERY read spawned a duplicate thread draining the
+   same pipe, racing the primary reader and silently swallowing frames. Replaced
+   with an explicit get-or-create. Transport suite: 10/10 across 5 consecutive
+   runs; 19 other bridge tests pass.
+
 ## Open / not verified
 - Mid-turn cancel, approval-diff UI, crash/restart backoff, replay dedup:
   driver-ready but not re-run end-to-end with a live model (credit-conscious).
