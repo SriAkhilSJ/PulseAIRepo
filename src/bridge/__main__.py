@@ -169,64 +169,75 @@ class BridgeServer:
 
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
-        watchdog = None
-        if os.environ.get("PULSEAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}:
-            import faulthandler
-            watchdog = faulthandler.dump_traceback_later(60, repeat=False, exit=False)
-        self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
-        if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
-            self.emit({
-                "type": "token", **identity.event_fields(),
-                "text": text, "test_runner": "echo",
-            })
-            self.emit({
-                "type": "turn_done", **identity.event_fields(),
-                "message": text, "completed": True, "stub": False,
-            })
-            return
-
-        from src.dashboard.event_bus import event_bus
-        from src.graphs.chat_graph import stream_agent
-        q = event_bus.subscribe(thread_id=sid)
-        done = threading.Event()
-        forwarder = threading.Thread(
-            target=self._forward_events, args=(q, identity, done),
-            name=f"bridge-events-{sid}", daemon=True,
+        # faulthandler.dump_traceback_later() returns None, so track the flag
+        # explicitly: the scheduled dump must always be cancelled after the
+        # turn, and the echo branch must not leak it either.
+        diagnostics_enabled = (
+            os.environ.get("PULSEAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}
         )
-        forwarder.start()
-
-        # Non-sensitive liveness frame before entering the real graph.
-        self.emit({
-            "type": "reasoning", **identity.event_fields(),
-            "text": "Preparing workspace context…",
-        })
+        if diagnostics_enabled:
+            import faulthandler
+            faulthandler.dump_traceback_later(60, repeat=False, exit=False)
+        q = None
+        done = None
+        forwarder = None
         try:
-            result = stream_agent(
-                text, thread_id=sid, workspace=workspace,
-                approval_channel=True, approval_timeout=300.0,
-                turn_id=identity.turn_id,
+            self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
+            if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
+                self.emit({
+                    "type": "token", **identity.event_fields(),
+                    "text": text, "test_runner": "echo",
+                })
+                self.emit({
+                    "type": "turn_done", **identity.event_fields(),
+                    "message": text, "completed": True, "stub": False,
+                })
+                return
+
+            from src.dashboard.event_bus import event_bus
+            from src.graphs.chat_graph import stream_agent
+            q = event_bus.subscribe(thread_id=sid)
+            done = threading.Event()
+            forwarder = threading.Thread(
+                target=self._forward_events, args=(q, identity, done),
+                name=f"bridge-events-{sid}", daemon=True,
             )
-            from src.runtime.turn_control import turn_controls
-            cancelled = turn_controls.cancelled(sid)
+            forwarder.start()
+
+            # Non-sensitive liveness frame before entering the real graph.
             self.emit({
-                "type": "turn_done", **identity.event_fields(),
-                "message": result, "completed": not cancelled,
-                "cancelled": cancelled, "stub": False,
+                "type": "reasoning", **identity.event_fields(),
+                "text": "Preparing workspace context…",
             })
-        except Exception as exc:
-            self.emit({
-                "type": "turn_failed", **identity.event_fields(),
-                "error": str(exc), "completed": False,
-            })
+            try:
+                result = stream_agent(
+                    text, thread_id=sid, workspace=workspace,
+                    approval_channel=True, approval_timeout=300.0,
+                    turn_id=identity.turn_id,
+                )
+                from src.runtime.turn_control import turn_controls
+                cancelled = turn_controls.cancelled(sid)
+                self.emit({
+                    "type": "turn_done", **identity.event_fields(),
+                    "message": result, "completed": not cancelled,
+                    "cancelled": cancelled, "stub": False,
+                })
+            except Exception as exc:
+                self.emit({
+                    "type": "turn_failed", **identity.event_fields(),
+                    "error": str(exc), "completed": False,
+                })
         finally:
-            if watchdog is not None:
+            if diagnostics_enabled:
                 import faulthandler
                 faulthandler.cancel_dump_traceback_later()
-            done.set()
-            forwarder.join(timeout=1.0)
-            event_bus.unsubscribe(q)
-            from src.runtime.turn_control import turn_controls
-            turn_controls.end(sid)
+            if forwarder is not None and q is not None and done is not None:
+                done.set()
+                forwarder.join(timeout=1.0)
+                from src.dashboard.event_bus import event_bus
+                event_bus.unsubscribe(q)
+                from src.runtime.turn_control import turn_controls
+                turn_controls.end(sid)
 
         from src.runtime.turn_control import turn_controls
         queued = turn_controls.pop_queued(sid)
@@ -296,8 +307,11 @@ class BridgeServer:
                 # deadlocks when imported on a non-main thread (Windows), which
                 # previously hung the real turn silently. Once cached in
                 # sys.modules, the worker's own imports are instant no-ops.
-                from src.dashboard.event_bus import event_bus  # noqa: F401
-                from src.graphs.chat_graph import stream_agent  # noqa: F401
+                # The echo runner never touches chat_graph, so skip the ~11s
+                # warm-up there.
+                if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() != "echo":
+                    from src.dashboard.event_bus import event_bus  # noqa: F401
+                    from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
                     target=self._run_turn, args=(sid, text, workspace),
                     name=f"bridge-turn-{sid}", daemon=True,

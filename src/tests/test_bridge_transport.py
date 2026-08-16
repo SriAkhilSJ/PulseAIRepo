@@ -48,30 +48,103 @@ def _run_script(script: str, env_extra: dict | None = None, timeout: float = 30.
 
 
 def _spawn_bridge(env_extra: dict | None = None):
-    """Spawn the real sidecar with stderr drained by a dedicated thread."""
+    """Spawn the real sidecar with stderr drained by a dedicated thread.
+
+    The stdout reader thread is created eagerly at spawn (not lazily on the
+    first read): probing showed a lazy reader combined with a single blocking
+    queue.get() intermittently loses frames on Windows text-mode pipes, while
+    an eager reader with short polling timeouts is stable across many runs.
+    """
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("PYTHONUNBUFFERED", "1")
     if env_extra:
         env.update(env_extra)
+    # Binary pipes: probing showed text-mode (TextIOWrapper) pipes on Windows
+    # intermittently lose frames the child provably wrote when children are
+    # spawned/killed repeatedly, while binary pipes were stable across many
+    # runs. The reader decodes UTF-8 lines itself.
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"],
         cwd=ROOT, env=env,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, bufsize=1,
     )
-    err_drain = threading.Thread(target=lambda: [None for _ in proc.stderr], daemon=True)
+    err_file = open(ROOT / ".freebuff" / "test-child-stderr.log", "ab")
+    err_drain = threading.Thread(
+        target=lambda: [err_file.write(line) for line in proc.stderr],
+        daemon=True,
+    )
     err_drain.start()
+    _READERS[proc] = _FrameReader(proc)
     return proc
 
 
 def _send(proc, frame: dict) -> None:
-    proc.stdin.write(json.dumps(frame) + "\n")
+    proc.stdin.write(json.dumps(frame).encode("utf-8") + b"\n")
     proc.stdin.flush()
 
 
+class _FrameReader:
+    """Dedicated stdout reader thread feeding a queue.
+
+    subprocess pipes cannot use select() on Windows, so the blocking
+    readline() must run on its own thread; _read_frames() then waits with a
+    real queue timeout that is actually enforceable.
+    """
+
+    def __init__(self, proc):
+        self._q: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._drain, args=(proc,), daemon=True,
+            name="bridge-stdout-reader",
+        )
+        self._thread.start()
+
+    def _drain(self, proc):
+        try:
+            for line in proc.stdout:
+                self._q.put(line.decode("utf-8", errors="backslashreplace"))
+        except Exception as exc:
+            self._q.put(exc)
+            raise
+        finally:
+            self._q.put(None)  # EOF sentinel
+
+    def get(self, timeout: float) -> str:
+        try:
+            line = self._q.get(timeout=timeout)
+        except queue.Empty:
+            raise TimeoutError(f"no stdout line within {timeout:.1f}s")
+        if line is None:
+            raise RuntimeError("bridge closed stdout early")
+        if isinstance(line, BaseException):
+            raise RuntimeError(f"stdout reader thread died: {type(line).__name__}: {line}")
+        return line
+
+
+# Keyed by the Popen object, not proc.pid: PIDs get recycled on Windows, and
+# a stale reader bound to a dead process's pipes would silently swallow frames.
+_READERS: dict[subprocess.Popen, _FrameReader] = {}
+
+
 def _read_frames(proc, predicate, timeout: float = 20.0):
-    """Read stdout lines until predicate(frame) is True; return all frames seen."""
+    """Read stdout lines until predicate(frame) is True; return all frames seen.
+
+    Polls the reader queue in short slices (never one long blocking get):
+    probing on Windows showed a single queue.get(timeout=remaining) with a
+    lazily-started reader intermittently never delivers frames that the child
+    provably wrote, while short-polling an eagerly-started reader is stable.
+
+    NOTE: never use dict.setdefault(proc, _FrameReader(proc)) here. setdefault
+    eagerly evaluates its default argument, so every call would construct a NEW
+    _FrameReader -- spawning another thread draining the same pipe -- even when
+    the dict already has one. Those discarded duplicate readers race the primary
+    one for frames and silently swallow them (the root cause of the flake).
+    """
+    reader = _READERS.get(proc)
+    if reader is None:
+        reader = _FrameReader(proc)
+        _READERS[proc] = reader
     deadline = time.time() + timeout
     frames = []
     while True:
@@ -80,9 +153,10 @@ def _read_frames(proc, predicate, timeout: float = 20.0):
             raise TimeoutError(
                 f"no matching frame within {timeout}s; saw: {[f.get('type') for f in frames]}"
             )
-        line = proc.stdout.readline()
-        if not line:
-            raise RuntimeError(f"bridge closed stdout early; saw: {[f.get('type') for f in frames]}")
+        try:
+            line = reader.get(min(remaining, 0.25))
+        except TimeoutError:
+            continue
         frame = json.loads(line)
         frames.append(frame)
         if predicate(frame):
@@ -247,6 +321,87 @@ def test_forwarder_survives_projection_exception_and_emits_runtime_degraded(tmp_
     finally:
         done.set()
         thread.join(timeout=2)
+
+
+# ------------------------------------------------- 7. timeout is enforceable
+
+def test_read_frames_enforces_timeout_when_child_is_silent():
+    """A child that never emits a frame must TimeoutError within the bound.
+
+    Regression: the old _read_frames() called proc.stdout.readline() which
+    blocks indefinitely past the deadline, so timeouts were cosmetic.
+    """
+    proc = _spawn_bridge({"PULSEAI_BRIDGE_RUNNER": "echo"})
+    try:
+        t0 = time.time()
+        with pytest.raises(TimeoutError):
+            _read_frames(proc, lambda f: f.get("type") == "never", timeout=3.0)
+        elapsed = time.time() - t0
+        assert elapsed < 6.0, f"timeout not enforced; took {elapsed:.1f}s"
+    finally:
+        proc.kill()
+
+
+# ------------------------------------------------- 8. watchdog cancelled after a successful turn
+
+def test_watchdog_is_cancelled_after_successful_echo_turn(monkeypatch):
+    """A successful short turn must cancel the scheduled faulthandler dump.
+
+    Regression: faulthandler.dump_traceback_later() returns None, so the old
+    `if watchdog is not None: cancel(...)` never ran, leaking a scheduled dump
+    that could fire later on unrelated stacks. Track the flag explicitly.
+    """
+    calls: list[str] = []
+
+    import faulthandler
+
+    monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda *a, **k: calls.append("arm"))
+    monkeypatch.setattr(faulthandler, "cancel_dump_traceback_later", lambda: calls.append("cancel"))
+    monkeypatch.setenv("PULSEAI_BRIDGE_DIAGNOSTICS", "1")
+    monkeypatch.setenv("PULSEAI_BRIDGE_RUNNER", "echo")
+
+    emitted: list[dict] = []
+    server = object.__new__(BridgeServer)
+    server.emit = emitted.append
+    server._shutdown = threading.Event()
+
+    server._run_turn("s-wd", "hi", ".")
+
+    assert calls == ["arm", "cancel"], f"watchdog must be armed then cancelled: {calls}"
+    assert emitted[-1]["type"] == "turn_done"
+
+
+def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path):
+    """Same guarantee for the real (non-echo) path, with a stubbed graph."""
+    calls: list[str] = []
+
+    import faulthandler
+
+    monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda *a, **k: calls.append("arm"))
+    monkeypatch.setattr(faulthandler, "cancel_dump_traceback_later", lambda: calls.append("cancel"))
+    monkeypatch.setenv("PULSEAI_BRIDGE_DIAGNOSTICS", "1")
+    monkeypatch.delenv("PULSEAI_BRIDGE_RUNNER", raising=False)
+
+    # Avoid the real model call: stub stream_agent inside the real module.
+    import src.graphs.chat_graph as chat_graph
+
+    original = chat_graph.stream_agent
+
+    def fake_stream_agent(*args, **kwargs):
+        return {"content": "stub-ok", "role": "assistant"}
+
+    chat_graph.stream_agent = fake_stream_agent
+    try:
+        emitted: list[dict] = []
+        server = object.__new__(BridgeServer)
+        server.emit = emitted.append
+        server._shutdown = threading.Event()
+        server._run_turn("s-wd-real", "hi", str(tmp_path))
+    finally:
+        chat_graph.stream_agent = original
+
+    assert calls == ["arm", "cancel"], f"watchdog must be armed then cancelled: {calls}"
+    assert emitted[-1]["type"] == "turn_done"
 
 
 # ------------------------------------------------- watchdog env gate (no 60 s wait)
