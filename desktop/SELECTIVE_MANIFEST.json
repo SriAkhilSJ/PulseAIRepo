@@ -4,26 +4,26 @@
   "files": {
     "build/buildfile.ts": {
       "upstream_sha256": "aa6bba8088e65560583c8426c609cc4b76f8910b1f52e210fed48d77220de9bc",
-      "overlay_sha256": "b7afefb94afeb50773803ae03e89d0551fe02edd8c3a7416f23970d94eb17874",
+      "overlay_sha256": "1805b2fe0eca032d4b08173889b8a031651253b8dd0c88f1598c8489a7f00319",
       "modified": true
     },
     "product.json": {
       "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
-      "overlay_sha256": "e7f5d0e695c88ff879de78885956c53e727e4749e7aa73b61fac4e04245676ba",
+      "overlay_sha256": "d4195e6ef8bfd992bbe4e3103639e1345c5703d65e5b601f225780764990c7b5",
       "modified": true
     },
     "src/vs/workbench/workbench.common.main.ts": {
       "upstream_sha256": "d11142346b159434f4914d56e83b825917689f394089147a5182b8a70dbf1093",
-      "overlay_sha256": "101604adf3b157ca4d599f68fe24e91ea2de736fe5b08184dce2405191223d64",
+      "overlay_sha256": "7deac7d52748b39399c306a12e72fd9b6eba74be5548ea2ff981072b27d8ad27",
       "modified": true
     },
     "src/vs/workbench/workbench.desktop.main.ts": {
       "upstream_sha256": "712e88e07b41b8f515e58a76ed8268df1575acbbd1aea18ff84653fb6089bc17",
-      "overlay_sha256": "3da4050906fe0129889286ae065a296bb1ea03a06a22b479b5c43e77d9e37f2b",
+      "overlay_sha256": "f0607ecd1e335496e43610cfe16ad6e657a2b4ffcd8f099fc679b241a6e1739a",
       "modified": true
     }
   },
-  "custom_root": "desktop/vscode/src/vs/workbench/contrib/pulseai/",
+  "custom_root": "src/vs/workbench/contrib/pulseai/",
   "brand_assets": {
     "resources/darwin/code.icns": {
       "overlay_sha256": "e3a14ee53a62f511c04e5e2149db14e4976c0e61e156dca692319f2c41fd04a7",
@@ -66,7 +66,7 @@
       "generated_from": "branding/pulseai-mark.svg"
     },
     "resources/pulseai/pulseai-mark.svg": {
-      "overlay_sha256": "73d1a150b050c7c2b90215648051239ad0bf9ad131bbd43ef5fae2a5c77d2340",
+      "overlay_sha256": "1ea5fa9da60c28a126d7e81456f6ea8c2094bde76d2bc5e9637faca3e7f76d44",
       "replaces_upstream": false,
       "generated_from": "branding/pulseai-mark.svg"
     }
