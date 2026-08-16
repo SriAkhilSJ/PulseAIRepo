@@ -81,6 +81,7 @@ desktop/vscode/**/.vscode/
 desktop/vscode/build/*
 !desktop/vscode/build/buildfile.ts
 !desktop/vscode/build/next/
+desktop/vscode/build/next/*
 !desktop/vscode/build/next/index.ts
 desktop/vscode/extensions/**/build/
 
