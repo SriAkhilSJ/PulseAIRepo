@@ -20,6 +20,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from src.context.bounded_scan import ContextBudget, scan_files
+
 class ConventionLearner:
     """
     Learns and remembers project conventions from file scanning.
@@ -36,6 +38,10 @@ class ConventionLearner:
         self._conventions: dict[str, Any] = {}
         self._last_scan: str | None = None
         self._load()
+        self._py_cache: tuple[str, list[Path]] | None = None
+        self._py_report = None
+        self._last_budget: ContextBudget | None = None
+        self.thread_id_hint: str | None = None
 
     def _load(self) -> None:
         if not os.path.exists(self.storage_path):
@@ -60,11 +66,17 @@ class ConventionLearner:
         except Exception:
             pass
 
-    def scan_workspace(self, workspace: str = ".") -> dict[str, Any]:
+    def scan_workspace(self, workspace: str = ".", budget: ContextBudget | None = None) -> dict[str, Any]:
         """
         Scan the workspace for conventions. Call this once per session
         or when the project structure changes significantly.
+
+        ``budget`` (P1): the shared initial-context deadline; every sample
+        scan derives its limits and stop predicate from it.
         """
+        budget = budget or ContextBudget()
+        self._last_budget = budget
+        self._active_budget = budget
         root = Path(workspace)
         conventions: dict[str, Any] = {}
 
@@ -95,15 +107,42 @@ class ConventionLearner:
         self._conventions = conventions
         self._last_scan = str(root.resolve())
         self._save()
+        self._emit_degraded_scan(budget)
         return conventions
 
-    def get_conventions_text(self, workspace: str = ".") -> str:
+    def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
+        """Surface a truncated convention scan as a structured runtime.degraded
+        receipt (real counts, emitted ONCE per shared budget)."""
+        report = getattr(self, "_py_report", None)
+        if report is None or not report.truncated:
+            return
+        budget = budget or self._last_budget or ContextBudget()
+        budget.emit_degraded({
+            "thread_id": self.thread_id_hint or "unknown",
+            "component": "convention_learner",
+            "reason": "context scan bounded",
+            "error": f"convention scan {report.summarize()}",
+            "files_considered": report.considered,
+            "files_read": budget.read_files,
+            "bytes_read": budget.read_bytes,
+            "elapsed_ms": int(budget.elapsed * 1000),
+            "skipped_generated": (
+                report.skipped_dirs + report.skipped_generated + report.skipped_gitignore
+            ),
+            "skipped_oversized": report.skipped_oversize,
+            "skipped_binary": report.skipped_binary,
+            "cancelled": budget.cancelled,
+        })
+
+    def get_conventions_text(self, workspace: str = ".", budget: ContextBudget | None = None) -> str:
         """
         Return conventions as a formatted text block for the context engine.
+
+        ``budget`` (P1): the shared initial-context deadline.
         """
         # Auto-scan if we have no conventions or workspace changed
         if not self._conventions or self._last_scan != str(Path(workspace).resolve()):
-            self.scan_workspace(workspace)
+            self.scan_workspace(workspace, budget)
 
         if not self._conventions:
             return ""
@@ -152,6 +191,25 @@ class ConventionLearner:
     # Detection helpers
     # ---------------------------------------------------------
 
+    def _sample_py(self, root: Path, limit: int, budget: ContextBudget | None = None) -> list[Path]:
+        """Bounded .py sample (≤ limit files); reused across detectors so the
+        convention scan never re-walks the tree per heuristic. The underlying
+        scan honors the P1 budgets (files/bytes/elapsed/symlinks/skips) and
+        the shared ContextBudget deadline.
+        """
+        budget = budget or getattr(self, "_active_budget", None) or ContextBudget()
+        if self._py_cache is None or self._py_cache[0] != str(root.resolve()):
+            iterator, report = scan_files(
+                root,
+                limits=budget.to_limits(),
+                extensions={".py"},
+                should_stop=budget.should_stop,
+                priority=True,
+            )
+            self._py_cache = (str(root.resolve()), list(iterator))
+            self._py_report = report
+        return self._py_cache[1][:limit]
+
     def _detect_test_framework(self, root: Path) -> str:
         if (root / "pytest.ini").exists() or (root / "pyproject.toml").exists():
             try:
@@ -161,7 +219,10 @@ class ConventionLearner:
             except Exception:
                 pass
 
-        test_files = list(root.rglob("test_*.py")) + list(root.rglob("*_test.py"))
+        test_files = [
+            f for f in self._sample_py(root, 200)
+            if f.name.startswith("test_") or f.name.endswith("_test.py")
+        ]
         if not test_files:
             return "unknown"
 
@@ -205,7 +266,7 @@ class ConventionLearner:
         return tools
 
     def _detect_import_style(self, root: Path) -> dict[str, Any]:
-        py_files = list(root.rglob("*.py"))[:30]
+        py_files = self._sample_py(root, 30)
         absolute = 0
         relative = 0
         for f in py_files:
@@ -227,7 +288,7 @@ class ConventionLearner:
         return {"style": "absolute imports preferred"}
 
     def _detect_naming_conventions(self, root: Path) -> dict[str, Any]:
-        py_files = list(root.rglob("*.py"))[:30]
+        py_files = self._sample_py(root, 30)
         snake = 0
         camel = 0
         pascal = 0
@@ -255,7 +316,7 @@ class ConventionLearner:
         return {"dominant": dominant, "snake_case": snake, "camelCase": camel, "PascalCase": pascal}
 
     def _detect_docstring_style(self, root: Path) -> str:
-        py_files = list(root.rglob("*.py"))[:20]
+        py_files = self._sample_py(root, 20)
         google = 0
         numpy = 0
         rest = 0
@@ -280,7 +341,7 @@ class ConventionLearner:
         return "unknown"
 
     def _detect_type_hints(self, root: Path) -> bool:
-        py_files = list(root.rglob("*.py"))[:20]
+        py_files = self._sample_py(root, 20)
         hint_count = 0
         total_funcs = 0
         for f in py_files:
@@ -324,9 +385,22 @@ class ConventionLearner:
                 continue
         return list(dict.fromkeys(frameworks))  # deduplicate, preserve order
 
+    def _count_files(self, root: Path, exts: set[str], budget: ContextBudget | None = None) -> int:
+        """Bounded count for the given extensions (P1). On huge trees the
+        count is a lower bound (budgets cap the walk); language dominance is
+        still decided consistently on the sampled prefix."""
+        budget = budget or getattr(self, "_active_budget", None) or ContextBudget()
+        it, report = scan_files(
+            root, limits=budget.to_limits(), extensions=exts,
+            should_stop=budget.should_stop,
+        )
+        count = sum(1 for _ in it)
+        self._py_report = report
+        return count
+
     def _detect_language(self, root: Path) -> str:
-        py_count = len(list(root.rglob("*.py")))
-        js_count = len(list(root.rglob("*.js"))) + len(list(root.rglob("*.ts")))
+        py_count = self._count_files(root, {".py"})
+        js_count = self._count_files(root, {".js", ".ts"})
         if py_count > js_count:
             return "Python"
         if js_count > py_count:

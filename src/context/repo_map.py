@@ -22,6 +22,8 @@ import threading
 import time
 from pathlib import Path
 
+from src.context.bounded_scan import ContextBudget, scan_files
+
 
 # Directories to skip entirely.
 IGNORED_DIRS = {
@@ -79,20 +81,25 @@ class RepoMap:
         # inputs the compress path's importance ranking needs (no re-walk).
         self._file_stats: dict[str, dict[str, float]] = {}
         self._in_degree: dict[str, int] = {}
+        self._last_scan_report = None
+        self._last_budget: ContextBudget | None = None
+        self.thread_id_hint: str | None = None
 
     # =========================================================
     # PUBLIC API
     # =========================================================
 
-    def get_map(self, max_tokens: int = 1500) -> str:
+    def get_map(self, max_tokens: int = 1500, budget: ContextBudget | None = None) -> str:
         """
         Return the repo map, using cache if fresh.
 
         max_tokens: Rough token budget for the map. If the map exceeds this,
                     we compress it.
+        budget:     P1 shared initial-context deadline; the walk and reads
+                    stop when it expires and a degraded receipt is emitted.
         """
         if self._cache is None or self._is_stale():
-            self.refresh()
+            self.refresh(budget)
 
         if self._cache is None:
             return ""
@@ -105,12 +112,39 @@ class RepoMap:
 
         return self._cache
 
-    def refresh(self) -> str:
+    def refresh(self, budget: ContextBudget | None = None) -> str:
         """Force rebuild the map from disk."""
-        self._cache = self._build_map()
+        budget = budget or ContextBudget()
+        self._last_budget = budget
+        self._cache = self._build_map(budget)
         self._cache_mtime = self._get_latest_mtime()
         self._last_stale_check = time.time()  # the build was itself a walk
+        self._emit_degraded_scan(budget)
         return self._cache
+
+    def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
+        """Surface a truncated repo-map walk as a structured runtime.degraded
+        receipt (real counts, emitted ONCE per shared budget)."""
+        report = getattr(self, "_last_scan_report", None)
+        if report is None or not report.truncated:
+            return
+        budget = budget or self._last_budget or ContextBudget()
+        budget.emit_degraded({
+            "thread_id": self.thread_id_hint or "unknown",
+            "component": "repo_map",
+            "reason": "context scan bounded",
+            "error": f"repo map scan {report.summarize()}",
+            "files_considered": report.considered,
+            "files_read": budget.read_files,
+            "bytes_read": budget.read_bytes,
+            "elapsed_ms": int(budget.elapsed * 1000),
+            "skipped_generated": (
+                report.skipped_dirs + report.skipped_generated + report.skipped_gitignore
+            ),
+            "skipped_oversized": report.skipped_oversize,
+            "skipped_binary": report.skipped_binary,
+            "cancelled": budget.cancelled,
+        })
 
     def invalidate(self):
         """Clear cache. Next get_map() will rebuild."""
@@ -120,12 +154,17 @@ class RepoMap:
     # MAP BUILDER
     # =========================================================
 
-    def _build_map(self) -> str:
-        """Walk the tree and build the map string."""
+    def _build_map(self, budget: ContextBudget | None = None) -> str:
+        """Walk the tree and build the map string.
+
+        ``budget`` (P1): the shared initial-context deadline; file reads stop
+        once it expires so a huge tree yields a partial (degraded) map.
+        """
+        budget = budget or ContextBudget()
         lines = [f"=== REPO MAP: {self.root.name} ===", ""]
 
         # Collect all interesting files.
-        files = self._collect_files()
+        files = self._collect_files(budget)
 
         # Group by directory.
         by_dir: dict[str, list[Path]] = {}
@@ -146,8 +185,10 @@ class RepoMap:
 
             # Print each file.
             for rel_path in files_in_dir:
+                if budget.expired:
+                    break
                 full_path = self.root / rel_path
-                file_info = self._describe_file(full_path, rel_path)
+                file_info = self._describe_file(full_path, rel_path, budget)
                 lines.append(f"  {file_info}")
 
             lines.append("")
@@ -156,7 +197,7 @@ class RepoMap:
         # (the verified chunk_index resolver) — centrality counts only make
         # sense on real edges; the module-first-segment graph can't produce
         # them. Legacy module graph stays as the degraded fallback.
-        edges = self._resolved_edges(files)
+        edges = self._resolved_edges(files, budget)
         graph_lines: list[str] = []
         if edges:
             in_degree: dict[str, int] = {}
@@ -177,7 +218,7 @@ class RepoMap:
                 graph_lines.append(f"... ({len(edges) - 20} more files) ...")
         else:
             self._in_degree = {}
-            graph = self._build_import_graph(files)
+            graph = self._build_import_graph(files, budget)
             if graph:
                 for file_path, imports in sorted(graph.items())[:20]:
                     graph_lines.append(f"{file_path} -> {', '.join(imports[:5])}")
@@ -194,52 +235,57 @@ class RepoMap:
         return "\n".join(lines)
 
 
-    def _collect_files(self) -> list[Path]:
-        """Walk directory tree, collecting interesting files."""
+    def _collect_files(self, budget: ContextBudget | None = None) -> list[Path]:
+        """Walk directory tree, collecting interesting files.
+
+        BOUNDED (P1): the walk honors the shared ContextBudget (file-count /
+        byte / elapsed caps, symlink skip, the IGNORED_DIRS + dot-exclusion
+        set, and the root .gitignore) via BoundedScan, so a giant workspace
+        fork can never hang the context build. On truncation the report is
+        stored on ``self._last_scan_report`` and surfaced as a
+        ``runtime.degraded`` receipt by refresh().
+        """
+        budget = budget or ContextBudget()
+        self._last_budget = budget
         files: list[Path] = []
+        iterator, report = scan_files(
+            self.root,
+            limits=budget.to_limits(),
+            skip_dirs=IGNORED_DIRS,
+            should_stop=budget.should_stop,
+            priority=True,
+        )
+        self._last_scan_report = report
 
-        for dirpath, dirnames, filenames in os.walk(self.root):
-            # Filter out ignored directories in-place so os.walk doesn't descend.
-            dirnames[:] = [
-                dirname for dirname in dirnames
-                if dirname not in IGNORED_DIRS and not dirname.startswith(".")
-            ]
+        for full_path in iterator:
+            if budget.expired:
+                break
+            # Skip common junk.
+            if full_path.name.endswith((".pyc", ".pyo", ".egg", ".whl")):
+                continue
+            try:
+                size = full_path.stat().st_size
+            except OSError:
+                continue
 
-            current_dir = Path(dirpath)
+            # Only include files with interesting extensions OR small files
+            # without extension (like Makefile, Dockerfile).
+            ext = full_path.suffix.lower()
 
-            for filename in filenames:
-                # Skip hidden files.
-                if filename.startswith("."):
-                    continue
-
-                # Skip common junk.
-                if filename.endswith((".pyc", ".pyo", ".egg", ".whl")):
-                    continue
-
-                full_path = current_dir / filename
-
-                try:
-                    size = full_path.stat().st_size
-                except OSError:
-                    continue
-
-                # Only include files with interesting extensions OR small files
-                # without extension (like Makefile, Dockerfile).
-                ext = full_path.suffix.lower()
-
-                if ext in INTERESTING_EXTENSIONS:
-                    files.append(full_path)
-                elif not ext and size < 50_000:
-                    files.append(full_path)
+            if ext in INTERESTING_EXTENSIONS:
+                files.append(full_path)
+            elif not ext and size < 50_000:
+                files.append(full_path)
 
         return files
 
-    def _describe_file(self, full_path: Path, rel_path: Path) -> str:
+    def _describe_file(self, full_path: Path, rel_path: Path, budget: ContextBudget | None = None) -> str:
         """
         Create a one-line description of a file.
 
         For Python files: extract top-level functions/classes.
         For others: just show size and extension.
+        ``budget`` (P1): records the read for the degraded receipt.
 
         Also stashes D14 compress-ranking stats (mtime, size, symbol mass) —
         one stat() call, no re-walk later.
@@ -249,6 +295,8 @@ class RepoMap:
         size_str = self._format_size(size)
         name = rel_path.name
         stats = {"mtime": st.st_mtime, "size": float(size), "mass": 0.0}
+        if budget is not None:
+            budget.record_read(size)
 
         # Python files get symbol extraction.
         if full_path.suffix == ".py" and size < MAX_FILE_SIZE:
@@ -344,22 +392,27 @@ class RepoMap:
             kept.append(f"... ({dropped} graph rows omitted for budget) ...")
         return "\n".join(kept + tail_markers)
 
-    def _resolved_edges(self, files: list[Path]) -> dict[str, set[str]]:
+    def _resolved_edges(self, files: list[Path], budget: ContextBudget | None = None) -> dict[str, set[str]]:
         """D14: file->file import edges via chunk_index's verified resolver
         (full dotted-path resolution). Module-level graph is the documented
         fallback when that import is unavailable. Never raises — edges are
-        a ranking bonus, not a failure mode."""
+        a ranking bonus, not a failure mode. ``budget`` (P1): stops reading
+        files once the shared deadline expires."""
         try:
             from src.context.chunk_index import _extract_py_import_edges
         except Exception:
             return {}
         edges: dict[str, set[str]] = {}
         for f in files:
+            if budget is not None and budget.expired:
+                break
             if f.suffix != ".py":
                 continue
             try:
                 src = f.read_text(encoding="utf-8", errors="ignore")
                 rel = f.relative_to(self.root)
+                if budget is not None:
+                    budget.record_read(len(src.encode("utf-8", errors="ignore")))
             except (OSError, ValueError):
                 continue
             try:
@@ -383,15 +436,22 @@ class RepoMap:
         mass_n = (stats.get("mass", 0.0) / max_mass) if max_mass else 0.0
         return 3.0 * deg_n + 1.5 * rec_n + 0.5 * mass_n
 
-    def _build_import_graph(self, files: list[Path]) -> dict[str, list[str]]:
-        """Build a map of file -> modules it imports."""
+    def _build_import_graph(self, files: list[Path], budget: ContextBudget | None = None) -> dict[str, list[str]]:
+        """Build a map of file -> modules it imports.
+
+        ``budget`` (P1): stops reading files once the shared deadline expires.
+        """
         import ast
         graph: dict[str, list[str]] = {}
         for f in files:
+            if budget is not None and budget.expired:
+                break
             if f.suffix != ".py":
                 continue
             try:
                 content = f.read_text(encoding="utf-8", errors="ignore")
+                if budget is not None:
+                    budget.record_read(len(content.encode("utf-8", errors="ignore")))
                 tree = ast.parse(content)
             except Exception:
                 continue
@@ -649,10 +709,22 @@ def _map_for(workspace_path: Path) -> "RepoMap":
         return instance
 
 
-def get_repo_map(workspace: str | Path, max_tokens: int = 1500) -> str:
-    """Get the repo map for a workspace (cached per workspace)."""
+def get_repo_map(
+    workspace: str | Path,
+    max_tokens: int = 1500,
+    budget: ContextBudget | None = None,
+    thread_id: str | None = None,
+) -> str:
+    """Get the repo map for a workspace (cached per workspace).
+
+    ``budget`` (P1): the shared initial-context deadline.
+    ``thread_id``: routes the degraded receipt to the right session.
+    """
     workspace_path = Path(workspace).resolve()
-    return _map_for(workspace_path).get_map(max_tokens)
+    instance = _map_for(workspace_path)
+    if thread_id:
+        instance.thread_id_hint = str(thread_id)
+    return instance.get_map(max_tokens, budget)
 
 
 def stale_check_ttl() -> float:

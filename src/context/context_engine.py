@@ -38,6 +38,7 @@ from langchain_core.messages import (
     AIMessage,
 )
 
+from src.context.bounded_scan import ContextBudget
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
@@ -179,6 +180,7 @@ class ContextEngine:
         memory_manager: MemoryManager | None = None,
         probe_window: bool = True,
         volatile_tail: bool | None = None,
+        thread_id: str | None = None,
     ):
         """
         max_tokens: How many tokens the AI can handle total. None (default)
@@ -276,6 +278,11 @@ class ContextEngine:
         # constructor stays I/O-free.
         self._compactor = None
 
+        # P1: this engine's session id. The degraded-scan receipts must carry
+        # it (not "unknown") or the session-scoped bridge forwarder drops them.
+        self.thread_id: str | None = thread_id or None
+        self._active_thread_id: str | None = None
+
         # Per-instance copy: _apply_learned_weights() mutates these weights,
         # and the class-level dict would otherwise leak learned drift across
         # ALL engine instances in the process (dashboard sessions, threads).
@@ -325,6 +332,9 @@ class ContextEngine:
         "steps_completed", "failed_steps",
         "recovery_mode", "recovery_attempts", "recovery_command",
         "replan_count", "prior_attempts",
+        # P1: session identity used to route degraded receipts; stable per
+        # session, so hashing it never busts the differential cache.
+        "thread_id",
     })
 
     def _hash_state(self, state: dict[str, Any]) -> str:
@@ -554,7 +564,35 @@ class ContextEngine:
         return self._cache_audit.stats()
 
     def _build_context_layers(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
-        """Build organized layers, but skip irrelevant ones for this task type."""
+        """Build organized layers, but skip irrelevant ones for this task type.
+
+        P1: wraps the build with ONE shared deadline (scan -> read -> chunk ->
+        repo map -> index -> embed). Every file-walking layer derives its
+        limits and stop predicate from ``self._active_budget``, so a huge
+        workspace degrades to partial context instead of blocking the first
+        model call. build_ai_messages holds _api_lock, so the instance slot
+        is safe for the duration of the build.
+        """
+        self._active_budget = ContextBudget()
+        # P1: a user cancel (turn_controls) must stop the whole pipeline —
+        # traversal, reads, chunking, indexing — not just the budget limits.
+        if self.thread_id:
+            from src.runtime.turn_control import turn_controls
+            self._active_budget.extra_stop = lambda: turn_controls.cancelled(self.thread_id)
+        # P1: route degraded-scan receipts to THIS session. Graph state does
+        # not carry thread_id (it lives in config), so the engine's own id
+        # (set by get_context_engine) is the authoritative fallback.
+        self._active_thread_id = (
+            self.thread_id or str(state.get("thread_id") or "") or None
+        )
+        try:
+            return self._build_context_layers_inner(state, task_type)
+        finally:
+            self._active_budget = None
+            self._active_thread_id = None
+
+    def _build_context_layers_inner(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
+        """See _build_context_layers — split so the shared budget can wrap it."""
         layers = []
         builders = {
             "repo_map": self._repo_map_layer,
@@ -950,7 +988,8 @@ class ContextEngine:
         from src.context.convention_learner import ConventionLearner
         workspace = state.get("workspace", ".")
         learner = ConventionLearner()
-        text = learner.get_conventions_text(workspace)
+        learner.thread_id_hint = self._active_thread_id or None
+        text = learner.get_conventions_text(workspace, self._active_budget)
         if not text:
             return None
         return SystemMessage(content=text)
@@ -1024,7 +1063,11 @@ class ContextEngine:
         workspace = state.get("workspace", ".")
 
         try:
-            repo_map_text = get_repo_map(workspace, max_tokens=1200)
+            repo_map_text = get_repo_map(
+                workspace, max_tokens=1200,
+                budget=self._active_budget,
+                thread_id=self._active_thread_id or None,
+            )
         except Exception:
             # If repo map fails, don't break the agent.
             return None
@@ -1048,7 +1091,10 @@ class ContextEngine:
         including first-run (index still building) and no-embedder environments.
         """
         from src.context.chunk_index import build_relevant_chunks_layer
-        return build_relevant_chunks_layer(state)
+        state = dict(state)
+        if self._active_thread_id:
+            state["thread_id"] = self._active_thread_id
+        return build_relevant_chunks_layer(state, self._active_budget)
 
     def _git_context_layer(self, state: dict[str, Any]) -> SystemMessage | None:
         """Layer 0c: live git awareness (branch, staged/uncommitted, recent).

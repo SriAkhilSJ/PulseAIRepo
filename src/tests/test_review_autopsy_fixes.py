@@ -219,7 +219,7 @@ def test_d27_every_registered_builder_takes_exactly_state():
                       if isinstance(n, ast.ClassDef) and n.name == "ContextEngine")
     build_fn = next(n for n in engine_cls.body
                     if isinstance(n, ast.FunctionDef)
-                    and n.name == "_build_context_layers")
+                    and n.name == "_build_context_layers_inner")
 
     layer_methods: list[str] = []
     for sub in ast.walk(build_fn):

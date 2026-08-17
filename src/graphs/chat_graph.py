@@ -2487,6 +2487,7 @@ def get_context_engine(
                 model=LLM_MODEL,
                 llm=summarizer_llm,
                 memory_manager=memory_manager,
+                thread_id=None if key == "default" else key,
             )
             _ENGINES[key] = engine
             if len(_ENGINES) > _ENGINES_MAX:
