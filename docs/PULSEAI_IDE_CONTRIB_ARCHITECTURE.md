@@ -141,7 +141,7 @@ Pulse View / Manager → IPulseAIEngineService
   → python -m src.bridge
 ```
 
-The utility worker validates the engine root and frames, spawns with `shell:false`, bounds stdout/stderr, negotiates Protocol v2, and terminates with the workbench window. A desktop-only registration import keeps Electron APIs out of web builds. Because Code OSS utility workers are string-addressed, optimized packages do not discover them through the workbench import graph; the founder-approved `desktop/vscode/build/buildfile.ts` overlay therefore lists `pulseAIWorkerMain` as a `workbenchDesktop` bundle entry point.
+The utility worker validates the engine root and frames, spawns with `shell:false`, bounds stdout/stderr, negotiates Protocol v2, and terminates with the workbench window. A desktop-only registration import keeps Electron APIs out of web builds. Because Code OSS utility workers are string-addressed, optimized packages do not discover them through the workbench import graph; the founder-approved overlays `desktop/vscode/build/buildfile.ts` (legacy gulp path) and `desktop/vscode/build/next/index.ts` (current esbuild path) each list `pulseAIWorkerMain` as a desktop-only bundle entry point. The esbuild path hardcodes its `desktopEntryPoints` and does not consume `buildfile.ts`.
 
 ## Bridge direction
 

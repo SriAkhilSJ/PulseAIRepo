@@ -91,6 +91,16 @@ def test_canonical_fork_holds_the_overlay_without_runtime_artifacts():
     assert not _tracked("desktop/vscode/node_modules/**"), "node_modules must never be committed"
     assert not _tracked("desktop/vscode/.vscode/**"), ".vscode dirs must never be committed"
     tracked_build = _tracked("desktop/vscode/build/**")
-    assert tracked_build == ["desktop/vscode/build/buildfile.ts"]
+    assert tracked_build == [
+        "desktop/vscode/build/buildfile.ts",
+        "desktop/vscode/build/next/index.ts",
+    ]
     tracked_ext_builds = _tracked("desktop/vscode/extensions/**/build/**")
     assert not tracked_ext_builds, "extension build outputs must never be committed"
+    # Only the approved build overlays are visible; hydrated siblings stay ignored.
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "desktop/vscode/build/next/nls-plugin.ts"],
+        cwd=ROOT,
+        capture_output=True,
+    )
+    assert ignored.returncode == 0, "unrelated hydrated build/next sources must stay ignored"
