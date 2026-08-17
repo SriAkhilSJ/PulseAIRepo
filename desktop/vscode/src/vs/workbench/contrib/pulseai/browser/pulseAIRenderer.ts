@@ -126,7 +126,7 @@ function boundedText(value: unknown, max = 12_000): string {
 		catch { text = String(value); }
 	}
 	if (text.length <= max) { return text; }
-	return `… ${text.length - max} earlier characters omitted …\n${text.slice(-max)}`;
+	return `... ${text.length - max} earlier characters omitted ...\n${text.slice(-max)}`;
 }
 
 function resultOutput(tool: PulseAIToolView): string {
@@ -159,11 +159,11 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	const command = firstString(args, ['command', 'script']) ?? 'Command details unavailable';
 	const output = resultOutput(tool);
 	const exit = firstString(result, ['exitCode', 'exit_code', 'status', 'code']) ?? (tool.state === 'running' ? 'running' : 'unknown');
-	const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '—';
+	const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';
 	const body = element('div', 'pulseai-tool-body pulseai-terminal-body');
 	body.append(
 		element('div', 'pulseai-terminal-command', element('span', 'pulseai-terminal-prompt', '$'), element('code', undefined, command)),
-		element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output…' : 'No captured output')),
+		element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output...' : 'No captured output')),
 		element('div', 'pulseai-terminal-result', element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)), element('span', undefined, `exit ${exit}`), element('span', undefined, duration)),
 	);
 	const actions = element('div', 'pulseai-tool-actions');
@@ -238,9 +238,9 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	}
 	if (model.assistantText || model.reasoning || model.running) {
 		const response = element('section', 'pulseai-assistant-message');
-		response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), model.running ? element('span', 'pulseai-stream-label', model.cancelRequested ? 'Stopping…' : 'Working') : undefined));
+		response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), model.running ? element('span', 'pulseai-stream-label', model.cancelRequested ? 'Stopping.' : 'Working') : undefined));
 		if (model.reasoning) { response.append(element('div', 'pulseai-reasoning', model.reasoning)); }
-		response.append(element('p', 'pulseai-assistant-copy', model.assistantText || 'Inspecting workspace context…'));
+		response.append(element('p', 'pulseai-assistant-copy', model.assistantText || 'Inspecting workspace context...'));
 		lane.append(response);
 	}
 	if (model.tools.length) {
@@ -297,7 +297,7 @@ function compactSelect(label: string, values: readonly string[]): HTMLSelectElem
 function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: boolean): HTMLElement {
 	const input = element('textarea', 'pulseai-composer-input') as HTMLTextAreaElement;
 	input.rows = manager ? 2 : 3;
-	input.placeholder = manager ? 'Steer this agent or add context…' : 'Steer Pulse or add context…';
+	input.placeholder = manager ? 'Steer this agent or add context...' : 'Steer Pulse or add context...';
 	input.value = model.draft;
 	input.addEventListener('input', () => host.setDraft(input.value));
 	const submit = () => {
@@ -321,8 +321,8 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 	const left = element('div', 'pulseai-composer-left', pill);
 	if (!manager) {
 		left.append(
-			compactSelect('Auto model', ['Pulse Auto', 'Claude', 'GPT']),
-			compactSelect('Ask', ['Confirm edits', 'Always ask', 'Read only']),
+			compactSelect('Auto model', ['Auto - best available', 'Fast', 'Deep']),
+			compactSelect('Ask', ['Ask before edits', 'Approve workspace edits', 'Read only']),
 		);
 	}
 
@@ -368,7 +368,7 @@ function inspector(model: PulseAIRenderModel): HTMLElement {
 		element('div', 'pulseai-evidence-row', icon(model.verification === 'passed' ? 'pass-filled' : 'circle-outline'), element('span', undefined, model.verification ? `Runtime reported ${model.verification}` : 'No evidence receipt yet')));
 	const capabilities = element('section', 'pulseai-inspector-section', element('div', 'pulseai-inspector-title', element('span', undefined, 'Workbench capabilities'), element('strong', undefined, `${model.capabilitySummary.available}/${model.capabilitySummary.total}`)),
 		element('div', 'pulseai-evidence-row', icon('plug'), element('span', undefined, `${model.capabilitySummary.available} available · ${model.capabilitySummary.blocked} blocked`)));
-	const usage = element('section', 'pulseai-inspector-section pulseai-usage', element('div', 'pulseai-inspector-title', element('span', undefined, 'Usage'), element('strong', undefined, model.telemetry.cost === undefined ? '—' : `$${model.telemetry.cost.toFixed(4)}`)),
+	const usage = element('section', 'pulseai-inspector-section pulseai-usage', element('div', 'pulseai-inspector-title', element('span', undefined, 'Usage'), element('strong', undefined, model.telemetry.cost === undefined ? '\u2014' : `$${model.telemetry.cost.toFixed(4)}`)),
 		element('div', 'pulseai-usage-grid', element('span', undefined, 'Input'), element('strong', undefined, String(model.telemetry.input ?? 0)), element('span', undefined, 'Cache'), element('strong', undefined, String(model.telemetry.cache ?? 0)), element('span', undefined, 'Output'), element('strong', undefined, String(model.telemetry.output ?? 0))));
 	pane.append(plan, evidence, capabilities, usage);
 	return pane;

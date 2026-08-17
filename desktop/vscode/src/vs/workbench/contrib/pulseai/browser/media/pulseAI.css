@@ -30,7 +30,7 @@
 
 .pulseai-agent-shell {
 	display: grid;
-	grid-template-rows: 34px auto minmax(0, 1fr) auto auto;
+	grid-template-rows: 34px minmax(0, 1fr) auto auto;
 	height: 100%;
 	background: var(--vscode-sideBar-background);
 }

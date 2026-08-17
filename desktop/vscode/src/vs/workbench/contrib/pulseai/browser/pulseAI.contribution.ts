@@ -58,7 +58,7 @@ const container = Registry.as<IViewContainersRegistry>(
 	]),
 	storageId: PULSE_AI_VIEW_CONTAINER_ID,
 	order: 6,
-}, ViewContainerLocation.Sidebar);
+}, ViewContainerLocation.AuxiliaryBar);
 
 Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews([{
 	id: PULSE_AI_VIEW_ID,

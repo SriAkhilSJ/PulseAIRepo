@@ -197,7 +197,7 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 			? model.getValueInRange(selection).slice(0, 20_000)
 			: undefined;
 		const visibleText = includeVisibleText
-			? editor.getVisibleRanges().map(item => model.getValueInRange(item)).join('\n…\n').slice(0, 32_000)
+			? editor.getVisibleRanges().map(item => model.getValueInRange(item)).join('\n...\n').slice(0, 32_000)
 			: undefined;
 
 		return {
