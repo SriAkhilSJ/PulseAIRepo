@@ -1,4 +1,10 @@
-"""Headless Scope/Pulse IDE bridge with real agent streaming and turn control."""
+"""Headless Scope/Pulse IDE bridge with real agent streaming and turn control.
+
+Workspace contract (P0): a session is only ever bound to a real project folder.
+The renderer disables prompt submission without one, and the bridge enforces
+the same rule so no client can silently run against ".", the engine root, or
+the bundled app dir. The desktop MUST pass the user's opened workspace.
+"""
 from __future__ import annotations
 
 import os
@@ -14,6 +20,26 @@ from src.bridge.protocol import (
 from src.runtime.identity import TurnIdentity, normalize_id
 
 ENGINE_VERSION = "0.2.0-runtime"
+
+# A session is only ever bound to a real project folder. The renderer disables
+# prompt submission without one; the bridge enforces the same contract so no
+# client can silently run against ".", the engine root, or the bundled app dir.
+_WORKSPACE_REQUIRED_METHODS = frozenset({
+    "session_create", "session_load", "session_resume", "session_fork", "prompt",
+})
+NO_WORKSPACE_ERROR = (
+    "workspace required: open a project folder before starting a Pulse session"
+)
+
+
+class WorkspaceSwitchError(Exception):
+    """A session already bound to one workspace must never silently move."""
+
+    def __init__(self, sid: str, bound: str, requested: str) -> None:
+        super().__init__(
+            f"session {sid} is bound to workspace {bound!r}; "
+            f"cannot switch to workspace {requested!r}"
+        )
 
 
 class BridgeServer:
@@ -41,9 +67,21 @@ class BridgeServer:
             self._protocol_out.write(encode(frame))
             self._protocol_out.flush()
 
-    def _session(self, requested: str | None, workspace: str = ".") -> str:
+    def _session(self, requested: str | None, workspace: str = "") -> str:
+        """Resolve a session id, binding the FIRST workspace only.
+
+        An existing session keeps its bound workspace: a follow-up frame that
+        carries a DIFFERENT workspace raises WorkspaceSwitchError instead of
+        silently re-homing the session. Frames without a workspace (cancel,
+        steer, events_replay, ...) never trip this because they do not bind.
+        """
         sid = normalize_id(requested, prefix="session")
-        self._sessions.setdefault(sid, {"session_id": sid, "workspace": workspace})
+        existing = self._sessions.get(sid)
+        if existing is not None:
+            if workspace and existing["workspace"] != workspace:
+                raise WorkspaceSwitchError(sid, existing["workspace"], workspace)
+            return sid
+        self._sessions[sid] = {"session_id": sid, "workspace": workspace}
         return sid
 
     @staticmethod
@@ -264,8 +302,16 @@ class BridgeServer:
             self._shutdown.set()
             return False
 
-        workspace = str(frame.get("workspace") or ".")
-        sid = self._session(frame.get("session_id") or frame.get("thread_id"), workspace)
+        raw_workspace = frame.get("workspace")
+        workspace = str(raw_workspace).strip() if raw_workspace else ""
+        if not workspace and kind in _WORKSPACE_REQUIRED_METHODS:
+            self.emit(error_frame(NO_WORKSPACE_ERROR))
+            return True
+        try:
+            sid = self._session(frame.get("session_id") or frame.get("thread_id"), workspace)
+        except WorkspaceSwitchError as exc:
+            self.emit(error_frame(str(exc)))
+            return True
         if kind == "session_create":
             self.emit({"type": "session_info", **self._sessions[sid]})
         elif kind in {"session_load", "session_resume"}:
@@ -313,7 +359,7 @@ class BridgeServer:
                     from src.dashboard.event_bus import event_bus  # noqa: F401
                     from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
-                    target=self._run_turn, args=(sid, text, workspace),
+                    target=self._run_turn, args=(sid, text, self._sessions[sid]["workspace"]),
                     name=f"bridge-turn-{sid}", daemon=True,
                 )
                 self._workers[sid] = worker

@@ -29,12 +29,13 @@ def bridge():
     proc.kill()
 
 
-def test_session_create_list_and_resume(bridge):
-    created = send(bridge, {"type": "session_create", "session_id": "s1", "workspace": "."})
+def test_session_create_list_and_resume(bridge, tmp_path):
+    ws = str(tmp_path)
+    created = send(bridge, {"type": "session_create", "session_id": "s1", "workspace": ws})
     assert created["type"] == "session_info" and created["session_id"] == "s1"
     listed = send(bridge, {"type": "session_list", "session_id": "s1"})
     assert any(s["session_id"] == "s1" for s in listed["sessions"])
-    resumed = send(bridge, {"type": "session_resume", "session_id": "s1"})
+    resumed = send(bridge, {"type": "session_resume", "session_id": "s1", "workspace": ws})
     assert resumed["resumed"] is True and "events" in resumed
 
 

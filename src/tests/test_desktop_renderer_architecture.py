@@ -47,7 +47,7 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "rememberEvent" in service
     assert "cancelRequested" in service
     assert "frame.cancel_requested" in service
-    assert "Stopping…" in renderer
+    assert "Stopping." in renderer
     assert "Run cancelled" in renderer
     assert "frame.completed ? 'completed' : 'cancelled'" in service
     assert "scheduleRestart" in service
@@ -73,6 +73,15 @@ def test_native_and_lab_catalogs_cover_the_same_34_tools():
     lab = _catalog_names((UI / "runtime" / "toolCatalog.ts").read_text(encoding="utf-8"))
     assert len(native) == 34
     assert native == lab
+
+
+def test_renderer_gates_sessions_on_an_open_project_folder():
+    service = _text("browser", "pulseAIRendererService.ts")
+    assert "Open a folder to start a Pulse session." in service
+    assert "if (!workspace) {" in service
+    assert "session_create', workspace" in service
+    assert "start(workspace).then" in service
+    assert "Open a workspace or configure pulseai.engineRoot" not in service
 
 
 def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
