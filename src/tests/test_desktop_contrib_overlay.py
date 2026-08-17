@@ -62,7 +62,7 @@ def test_pulse_menu_and_view_commands_are_declared():
         "StopActiveRun", "OpenSettings",
     ):
         assert f"PulseAICommandId.{command}" in text
-    assert "ViewContainerLocation.Sidebar" in text
+    assert "ViewContainerLocation.AuxiliaryBar" in text
     assert "new SyncDescriptor(PulseAIViewPane)" in text
     assert "registerEditorPane" in text
     assert "PulseAIManagerEditor" in text
