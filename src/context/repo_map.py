@@ -98,7 +98,7 @@ class RepoMap:
         budget:     P1 shared initial-context deadline; the walk and reads
                     stop when it expires and a degraded receipt is emitted.
         """
-        if self._cache is None or self._is_stale():
+        if self._cache is None or self._is_stale(budget):
             self.refresh(budget)
 
         if self._cache is None:
@@ -117,18 +117,27 @@ class RepoMap:
         budget = budget or ContextBudget()
         self._last_budget = budget
         self._cache = self._build_map(budget)
-        self._cache_mtime = self._get_latest_mtime()
+        self._cache_mtime = self._get_latest_mtime(budget)
         self._last_stale_check = time.time()  # the build was itself a walk
         self._emit_degraded_scan(budget)
         return self._cache
 
     def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
         """Surface a truncated repo-map walk as a structured runtime.degraded
-        receipt (real counts, emitted ONCE per shared budget)."""
+        receipt (real counts, emitted ONCE per shared budget). A walker that
+        consumed NOTHING (the shared deadline expired before its scan ran) is
+        not "degraded work" — the walkers that DID scan already carry the
+        receipt, so zero-count emissions are suppressed."""
         report = getattr(self, "_last_scan_report", None)
         if report is None or not report.truncated:
             return
         budget = budget or self._last_budget or ContextBudget()
+        # A walker that consumed NOTHING (the shared deadline expired before
+        # its scan ran) is not "degraded work" — the walkers that DID scan
+        # already carry the receipt. A user CANCEL is a real signal even with
+        # zero consumption, so cancelled receipts always fire.
+        if report.files == 0 and not budget.cancelled:
+            return
         budget.emit_degraded({
             "thread_id": self.thread_id_hint or "unknown",
             "component": "repo_map",
@@ -277,6 +286,9 @@ class RepoMap:
             elif not ext and size < 50_000:
                 files.append(full_path)
 
+        # P1-fix: fold this walker's scan consumption into the shared pool.
+        if budget is not None:
+            budget.absorb(report)
         return files
 
     def _describe_file(self, full_path: Path, rel_path: Path, budget: ContextBudget | None = None) -> str:
@@ -646,30 +658,42 @@ class RepoMap:
     # CACHE HELPERS
     # =========================================================
 
-    def _get_latest_mtime(self) -> float:
-        """Find the most recent modification time in the project."""
+    def _get_latest_mtime(self, budget: ContextBudget | None = None) -> float:
+        """Find the most recent modification time in the project.
+
+        P1-fix: the stale check is itself a walk, so it must honor the same
+        budget — otherwise a huge workspace gets an unbounded full-tree walk
+        just to answer "is the map stale?". The scan is bounded (files /
+        bytes / elapsed / symlink / skip rules), so a giant repo degrades to
+        "maybe stale" (force a rebuild) instead of a synchronous scan of
+        everything.
+        """
         latest = 0.0
-
-        for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [
-                dirname for dirname in dirnames
-                if dirname not in IGNORED_DIRS and not dirname.startswith(".")
-            ]
-
-            for filename in filenames:
-                if filename.startswith("."):
-                    continue
-
-                try:
-                    mtime = (Path(dirpath) / filename).stat().st_mtime
-                    if mtime > latest:
-                        latest = mtime
-                except Exception:
-                    pass
-
+        budget = budget or ContextBudget()
+        iterator, report = scan_files(
+            self.root,
+            limits=budget.to_limits(),
+            skip_dirs=IGNORED_DIRS,
+            should_stop=budget.should_stop,
+        )
+        for path in iterator:
+            if budget.expired:
+                break
+            try:
+                mtime = path.stat().st_mtime
+                if mtime > latest:
+                    latest = mtime
+            except OSError:
+                continue
+        if budget is not None:
+            budget.absorb(report)
+        # A bounded walk may not have seen the newest file; treating the tree
+        # as stale forces one rebuild — correct, never stale-serving forever.
+        if report.truncated:
+            latest = float("inf")
         return latest
 
-    def _is_stale(self) -> bool:
+    def _is_stale(self, budget: ContextBudget | None = None) -> bool:
         """Check if any file has been modified since cache was built.
 
         D25: the full-tree walk runs at most once per TTL window
@@ -683,7 +707,7 @@ class RepoMap:
         if ttl > 0 and (now - self._last_stale_check) < ttl:
             return False
         self._last_stale_check = now
-        current_mtime = self._get_latest_mtime()
+        current_mtime = self._get_latest_mtime(budget)
         return current_mtime > self._cache_mtime
 
 

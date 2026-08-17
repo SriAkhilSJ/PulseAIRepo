@@ -2578,7 +2578,12 @@ def stream_agent(
     initial_plan: list[dict[str, Any]] | None = None,
 ) -> str:
     from src.context.convention_learner import ConventionLearner
-    ConventionLearner().scan_workspace(workspace)
+    # P1-fix: warm the conventions cache WITHOUT re-scanning every turn.
+    # scan_workspace() rebuilds unconditionally; get_conventions_text()
+    # scans only when the disk state is empty or the workspace changed
+    # (the engine's convention layer reuses the same disk state, so one
+    # bounded scan per workspace-change serves both).
+    ConventionLearner().get_conventions_text(workspace)
     from src.runtime.turn_control import turn_controls
     turn_controls.begin(thread_id)
     

@@ -573,12 +573,22 @@ class ContextEngine:
         model call. build_ai_messages holds _api_lock, so the instance slot
         is safe for the duration of the build.
         """
-        self._active_budget = ContextBudget()
-        # P1: a user cancel (turn_controls) must stop the whole pipeline —
-        # traversal, reads, chunking, indexing — not just the budget limits.
+        # P1-fix: ONE shared pool, FAIRLY sliced among the file-walking
+        # layers this build will actually run (repo_map, relevant_chunks,
+        # conventions). Each walker gets its own slice of ~cap // n_walkers
+        # via share(n) — never a fresh full 1,000-file/16 MiB allowance — so
+        # the pipeline totals respect the caps and no single walker can
+        # consume the whole pool and starve the others. All slices share the
+        # same deadline and cancellation hook.
+        walkers = [
+            name for name in ("repo_map", "relevant_chunks", "conventions")
+            if self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
+        ]
+        self._active_pool = ContextBudget()
         if self.thread_id:
             from src.runtime.turn_control import turn_controls
-            self._active_budget.extra_stop = lambda: turn_controls.cancelled(self.thread_id)
+            self._active_pool.extra_stop = lambda: turn_controls.cancelled(self.thread_id)
+        self._active_budget = None
         # P1: route degraded-scan receipts to THIS session. Graph state does
         # not carry thread_id (it lives in config), so the engine's own id
         # (set by get_context_engine) is the authoritative fallback.
@@ -586,13 +596,18 @@ class ContextEngine:
             self.thread_id or str(state.get("thread_id") or "") or None
         )
         try:
-            return self._build_context_layers_inner(state, task_type)
+            return self._build_context_layers_inner(state, task_type, walkers)
         finally:
             self._active_budget = None
+            self._active_pool = None
             self._active_thread_id = None
 
-    def _build_context_layers_inner(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
+    def _build_context_layers_inner(
+        self, state: dict[str, Any], task_type: TaskType, walkers: list[str] | None = None
+    ) -> list[SystemMessage]:
         """See _build_context_layers — split so the shared budget can wrap it."""
+        walkers = walkers or []
+        n_walkers = max(1, len(walkers))
         layers = []
         builders = {
             "repo_map": self._repo_map_layer,
@@ -639,6 +654,15 @@ class ContextEngine:
             if cached and self._last_state_hash == current_hash:
                 layers.append(cached)
                 continue
+
+            # P1-fix: each file-walking layer gets its OWN slice of the shared
+            # pool (cap // n_walkers), so three walkers cannot each consume a
+            # fresh full allowance. Non-walking layers share the pool but
+            # never scan, so they never touch it.
+            if name in walkers:
+                self._active_budget = self._active_pool.share(n_walkers)
+            else:
+                self._active_budget = None
 
             try:
                 msg = builder(state)

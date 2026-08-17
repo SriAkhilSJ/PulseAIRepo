@@ -142,7 +142,7 @@ class ContextBudget:
     max_bytes: int = 16 * 1024 * 1024
     max_file_bytes: int = 1024 * 1024
     cancelled: bool = False
-    read_files: int = 0         # files actually read downstream
+    read_files: int = 0         # PHYSICAL read operations downstream
     read_bytes: int = 0         # bytes actually read downstream
     # Optional live stop hook (P1): consulted on every should_stop() so a
     # user cancel (turn_controls) halts the whole pipeline — traversal, reads,
@@ -152,6 +152,13 @@ class ContextBudget:
     def __post_init__(self) -> None:
         self._start = time.perf_counter()
         self._degraded_emitted = False
+        # P1-fix: ONE shared pool. max_files/max_bytes are the PIPELINE caps;
+        # consumed_* accumulate what the walkers have already taken, so
+        # to_limits() hands each consumer only the REMAINING allowance. Three
+        # walkers can no longer each consume a fresh 1,000-file/16 MiB slice.
+        self.consumed_files: int = 0
+        self.consumed_bytes: int = 0
+        self.considered_files: int = 0
 
     @property
     def elapsed(self) -> float:
@@ -180,16 +187,50 @@ class ContextBudget:
         return False
 
     def record_read(self, size: int) -> None:
+        """Count ONE physical read of ``size`` bytes.
+
+        Every content-bearing read in the pipeline must call this exactly
+        once, so ``read_files``/``read_bytes`` are true physical-read totals
+        (a file read by two consumers counts twice; a stat-only walk counts
+        zero).
+        """
         self.read_files += 1
         self.read_bytes += max(0, int(size))
 
+    def absorb(self, report: "ScanReport") -> None:
+        """Fold ONE bounded scan's consumption into the shared pool so the
+        next walker sees only the remaining allowance."""
+        self.consumed_files += report.files
+        self.consumed_bytes += report.bytes
+        self.considered_files += report.considered
+
     def to_limits(self) -> ScanLimits:
         return ScanLimits(
-            max_files=self.max_files,
-            max_bytes=self.max_bytes,
+            max_files=max(0, self.max_files - self.consumed_files),
+            max_bytes=max(0, self.max_bytes - self.consumed_bytes),
             max_file_bytes=self.max_file_bytes,
             max_elapsed=self.max_elapsed,
         )
+
+    def share(self, n: int) -> "ContextBudget":
+        """Carve ONE of ``n`` equal slices of this pool for a single walker.
+
+        Every slice shares the same deadline (``_start``), cancellation hook,
+        and session routing, but owns its own file/byte allowance — so three
+        walkers get ~cap/3 each (pipeline total <= cap) instead of three
+        fresh full caps. Receipts emitted per walker therefore show that
+        walker's OWN physical reads, not a cross-walker accumulation.
+        """
+        slice_budget = ContextBudget(
+            max_elapsed=self.max_elapsed,
+            max_files=max(1, self.max_files // n),
+            max_bytes=max(1, self.max_bytes // n),
+            max_file_bytes=self.max_file_bytes,
+            cancelled=self.cancelled,
+        )
+        slice_budget._start = self._start
+        slice_budget.extra_stop = self.extra_stop
+        return slice_budget
 
     def emit_degraded(self, payload: dict) -> bool:
         """Emit the structured ``runtime.degraded`` receipt ONCE per build."""

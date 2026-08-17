@@ -112,11 +112,18 @@ class ConventionLearner:
 
     def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
         """Surface a truncated convention scan as a structured runtime.degraded
-        receipt (real counts, emitted ONCE per shared budget)."""
+        receipt (real counts, emitted ONCE per shared budget). A scan that
+        consumed NOTHING (its allowance was already exhausted) is not
+        "degraded work", so zero-count emissions are suppressed."""
         report = getattr(self, "_py_report", None)
         if report is None or not report.truncated:
             return
         budget = budget or self._last_budget or ContextBudget()
+        # A scan that consumed NOTHING (its allowance was already exhausted)
+        # is not "degraded work", so zero-count emissions are suppressed —
+        # except for a user CANCEL, which is a real signal even then.
+        if report.files == 0 and not budget.cancelled:
+            return
         budget.emit_degraded({
             "thread_id": self.thread_id_hint or "unknown",
             "component": "convention_learner",
@@ -208,6 +215,10 @@ class ConventionLearner:
             )
             self._py_cache = (str(root.resolve()), list(iterator))
             self._py_report = report
+            # P1-fix: fold this scan's consumption into the shared pool so
+            # the engine's other walkers (and this learner's later scans)
+            # see only the remaining allowance.
+            budget.absorb(report)
         return self._py_cache[1][:limit]
 
     def _detect_test_framework(self, root: Path) -> str:
@@ -395,7 +406,14 @@ class ConventionLearner:
             should_stop=budget.should_stop,
         )
         count = sum(1 for _ in it)
-        self._py_report = report
+        # P1-fix: fold this scan into the shared pool (see _sample_py). The
+        # degraded receipt reports the PRIMARY .py sample scan (set by
+        # _sample_py first); later counting scans must not overwrite it — an
+        # allowance-exhausted count scan is empty and would hide the real
+        # truncated work.
+        if exts == {".py"} and self._py_report is None:
+            self._py_report = report
+        budget.absorb(report)
         return count
 
     def _detect_language(self, root: Path) -> str:

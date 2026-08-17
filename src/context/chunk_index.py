@@ -510,7 +510,7 @@ class ChunkIndex:
             try:
                 chunks = extract_source_chunks(fpath, self.workspace)
                 rel = str(fpath.relative_to(self.workspace))
-                edges = self._edges_for(fpath, rel)
+                edges = self._edges_for(fpath, rel, budget)
                 if chunks or edges:
                     with self._write_lock:
                         if chunks:
@@ -718,7 +718,7 @@ class ChunkIndex:
             budget.record_read(size)
         rel = str(file_path.relative_to(self.workspace))
         chunks = extract_source_chunks(file_path, self.workspace)
-        edges = self._edges_for(file_path, rel)
+        edges = self._edges_for(file_path, rel, budget)
         vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
         with self._write_lock:
             with self.conn:  # single transaction for all five stores
@@ -737,7 +737,9 @@ class ChunkIndex:
                         (rel, target),
                     )
 
-    def _edges_for(self, file_path: Path, rel: str) -> set[str]:
+    def _edges_for(
+        self, file_path: Path, rel: str, budget: ContextBudget | None = None
+    ) -> set[str]:
         """Resolved in-repo import targets of one source file (D15):
         Python via stdlib-ast resolver; JS/TS, Go, Rust, Java via the
         lang_extractors resolvers (§41). Empty set for unsupported or
@@ -757,6 +759,11 @@ class ChunkIndex:
             return set()
         try:
             source = file_path.read_text(encoding="utf-8", errors="ignore")
+            # P1-fix: this is a PHYSICAL read of the file (the second one in
+            # the sync path after chunk extraction) — it counts toward the
+            # receipt's files_read/bytes_read exactly like every other read.
+            if budget is not None:
+                budget.record_read(len(source.encode("utf-8", errors="ignore")))
         except OSError:
             return set()
         try:
@@ -811,6 +818,11 @@ class ChunkIndex:
             }
             for ghost in indexed - on_disk:
                 changed += self.remove_file(self.workspace / ghost)
+            # P1-fix: fold this walker's consumption back into the shared
+            # pool so its other scans (and other walkers) see only remaining.
+            report = getattr(self, "_last_scan_report", None)
+            if report is not None:
+                budget.absorb(report)
             self._emit_degraded_scan(budget)
             return changed
 
@@ -845,11 +857,20 @@ class ChunkIndex:
 
     def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
         """Surface a truncated index walk as a structured runtime.degraded
-        receipt (real counts, emitted ONCE per shared budget)."""
+        receipt (real counts, emitted ONCE per shared budget). A walker that
+        consumed NOTHING (the shared deadline expired before its scan ran) is
+        not "degraded work" — the walkers that DID scan already carry the
+        receipt, so zero-count emissions are suppressed."""
         report = getattr(self, "_last_scan_report", None)
         if report is None or not report.truncated:
             return
         budget = budget or self._last_budget or ContextBudget()
+        # A walker that consumed NOTHING (the shared deadline expired before
+        # its scan ran) is not "degraded work" — the walkers that DID scan
+        # already carry the receipt. A user CANCEL is a real signal even with
+        # zero consumption, so cancelled receipts always fire.
+        if report.files == 0 and not budget.cancelled:
+            return
         budget.emit_degraded({
             "thread_id": getattr(self, "thread_id_hint", None) or "unknown",
             "component": "chunk_index",
@@ -887,7 +908,13 @@ class ChunkIndex:
         if budget is not None and (budget.expired or budget.remaining < EMBED_MIN_REMAINING_S):
             embeddings: list[list[float] | None] = [None] * len(chunks)
         else:
-            embeddings = self._embed_batch([c["content"] for c in chunks])
+            # P1-fix: pass the shared deadline INTO the embed call. A
+            # pre-call clock check does not bound a slow/hung embedder; the
+            # batch itself is now abandoned when it cannot finish within
+            # ``budget.remaining`` (returns None => text still lands).
+            embeddings = self._embed_batch([c["content"] for c in chunks], budget)
+            if embeddings is None:
+                embeddings = [None] * len(chunks)
         vec_table_insert = (
             "INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, vec_f32(?))"
             if self.uses_vec else
@@ -915,18 +942,52 @@ class ChunkIndex:
                 (chunk["content"], chunk["file_path"], chunk["symbol_name"], chunk["id"]),
             )
 
-    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """One encode call per file (not per chunk) — batching is ~10x faster."""
+    def _embed_batch(
+        self, texts: list[str], budget: ContextBudget | None = None
+    ) -> list[list[float]] | None:
+        """One encode call per file (not per chunk) — batching is ~10x faster.
+
+        ``budget`` (P1-fix): when a shared deadline is active, the encode
+        runs on a daemon worker and is abandoned (returns ``None`` — caller
+        defers vectors, text still lands) if it cannot finish within
+        ``budget.remaining``. A pre-call clock check alone does NOT bound a
+        slow/hung embedder; this bounds the CALL itself, so the synchronous
+        initial-turn path provably returns partial/degraded context within
+        the configured deadline. With no deadline (watcher/background index)
+        the legacy unbounded synchronous path is kept.
+        """
         if not self._embedder:
             return [[0.0] * EMBED_DIM for _ in texts]
-        try:
+        from src.context.embedding_cache import get_embedding_cache
+
+        def _encode() -> list[list[float]]:
             # D2+D5 synergy: re-syncing an edited file re-embeds ALL its
             # chunks, but only the edited ones have new content — the
             # content-addressed cache returns the rest for free.
-            from src.context.embedding_cache import get_embedding_cache
-            return get_embedding_cache().encode(self._embedder, texts)
-        except Exception:
-            return [[0.0] * EMBED_DIM for _ in texts]
+            try:
+                return get_embedding_cache().encode(self._embedder, texts)
+            except Exception:
+                return [[0.0] * EMBED_DIM for _ in texts]
+
+        if budget is None or budget.max_elapsed <= 0:
+            return _encode()
+        remaining = budget.remaining
+        if budget.expired or remaining < EMBED_MIN_REMAINING_S:
+            return None
+        # Deadline path: daemon worker + join(timeout=remaining). On timeout
+        # the worker is ABANDONED (daemon => never blocks process exit) and
+        # vectors are deferred; a later sync backfills them via the cache.
+        holder: dict[str, list[list[float]]] = {}
+        worker = threading.Thread(
+            target=lambda: holder.update(vecs=_encode()),
+            daemon=True,
+            name="chunk-embed-deadline",
+        )
+        worker.start()
+        worker.join(timeout=remaining)
+        if worker.is_alive():
+            return None  # embedder stuck past the shared deadline -> defer
+        return holder.get("vecs")
 
     # ------------------------------------------------------------------
     # RETRIEVAL

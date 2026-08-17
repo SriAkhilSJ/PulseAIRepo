@@ -73,9 +73,9 @@ def test_d25_second_get_map_within_ttl_skips_the_walk(tmp_path, monkeypatch):
 
     calls = {"n": 0}
     orig = RepoMap._get_latest_mtime
-    def counting(self):
+    def counting(self, budget=None):
         calls["n"] += 1
-        return orig(self)
+        return orig(self, budget)
     monkeypatch.setattr(RepoMap, "_get_latest_mtime", counting)
 
     rm.get_map()
@@ -91,9 +91,9 @@ def test_d25_ttl_zero_restores_legacy_always_walk(tmp_path, monkeypatch):
 
     calls = {"n": 0}
     orig = RepoMap._get_latest_mtime
-    def counting(self):
+    def counting(self, budget=None):
         calls["n"] += 1
-        return orig(self)
+        return orig(self, budget)
     monkeypatch.setattr(RepoMap, "_get_latest_mtime", counting)
 
     rm.get_map()

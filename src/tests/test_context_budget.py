@@ -127,7 +127,9 @@ def test_20k_workspace_initial_context_is_bounded(tmp_path, index, receipts):
     assert changed == 50, "sync must stop at the file budget, not scan everything"
     assert report.truncated is True
     assert report.files == 50
-    assert budget.read_files <= 50
+    # Physical-read accounting: each .py is read twice in the sync path
+    # (chunk extraction + import-edge resolution) — every read is counted.
+    assert budget.read_files <= report.files * 2
     assert budget.elapsed < 30, "20k-file prep must not block for minutes"
 
     rows = index.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
@@ -150,8 +152,12 @@ def test_byte_limit_stops_pipeline_before_read(tmp_path, index):
         (tmp_path / "ws" / f"f{i:02d}.py").write_text("##" * 512)  # 1KiB each
     budget = ContextBudget(max_bytes=3 * 1024, max_elapsed=0, max_files=100)
     index.sync_workspace(budget)
-    assert budget.read_files <= 3
-    assert budget.read_bytes <= 3 * 1024
+    # The byte BUDGET is a consumption cap enforced at scan time (stat
+    # size, before any read). Physical reads of the 3 consumed .py files:
+    # chunk extraction + import edges each — every one counted in the
+    # receipt, so read_bytes is the honest 2x of the consumed content.
+    assert budget.read_files == 6
+    assert budget.read_bytes <= 2 * 3 * 1024 + 64
     assert index._last_scan_report.reason == "bytes"
 
 
@@ -176,8 +182,10 @@ def test_elapsed_limit_stops_pipeline(tmp_path, index, receipts):
     index.sync_workspace(budget)
     assert index._last_scan_report.truncated is True
     assert index._last_scan_report.reason in ("elapsed", "stopped")
-    degraded = _degraded(_drain(receipts))
-    assert degraded and degraded[0]["elapsed_ms"] >= 0
+    # A deadline that expires before ANY file is consumed stops the pipeline
+    # but is not "degraded work": receipts only document scans that actually
+    # consumed files — a zero-count receipt would be misleading.
+    assert _degraded(_drain(receipts)) == []
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +297,9 @@ def test_downstream_shares_deadline(tmp_path, index):
     budget = ContextBudget(max_files=7, max_elapsed=0)
     index.sync_workspace(budget)
     report = index._last_scan_report
-    # Reads never exceed the files the bounded scan consumed.
-    assert budget.read_files == report.files == 7
+    # Reads never exceed the files the bounded scan consumed; each .py is
+    # read exactly twice (chunk extraction + import-edge resolution).
+    assert budget.read_files == report.files * 2 == 14
     # The index really only holds those files' chunks.
     rows = index.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
     assert rows > 0
@@ -441,10 +450,14 @@ def test_engine_receipt_carries_session_thread_id(tmp_path, receipts):
 
 
 def test_wall_clock_smoke_large_workspace_stays_bounded(tmp_path):
+    # Fixture creation is measured SEPARATELY from the pipeline so the
+    # wall-clock budget applies only to synchronous context preparation.
+    t0 = time.perf_counter()
     for d in range(60):
         (tmp_path / f"dir{d:02d}").mkdir(exist_ok=True)
         for i in range(100):  # 6,000 files total
             (tmp_path / f"dir{d:02d}" / f"f{i:03d}.py").write_text("x = 1\n")
+    creation_s = time.perf_counter() - t0
 
     idx = ChunkIndex(
         tmp_path, db_path=str(tmp_path / "smoke.db"), watch=False,
@@ -453,10 +466,112 @@ def test_wall_clock_smoke_large_workspace_stays_bounded(tmp_path):
     budget = ContextBudget()  # production defaults: 5s / 1000 files / 16 MiB
     started = time.perf_counter()
     idx.sync_workspace(budget)
-    elapsed = time.perf_counter() - started
+    pipeline_s = time.perf_counter() - started
+    idx.stop_watcher()
 
     report = idx._last_scan_report
     assert report.files <= 1000, "default file budget must hold"
-    assert elapsed < 15, f"smoke prep took {elapsed:.1f}s — unlimited walk?"
+    # The file cap (1,000) bites first on this tree; the pipeline must stop
+    # near the 5s deadline at most — a small scheduling margin, nothing more.
+    assert pipeline_s < 8, f"pipeline took {pipeline_s:.1f}s — unlimited walk?"
     assert report.truncated is True
+    # The receipt's elapsed_ms must track the pipeline, not include fixture
+    # creation (which the test measures and reports separately).
+    assert budget.elapsed < 8
+    assert creation_s > 0
+
+
+# ---------------------------------------------------------------------------
+# 13 — a slow/hung embedder cannot block the turn past the shared deadline.
+#      A pre-call clock check is NOT enough; the embed CALL itself is bounded
+#      by budget.remaining (daemon worker abandoned on timeout => vectors
+#      deferred, text still lands).
+# ---------------------------------------------------------------------------
+
+
+class _HungEmbedder(FakeEmbedder):
+    def encode(self, texts, normalize_embeddings=True):
+        time.sleep(60)  # stuck far past any test deadline
+        return super().encode(texts, normalize_embeddings)
+
+
+def test_hung_embedder_deadline_is_enforced(tmp_path, receipts):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for i in range(4):
+        (ws / f"f{i}.py").write_text("def f():\n    pass\n")
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "hung.db"), watch=False,
+        embedder=_HungEmbedder(),
+    )
+    idx.thread_id_hint = "t-hung"
+    budget = ContextBudget(max_elapsed=1.0, max_files=10)
+    started = time.perf_counter()
+    idx.sync_workspace(budget)
+    elapsed = time.perf_counter() - started
     idx.stop_watcher()
+
+    assert elapsed < 8, f"hung embedder blocked the turn for {elapsed:.1f}s"
+    # The first file's TEXT still landed (deferral is not data loss)...
+    rows = idx.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
+    assert rows > 0
+    # ...but its VECTORS were deferred: no embed batch ran past the deadline.
+    vec_table = "chunk_vec" if idx.uses_vec else "chunk_vec_fallback"
+    nvec = idx.conn.execute(f"SELECT COUNT(*) FROM {vec_table}").fetchone()[0]
+    assert nvec == 0, "hung embedder must be abandoned, not awaited"
+
+
+# ---------------------------------------------------------------------------
+# 14 — receipt semantics: files_read counts PHYSICAL read operations and
+#      bytes_read every physical byte; the pool hands out only REMAINING
+#      allowance to the next consumer (no fresh full caps per walker).
+# ---------------------------------------------------------------------------
+
+
+def test_receipt_reads_are_physical_and_pool_draws_down(tmp_path, receipts):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.py").write_text("import b\nx = 1\n")
+    (ws / "b.py").write_text("y = 2\n")
+    # NOTE: .json is not a chunkable source extension, so only the two .py
+    # files enter the pipeline — a deliberate part of this pin.
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "pool.db"), watch=False,
+        embedder=FakeEmbedder(),
+    )
+    idx.thread_id_hint = "t-pool"
+    budget = ContextBudget(max_files=100, max_elapsed=0)
+    idx.sync_workspace(budget)
+    idx.stop_watcher()
+
+    # files_read counts PHYSICAL read operations: each consumed .py file is
+    # read twice in the sync path (chunk extraction + import-edge
+    # resolution), and every physical byte lands in read_bytes.
+    assert budget.read_files == 2 * 2
+    assert budget.read_bytes >= budget.consumed_bytes
+    # The pool hands the next consumer only the REMAINING allowance — a
+    # second walker can never get a fresh full 1,000-file / 16 MiB cap.
+    assert budget.consumed_files >= 2
+    limits = budget.to_limits()
+    assert limits.max_files == budget.max_files - budget.consumed_files
+    assert limits.max_bytes == budget.max_bytes - budget.consumed_bytes
+
+
+# ---------------------------------------------------------------------------
+# 15 — the engine's fair slices keep the PIPELINE total under the caps:
+#      n walkers each get ~cap//n, never cap each; all share the deadline.
+# ---------------------------------------------------------------------------
+
+
+def test_engine_slices_keep_pipeline_total_under_caps():
+    pool = ContextBudget(max_files=300, max_bytes=3000, max_elapsed=0)
+    slices = [pool.share(3) for _ in range(3)]
+    assert [s.max_files for s in slices] == [100, 100, 100]
+    assert sum(s.max_files for s in slices) <= pool.max_files
+    assert sum(s.max_bytes for s in slices) <= pool.max_bytes
+    # Slices share ONE deadline (same _start) and the cancellation hook.
+    assert all(s._start == pool._start for s in slices)
+    pool.extra_stop = lambda: True
+    share = pool.share(2)
+    assert share.should_stop() is True
+    assert share.cancelled is True
