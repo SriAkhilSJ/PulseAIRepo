@@ -112,17 +112,20 @@ class ConventionLearner:
 
     def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
         """Surface a truncated convention scan as a structured runtime.degraded
-        receipt (real counts, emitted ONCE per shared budget). A scan that
-        consumed NOTHING (its allowance was already exhausted) is not
-        "degraded work", so zero-count emissions are suppressed."""
+        receipt (real counts, emitted ONCE per shared budget).
+
+        Inside an engine build (``collect_receipts``) the walker only RECORDS
+        its component summary — the engine emits ONE aggregate build receipt
+        afterwards. Standalone the walker emits its own receipt. Zero-value
+        receipts are honest evidence of deadline exhaustion and are NEVER
+        suppressed.
+        """
         report = getattr(self, "_py_report", None)
         if report is None or not report.truncated:
             return
         budget = budget or self._last_budget or ContextBudget()
-        # A scan that consumed NOTHING (its allowance was already exhausted)
-        # is not "degraded work", so zero-count emissions are suppressed —
-        # except for a user CANCEL, which is a real signal even then.
-        if report.files == 0 and not budget.cancelled:
+        if getattr(budget, "collect_receipts", False):
+            budget.record_component("convention_learner", report)
             return
         budget.emit_degraded({
             "thread_id": self.thread_id_hint or "unknown",
@@ -140,6 +143,38 @@ class ConventionLearner:
             "skipped_binary": report.skipped_binary,
             "cancelled": budget.cancelled,
         })
+
+    def _read_sample(self, f: Path) -> str | None:
+        """Read one convention-sample file through the shared physical-read
+        ledger. Returns None (declined) when the global allowance is
+        exhausted, so convention sampling can never read past the cap."""
+        budget = getattr(self, "_active_budget", None)
+        try:
+            size = f.stat().st_size
+        except OSError:
+            return None
+        if budget is not None and not budget.reserve_read(size):
+            return None
+        try:
+            return f.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return None
+
+    def _read_config(self, path: Path) -> str | None:
+        """Read a small config file (pyproject.toml, requirements.txt, ...)
+        through the shared physical-read ledger, exactly like sample reads.
+        Returns None when declined or unreadable."""
+        budget = getattr(self, "_active_budget", None)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return None
+        if budget is not None and not budget.reserve_read(size):
+            return None
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return None
 
     def get_conventions_text(self, workspace: str = ".", budget: ContextBudget | None = None) -> str:
         """
@@ -223,12 +258,9 @@ class ConventionLearner:
 
     def _detect_test_framework(self, root: Path) -> str:
         if (root / "pytest.ini").exists() or (root / "pyproject.toml").exists():
-            try:
-                text = (root / "pyproject.toml").read_text(encoding="utf-8")
-                if "[tool.pytest" in text:
-                    return "pytest"
-            except Exception:
-                pass
+            text = self._read_config(root / "pyproject.toml")
+            if text is not None and "[tool.pytest" in text:
+                return "pytest"
 
         test_files = [
             f for f in self._sample_py(root, 200)
@@ -241,14 +273,13 @@ class ConventionLearner:
         unittest_count = 0
 
         for f in test_files[:20]:
-            try:
-                text = f.read_text(encoding="utf-8")
-                if "import pytest" in text or "def test_" in text:
-                    pytest_count += 1
-                if "import unittest" in text or "class Test" in text:
-                    unittest_count += 1
-            except Exception:
+            text = self._read_sample(f)
+            if text is None:
                 continue
+            if "import pytest" in text or "def test_" in text:
+                pytest_count += 1
+            if "import unittest" in text or "class Test" in text:
+                unittest_count += 1
 
         if pytest_count > unittest_count:
             return "pytest"
@@ -259,14 +290,12 @@ class ConventionLearner:
     def _detect_formatting_tools(self, root: Path) -> dict[str, bool]:
         tools = {"black": False, "ruff": False, "prettier": False, "eslint": False}
         if (root / "pyproject.toml").exists():
-            try:
-                text = (root / "pyproject.toml").read_text(encoding="utf-8")
+            text = self._read_config(root / "pyproject.toml")
+            if text is not None:
                 if "black" in text:
                     tools["black"] = True
                 if "ruff" in text:
                     tools["ruff"] = True
-            except Exception:
-                pass
 
         if (root / ".prettierrc").exists() or (root / ".prettierrc.json").exists():
             tools["prettier"] = True
@@ -281,13 +310,12 @@ class ConventionLearner:
         absolute = 0
         relative = 0
         for f in py_files:
-            try:
-                text = f.read_text(encoding="utf-8")
-                if "from ." in text or "from .." in text:
-                    relative += text.count("from .")
-                absolute += text.count("import ")
-            except Exception:
+            text = self._read_sample(f)
+            if text is None:
                 continue
+            if "from ." in text or "from .." in text:
+                relative += text.count("from .")
+            absolute += text.count("import ")
 
         total = absolute + relative
         if total == 0:
@@ -304,20 +332,19 @@ class ConventionLearner:
         camel = 0
         pascal = 0
         for f in py_files:
-            try:
-                text = f.read_text(encoding="utf-8")
-                # Functions: snake_case vs camelCase
-                funcs = re.findall(r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", text)
-                for name in funcs:
-                    if "_" in name and name.islower():
-                        snake += 1
-                    elif "_" not in name and name[0].islower():
-                        camel += 1
-                # Classes: PascalCase
-                classes = re.findall(r"class\s+([A-Z][a-zA-Z0-9]*)\s*[:\(]", text)
-                pascal += len(classes)
-            except Exception:
+            text = self._read_sample(f)
+            if text is None:
                 continue
+            # Functions: snake_case vs camelCase
+            funcs = re.findall(r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", text)
+            for name in funcs:
+                if "_" in name and name.islower():
+                    snake += 1
+                elif "_" not in name and name[0].islower():
+                    camel += 1
+            # Classes: PascalCase
+            classes = re.findall(r"class\s+([A-Z][a-zA-Z0-9]*)\s*[:\(]", text)
+            pascal += len(classes)
 
         dominant = "mixed"
         if snake > camel and snake > pascal:
@@ -332,16 +359,15 @@ class ConventionLearner:
         numpy = 0
         rest = 0
         for f in py_files:
-            try:
-                text = f.read_text(encoding="utf-8")
-                if 'Args:' in text or 'Returns:' in text:
-                    google += 1
-                if 'Parameters' in text or '----------' in text:
-                    numpy += 1
-                if ':param' in text or ':return:' in text:
-                    rest += 1
-            except Exception:
+            text = self._read_sample(f)
+            if text is None:
                 continue
+            if 'Args:' in text or 'Returns:' in text:
+                google += 1
+            if 'Parameters' in text or '----------' in text:
+                numpy += 1
+            if ':param' in text or ':return:' in text:
+                rest += 1
 
         if google > numpy and google > rest:
             return "Google style"
@@ -356,13 +382,12 @@ class ConventionLearner:
         hint_count = 0
         total_funcs = 0
         for f in py_files:
-            try:
-                text = f.read_text(encoding="utf-8")
-                funcs = re.findall(r"def\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)\s*(->\s*\w+)?\s*:", text)
-                total_funcs += len(funcs)
-                hint_count += sum(1 for m in funcs if m and "->" in m)
-            except Exception:
+            text = self._read_sample(f)
+            if text is None:
                 continue
+            funcs = re.findall(r"def\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)\s*(->\s*\w+)?\s*:", text)
+            total_funcs += len(funcs)
+            hint_count += sum(1 for m in funcs if m and "->" in m)
 
         return hint_count > total_funcs * 0.3 if total_funcs > 0 else False
 
@@ -376,43 +401,42 @@ class ConventionLearner:
         for req in req_files:
             if not req.exists():
                 continue
-            try:
-                text = req.read_text(encoding="utf-8").lower()
-                if "fastapi" in text:
-                    frameworks.append("FastAPI")
-                if "flask" in text:
-                    frameworks.append("Flask")
-                if "django" in text:
-                    frameworks.append("Django")
-                if "sqlalchemy" in text or "alembic" in text:
-                    frameworks.append("SQLAlchemy")
-                if "react" in text:
-                    frameworks.append("React")
-                if "next" in text:
-                    frameworks.append("Next.js")
-                if "express" in text:
-                    frameworks.append("Express")
-            except Exception:
+            text = self._read_config(req)
+            if text is None:
                 continue
+            text = text.lower()
+            if "fastapi" in text:
+                frameworks.append("FastAPI")
+            if "flask" in text:
+                frameworks.append("Flask")
+            if "django" in text:
+                frameworks.append("Django")
+            if "sqlalchemy" in text or "alembic" in text:
+                frameworks.append("SQLAlchemy")
+            if "react" in text:
+                frameworks.append("React")
+            if "next" in text:
+                frameworks.append("Next.js")
+            if "express" in text:
+                frameworks.append("Express")
         return list(dict.fromkeys(frameworks))  # deduplicate, preserve order
 
     def _count_files(self, root: Path, exts: set[str], budget: ContextBudget | None = None) -> int:
         """Bounded count for the given extensions (P1). On huge trees the
         count is a lower bound (budgets cap the walk); language dominance is
-        still decided consistently on the sampled prefix."""
+        still decided consistently on the sampled prefix.
+
+        The ``.py`` count REUSES the single ``_sample_py`` scan (no duplicate
+        tree walk); only non-``.py`` extension sets trigger a fresh scan.
+        """
         budget = budget or getattr(self, "_active_budget", None) or ContextBudget()
+        if exts == {".py"}:
+            return len(self._sample_py(root, 2**31))
         it, report = scan_files(
             root, limits=budget.to_limits(), extensions=exts,
             should_stop=budget.should_stop,
         )
         count = sum(1 for _ in it)
-        # P1-fix: fold this scan into the shared pool (see _sample_py). The
-        # degraded receipt reports the PRIMARY .py sample scan (set by
-        # _sample_py first); later counting scans must not overwrite it — an
-        # allowance-exhausted count scan is empty and would hide the real
-        # truncated work.
-        if exts == {".py"} and self._py_report is None:
-            self._py_report = report
         budget.absorb(report)
         return count
 

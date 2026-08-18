@@ -124,19 +124,20 @@ class RepoMap:
 
     def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
         """Surface a truncated repo-map walk as a structured runtime.degraded
-        receipt (real counts, emitted ONCE per shared budget). A walker that
-        consumed NOTHING (the shared deadline expired before its scan ran) is
-        not "degraded work" — the walkers that DID scan already carry the
-        receipt, so zero-count emissions are suppressed."""
+        receipt (real counts, emitted ONCE per shared budget).
+
+        Inside an engine build (``collect_receipts``) the walker only RECORDS
+        its component summary — the engine emits ONE aggregate build receipt
+        afterwards. Standalone the walker emits its own receipt. Zero-value
+        receipts are honest evidence of deadline exhaustion and are NEVER
+        suppressed.
+        """
         report = getattr(self, "_last_scan_report", None)
         if report is None or not report.truncated:
             return
         budget = budget or self._last_budget or ContextBudget()
-        # A walker that consumed NOTHING (the shared deadline expired before
-        # its scan ran) is not "degraded work" — the walkers that DID scan
-        # already carry the receipt. A user CANCEL is a real signal even with
-        # zero consumption, so cancelled receipts always fire.
-        if report.files == 0 and not budget.cancelled:
+        if getattr(budget, "collect_receipts", False):
+            budget.record_component("repo_map", report)
             return
         budget.emit_degraded({
             "thread_id": self.thread_id_hint or "unknown",
@@ -307,12 +308,13 @@ class RepoMap:
         size_str = self._format_size(size)
         name = rel_path.name
         stats = {"mtime": st.st_mtime, "size": float(size), "mass": 0.0}
-        if budget is not None:
-            budget.record_read(size)
 
-        # Python files get symbol extraction.
+        # Python files get symbol extraction (the PHYSICAL read is reserved
+        # inside _extract_python_symbols against the shared ledger).
         if full_path.suffix == ".py" and size < MAX_FILE_SIZE:
-            symbols, n_classes, n_functions = self._extract_python_symbols(full_path)
+            symbols, n_classes, n_functions = self._extract_python_symbols(
+                full_path, budget
+            )
             stats["mass"] = float(n_classes + n_functions)
             self._file_stats[str(rel_path)] = stats
             if symbols:
@@ -321,11 +323,22 @@ class RepoMap:
         self._file_stats[str(rel_path)] = stats
         return f"{name} ({size_str})"
 
-    def _extract_python_symbols(self, path: Path) -> tuple[str, int, int]:
+    def _extract_python_symbols(
+        self, path: Path, budget: ContextBudget | None = None
+    ) -> tuple[str, int, int]:
         """Extract top-level symbols using AST (accurate, handles decorators/async).
         Returns (formatted_text, n_classes, n_functions) — counts feed the D14
-        importance mass signal."""
+        importance mass signal. ``budget`` (P1): the read is reserved against
+        the shared physical-read ledger FIRST; when the global allowance is
+        exhausted the file is described without symbols rather than read past
+        the cap."""
         import ast
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return "", 0, 0
+        if budget is not None and not budget.reserve_read(size):
+            return "", 0, 0
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
             tree = ast.parse(content)
@@ -421,10 +434,14 @@ class RepoMap:
             if f.suffix != ".py":
                 continue
             try:
+                size = f.stat().st_size
+            except (OSError, ValueError):
+                continue
+            if budget is not None and not budget.reserve_read(size):
+                break  # global read ledger exhausted — no further reads
+            try:
                 src = f.read_text(encoding="utf-8", errors="ignore")
                 rel = f.relative_to(self.root)
-                if budget is not None:
-                    budget.record_read(len(src.encode("utf-8", errors="ignore")))
             except (OSError, ValueError):
                 continue
             try:
@@ -461,9 +478,13 @@ class RepoMap:
             if f.suffix != ".py":
                 continue
             try:
+                size = f.stat().st_size
+            except OSError:
+                continue
+            if budget is not None and not budget.reserve_read(size):
+                break  # global read ledger exhausted — no further reads
+            try:
                 content = f.read_text(encoding="utf-8", errors="ignore")
-                if budget is not None:
-                    budget.record_read(len(content.encode("utf-8", errors="ignore")))
                 tree = ast.parse(content)
             except Exception:
                 continue

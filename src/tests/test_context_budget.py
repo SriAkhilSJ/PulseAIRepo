@@ -24,12 +24,14 @@ import hashlib
 import math
 import re
 import sqlite3
+import sys
+import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from src.context.bounded_scan import ContextBudget
+from src.context.bounded_scan import ContextBudget, ScanLimits, scan_files
 from src.context.chunk_index import ChunkIndex, build_relevant_chunks_layer
 from src.dashboard.event_bus import event_bus
 
@@ -127,9 +129,9 @@ def test_20k_workspace_initial_context_is_bounded(tmp_path, index, receipts):
     assert changed == 50, "sync must stop at the file budget, not scan everything"
     assert report.truncated is True
     assert report.files == 50
-    # Physical-read accounting: each .py is read twice in the sync path
-    # (chunk extraction + import-edge resolution) — every read is counted.
-    assert budget.read_files <= report.files * 2
+    # Read-once accounting: the file's decoded text is reused for BOTH chunk
+    # extraction and import-edge resolution — one physical read per file.
+    assert budget.read_files == report.files
     assert budget.elapsed < 30, "20k-file prep must not block for minutes"
 
     rows = index.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
@@ -153,11 +155,12 @@ def test_byte_limit_stops_pipeline_before_read(tmp_path, index):
     budget = ContextBudget(max_bytes=3 * 1024, max_elapsed=0, max_files=100)
     index.sync_workspace(budget)
     # The byte BUDGET is a consumption cap enforced at scan time (stat
-    # size, before any read). Physical reads of the 3 consumed .py files:
-    # chunk extraction + import edges each — every one counted in the
-    # receipt, so read_bytes is the honest 2x of the consumed content.
-    assert budget.read_files == 6
-    assert budget.read_bytes <= 2 * 3 * 1024 + 64
+    # size, before any read). Each consumed .py is then read EXACTLY ONCE
+    # (decoded text reused for chunk + import extraction); read_bytes counts
+    # those physical reads and can never exceed the 16 MiB-style cap.
+    assert budget.read_files == 3
+    assert budget.read_bytes <= 3 * 1024 + 64
+    assert budget.read_bytes <= budget.max_bytes
     assert index._last_scan_report.reason == "bytes"
 
 
@@ -182,10 +185,17 @@ def test_elapsed_limit_stops_pipeline(tmp_path, index, receipts):
     index.sync_workspace(budget)
     assert index._last_scan_report.truncated is True
     assert index._last_scan_report.reason in ("elapsed", "stopped")
-    # A deadline that expires before ANY file is consumed stops the pipeline
-    # but is not "degraded work": receipts only document scans that actually
-    # consumed files — a zero-count receipt would be misleading.
-    assert _degraded(_drain(receipts)) == []
+    # Deadline exhaustion is honest evidence even at ZERO consumption — the
+    # receipt must fire with zero counts, never be suppressed.
+    degraded = _degraded(_drain(receipts))
+    assert degraded, "deadline exhaustion must emit the receipt"
+    r = degraded[0]
+    assert r["reason"] == "context scan bounded"
+    assert r["cancelled"] is False
+    assert r["files_considered"] == 0
+    assert r["files_read"] == 0
+    assert r["bytes_read"] == 0
+    assert r["elapsed_ms"] >= 0
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +308,8 @@ def test_downstream_shares_deadline(tmp_path, index):
     index.sync_workspace(budget)
     report = index._last_scan_report
     # Reads never exceed the files the bounded scan consumed; each .py is
-    # read exactly twice (chunk extraction + import-edge resolution).
-    assert budget.read_files == report.files * 2 == 14
+    # read EXACTLY ONCE (decoded text reused for chunk + import edges).
+    assert budget.read_files == report.files == 7
     # The index really only holds those files' chunks.
     rows = index.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
     assert rows > 0
@@ -482,10 +492,11 @@ def test_wall_clock_smoke_large_workspace_stays_bounded(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 13 — a slow/hung embedder cannot block the turn past the shared deadline.
-#      A pre-call clock check is NOT enough; the embed CALL itself is bounded
-#      by budget.remaining (daemon worker abandoned on timeout => vectors
-#      deferred, text still lands).
+# 13 — a slow/hung embedder can NEVER block a timed preparation: the
+#      synchronous initial-turn path performs NO model inference at all —
+#      cache hits only, uncached embeddings deferred. Repeated timed preps
+#      must leave ZERO live embed threads and ZERO concurrent abandoned
+#      calls, complete inside the deadline, and keep text/FTS available.
 # ---------------------------------------------------------------------------
 
 
@@ -495,30 +506,42 @@ class _HungEmbedder(FakeEmbedder):
         return super().encode(texts, normalize_embeddings)
 
 
-def test_hung_embedder_deadline_is_enforced(tmp_path, receipts):
+def test_hung_embedder_repeated_timed_preps_leave_zero_threads(tmp_path, receipts):
     ws = tmp_path / "ws"
     ws.mkdir()
     for i in range(4):
         (ws / f"f{i}.py").write_text("def f():\n    pass\n")
     idx = ChunkIndex(
-        ws, db_path=str(tmp_path / "hung.db"), watch=False,
+        ws, db_path=str(tmp_path / "hung2.db"), watch=False,
         embedder=_HungEmbedder(),
     )
-    idx.thread_id_hint = "t-hung"
-    budget = ContextBudget(max_elapsed=1.0, max_files=10)
-    started = time.perf_counter()
-    idx.sync_workspace(budget)
-    elapsed = time.perf_counter() - started
+    idx.thread_id_hint = "t-hung2"
+    for i in range(3):
+        # Touch the files so each preparation re-indexes them.
+        for f in (ws / "f0.py", ws / "f1.py", ws / "f2.py", ws / "f3.py"):
+            f.write_text(f"def f_{i}():\n    pass\n")
+        budget = ContextBudget(max_elapsed=1.0, max_files=10)
+        started = time.perf_counter()
+        idx.sync_workspace(budget)
+        assert time.perf_counter() - started < 8, (
+            "prep must complete inside the deadline — a hung embedder must "
+            "never be awaited or abandoned mid-flight"
+        )
     idx.stop_watcher()
 
-    assert elapsed < 8, f"hung embedder blocked the turn for {elapsed:.1f}s"
-    # The first file's TEXT still landed (deferral is not data loss)...
+    # ZERO live embed threads after repeated timed preparations.
+    live = [t for t in threading.enumerate() if "chunk-embed" in t.name]
+    assert live == [], f"zero live embed threads expected, got {[t.name for t in live]}"
+
+    # Text and FTS are still available (deferral is not data loss)...
     rows = idx.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
     assert rows > 0
-    # ...but its VECTORS were deferred: no embed batch ran past the deadline.
+    nfts = idx.conn.execute("SELECT COUNT(*) FROM chunk_fts").fetchone()[0]
+    assert nfts > 0
+    # ...but NO vectors: uncached embeddings were deferred, never launched.
     vec_table = "chunk_vec" if idx.uses_vec else "chunk_vec_fallback"
     nvec = idx.conn.execute(f"SELECT COUNT(*) FROM {vec_table}").fetchone()[0]
-    assert nvec == 0, "hung embedder must be abandoned, not awaited"
+    assert nvec == 0, "the deadline path must never run model inference"
 
 
 # ---------------------------------------------------------------------------
@@ -545,9 +568,9 @@ def test_receipt_reads_are_physical_and_pool_draws_down(tmp_path, receipts):
     idx.stop_watcher()
 
     # files_read counts PHYSICAL read operations: each consumed .py file is
-    # read twice in the sync path (chunk extraction + import-edge
-    # resolution), and every physical byte lands in read_bytes.
-    assert budget.read_files == 2 * 2
+    # read ONCE (decoded text reused for chunk + import-edge resolution),
+    # and every physical byte lands in read_bytes.
+    assert budget.read_files == 2
     assert budget.read_bytes >= budget.consumed_bytes
     # The pool hands the next consumer only the REMAINING allowance — a
     # second walker can never get a fresh full 1,000-file / 16 MiB cap.
@@ -569,9 +592,293 @@ def test_engine_slices_keep_pipeline_total_under_caps():
     assert [s.max_files for s in slices] == [100, 100, 100]
     assert sum(s.max_files for s in slices) <= pool.max_files
     assert sum(s.max_bytes for s in slices) <= pool.max_bytes
-    # Slices share ONE deadline (same _start) and the cancellation hook.
+    # Slices share ONE deadline (same _start), the cancellation hook, and
+    # the degraded-receipt emission flag (one aggregate receipt per build).
     assert all(s._start == pool._start for s in slices)
+    assert all(s.collect_receipts is pool.collect_receipts for s in slices)
     pool.extra_stop = lambda: True
     share = pool.share(2)
     assert share.should_stop() is True
     assert share.cancelled is True
+
+
+def test_small_cap_slices_never_exceed_parent():
+    # Splitting a small cap among n walkers must NEVER inflate the combined
+    # allowance: floor division only, and 0 means zero allowance.
+    for cap, n, expected in [
+        (1, 3, [0, 0, 0]),
+        (2, 3, [0, 0, 0]),
+        (5, 3, [1, 1, 1]),
+        (7, 3, [2, 2, 2]),
+        (1000, 3, [333, 333, 333]),
+    ]:
+        pool = ContextBudget(
+            max_files=cap, max_bytes=cap * 1024,
+            max_considered=cap, max_visited=cap, max_elapsed=0,
+        )
+        slices = [pool.share(n) for _ in range(n)]
+        assert [s.max_files for s in slices] == expected, f"files cap {cap}/{n}"
+        assert sum(s.max_files for s in slices) <= cap
+        assert sum(s.max_bytes for s in slices) <= cap * 1024
+        assert sum(s.max_considered for s in slices) <= cap
+        assert sum(s.max_visited for s in slices) <= cap
+
+
+def test_zero_quota_slice_yields_nothing(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    (tmp_path / "b.py").write_text("y = 2\n")
+    (tmp_path / "c.py").write_text("z = 3\n")
+    pool = ContextBudget(max_files=1, max_bytes=1024, max_elapsed=0)
+    it, report = scan_files(tmp_path, limits=pool.share(3).to_limits())
+    got = list(it)
+    assert got == [], "a zero-quota slice must yield NOTHING (not unlimited)"
+    assert report.truncated is True
+
+
+# ---------------------------------------------------------------------------
+# 16 — the GLOBAL physical-read ledger: total bytes read across every
+#      consumer (repo map + chunk sync, files parsed by both) never exceeds
+#      ContextBudget.max_bytes.
+# ---------------------------------------------------------------------------
+
+
+def test_physical_read_cap_enforced_across_consumers(tmp_path, receipts):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    body = "def f():\n    pass\n" + "#" * 1000  # ~1KiB per file
+    for i in range(24):
+        (ws / f"f{i:02d}.py").write_text(body)
+
+    from src.context.repo_map import get_repo_map
+
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "cap.db"), watch=False,
+        embedder=FakeEmbedder(),
+    )
+    idx.thread_id_hint = "t-cap"
+    budget = ContextBudget(max_bytes=6 * 1024, max_elapsed=0, max_files=1000)
+
+    # TWO consumers parse the same files against ONE shared ledger: repo map
+    # (describe + edges) then chunk sync. Without the ledger this would read
+    # ~2x the cap; with it, reads decline once the global allowance is gone.
+    get_repo_map(ws, budget=budget, thread_id="t-cap")
+    idx.sync_workspace(budget)
+    idx.stop_watcher()
+
+    assert budget.read_bytes <= 6 * 1024, (
+        f"global physical-read cap violated: {budget.read_bytes} > 6144"
+    )
+    assert budget.read_bytes <= budget.max_bytes
+    # Multiple consumers really did work: reads happened, they were just capped.
+    assert budget.read_files > 0
+
+
+# ---------------------------------------------------------------------------
+# 17 — the considered-entry cap bounds unsupported/ignored trees: thousands
+#      of non-source files cannot make the scan inspect the whole tree while
+#      report.files stays zero.
+# ---------------------------------------------------------------------------
+
+
+def test_considered_cap_bounds_unsupported_files(tmp_path):
+    for i in range(20000):
+        (tmp_path / f"f{i:05d}.xyz").write_text("junk\n")
+    it, report = scan_files(
+        tmp_path,
+        limits=ScanLimits(
+            max_considered=1000, max_visited=2000,
+            max_files=1000, max_bytes=0, max_elapsed=0,
+        ),
+        extensions={".py"},
+    )
+    got = list(it)
+    assert got == [], "no source files in this tree"
+    assert report.truncated is True
+    assert report.reason == "considered"
+    assert report.considered <= 1000
+    assert report.visited < 20000, "must stop at the considered cap, not walk everything"
+
+
+def test_visited_cap_bounds_directory_heavy_tree(tmp_path):
+    for i in range(5000):
+        (tmp_path / f"d{i:04d}").mkdir()
+    it, report = scan_files(
+        tmp_path,
+        limits=ScanLimits(
+            max_considered=10**9, max_visited=1000,
+            max_files=10**9, max_bytes=0, max_elapsed=0,
+        ),
+    )
+    got = list(it)
+    assert got == []
+    assert report.truncated is True
+    assert report.reason == "visited"
+    assert report.visited <= 1000
+
+
+# ---------------------------------------------------------------------------
+# 18 — a truncated / cancelled sync must NEVER prune indexed files outside
+#      its bounded prefix: indexed - on_disk is only sound after a complete
+#      scan.
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_sync_never_prunes_ghosts(tmp_path, index):
+    ws = tmp_path / "ws"
+    for name in "abcdefgh":
+        (ws / f"{name}.py").write_text("x = 1\n")
+    expected = {f"{n}.py" for n in "abcdefgh"}
+
+    def _paths():
+        return {r[0] for r in index.conn.execute(
+            "SELECT DISTINCT file_path FROM code_chunks"
+        )}
+
+    # Complete scan first: every file indexed.
+    index.sync_workspace(ContextBudget(max_files=1000, max_elapsed=0))
+    assert _paths() == expected
+
+    # Truncated bounded sync (max_files=2): on_disk is only a prefix, so the
+    # other six indexed files must NOT be mistaken for deletions.
+    index.sync_workspace(ContextBudget(max_files=2, max_elapsed=0))
+    assert _paths() == expected, "truncated sync must not prune ghosts"
+
+    # Complete scan after deleting one REAL file: only that file is pruned.
+    (ws / "a.py").unlink()
+    index.sync_workspace(ContextBudget(max_files=1000, max_elapsed=0))
+    assert _paths() == expected - {"a.py"}
+
+
+def test_cancelled_sync_never_prunes_ghosts(tmp_path, index):
+    ws = tmp_path / "ws"
+    for name in "abcdefgh":
+        (ws / f"{name}.py").write_text("x = 1\n")
+    index.sync_workspace(ContextBudget(max_files=1000, max_elapsed=0))
+
+    budget = ContextBudget(max_files=1000, max_elapsed=0)
+    budget.cancelled = True
+    index.sync_workspace(budget)
+    paths = {r[0] for r in index.conn.execute(
+        "SELECT DISTINCT file_path FROM code_chunks"
+    )}
+    assert paths == {f"{n}.py" for n in "abcdefgh"}, "cancelled sync must not prune"
+
+
+# ---------------------------------------------------------------------------
+# 19 — a real Windows directory junction cannot escape the workspace
+#      (skipped only when the host genuinely cannot create one).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows junction test")
+def test_windows_junction_cannot_escape_workspace(tmp_path):
+    import os
+    import shutil
+    import tempfile
+    from src.context.chunk_index import ChunkIndex
+
+    def _attempt(base):
+        outside = base / "outside"
+        outside.mkdir(exist_ok=True)
+        (outside / "secret.py").write_text("x = 999\n")
+        ws = base / "ws"
+        ws.mkdir(exist_ok=True)
+        (ws / "keep.py").write_text("x = 1\n")
+        link = ws / "escaped"
+        rc = os.system(f'cmd /c mklink /J "{link}" "{outside}"')
+        if rc != 0 or not os.path.exists(link):
+            return None, None, None
+        return ws, link, outside
+
+    base = tmp_path
+    ws, link, _outside = _attempt(base)
+    alt_cleanup = None
+    if ws is None:
+        # The TEMP drive can deny reparse-point creation by policy even when
+        # the host supports it; retry on the workspace drive before skipping.
+        alt = Path(tempfile.mkdtemp(prefix="pulse_jtest_", dir=Path.cwd().anchor))
+        alt_cleanup = alt
+        ws, link, _outside = _attempt(alt)
+        if ws is None:
+            pytest.skip("host genuinely cannot create directory junctions")
+    try:
+        idx = ChunkIndex(
+            ws, db_path=str(ws / "j.db"), watch=False, embedder=None,
+        )
+        idx.thread_id_hint = "t-junction"
+        budget = ContextBudget(max_files=100, max_elapsed=0)
+        idx.sync_workspace(budget)
+        assert idx._last_scan_report.skipped_symlinks >= 1, (
+            "junction must be counted as a skipped link"
+        )
+        paths = {r[0] for r in idx.conn.execute(
+            "SELECT DISTINCT file_path FROM code_chunks"
+        )}
+        assert "escaped/secret.py" not in paths
+        assert "keep.py" in paths
+    finally:
+        try:
+            os.rmdir(link)  # removes the junction, not the target
+        except OSError:
+            pass
+        if alt_cleanup is not None:
+            shutil.rmtree(alt_cleanup, ignore_errors=True)
+        else:
+            shutil.rmtree(base / "ws", ignore_errors=True)
+            shutil.rmtree(base / "outside", ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# 20 — the engine build emits EXACTLY ONE aggregate degraded receipt with
+#      pipeline-wide counts and nested component summaries.
+# ---------------------------------------------------------------------------
+
+
+def test_engine_emits_one_aggregate_receipt(tmp_path, receipts, monkeypatch):
+    from src.context.context_engine import ContextEngine, TaskType
+    from src.context.chunk_index import get_index as _get_index
+    from src.context.convention_learner import ConventionLearner
+    from unittest.mock import patch
+
+    # Hermeticity: ConventionLearner persists to the GLOBAL ~/.pulseai file
+    # keyed by workspace path, so a leftover entry for THIS ws path would
+    # make the fresh learner skip its scan (no component in the receipt).
+    # Route this test's learners to a per-test storage file instead.
+    _iso_storage = str(tmp_path / "conventions.json")
+    _orig_init = ConventionLearner.__init__
+
+    def _isolated_init(self, storage_path: str | None = None):
+        _orig_init(self, _iso_storage)
+
+    monkeypatch.setattr(ConventionLearner, "__init__", _isolated_init)
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for i in range(400):
+        (ws / f"m{i:03d}.py").write_text(f"def target_{i}():\n    return {i}\n")
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "agg.db"), watch=False,
+        embedder=FakeEmbedder(),
+    )
+    with patch("src.context.chunk_index.get_index", return_value=idx):
+        eng = ContextEngine(
+            max_tokens=4000, llm=None, memory_manager=None, thread_id="s-agg"
+        )
+        eng._build_context_layers(
+            {"current_task": "fix target_000", "workspace": str(ws)},
+            TaskType.DEBUG,
+        )
+
+    degraded = _degraded(_drain(receipts))
+    assert len(degraded) == 1, (
+        f"exactly ONE aggregate receipt per build, got {len(degraded)}"
+    )
+    r = degraded[0]
+    assert r["thread_id"] == "s-agg"
+    assert r["reason"] == "context scan bounded"
+    assert r["files_considered"] > 0
+    assert r["cancelled"] is False
+    comps = r.get("components", {})
+    assert set(comps) == {"repo_map", "chunk_index", "convention_learner"}, (
+        "all three walkers must nest inside the single receipt"
+    )

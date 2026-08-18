@@ -73,17 +73,17 @@ _FILES = "files"
 _BYTES = "bytes"
 _STOPPED = "stopped"
 
-# Embedding a chunk batch must never start when less than this much of the
-# shared initial deadline remains (see ContextBudget / chunk_index).
-EMBED_MIN_REMAINING_S = 0.25
-
-
 @dataclass(frozen=True)
 class ScanLimits:
     max_files: int = 1000
     max_bytes: int = 16 * 1024 * 1024
     max_file_bytes: int = 1024 * 1024
     max_elapsed: float = 5.0
+    # P1-fix: caps on ENTRIES EXAMINED, not only files yielded. A tree full of
+    # unsupported/ignored/binary files must stop at these caps instead of
+    # walking the complete tree while report.files stays zero.
+    max_considered: int = 1000   # file entries examined (consumed + skipped)
+    max_visited: int = 1000      # every entry examined (dirs + files)
     skip_symlinks: bool = True
 
 
@@ -128,41 +128,100 @@ class ScanReport:
 
 
 @dataclass
+class _SharedState:
+    """ONE state shared by every slice of a single context preparation.
+
+    Deadline, cancellation, the physical-read ledger, considered counts,
+    skip/error aggregates, truncation, and degraded-receipt emission all live
+    here — slices reference THIS object, never copies, so no counter can be
+    double-spent and exactly one receipt fires per build.
+    """
+
+    start: float
+    cancelled: bool = False
+    extra_stop: Callable[[], bool] | None = None
+    considered_files: int = 0     # file entries examined (all walkers)
+    read_files: int = 0           # PHYSICAL read operations downstream
+    read_bytes: int = 0           # bytes actually read downstream
+    skipped_dirs: int = 0
+    skipped_hidden: int = 0
+    skipped_symlinks: int = 0
+    skipped_oversize: int = 0
+    skipped_ext: int = 0
+    skipped_binary: int = 0
+    skipped_generated: int = 0
+    skipped_gitignore: int = 0
+    truncated: bool = False
+    reason: str | None = None
+    degraded_emitted: bool = False
+    collect_receipts: bool = False   # engine build: record, don't emit
+    components: dict = field(default_factory=dict)
+
+
 class ContextBudget:
-    """ONE shared deadline for a single initial context preparation.
+    """ONE shared deadline and ledger for a single context preparation.
 
     The default synchronous budget covers the COMPLETE pipeline — scan, read,
     chunk, index, embed — not just directory traversal. Every consumer derives
     its ``ScanLimits`` and stop predicate from this object, so once any stage
     exhausts the budget the remaining stages stop too.
+
+    ``share(n)`` carves a FAIR per-walker candidate quota (``cap // n``, so
+    zero-size slices mean zero allowance and the combined allowance can never
+    exceed the parent cap), but every slice references the SAME shared state:
+    deadline, cancellation, physical reads/bytes, considered entries, skip
+    counts, truncation, and degraded-receipt emission.
     """
 
-    max_elapsed: float = 5.0
-    max_files: int = 1000
-    max_bytes: int = 16 * 1024 * 1024
-    max_file_bytes: int = 1024 * 1024
-    cancelled: bool = False
-    read_files: int = 0         # PHYSICAL read operations downstream
-    read_bytes: int = 0         # bytes actually read downstream
-    # Optional live stop hook (P1): consulted on every should_stop() so a
-    # user cancel (turn_controls) halts the whole pipeline — traversal, reads,
-    # chunking, indexing — promptly, not just the budget's own limits.
-    extra_stop: Callable[[], bool] | None = None
+    def __init__(
+        self,
+        max_elapsed: float = 5.0,
+        max_files: int = 1000,
+        max_bytes: int = 16 * 1024 * 1024,
+        max_file_bytes: int = 1024 * 1024,
+        max_considered: int = 1000,
+        max_visited: int = 1000,
+    ):
+        self.max_elapsed = max_elapsed
+        self.max_files = max_files
+        self.max_bytes = max_bytes
+        self.max_file_bytes = max_file_bytes
+        self.max_considered = max_considered
+        self.max_visited = max_visited
+        self._shared = _SharedState(start=time.perf_counter())
+        # The PHYSICAL-read ledger cap is the pipeline cap, never a slice
+        # quota — every consumer reserves against the GLOBAL allowance.
+        self._ledger_bytes_cap = self.max_bytes
+        # Per-walker candidate quotas (a pool's quotas ARE the pipeline caps).
+        self._quota_files = self.max_files
+        self._quota_bytes = self.max_bytes
+        self._quota_considered = self.max_considered
+        self._quota_visited = self.max_visited
+        # This budget's own consumption of its quota.
+        self.consumed_files = 0
+        self.consumed_bytes = 0
+        self.consumed_considered = 0
+        self.consumed_visited = 0
 
-    def __post_init__(self) -> None:
-        self._start = time.perf_counter()
-        self._degraded_emitted = False
-        # P1-fix: ONE shared pool. max_files/max_bytes are the PIPELINE caps;
-        # consumed_* accumulate what the walkers have already taken, so
-        # to_limits() hands each consumer only the REMAINING allowance. Three
-        # walkers can no longer each consume a fresh 1,000-file/16 MiB slice.
-        self.consumed_files: int = 0
-        self.consumed_bytes: int = 0
-        self.considered_files: int = 0
+    @classmethod
+    def unbounded(cls) -> "ContextBudget":
+        """No deadlines at all: for background (non-turn) work — the first-run
+        full index build and the file watcher — where embedding synchronously
+        on a background thread is safe and no bounded receipt is wanted."""
+        return cls(
+            max_elapsed=0, max_files=2**31, max_bytes=0,
+            max_file_bytes=0, max_considered=2**31, max_visited=2**31,
+        )
+
+    # -- shared state accessors -------------------------------------------------
+
+    @property
+    def _start(self) -> float:
+        return self._shared.start
 
     @property
     def elapsed(self) -> float:
-        return time.perf_counter() - self._start
+        return time.perf_counter() - self._shared.start
 
     @property
     def remaining(self) -> float:
@@ -172,71 +231,194 @@ class ContextBudget:
 
     @property
     def expired(self) -> bool:
-        return self.cancelled or (self.max_elapsed > 0 and self.elapsed >= self.max_elapsed)
+        return (
+            self._shared.cancelled
+            or (self.max_elapsed > 0 and self.elapsed >= self.max_elapsed)
+        )
+
+    @property
+    def cancelled(self) -> bool:
+        return self._shared.cancelled
+
+    @cancelled.setter
+    def cancelled(self, value: bool) -> None:
+        self._shared.cancelled = bool(value)
+
+    @property
+    def extra_stop(self) -> Callable[[], bool] | None:
+        return self._shared.extra_stop
+
+    @extra_stop.setter
+    def extra_stop(self, value: Callable[[], bool] | None) -> None:
+        self._shared.extra_stop = value
+
+    @property
+    def read_files(self) -> int:
+        return self._shared.read_files
+
+    @property
+    def read_bytes(self) -> int:
+        return self._shared.read_bytes
+
+    @property
+    def considered_files(self) -> int:
+        return self._shared.considered_files
+
+    @property
+    def truncated(self) -> bool:
+        return self._shared.truncated
+
+    @property
+    def reason(self) -> str | None:
+        return self._shared.reason
+
+    @property
+    def collect_receipts(self) -> bool:
+        return self._shared.collect_receipts
+
+    @collect_receipts.setter
+    def collect_receipts(self, value: bool) -> None:
+        self._shared.collect_receipts = bool(value)
+
+    @property
+    def skipped_dirs(self) -> int:
+        return self._shared.skipped_dirs
+
+    @property
+    def skipped_generated(self) -> int:
+        return self._shared.skipped_generated
+
+    @property
+    def skipped_gitignore(self) -> int:
+        return self._shared.skipped_gitignore
+
+    @property
+    def skipped_oversize(self) -> int:
+        return self._shared.skipped_oversize
+
+    @property
+    def skipped_binary(self) -> int:
+        return self._shared.skipped_binary
+
+    # -- budget behaviour ---------------------------------------------------------
 
     def should_stop(self) -> bool:
         if self.expired:
             return True
-        if self.extra_stop is not None:
+        if self._shared.extra_stop is not None:
             try:
-                if self.extra_stop():
-                    self.cancelled = True
+                if self._shared.extra_stop():
+                    self._shared.cancelled = True
                     return True
             except Exception:
                 pass  # a failing hook must never block the pipeline
         return False
 
-    def record_read(self, size: int) -> None:
-        """Count ONE physical read of ``size`` bytes.
+    def reserve_read(self, size: int) -> bool:
+        """Atomically reserve ``size`` bytes of the shared physical-read
+        ledger BEFORE the read happens.
 
-        Every content-bearing read in the pipeline must call this exactly
-        once, so ``read_files``/``read_bytes`` are true physical-read totals
-        (a file read by two consumers counts twice; a stat-only walk counts
-        zero).
+        Returns False (and reserves nothing) when the GLOBAL allowance is
+        exhausted — the caller must decline or truncate, never read past the
+        cap. ``read_files``/``read_bytes`` therefore count every physical
+        read across every consumer (a file read by two consumers counts
+        twice) and the pipeline total can never exceed ``max_bytes``.
         """
-        self.read_files += 1
-        self.read_bytes += max(0, int(size))
+        size = max(0, int(size))
+        if size <= 0:
+            return True
+        cap = self._ledger_bytes_cap
+        if cap > 0 and self._shared.read_bytes + size > cap:
+            return False
+        self._shared.read_files += 1
+        self._shared.read_bytes += size
+        return True
 
     def absorb(self, report: "ScanReport") -> None:
-        """Fold ONE bounded scan's consumption into the shared pool so the
-        next walker sees only the remaining allowance."""
+        """Fold ONE bounded scan's consumption into this slice's quota AND the
+        shared pipeline state (considered entries, skip counts, truncation)."""
         self.consumed_files += report.files
         self.consumed_bytes += report.bytes
-        self.considered_files += report.considered
+        self.consumed_considered += report.considered
+        self.consumed_visited += report.visited
+        sh = self._shared
+        sh.considered_files += report.considered
+        sh.skipped_dirs += report.skipped_dirs
+        sh.skipped_hidden += report.skipped_hidden_files
+        sh.skipped_symlinks += report.skipped_symlinks
+        sh.skipped_oversize += report.skipped_oversize
+        sh.skipped_ext += report.skipped_ext
+        sh.skipped_binary += report.skipped_binary
+        sh.skipped_generated += report.skipped_generated
+        sh.skipped_gitignore += report.skipped_gitignore
+        if report.truncated:
+            sh.truncated = True
+            if sh.reason is None:
+                sh.reason = report.reason
 
     def to_limits(self) -> ScanLimits:
+        """Remaining allowance of THIS budget's quota (0 = zero, not unlimited)."""
         return ScanLimits(
-            max_files=max(0, self.max_files - self.consumed_files),
-            max_bytes=max(0, self.max_bytes - self.consumed_bytes),
+            max_files=max(0, self._quota_files - self.consumed_files),
+            max_bytes=max(0, self._quota_bytes - self.consumed_bytes),
             max_file_bytes=self.max_file_bytes,
             max_elapsed=self.max_elapsed,
+            max_considered=max(0, self._quota_considered - self.consumed_considered),
+            max_visited=max(0, self._quota_visited - self.consumed_visited),
         )
 
     def share(self, n: int) -> "ContextBudget":
         """Carve ONE of ``n`` equal slices of this pool for a single walker.
 
-        Every slice shares the same deadline (``_start``), cancellation hook,
-        and session routing, but owns its own file/byte allowance — so three
-        walkers get ~cap/3 each (pipeline total <= cap) instead of three
-        fresh full caps. Receipts emitted per walker therefore show that
-        walker's OWN physical reads, not a cross-walker accumulation.
+        Every slice references the SAME shared state (deadline, cancellation,
+        physical-read ledger, considered counts, skip aggregates, truncated
+        flag, degraded-receipt emission) — nothing is copied. Only the
+        per-walker candidate quota is split, by FLOOR division: splitting a
+        cap of 1 among 3 walkers yields 0/0/0 (zero allowance = zero work),
+        never 1/1/1, and the combined allowance can never exceed the parent
+        cap.
         """
-        slice_budget = ContextBudget(
+        n = max(1, int(n))
+        s = ContextBudget(
             max_elapsed=self.max_elapsed,
-            max_files=max(1, self.max_files // n),
-            max_bytes=max(1, self.max_bytes // n),
+            max_files=self.max_files // n,
+            max_bytes=self.max_bytes // n,
             max_file_bytes=self.max_file_bytes,
-            cancelled=self.cancelled,
+            max_considered=self.max_considered // n,
+            max_visited=self.max_visited // n,
         )
-        slice_budget._start = self._start
-        slice_budget.extra_stop = self.extra_stop
-        return slice_budget
+        s._shared = self._shared
+        s._ledger_bytes_cap = self._ledger_bytes_cap
+        s._quota_files = s.max_files
+        s._quota_bytes = s.max_bytes
+        s._quota_considered = s.max_considered
+        s._quota_visited = s.max_visited
+        return s
+
+    def mark_truncated(self, reason: str) -> None:
+        """Record that this preparation's work was cut short (shared flag)."""
+        self._shared.truncated = True
+        if self._shared.reason is None:
+            self._shared.reason = reason
+
+    def record_component(self, name: str, report: "ScanReport") -> None:
+        """Nest one walker's truncated scan inside the build-level receipt."""
+        self._shared.components[name] = {
+            "files_considered": report.considered,
+            "files_read": report.files,
+            "bytes_read": report.bytes,
+            "truncated": report.truncated,
+            "reason": report.reason,
+        }
+
+    def component_summaries(self) -> dict:
+        return dict(self._shared.components)
 
     def emit_degraded(self, payload: dict) -> bool:
         """Emit the structured ``runtime.degraded`` receipt ONCE per build."""
-        if self._degraded_emitted:
+        if self._shared.degraded_emitted:
             return False
-        self._degraded_emitted = True
+        self._shared.degraded_emitted = True
         try:
             from src.dashboard.event_bus import event_bus
             event_bus.emit("runtime.degraded", payload)
@@ -376,6 +558,7 @@ class BoundedScan:
         self.report = ScanReport()
         self._gitignore = GitIgnore(self.root)
         self._start = time.perf_counter()
+        self._root_resolved = self.root.resolve()
         self._done = False
 
     # -- internal budget helpers -------------------------------------------------
@@ -387,6 +570,54 @@ class BoundedScan:
         self.report.truncated = True
         self.report.reason = reason
 
+    @staticmethod
+    def _is_link(path: Path) -> bool:
+        """Symlink OR Windows junction / reparse point.
+
+        ``Path.is_symlink()`` alone is NOT sufficient on Windows: directory
+        junctions are reparse points that report as regular directories to
+        ``os.walk``, so a junction can otherwise silently escape the
+        workspace. ``os.path.isjunction`` (3.12+) catches them explicitly;
+        older Pythons fall back to the ``FILE_ATTRIBUTE_REPARSE_POINT`` stat
+        bit.
+        """
+        try:
+            if path.is_symlink():
+                return True
+        except OSError:
+            return True
+        try:
+            if os.path.isjunction(path):
+                return True
+        except AttributeError:
+            pass
+        try:
+            st = os.lstat(path)
+            attrs = getattr(st, "st_file_attributes", 0) or 0
+            if attrs & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+                return True
+        except (OSError, AttributeError):
+            pass
+        return False
+
+    def _within_root(self, path: Path) -> bool:
+        """Resolve ``path`` and confirm it stays inside the canonical root.
+
+        Belt-and-braces on Windows (where junction resolution can defeat
+        ``is_symlink``-style checks): the resolved target must live under the
+        workspace root, so an escape cannot be traversed or read even if a
+        reparse-point detection was missed. Cheap relative to the scan itself;
+        used only when ``skip_symlinks`` is on.
+        """
+        try:
+            resolved = path.resolve()
+            return (
+                resolved == self._root_resolved
+                or resolved.is_relative_to(self._root_resolved)
+            )
+        except (OSError, ValueError):
+            return False
+
     def _check_limits(self) -> bool:
         """Return True when iteration must stop (already recorded the reason)."""
         if self.should_stop is not None and self.should_stop():
@@ -396,6 +627,23 @@ class BoundedScan:
         if self.limits.max_elapsed > 0 and self._elapsed_now() > self.limits.max_elapsed:
             if not self.report.truncated:
                 self._truncate(_ELAPSED)
+            return True
+        # P1-fix: cap entries EXAMINED, not only files yielded — a tree full
+        # of unsupported/ignored/binary files must stop here instead of
+        # walking everything while report.files stays zero.
+        if (
+            self.limits.max_considered > 0
+            and self.report.considered >= self.limits.max_considered
+        ):
+            if not self.report.truncated:
+                self._truncate("considered")
+            return True
+        if (
+            self.limits.max_visited > 0
+            and self.report.visited >= self.limits.max_visited
+        ):
+            if not self.report.truncated:
+                self._truncate("visited")
             return True
         if self.report.files >= self.limits.max_files:
             if not self.report.truncated:
@@ -444,18 +692,22 @@ class BoundedScan:
         for dirpath, dirnames, filenames in os.walk(
             self.root, topdown=True, followlinks=False
         ):
-            self.report.visited += 1
             if self._check_limits():
                 return
+            self.report.visited += 1
             pruned: list[str] = []
             for dirname in dirnames:
                 if dirname.startswith(".") or self._is_skip_dir(dirname):
                     self.report.skipped_dirs += 1
                     continue
-                if self.limits.skip_symlinks and (self.root / dirpath / dirname).is_symlink():
+                cand = self.root / dirpath / dirname
+                if self.limits.skip_symlinks and self._is_link(cand):
                     self.report.skipped_symlinks += 1
                     continue
-                rel_dir = os.path.relpath(os.path.join(dirpath, dirname), self.root)
+                if self.limits.skip_symlinks and os.name == "nt" and not self._within_root(cand):
+                    self.report.skipped_symlinks += 1
+                    continue
+                rel_dir = os.path.relpath(cand, self.root)
                 if rel_dir != "." and self._gitignore.ignored(rel_dir, is_dir=True):
                     self.report.skipped_gitignore += 1
                     continue
@@ -463,9 +715,10 @@ class BoundedScan:
             dirnames[:] = pruned
 
             for filename in filenames:
-                self.report.considered += 1
                 if self._check_limits():
                     return
+                self.report.visited += 1
+                self.report.considered += 1
                 if filename.startswith("."):
                     self.report.skipped_hidden_files += 1
                     continue
@@ -473,7 +726,10 @@ class BoundedScan:
                     self.report.skipped_generated += 1
                     continue
                 path = Path(dirpath) / filename
-                if self.limits.skip_symlinks and path.is_symlink():
+                if self.limits.skip_symlinks and self._is_link(path):
+                    self.report.skipped_symlinks += 1
+                    continue
+                if self.limits.skip_symlinks and os.name == "nt" and not self._within_root(path):
                     self.report.skipped_symlinks += 1
                     continue
                 if self.extensions is not None and path.suffix.lower() not in self.extensions:

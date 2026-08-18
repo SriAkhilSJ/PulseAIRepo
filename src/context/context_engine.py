@@ -585,6 +585,10 @@ class ContextEngine:
             if self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
         ]
         self._active_pool = ContextBudget()
+        # P1-fix: the engine build emits ONE aggregate degraded receipt; the
+        # walkers record their component summaries instead of competing
+        # top-level emissions (all slices share this flag via shared state).
+        self._active_pool.collect_receipts = True
         if self.thread_id:
             from src.runtime.turn_control import turn_controls
             self._active_pool.extra_stop = lambda: turn_controls.cancelled(self.thread_id)
@@ -596,11 +600,40 @@ class ContextEngine:
             self.thread_id or str(state.get("thread_id") or "") or None
         )
         try:
-            return self._build_context_layers_inner(state, task_type, walkers)
+            layers = self._build_context_layers_inner(state, task_type, walkers)
+            self._emit_build_receipt()
+            return layers
         finally:
             self._active_budget = None
             self._active_pool = None
             self._active_thread_id = None
+
+    def _emit_build_receipt(self) -> None:
+        """P1-fix: emit EXACTLY ONE turn/build-level ``runtime.degraded``
+        receipt when any limit or cancellation terminated initial context
+        work. Counts are the pipeline-wide aggregates from the ONE shared
+        ledger (not a single walker's scan); component-level summaries are
+        nested inside. A deadline that expired before the first file was
+        consumed still fires — zero values are honest evidence, never
+        suppressed."""
+        pool = self._active_pool
+        if pool is None or not (pool.truncated or pool.cancelled):
+            return
+        pool.emit_degraded({
+            "thread_id": self._active_thread_id or "unknown",
+            "reason": "context scan bounded",
+            "files_considered": pool.considered_files,
+            "files_read": pool.read_files,
+            "bytes_read": pool.read_bytes,
+            "elapsed_ms": int(pool.elapsed * 1000),
+            "skipped_generated": (
+                pool.skipped_dirs + pool.skipped_generated + pool.skipped_gitignore
+            ),
+            "skipped_oversized": pool.skipped_oversize,
+            "skipped_binary": pool.skipped_binary,
+            "cancelled": pool.cancelled,
+            "components": pool.component_summaries(),
+        })
 
     def _build_context_layers_inner(
         self, state: dict[str, Any], task_type: TaskType, walkers: list[str] | None = None
