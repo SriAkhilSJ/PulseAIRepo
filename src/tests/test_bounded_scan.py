@@ -365,6 +365,50 @@ def test_gitignore_patterns_respected(tmp_path):
     assert report.skipped_gitignore >= 1
 
 
+def test_gitignore_read_goes_through_ledger(tmp_path):
+    from src.context.bounded_scan import ContextBudget
+
+    _write_tree(tmp_path, {"keep.py": "x = 1\n"})
+    (tmp_path / ".gitignore").write_text("secret/\n*.log\n")
+    budget = ContextBudget(max_elapsed=0, max_bytes=10**6)
+    it, report = scan_files(
+        tmp_path, limits=budget.to_limits(), budget=budget
+    )
+    assert list(it) == [tmp_path / "keep.py"]
+    # The ignore content bytes were metered through the shared ledger.
+    assert budget.read_bytes >= len("secret/\n*.log\n")
+    assert budget.read_files == 1
+
+
+def test_oversized_gitignore_skipped_safely(tmp_path):
+    from src.context.bounded_scan import ContextBudget
+
+    _write_tree(tmp_path, {"keep.py": "x = 1\n"})
+    (tmp_path / ".gitignore").write_text("#" * 2000 + "\n")
+    budget = ContextBudget(
+        max_elapsed=0, max_file_bytes=100, max_bytes=10**6
+    )
+    it, report = scan_files(
+        tmp_path, limits=budget.to_limits(), budget=budget
+    )
+    assert list(it) == [tmp_path / "keep.py"]  # oversized ignore skipped
+    assert budget.read_bytes == 0  # nothing was read past the per-file cap
+
+
+def test_disappearing_gitignore_skipped_safely(tmp_path):
+    from src.context.bounded_scan import ContextBudget
+
+    _write_tree(tmp_path, {"keep.py": "x = 1\n"})
+    # A .gitignore that is not a regular file (or vanishes) is skipped safely.
+    (tmp_path / ".gitignore").mkdir()
+    budget = ContextBudget(max_elapsed=0)
+    it, report = scan_files(
+        tmp_path, limits=budget.to_limits(), budget=budget
+    )
+    assert list(it) == [tmp_path / "keep.py"]
+    assert budget.read_bytes == 0
+
+
 def test_considered_counts_every_file_examined(tmp_path):
     _write_tree(tmp_path, {
         "a.py": "x = 1\n",

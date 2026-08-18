@@ -229,6 +229,7 @@ class ConventionLearner:
                 extensions={".py"},
                 should_stop=budget.should_stop,
                 priority=True,
+                budget=budget,
             )
             self._py_cache = (str(root.resolve()), list(iterator))
             self._py_report = report
@@ -417,6 +418,7 @@ class ConventionLearner:
         it, report = scan_files(
             root, limits=budget.to_limits(), extensions=exts,
             should_stop=budget.should_stop,
+            budget=budget,
         )
         count = sum(1 for _ in it)
         budget.absorb(report)

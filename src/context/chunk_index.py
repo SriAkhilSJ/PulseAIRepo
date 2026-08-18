@@ -382,14 +382,11 @@ class ChunkIndex:
         self._pending_removes: set[str] = set()
         self._sync_queue_lock = threading.Lock()
 
-        if embedder is not None:
-            self._embedder = embedder
-        else:
-            try:
-                from src.llm.factory import get_embedder
-                self._embedder = get_embedder()
-            except Exception:
-                self._embedder = None  # BM25-only degraded mode
+        # NO eager model load: opening an index during a prompt must not load
+        # the embedding model. Injected test embedders are kept as-is; the
+        # default embedder is resolved lazily ONLY on explicit offline
+        # inference-enabled paths (_ensure_embedder). Turns stay BM25/cache-only.
+        self._embedder = embedder
 
         self.uses_vec = False
         try:
@@ -409,6 +406,19 @@ class ChunkIndex:
 
         if watch:
             self.start_watcher()
+
+    def _ensure_embedder(self) -> None:
+        """Lazily resolve the default embedder — called ONLY from explicit
+        offline inference-enabled paths (``allow_embedding_compute``), never
+        from the timed turn path. ``self._embedder`` stays None for turns,
+        which is exactly the point: no model is loaded or invoked."""
+        if self._embedder is not None:
+            return
+        try:
+            from src.llm.factory import get_embedder
+            self._embedder = get_embedder()
+        except Exception:
+            self._embedder = None  # BM25-only degraded mode
 
     # ------------------------------------------------------------------
     # SCHEMA
@@ -897,6 +907,7 @@ class ChunkIndex:
             extensions=exts,
             should_stop=budget.should_stop,
             priority=True,
+            budget=budget,
         )
         self._last_scan_report = report
         return iterator
@@ -959,19 +970,25 @@ class ChunkIndex:
         budget = budget if budget is not None else ContextBudget()
         if budget.expired:
             embeddings: list[list[float] | None] = [None] * len(chunks)
-        elif self._embedder is not None and budget.max_elapsed <= 0:
-            # Explicit unbounded path (offline full rebuild): synchronous
-            # encode — never an abandoned thread.
-            from src.context.embedding_cache import get_embedding_cache
-            try:
-                vecs = get_embedding_cache().encode(
-                    self._embedder, [c["content"] for c in chunks]
-                )
-                embeddings = [list(v) for v in vecs]
-            except Exception:
+        elif budget.allow_embedding_compute:
+            # EXPLICIT offline inference policy (unbounded() maintenance
+            # rebuild ONLY): synchronous encode — never an abandoned thread.
+            self._ensure_embedder()
+            if self._embedder is None:
                 embeddings = [None] * len(chunks)
+            else:
+                from src.context.embedding_cache import get_embedding_cache
+                try:
+                    vecs = get_embedding_cache().encode(
+                        self._embedder, [c["content"] for c in chunks]
+                    )
+                    embeddings = [list(v) for v in vecs]
+                except Exception:
+                    embeddings = [None] * len(chunks)
         elif self._embedder is not None:
-            # Deadline path: cache hits ONLY — no inference inside the turn.
+            # Default/turn/watcher path: cache hits ONLY — no inference
+            # inside the turn. ``max_elapsed <= 0`` does NOT permit compute;
+            # only the explicit policy flag does.
             from src.context.embedding_cache import get_embedding_cache
             cache = get_embedding_cache()
             embeddings = [
@@ -1010,10 +1027,20 @@ class ChunkIndex:
     # RETRIEVAL
     # ------------------------------------------------------------------
 
-    def search(self, query: str, top_k: int = 3) -> list[ChunkResult]:
+    def search(
+        self, query: str, top_k: int = 3, budget: ContextBudget | None = None
+    ) -> list[ChunkResult]:
         """Hybrid search: KNN vector + BM25, fused via RRF (rank positions),
         then D13 feature re-rank (name/path/hot/test signals) before top_k.
-        top_k defaults to 3 so the layer can't eat the context budget."""
+        top_k defaults to 3 so the layer can't eat the context budget.
+
+        ``budget`` (P1): the turn's shared budget. A BOUNDED budget is
+        cache-only for the query vector — on a cache miss vector retrieval is
+        skipped and FTS/BM25 still returns context; ``embedder.encode`` is
+        NEVER called on the timed path. ``budget=None`` (legacy direct calls)
+        and an explicit ``allow_embedding_compute`` budget may compute the
+        query vector.
+        """
         if self._is_index_empty():
             # Automatic unlimited full-index is DISABLED (it recreated the
             # runaway daemon build): an empty index returns [] and the caller
@@ -1021,7 +1048,7 @@ class ChunkIndex:
             # populates a text/FTS + cached-vector prefix instead.
             return []
 
-        vec = self._search_vector(query, top_k * 3)
+        vec = self._search_vector(query, top_k * 3, budget)
         bm25 = self._search_bm25(query, top_k * 3)
         fused = self._rrf_fuse(vec, bm25, k=RRF_K)
         return self._rerank(fused, query)[:top_k]
@@ -1086,13 +1113,34 @@ class ChunkIndex:
             row = self.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()
         return not row or row[0] == 0
 
-    def _search_vector(self, query: str, limit: int) -> list[tuple[str, float]]:
-        if not self._embedder:
-            return []
-        try:
-            q_emb = self._embedder.encode([query], normalize_embeddings=True).tolist()[0]
-        except Exception:
-            return []
+    def _search_vector(
+        self, query: str, limit: int, budget: ContextBudget | None = None
+    ) -> list[tuple[str, float]]:
+        """Query-vector preparation gated by the inference policy.
+
+        - budget None (legacy direct call): compute the query vector.
+        - budget.allow_embedding_compute (explicit offline): compute it.
+        - otherwise (bounded turn): a cached query vector ONLY; on a cache
+          miss vector retrieval is skipped (BM25 still serves context).
+          ``embedder.encode`` is never called on the timed path.
+        """
+        if budget is None or budget.allow_embedding_compute:
+            self._ensure_embedder()
+            if self._embedder is None:
+                return []
+            try:
+                q_emb = self._embedder.encode(
+                    [query], normalize_embeddings=True
+                ).tolist()[0]
+            except Exception:
+                return []
+        else:
+            if self._embedder is None:
+                return []
+            from src.context.embedding_cache import get_embedding_cache
+            q_emb = get_embedding_cache().lookup(self._embedder, query)
+            if q_emb is None:
+                return []  # no cached query vector -> BM25 only, no inference
         if self.uses_vec:
             return self._search_vec_fast(q_emb, limit)
         return self._search_vec_linear(q_emb, limit)
@@ -1288,7 +1336,10 @@ def build_relevant_chunks_layer(state: dict[str, Any], budget: ContextBudget | N
         index.thread_id_hint = str(state.get("thread_id") or state.get("session_id") or "")
         # Cheap: bounded walk + stat only; re-indexes only changed files.
         index.sync_workspace(budget)
-        chunks = index.search(task, top_k=3)
+        # The SAME shared budget gates retrieval: bounded => cache-only query
+        # vector (BM25/FTS fallback on miss), never embedder.encode on the
+        # timed path.
+        chunks = index.search(task, top_k=3, budget=budget)
         if not chunks:
             return None
     except Exception as exc:

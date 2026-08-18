@@ -203,6 +203,7 @@ class ContextBudget:
         max_file_bytes: int = 1024 * 1024,
         max_considered: int = 1000,
         max_visited: int = 1000,
+        allow_embedding_compute: bool = False,
     ):
         self.max_elapsed = max_elapsed
         self.max_files = max_files
@@ -210,6 +211,12 @@ class ContextBudget:
         self.max_file_bytes = max_file_bytes
         self.max_considered = max_considered
         self.max_visited = max_visited
+        # Explicit inference policy: production/default/turn/watcher budgets
+        # are cache-only for embeddings. ONLY ``unbounded()`` (the explicit
+        # offline maintenance rebuild) may set this True. ``max_elapsed``
+        # being 0 does NOT imply compute permission — that is inferred from
+        # this flag alone.
+        self.allow_embedding_compute = allow_embedding_compute
         self._shared = _SharedState(start=time.perf_counter())
         # The PHYSICAL-read ledger cap is the pipeline cap, never a slice
         # quota — every consumer reserves against the GLOBAL allowance.
@@ -227,12 +234,16 @@ class ContextBudget:
 
     @classmethod
     def unbounded(cls) -> "ContextBudget":
-        """No deadlines at all: for background (non-turn) work — the first-run
-        full index build and the file watcher — where embedding synchronously
-        on a background thread is safe and no bounded receipt is wanted."""
+        """No deadlines and INFERENCE PERMITTED — for EXPLICIT OFFLINE / MANUAL
+        maintenance only (the full delete+rebuild ``index_workspace``). This
+        is the ONLY constructor that sets ``allow_embedding_compute``; product
+        runtime paths (turns, watcher, poll, per-turn sync, search) must never
+        use it, and no automatic path may invoke it. It is the one place
+        synchronous embedding is legitimate (never an abandoned thread)."""
         return cls(
             max_elapsed=0, max_files=2**31, max_bytes=0,
             max_file_bytes=0, max_considered=2**31, max_visited=2**31,
+            allow_embedding_compute=True,
         )
 
     # -- shared state accessors -------------------------------------------------
@@ -445,6 +456,8 @@ class ContextBudget:
         s._quota_bytes = s.max_bytes
         s._quota_considered = s.max_considered
         s._quota_visited = s.max_visited
+        # Slice of an inference-enabled pool keeps the policy.
+        s.allow_embedding_compute = self.allow_embedding_compute
         return s
 
     def mark_truncated(self, reason: str) -> None:
@@ -597,17 +610,42 @@ class GitIgnore:
     Patterns without a ``/`` match the basename at any depth; anchored ``/``
     patterns match from the workspace root; trailing ``/`` is dir-only;
     ``!`` re-includes. Enough for the common vendored/junk exclusions.
+
+    The root ignore file is a CONTENT read and goes through the shared
+    physical-read ledger: it obeys the per-file size cap, counts against the
+    global byte allowance, and is skipped safely when oversized, unreadable,
+    or declined (a missing ledger means unbounded legacy reads).
     """
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self, root: str | Path, budget: ContextBudget | None = None
+    ) -> None:
         self._rules: list[tuple[re.Pattern, bool, bool, bool]] = []
         path = Path(root) / ".gitignore"
         if not path.is_file():
             return
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            return
+        if budget is not None:
+            # Per-file cap + ledger BEFORE reading: a giant .gitignore must
+            # not consume unreported bytes before traversal starts.
+            try:
+                size = path.stat().st_size
+            except OSError:
+                return
+            if budget.max_file_bytes > 0 and size > budget.max_file_bytes:
+                return
+            if budget.expired:
+                return
+            text = bounded_read_text(path, budget)
+            if text is None:
+                return
+            lines = text.splitlines()
+        else:
+            try:
+                lines = path.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
+            except OSError:
+                return
         for raw in lines:
             line = raw.strip()
             if not line or line.startswith("#"):
@@ -656,6 +694,7 @@ class BoundedScan:
         extensions: set[str] | None = None,
         should_stop: Callable[[], bool] | None = None,
         priority: bool = False,
+        budget: ContextBudget | None = None,
     ) -> None:
         self.root = Path(workspace)
         self.limits = limits or ScanLimits()
@@ -667,8 +706,9 @@ class BoundedScan:
         )
         self.should_stop = should_stop
         self.priority = priority
+        self.budget = budget
         self.report = ScanReport()
-        self._gitignore = GitIgnore(self.root)
+        self._gitignore = GitIgnore(self.root, budget)
         self._start = time.perf_counter()
         self._root_resolved = self.root.resolve()
         self._done = False
@@ -925,8 +965,14 @@ def scan_files(
     extensions: set[str] | None = None,
     should_stop: Callable[[], bool] | None = None,
     priority: bool = False,
+    budget: ContextBudget | None = None,
 ) -> tuple[Iterator[Path], ScanReport]:
-    """Convenience wrapper returning ``(iterator, report)``."""
+    """Convenience wrapper returning ``(iterator, report)``.
+
+    ``budget`` is threaded into the root ``.gitignore`` read so the ignore
+    file is metered against the shared physical-read ledger (per-file cap,
+    global byte allowance, deadline).
+    """
     scan = BoundedScan(
         workspace,
         limits=limits,
@@ -934,5 +980,6 @@ def scan_files(
         extensions=extensions,
         should_stop=should_stop,
         priority=priority,
+        budget=budget,
     )
     return iter(scan), scan.report

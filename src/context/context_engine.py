@@ -86,15 +86,22 @@ class TaskClassifier:
         TaskType.RECOVERY: ["try again", "recover from failure", "fix the error"],
     }
 
-    def __init__(self):
+    def __init__(self, allow_embedding_compute: bool = False):
         self._embedder = None
         self._prototype_embs: dict[TaskType, list] = {}
-        try:
-            from src.llm.factory import get_embedder
-            self._embedder = get_embedder()
-            self._warm_up()
-        except Exception:
-            pass
+        # Explicit inference policy: the deadline-bound turn path classifies
+        # with deterministic regex heuristics ONLY. Embedding disambiguation
+        # is enabled exclusively for explicit offline maintenance — never for
+        # an automatic turn (a cache miss must never trigger inference during
+        # context preparation, and no model may load at construction time).
+        self.allow_embedding_compute = allow_embedding_compute
+        if allow_embedding_compute:
+            try:
+                from src.llm.factory import get_embedder
+                self._embedder = get_embedder()
+                self._warm_up()
+            except Exception:
+                pass
 
     def _warm_up(self) -> None:
         for task_type, texts in self.PROTOTYPES.items():
@@ -119,14 +126,24 @@ class TaskClassifier:
             # High-confidence regex hit (multiple patterns matched): skip embedder
             if scores[best] >= 2.0:
                 return best
-            # Embedder available: use it to disambiguate lower-confidence hits
-            if self._embedder and self._prototype_embs:
+            # Embedding disambiguation ONLY under the explicit offline policy
+            # (never on the timed turn path): cache hits alone are not enough
+            # — a miss would encode. Turn path falls through deterministically.
+            if (
+                self.allow_embedding_compute
+                and self._embedder
+                and self._prototype_embs
+            ):
                 return self._embedding_classify(text)
             # No embedder: use best regex match if any signal exists
             if scores[best] >= 1.0:
                 return best
 
-        if self._embedder and self._prototype_embs:
+        if (
+            self.allow_embedding_compute
+            and self._embedder
+            and self._prototype_embs
+        ):
             return self._embedding_classify(text)
 
         return TaskType.CREATE if len(task) > 60 else TaskType.CHAT
@@ -155,12 +172,21 @@ _SHARED_CLASSIFIER: Optional["TaskClassifier"] = None
 _SHARED_CLASSIFIER_LOCK = threading.Lock()
 
 
-def _get_shared_classifier() -> "TaskClassifier":
+def _get_shared_classifier(allow_embedding_compute: bool = False) -> "TaskClassifier":
+    """Shared DETERMINISTIC classifier for the turn path.
+
+    The process-wide instance is inference-free (regex-only), so every
+    session engine pays zero embedding cost and the shared object is safe
+    to reuse. Explicit offline maintenance that genuinely wants embedding
+    disambiguation gets a private instance instead of mutating the shared
+    one."""
     global _SHARED_CLASSIFIER
+    if allow_embedding_compute:
+        return TaskClassifier(allow_embedding_compute=True)
     if _SHARED_CLASSIFIER is None:
         with _SHARED_CLASSIFIER_LOCK:
             if _SHARED_CLASSIFIER is None:
-                _SHARED_CLASSIFIER = TaskClassifier()
+                _SHARED_CLASSIFIER = TaskClassifier(allow_embedding_compute=False)
     return _SHARED_CLASSIFIER
 
 
@@ -292,6 +318,12 @@ class ContextEngine:
         # Task classification is read-only after warm-up; reuse one instance
         # instead of re-encoding ~25 prototype embeddings on every turn.
         self._classifier: Optional[TaskClassifier] = None
+
+        # Explicit inference policy (P1): the whole pre-model context path —
+        # classification, layer scoring/dedup, ambiguity detection, memory
+        # retrieval, history compression — is INFERENCE-FREE on the timed
+        # path. Only explicit offline maintenance may flip this True.
+        self._allow_embedding_compute = False
 
         # Guards ALL public build/record entry points. Engines are
         # session-scoped (chat_graph registry), but the dashboard can fire
@@ -503,7 +535,9 @@ class ContextEngine:
         task = state.get("current_task", "")
         self._current_task = task
         if self._classifier is None:
-            self._classifier = _get_shared_classifier()
+            self._classifier = _get_shared_classifier(
+                allow_embedding_compute=self._allow_embedding_compute
+            )
         task_type = self._classifier.classify(task)
 
         # 2. Differential state check
@@ -725,40 +759,47 @@ class ContextEngine:
         Returns list of (score, message, tokens) sorted by score descending.
         """
         scored = []
-        try:
-            from src.llm.factory import get_embedder
-            embedder = get_embedder()
-            # D2: content-addressed cache. Layer texts (and the repeated task
-            # string across graph turns of one task) are stable turn-over-
-            # turn — the old code re-encoded every layer EVERY turn, once
-            # here and once again in dedup. One batch call computes misses
-            # only; vectors are bit-identical to the old direct calls.
-            all_vecs = get_embedding_cache().encode(
-                embedder, [task] + [msg.content for msg in layers]
-            )
-            task_emb, content_embs = all_vecs[0], all_vecs[1:]
-        except Exception:
-            # Fallback: just use task-type relevance and recency
-            for i, msg in enumerate(layers):
-                name = self._infer_layer_name(msg)
-                rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
-                recency = i / max(len(layers) - 1, 1)
-                score = rel * 0.9 + recency * 0.1
-                scored.append((score, msg, count_tokens([msg], self.model)))
-            scored.sort(key=lambda x: x[0], reverse=True)
-            return scored
+        # Deadline-bound turns score DETERMINISTICALLY (task-type prior +
+        # recency). Semantic similarity requires embeddings — enabled ONLY
+        # by the explicit offline policy; a turn never encodes here, and a
+        # cache miss must never trigger inference.
+        if self._allow_embedding_compute:
+            try:
+                from src.llm.factory import get_embedder
+                embedder = get_embedder()
+                # D2: content-addressed cache. Layer texts (and the repeated task
+                # string across graph turns of one task) are stable turn-over-
+                # turn — the old code re-encoded every layer EVERY turn, once
+                # here and once again in dedup. One batch call computes misses
+                # only; vectors are bit-identical to the old direct calls.
+                all_vecs = get_embedding_cache().encode(
+                    embedder, [task] + [msg.content for msg in layers]
+                )
+                task_emb, content_embs = all_vecs[0], all_vecs[1:]
+            except Exception:
+                task_emb = None
+            if task_emb is not None:
+                for i, msg in enumerate(layers):
+                    name = self._infer_layer_name(msg)
+                    base_rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
 
+                    content_emb = content_embs[i]
+                    semantic_sim = sum(a * b for a, b in zip(task_emb, content_emb))
+
+                    recency = i / max(len(layers) - 1, 1)
+                    score = base_rel * 0.60 + semantic_sim * 0.30 + recency * 0.10
+                    scored.append((score, msg, count_tokens([msg], self.model)))
+
+                scored.sort(key=lambda x: x[0], reverse=True)
+                return scored
+
+        # Deterministic fallback: task-type relevance and recency.
         for i, msg in enumerate(layers):
             name = self._infer_layer_name(msg)
-            base_rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
-
-            content_emb = content_embs[i]
-            semantic_sim = sum(a * b for a, b in zip(task_emb, content_emb))
-
+            rel = self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.5)
             recency = i / max(len(layers) - 1, 1)
-            score = base_rel * 0.60 + semantic_sim * 0.30 + recency * 0.10
+            score = rel * 0.9 + recency * 0.1
             scored.append((score, msg, count_tokens([msg], self.model)))
-
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored
 
@@ -815,7 +856,10 @@ class ContextEngine:
         self, scored_layers: list[tuple[float, SystemMessage, int]]
     ) -> list[tuple[float, SystemMessage, int]]:
         """Remove layers that are semantically identical to a higher-scored layer."""
-        if len(scored_layers) < 2:
+        if len(scored_layers) < 2 or not self._allow_embedding_compute:
+            # Deadline-bound turns dedupe deterministically: semantic
+            # near-duplicate removal requires embeddings (explicit offline
+            # policy only) — a miss would encode, so it is simply skipped.
             return scored_layers
 
         try:
@@ -1313,6 +1357,12 @@ class ContextEngine:
         # If no memory manager is attached, skip this layer.
         if self.memory_manager is None:
             return None
+        if not self._allow_embedding_compute:
+            # Semantic memory retrieval embeds the query — inference is
+            # forbidden during context preparation (explicit offline policy
+            # only). The layer degrades gracefully, exactly as it does when
+            # no memory manager is attached.
+            return None
 
         # Use the current task as the search query.
         query = state.get("current_task", "")
@@ -1356,6 +1406,12 @@ class ContextEngine:
             "create", "add", "delete", "rename", "move",
             "test", "bug", "error", "line", "import", "path",
         ]
+
+        if not self._allow_embedding_compute:
+            # Deadline-bound turns use the deterministic heuristic — the
+            # advanced path encodes the task, which must never happen during
+            # context preparation.
+            return self._detect_ambiguity_fallback(task)
 
         try:
             from src.llm.factory import get_embedder
@@ -1410,6 +1466,10 @@ class ContextEngine:
         Requires memory_manager to have retrieve_tool_memories() method.
         """
         if not self.memory_manager or not hasattr(self.memory_manager, "retrieve_tool_memories"):
+            return None
+        if not self._allow_embedding_compute:
+            # Tool-memory retrieval is semantic (embeds the query) — same
+            # inference-free rule as the long-term memory layer.
             return None
 
         query = state.get("current_task", "")
@@ -1597,7 +1657,10 @@ class ContextEngine:
             )
 
         from src.context.smart_compressor import SmartCompressor
-        compressor = SmartCompressor(model=self.model)
+        compressor = SmartCompressor(
+            model=self.model,
+            allow_embedding_compute=self._allow_embedding_compute,
+        )
         return self._compactor.compact(
             history,
             budget,
@@ -1631,7 +1694,10 @@ class ContextEngine:
             return []
 
         from src.context.smart_compressor import SmartCompressor
-        compressor = SmartCompressor(model=self.model)
+        compressor = SmartCompressor(
+            model=self.model,
+            allow_embedding_compute=self._allow_embedding_compute,
+        )
         compressed = compressor.compress(
             history,
             budget=budget,

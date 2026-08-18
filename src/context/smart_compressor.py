@@ -13,14 +13,24 @@ class SmartCompressor:
     not just message type heuristics.
     """
 
-    def __init__(self, model: str | None = None):
+    def __init__(
+        self,
+        model: str | None = None,
+        allow_embedding_compute: bool = False,
+    ):
         self.model = model
         self._embedder = None
-        try:
-            from src.llm.factory import get_embedder
-            self._embedder = get_embedder()
-        except Exception:
-            pass
+        # Explicit inference policy: the deadline-bound turn path compresses
+        # with the deterministic scoring heuristics below — NO model load and
+        # NO encode during context preparation. Embedding similarity is
+        # enabled exclusively for explicit offline maintenance.
+        self.allow_embedding_compute = allow_embedding_compute
+        if allow_embedding_compute:
+            try:
+                from src.llm.factory import get_embedder
+                self._embedder = get_embedder()
+            except Exception:
+                pass
 
     def compress(
         self,
@@ -44,7 +54,7 @@ class SmartCompressor:
             return []
 
         task_emb = None
-        if self._embedder and task:
+        if self.allow_embedding_compute and self._embedder and task:
             try:
                 task_emb = self._embedder.encode([task], normalize_embeddings=True).tolist()[0]
             except Exception:
@@ -183,8 +193,9 @@ class SmartCompressor:
             if getattr(msg, "name", "") == "think":
                 score -= 10
 
-            # SEMANTIC BOOST: tool outputs relevant to task are critical
-            if task_emb and self._embedder:
+            # SEMANTIC BOOST: tool outputs relevant to task are critical.
+            # Explicit offline policy only — a turn never encodes here.
+            if task_emb and self._embedder and self.allow_embedding_compute:
                 try:
                     msg_emb = self._embedder.encode(
                         [content[:500]], normalize_embeddings=True

@@ -264,6 +264,7 @@ class RepoMap:
             skip_dirs=IGNORED_DIRS,
             should_stop=budget.should_stop,
             priority=True,
+            budget=budget,
         )
         self._last_scan_report = report
 
@@ -684,6 +685,7 @@ class RepoMap:
             limits=budget.to_limits(),
             skip_dirs=IGNORED_DIRS,
             should_stop=budget.should_stop,
+            budget=budget,
         )
         for path in iterator:
             if budget.expired:

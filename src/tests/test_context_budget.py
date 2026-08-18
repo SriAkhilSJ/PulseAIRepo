@@ -337,8 +337,11 @@ def test_budget_exhaustion_partial_context_and_receipt(tmp_path, receipts):
 
     with patch("src.context.chunk_index.get_index", return_value=idx):
         budget = ContextBudget(max_files=10, max_elapsed=0)
+        # "target_0" tokenizes to a BM25 phrase that matches the indexed
+        # symbols target_0..target_9 — the timed path is cache-only, so the
+        # layer must be produced by the text/FTS fallback, not vectors.
         layer = build_relevant_chunks_layer(
-            {"workspace": str(ws), "current_task": "fix target_000",
+            {"workspace": str(ws), "current_task": "fix target_0",
              "thread_id": "t-layer"},
             budget,
         )
@@ -386,12 +389,15 @@ def test_repeated_preparation_uses_cache(tmp_path, index):
     for i in range(20):
         (tmp_path / "ws" / f"f{i:02d}.py").write_text(f"x = {i}\n")
 
-    first = ContextBudget(max_files=100, max_elapsed=0)
+    # ONLY the explicit offline maintenance budget (unbounded) permits
+    # synchronous inference — the timed path is cache-only, so it can never
+    # be the pass that proves cache reuse.
+    first = ContextBudget.unbounded()
     index.sync_workspace(first)
     calls_after_first = FakeEmbedder.calls
     assert calls_after_first > 0
 
-    second = ContextBudget(max_files=100, max_elapsed=0)
+    second = ContextBudget.unbounded()
     changed = index.sync_workspace(second)
     assert changed == 0, "unchanged workspace must not re-index"
     assert FakeEmbedder.calls == calls_after_first, (
@@ -442,8 +448,10 @@ def test_engine_receipt_carries_session_thread_id(tmp_path, receipts):
         budget = ContextBudget(max_files=10, max_elapsed=0)
         eng._active_budget = budget
         eng._active_thread_id = "s-session-42"
+        # "target_0" matches the indexed symbols via the BM25/text fallback
+        # (the timed path never computes a query vector).
         layer = eng._relevant_chunks_layer(
-            {"current_task": "fix target_000", "workspace": str(ws)}
+            {"current_task": "fix target_0", "workspace": str(ws)}
         )
         assert layer is not None
         idx.sync_workspace(budget)
@@ -1057,3 +1065,198 @@ def test_flat_root_50k_unsupported_files_stop_at_cap(tmp_path):
         f"traversal requested {report.entries_requested} entries — must stop at the cap"
     )
     assert report.visited < 50000
+
+
+# ---------------------------------------------------------------------------
+# 25 — EXPLICIT INFERENCE POLICY: ``max_elapsed <= 0`` does NOT grant
+#      embedding permission. Only ContextBudget.unbounded() (offline
+#      maintenance) may set allow_embedding_compute=True. A budget that
+#      disables ONLY the time cap must still be cache-only.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingEmbedder:
+    """Any encode() call is a test failure: raises loudly."""
+
+    def encode(self, texts, normalize_embeddings=True):
+        raise AssertionError("embedder.encode() called on the timed path")
+
+
+def test_zero_elapsed_budget_is_still_cache_only(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for i in range(5):
+        (ws / f"m{i}.py").write_text(f"def target_{i}():\n    return {i}\n")
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "zero.db"),
+        embedder=_RaisingEmbedder(), watch=False,
+    )
+    # Bounded sync with an explicit zero-elapsed budget: text/FTS land,
+    # vectors stay deferred, encode NEVER runs.
+    idx.sync_workspace(ContextBudget(max_elapsed=0, max_files=10))
+    # Bounded retrieval with the same budget: cache-miss query vector is
+    # SKIPPED (BM25 only) — never encode.
+    hits = idx.search(
+        "target_1", top_k=3, budget=ContextBudget(max_elapsed=0)
+    )
+    assert any("target_1" in c.body for c in hits)
+    # unbounded() alone flips the policy — proving the flag is the gate.
+    assert ContextBudget(max_elapsed=0).allow_embedding_compute is False
+    assert ContextBudget.unbounded().allow_embedding_compute is True
+
+
+# ---------------------------------------------------------------------------
+# 26 — BOUNDED RETRIEVAL IS BM25-ONLY: an embedder whose encode() raises
+#      must never be invoked by search() / build_relevant_chunks_layer on
+#      the timed path; FTS/BM25 still returns useful context.
+# ---------------------------------------------------------------------------
+
+
+def test_bounded_retrieval_bm25_only_when_embedder_raises(tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "auth.py").write_text(
+        "def parse_auth_token(raw):\n    return raw.strip().split(':')[0]\n"
+    )
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "bm25.db"),
+        embedder=FakeEmbedder(), watch=False,
+    )
+    idx.sync_workspace(ContextBudget())  # bounded: FTS rows, vectors deferred
+    FakeEmbedder.calls = 0
+    assert FakeEmbedder.calls == 0  # bounded sync never encoded
+    idx._embedder = _RaisingEmbedder()  # any encode from here on fails loudly
+    with patch("src.context.chunk_index.get_index", return_value=idx):
+        msg = build_relevant_chunks_layer(
+            {"current_task": "fix parse_auth_token", "workspace": str(ws)},
+            ContextBudget(),
+        )
+    assert msg is not None, "BM25/text fallback must still produce context"
+    assert "=== RELEVANT CODE CHUNKS ===" in msg.content
+    assert "parse_auth_token" in msg.content  # BM25 found the symbol
+    assert FakeEmbedder.calls == 0  # and encode was never invoked
+
+
+# ---------------------------------------------------------------------------
+# 27 — NO MODEL LOAD AT CONSTRUCTION: opening a production index (directly
+#      or via get_index) and running bounded sync/search must never call
+#      get_embedder() or embedder.encode().
+# ---------------------------------------------------------------------------
+
+
+def test_index_construction_and_bounded_work_never_load_embedder(tmp_path):
+    from unittest.mock import patch
+    from src.context.chunk_index import get_index
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.py").write_text("def alpha():\n    return 1\n")
+
+    def _boom(*a, **k):
+        raise AssertionError("get_embedder() must never load on the timed path")
+
+    with patch("src.llm.factory.get_embedder", side_effect=_boom):
+        idx = ChunkIndex(ws, db_path=str(tmp_path / "lazy.db"), watch=False)
+        idx.sync_workspace(ContextBudget())
+        hits = idx.search("alpha", top_k=3, budget=ContextBudget())
+        assert any("alpha" in c.body for c in hits)
+        assert idx._embedder is None
+        # Production construction path (get_index) is equally lazy.
+        prod = get_index(ws, db_path=str(tmp_path / "prod.db"), watch=False)
+        prod.sync_workspace(ContextBudget())
+        assert prod._embedder is None
+
+
+# ---------------------------------------------------------------------------
+# 28 — FULL ENGINE TURN IS INFERENCE-FREE: with get_embedder() patched to
+#      a sentinel whose encode() raises, ContextEngine.build_ai_messages()
+#      must complete inside the deadline, produce bounded workspace context,
+#      emit exactly one degraded receipt when the workspace cap is reached,
+#      and create no worker threads.
+# ---------------------------------------------------------------------------
+
+
+def test_full_engine_turn_is_inference_free(tmp_path, receipts, monkeypatch):
+    from unittest.mock import patch
+    from langchain_core.messages import SystemMessage
+    from src.context.context_engine import ContextEngine
+    from src.context.convention_learner import ConventionLearner
+
+    _iso_storage = str(tmp_path / "conventions.json")
+    _orig_init = ConventionLearner.__init__
+
+    def _isolated_init(self, storage_path: str | None = None):
+        _orig_init(self, _iso_storage)
+
+    monkeypatch.setattr(ConventionLearner, "__init__", _isolated_init)
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for i in range(400):
+        (ws / f"m{i:03d}.py").write_text(f"def target_{i}():\n    return {i}\n")
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "turn.db"), watch=False)
+
+    def _boom(*a, **k):
+        raise AssertionError("get_embedder() must never load during a turn")
+
+    with patch("src.context.chunk_index.get_index", return_value=idx), \
+            patch("src.llm.factory.get_embedder", side_effect=_boom):
+        eng = ContextEngine(
+            max_tokens=4000, llm=None, memory_manager=None, thread_id="s-infer"
+        )
+        start = time.perf_counter()
+        # A DEBUG task ("bug" regex hit) so the file-walking layers run and
+        # the 400-file tree exceeds the engine's shared scan caps.
+        msgs = eng.build_ai_messages(
+            {"current_task": "fix the bug in target_001", "workspace": str(ws)},
+            SystemMessage(content="You are a coding agent."),
+        )
+        elapsed = time.perf_counter() - start
+
+    assert elapsed < 15.0, f"turn exceeded the deadline: {elapsed:.2f}s"
+    assert msgs, "bounded workspace context must still be produced"
+    assert any("CURRENT TASK" in m.content for m in msgs)
+    # The 400-file tree exceeds the engine's bounded scan caps -> exactly
+    # ONE honest degraded receipt (zero-value receipts are never suppressed).
+    degraded = _degraded(_drain(receipts))
+    assert len(degraded) == 1, f"expected 1 aggregate receipt, got {len(degraded)}"
+    assert degraded[0]["reason"] == "context scan bounded"
+    # No worker threads (embedding or indexing) were created by the turn.
+    names = [t.name for t in threading.enumerate()]
+    assert not any("embed" in n.lower() for n in names), names
+
+
+# ---------------------------------------------------------------------------
+# 29 — .gitignore IS A LEDGER METERED CONTENT READ: the ignore file and the
+#      source reads share ONE global physical-read cap; the ignore is
+#      declined when it does not fit, and the total never exceeds the cap.
+# ---------------------------------------------------------------------------
+
+
+def test_gitignore_and_source_reads_share_one_byte_cap(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for i in range(3):
+        (ws / f"m{i}.py").write_text((f"def f{i}():\n    pass\n") * 40)
+    (ws / ".gitignore").write_text("junk\n" * 60)
+    ignore_bytes = len((ws / ".gitignore").read_bytes())  # Windows CRLF: exact
+    src_bytes = len((ws / "m0.py").read_bytes())
+    assert src_bytes > ignore_bytes + 50, "test setup: sources must not fit"
+
+    # Cap smaller than the ignore alone: ignore declined AND sources declined.
+    tight = ContextBudget(max_elapsed=0, max_bytes=ignore_bytes - 50)
+    idx = ChunkIndex(ws, db_path=str(tmp_path / "gi.db"), watch=False)
+    idx.sync_workspace(tight)
+    assert tight.read_bytes == 0
+    assert tight.read_files == 0
+
+    # Cap that admits the ignore but not the sources: the ignore IS metered,
+    # no source is read whole, and the total never exceeds the cap.
+    mid = ContextBudget(max_elapsed=0, max_bytes=ignore_bytes + 50)
+    idx2 = ChunkIndex(ws, db_path=str(tmp_path / "gi2.db"), watch=False)
+    idx2.sync_workspace(mid)
+    assert mid.read_bytes <= ignore_bytes + 50, "physical reads must never exceed the cap"
+    assert mid.read_bytes >= ignore_bytes, "the .gitignore must be metered, not free"
+    assert mid.read_files == 1, "only the .gitignore was physically read"
