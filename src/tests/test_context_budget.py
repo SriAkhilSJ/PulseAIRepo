@@ -696,6 +696,9 @@ def test_considered_cap_bounds_unsupported_files(tmp_path):
     assert report.truncated is True
     assert report.reason == "considered"
     assert report.considered <= 1000
+    assert report.entries_requested <= 1000, (
+        f"entries REQUESTED was {report.entries_requested} — must stop at the cap"
+    )
     assert report.visited < 20000, "must stop at the considered cap, not walk everything"
 
 
@@ -714,6 +717,11 @@ def test_visited_cap_bounds_directory_heavy_tree(tmp_path):
     assert report.truncated is True
     assert report.reason == "visited"
     assert report.visited <= 1000
+    assert report.entries_requested <= 1000, (
+        f"directory entries REQUESTED was {report.entries_requested} — "
+        "the traversal must stop pulling entries at the cap, not materialize "
+        "the whole directory first"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -882,3 +890,170 @@ def test_engine_emits_one_aggregate_receipt(tmp_path, receipts, monkeypatch):
     assert set(comps) == {"repo_map", "chunk_index", "convention_learner"}, (
         "all three walkers must nest inside the single receipt"
     )
+
+
+# ---------------------------------------------------------------------------
+# 21 — the shared ledger is genuinely synchronized: concurrent reservations
+#      can never let combined SUCCESSFUL reads exceed the global byte cap.
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_reservations_never_exceed_cap():
+    budget = ContextBudget(max_bytes=1000, max_elapsed=0)
+    n_threads = 8
+    barrier = threading.Barrier(n_threads)
+    outcomes: list[int] = []
+
+    def _worker():
+        # All threads slam the FINAL allowance at once — a pre-lock check
+        # (read-then-increment) would let several of them over-reserve.
+        barrier.wait()
+        token = budget.reserve_read(250)
+        if token is None:
+            outcomes.append(0)
+            return
+        budget.settle_read(token, 250)
+        outcomes.append(250)
+
+    threads = [threading.Thread(target=_worker) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert budget.read_bytes <= 1000, (
+        f"concurrent reservations exceeded the cap: {budget.read_bytes}"
+    )
+    assert sum(outcomes) <= 1000, "combined successful reads exceeded the cap"
+    assert len(outcomes) == n_threads
+    assert 0 < budget.read_files <= 4  # at most 1000/250 succeeded
+    # The ledger must not leak: after every settle, nothing is outstanding.
+    assert budget._shared.read_reserved == 0
+
+
+# ---------------------------------------------------------------------------
+# 22 — reservation lifecycle: settle records ACTUAL bytes (clamped to the
+#      reservation), refund restores the allowance, exhaustion declines.
+# ---------------------------------------------------------------------------
+
+
+def test_ledger_refund_restores_allowance():
+    budget = ContextBudget(max_bytes=100, max_elapsed=0)
+    token = budget.reserve_read(100)
+    assert token is not None
+    budget.refund_read(token)  # open/read failure: nothing counted
+    assert budget.read_files == 0
+    assert budget.read_bytes == 0
+    assert budget._shared.read_reserved == 0
+    # Allowance fully restored: a fresh full-size reservation succeeds.
+    assert budget.reserve_read(100) is not None
+
+
+def test_ledger_short_read_settles_actual_bytes():
+    budget = ContextBudget(max_bytes=100, max_elapsed=0)
+    token = budget.reserve_read(100)
+    budget.settle_read(token, 60)  # short read: only actual bytes counted
+    assert budget.read_bytes == 60
+    assert budget.read_files == 1
+    # The unused 40 is implicitly returned: a 40-byte reservation succeeds,
+    # a 41-byte one does not (60 + 40 == cap).
+    assert budget.reserve_read(40) is not None
+    assert budget.reserve_read(41) is None
+
+
+def test_ledger_file_growth_after_stat_cannot_exceed_reservation():
+    budget = ContextBudget(max_bytes=100, max_elapsed=0)
+    token = budget.reserve_read(100)  # stat() said 100 bytes
+    budget.settle_read(token, 500)    # file GREW before/during the read
+    assert budget.read_bytes == 100, "growth must be clamped to the reservation"
+    assert budget.read_files == 1
+    assert budget.reserve_read(1) is None, "cap fully consumed"
+
+
+def test_ledger_reserve_exhausted_returns_none():
+    budget = ContextBudget(max_bytes=10, max_elapsed=0)
+    assert budget.reserve_read(10) is not None
+    assert budget.reserve_read(1) is None
+    assert budget.read_files == 0  # declined reservations count no reads
+
+
+# ---------------------------------------------------------------------------
+# 23 — automatic runtime paths must never construct or invoke an UNBOUNDED
+#      budget: sync_workspace(None) and sync_file(None) default BOUNDED.
+# ---------------------------------------------------------------------------
+
+
+def test_sync_workspace_none_defaults_to_bounded(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for i in range(3000):
+        (ws / f"f{i:04d}.py").write_text("x = 1\n")
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "auto.db"), watch=False,
+        embedder=FakeEmbedder(),
+    )
+    idx.sync_workspace()  # NO budget: must use the bounded production default
+    budget = idx._last_budget
+    assert budget is not None
+    assert budget.max_elapsed > 0, "None must not silently mean unbounded"
+    assert budget.max_files != 2**31
+    assert idx._last_scan_report.truncated is True, (
+        "3000 files must be capped by the default budget"
+    )
+    idx.stop_watcher()
+
+
+def test_sync_file_none_is_bounded_and_cache_only(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    f = ws / "a.py"
+    f.write_text("def f():\n    pass\n")
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "sf.db"), watch=False,
+        embedder=_HungEmbedder(),
+    )
+    idx.thread_id_hint = "t-sf"
+    started = time.perf_counter()
+    idx.sync_file(f)  # NO budget: bounded default => cache-only embed
+    assert time.perf_counter() - started < 8, (
+        "a hung embedder must never be launched by sync_file(None)"
+    )
+    live = [t for t in threading.enumerate() if "chunk-embed" in t.name]
+    assert live == []
+    vec_table = "chunk_vec" if idx.uses_vec else "chunk_vec_fallback"
+    nvec = idx.conn.execute(
+        f"SELECT COUNT(*) FROM {vec_table}"
+    ).fetchone()[0]
+    assert nvec == 0, "sync_file(None) must not launch model inference"
+    ntext = idx.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()[0]
+    assert ntext > 0, "text must still land (deferral is not data loss)"
+    idx.stop_watcher()
+
+
+# ---------------------------------------------------------------------------
+# 24 — traversal is incrementally entry-bounded: a FLAT root with 50,000
+#      unsupported files stops REQUESTING entries at the cap (entries_requested
+#      is what the OS was actually asked to serve).
+# ---------------------------------------------------------------------------
+
+
+def test_flat_root_50k_unsupported_files_stop_at_cap(tmp_path):
+    for i in range(50000):
+        (tmp_path / f"u{i:05d}.xyz").write_text("junk\n")
+    it, report = scan_files(
+        tmp_path,
+        limits=ScanLimits(
+            max_considered=1000, max_visited=2000,
+            max_files=1000, max_bytes=0, max_elapsed=0,
+        ),
+        extensions={".py"},
+    )
+    got = list(it)
+    assert got == []
+    assert report.truncated is True
+    assert report.reason == "considered"
+    assert report.considered <= 1000
+    assert report.entries_requested <= 1000, (
+        f"traversal requested {report.entries_requested} entries — must stop at the cap"
+    )
+    assert report.visited < 50000

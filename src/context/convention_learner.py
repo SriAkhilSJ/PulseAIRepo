@@ -148,33 +148,15 @@ class ConventionLearner:
         """Read one convention-sample file through the shared physical-read
         ledger. Returns None (declined) when the global allowance is
         exhausted, so convention sampling can never read past the cap."""
-        budget = getattr(self, "_active_budget", None)
-        try:
-            size = f.stat().st_size
-        except OSError:
-            return None
-        if budget is not None and not budget.reserve_read(size):
-            return None
-        try:
-            return f.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            return None
+        from src.context.bounded_scan import bounded_read_text
+        return bounded_read_text(f, getattr(self, "_active_budget", None))
 
     def _read_config(self, path: Path) -> str | None:
         """Read a small config file (pyproject.toml, requirements.txt, ...)
         through the shared physical-read ledger, exactly like sample reads.
         Returns None when declined or unreadable."""
-        budget = getattr(self, "_active_budget", None)
-        try:
-            size = path.stat().st_size
-        except OSError:
-            return None
-        if budget is not None and not budget.reserve_read(size):
-            return None
-        try:
-            return path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            return None
+        from src.context.bounded_scan import bounded_read_text
+        return bounded_read_text(path, getattr(self, "_active_budget", None))
 
     def get_conventions_text(self, workspace: str = ".", budget: ContextBudget | None = None) -> str:
         """

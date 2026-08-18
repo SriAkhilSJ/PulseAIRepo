@@ -333,14 +333,11 @@ class RepoMap:
         exhausted the file is described without symbols rather than read past
         the cap."""
         import ast
-        try:
-            size = path.stat().st_size
-        except OSError:
-            return "", 0, 0
-        if budget is not None and not budget.reserve_read(size):
+        from src.context.bounded_scan import bounded_read_text
+        content = bounded_read_text(path, budget)
+        if content is None:
             return "", 0, 0
         try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
             tree = ast.parse(content)
         except Exception:
             return "", 0, 0
@@ -433,18 +430,12 @@ class RepoMap:
                 break
             if f.suffix != ".py":
                 continue
+            from src.context.bounded_scan import bounded_read_text
+            src = bounded_read_text(f, budget)
+            if src is None:
+                continue  # unreadable OR the global read ledger is exhausted
             try:
-                size = f.stat().st_size
-            except (OSError, ValueError):
-                continue
-            if budget is not None and not budget.reserve_read(size):
-                break  # global read ledger exhausted — no further reads
-            try:
-                src = f.read_text(encoding="utf-8", errors="ignore")
                 rel = f.relative_to(self.root)
-            except (OSError, ValueError):
-                continue
-            try:
                 targets = _extract_py_import_edges(src, rel, self.root)
             except Exception:
                 continue
@@ -477,14 +468,11 @@ class RepoMap:
                 break
             if f.suffix != ".py":
                 continue
+            from src.context.bounded_scan import bounded_read_text
+            content = bounded_read_text(f, budget)
+            if content is None:
+                continue  # unreadable OR the global read ledger is exhausted
             try:
-                size = f.stat().st_size
-            except OSError:
-                continue
-            if budget is not None and not budget.reserve_read(size):
-                break  # global read ledger exhausted — no further reads
-            try:
-                content = f.read_text(encoding="utf-8", errors="ignore")
                 tree = ast.parse(content)
             except Exception:
                 continue

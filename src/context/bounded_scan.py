@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,6 +91,7 @@ class ScanLimits:
 @dataclass
 class ScanReport:
     visited: int = 0            # entries examined (dirs + files)
+    entries_requested: int = 0  # directory entries actually pulled from the OS
     files: int = 0              # files consumed (yielded)
     bytes: int = 0              # aggregate stat size of consumed files
     elapsed: float = 0.0
@@ -128,6 +130,19 @@ class ScanReport:
 
 
 @dataclass
+class ReadReservation:
+    """One granted slice of the shared physical-read ledger.
+
+    The caller must read NO MORE than ``reserved`` bytes and then call
+    ``settle_read`` (success — actual bytes, clamped to the reservation) or
+    ``refund_read`` (open/read failure). A reservation that is neither
+    settled nor refunded leaks its allowance forever.
+    """
+
+    reserved: int = 0
+
+
+@dataclass
 class _SharedState:
     """ONE state shared by every slice of a single context preparation.
 
@@ -135,14 +150,21 @@ class _SharedState:
     skip/error aggregates, truncation, and degraded-receipt emission all live
     here — slices reference THIS object, never copies, so no counter can be
     double-spent and exactly one receipt fires per build.
+
+    ``lock`` guards every shared mutation (ledger reservation/settlement,
+    cancellation, aggregation, truncation, component summaries, receipt
+    claim): concurrent consumers — the engine build and the file watcher can
+    overlap in time — must never race past the byte cap or double-emit.
     """
 
     start: float
+    lock: threading.RLock = field(default_factory=threading.RLock)
     cancelled: bool = False
     extra_stop: Callable[[], bool] | None = None
     considered_files: int = 0     # file entries examined (all walkers)
-    read_files: int = 0           # PHYSICAL read operations downstream
-    read_bytes: int = 0           # bytes actually read downstream
+    read_files: int = 0           # successful PHYSICAL content reads downstream
+    read_bytes: int = 0           # bytes ACTUALLY read downstream (settled)
+    read_reserved: int = 0        # outstanding (unsettled) reservations
     skipped_dirs: int = 0
     skipped_hidden: int = 0
     skipped_symlinks: int = 0
@@ -242,7 +264,8 @@ class ContextBudget:
 
     @cancelled.setter
     def cancelled(self, value: bool) -> None:
-        self._shared.cancelled = bool(value)
+        with self._shared.lock:
+            self._shared.cancelled = bool(value)
 
     @property
     def extra_stop(self) -> Callable[[], bool] | None:
@@ -250,7 +273,8 @@ class ContextBudget:
 
     @extra_stop.setter
     def extra_stop(self, value: Callable[[], bool] | None) -> None:
-        self._shared.extra_stop = value
+        with self._shared.lock:
+            self._shared.extra_stop = value
 
     @property
     def read_files(self) -> int:
@@ -278,7 +302,8 @@ class ContextBudget:
 
     @collect_receipts.setter
     def collect_receipts(self, value: bool) -> None:
-        self._shared.collect_receipts = bool(value)
+        with self._shared.lock:
+            self._shared.collect_receipts = bool(value)
 
     @property
     def skipped_dirs(self) -> int:
@@ -308,31 +333,57 @@ class ContextBudget:
         if self._shared.extra_stop is not None:
             try:
                 if self._shared.extra_stop():
-                    self._shared.cancelled = True
+                    with self._shared.lock:
+                        self._shared.cancelled = True
                     return True
             except Exception:
                 pass  # a failing hook must never block the pipeline
         return False
 
-    def reserve_read(self, size: int) -> bool:
+    def reserve_read(self, size: int) -> ReadReservation | None:
         """Atomically reserve ``size`` bytes of the shared physical-read
         ledger BEFORE the read happens.
 
-        Returns False (and reserves nothing) when the GLOBAL allowance is
-        exhausted — the caller must decline or truncate, never read past the
-        cap. ``read_files``/``read_bytes`` therefore count every physical
-        read across every consumer (a file read by two consumers counts
-        twice) and the pipeline total can never exceed ``max_bytes``.
+        Returns a ``ReadReservation`` (or ``None`` when the GLOBAL allowance
+        is exhausted — the caller must decline, never read past the cap). The
+        caller must then read NO MORE than ``reservation.reserved`` bytes and
+        settle or refund it. Combined successful reads across ALL consumers
+        (a file read by two consumers counts twice) can never exceed
+        ``max_bytes``, even when several threads reserve concurrently.
         """
         size = max(0, int(size))
-        if size <= 0:
-            return True
-        cap = self._ledger_bytes_cap
-        if cap > 0 and self._shared.read_bytes + size > cap:
-            return False
-        self._shared.read_files += 1
-        self._shared.read_bytes += size
-        return True
+        sh = self._shared
+        with sh.lock:
+            cap = self._ledger_bytes_cap
+            if (
+                cap > 0
+                and sh.read_bytes + sh.read_reserved + size > cap
+            ):
+                return None
+            sh.read_reserved += size
+            return ReadReservation(reserved=size)
+
+    def settle_read(
+        self, reservation: ReadReservation, actual_bytes: int
+    ) -> None:
+        """Record a SUCCESSFUL physical read of ``actual_bytes`` (clamped to
+        the reservation: a file that grew after its stat() can never bill
+        more than what was reserved). Counts one successful read operation.
+        """
+        sh = self._shared
+        with sh.lock:
+            actual = min(max(0, int(actual_bytes)), reservation.reserved)
+            sh.read_reserved = max(0, sh.read_reserved - reservation.reserved)
+            sh.read_files += 1
+            sh.read_bytes += actual
+
+    def refund_read(self, reservation: ReadReservation) -> None:
+        """Return an unsettled reservation after an open/read failure — no
+        read op and no bytes are counted, and the allowance is restored.
+        """
+        sh = self._shared
+        with sh.lock:
+            sh.read_reserved = max(0, sh.read_reserved - reservation.reserved)
 
     def absorb(self, report: "ScanReport") -> None:
         """Fold ONE bounded scan's consumption into this slice's quota AND the
@@ -342,19 +393,20 @@ class ContextBudget:
         self.consumed_considered += report.considered
         self.consumed_visited += report.visited
         sh = self._shared
-        sh.considered_files += report.considered
-        sh.skipped_dirs += report.skipped_dirs
-        sh.skipped_hidden += report.skipped_hidden_files
-        sh.skipped_symlinks += report.skipped_symlinks
-        sh.skipped_oversize += report.skipped_oversize
-        sh.skipped_ext += report.skipped_ext
-        sh.skipped_binary += report.skipped_binary
-        sh.skipped_generated += report.skipped_generated
-        sh.skipped_gitignore += report.skipped_gitignore
-        if report.truncated:
-            sh.truncated = True
-            if sh.reason is None:
-                sh.reason = report.reason
+        with sh.lock:
+            sh.considered_files += report.considered
+            sh.skipped_dirs += report.skipped_dirs
+            sh.skipped_hidden += report.skipped_hidden_files
+            sh.skipped_symlinks += report.skipped_symlinks
+            sh.skipped_oversize += report.skipped_oversize
+            sh.skipped_ext += report.skipped_ext
+            sh.skipped_binary += report.skipped_binary
+            sh.skipped_generated += report.skipped_generated
+            sh.skipped_gitignore += report.skipped_gitignore
+            if report.truncated:
+                sh.truncated = True
+                if sh.reason is None:
+                    sh.reason = report.reason
 
     def to_limits(self) -> ScanLimits:
         """Remaining allowance of THIS budget's quota (0 = zero, not unlimited)."""
@@ -397,34 +449,94 @@ class ContextBudget:
 
     def mark_truncated(self, reason: str) -> None:
         """Record that this preparation's work was cut short (shared flag)."""
-        self._shared.truncated = True
-        if self._shared.reason is None:
-            self._shared.reason = reason
+        sh = self._shared
+        with sh.lock:
+            sh.truncated = True
+            if sh.reason is None:
+                sh.reason = reason
 
     def record_component(self, name: str, report: "ScanReport") -> None:
         """Nest one walker's truncated scan inside the build-level receipt."""
-        self._shared.components[name] = {
-            "files_considered": report.considered,
-            "files_read": report.files,
-            "bytes_read": report.bytes,
-            "truncated": report.truncated,
-            "reason": report.reason,
-        }
+        sh = self._shared
+        with sh.lock:
+            sh.components[name] = {
+                "files_considered": report.considered,
+                "files_read": report.files,
+                "bytes_read": report.bytes,
+                "truncated": report.truncated,
+                "reason": report.reason,
+            }
 
     def component_summaries(self) -> dict:
-        return dict(self._shared.components)
+        sh = self._shared
+        with sh.lock:
+            return dict(sh.components)
 
     def emit_degraded(self, payload: dict) -> bool:
-        """Emit the structured ``runtime.degraded`` receipt ONCE per build."""
-        if self._shared.degraded_emitted:
-            return False
-        self._shared.degraded_emitted = True
+        """Emit the structured ``runtime.degraded`` receipt ONCE per build.
+        The claim is atomic: concurrent emitters cannot double-fire."""
+        sh = self._shared
+        with sh.lock:
+            if sh.degraded_emitted:
+                return False
+            sh.degraded_emitted = True
         try:
             from src.dashboard.event_bus import event_bus
             event_bus.emit("runtime.degraded", payload)
         except Exception:
             pass
         return True
+
+
+def bounded_read_bytes(
+    path: Path, budget: ContextBudget | None = None
+) -> bytes | None:
+    """Read one file through the shared physical-read ledger.
+
+    Reserves the stat size atomically, reads NO MORE than the reservation (a
+    file that grew after stat() can never bill past it), settles the ACTUAL
+    bytes read on success or refunds on open/read failure. Returns ``None``
+    when the file is gone/unreadable or the global allowance is exhausted.
+    Every content read in the pipeline goes through this (or
+    ``bounded_read_text``), so ``budget.read_bytes`` is the honest total of
+    bytes ACTUALLY read and the global cap can never be exceeded — even by
+    concurrent consumers.
+
+    ``budget=None`` means NO ledger: the file is read fully and nothing is
+    counted (legacy standalone behaviour). Every product runtime path passes
+    an explicit budget — the bounded default is constructed by the CALLER
+    (e.g. ``ChunkIndex.sync_file``), never silently here.
+    """
+    if budget is None:
+        try:
+            return path.read_bytes()
+        except OSError:
+            return None
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    reservation = budget.reserve_read(size)
+    if reservation is None:
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read(reservation.reserved)
+    except OSError:
+        budget.refund_read(reservation)
+        return None
+    budget.settle_read(reservation, len(data))
+    return data
+
+
+def bounded_read_text(
+    path: Path, budget: ContextBudget | None = None
+) -> str | None:
+    """``bounded_read_bytes`` decoded as lossy UTF-8 text."""
+    data = bounded_read_bytes(path, budget)
+    if data is None:
+        return None
+    return data.decode("utf-8", errors="ignore")
 
 
 def default_priority(path: Path) -> tuple[int, int, int, str]:
@@ -689,64 +801,90 @@ class BoundedScan:
         return suffix in GENERATED_SUFFIXES
 
     def _iter_direct(self) -> Iterator[Path]:
-        for dirpath, dirnames, filenames in os.walk(
-            self.root, topdown=True, followlinks=False
-        ):
+        """Incremental scandir traversal: entries are pulled ONE AT A TIME and
+        each is counted against the visited/considered caps BEFORE filtering,
+        so a flat root with 50,000 unsupported entries stops REQUESTING
+        entries at the cap instead of materializing the whole directory first
+        (``os.walk`` builds complete dirnames/filenames lists up front). The
+        scandir handle is closed the moment the cap is hit, so the OS never
+        serves the remaining entries.
+        """
+        pending: list[Path] = [self.root]
+        while pending:
             if self._check_limits():
                 return
+            dirpath = pending.pop()
             self.report.visited += 1
-            pruned: list[str] = []
-            for dirname in dirnames:
-                if dirname.startswith(".") or self._is_skip_dir(dirname):
-                    self.report.skipped_dirs += 1
-                    continue
-                cand = self.root / dirpath / dirname
-                if self.limits.skip_symlinks and self._is_link(cand):
-                    self.report.skipped_symlinks += 1
-                    continue
-                if self.limits.skip_symlinks and os.name == "nt" and not self._within_root(cand):
-                    self.report.skipped_symlinks += 1
-                    continue
-                rel_dir = os.path.relpath(cand, self.root)
-                if rel_dir != "." and self._gitignore.ignored(rel_dir, is_dir=True):
-                    self.report.skipped_gitignore += 1
-                    continue
-                pruned.append(dirname)
-            dirnames[:] = pruned
-
-            for filename in filenames:
-                if self._check_limits():
-                    return
-                self.report.visited += 1
-                self.report.considered += 1
-                if filename.startswith("."):
-                    self.report.skipped_hidden_files += 1
-                    continue
-                if self._skip_generated_name(filename):
-                    self.report.skipped_generated += 1
-                    continue
-                path = Path(dirpath) / filename
-                if self.limits.skip_symlinks and self._is_link(path):
-                    self.report.skipped_symlinks += 1
-                    continue
-                if self.limits.skip_symlinks and os.name == "nt" and not self._within_root(path):
-                    self.report.skipped_symlinks += 1
-                    continue
-                if self.extensions is not None and path.suffix.lower() not in self.extensions:
+            try:
+                scandir_it = os.scandir(dirpath)
+            except OSError:
+                continue  # unreadable dir: skip, never fail the scan
+            with scandir_it:
+                for entry in scandir_it:
+                    if self._check_limits():
+                        return
+                    self.report.visited += 1
+                    self.report.entries_requested += 1
+                    name = entry.name
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if is_dir:
+                        if name.startswith(".") or self._is_skip_dir(name):
+                            self.report.skipped_dirs += 1
+                            continue
+                        cand = dirpath / name
+                        if self.limits.skip_symlinks and self._is_link(cand):
+                            self.report.skipped_symlinks += 1
+                            continue
+                        if (
+                            self.limits.skip_symlinks
+                            and os.name == "nt"
+                            and not self._within_root(cand)
+                        ):
+                            self.report.skipped_symlinks += 1
+                            continue
+                        rel_dir = os.path.relpath(cand, self.root)
+                        if rel_dir != "." and self._gitignore.ignored(rel_dir, is_dir=True):
+                            self.report.skipped_gitignore += 1
+                            continue
+                        pending.append(cand)
+                        continue
+                    # file entry
+                    self.report.considered += 1
+                    if name.startswith("."):
+                        self.report.skipped_hidden_files += 1
+                        continue
+                    if self._skip_generated_name(name):
+                        self.report.skipped_generated += 1
+                        continue
+                    path = dirpath / name
+                    if self.limits.skip_symlinks and self._is_link(path):
+                        self.report.skipped_symlinks += 1
+                        continue
+                    if (
+                        self.limits.skip_symlinks
+                        and os.name == "nt"
+                        and not self._within_root(path)
+                    ):
+                        self.report.skipped_symlinks += 1
+                        continue
+                    if self.extensions is not None and path.suffix.lower() not in self.extensions:
+                        if path.suffix.lower() in BINARY_EXTENSIONS:
+                            self.report.skipped_binary += 1
+                        else:
+                            self.report.skipped_ext += 1
+                        continue
                     if path.suffix.lower() in BINARY_EXTENSIONS:
                         self.report.skipped_binary += 1
-                    else:
-                        self.report.skipped_ext += 1
-                    continue
-                if path.suffix.lower() in BINARY_EXTENSIONS:
-                    self.report.skipped_binary += 1
-                    continue
-                rel_file = os.path.relpath(path, self.root)
-                if self._gitignore.ignored(rel_file, is_dir=False):
-                    self.report.skipped_gitignore += 1
-                    continue
-                if self._consume(path):
-                    yield path
+                        continue
+                    rel_file = os.path.relpath(path, self.root)
+                    if self._gitignore.ignored(rel_file, is_dir=False):
+                        self.report.skipped_gitignore += 1
+                        continue
+                    if self._consume(path):
+                        yield path
 
     def _iter_priority(self) -> Iterator[Path]:
         """Collect candidates (bounded), then emit in priority order."""

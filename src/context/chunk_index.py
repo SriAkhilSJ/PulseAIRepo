@@ -369,7 +369,6 @@ class ChunkIndex:
         # for single-file sync transactions.
         self.conn.execute("PRAGMA busy_timeout=5000")
         self._write_lock = threading.RLock()
-        self._indexing_thread: Optional[threading.Thread] = None
         self._last_scan_report = None
         self._last_budget: ContextBudget | None = None
         self.thread_id_hint: str | None = None
@@ -492,13 +491,14 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def index_workspace(self, budget: ContextBudget | None = None) -> None:
-        """Full rebuild. Blocking; used by the background thread on first run.
-
-        ``budget`` is the shared initial-context deadline (P1): the walk and
-        every downstream read/chunk/embed stop once it expires, so a huge
-        workspace can never hold a cold start hostage. ``None`` (the
-        background first-run thread) means UNBOUNDED: the full build embeds
-        everything synchronously — never an abandoned inference thread.
+        """FULL REBUILD — explicit offline/maintenance only. Deletes every
+        row first, so it is NOT resumable and NO product runtime path may
+        invoke it automatically (empty-index search, the engine, the watcher
+        and session startup all use the bounded incremental ``sync_workspace``
+        instead). ``None`` means ``ContextBudget.unbounded()`` BY DESIGN:
+        this is the one place a full delete+rebuild is legitimate, so it
+        embeds everything synchronously — never an abandoned inference
+        thread. Pass an explicit budget if you need a maintenance run bounded.
         """
         budget = budget if budget is not None else ContextBudget.unbounded()
         with self._write_lock:
@@ -544,13 +544,7 @@ class ChunkIndex:
             self.conn.commit()
         self._emit_degraded_scan(budget)
 
-    def _trigger_background_index(self) -> None:
-        """Non-blocking first-run index; search() returns [] while it builds."""
-        if self._indexing_thread and self._indexing_thread.is_alive():
-            return
-        t = threading.Thread(target=self.index_workspace, daemon=True)
-        self._indexing_thread = t
-        t.start()
+
 
     # ------------------------------------------------------------------
     # FILE WATCHER (optional, watchdog-backed with polling fallback)
@@ -603,6 +597,10 @@ class ChunkIndex:
 
     def _apply_queued_changes(self) -> None:
         to_sync, to_remove = self._drain_pending_syncs()
+        # ONE bounded budget per debounce batch: watcher event handling must
+        # enforce the per-file size cap and NEVER launch unbounded embedding
+        # inference (bounded budget => text/FTS + cached vectors only).
+        budget = ContextBudget()
         for path in to_remove:
             try:
                 p = Path(path)
@@ -614,7 +612,7 @@ class ChunkIndex:
             try:
                 p = Path(path)
                 if p.exists() and self.workspace in p.resolve().parents:
-                    self.sync_file(p)
+                    self.sync_file(p, budget)
             except Exception as exc:
                 print(f"[ChunkIndex] watcher sync failed for {path}: {exc}")
 
@@ -713,37 +711,39 @@ class ChunkIndex:
     def _read_source(self, file_path: Path, budget: ContextBudget | None = None) -> str | None:
         """Read ONE source file through the shared physical-read ledger.
 
-        Reserves the file's size BEFORE reading; returns None when the file
-        vanished between scan and read OR when the global 16 MiB physical-read
-        allowance is exhausted (the caller must decline, never read past the
-        cap). Every content read in the pipeline goes through this, so
-        ``budget.read_bytes`` is the honest global physical-read total.
+        Reserves the file's stat size atomically BEFORE reading, reads NO
+        MORE than the reservation (a file that grew after stat() cannot bill
+        past it), then settles the ACTUAL bytes read or refunds on failure.
+        Returns None when the file vanished / is unreadable OR the global
+        physical-read allowance is exhausted (the caller must decline, never
+        read past the cap). ``budget.read_bytes`` is therefore the honest
+        total of bytes ACTUALLY read.
         """
-        try:
-            size = file_path.stat().st_size
-        except OSError:
-            return None
-        if budget is not None and not budget.reserve_read(size):
-            return None
-        try:
-            return file_path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            return None
+        from src.context.bounded_scan import bounded_read_text
+        return bounded_read_text(file_path, budget)
 
     def sync_file(self, file_path: Path, budget: ContextBudget | None = None) -> None:
         """Atomic incremental re-index of one file (chunks, FTS, AND import
         edges — one transaction, so an interrupted sync never splits them).
 
-        ``budget`` (P1): the shared initial-context deadline. When it expired
-        the file is left for a later turn (no deletes, no embed). The file is
-        read ONCE and the decoded text is reused for both chunk extraction
-        and import-edge resolution — no avoidable second physical read.
+        ``budget`` (P1): the shared initial-context deadline. ``None`` means
+        the BOUNDED production default (a watcher event or a caller that
+        forgot a budget must never read or embed without limits). When the
+        budget expired the file is left for a later turn (no deletes, no
+        embed), and the per-file size cap is enforced here so a watcher event
+        for a giant file cannot read it whole. The file is read ONCE and the
+        decoded text is reused for both chunk extraction and import-edge
+        resolution — no avoidable second physical read.
         """
+        budget = budget if budget is not None else ContextBudget()
         try:
-            mtime = file_path.stat().st_mtime
+            st = file_path.stat()
         except OSError:
             return  # disappeared / unreadable between scan and read
-        if budget is not None and budget.expired:
+        mtime = st.st_mtime
+        if budget.max_file_bytes > 0 and st.st_size > budget.max_file_bytes:
+            return  # watcher/per-file size cap: skip, never read past it
+        if budget.expired:
             return
         source = self._read_source(file_path, budget)
         if source is None:
@@ -812,16 +812,16 @@ class ChunkIndex:
         ``budget`` (P1): the walk is bounded by the scan limits AND the same
         shared deadline is checked before each file's read/chunk/embed, so a
         huge or rapidly-changing workspace returns partial context instead of
-        blocking the first model call. ``None`` (watcher poll / tests) means
-        UNBOUNDED — a background sync may take its time, and embedding runs
-        synchronously (never an abandoned thread).
+        blocking the first model call. ``None`` means the BOUNDED production
+        default (watcher poll, per-turn sync, tests): a background or
+        automatic sync must never read or embed without limits.
 
         GHOST-PRUNING SAFETY: ``indexed - on_disk`` deletion only runs after a
         COMPLETE scan. When the scan was truncated, cancelled, or the deadline
         expired, ``on_disk`` is only a bounded prefix — anything outside it
         would be mistaken for a deleted file and wrongly pruned.
         """
-        budget = budget if budget is not None else ContextBudget.unbounded()
+        budget = budget if budget is not None else ContextBudget()
         # One lock for the whole sweep: concurrent sync_workspace() calls used
         # to race on the same files (wasteful duplicated delete+insert cycles;
         # RLock is reentrant so sync_file's internal acquire is free).
@@ -950,17 +950,18 @@ class ChunkIndex:
         uncancellable model inference. Text and FTS land synchronously for
         every chunk; VECTORS come only from the content-addressed cache
         (cache hits are bounded lookups) and uncached embeddings are DEFERRED
-        — a later sync backfills them. With no deadline (unbounded budget,
-        watcher / background first-run index) the full batch encodes
-        synchronously, exactly like the pre-P1 behavior.
+        — a later sync backfills them. ``None`` means the BOUNDED production
+        default (cache-only), so a caller that forgets a budget can never
+        launch inference. ONLY an explicit ``ContextBudget.unbounded()``
+        (offline full rebuild) encodes synchronously, exactly like the
+        pre-P1 behavior.
         """
-        if budget is not None and budget.expired:
+        budget = budget if budget is not None else ContextBudget()
+        if budget.expired:
             embeddings: list[list[float] | None] = [None] * len(chunks)
-        elif self._embedder is not None and (
-            budget is None or budget.max_elapsed <= 0
-        ):
-            # Unbounded path (watcher / background full build / legacy):
-            # synchronous encode — never an abandoned thread.
+        elif self._embedder is not None and budget.max_elapsed <= 0:
+            # Explicit unbounded path (offline full rebuild): synchronous
+            # encode — never an abandoned thread.
             from src.context.embedding_cache import get_embedding_cache
             try:
                 vecs = get_embedding_cache().encode(
@@ -1014,8 +1015,11 @@ class ChunkIndex:
         then D13 feature re-rank (name/path/hot/test signals) before top_k.
         top_k defaults to 3 so the layer can't eat the context budget."""
         if self._is_index_empty():
-            self._trigger_background_index()
-            return []  # caller falls back to repo_map while we build
+            # Automatic unlimited full-index is DISABLED (it recreated the
+            # runaway daemon build): an empty index returns [] and the caller
+            # falls back to repo_map. The bounded per-turn sync_workspace()
+            # populates a text/FTS + cached-vector prefix instead.
+            return []
 
         vec = self._search_vector(query, top_k * 3)
         bm25 = self._search_bm25(query, top_k * 3)
