@@ -420,4 +420,49 @@ A session of root-causing real bugs surfaced by live agent runs (Test 3: integra
 - [ ] Layer attribution of feedback (record which layers were sent per task)
 - [ ] Per-session cost reports in PDF format
 - [ ] Benchmark harness: calls/tokens/human-helps per task, before vs after efficiency pass
-/usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy
+
+---
+
+## 🔧 Recent Changes — Git Context Deadlock Fix (2026-08-19)
+
+### Root cause
+On Windows, Scoop/MSYS2/VS-shim Git wrappers spawn child processes that inherit the parent's stdout pipe handle. When `git_context.py` timed out and killed only the top-level process, the orphaned child held the pipe open — so the bridge never saw EOF and hung forever. Every prompt that triggered Git context collection could deadlock.
+
+### Fix (`src/context/git_context.py`)
+- **Aggregate Git-layer budget** (`_GIT_BUDGET_S = 3.0`): one `time.monotonic()` deadline shared across all six read-only Git commands (rev-parse, branch, status, staged diff, unstaged diff, log). Each command receives only the remaining layer time. No new command starts after the deadline expires.
+- **Ownership-safe termination**: on timeout, kills the exact spawned PID's tree (`taskkill /PID <pid> /T /F` on Windows, owned process group on POSIX). Never a global `taskkill git.exe`.
+- **Prompt-proofing**: `stdin=DEVNULL`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=Never`, `GIT_OPTIONAL_LOCKS=0`, `CREATE_NO_WINDOW`.
+- **Fallback reap**: if tree termination fails, falls back to killing and reaping the direct child. All paths close/reap process and pipe resources.
+
+### Tests (`src/tests/test_git_context.py`) — 17/17 pass
+| Test | What it proves |
+|------|----------------|
+| `test_layer_content` | Git context layer contains expected fields |
+| `test_staged_changes_visible_in_context` | Staged diff appears in context |
+| `test_layer_runs_within_aggregate_budget` | Total elapsed < `_GIT_BUDGET_S` |
+| `test_not_a_repo_returns_none` | Non-repo workspace returns None gracefully |
+| `test_missing_workspace_returns_none` | Missing workspace returns None gracefully |
+| `test_stdin_is_devnull_and_env_suppresses_prompts` | Spawn safety: DEVNULL + env vars |
+| `test_nonzero_exit_returns_empty` | Nonzero git exit returns empty dict |
+| `test_successful_output_is_returned` | Normal git output parsed correctly |
+| `test_timeout_tree_terminates_exact_pid` | Timeout kills exact PID tree, not siblings |
+| `test_tree_termination_failure_falls_back_and_reaps` | Fallback reap on taskkill failure |
+| `test_six_slow_commands_cannot_use_six_allowances` | Fake-clock: aggregate deadline caps total time |
+| `test_remaining_time_only_is_granted` | Each command gets only remaining budget |
+| `test_deadline_expired_returns_empty_not_failure` | Expired deadline returns empty, not error |
+| `test_wrapper_and_grandchild_both_disappear` | Real Windows fixture: wrapper + child both die |
+| `test_git_layer_is_volatile_not_cached` | Git layer is VOLATILE (rebuilt each turn) |
+| `test_git_context_in_volatile_set` | Git layer listed in VOLATILE layers |
+| `test_infer_layer_name` | Layer name attribution works |
+
+### Desktop evidence
+- **Non-echo run** (D:\pulse-ws): PULSE tab clicked via CDP, prompt submitted, "OK" response displayed, "Run completed", trace confirms workspace=`D:\pulse-ws`, context build started/completed, stub received 2 requests. Screenshot: `CDP_test/05_result.png`
+- **Large workspace** (D:\pulseAIagent\.pulse-ws-large, 21,001 files): "context scan bounded" shown, elapsed=1663ms, files_considered=596, files_read=1052, bytes_read=80676. Screenshot: `CDP_test/lg_07_result.png`
+- **Cancellation**: Stop button found at class `pulseai-send-button pulseai-send-stop`, clicked via CDP mouse events
+- **Worker moduleId**: `vs/workbench/contrib/pulseai/node/pulseAIWorkerMain` defined at `pulseAIWorkerService.ts:9`, used at `pulseAIEngineService.ts:59`
+- **Shutdown**: 10 Electron processes → 0, bridge processes → 0 after `Browser.close`
+
+### Scope
+- PR #2, base `6cd8e698`, head `bcaa6dcd`, 29 files, 7 commits
+- `git diff --check` clean
+- 116/116 tests pass across 8 test files
