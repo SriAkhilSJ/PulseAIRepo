@@ -43,9 +43,10 @@ from langchain_core.messages import SystemMessage
 _GIT_BUDGET_S = 1.0
 # Per-command fallback cap if a caller invokes _run_git directly.
 _GIT_TIMEOUT_S = 3.0
-# Give taskkill / os.killpg enough time to reap before the fallback kill.
-_REAP_TIMEOUT_S = 5.0
-_TASKKILL_TIMEOUT_S = 5.0
+# Bounded cleanup windows.  The complete timeout path (tree-kill + wait +
+# fallback) must stay tight over the one-second Git budget — never 5s + 5s.
+_REAP_TIMEOUT_S = 1.0
+_TASKKILL_TIMEOUT_S = 1.0
 
 # Indirections the tests replace so every code path is exercised without a
 # real repo or a long sleep on the test runner's wall clock.
@@ -72,18 +73,23 @@ _GIT_ENV_OVERRIDES = {
 _KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 
-def _taskkill_tree(pid: int) -> None:
-    """Kill the exact owned process tree, non-interactively, best-effort."""
+def _taskkill_tree(pid: int) -> bool:
+    """Kill the exact owned process tree, non-interactively, best-effort.
+
+    Returns True when taskkill exits 0 (tree terminated), False on any
+    failure or timeout so the caller can fall back to direct-child kill.
+    """
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["taskkill", "/PID", str(pid), "/T", "/F"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=_TASKKILL_TIMEOUT_S,
         )
+        return result.returncode == 0
     except Exception:
-        pass
+        return False
 
 
 def _kill_group(proc: "subprocess.Popen[str]") -> None:
@@ -97,19 +103,42 @@ def _kill_group(proc: "subprocess.Popen[str]") -> None:
 
 
 def _reap(proc: "subprocess.Popen[str]") -> None:
-    """Reap the Popen (drain pipes, join communicate's read threads)."""
+    """Reap the direct-child Popen.
+
+    Note: ``wait()`` does NOT drain pipes — it only joins the child's exit
+    status.  Pipe drains happen in ``communicate()`` or via explicit close
+    in ``_run_git``'s ``finally`` block.
+    """
     try:
         proc.wait(timeout=_REAP_TIMEOUT_S)
     except Exception:
+        # Process is still alive after the first wait — kill again and
+        # perform a final short wait so we are not left as zombies.
         try:
             proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=_REAP_TIMEOUT_S)
         except Exception:
             pass
 
 
 def _terminate(proc: "subprocess.Popen[str]") -> None:
+    """Ownership-safe tree termination with bounded fallback.
+
+    Windows: exact PID tree kill → if that fails and the direct child is
+    still alive, fall back to ``proc.kill()`` → always ``proc.wait()``.
+    POSIX: kill the owned process group → wait for the direct child.
+    Never targets ``git.exe`` by name.
+    """
     if os.name == "nt":
-        _taskkill_tree(proc.pid)  # exact owned root only — never a global name
+        if not _taskkill_tree(proc.pid):
+            # Tree kill failed — fall back to direct-child kill if still alive.
+            try:
+                proc.kill()
+            except Exception:
+                pass
     else:
         _kill_group(proc)
     _reap(proc)
@@ -145,8 +174,18 @@ def _run_git(cmd: list[str], cwd: str | Path, timeout: float | None = None) -> s
         _terminate(proc)
         return ""
     except Exception:
-        _reap(proc)
+        # An unexpected error (e.g. broken pipe) while the process may
+        # still be alive — terminate the owned tree, not just wait.
+        _terminate(proc)
         return ""
+    finally:
+        # Explicitly close pipe file descriptors so the OS does not hold
+        # them open if the process outlives our control.
+        for fh in (proc.stdout, proc.stderr):
+            try:
+                fh.close()
+            except Exception:
+                pass
     return stdout if proc.returncode == 0 else ""
 
 

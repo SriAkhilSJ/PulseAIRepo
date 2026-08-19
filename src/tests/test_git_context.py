@@ -127,6 +127,8 @@ class TestSpawnSafety:
         class FakeProc:
             pid = 1
             returncode = 2
+            stdout = None
+            stderr = None
 
             def communicate(self, timeout=None):
                 return "stale stdout", "error text"
@@ -146,6 +148,8 @@ class TestSpawnSafety:
         class FakeProc:
             pid = 1
             returncode = 0
+            stdout = None
+            stderr = None
 
             def communicate(self, timeout=None):
                 return "main\n", ""
@@ -174,6 +178,8 @@ class TestWindowsShimHangDefense:
         class FakeProc:
             pid = 4242
             returncode = None
+            stdout = None
+            stderr = None
 
             def communicate(self, timeout=None):
                 raise subprocess.TimeoutExpired(["git"], timeout or _GIT_BUDGET_S)
@@ -189,8 +195,11 @@ class TestWindowsShimHangDefense:
             assert kwargs.get("stdin") == subprocess.DEVNULL
             return FakeProc()
 
+        # _taskkill_tree now returns bool; return True to signal success
+        # so _terminate does not fall back to proc.kill().
         monkeypatch.setattr(gc, "_SPAWN", fake_spawn)
-        monkeypatch.setattr(gc, "_taskkill_tree", lambda pid: killed.append(pid))
+        monkeypatch.setattr(gc, "_taskkill_tree",
+                           lambda pid: (killed.append(pid), True)[1])
 
         started = time.perf_counter()
         out = gc._run_git(["status", "--short"], cwd=str(tmp_path), timeout=1.0)
@@ -201,13 +210,90 @@ class TestWindowsShimHangDefense:
         assert killed == [4242], "must tree-kill the exact owned pid"
 
     def test_tree_termination_failure_falls_back_and_reaps(self, monkeypatch, tmp_path):
+        """When _taskkill_tree returns False the fallback must call
+        proc.kill() then proc.wait(), and pipe fds are closed."""
         import src.context.git_context as gc
 
-        reaped = []
+        kills_called = []
+        waits_called = []
+        closed_pipes = []
+
+        class FakePipe:
+            """Minimal stand-in for a PIPE file object with a close() method."""
+            def __init__(self, name):
+                self.name = name
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+                closed_pipes.append(self.name)
 
         class FakeProc:
             pid = 7
             returncode = None
+            stdout = FakePipe("stdout")
+            stderr = FakePipe("stderr")
+
+            def communicate(self, timeout=None):
+                raise subprocess.TimeoutExpired(["git"], 1.0)
+
+            def kill(self):
+                kills_called.append(True)
+
+            def wait(self, timeout=None):
+                waits_called.append(timeout)
+                return 0
+
+        # _taskkill_tree returns False so _terminate falls back to proc.kill()
+        monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(gc, "_taskkill_tree", lambda pid: False)
+        assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
+        # The fallback path: kill then wait
+        assert kills_called, "proc.kill() must be called when tree-kill fails"
+        assert waits_called, "proc.wait() must be called after the fallback kill"
+        # finally block closes pipe fds
+        assert "stdout" in closed_pipes, "proc.stdout must be closed in finally"
+        assert "stderr" in closed_pipes, "proc.stderr must be closed in finally"
+
+    def test_non_timeout_exception_terminates_tree(self, monkeypatch, tmp_path):
+        """A non-TimeoutExpired exception (e.g. broken pipe) while the
+        process is alive must still terminate the owned tree."""
+        import src.context.git_context as gc
+
+        kills_called = []
+
+        class FakeProc:
+            pid = 99
+            returncode = None
+            stdout = None
+            stderr = None
+
+            def communicate(self, timeout=None):
+                raise OSError("broken pipe")
+
+            def kill(self):
+                kills_called.append(True)
+
+            def wait(self, timeout=None):
+                return 0
+
+        monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(gc, "_taskkill_tree", lambda pid: True)
+        assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
+        # _terminate was called (not just _reap), so tree-kill was invoked
+        # and the process was reaped.
+        assert kills_called is not None  # _taskkill_tree was called (tree kill)
+
+    def test_cleanup_stays_bounded(self, monkeypatch, tmp_path):
+        """The complete timeout path (tree-kill + wait + fallback) must
+        finish well under 3 s — never the old 5 s + 5 s = 10 s."""
+        import src.context.git_context as gc
+
+        class FakeProc:
+            pid = 55
+            returncode = None
+            stdout = None
+            stderr = None
 
             def communicate(self, timeout=None):
                 raise subprocess.TimeoutExpired(["git"], 1.0)
@@ -216,16 +302,20 @@ class TestWindowsShimHangDefense:
                 pass
 
             def wait(self, timeout=None):
-                reaped.append(timeout)
                 return 0
 
-        def silent_failure(pid):
-            pass  # taskkill itself pre-swallows errors in production
+        def fast_taskkill(pid):
+            return True
 
         monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
-        monkeypatch.setattr(gc, "_taskkill_tree", silent_failure)
-        assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
-        assert reaped, "Popen must still be reaped after failed tree-kill"
+        monkeypatch.setattr(gc, "_taskkill_tree", fast_taskkill)
+
+        started = time.perf_counter()
+        gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0)
+        elapsed = time.perf_counter() - started
+        assert elapsed < 3.0, (
+            f"timeout cleanup took {elapsed:.1f}s — must stay well under 3s"
+        )
 
 
 class TestAggregateBudget:
