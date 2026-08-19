@@ -260,7 +260,7 @@ class TestWindowsShimHangDefense:
         process is alive must still terminate the owned tree."""
         import src.context.git_context as gc
 
-        kills_called = []
+        tree_kills = []
 
         class FakeProc:
             pid = 99
@@ -272,49 +272,39 @@ class TestWindowsShimHangDefense:
                 raise OSError("broken pipe")
 
             def kill(self):
-                kills_called.append(True)
-
-            def wait(self, timeout=None):
-                return 0
-
-        monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
-        monkeypatch.setattr(gc, "_taskkill_tree", lambda pid: True)
-        assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
-        # _terminate was called (not just _reap), so tree-kill was invoked
-        # and the process was reaped.
-        assert kills_called is not None  # _taskkill_tree was called (tree kill)
-
-    def test_cleanup_stays_bounded(self, monkeypatch, tmp_path):
-        """The complete timeout path (tree-kill + wait + fallback) must
-        finish well under 3 s — never the old 5 s + 5 s = 10 s."""
-        import src.context.git_context as gc
-
-        class FakeProc:
-            pid = 55
-            returncode = None
-            stdout = None
-            stderr = None
-
-            def communicate(self, timeout=None):
-                raise subprocess.TimeoutExpired(["git"], 1.0)
-
-            def kill(self):
                 pass
 
             def wait(self, timeout=None):
                 return 0
 
-        def fast_taskkill(pid):
-            return True
-
         monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
-        monkeypatch.setattr(gc, "_taskkill_tree", fast_taskkill)
+        monkeypatch.setattr(gc, "_taskkill_tree",
+                           lambda pid: (tree_kills.append(pid), True)[1])
+        assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
+        # _terminate was called (not just _reap), so tree-kill was invoked
+        # with the exact owned PID.
+        assert tree_kills == [99], (
+            f"_taskkill_tree must be called with the exact PID, got {tree_kills}"
+        )
 
-        started = time.perf_counter()
-        gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0)
-        elapsed = time.perf_counter() - started
-        assert elapsed < 3.0, (
-            f"timeout cleanup took {elapsed:.1f}s — must stay well under 3s"
+    def test_cleanup_stays_bounded(self, monkeypatch, tmp_path):
+        """The configured cleanup allowances must prevent the old
+        5s + 5s = 10s worst case.  Verify the constants directly so
+        a future regression to large values is caught deterministically."""
+        import src.context.git_context as gc
+
+        # The combined cleanup budget (taskkill + reap) must stay small.
+        # Previously _REAP_TIMEOUT_S = _TASKKILL_TIMEOUT_S = 5.0, allowing
+        # an ~11s stall on the timeout path.  Prove those values are bounded.
+        assert gc._REAP_TIMEOUT_S <= 1.5, (
+            f"_REAP_TIMEOUT_S={gc._REAP_TIMEOUT_S} — must stay small"
+        )
+        assert gc._TASKKILL_TIMEOUT_S <= 1.5, (
+            f"_TASKKILL_TIMEOUT_S={gc._TASKKILL_TIMEOUT_S} — must stay small"
+        )
+        total = gc._REAP_TIMEOUT_S + gc._TASKKILL_TIMEOUT_S
+        assert total <= 3.0, (
+            f"combined cleanup {total:.1f}s exceeds 3.0s budget"
         )
 
 
