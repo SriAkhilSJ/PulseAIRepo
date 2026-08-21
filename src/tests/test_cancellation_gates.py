@@ -520,9 +520,7 @@ class TestCancellationGates:
     # ── C-10: RetryLLMProxy.abort() closes the transport, is idempotent ──
 
     def test_c10_abort_closes_transport_and_is_idempotent(self):
-        """abort() closes the underlying openai client AND its httpx.Client,
-        is idempotent (second call is a no-op), and sets is_aborted.
-        Closes each underlying object exactly once."""
+        """abort() closes the deepest transport exactly once."""
         from src.llm.factory import RetryLLMProxy
 
         class _InnerClient:
@@ -553,14 +551,14 @@ class TestCancellationGates:
 
         proxy.abort()
         assert proxy.is_aborted is True
-        assert fake.client._closes == 1, "openai client closed wrong number of times"
-        assert fake.client._client._closes == 1, "httpx client closed wrong number of times"
+        assert fake.client._closes == 0, "wrapper client should not be double-closed"
+        assert fake.client._client._closes == 1, "httpx client was not closed once"
 
         # abort() is idempotent: a second call must not close again
         proxy.abort()
         assert proxy.is_aborted is True
-        assert fake.client._closes == 1, "openai client was closed a second time"
-        assert fake.client._client._closes == 1, "httpx client was closed a second time"
+        assert fake.client._closes == 0
+        assert fake.client._client._closes == 1, "httpx client was closed twice"
 
     # ── C-11: cancelled ai_node skips the base-provider failover ──
 
@@ -1065,132 +1063,312 @@ class TestFinallyCleanup:
 
 
 class TestImmediateStopRace:
-    """Cover the race where Stop arrives after turn_started is emitted
-    but before turn_controls.begin() is called.  begin() on an inactive
-    session clears stale cancellations so future turns can proceed."""
+    """Turn ownership must be live before the UI exposes Stop."""
 
     def setup_method(self):
         from src.runtime.turn_control import turn_controls
+
         self._tc = turn_controls
+        self._sid = "turn-lifecycle-test"
+        self._tc.reset(self._sid)
 
     def teardown_method(self):
-        pass
+        self._tc.reset(self._sid)
 
-    def test_cancel_before_begin_is_cleared(self):
-        """Stop arrives before begin() (inactive session).  begin() must
-        clear the stale cancellation so the turn proceeds fresh."""
-        sid = "race-test"
-        self._tc.reset(sid)
-        self._tc.cancel(sid)
-        assert self._tc.cancelled(sid)
-        self._tc.begin(sid)
-        assert not self._tc.cancelled(sid), "begin() did not clear stale cancel"
-        self._tc.end(sid)
-        self._tc.reset(sid)
+    def test_inactive_cancel_is_rejected_and_does_not_poison_next_turn(self):
+        assert self._tc.cancel(self._sid) is False
+        assert not self._tc.cancelled(self._sid)
+        self._tc.begin(self._sid)
+        assert not self._tc.cancelled(self._sid)
+        self._tc.end(self._sid)
 
-    def test_cancel_during_active_turn_survives(self):
-        """Stop arrives after begin() (active turn).  The cancel must
-        survive so this turn terminates as cancelled."""
-        sid = "active-race-test"
-        self._tc.reset(sid)
-        self._tc.begin(sid)
-        self._tc.cancel(sid)
-        assert self._tc.cancelled(sid)
-        self._tc.end(sid)
-        self._tc.begin(sid)
-        assert not self._tc.cancelled(sid)
-        self._tc.end(sid)
-        self._tc.reset(sid)
+    def test_stop_survives_nested_graph_begin(self):
+        # Bridge owns depth 1 before turn_started is emitted.
+        self._tc.begin(self._sid)
+        assert self._tc.cancel(self._sid) is True
 
-    def test_cancel_then_end_then_begin_succeeds(self):
-        """Full lifecycle: cancel -> end -> begin (same session) -> success.
-        Proves future-turn recovery works after cancellation."""
-        from src.graphs.chat_graph import ai_node
-        from langchain_core.messages import AIMessage
+        # stream_agent enters the same active turn at depth 2. It must not
+        # clear the Stop that the bridge already accepted.
+        self._tc.begin(self._sid)
+        assert self._tc.cancelled(self._sid)
 
-        sid = "lifecycle-test"
-        self._tc.reset(sid)
-        self._tc.begin(sid)
-        self._tc.cancel(sid)
-        self._tc.end(sid)
-        assert self._tc.cancelled(sid)
+        self._tc.end(self._sid)
+        item = self._tc._get(self._sid)
+        assert item.active and item.active_depth == 1
+        assert self._tc.cancelled(self._sid)
 
-        self._tc.begin(sid)
-        assert not self._tc.cancelled(sid)
+        self._tc.end(self._sid)
+        assert not item.active and item.active_depth == 0
 
-        fake_llm = _FakeLLM()
-        fake_llm.set_result(AIMessage(content="turn-2-response"))
-        config = _make_config(thread_id=sid)
-        captured = {}
+    def test_cancel_then_new_turn_same_session_succeeds(self):
+        self._tc.begin(self._sid)
+        self._tc.cancel(self._sid)
+        self._tc.end(self._sid)
+        assert self._tc.cancelled(self._sid)
+
+        self._tc.begin(self._sid)
+        assert not self._tc.cancelled(self._sid)
+        assert self._tc.admit_action(self._sid)
+        self._tc.end(self._sid)
+
+    def test_bridge_begins_before_turn_started_and_has_one_abort_owner(self):
+        from pathlib import Path
+
+        bridge = (
+            Path(__file__).resolve().parents[1] / "bridge" / "__main__.py"
+        ).read_text(encoding="utf-8")
+        run_turn = bridge[bridge.index("    def _run_turn("):bridge.index("    def handle(")]
+        assert run_turn.index("turn_controls.begin(sid)") < run_turn.index(
+            '"type": "turn_started"'
+        )
+        cancel_branch = bridge[bridge.index('        elif kind == "cancel":'):]
+        cancel_branch = cancel_branch[:cancel_branch.index('        elif kind == "steer":')]
+        assert "turn_controls.cancel(sid)" in cancel_branch
+        assert "turn_controls.abort(sid)" not in cancel_branch
+
+    def test_direct_invoke_owns_the_same_begin_end_lifecycle(self):
+        from pathlib import Path
+
+        graph = (
+            Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py"
+        ).read_text(encoding="utf-8")
+        invoke = graph[graph.index("def invoke_agent("):graph.index("# STREAMING INVOCATION")]
+        assert invoke.index("turn_controls.begin(thread_id)") < invoke.index(
+            "graph.invoke("
+        )
+        finally_block = invoke[invoke.index("    finally:"):]
+        assert "turn_controls.end(thread_id)" in finally_block
+        assert "set_active_session(None)" in finally_block
+
+
+class TestRequestOwnedAbort:
+    """Exercise production auto-registration and shared binding ownership."""
+
+    def setup_method(self):
+        from src.runtime.turn_control import turn_controls
+
+        self._tc = turn_controls
+        self._sid = "request-owned-abort"
+        self._tc.reset(self._sid)
+        self._tc.begin(self._sid)
+
+    def teardown_method(self):
+        from src.runtime.turn_control import set_active_session
+
+        set_active_session(None)
+        self._tc.reset(self._sid)
+
+    @staticmethod
+    def _provider():
+        class _NestedClient:
+            def __init__(self, release):
+                self.release = release
+                self.closes = 0
+
+            def close(self):
+                self.closes += 1
+                self.release.set()
+
+        class _Client:
+            def __init__(self, release):
+                self.release = release
+                self.closes = 0
+                self._client = _NestedClient(release)
+
+            def close(self):
+                self.closes += 1
+                self.release.set()
+
+        class _Bound:
+            model = "request-owned-test"
+
+            def __init__(self, root):
+                self.root = root
+
+            def invoke(self, *args, **kwargs):
+                return self.root.invoke(*args, **kwargs)
+
+            def bind(self, **kwargs):
+                return _Bound(self.root)
+
+            def bind_tools(self, *args, **kwargs):
+                return _Bound(self.root)
+
+            def with_structured_output(self, *args, **kwargs):
+                return _Bound(self.root)
+
+        class _Provider:
+            model = "request-owned-test"
+
+            def __init__(self):
+                self.release = threading.Event()
+                self.entered = threading.Event()
+                self.invokes = 0
+                self.client = _Client(self.release)
+
+            def invoke(self, *args, **kwargs):
+                self.invokes += 1
+                self.entered.set()
+                self.release.wait(timeout=10)
+                raise ConnectionError("connection error after transport close")
+
+            def bind(self, **kwargs):
+                return _Bound(self)
+
+            def bind_tools(self, *args, **kwargs):
+                return _Bound(self)
+
+            def with_structured_output(self, *args, **kwargs):
+                return _Bound(self)
+
+        return _Provider()
+
+    def test_bound_request_cancel_closes_root_once_and_cleans_registry(self):
+        from src.llm.factory import RetryLLMProxy, TurnCancelledError
+        from src.runtime.turn_control import set_active_session
+
+        provider = self._provider()
+        root = RetryLLMProxy(provider, max_attempts=5)
+        bound = root.bind_tools([]).bind(max_tokens=512)
+        assert bound._abort_state is root._abort_state
+        captured = []
 
         def _run():
-            with patch("src.graphs.chat_graph.get_llm", return_value=fake_llm), \
-                 patch("src.graphs.chat_graph.cost_router") as mock_router, \
-                 patch("src.graphs.chat_graph.get_context_engine") as mock_engine, \
-                 patch("src.graphs.chat_graph._resolve_bound_tools", return_value=[]):
-                mock_router.route.return_value = ("fake", "fake")
-                mock_engine.return_value.build_ai_messages.return_value = []
-                captured["result"] = ai_node(_make_state(), config)
+            set_active_session(self._sid)
+            try:
+                bound.invoke([])
+            except Exception as exc:
+                captured.append(exc)
+            finally:
+                set_active_session(None)
 
-        t = threading.Thread(target=_run)
-        t.start()
-        assert fake_llm.wait_invoke(timeout=5)
-        fake_llm.release()
-        t.join(timeout=10)
-        assert not t.is_alive()
+        worker = threading.Thread(target=_run)
+        worker.start()
+        assert provider.entered.wait(timeout=5)
+        assert self._tc.cancel(self._sid) is True
+        worker.join(timeout=2)
 
-        result = captured.get("result")
-        assert result is not None
-        msg = result["messages"][0]
-        assert isinstance(msg, AIMessage)
-        assert msg.content == "turn-2-response"
-        assert not msg.additional_kwargs.get("pulse_cancelled"), "Turn 2 should have succeeded"
+        assert not worker.is_alive(), "transport close did not unblock invoke"
+        assert len(captured) == 1
+        assert isinstance(captured[0], TurnCancelledError)
+        assert provider.invokes == 1
+        assert provider.client.closes == 0
+        assert provider.client._client.closes == 1
+        assert not self._tc._get(self._sid).aborts
 
-        self._tc.end(sid)
-        self._tc.reset(sid)
+        # Every wrapper shares the same one-shot transition.
+        root.abort()
+        bound.abort()
+        assert provider.client.closes == 0
+        assert provider.client._client.closes == 1
 
-    def test_begin_then_cancel_produces_cancelled_turn(self):
-        """Normal path: begin() first, then Stop arrives.  Cancel is set
-        and the post-LLM gate discards the result."""
-        from src.graphs.chat_graph import ai_node
-        from langchain_core.messages import AIMessage
+    def test_cancel_interrupts_retry_backoff_without_second_request(self, monkeypatch):
+        from src.llm.factory import RetryLLMProxy, TurnCancelledError
+        from src.runtime.turn_control import set_active_session
 
-        sid = "normal-race-test"
-        self._tc.reset(sid)
-        self._tc.begin(sid)
+        class _Retrying:
+            model = "retry-backoff-test"
 
-        fake_llm = _FakeLLM()
-        fake_llm.set_result(AIMessage(
-            content="done",
-            tool_calls=[{"id": "tc-1", "name": "write_file", "args": {"path": "x.py", "content": "bad"}}],
-        ))
-        config = _make_config(thread_id=sid)
-        captured = {}
+            def __init__(self):
+                self.failed = threading.Event()
+                self.invokes = 0
+
+            def invoke(self, *args, **kwargs):
+                self.invokes += 1
+                self.failed.set()
+                raise ConnectionError("connection error")
+
+        provider = _Retrying()
+        proxy = RetryLLMProxy(provider, max_attempts=5)
+        monkeypatch.setattr(proxy, "_retry_delay", lambda error, attempt: 30.0)
+        captured = []
 
         def _run():
-            with patch("src.graphs.chat_graph.get_llm", return_value=fake_llm), \
-                 patch("src.graphs.chat_graph.cost_router") as mock_router, \
-                 patch("src.graphs.chat_graph.get_context_engine") as mock_engine, \
-                 patch("src.graphs.chat_graph._resolve_bound_tools", return_value=[]):
-                mock_router.route.return_value = ("fake", "fake")
-                mock_engine.return_value.build_ai_messages.return_value = []
-                captured["result"] = ai_node(_make_state(), config)
+            set_active_session(self._sid)
+            try:
+                proxy.invoke([])
+            except Exception as exc:
+                captured.append(exc)
+            finally:
+                set_active_session(None)
 
-        t = threading.Thread(target=_run)
-        t.start()
-        assert fake_llm.wait_invoke(timeout=5)
+        worker = threading.Thread(target=_run)
+        worker.start()
+        assert provider.failed.wait(timeout=5)
+        assert self._tc.cancel(self._sid) is True
+        worker.join(timeout=2)
 
-        self._tc.cancel(sid)
-        fake_llm.release()
-        t.join(timeout=10)
-        assert not t.is_alive()
+        assert not worker.is_alive(), "Stop did not interrupt retry backoff"
+        assert provider.invokes == 1
+        assert len(captured) == 1
+        assert isinstance(captured[0], TurnCancelledError)
+        assert not self._tc._get(self._sid).aborts
 
-        result = captured.get("result")
-        assert result is not None
-        msg = result["messages"][0]
-        assert isinstance(msg, AIMessage)
-        assert msg.additional_kwargs.get("pulse_cancelled") is True
-        assert not getattr(msg, "tool_calls", None), "Tool calls leaked"
+    def test_async_provider_task_is_cancelled_request_specifically(self):
+        import asyncio
 
-        self._tc.end(sid)
-        self._tc.reset(sid)
+        from src.llm.factory import RetryLLMProxy, TurnCancelledError
+        from src.runtime.turn_control import set_active_session
+
+        class _AsyncProvider:
+            model = "async-cancel-test"
+
+            def __init__(self):
+                self.entered = threading.Event()
+                self.unwound = threading.Event()
+                self.invokes = 0
+
+            async def ainvoke(self, *args, **kwargs):
+                self.invokes += 1
+                self.entered.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.unwound.set()
+
+            def invoke(self, *args, **kwargs):
+                raise AssertionError("async-capable provider used sync invoke")
+
+        provider = _AsyncProvider()
+        proxy = RetryLLMProxy(provider, max_attempts=5)
+        captured = []
+
+        def _run():
+            set_active_session(self._sid)
+            try:
+                proxy.invoke([])
+            except Exception as exc:
+                captured.append(exc)
+            finally:
+                set_active_session(None)
+
+        worker = threading.Thread(target=_run)
+        worker.start()
+        assert provider.entered.wait(timeout=5)
+        assert self._tc.cancel(self._sid) is True
+        worker.join(timeout=2)
+
+        assert not worker.is_alive()
+        assert provider.unwound.is_set()
+        assert provider.invokes == 1
+        assert len(captured) == 1
+        assert isinstance(captured[0], TurnCancelledError)
+        assert not self._tc._get(self._sid).aborts
+
+    def test_auxiliary_clients_are_request_owned(self):
+        from src.llm import factory
+
+        class _AuxRequest:
+            def __init__(self, value):
+                self.value = value
+
+            def invoke(self, *args, **kwargs):
+                return self.value
+
+        first = _AuxRequest("first")
+        second = _AuxRequest("second")
+        with patch.object(factory, "get_llm", side_effect=[first, second]) as get_llm:
+            aux = factory.get_auxiliary_llm()
+            assert aux.invoke([]) == "first"
+            assert aux.invoke([]) == "second"
+        assert get_llm.call_count == 2

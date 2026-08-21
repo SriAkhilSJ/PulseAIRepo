@@ -1,3 +1,4 @@
+import asyncio
 import re
 import threading
 import time
@@ -20,21 +21,104 @@ from src.runtime.turn_control import active_session, turn_controls
 
 
 class TurnCancelledError(RuntimeError):
-    """Raised when the user pressed Stop while an LLM request was in flight
-    or about to be retried. Never retried and never failed over."""
+    """Raised when Stop wins before a request, retry, or failover."""
+
+
+class _AbortState:
+    """One request-family abort state shared by all LangChain bindings.
+
+    ``bind()``, ``bind_tools()``, and ``with_structured_output()`` return
+    runnable wrappers around the same provider client. Keeping the raw model
+    as the owner lets any derived proxy close the actual transport exactly
+    once instead of trying to discover a client on a RunnableBinding.
+    """
+
+    def __init__(self, owner: Any):
+        self.owner = owner
+        self.lock = threading.Lock()
+        self.event = threading.Event()
+        self.aborted = False
+        self._async_targets: set[tuple[asyncio.AbstractEventLoop, asyncio.Task]] = set()
+
+    @staticmethod
+    def _cancel_task(loop: asyncio.AbstractEventLoop, task: asyncio.Task) -> None:
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            # The request completed and closed its loop between snapshot and
+            # delivery; its invoke() finally path will already be unwinding.
+            pass
+
+    def attach_async(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        task: asyncio.Task,
+    ) -> None:
+        with self.lock:
+            abort_now = self.aborted
+            if not abort_now:
+                self._async_targets.add((loop, task))
+        if abort_now:
+            self._cancel_task(loop, task)
+
+    def detach_async(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        task: asyncio.Task,
+    ) -> None:
+        with self.lock:
+            self._async_targets.discard((loop, task))
+
+    def abort(self) -> None:
+        with self.lock:
+            if self.aborted:
+                return
+            self.aborted = True
+            self.event.set()
+            targets = tuple(self._async_targets)
+        for loop, task in targets:
+            self._cancel_task(loop, task)
+        # Sync-only providers/fakes still need a transport-close fallback.
+        self._close_owner_transport()
+
+    def _close_owner_transport(self) -> None:
+        """Close the deepest synchronous client exactly once."""
+        root = getattr(self.owner, "client", None)
+        if root is None:
+            root = getattr(self.owner, "_client", None)
+        if root is None:
+            return
+
+        candidate = None
+        current = root
+        seen: set[int] = set()
+        for _ in range(5):
+            if current is None or id(current) in seen:
+                break
+            seen.add(id(current))
+            if callable(getattr(current, "close", None)):
+                candidate = current
+            current = getattr(current, "_client", None)
+        if candidate is not None:
+            try:
+                candidate.close()
+            except Exception:
+                pass
 
 
 class RetryLLMProxy:
-    """Tiny proxy that retries transient LLM rate-limit errors."""
+    """Provider proxy with bounded retry and session-scoped cancellation."""
 
-    def __init__(self, llm: Any, max_attempts: int = 5):
+    def __init__(
+        self,
+        llm: Any,
+        max_attempts: int = 5,
+        *,
+        _abort_state: _AbortState | None = None,
+    ):
         self._llm = llm
         self._max_attempts = max_attempts
-        # Set by abort(): the transport was forcibly closed, so no further call
-        # on this proxy may proceed.  Protected by _abort_lock for one-shot
-        # transition: abort() closes clients at most once.
-        self.is_aborted = False
-        self._abort_lock = threading.Lock()
+        self._abort_state = _abort_state or _AbortState(llm)
         # Lazily resolved when PROVIDER_SAFE_LIMIT=0 (auto mode); memoized
         # so per-invoke guard checks never re-read the disk cache.
         self._auto_limit: int | None = None
@@ -74,6 +158,46 @@ class RetryLLMProxy:
         # the dashboard can invoke this proxy from worker threads.
         self._limit_lock = threading.Lock()
 
+    @property
+    def is_aborted(self) -> bool:
+        return self._abort_state.aborted
+
+    def _invoke_provider(
+        self,
+        provider_loop: asyncio.AbstractEventLoop | None,
+        *args,
+        **kwargs,
+    ):
+        """Run native async providers in a request-cancellable task.
+
+        Closing a synchronous httpx client from another thread does not
+        reliably interrupt a response-body read. LangChain provider runnables
+        expose ``ainvoke`` backed by their async clients; cancelling that task
+        is request-specific and immediately unwinds the socket operation.
+        One loop is retained across this invocation's retry attempts so pooled
+        async clients are never reused on a closed loop.
+        """
+        ainvoke = getattr(self._llm, "ainvoke", None)
+        if provider_loop is None or not callable(ainvoke):
+            return self._llm.invoke(*args, **kwargs)
+
+        async def _call():
+            loop = asyncio.get_running_loop()
+            task = asyncio.current_task()
+            assert task is not None
+            self._abort_state.attach_async(loop, task)
+            try:
+                return await ainvoke(*args, **kwargs)
+            finally:
+                self._abort_state.detach_async(loop, task)
+
+        try:
+            return provider_loop.run_until_complete(_call())
+        except asyncio.CancelledError as error:
+            raise TurnCancelledError(
+                "LLM request cancelled by the user (Stop pressed)."
+            ) from error
+
     def invoke(self, *args, **kwargs):
         """
         Invoke with retry logic AND a pre-send token guard.
@@ -86,11 +210,18 @@ class RetryLLMProxy:
         """
         last_error = None
 
-        # ── Auto-register abort handle for this request ────────────
-        from src.runtime.turn_control import active_session, turn_controls
+        # Register before any request preparation. If Stop already won,
+        # register_abort() fires this handle immediately and the pre-attempt
+        # gate below raises without starting provider traffic.
         sid = active_session()
+        abort_handle = self.abort
+        provider_loop = (
+            asyncio.new_event_loop()
+            if callable(getattr(self._llm, "ainvoke", None))
+            else None
+        )
         if sid is not None:
-            turn_controls.register_abort(sid, self.abort)
+            turn_controls.register_abort(sid, abort_handle)
 
         try:
 
@@ -184,7 +315,7 @@ class RetryLLMProxy:
                 self._raise_if_cancelled()
 
                 try:
-                    return self._llm.invoke(*args, **kwargs)
+                    return self._invoke_provider(provider_loop, *args, **kwargs)
                 except Exception as error:
                     # A Stop pressed while this HTTP request was in flight wins
                     # over any retry/failover logic: surface the cancellation and
@@ -195,15 +326,23 @@ class RetryLLMProxy:
                     if not self._is_retryable(error) or attempt == self._max_attempts - 1:
                         raise
 
-                    # Cancellation gate BEFORE the retry backoff sleep too: a Stop
-                    # that lands between attempts is honoured before we wait.
+                    # Wait on the shared abort event instead of time.sleep().
+                    # Stop therefore interrupts a long provider backoff now,
+                    # rather than waiting up to 30 seconds for the next gate.
                     self._raise_if_cancelled()
-                    time.sleep(self._retry_delay(error, attempt))
+                    delay = self._retry_delay(error, attempt)
+                    if sid is None:
+                        time.sleep(delay)
+                    else:
+                        self._abort_state.event.wait(delay)
+                    self._raise_if_cancelled()
 
             raise last_error
         finally:
             if sid is not None:
-                turn_controls.unregister_abort(sid, self.abort)
+                turn_controls.unregister_abort(sid, abort_handle)
+            if provider_loop is not None:
+                provider_loop.close()
 
     def _raise_if_cancelled(self, error: Exception | None = None) -> None:
         """Raise TurnCancelledError when the active session was cancelled or
@@ -220,41 +359,8 @@ class RetryLLMProxy:
             ) from error
 
     def abort(self) -> None:
-        """Best-effort, immediate interrupt of any in-flight HTTP request.
-
-        The underlying LLM is a langchain_openai ChatOpenAI whose ``.client``
-        is an openai client that owns an httpx.Client (``client._client``);
-        closing the httpx.Client forces an in-flight request to return right
-        now.  Every step is individually guarded; this always returns quickly
-        and is idempotent (closes the transport at most once).
-        """
-        with self._abort_lock:
-            if self.is_aborted:
-                return  # already aborted — idempotent, no double-close
-            self.is_aborted = True
-        client = getattr(self._llm, "client", None)
-        if client is not None:
-            try:
-                client.close()
-            except Exception:
-                pass
-            try:
-                httpx_client = getattr(client, "_client", None)
-                if httpx_client is not None:
-                    httpx_client.close()
-            except Exception:
-                pass
-            return
-        # Fallback for providers/wrappers that store the transport on the llm
-        # object itself: ``llm._client`` (an openai client) -> ``._client``
-        # (its httpx.Client).
-        try:
-            candidate = getattr(self._llm, "_client", None)
-            if candidate is not None:
-                httpx_client = getattr(candidate, "_client", None)
-                (httpx_client if httpx_client is not None else candidate).close()
-        except Exception:
-            pass
+        """Interrupt this binding's request family exactly once."""
+        self._abort_state.abort()
 
     def _safe_limit(self) -> int:
         """The pre-send input cap for this proxy.
@@ -320,27 +426,24 @@ class RetryLLMProxy:
             result.extend(messages[-best:])
         return result
 
-    def bind_tools(self, *args, **kwargs):
+    def _wrap_binding(self, runnable: Any) -> "RetryLLMProxy":
         return RetryLLMProxy(
-            self._llm.bind_tools(*args, **kwargs),
+            runnable,
             max_attempts=self._max_attempts,
+            _abort_state=self._abort_state,
         )
+
+    def bind_tools(self, *args, **kwargs):
+        return self._wrap_binding(self._llm.bind_tools(*args, **kwargs))
 
     def bind(self, *args, **kwargs):
-        # bind() returns a model_copy clone whose httpx transport is lazily
-        # created and fully SEPARATE from this proxy's. Leaving it unwrapped
-        # would route through __getattr__ to a raw clone with no abort(), so
-        # Stop could never interrupt an in-flight bound request. Wrap it back
-        # into a proxy so abort() closes the clone's own transport.
-        return RetryLLMProxy(
-            self._llm.bind(*args, **kwargs),
-            max_attempts=self._max_attempts,
-        )
+        # LangChain bindings are runnable views over the same provider client.
+        # Preserve the proxy and share the root transport's one-shot abort state.
+        return self._wrap_binding(self._llm.bind(*args, **kwargs))
 
     def with_structured_output(self, *args, **kwargs):
-        return RetryLLMProxy(
-            self._llm.with_structured_output(*args, **kwargs),
-            max_attempts=self._max_attempts,
+        return self._wrap_binding(
+            self._llm.with_structured_output(*args, **kwargs)
         )
 
     def __getattr__(self, name: str):
@@ -442,53 +545,56 @@ def get_llm(provider, model):
 # =========================================================
 # AUXILIARY CLIENT (D21)
 # =========================================================
-_aux_llm_cache: dict[tuple[str, str], Any] = {}
+class RequestScopedAuxLLM:
+    """Reusable facade that creates one provider client per invocation.
 
-
-def get_auxiliary_llm():
-    """Dedicated management-class client (hermes curator invariant, §29).
-
-    Returns a FRESH RetryLLMProxy wrapping the cached underlying LLM each
-    time.  The proxy is never shared across calls, so abort() on one
-    auxiliary request cannot poison the cached transport or affect
-    concurrent sessions.
+    Context engines may retain their summarizer LLM across turns. Retaining a
+    real provider client would let cancellation poison that future turn. This
+    facade retains only binding instructions; invoke() builds a fresh
+    RetryLLMProxy and request-owned transport every time.
     """
-    from src.config.settings import AUX_LLM_PROVIDER, AUX_LLM_MODEL
-    key = (AUX_LLM_PROVIDER, AUX_LLM_MODEL)
-    if key not in _aux_llm_cache:
-        _aux_llm_cache[key] = get_llm(provider=key[0], model=key[1])
-    # Return a fresh proxy wrapping the cached LLM.  The cached object
-    # is the RetryLLMProxy from get_llm(); its .abort() closes the shared
-    # transport, so we wrap it in a thin adapter whose abort() is a no-op.
-    cached = _aux_llm_cache[key]
 
-    class _AuxProxy:
-        """Non-abortable wrapper: auxiliary calls are short-lived and must
-        never have their transport forcibly closed."""
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        bindings: tuple[tuple[str, tuple, dict], ...] = (),
+    ):
+        self.provider = provider
+        self.model = model
+        self._bindings = bindings
 
-        def __init__(self, inner):
-            self._inner = inner
-            self.model = inner.model
+    def _bind(self) -> RetryLLMProxy:
+        llm = get_llm(provider=self.provider, model=self.model)
+        for method, args, kwargs in self._bindings:
+            llm = getattr(llm, method)(*args, **kwargs)
+        return llm
 
-        def invoke(self, *args, **kwargs):
-            return self._inner.invoke(*args, **kwargs)
+    def invoke(self, *args, **kwargs):
+        return self._bind().invoke(*args, **kwargs)
 
-        def bind_tools(self, *args, **kwargs):
-            return _AuxProxy(self._inner.bind_tools(*args, **kwargs))
+    def _with_binding(self, method: str, args: tuple, kwargs: dict):
+        return RequestScopedAuxLLM(
+            self.provider,
+            self.model,
+            (*self._bindings, (method, args, dict(kwargs))),
+        )
 
-        def bind(self, *args, **kwargs):
-            return _AuxProxy(self._inner.bind(*args, **kwargs))
+    def bind_tools(self, *args, **kwargs):
+        return self._with_binding("bind_tools", args, kwargs)
 
-        def with_structured_output(self, *args, **kwargs):
-            return _AuxProxy(self._inner.with_structured_output(*args, **kwargs))
+    def bind(self, *args, **kwargs):
+        return self._with_binding("bind", args, kwargs)
 
-        def abort(self):
-            pass  # auxiliary calls are never abortable
+    def with_structured_output(self, *args, **kwargs):
+        return self._with_binding("with_structured_output", args, kwargs)
 
-        def __getattr__(self, name):
-            return getattr(self._inner, name)
 
-    return _AuxProxy(cached)
+def get_auxiliary_llm() -> RequestScopedAuxLLM:
+    """Return a reusable facade with request-owned management transports."""
+    from src.config.settings import AUX_LLM_MODEL, AUX_LLM_PROVIDER
+
+    return RequestScopedAuxLLM(AUX_LLM_PROVIDER, AUX_LLM_MODEL)
 
 
 # =========================================================

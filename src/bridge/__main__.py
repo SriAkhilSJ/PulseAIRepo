@@ -206,8 +206,8 @@ class BridgeServer:
                     pass
 
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
-        from src.runtime.turn_control import set_active_session
-        set_active_session(sid)
+        from src.runtime.turn_control import set_active_session, turn_controls
+
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
         # faulthandler.dump_traceback_later() returns None, so track the flag
         # explicitly: the scheduled dump must always be cancelled after the
@@ -221,6 +221,10 @@ class BridgeServer:
         q = None
         done = None
         forwarder = None
+        # Establish active ownership before publishing turn_started. Once the
+        # UI can show Stop, stream_agent's nested begin must preserve it.
+        turn_controls.begin(sid)
+        set_active_session(sid)
         try:
             self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
             if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
@@ -255,7 +259,6 @@ class BridgeServer:
                     approval_channel=True, approval_timeout=300.0,
                     turn_id=identity.turn_id,
                 )
-                from src.runtime.turn_control import turn_controls
                 cancelled = turn_controls.cancelled(sid)
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
@@ -263,10 +266,20 @@ class BridgeServer:
                     "cancelled": cancelled, "stub": False,
                 })
             except Exception as exc:
-                self.emit({
-                    "type": "turn_failed", **identity.event_fields(),
-                    "error": str(exc), "completed": False,
-                })
+                # Transport closure can surface through different provider
+                # exception types. Intentional Stop wins over generic failure
+                # attribution and must produce one terminal cancelled receipt.
+                if turn_controls.cancelled(sid):
+                    self.emit({
+                        "type": "turn_done", **identity.event_fields(),
+                        "message": "Operation cancelled by the user.",
+                        "completed": False, "cancelled": True, "stub": False,
+                    })
+                else:
+                    self.emit({
+                        "type": "turn_failed", **identity.event_fields(),
+                        "error": str(exc), "completed": False,
+                    })
         finally:
             if diagnostics_enabled:
                 import faulthandler
@@ -276,8 +289,7 @@ class BridgeServer:
                 forwarder.join(timeout=1.0)
                 from src.dashboard.event_bus import event_bus
                 event_bus.unsubscribe(q)
-                from src.runtime.turn_control import turn_controls
-                turn_controls.end(sid)
+            turn_controls.end(sid)
             set_active_session(None)
 
         from src.runtime.turn_control import turn_controls
@@ -369,10 +381,8 @@ class BridgeServer:
                 worker.start()
         elif kind == "cancel":
             from src.runtime.turn_control import turn_controls
+            # cancel() owns both the event transition and one-shot abort firing.
             active = turn_controls.cancel(sid)
-            # Fire registered aborts so an in-flight blocking HTTP request is
-            # interrupted immediately (not after the provider returns).
-            turn_controls.abort(sid)
             self.emit({"type": "session_info", "session_id": sid, "cancel_requested": active})
         elif kind == "steer":
             from src.runtime.turn_control import turn_controls

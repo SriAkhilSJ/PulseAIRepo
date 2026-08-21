@@ -530,92 +530,59 @@ def ai_node(
         # Drop tool pairs so the no-tools request is a clean text chat.
         messages = _drop_tool_pairs(messages)
 
-    # ── Abort-handle registration ──────────────────────────────
-    # Pressing Stop must interrupt the blocking HTTP request in flight, not
-    # wait for the provider to return. Register the proxies' abort handlers
-    # (they close the underlying httpx transport) against this session so
-    # turn_controls.abort() can reach them from any thread; unregister once
-    # the call completes. Also bind this thread to the session so the retry
-    # proxy consults the right cancel event.
-    from src.runtime.turn_control import set_active_session
-    set_active_session(session_id)
-    abort_handles: list = []
-    for candidate in (call_llm, llm_with_tools, llm):
-        handle = getattr(candidate, "abort", None)
-        if handle is not None and handle not in abort_handles:
-            abort_handles.append(handle)
-            turn_controls.register_abort(session_id, handle)
-
+    # RetryLLMProxy.invoke() owns request-scoped abort registration for every
+    # model path. Keep the active-session binding at the turn boundary; clearing
+    # it here would make later planner/classifier requests uninterruptible.
     try:
+        result = call_llm.invoke(messages)
+    except Exception as exc:
+        # A Stop that fired while the request was in flight wins over provider
+        # failover: never launch a base-provider request after cancellation.
+        if turn_controls.cancelled(session_id):
+            print(
+                f"[ai_node] provider-failover path cancelled for {session_id}; "
+                f"NOT failing over to {base_provider}/{base_model}"
+            )
+            return {
+                "messages": [AIMessage(
+                    content="Operation cancelled by the user.",
+                    additional_kwargs={"pulse_cancelled": True},
+                )],
+                "iteration_used": int(state.get("iteration_used", 0)),
+            }
+        if (provider, model) == (base_provider, base_model):
+            raise
+        print(
+            f"[ai_node] provider failover {provider}/{model} -> "
+            f"{base_provider}/{base_model} ({type(exc).__name__})"
+        )
+        provider, model = base_provider, base_model
+        llm = get_llm(provider=provider, model=model)
+        llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+        from src.context.cache_preservation import redecorate_for_failover
+        messages, _d37_info = redecorate_for_failover(messages)
+        call_model = model
+        call_llm = llm_with_tools
+        if configurable.get("execution_phase") == "deliver":
+            try:
+                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+            except (TypeError, ValueError):
+                delivery_cap = 4096
+            call_llm = llm_with_tools.bind(
+                max_tokens=max(512, min(delivery_cap, 8192))
+            )
+        if budget_exhausted:
+            call_llm = llm
         try:
             result = call_llm.invoke(messages)
-        except Exception as exc:
-            # F3/F6 (lab run 10): LLM-layer errors — a 403 on a blocked
-            # routed tier (cost_router -> groq/llama-3.1-8b-instant), rate
-            # limits, etc. — must not kill the turn. Fail over to the base
-            # provider/model once (hermes-style provider failover). Only the
-            # base tier may raise. Token accounting below uses the model that
-            # actually served.
-            #
-            # A Stop that fired while the request was in flight must WIN over
-            # the failover: never invoke the base provider after cancellation.
-            if turn_controls.cancelled(session_id):
-                print(
-                    f"[ai_node] provider-failover path cancelled for {session_id}; "
-                    f"NOT failing over to {base_provider}/{base_model}"
-                )
-                return {
-                    "messages": [AIMessage(
-                        content="Operation cancelled by the user.",
-                        additional_kwargs={"pulse_cancelled": True},
-                    )],
-                    "iteration_used": int(state.get("iteration_used", 0)),
-                }
-            if (provider, model) == (base_provider, base_model):
-                raise
-            print(
-                f"[ai_node] provider failover {provider}/{model} -> "
-                f"{base_provider}/{base_model} ({type(exc).__name__})"
-            )
-            provider, model = base_provider, base_model
-            llm = get_llm(provider=provider, model=model)
-            llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
-            # D37: failover must not break the prompt cache. The engine is
-            # keyed to the base model, so reusing `messages` is prefix-correct
-            # already; re-decoration strips any provider cache decorations and
-            # guarantees the static prefix survives the provider transition.
-            from src.context.cache_preservation import redecorate_for_failover
-            messages, _d37_info = redecorate_for_failover(messages)
-            call_model = model
-            call_llm = llm_with_tools
-            if configurable.get("execution_phase") == "deliver":
-                try:
-                    delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
-                except (TypeError, ValueError):
-                    delivery_cap = 4096
-                call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
-            if budget_exhausted:
-                call_llm = llm
-            # Register the FAILOVER proxy's abort handle too, so a Stop during
-            # the base-provider request genuinely interrupts its transport.
-            failover_handle = getattr(call_llm, "abort", None)
-            if failover_handle is not None and failover_handle not in abort_handles:
-                abort_handles.append(failover_handle)
-                turn_controls.register_abort(session_id, failover_handle)
-            try:
-                result = call_llm.invoke(messages)
-            except TurnCancelledError:
-                return {
-                    "messages": [AIMessage(
-                        content="Operation cancelled by the user.",
-                        additional_kwargs={"pulse_cancelled": True},
-                    )],
-                    "iteration_used": int(state.get("iteration_used", 0)),
-                }
-    finally:
-        for handle in abort_handles:
-            turn_controls.unregister_abort(session_id, handle)
-        set_active_session(None)
+        except TurnCancelledError:
+            return {
+                "messages": [AIMessage(
+                    content="Operation cancelled by the user.",
+                    additional_kwargs={"pulse_cancelled": True},
+                )],
+                "iteration_used": int(state.get("iteration_used", 0)),
+            }
 
     # ── Post-LLM cancellation gate ──────────────────────────────
     # Check immediately after every blocking LLM invocation. If the
@@ -1977,8 +1944,30 @@ class SafeToolNode:
             str(safety_guard.workspace): safety_guard
         }
 
+    @staticmethod
+    def _cancelled_tool_messages(tool_calls: list[dict]) -> list[ToolMessage]:
+        return [
+            ToolMessage(
+                content="Operation cancelled by the user — tool not executed.",
+                tool_call_id=tc.get("id", ""),
+                name=tc.get("name", ""),
+                status="error",
+            )
+            for tc in tool_calls
+        ]
+
+    @staticmethod
+    def _session_id(config) -> str:
+        return str(
+            (config or {}).get("configurable", {}).get("thread_id") or "default"
+        )
+
     def _execute_durable(self, tool_calls: list[dict], config) -> list[ToolMessage]:
-        """Execute known calls through the journaled transaction path."""
+        """Admit and execute known calls through the durable journal path."""
+        from src.runtime.turn_control import turn_controls
+
+        if not turn_controls.admit_action(self._session_id(config)):
+            return self._cancelled_tool_messages(tool_calls)
         from src.graphs.parallel_tools import run_durable_batch_sequential
         return run_durable_batch_sequential(
             tool_calls, self._tools_by_name, config
@@ -2034,17 +2023,7 @@ class SafeToolNode:
             tool_calls = getattr(last_msg, "tool_calls", None)
             if not tool_calls:
                 return self._node.invoke(state, config)
-            return {
-                "messages": [
-                    ToolMessage(
-                        content="Operation cancelled by the user — tool not executed.",
-                        tool_call_id=tc.get("id", ""),
-                        name=tc.get("name", ""),
-                        status="error",
-                    )
-                    for tc in tool_calls
-                ]
-            }
+            return {"messages": self._cancelled_tool_messages(tool_calls)}
 
         # Check the last AI message for tool calls
         messages = state.get("messages", [])
@@ -2083,6 +2062,11 @@ class SafeToolNode:
             if _repaired_ai is None:
                 return {"messages": msg_list}
             return {"messages": [_repaired_ai, *msg_list]}
+
+        def _cancelled_result(calls: list[dict] | None = None) -> dict:
+            return _with_repaired(
+                self._cancelled_tool_messages(calls or tool_calls)
+            )
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.
@@ -2284,11 +2268,34 @@ class SafeToolNode:
                     **request_item, "thread_id": thread_id or "default",
                     "warning": warning,
                 })
-                decision = approval_queue.wait_for_decision(tool_id, timeout=timeout)
+
+                # Stop must wake an approval wait immediately rather than leave
+                # the bridge blocked for the full approval timeout.
+                def _cancel_approval(
+                    pending_tool_id=tool_id,
+                    pending_session=thread_id or "default",
+                ):
+                    approval_queue.resolve(
+                        pending_tool_id, False, session_id=pending_session
+                    )
+
+                _tc.register_abort(_cfg_sid, _cancel_approval)
+                try:
+                    decision = approval_queue.wait_for_decision(
+                        tool_id, timeout=timeout
+                    )
+                finally:
+                    _tc.unregister_abort(_cfg_sid, _cancel_approval)
                 if decision and decision.get("decision") is True:
                     approved_ids.add(tool_id)
                 else:
-                    reason = "timed out" if decision and decision.get("timeout") else "denied"
+                    reason = (
+                        "cancelled"
+                        if _tc.cancelled(_cfg_sid)
+                        else "timed out"
+                        if decision and decision.get("timeout")
+                        else "denied"
+                    )
                     denials[tool_id] = ToolMessage(
                         content=f"⛔ Tool `{tc.get('name', '')}` {reason} before execution.",
                         tool_call_id=tool_id, name=tc.get("name", ""), status="error",
@@ -2336,11 +2343,16 @@ class SafeToolNode:
             try_parallel_batch,
             try_sequential_batch,
         )
+        if not _tc.admit_action(_cfg_sid):
+            return _cancelled_result()
         parallel = try_parallel_batch(
             tool_calls, self._tools_by_name, config, workspace
         )
         if parallel is not None:
             return _with_repaired(parallel)
+
+        if not _tc.admit_action(_cfg_sid):
+            return _cancelled_result()
         sequential = try_sequential_batch(
             tool_calls, self._tools_by_name, config, workspace
         )
@@ -2352,6 +2364,8 @@ class SafeToolNode:
             if _repaired_ai is not None:
                 state = dict(state)
                 state["messages"] = messages[:-1] + [_repaired_ai]
+            if not _tc.admit_action(_cfg_sid):
+                return _cancelled_result()
             return _with_repaired(self._node.invoke(state, config)["messages"])
         if all(tc.get("name", "") in self._tools_by_name for tc in tool_calls):
             return _with_repaired(self._execute_durable(tool_calls, config))
@@ -2360,6 +2374,8 @@ class SafeToolNode:
         if _repaired_ai is not None:
             state = dict(state)
             state["messages"] = messages[:-1] + [_repaired_ai]
+        if not _tc.admit_action(_cfg_sid):
+            return _cancelled_result()
         return _with_repaired(self._node.invoke(state, config)["messages"])
 
 tool_node = SafeToolNode(tools, SafetyGuard())
@@ -2697,10 +2713,11 @@ def invoke_agent(
     execution_mode: Literal["agent", "plan"] = "agent",
     scope_capabilities: tuple[str, ...] | None = None,
 ) -> str:
-    from src.runtime.turn_control import set_active_session
+    from src.runtime.turn_control import set_active_session, turn_controls
+
+    turn_controls.begin(thread_id)
     set_active_session(thread_id)
     try:
-
         config: RunnableConfig = {
             "configurable": {
                 "thread_id": thread_id,
@@ -2736,6 +2753,7 @@ def invoke_agent(
 
         return result["messages"][-1].content
     finally:
+        turn_controls.end(thread_id)
         set_active_session(None)
 
 # =========================================================
