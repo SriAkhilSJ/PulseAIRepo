@@ -16,6 +16,13 @@ from src.config.settings import (
     OPENAI_API_KEY,
 )
 
+from src.runtime.turn_control import active_session, turn_controls
+
+
+class TurnCancelledError(RuntimeError):
+    """Raised when the user pressed Stop while an LLM request was in flight
+    or about to be retried. Never retried and never failed over."""
+
 
 class RetryLLMProxy:
     """Tiny proxy that retries transient LLM rate-limit errors."""
@@ -23,6 +30,9 @@ class RetryLLMProxy:
     def __init__(self, llm: Any, max_attempts: int = 5):
         self._llm = llm
         self._max_attempts = max_attempts
+        # Set by abort(): the transport was forcibly closed, so no further call
+        # on this proxy may proceed.
+        self.is_aborted = False
         # Lazily resolved when PROVIDER_SAFE_LIMIT=0 (auto mode); memoized
         # so per-invoke guard checks never re-read the disk cache.
         self._auto_limit: int | None = None
@@ -155,17 +165,76 @@ class RetryLLMProxy:
                     kwargs["messages"] = trimmed
 
         for attempt in range(self._max_attempts):
+            # Cancellation gate BEFORE every attempt: a Stop that fired while
+            # the previous attempt was blocked must never launch a new request.
+            self._raise_if_cancelled()
+
             try:
                 return self._llm.invoke(*args, **kwargs)
             except Exception as error:
+                # A Stop pressed while this HTTP request was in flight wins
+                # over any retry/failover logic: surface the cancellation and
+                # do NOT fire another (now-unwanted) request.
+                self._raise_if_cancelled(error)
                 last_error = error
 
                 if not self._is_retryable(error) or attempt == self._max_attempts - 1:
                     raise
 
+                # Cancellation gate BEFORE the retry backoff sleep too: a Stop
+                # that lands between attempts is honoured before we wait.
+                self._raise_if_cancelled()
                 time.sleep(self._retry_delay(error, attempt))
 
         raise last_error
+
+    def _raise_if_cancelled(self, error: Exception | None = None) -> None:
+        """Raise TurnCancelledError when the active session was cancelled or
+        this proxy was aborted. Safe no-op when no session is bound to this
+        thread (e.g. dashboard-internal background helper threads)."""
+        if self.is_aborted:
+            raise TurnCancelledError(
+                "LLM request aborted by the user (Stop pressed)."
+            ) from error
+        sid = active_session()
+        if sid is not None and turn_controls.cancelled(sid):
+            raise TurnCancelledError(
+                "LLM request cancelled by the user (Stop pressed)."
+            ) from error
+
+    def abort(self) -> None:
+        """Best-effort, immediate interrupt of any in-flight HTTP request.
+
+        The underlying LLM is a langchain_openai ChatOpenAI whose ``.client``
+        is an openai client that owns an httpx.Client (``client._client``);
+        closing the httpx.Client forces an in-flight request to return right
+        now. Every step is individually guarded; this always returns quickly
+        and is idempotent.
+        """
+        self.is_aborted = True
+        client = getattr(self._llm, "client", None)
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+            try:
+                httpx_client = getattr(client, "_client", None)
+                if httpx_client is not None:
+                    httpx_client.close()
+            except Exception:
+                pass
+            return
+        # Fallback for providers/wrappers that store the transport on the llm
+        # object itself: ``llm._client`` (an openai client) -> ``._client``
+        # (its httpx.Client).
+        try:
+            candidate = getattr(self._llm, "_client", None)
+            if candidate is not None:
+                httpx_client = getattr(candidate, "_client", None)
+                (httpx_client if httpx_client is not None else candidate).close()
+        except Exception:
+            pass
 
     def _safe_limit(self) -> int:
         """The pre-send input cap for this proxy.
@@ -234,6 +303,17 @@ class RetryLLMProxy:
     def bind_tools(self, *args, **kwargs):
         return RetryLLMProxy(
             self._llm.bind_tools(*args, **kwargs),
+            max_attempts=self._max_attempts,
+        )
+
+    def bind(self, *args, **kwargs):
+        # bind() returns a model_copy clone whose httpx transport is lazily
+        # created and fully SEPARATE from this proxy's. Leaving it unwrapped
+        # would route through __getattr__ to a raw clone with no abort(), so
+        # Stop could never interrupt an in-flight bound request. Wrap it back
+        # into a proxy so abort() closes the clone's own transport.
+        return RetryLLMProxy(
+            self._llm.bind(*args, **kwargs),
             max_attempts=self._max_attempts,
         )
 

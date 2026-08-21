@@ -206,6 +206,8 @@ class BridgeServer:
                     pass
 
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
+        from src.runtime.turn_control import set_active_session
+        set_active_session(sid)
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
         # faulthandler.dump_traceback_later() returns None, so track the flag
         # explicitly: the scheduled dump must always be cancelled after the
@@ -276,6 +278,7 @@ class BridgeServer:
                 event_bus.unsubscribe(q)
                 from src.runtime.turn_control import turn_controls
                 turn_controls.end(sid)
+            set_active_session(None)
 
         from src.runtime.turn_control import turn_controls
         queued = turn_controls.pop_queued(sid)
@@ -367,6 +370,9 @@ class BridgeServer:
         elif kind == "cancel":
             from src.runtime.turn_control import turn_controls
             active = turn_controls.cancel(sid)
+            # Fire registered aborts so an in-flight blocking HTTP request is
+            # interrupted immediately (not after the provider returns).
+            turn_controls.abort(sid)
             self.emit({"type": "session_info", "session_id": sid, "cancel_requested": active})
         elif kind == "steer":
             from src.runtime.turn_control import turn_controls

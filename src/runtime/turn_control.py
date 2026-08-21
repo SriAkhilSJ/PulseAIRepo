@@ -13,6 +13,24 @@ class _Control:
     queued: deque[str] = field(default_factory=deque)
     active: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock)
+    aborts: set = field(default_factory=set)
+
+
+# The "active session" for the current thread. RetryLLMProxy consults this so
+# a Stop pressed on one session aborts exactly that session's in-flight HTTP
+# request even when several sessions' LLM proxies run on distinct worker
+# threads (threading.local is per-thread, so no cross-session bleed).
+_thread_local = threading.local()
+
+
+def set_active_session(session_id: str | None) -> None:
+    """Bind this thread to a session id; pass None to unbind."""
+    _thread_local.session_id = None if session_id is None else str(session_id)
+
+
+def active_session() -> str | None:
+    """The session id this thread is currently serving, if any."""
+    return getattr(_thread_local, "session_id", None)
 
 
 class TurnControlRegistry:
@@ -27,7 +45,10 @@ class TurnControlRegistry:
     def begin(self, session_id: str) -> None:
         item = self._get(session_id)
         with item.lock:
-            item.cancel_event.clear()
+            # Do NOT clear a pre-existing cancel event: if Stop arrived
+            # between turn_started and begin(), the cancellation must
+            # survive so the turn terminates as cancelled rather than
+            # starting a fresh LLM request.
             item.active = True
 
     def end(self, session_id: str) -> None:
@@ -38,7 +59,37 @@ class TurnControlRegistry:
     def cancel(self, session_id: str) -> bool:
         item = self._get(session_id)
         item.cancel_event.set()
+        # A Stop must also fire every registered abort so a blocking HTTP
+        # request in flight is interrupted immediately, not after the provider
+        # returns.
+        self.abort(session_id)
         return item.active
+
+    def register_abort(self, session_id: str, fn) -> None:
+        """Register a session-scoped abort callable (e.g. an LLM proxy's
+        transport-closing handler). Thread-safe."""
+        item = self._get(session_id)
+        with item.lock:
+            item.aborts.add(fn)
+
+    def unregister_abort(self, session_id: str, fn) -> None:
+        item = self._get(session_id)
+        with item.lock:
+            item.aborts.discard(fn)
+
+    def abort(self, session_id: str) -> None:
+        """Fire every registered abort callable for the session, best-effort.
+
+        Each callable is wrapped in try/except so one broken handler can never
+        block the others or the caller. Must return quickly."""
+        item = self._get(session_id)
+        with item.lock:
+            callbacks = list(item.aborts)
+        for fn in callbacks:
+            try:
+                fn()
+            except Exception:
+                pass
 
     def cancelled(self, session_id: str) -> bool:
         return self._get(session_id).cancel_event.is_set()

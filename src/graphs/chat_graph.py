@@ -30,7 +30,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, InjectedState
 
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
-from src.llm.factory import get_llm, get_auxiliary_llm
+from src.llm.factory import get_llm, get_auxiliary_llm, TurnCancelledError
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
@@ -530,40 +530,113 @@ def ai_node(
         # Drop tool pairs so the no-tools request is a clean text chat.
         messages = _drop_tool_pairs(messages)
 
+    # ── Abort-handle registration ──────────────────────────────
+    # Pressing Stop must interrupt the blocking HTTP request in flight, not
+    # wait for the provider to return. Register the proxies' abort handlers
+    # (they close the underlying httpx transport) against this session so
+    # turn_controls.abort() can reach them from any thread; unregister once
+    # the call completes. Also bind this thread to the session so the retry
+    # proxy consults the right cancel event.
+    from src.runtime.turn_control import set_active_session
+    set_active_session(session_id)
+    abort_handles: list = []
+    for candidate in (call_llm, llm_with_tools, llm):
+        handle = getattr(candidate, "abort", None)
+        if handle is not None and handle not in abort_handles:
+            abort_handles.append(handle)
+            turn_controls.register_abort(session_id, handle)
+
     try:
-        result = call_llm.invoke(messages)
-    except Exception as exc:
-        # F3/F6 (lab run 10): LLM-layer errors — a 403 on a blocked routed
-        # tier (cost_router -> groq/llama-3.1-8b-instant), rate limits, etc.
-        # — must not kill the turn. Fail over to the base provider/model
-        # once (hermes-style provider failover). Only the base tier may
-        # raise. Token accounting below uses the model that actually served.
-        if (provider, model) == (base_provider, base_model):
-            raise
-        print(
-            f"[ai_node] provider failover {provider}/{model} -> "
-            f"{base_provider}/{base_model} ({type(exc).__name__})"
-        )
-        provider, model = base_provider, base_model
-        llm = get_llm(provider=provider, model=model)
-        llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
-        # D37: failover must not break the prompt cache. The engine is keyed
-        # to the base model, so reusing `messages` is prefix-correct already;
-        # re-decoration strips any provider cache decorations and guarantees
-        # the static prefix survives the provider transition untouched.
-        from src.context.cache_preservation import redecorate_for_failover
-        messages, _d37_info = redecorate_for_failover(messages)
-        call_model = model
-        call_llm = llm_with_tools
-        if configurable.get("execution_phase") == "deliver":
+        try:
+            result = call_llm.invoke(messages)
+        except Exception as exc:
+            # F3/F6 (lab run 10): LLM-layer errors — a 403 on a blocked
+            # routed tier (cost_router -> groq/llama-3.1-8b-instant), rate
+            # limits, etc. — must not kill the turn. Fail over to the base
+            # provider/model once (hermes-style provider failover). Only the
+            # base tier may raise. Token accounting below uses the model that
+            # actually served.
+            #
+            # A Stop that fired while the request was in flight must WIN over
+            # the failover: never invoke the base provider after cancellation.
+            if turn_controls.cancelled(session_id):
+                print(
+                    f"[ai_node] provider-failover path cancelled for {session_id}; "
+                    f"NOT failing over to {base_provider}/{base_model}"
+                )
+                return {
+                    "messages": [AIMessage(
+                        content="Operation cancelled by the user.",
+                        additional_kwargs={"pulse_cancelled": True},
+                    )],
+                    "iteration_used": int(state.get("iteration_used", 0)),
+                }
+            if (provider, model) == (base_provider, base_model):
+                raise
+            print(
+                f"[ai_node] provider failover {provider}/{model} -> "
+                f"{base_provider}/{base_model} ({type(exc).__name__})"
+            )
+            provider, model = base_provider, base_model
+            llm = get_llm(provider=provider, model=model)
+            llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+            # D37: failover must not break the prompt cache. The engine is
+            # keyed to the base model, so reusing `messages` is prefix-correct
+            # already; re-decoration strips any provider cache decorations and
+            # guarantees the static prefix survives the provider transition.
+            from src.context.cache_preservation import redecorate_for_failover
+            messages, _d37_info = redecorate_for_failover(messages)
+            call_model = model
+            call_llm = llm_with_tools
+            if configurable.get("execution_phase") == "deliver":
+                try:
+                    delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+                except (TypeError, ValueError):
+                    delivery_cap = 4096
+                call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
+            if budget_exhausted:
+                call_llm = llm
+            # Register the FAILOVER proxy's abort handle too, so a Stop during
+            # the base-provider request genuinely interrupts its transport.
+            failover_handle = getattr(call_llm, "abort", None)
+            if failover_handle is not None and failover_handle not in abort_handles:
+                abort_handles.append(failover_handle)
+                turn_controls.register_abort(session_id, failover_handle)
             try:
-                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
-            except (TypeError, ValueError):
-                delivery_cap = 4096
-            call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
-        if budget_exhausted:
-            call_llm = llm
-        result = call_llm.invoke(messages)
+                result = call_llm.invoke(messages)
+            except TurnCancelledError:
+                return {
+                    "messages": [AIMessage(
+                        content="Operation cancelled by the user.",
+                        additional_kwargs={"pulse_cancelled": True},
+                    )],
+                    "iteration_used": int(state.get("iteration_used", 0)),
+                }
+    finally:
+        for handle in abort_handles:
+            turn_controls.unregister_abort(session_id, handle)
+        set_active_session(None)
+
+    # ── Post-LLM cancellation gate ──────────────────────────────
+    # Check immediately after every blocking LLM invocation. If the
+    # user pressed Stop while the HTTP request was in flight, the
+    # result contains tool_calls that MUST NOT execute. Replace the
+    # result with a cancellation message and let should_continue
+    # route to finalize (pulse_cancelled=True). Preserve valid
+    # tool-call/result pairing by never returning orphaned tool
+    # calls into the graph.
+    if turn_controls.cancelled(session_id):
+        print(
+            f"[ai_node] post-LLM cancellation detected for {session_id}; "
+            f"discarding LLM result with {len(getattr(result, 'tool_calls', None) or [])} tool_call(s)"
+        )
+        return {
+            "messages": [AIMessage(
+                content="Operation cancelled by the user.",
+                additional_kwargs={"pulse_cancelled": True},
+            )],
+            "iteration_used": int(state.get("iteration_used", 0)),
+        }
 
     # Hermes-pattern repair: some models emit tool calls as TEXT
     # (<tool_call>NAME<arg_key>...<arg_value>...) instead of structured
@@ -1077,6 +1150,19 @@ def task_manager_node(
             "workspace": config["configurable"].get("workspace", "."),
         }
 
+    # ── Pre-LLM cancellation gate (task_manager) ──────────────
+    session_id_tm = str(configurable.get("thread_id") or "default")
+    from src.runtime.turn_control import turn_controls as _tc_tm
+    if _tc_tm.cancelled(session_id_tm):
+        return {
+            "current_task": current_task,
+            "task_action": "cancelled",
+            "task_status": "cancelled",
+            "task_completed": False,
+            "token_usage": state.get("token_usage", _zero_token_usage()),
+            "workspace": config["configurable"].get("workspace", "."),
+        }
+
     llm = _task_manager_llm(provider, model)
 
     task_llm = llm.with_structured_output(
@@ -1276,7 +1362,13 @@ def progress_node(
             # replanning (the plan isn't wrong, the environment is) and let
             # the recovery loop route to a strategy pivot instead of
             # retry-until-recovery-limit.
-            if not updates["env_failure"]:
+            # ── Pre-LLM cancellation gate (progress replan) ─────
+            # maybe_replan consults the LLM (should_replan); after a Stop the
+            # failure bookkeeping above still lands, but the replan LLM must
+            # not be paid for.
+            _sid_pg = str(config["configurable"].get("thread_id") or "default")
+            from src.runtime.turn_control import turn_controls as _tc_pg
+            if not updates["env_failure"] and not _tc_pg.cancelled(_sid_pg):
                 needed, usages = ph.maybe_replan(
                     task=state.get("current_task", ""),
                     plan=plan,
@@ -1462,10 +1554,24 @@ def planner_node(
     state: AgentState,
     config: RunnableConfig,
 ):
+    configurable = config["configurable"]
+
+    # ── Pre-LLM cancellation gate (planner) ───────────────────
+    # planning calls the LLM (should_create_plan / create_plan); a Stop that
+    # fired before this node must never pay for a new model invocation.
+    session_id_pl = str(configurable.get("thread_id") or "default")
+    from src.runtime.turn_control import turn_controls as _tc_pl
+    if _tc_pl.cancelled(session_id_pl):
+        return {
+            "messages": [AIMessage(
+                content="Operation cancelled by the user.",
+                additional_kwargs={"pulse_cancelled": True},
+            )],
+        }
+
     current_task = state.get("current_task", "")
     plan_created = state.get("plan_created", False)
 
-    configurable = config["configurable"]
     provider = configurable["provider"]
     model = configurable["model"]
 
@@ -1606,6 +1712,11 @@ def after_planner(state: AgentState) -> str:
 
 def plan_preview_node(state: AgentState):
     """Return the generated plan without executing it."""
+    # A cancelled planner/plan_reviser must surface the cancellation message
+    # instead of the (possibly stale) plan preview.
+    last = state.get("messages", [])[-1] if state.get("messages") else None
+    if bool(getattr(last, "additional_kwargs", {}).get("pulse_cancelled")):
+        return {"messages": [AIMessage(content="Operation cancelled by the user.")]}
     plan = state.get("plan", [])
     if not plan:
         return {
@@ -1638,12 +1749,24 @@ def plan_reviser_node(
     state: AgentState,
     config: RunnableConfig,
 ):
+    configurable = config["configurable"]
+
+    # ── Pre-LLM cancellation gate (plan_reviser) ──────────────
+    # revise_plan invokes the LLM; a Stop must short-circuit before it.
+    session_id_rv = str(configurable.get("thread_id") or "default")
+    from src.runtime.turn_control import turn_controls as _tc_rv
+    if _tc_rv.cancelled(session_id_rv):
+        return {
+            "messages": [AIMessage(
+                content="Operation cancelled by the user.",
+                additional_kwargs={"pulse_cancelled": True},
+            )],
+        }
+
     current_plan = state.get("plan", [])
 
     if not current_plan:
         return {}
-
-    configurable = config["configurable"]
 
     usages: list[TokenUsage] = []
 
@@ -1716,6 +1839,18 @@ def replanner_node(
     failed_steps = state.get("failed_steps", [])
 
     configurable = config["configurable"]
+
+    # ── Pre-LLM cancellation gate (replanner) ─────────────────
+    # create_replan invokes the LLM; a Stop must short-circuit before it.
+    session_id_rp = str(configurable.get("thread_id") or "default")
+    from src.runtime.turn_control import turn_controls as _tc_rp
+    if _tc_rp.cancelled(session_id_rp):
+        return {
+            "messages": [AIMessage(
+                content="Operation cancelled by the user.",
+                additional_kwargs={"pulse_cancelled": True},
+            )],
+        }
 
     usages: list[TokenUsage] = []
 
@@ -1873,6 +2008,44 @@ class SafeToolNode:
             return {"error": f"could not prepare diff: {exc}"}
 
     def __call__(self, state, config=None):
+        # ── Pre-execution cancellation gate ─────────────────────────
+        # If the user pressed Stop before tool execution begins, deny
+        # ALL pending tool calls with cancellation ToolMessages. This
+        # prevents any tool (write_file, run_terminal, etc.) from
+        # running after the user asked to stop. The AI result's
+        # tool_calls are still in the state; we must produce a
+        # ToolMessage for each one to preserve valid pairing.
+        _cfg_ws = "."
+        _cfg_tid = ""
+        if config and "configurable" in config:
+            _cfg_ws = config["configurable"].get("workspace", ".")
+            _cfg_tid = str(config["configurable"].get("thread_id", ""))
+        _cfg_sid = str(config["configurable"].get("thread_id") or "default") if config and "configurable" in config else "default"
+        from src.runtime.turn_control import turn_controls as _tc
+        if _tc.cancelled(_cfg_sid):
+            print(
+                f"[SafeToolNode] pre-execution cancellation for {_cfg_sid}; "
+                f"denying all pending tool calls"
+            )
+            messages = state.get("messages", [])
+            if not messages:
+                return self._node.invoke(state, config)
+            last_msg = messages[-1]
+            tool_calls = getattr(last_msg, "tool_calls", None)
+            if not tool_calls:
+                return self._node.invoke(state, config)
+            return {
+                "messages": [
+                    ToolMessage(
+                        content="Operation cancelled by the user — tool not executed.",
+                        tool_call_id=tc.get("id", ""),
+                        name=tc.get("name", ""),
+                        status="error",
+                    )
+                    for tc in tool_calls
+                ]
+            }
+
         # Check the last AI message for tool calls
         messages = state.get("messages", [])
         if not messages:
@@ -2524,41 +2697,46 @@ def invoke_agent(
     execution_mode: Literal["agent", "plan"] = "agent",
     scope_capabilities: tuple[str, ...] | None = None,
 ) -> str:
-
-    config: RunnableConfig = {
-        "configurable": {
-            "thread_id": thread_id,
-            "provider": provider,
-            "model": model,
-            "workspace": workspace,
-            "scope_capabilities": list(scope_capabilities or ()),
-            "scope_capabilities_strict": scope_capabilities is not None,
-        },
-        "recursion_limit": _recursion_limit(),
-    }
-
-    result = graph.invoke(
-        {
-            "messages": [
-                HumanMessage(content=message)
-            ],
-            "latest_instruction": message,
-            "execution_mode": execution_mode,
-            # Safety budgets are turn-scoped even when checkpoint state is resumed.
-            "iteration_used": 0,
-            "grace_done": 0,
-            "turn_token_usage": _zero_token_usage(),
-        },
-        config=config,
-    )
-
-    from src.context.self_curation import maybe_spawn_memory_review
+    from src.runtime.turn_control import set_active_session
+    set_active_session(thread_id)
     try:
-        maybe_spawn_memory_review(thread_id)
-    except Exception:
-        pass
 
-    return result["messages"][-1].content
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": thread_id,
+                "provider": provider,
+                "model": model,
+                "workspace": workspace,
+                "scope_capabilities": list(scope_capabilities or ()),
+                "scope_capabilities_strict": scope_capabilities is not None,
+            },
+            "recursion_limit": _recursion_limit(),
+        }
+
+        result = graph.invoke(
+            {
+                "messages": [
+                    HumanMessage(content=message)
+                ],
+                "latest_instruction": message,
+                "execution_mode": execution_mode,
+                # Safety budgets are turn-scoped even when checkpoint state is resumed.
+                "iteration_used": 0,
+                "grace_done": 0,
+                "turn_token_usage": _zero_token_usage(),
+            },
+            config=config,
+        )
+
+        from src.context.self_curation import maybe_spawn_memory_review
+        try:
+            maybe_spawn_memory_review(thread_id)
+        except Exception:
+            pass
+
+        return result["messages"][-1].content
+    finally:
+        set_active_session(None)
 
 # =========================================================
 # STREAMING INVOCATION
@@ -2584,8 +2762,9 @@ def stream_agent(
     # (the engine's convention layer reuses the same disk state, so one
     # bounded scan per workspace-change serves both).
     ConventionLearner().get_conventions_text(workspace)
-    from src.runtime.turn_control import turn_controls
+    from src.runtime.turn_control import turn_controls, set_active_session
     turn_controls.begin(thread_id)
+    set_active_session(thread_id)
     
     event_bus.emit("session.status", {"status": "busy", "thread_id": thread_id})
 
@@ -2764,6 +2943,7 @@ def stream_agent(
             pass
 
     turn_controls.end(thread_id)
+    set_active_session(None)
     return final_response
 
 from src.agents.agent_status import build_agent_status
