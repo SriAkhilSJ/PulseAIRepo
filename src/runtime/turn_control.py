@@ -45,10 +45,13 @@ class TurnControlRegistry:
     def begin(self, session_id: str) -> None:
         item = self._get(session_id)
         with item.lock:
-            # Do NOT clear a pre-existing cancel event: if Stop arrived
-            # between turn_started and begin(), the cancellation must
-            # survive so the turn terminates as cancelled rather than
-            # starting a fresh LLM request.
+            if not item.active:
+                # New turn on an inactive session: clear any stale cancellation
+                # from a previous turn so the session can proceed fresh.
+                item.cancel_event.clear()
+            # If active is already True (re-entry during the same turn),
+            # do NOT clear the cancel event — a Stop that arrived must
+            # survive so this turn terminates as cancelled.
             item.active = True
 
     def end(self, session_id: str) -> None:

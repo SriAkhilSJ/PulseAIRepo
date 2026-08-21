@@ -31,8 +31,10 @@ class RetryLLMProxy:
         self._llm = llm
         self._max_attempts = max_attempts
         # Set by abort(): the transport was forcibly closed, so no further call
-        # on this proxy may proceed.
+        # on this proxy may proceed.  Protected by _abort_lock for one-shot
+        # transition: abort() closes clients at most once.
         self.is_aborted = False
+        self._abort_lock = threading.Lock()
         # Lazily resolved when PROVIDER_SAFE_LIMIT=0 (auto mode); memoized
         # so per-invoke guard checks never re-read the disk cache.
         self._auto_limit: int | None = None
@@ -77,116 +79,131 @@ class RetryLLMProxy:
         Invoke with retry logic AND a pre-send token guard.
         If messages exceed the provider's safe limit, trim from the middle
         (preserve system + recent history) before sending.
+
+        Automatically registers/unregisters this proxy's abort handle against
+        the active session so every proxied model request is covered by the
+        cancellation lifecycle, not just ai_node.
         """
         last_error = None
 
-        # ------------------------------------------------------------------
-        # PRE-SEND SANITIZER (D36): lossless cleanup of the outgoing message
-        # list — collapse duplicate tool_calls within an assistant message,
-        # drop re-used tool_call_id results, dedup byte-identical tool
-        # results. Mirrors hermes' pre-call sanitizer. Never raises.
-        # ------------------------------------------------------------------
-        sanitized = None
-        messages_arg = None
-        if args:
-            messages_arg = args[0]
-        elif "messages" in kwargs:
-            messages_arg = kwargs["messages"]
+        # ── Auto-register abort handle for this request ────────────
+        from src.runtime.turn_control import active_session, turn_controls
+        sid = active_session()
+        if sid is not None:
+            turn_controls.register_abort(sid, self.abort)
 
-        if isinstance(messages_arg, list):
-            from src.llm.request_sanitizer import sanitize_request_messages
-            sanitized = sanitize_request_messages(messages_arg)
-            if sanitized is not messages_arg:
-                if args:
-                    args = (sanitized,) + args[1:]
-                else:
-                    kwargs["messages"] = sanitized
-                messages_arg = sanitized
+        try:
 
-        # ------------------------------------------------------------------
-        # P1 PROMPT-CACHE PLAN: decorate the byte-stable prefix head with
-        # cache breakpoints (hermes prompt_caching.py shape). DEFAULT OFF —
-        # only applied when PULSEAI_PROMPT_CACHE=1 AND the provider/model is
-        # allowlisted (an OpenAI-compatible endpoint that rejects unknown
-        # content fields must never 4xx a turn). Pure, never raises; the
-        # failover stripper (cache_preservation.py) can always undo it.
-        # ------------------------------------------------------------------
-        if isinstance(messages_arg, list):
-            cls = type(self._llm).__name__.lower()
-            provider = (
-                "gemini" if "google" in cls
-                else "groq" if "groq" in cls
-                else "custom" if "openai" in cls  # includes the base_url custom route
-                else cls
-            )
-            try:
-                from src.context.prompt_cache_plan import build_prompt_cache_plan
-                planned, _info = build_prompt_cache_plan(messages_arg, provider, self.model)
-                if planned is not messages_arg:
+            # ------------------------------------------------------------------
+            # PRE-SEND SANITIZER (D36): lossless cleanup of the outgoing message
+            # list — collapse duplicate tool_calls within an assistant message,
+            # drop re-used tool_call_id results, dedup byte-identical tool
+            # results. Mirrors hermes' pre-call sanitizer. Never raises.
+            # ------------------------------------------------------------------
+            sanitized = None
+            messages_arg = None
+            if args:
+                messages_arg = args[0]
+            elif "messages" in kwargs:
+                messages_arg = kwargs["messages"]
+
+            if isinstance(messages_arg, list):
+                from src.llm.request_sanitizer import sanitize_request_messages
+                sanitized = sanitize_request_messages(messages_arg)
+                if sanitized is not messages_arg:
                     if args:
-                        args = (planned,) + args[1:]
+                        args = (sanitized,) + args[1:]
                     else:
-                        kwargs["messages"] = planned
-                    messages_arg = planned
-            except Exception:
-                pass  # cache decoration must never break a send
+                        kwargs["messages"] = sanitized
+                    messages_arg = sanitized
 
-        # ------------------------------------------------------------------
-        # PRE-SEND TOKEN GUARD (503 mitigation)
-        # Guard ONLY the messages arg — never any other positional arg.
-        # ------------------------------------------------------------------
-        if isinstance(messages_arg, list):
-            # trim_limit semantics: >=0 = enforce this limit; -1 = guard
-            # unavailable, send untrimmed (with a loud warning, never silent).
-            trim_limit = -1
-            try:
-                from src.context.token_budget import count_tokens
-                total_tokens = count_tokens(messages_arg, self.model)
-                trim_limit = self._safe_limit()
-            except Exception as guard_error:
-                # NEVER silently disable the guard: a token-counting failure
-                # would otherwise zero the limit and ship oversized payloads
-                # straight to providers (the 503 the guard exists to prevent).
-                print(
-                    f"[RetryLLMProxy] Token guard unavailable (model={self.model!r}): "
-                    f"{guard_error!r} — sending untrimmed"
+            # ------------------------------------------------------------------
+            # P1 PROMPT-CACHE PLAN: decorate the byte-stable prefix head with
+            # cache breakpoints (hermes prompt_caching.py shape). DEFAULT OFF —
+            # only applied when PULSEAI_PROMPT_CACHE=1 AND the provider/model is
+            # allowlisted (an OpenAI-compatible endpoint that rejects unknown
+            # content fields must never 4xx a turn). Pure, never raises; the
+            # failover stripper (cache_preservation.py) can always undo it.
+            # ------------------------------------------------------------------
+            if isinstance(messages_arg, list):
+                cls = type(self._llm).__name__.lower()
+                provider = (
+                    "gemini" if "google" in cls
+                    else "groq" if "groq" in cls
+                    else "custom" if "openai" in cls  # includes the base_url custom route
+                    else cls
                 )
-                total_tokens = 0
+                try:
+                    from src.context.prompt_cache_plan import build_prompt_cache_plan
+                    planned, _info = build_prompt_cache_plan(messages_arg, provider, self.model)
+                    if planned is not messages_arg:
+                        if args:
+                            args = (planned,) + args[1:]
+                        else:
+                            kwargs["messages"] = planned
+                        messages_arg = planned
+                except Exception:
+                    pass  # cache decoration must never break a send
 
-            if trim_limit >= 0 and total_tokens > trim_limit:
-                trimmed = self._trim_to_limit(messages_arg, trim_limit)
-                print(
-                    f"[RetryLLMProxy] Trimmed {total_tokens} -> ~{trim_limit} "
-                    f"tokens to avoid provider 503"
-                )
-                if args:
-                    args = (trimmed,) + args[1:]
-                else:
-                    kwargs["messages"] = trimmed
+            # ------------------------------------------------------------------
+            # PRE-SEND TOKEN GUARD (503 mitigation)
+            # Guard ONLY the messages arg — never any other positional arg.
+            # ------------------------------------------------------------------
+            if isinstance(messages_arg, list):
+                # trim_limit semantics: >=0 = enforce this limit; -1 = guard
+                # unavailable, send untrimmed (with a loud warning, never silent).
+                trim_limit = -1
+                try:
+                    from src.context.token_budget import count_tokens
+                    total_tokens = count_tokens(messages_arg, self.model)
+                    trim_limit = self._safe_limit()
+                except Exception as guard_error:
+                    # NEVER silently disable the guard: a token-counting failure
+                    # would otherwise zero the limit and ship oversized payloads
+                    # straight to providers (the 503 the guard exists to prevent).
+                    print(
+                        f"[RetryLLMProxy] Token guard unavailable (model={self.model!r}): "
+                        f"{guard_error!r} — sending untrimmed"
+                    )
+                    total_tokens = 0
 
-        for attempt in range(self._max_attempts):
-            # Cancellation gate BEFORE every attempt: a Stop that fired while
-            # the previous attempt was blocked must never launch a new request.
-            self._raise_if_cancelled()
+                if trim_limit >= 0 and total_tokens > trim_limit:
+                    trimmed = self._trim_to_limit(messages_arg, trim_limit)
+                    print(
+                        f"[RetryLLMProxy] Trimmed {total_tokens} -> ~{trim_limit} "
+                        f"tokens to avoid provider 503"
+                    )
+                    if args:
+                        args = (trimmed,) + args[1:]
+                    else:
+                        kwargs["messages"] = trimmed
 
-            try:
-                return self._llm.invoke(*args, **kwargs)
-            except Exception as error:
-                # A Stop pressed while this HTTP request was in flight wins
-                # over any retry/failover logic: surface the cancellation and
-                # do NOT fire another (now-unwanted) request.
-                self._raise_if_cancelled(error)
-                last_error = error
-
-                if not self._is_retryable(error) or attempt == self._max_attempts - 1:
-                    raise
-
-                # Cancellation gate BEFORE the retry backoff sleep too: a Stop
-                # that lands between attempts is honoured before we wait.
+            for attempt in range(self._max_attempts):
+                # Cancellation gate BEFORE every attempt: a Stop that fired while
+                # the previous attempt was blocked must never launch a new request.
                 self._raise_if_cancelled()
-                time.sleep(self._retry_delay(error, attempt))
 
-        raise last_error
+                try:
+                    return self._llm.invoke(*args, **kwargs)
+                except Exception as error:
+                    # A Stop pressed while this HTTP request was in flight wins
+                    # over any retry/failover logic: surface the cancellation and
+                    # do NOT fire another (now-unwanted) request.
+                    self._raise_if_cancelled(error)
+                    last_error = error
+
+                    if not self._is_retryable(error) or attempt == self._max_attempts - 1:
+                        raise
+
+                    # Cancellation gate BEFORE the retry backoff sleep too: a Stop
+                    # that lands between attempts is honoured before we wait.
+                    self._raise_if_cancelled()
+                    time.sleep(self._retry_delay(error, attempt))
+
+            raise last_error
+        finally:
+            if sid is not None:
+                turn_controls.unregister_abort(sid, self.abort)
 
     def _raise_if_cancelled(self, error: Exception | None = None) -> None:
         """Raise TurnCancelledError when the active session was cancelled or
@@ -208,10 +225,13 @@ class RetryLLMProxy:
         The underlying LLM is a langchain_openai ChatOpenAI whose ``.client``
         is an openai client that owns an httpx.Client (``client._client``);
         closing the httpx.Client forces an in-flight request to return right
-        now. Every step is individually guarded; this always returns quickly
-        and is idempotent.
+        now.  Every step is individually guarded; this always returns quickly
+        and is idempotent (closes the transport at most once).
         """
-        self.is_aborted = True
+        with self._abort_lock:
+            if self.is_aborted:
+                return  # already aborted — idempotent, no double-close
+            self.is_aborted = True
         client = getattr(self._llm, "client", None)
         if client is not None:
             try:
@@ -428,16 +448,47 @@ _aux_llm_cache: dict[tuple[str, str], Any] = {}
 def get_auxiliary_llm():
     """Dedicated management-class client (hermes curator invariant, §29).
 
-    Cached per (provider, model); a DISTINCT object from anything
-    get_llm() hands out, so aux calls can never share or perturb the main
-    session's request chain. All Deep maintenance routing (task
-    classification, aux summaries) flows through here.
+    Returns a FRESH RetryLLMProxy wrapping the cached underlying LLM each
+    time.  The proxy is never shared across calls, so abort() on one
+    auxiliary request cannot poison the cached transport or affect
+    concurrent sessions.
     """
     from src.config.settings import AUX_LLM_PROVIDER, AUX_LLM_MODEL
     key = (AUX_LLM_PROVIDER, AUX_LLM_MODEL)
     if key not in _aux_llm_cache:
         _aux_llm_cache[key] = get_llm(provider=key[0], model=key[1])
-    return _aux_llm_cache[key]
+    # Return a fresh proxy wrapping the cached LLM.  The cached object
+    # is the RetryLLMProxy from get_llm(); its .abort() closes the shared
+    # transport, so we wrap it in a thin adapter whose abort() is a no-op.
+    cached = _aux_llm_cache[key]
+
+    class _AuxProxy:
+        """Non-abortable wrapper: auxiliary calls are short-lived and must
+        never have their transport forcibly closed."""
+
+        def __init__(self, inner):
+            self._inner = inner
+            self.model = inner.model
+
+        def invoke(self, *args, **kwargs):
+            return self._inner.invoke(*args, **kwargs)
+
+        def bind_tools(self, *args, **kwargs):
+            return _AuxProxy(self._inner.bind_tools(*args, **kwargs))
+
+        def bind(self, *args, **kwargs):
+            return _AuxProxy(self._inner.bind(*args, **kwargs))
+
+        def with_structured_output(self, *args, **kwargs):
+            return _AuxProxy(self._inner.with_structured_output(*args, **kwargs))
+
+        def abort(self):
+            pass  # auxiliary calls are never abortable
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    return _AuxProxy(cached)
 
 
 # =========================================================

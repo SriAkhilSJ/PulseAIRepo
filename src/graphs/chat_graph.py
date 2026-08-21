@@ -2765,186 +2765,189 @@ def stream_agent(
     from src.runtime.turn_control import turn_controls, set_active_session
     turn_controls.begin(thread_id)
     set_active_session(thread_id)
-    
+
     event_bus.emit("session.status", {"status": "busy", "thread_id": thread_id})
 
-    config: RunnableConfig = {
-        "configurable": {
-            "thread_id": thread_id,
-            "provider": provider,
-            "model": model,
-            "workspace": workspace,
-            "approval_channel": approval_channel,
-            "approval_timeout": approval_timeout,
-            "approval_policy": approval_policy,
-            "turn_id": turn_id,
-        },
-        "recursion_limit": _recursion_limit(),
-    }
+    try:
 
-    final_response = ""
-    current_step = 0
-    total_steps = 0
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": thread_id,
+                "provider": provider,
+                "model": model,
+                "workspace": workspace,
+                "approval_channel": approval_channel,
+                "approval_timeout": approval_timeout,
+                "approval_policy": approval_policy,
+                "turn_id": turn_id,
+            },
+            "recursion_limit": _recursion_limit(),
+        }
 
-    initial_state = {
-        "messages": [HumanMessage(content=message)],
-        "latest_instruction": message,
-        "execution_mode": execution_mode,
-        # Safety budgets are turn-scoped even when checkpoint state is resumed.
-        "iteration_used": 0,
-        "grace_done": 0,
-        "turn_token_usage": _zero_token_usage(),
-    }
-    if initial_plan is not None:
-        initial_state.update({
-            "plan": list(initial_plan),
-            "plan_goal": message,
-            "plan_created": bool(initial_plan),
-            "plan_approved": bool(initial_plan),
-        })
+        final_response = ""
+        current_step = 0
+        total_steps = 0
 
-    for event in graph.stream(
-        initial_state,
-        config=config,
-        stream_mode="updates",
-    ):
-        # ---------------------------------------------
-        # PLANNER NODE — show plan creation
-        # ---------------------------------------------
-        if "planner" in event:
-            plan_data = event["planner"]
-            # F2 fix: a planner no-op can emit {"planner": None}; treat as no plan
-            # instead of crashing the whole session on .get() of None.
-            plan = (plan_data or {}).get("plan", [])
-            if plan:
-                total_steps = len(plan)
-                print(f"\n📋 Plan created: {total_steps} steps")
-                event_bus.emit("plan.created", {
-                    "steps": plan,
-                    "thread_id": thread_id,
-                })
+        initial_state = {
+            "messages": [HumanMessage(content=message)],
+            "latest_instruction": message,
+            "execution_mode": execution_mode,
+            # Safety budgets are turn-scoped even when checkpoint state is resumed.
+            "iteration_used": 0,
+            "grace_done": 0,
+            "turn_token_usage": _zero_token_usage(),
+        }
+        if initial_plan is not None:
+            initial_state.update({
+                "plan": list(initial_plan),
+                "plan_goal": message,
+                "plan_created": bool(initial_plan),
+                "plan_approved": bool(initial_plan),
+            })
 
-        # ---------------------------------------------
-        # AI NODE
-        # ---------------------------------------------
-        if "ai" in event:
-            ai_messages = event["ai"].get(
-                "messages",
-                [],
-            )
-
-            if not ai_messages:
-                continue
-
-            last_message = ai_messages[-1]
-
-            # Show cost routing decision
-            from src.agents.cost_router import cost_router
-            route_info = cost_router.get_last_route_info()
-            if "tier" in route_info.lower():
-                print(f"\n🧭 {route_info}")
-
-            # AI requested tools
-            if last_message.tool_calls:
-                event_bus.emit("message.agent.start", {"thread_id": thread_id})
-                for tool_call in last_message.tool_calls:
-                    tool_name = tool_call["name"]
-                    tool_args = tool_call["args"]
-                    
-                    tool_id = f"{thread_id}-{tool_call.get('id', '')}"
-                    
-                    # Emit tool call event
-                    event_bus.emit("tool.call", {
-                        "tool_id": tool_id,
-                        "tool_name": tool_name,
-                        "tool_args": tool_args,
+        for event in graph.stream(
+            initial_state,
+            config=config,
+            stream_mode="updates",
+        ):
+            # ---------------------------------------------
+            # PLANNER NODE — show plan creation
+            # ---------------------------------------------
+            if "planner" in event:
+                plan_data = event["planner"]
+                # F2 fix: a planner no-op can emit {"planner": None}; treat as no plan
+                # instead of crashing the whole session on .get() of None.
+                plan = (plan_data or {}).get("plan", [])
+                if plan:
+                    total_steps = len(plan)
+                    print(f"\n📋 Plan created: {total_steps} steps")
+                    event_bus.emit("plan.created", {
+                        "steps": plan,
                         "thread_id": thread_id,
                     })
 
-                    if tool_name == "think":
-                        reasoning = tool_args.get("reasoning", "")
-                        print(f"\n💭 {reasoning[:350]}...")
-                    else:
-                        current_step += 1
-                        step_label = f"({current_step}/{total_steps})" if total_steps else ""
-                        print(
-                            f"\n🔧 {step_label} {tool_name} "
-                            f"{tool_args}"
-                        )
+            # ---------------------------------------------
+            # AI NODE
+            # ---------------------------------------------
+            if "ai" in event:
+                ai_messages = event["ai"].get(
+                    "messages",
+                    [],
+                )
 
-            # AI produced final text
-            elif last_message.content:
-                final_response = last_message.content
-                # Stream the whole content as one chunk for now
-                event_bus.emit("message.agent.chunk", {
-                    "chunk": final_response,
-                    "thread_id": thread_id,
-                })
+                if not ai_messages:
+                    continue
 
-        # ---------------------------------------------
-        # PROGRESS NODE — show step completion
-        # ---------------------------------------------
-        if "progress" in event:
-            progress_data = event["progress"]
-            steps_completed = progress_data.get("steps_completed", [])
-            failed_steps = progress_data.get("failed_steps", [])
+                last_message = ai_messages[-1]
 
-            if steps_completed and len(steps_completed) > 0:
-                latest = steps_completed[-1]
-                print(f"  ✅ {latest}")
-                event_bus.emit("plan.step.complete", {
-                    "step": latest,
-                    "thread_id": thread_id,
-                })
+                # Show cost routing decision
+                from src.agents.cost_router import cost_router
+                route_info = cost_router.get_last_route_info()
+                if "tier" in route_info.lower():
+                    print(f"\n🧭 {route_info}")
 
-            if failed_steps and len(failed_steps) > 0:
-                latest = failed_steps[-1]
-                print(f"  ❌ {latest}")
+                # AI requested tools
+                if last_message.tool_calls:
+                    event_bus.emit("message.agent.start", {"thread_id": thread_id})
+                    for tool_call in last_message.tool_calls:
+                        tool_name = tool_call["name"]
+                        tool_args = tool_call["args"]
 
-        # ---------------------------------------------
-        # REPLANNER NODE
-        # ---------------------------------------------
-        if "replanner" in event:
-            print("\n🔄 Replanning... adjusting strategy based on what we learned.")
+                        tool_id = f"{thread_id}-{tool_call.get('id', '')}"
 
-        # ---------------------------------------------
-        # RECOVERY LIMIT
-        # ---------------------------------------------
-        if "recovery_limit" in event:
-            print("\n⛔ Recovery limit reached. Pausing for user input.")
+                        # Emit tool call event
+                        event_bus.emit("tool.call", {
+                            "tool_id": tool_id,
+                            "tool_name": tool_name,
+                            "tool_args": tool_args,
+                            "thread_id": thread_id,
+                        })
 
-    event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
-    # D38: post-run bounded background self-curation (memory review on the
-    # aux model). Never blocks the response — state is snapshotted from the
-    # checkpointer and reviewed on a daemon thread.
-    from src.context.self_curation import maybe_spawn_memory_review
-    try:
-        maybe_spawn_memory_review(thread_id)
-    except Exception:
-        pass
+                        if tool_name == "think":
+                            reasoning = tool_args.get("reasoning", "")
+                            print(f"\n💭 {reasoning[:350]}...")
+                        else:
+                            current_step += 1
+                            step_label = f"({current_step}/{total_steps})" if total_steps else ""
+                            print(
+                                f"\n🔧 {step_label} {tool_name} "
+                                f"{tool_args}"
+                            )
 
-    # When the run ends via the budget-exhausted / finish-gate path, the
-    # final summary is synthesized by finalize_node and never flows through
-    # an "ai" event (Test-2 retest D5 returned an empty string despite
-    # completing 12/12 plan steps). Fall back to the persisted state's last
-    # message so callers always get the real final response.
-    if not final_response:
+                # AI produced final text
+                elif last_message.content:
+                    final_response = last_message.content
+                    # Stream the whole content as one chunk for now
+                    event_bus.emit("message.agent.chunk", {
+                        "chunk": final_response,
+                        "thread_id": thread_id,
+                    })
+
+            # ---------------------------------------------
+            # PROGRESS NODE — show step completion
+            # ---------------------------------------------
+            if "progress" in event:
+                progress_data = event["progress"]
+                steps_completed = progress_data.get("steps_completed", [])
+                failed_steps = progress_data.get("failed_steps", [])
+
+                if steps_completed and len(steps_completed) > 0:
+                    latest = steps_completed[-1]
+                    print(f"  ✅ {latest}")
+                    event_bus.emit("plan.step.complete", {
+                        "step": latest,
+                        "thread_id": thread_id,
+                    })
+
+                if failed_steps and len(failed_steps) > 0:
+                    latest = failed_steps[-1]
+                    print(f"  ❌ {latest}")
+
+            # ---------------------------------------------
+            # REPLANNER NODE
+            # ---------------------------------------------
+            if "replanner" in event:
+                print("\n🔄 Replanning... adjusting strategy based on what we learned.")
+
+            # ---------------------------------------------
+            # RECOVERY LIMIT
+            # ---------------------------------------------
+            if "recovery_limit" in event:
+                print("\n⛔ Recovery limit reached. Pausing for user input.")
+
+        event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
+        # D38: post-run bounded background self-curation (memory review on the
+        # aux model). Never blocks the response — state is snapshotted from the
+        # checkpointer and reviewed on a daemon thread.
+        from src.context.self_curation import maybe_spawn_memory_review
         try:
-            snap = graph.get_state(config)
-            msgs = (snap.values or {}).get("messages", [])
-            if msgs:
-                final_response = msgs[-1].content
-                if isinstance(final_response, list):
-                    final_response = "".join(
-                        b.get("text", "") for b in final_response
-                        if isinstance(b, dict)
-                    ) or str(final_response)
+            maybe_spawn_memory_review(thread_id)
         except Exception:
             pass
 
-    turn_controls.end(thread_id)
-    set_active_session(None)
-    return final_response
+        # When the run ends via the budget-exhausted / finish-gate path, the
+        # final summary is synthesized by finalize_node and never flows through
+        # an "ai" event (Test-2 retest D5 returned an empty string despite
+        # completing 12/12 plan steps). Fall back to the persisted state's last
+        # message so callers always get the real final response.
+        if not final_response:
+            try:
+                snap = graph.get_state(config)
+                msgs = (snap.values or {}).get("messages", [])
+                if msgs:
+                    final_response = msgs[-1].content
+                    if isinstance(final_response, list):
+                        final_response = "".join(
+                            b.get("text", "") for b in final_response
+                            if isinstance(b, dict)
+                        ) or str(final_response)
+            except Exception:
+                pass
+
+        return final_response
+    finally:
+        turn_controls.end(thread_id)
+        set_active_session(None)
 
 from src.agents.agent_status import build_agent_status
 

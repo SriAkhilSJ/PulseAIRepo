@@ -521,7 +521,8 @@ class TestCancellationGates:
 
     def test_c10_abort_closes_transport_and_is_idempotent(self):
         """abort() closes the underlying openai client AND its httpx.Client,
-        is idempotent (a second call is harmless), and sets is_aborted."""
+        is idempotent (second call is a no-op), and sets is_aborted.
+        Closes each underlying object exactly once."""
         from src.llm.factory import RetryLLMProxy
 
         class _InnerClient:
@@ -552,15 +553,14 @@ class TestCancellationGates:
 
         proxy.abort()
         assert proxy.is_aborted is True
-        # The openai client AND its httpx.Client were both closed.
-        assert fake.client._closes >= 1, "openai client was never closed"
-        assert fake.client._client._closes >= 1, "httpx.Client was never closed"
+        assert fake.client._closes == 1, "openai client closed wrong number of times"
+        assert fake.client._client._closes == 1, "httpx client closed wrong number of times"
 
-        # abort() is idempotent: a second call must not raise.
+        # abort() is idempotent: a second call must not close again
         proxy.abort()
         assert proxy.is_aborted is True
-        assert fake.client._closes >= 2
-        assert fake.client._client._closes >= 2
+        assert fake.client._closes == 1, "openai client was closed a second time"
+        assert fake.client._client._closes == 1, "httpx client was closed a second time"
 
     # ── C-11: cancelled ai_node skips the base-provider failover ──
 
@@ -1066,8 +1066,8 @@ class TestFinallyCleanup:
 
 class TestImmediateStopRace:
     """Cover the race where Stop arrives after turn_started is emitted
-    but before turn_controls.begin() is called.  The cancel must survive
-    the subsequent begin() call, and no provider request may start."""
+    but before turn_controls.begin() is called.  begin() on an inactive
+    session clears stale cancellations so future turns can proceed."""
 
     def setup_method(self):
         from src.runtime.turn_control import turn_controls
@@ -1076,30 +1076,78 @@ class TestImmediateStopRace:
     def teardown_method(self):
         pass
 
-    def test_cancel_before_begin_survives(self):
-        """Simulate the bridge race: emit turn_started, then click Stop,
-        then enter stream_agent which calls begin().  The cancel must
-        remain set and the turn must terminate as cancelled."""
-        from src.runtime.turn_control import turn_controls
-
+    def test_cancel_before_begin_is_cleared(self):
+        """Stop arrives before begin() (inactive session).  begin() must
+        clear the stale cancellation so the turn proceeds fresh."""
         sid = "race-test"
-        turn_controls.reset(sid)
+        self._tc.reset(sid)
+        self._tc.cancel(sid)
+        assert self._tc.cancelled(sid)
+        self._tc.begin(sid)
+        assert not self._tc.cancelled(sid), "begin() did not clear stale cancel"
+        self._tc.end(sid)
+        self._tc.reset(sid)
 
-        # Step 1: turn_started emitted (UI shows Stop)
-        # Step 2: User clicks Stop immediately
-        turn_controls.cancel(sid)
-        assert turn_controls.cancelled(sid)
+    def test_cancel_during_active_turn_survives(self):
+        """Stop arrives after begin() (active turn).  The cancel must
+        survive so this turn terminates as cancelled."""
+        sid = "active-race-test"
+        self._tc.reset(sid)
+        self._tc.begin(sid)
+        self._tc.cancel(sid)
+        assert self._tc.cancelled(sid)
+        self._tc.end(sid)
+        self._tc.begin(sid)
+        assert not self._tc.cancelled(sid)
+        self._tc.end(sid)
+        self._tc.reset(sid)
 
-        # Step 3: stream_agent calls begin() â€” this must NOT clear cancel
-        turn_controls.begin(sid)
+    def test_cancel_then_end_then_begin_succeeds(self):
+        """Full lifecycle: cancel -> end -> begin (same session) -> success.
+        Proves future-turn recovery works after cancellation."""
+        from src.graphs.chat_graph import ai_node
+        from langchain_core.messages import AIMessage
 
-        # Cancel must survive begin()
-        assert turn_controls.cancelled(sid), (
-            "begin() cleared the cancel event â€” race vulnerability"
-        )
+        sid = "lifecycle-test"
+        self._tc.reset(sid)
+        self._tc.begin(sid)
+        self._tc.cancel(sid)
+        self._tc.end(sid)
+        assert self._tc.cancelled(sid)
 
-        turn_controls.end(sid)
-        turn_controls.reset(sid)
+        self._tc.begin(sid)
+        assert not self._tc.cancelled(sid)
+
+        fake_llm = _FakeLLM()
+        fake_llm.set_result(AIMessage(content="turn-2-response"))
+        config = _make_config(thread_id=sid)
+        captured = {}
+
+        def _run():
+            with patch("src.graphs.chat_graph.get_llm", return_value=fake_llm), \
+                 patch("src.graphs.chat_graph.cost_router") as mock_router, \
+                 patch("src.graphs.chat_graph.get_context_engine") as mock_engine, \
+                 patch("src.graphs.chat_graph._resolve_bound_tools", return_value=[]):
+                mock_router.route.return_value = ("fake", "fake")
+                mock_engine.return_value.build_ai_messages.return_value = []
+                captured["result"] = ai_node(_make_state(), config)
+
+        t = threading.Thread(target=_run)
+        t.start()
+        assert fake_llm.wait_invoke(timeout=5)
+        fake_llm.release()
+        t.join(timeout=10)
+        assert not t.is_alive()
+
+        result = captured.get("result")
+        assert result is not None
+        msg = result["messages"][0]
+        assert isinstance(msg, AIMessage)
+        assert msg.content == "turn-2-response"
+        assert not msg.additional_kwargs.get("pulse_cancelled"), "Turn 2 should have succeeded"
+
+        self._tc.end(sid)
+        self._tc.reset(sid)
 
     def test_begin_then_cancel_produces_cancelled_turn(self):
         """Normal path: begin() first, then Stop arrives.  Cancel is set
@@ -1142,10 +1190,7 @@ class TestImmediateStopRace:
         msg = result["messages"][0]
         assert isinstance(msg, AIMessage)
         assert msg.additional_kwargs.get("pulse_cancelled") is True
-        assert not getattr(msg, "tool_calls", None), (
-            "Tool calls leaked through the cancellation gate after begin+cancel"
-        )
+        assert not getattr(msg, "tool_calls", None), "Tool calls leaked"
 
         self._tc.end(sid)
         self._tc.reset(sid)
-
