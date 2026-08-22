@@ -190,3 +190,39 @@ GitHub** in `a7587563`. It is public. Actions taken:
 Rules: no re-runs on failure without a written root cause; every paid run
 gets its result dir + card row; PBR-005…010 wait until the founder approves
 spending beyond the plan.
+
+---
+
+# Full-suite test receipt (2026-08-22, arena session 2)
+
+## Numbers
+
+- Full selection (`src/tests` minus `test_session_engines.py`), fresh sandbox
+  venv, Python 3.11: **882 passed, 37 failed, 3 skipped**.
+- All 37 failures trace to ONE environmental root: tiktoken BPE files
+  (`cl100k_base`/`o200k_base` from openaipublic.blob.core.windows.net) cannot
+  download in this sandbox (egress blocked → SSL EOF). On a connected machine
+  these pass — the 2026-08-14 receipt (615 green) is the reference; the suite
+  has grown since.
+
+## Real bugs found & fixed this session (were hidden by the above noise)
+
+1. **Stale desktop path pins** — `test_workbench_capabilities.py` pointed at
+   the deleted `desktop/src/...` overlay layout; 4 capability-boundary pins
+   had silently not run since the overlay moved into `desktop/vscode/`.
+   Fixed to the canonical fork path; 5/5 pass.
+2. **Windows hang-defense tests never exercised the Windows path** —
+   `_terminate` gates tree-kill on `os.name == "nt"`, so on Linux the two
+   `_taskkill_tree` assertions failed and the fallback test passed for the
+   wrong reason. Tests now simulate `os.name = "nt"`; 18/18 pass.
+3. **`pillow` undeclared** — `src/tools/visual_quality.py` imports PIL but it
+   was only present transitively (via sentence-transformers). Declared in
+   pyproject + uv.lock (already locked at 12.3.0; no resolution change).
+
+## PBR-012 upgraded to the real engine (zero credits)
+
+`arena-pbr012-bridge-1` — **passed** on the bridge lane (real engine over
+stdio): cancel honoured during context prep, `turn_done cancelled=true`,
+zero `llm.request` events. Sarvam egress is blocked in this sandbox, so no
+model call was even possible — evidence obtained at literally zero credits.
+Remaining for PBR-012: DOM/process checks on the desktop lane (your machine).

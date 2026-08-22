@@ -97,6 +97,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         run_id=args.run_id,
         environment_notes=tuple(args.env_note),
         connect_timeout_s=args.connect_timeout,
+        results_root=args.results_root,
     )
     outcome = result.outcome.value
     hard = f" hard_failure={result.hard_failure.value}" if result.hard_failure else ""
@@ -139,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="seconds to wait for the CDP endpoint (default 30)")
     p_run.add_argument("--run-id", default=None)
     p_run.add_argument("--env-note", action="append", default=[])
+    p_run.add_argument("--results-root", default="bench-results",
+                       help="where run artifacts are written (keep test runs out of the real scoreboard)")
     p_run.set_defaults(func=cmd_run)
 
     p_rep = sub.add_parser("report", help="render the aggregate report card")

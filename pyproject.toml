@@ -21,6 +21,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0.9",
     "mcp>=1.0.0",
     "openai>=2.47.0",
+    "pillow>=10.0.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
