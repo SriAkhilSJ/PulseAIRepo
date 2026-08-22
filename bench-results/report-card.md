@@ -1,22 +1,24 @@
 # PulseAI — Reliability Benchmark Report Card
 
-- **Generated:** 2026-08-22 18:03 UTC
-- **Runs graded:** 1
+- **Generated:** 2026-08-22 19:52 UTC
+- **Runs graded:** 2
 - **Rule:** belief is not evidence — every row below was graded by the evaluator, never by the agent itself.
 
-- **Pulse commits:** 54c2ccbbe6d21ea7c7d582f3e47a30099b046e2c
-- **Lanes used:** echo
+- **Pulse commits:** 54c2ccbbe6d21ea7c7d582f3e47a30099b046e2c, 83f144d01228565753877ce0233246865ff7e91a
+- **Lanes used:** bridge, echo
 
 ## Task outcomes
 
 | Task | Outcome | Checks | Covered | Lane |
 |---|---|---|---|---|
+| PBR-012 Cancel a turn during bounded context preparation | passed | 2/4 (2 not run on lane) | 2 | bridge |
 | PBR-012 Cancel a turn during bounded context preparation | passed | 2/4 (2 not run on lane) | 2 | echo |
 
 ## The four axes (per run)
 
 | Task | First token (ms) | Completion (ms) | Model calls | Tool calls | In/out/cache tokens | Est. $ |
 |---|---|---|---|---|---|---|
+| PBR-012 | 2133 | 2133 | 0 | 0 | 0/0/0 | 0.0000 |
 | PBR-012 | 0 | 234 | 0 | 0 | 0/0/0 | 0.0000 |
 
 ## Not yet run
