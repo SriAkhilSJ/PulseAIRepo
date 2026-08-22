@@ -170,13 +170,14 @@ def test_coverage_cdp_covers_dom():
 # ---------------------------------------------------------------------------
 
 
-def test_pbr012_echo_end_to_end(workspace, monkeypatch):
+def test_pbr012_echo_end_to_end(workspace, monkeypatch, tmp_path):
     monkeypatch.chdir(REPO_ROOT)
     record, result, run_dir = run_task(
         task_id="PBR-012", driver_kind="echo", workspace=str(workspace),
         suite_path=str(SUITE), python_command=PY,
         echo_delay_ms=2000, cancel_after_start_ms=50,
         run_id="test-pbr012-echo",
+        results_root=str(tmp_path / "results"),  # never pollute bench-results/
     )
     by_id = {c.check_id: c for c in result.checks}
     assert by_id["cancelled-protocol"].classification == CheckClassification.PASSED
@@ -321,14 +322,16 @@ def test_cli_run_and_report(workspace, tmp_path, monkeypatch, capsys):
         "--suite", str(SUITE), "--python", sys.executable,
         "--echo-delay-ms", "1500", "--cancel-after-start-ms", "50",
         "--run-id", "cli-pbr012",
+        "--results-root", str(out),  # test runs never pollute the real scoreboard
     ])
     assert code == 0  # coverable checks passed; DOM/process graded not_run
     captured = capsys.readouterr().out
     assert "outcome=passed" in captured
 
+    # The report card must also render from an isolated results dir.
+    assert cli_main(["report", "--results-dir", str(out),
+                     "--out", str(tmp_path / "report-card.md"), "--suite", str(SUITE)]) == 0
     report_path = tmp_path / "report-card.md"
-    assert cli_main(["report", "--results-dir", "bench-results",
-                     "--out", str(report_path), "--suite", str(SUITE)]) == 0
     assert report_path.exists()
     md = report_path.read_text(encoding="utf-8")
     assert "Reliability Benchmark Report Card" in md

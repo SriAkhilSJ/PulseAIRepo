@@ -5,7 +5,9 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-COMMON = ROOT / "desktop" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "common"
+# Canonical vendored fork: desktop/vscode/ (the old desktop/ overlay layout was
+# deleted when the overlay moved into the fork in place).
+COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "common"
 CATALOG = COMMON / "pulseAIWorkbenchCapabilities.ts"
 HOST = COMMON / "pulseAIWorkbenchService.ts"
 IMPLEMENTATION = COMMON.parent / "browser" / "pulseAIWorkbenchService.ts"
