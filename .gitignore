@@ -88,3 +88,6 @@ desktop/vscode/extensions/**/build/
 # Scratch / local runtime state (never commit)
 .freebuff/
 claude_test/
+
+# Benchmark run artifacts (design rule: results live outside git)
+bench-results/

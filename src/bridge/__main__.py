@@ -228,6 +228,25 @@ class BridgeServer:
         try:
             self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
             if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
+                # Test seam (PULSEAI_ECHO_DELAY_MS): simulate an in-flight turn
+                # that honours a cancel request, mirroring real turn semantics.
+                # Used by the reliability-benchmark harness (PBR-012) to verify
+                # cancel behaviour with zero model calls. Default 0 => the
+                # historical instant echo turn, byte-compatible with past tests.
+                delay_ms = int(os.environ.get("PULSEAI_ECHO_DELAY_MS", "0") or "0")
+                if delay_ms > 0:
+                    from src.runtime.turn_control import turn_controls
+                    import time as _time
+                    deadline = _time.monotonic() + max(delay_ms, 0) / 1000.0
+                    while _time.monotonic() < deadline and not turn_controls.cancelled(sid):
+                        _time.sleep(0.05)
+                    if turn_controls.cancelled(sid):
+                        self.emit({
+                            "type": "turn_done", **identity.event_fields(),
+                            "message": "Operation cancelled by the user.",
+                            "completed": False, "cancelled": True, "stub": False,
+                        })
+                        return
                 self.emit({
                     "type": "token", **identity.event_fields(),
                     "text": text, "test_runner": "echo",

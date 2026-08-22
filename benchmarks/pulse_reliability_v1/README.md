@@ -18,7 +18,10 @@ tests), the **fixture generator + manifest** for all twelve tasks
 - Fixtures are generated into an explicit absolute target root at run time;
   nothing generated is committed and no fixture lives inside the repository.
 - Execution (desktop CDP harness) is a separate lane and is not part of this
-  repository package.
+  repository package. **Update (v0.1, 2026-08-22):** the execution lane now
+  lives in this package at `harness/` — drivers for the echo test-runner, the
+  real engine bridge, and the desktop IDE over CDP, plus recorder, scenarios,
+  report card, and a CLI. See `docs/HARNESS_STATUS.md`.
 - No model calls, no network, no process spawning, no desktop execution.
 - No generated result data is committed; results belong in a separate, ignored location.
 
