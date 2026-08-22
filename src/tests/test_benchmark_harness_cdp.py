@@ -226,7 +226,8 @@ def test_pbr003_cdp_mock_end_to_end(mock_cdp, tmp_path, monkeypatch):
 
     The two checks the desktop lane CAN prove pass (selector visible, zero
     prompts before selection); the engine-event check (workspace.bound)
-    cannot run on the v0.1 desktop lane and must fail — never a fake pass.
+    cannot run on the v0.1 desktop lane and grades not_run — a lane evidence
+    gap that is never a fake pass and never a product failure.
     """
     monkeypatch.chdir(tmp_path)
     from benchmarks.pulse_reliability_v1.harness.orchestrator import run_task
@@ -242,8 +243,8 @@ def test_pbr003_cdp_mock_end_to_end(mock_cdp, tmp_path, monkeypatch):
     by_id = {c.check_id: c for c in result.checks}
     assert by_id["selection-required"].classification.value == "passed"
     assert by_id["blocked-before-selection"].classification.value == "passed"
-    assert by_id["chosen-root-retained"].classification.value == "failed_new"
-    assert result.outcome.value == "failed_functional"
+    assert by_id["chosen-root-retained"].classification.value == "not_run"
+    assert result.outcome.value == "passed"
     payload = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
     assert payload["mock"] is True
 

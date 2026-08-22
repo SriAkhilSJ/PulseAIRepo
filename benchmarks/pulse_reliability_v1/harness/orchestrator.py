@@ -130,7 +130,7 @@ def run_task(*, task_id: str, driver_kind: str,
         harness_error=harness_error,
         environment_notes=environment_notes,
     )
-    result = evaluate_suite(suite, record)
+    result = evaluate_suite(suite, record, covered_check_ids=frozenset(covered))
 
     run_dir = Path(results_root) / final_run_id
     run_dir.mkdir(parents=True, exist_ok=True)
