@@ -7,12 +7,13 @@ is a *trustworthy local engineering runtime* - correct workspace awareness, boun
 context, editable and verifiable work, safe lifecycle behavior - not whether it can
 produce a plausible chat reply.
 
-## Status: contract + evaluator + fixtures (PR 1A + PR 1B + PR 1C)
+## Status: contract + evaluator + fixtures + runner (PR 1A .. PR 1E)
 
 This directory currently contains the **contract** (`contract.py`, `manifest.json`,
 contract tests), the **deterministic evaluator core** (`evaluator.py`, evaluator
-tests) and the **fixture generator** (`fixtures.py`, `fixtures.json`, fixture
-tests) for the first six tasks (PBR-001 .. PBR-006).
+tests), the **fixture generator + manifest** for all twelve tasks
+(`fixtures.py`, `fixtures.json`, fixture tests) and the **runner wiring**
+(`runner.py`, runner tests) that gates, generates and grades a run.
 
 - Fixtures are generated into an explicit absolute target root at run time;
   nothing generated is committed and no fixture lives inside the repository.
@@ -29,17 +30,19 @@ tests) for the first six tasks (PBR-001 .. PBR-006).
 | `manifest.json` | 12 task definitions (`PBR-001` ... `PBR-012`), ordered by id, validated by `SuiteManifest`. |
 | `evaluator.py` | Deterministic, evaluator-owned grader. Consumes a `RunRecord` (harness output, never committed) + optional baseline run, evaluates every declared check, detects hard failures (workspace escape, secret disclosure, unapproved network, orphaned processes, false success claims, ...), classifies failures as new / pre-existing / environmental, decides the outcome, and emits a `BenchmarkResult` + Markdown report. Import-safe; `python -m benchmarks.pulse_reliability_v1.evaluator` is the explicit CLI. |
 | `fixtures.py` | Deterministic fixture generator: `FixtureManifest` / `FixtureSpec` models, `resolve_files()`, `build_fixture(spec, absolute_target_root)`, `hash_tree()`. ASCII-only, LF endings, import-safe, no execution. |
-| `fixtures.json` | First six fixture definitions (PBR-001 .. PBR-006), ordered by task id, validated by `FixtureManifest`. |
+| `fixtures.json` | Fixture definitions for all twelve tasks (PBR-001 .. PBR-012), ordered by task id, validated by `FixtureManifest`. |
+| `runner.py` | Deterministic runner wiring: `check` (gate suite+fixture manifests, optional completeness), `generate` (build fixtures into an explicit ABSOLUTE external root, refusing repo/cwd targets), `grade` (evaluate a run record, optionally vs a baseline, writing JSON + Markdown). Import-safe; CLI via `python -m benchmarks.pulse_reliability_v1.runner`. |
 | `__init__.py` | Package marker (directory name uses underscores so Python can import it; the public suite id keeps hyphens: `pulse-reliability-v1`). |
 | `src/tests/test_benchmark_contract.py` | Deterministic contract tests. |
 | `src/tests/test_benchmark_evaluator.py` | Deterministic evaluator tests (synthetic in-memory run records only). |
-| `src/tests/test_benchmark_fixtures.py` | Deterministic fixture tests (build into pytest tmp dirs only; the 20k-entry build runs once per session). |
+| `src/tests/test_benchmark_fixtures.py` | Deterministic fixture tests for all twelve tasks (build into pytest tmp dirs only; the 20k-entry build runs once per session). |
+| `src/tests/test_benchmark_runner.py` | Deterministic runner tests (gate, external-target safety, generate, grade with baseline classification, CLI exit codes). |
 
 ## Validate
 
 ```bash
-python -m pytest src/tests/test_benchmark_contract.py src/tests/test_benchmark_evaluator.py src/tests/test_benchmark_fixtures.py -q
-# 70 passed
+python -m pytest src/tests/test_benchmark_contract.py src/tests/test_benchmark_evaluator.py src/tests/test_benchmark_fixtures.py src/tests/test_benchmark_runner.py -q
+# 99 passed
 ```
 
 or, from the repository root:
@@ -64,6 +67,9 @@ python -c "from benchmarks.pulse_reliability_v1.contract import load_suite; s = 
 | PBR-010 | verification | workspace-write | Detect and repair a regression introduced by the agent |
 | PBR-011 | lifecycle | process | Recover from a timed-out command tree without orphaning children |
 | PBR-012 | lifecycle | read-only | Cancel a turn during bounded context preparation |
+
+Fixture availability: PBR-001 .. PBR-012 (PR 1C covers PBR-001 .. PBR-006,
+PR 1E covers PBR-007 .. PBR-012).
 
 Each task declares: platform support, timeout, whether model calls are allowed,
 a network policy, a workspace fixture reference, the prompt, allowed/forbidden

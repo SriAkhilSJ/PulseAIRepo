@@ -3,8 +3,7 @@
 Pure: generates tiny workspaces into pytest tmp_path only.
 No network, no model calls, no process spawning, no desktop execution.
 
-PR 1C scope guard: exactly the first six tasks (PBR-001 .. PBR-006) may have
-fixtures in this PR. Later tasks arrive in later PRs.
+PR 1C + PR 1E: fixtures exist for all twelve tasks (PBR-001 .. PBR-012).
 """
 from __future__ import annotations
 
@@ -29,7 +28,7 @@ SUITE_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "pulse_reliabil
 MANIFEST_PATH = SUITE_DIR / "manifest.json"
 FIXTURES_PATH = SUITE_DIR / "fixtures.json"
 
-FIRST_SIX = [f"PBR-{i:03d}" for i in range(1, 7)]
+ALL_TASK_IDS = [f"PBR-{i:03d}" for i in range(1, 13)]
 
 
 def _manifest() -> FixtureManifest:
@@ -60,23 +59,17 @@ def test_fixture_manifest_identity() -> None:
     assert m.version == 1
 
 
-def test_first_six_only_ordered() -> None:
+def test_all_task_fixtures_ordered() -> None:
     ids = [f.task_id for f in _manifest().fixtures]
-    assert ids == FIRST_SIX
+    assert ids == ALL_TASK_IDS
 
 
-def test_every_first_six_task_has_a_fixture() -> None:
+def test_every_task_has_a_fixture() -> None:
     suite = load_suite(MANIFEST_PATH)
-    suite_first_six = [t.id for t in suite.tasks[:6]]
-    assert suite_first_six == FIRST_SIX
+    assert [t.id for t in suite.tasks] == ALL_TASK_IDS
     fixture_ids = {f.task_id for f in _manifest().fixtures}
-    for task_id in suite_first_six:
-        assert task_id in fixture_ids, f"missing fixture for {task_id}"
-
-
-def test_later_tasks_not_yet_fixtured() -> None:
-    ids = {f.task_id for f in _manifest().fixtures}
-    assert not any(f"PBR-{i:03d}" in ids for i in range(7, 13))
+    for task in suite.tasks:
+        assert task.id in fixture_ids, f"missing fixture for {task.id}"
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +85,8 @@ def test_build_pbr001_empty_intent(tmp_path) -> None:
     assert "DO_NOT_OPEN_README.txt" in build.files
 
 
-@pytest.mark.parametrize("task_id", ["PBR-002", "PBR-003", "PBR-005", "PBR-006"])
+@pytest.mark.parametrize("task_id", ["PBR-002", "PBR-003", "PBR-005", "PBR-006",
+                                        "PBR-007", "PBR-008", "PBR-009", "PBR-010", "PBR-011"])
 def test_build_small_fixtures_exact_file_sets(task_id: str, tmp_path) -> None:
     spec = _spec(task_id)
     target = tmp_path / spec.root
@@ -171,6 +165,76 @@ def test_pbr004_hashes_match_disk(built_large) -> None:
     spec, build = built_large
     target = Path(build.root)
     assert hash_tree(target) == build.hashes
+
+
+def test_pbr007_rename_target_wired() -> None:
+    spec = _spec("PBR-007")
+    impl = next(f.content for f in spec.files if f.path == "src/parser.py")
+    assert "def parse_item" in impl
+    service = next(f.content for f in spec.files if f.path == "src/service.py")
+    assert "from src.parser import parse_item" in service
+    tests = next(f.content for f in spec.files if f.path == "tests/test_parser.py")
+    assert "from src.parser import parse_item" in tests
+
+
+def test_pbr008_syntax_error_is_real() -> None:
+    spec = _spec("PBR-008")
+    content = next(f.content for f in spec.files if f.path == "src/rules.py")
+    with pytest.raises(SyntaxError):
+        compile(content, "src/rules.py", "exec")
+    tests = next(f.content for f in spec.files if f.path == "tests/test_rules.py")
+    assert "from src.rules import check" in tests
+
+
+def test_pbr009_repairable_and_preexisting_distinct() -> None:
+    spec = _spec("PBR-009")
+    calc = next(f.content for f in spec.files if f.path == "src/calculator.py")
+    assert "def divide" in calc and "return a + b" in calc  # buggy implementation
+    calc_tests = next(f.content for f in spec.files if f.path == "tests/test_calculator.py")
+    assert "divide(6, 2) == 3" in calc_tests  # test would fail against the bug
+    legacy = next(f.content for f in spec.files if f.path == "src/legacy.py")
+    assert "return False" in legacy  # pre-existing failure source
+    legacy_tests = next(f.content for f in spec.files if f.path == "tests/test_legacy.py")
+    assert "legacy_flag() is True" in legacy_tests  # would always fail
+
+
+def test_pbr010_green_baseline_sources() -> None:
+    spec = _spec("PBR-010")
+    for f in spec.files:
+        if f.path.endswith(".py"):
+            compile(f.content, f.path, "exec")  # baseline is syntactically green
+    impl = next(f.content for f in spec.files if f.path == "src/counter.py")
+    assert "def bump" in impl
+    main = next(f.content for f in spec.files if f.path == "src/main.py")
+    assert "from src.counter import bump" in main
+    tests = next(f.content for f in spec.files if f.path == "tests/test_counter.py")
+    assert "bump" in tests
+
+
+def test_pbr011_sleep_tree_present() -> None:
+    spec = _spec("PBR-011")
+    script = next(f.content for f in spec.files if f.path == "scripts/sleep_tree.py")
+    compile(script, "scripts/sleep_tree.py", "exec")
+    assert "subprocess.Popen" in script and "time.sleep(60)" in script
+
+
+def test_pbr012_generated_2000_entries() -> None:
+    spec = _spec("PBR-012")
+    assert spec.generated is not None
+    assert spec.generated.kind == "small-2k"
+    assert spec.generated.count == 2000
+    files = resolve_files(spec)
+    assert len(files) == 2001  # 2000 entries + README
+    assert files["entries/e_00001.txt"] == "entry 00001 PBR-012 generated fixture entry\n"
+
+
+def test_small_2k_build_deterministic_and_hash_matches(tmp_path) -> None:
+    spec = _spec("PBR-012")
+    a = build_fixture(spec, tmp_path / "a")
+    b = build_fixture(spec, tmp_path / "b")
+    assert a.hashes == b.hashes
+    assert hash_tree(Path(a.root)) == a.hashes
+    assert a.entry_count == 2001
 
 
 # ---------------------------------------------------------------------------
