@@ -181,10 +181,12 @@ def test_pbr012_echo_end_to_end(workspace, monkeypatch):
     by_id = {c.check_id: c for c in result.checks}
     assert by_id["cancelled-protocol"].classification == CheckClassification.PASSED
     assert by_id["no-post-cancel-model-call"].classification == CheckClassification.PASSED
-    # DOM + process checks are not coverable on the echo lane: they grade but
-    # fail, and the report card shows them as uncovered.
-    assert by_id["cancelled-ui"].classification == CheckClassification.FAILED_NEW
-    assert result.outcome.value == "failed_functional"
+    # DOM + process checks are not coverable on the echo lane: they grade as
+    # not_run (a lane evidence gap, never a product failure) and the outcome
+    # is computed over the coverable checks only.
+    assert by_id["cancelled-ui"].classification == CheckClassification.NOT_RUN
+    assert by_id["no-worker-growth"].classification == CheckClassification.NOT_RUN
+    assert result.outcome.value == "passed"
     assert result.hard_failure is None
     assert (run_dir / "run-record.json").exists()
     assert (run_dir / "result.json").exists()
@@ -320,9 +322,9 @@ def test_cli_run_and_report(workspace, tmp_path, monkeypatch, capsys):
         "--echo-delay-ms", "1500", "--cancel-after-start-ms", "50",
         "--run-id", "cli-pbr012",
     ])
-    assert code == 1  # honest: echo lane cannot pass DOM/process checks
+    assert code == 0  # coverable checks passed; DOM/process graded not_run
     captured = capsys.readouterr().out
-    assert "outcome=failed_functional" in captured
+    assert "outcome=passed" in captured
 
     report_path = tmp_path / "report-card.md"
     assert cli_main(["report", "--results-dir", "bench-results",

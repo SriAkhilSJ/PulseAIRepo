@@ -446,3 +446,57 @@ def test_evaluate_suite_resolves_task() -> None:
     record = _run("PBR-011")
     result = evaluate_suite(suite, record)
     assert result.task_id == "PBR-011"
+
+
+def test_uncoverable_checks_grade_not_run_not_failed() -> None:
+    """Lane-aware grading: a check the lane cannot observe is not_run.
+
+    PBR-012 on the echo lane: the two protocol/event checks pass, the DOM and
+    process checks have no evidence source. They must be not_run (a lane gap,
+    never a product failure) and the outcome must be computed over coverable
+    checks only.
+    """
+    task = _task("PBR-012")
+    record = _run("PBR-012", cancelled_at_ms=40,
+                  frames=[{"type": "turn_started", "ts_ms": 0},
+                          {"type": "turn_done", "ts_ms": 50, "cancelled": True}])
+    result = evaluate_task(task, record,
+                           covered_check_ids={"cancelled-protocol",
+                                              "no-post-cancel-model-call"})
+    by_id = {c.check_id: c for c in result.checks}
+    assert by_id["cancelled-ui"].classification == CheckClassification.NOT_RUN
+    assert by_id["no-worker-growth"].classification == CheckClassification.NOT_RUN
+    assert result.outcome.value == "passed"
+
+
+def test_not_run_never_masks_real_failures() -> None:
+    """A coverable check that fails still fails the run, not_run or not."""
+    task = _task("PBR-012")
+    # cancelled_at_ms absent + no cancelled turn_done: cancelled-protocol fails.
+    record = _run("PBR-012",
+                  frames=[{"type": "turn_started", "ts_ms": 0},
+                          {"type": "turn_done", "ts_ms": 50}])
+    result = evaluate_task(task, record,
+                           covered_check_ids={"cancelled-protocol",
+                                              "no-post-cancel-model-call"})
+    by_id = {c.check_id: c for c in result.checks}
+    assert by_id["cancelled-protocol"].classification == CheckClassification.FAILED_NEW
+    assert result.outcome.value == "failed_functional"
+
+
+def test_all_not_run_is_not_a_pass() -> None:
+    """A lane that can observe nothing must never produce a pass.
+
+    Empty coverage with failing handlers: every check is not_run and the
+    outcome must not be passed. (The orchestrator additionally refuses to run
+    a task on a lane with zero coverage, so this state is evaluator-only.)
+    """
+    task = _task("PBR-012")
+    # No cancel evidence: every handler fails; with empty coverage all grade
+    # not_run, and there is nothing coverable that passed.
+    record = _run("PBR-012",
+                  frames=[{"type": "turn_started", "ts_ms": 0},
+                          {"type": "turn_done", "ts_ms": 50}])
+    result = evaluate_task(task, record, covered_check_ids=set())
+    assert all(c.classification == CheckClassification.NOT_RUN for c in result.checks)
+    assert result.outcome.value != "passed"

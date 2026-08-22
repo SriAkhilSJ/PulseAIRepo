@@ -128,3 +128,65 @@ that is the one piece that cannot be validated in this sandbox.
 2. **With a key:** PBR-005…010 on `bridge` lane → first real latency/cost baseline rows.
 3. **Perf/cost gates:** add `perf`/`usage` check types with ceilings at 2–3× baseline +
    a cache-hit floor (see `docs/CTO_BENCHMARK_REVIEW_PR7.md`).
+
+---
+
+# Harness v0.2 — Lane-aware grading (2026-08-22, arena session)
+
+## What changed
+
+The evaluator is now **lane-aware**. `evaluate_task`/`evaluate_suite` accept
+`covered_check_ids`; a check whose evidence class the run's lane cannot
+produce (DOM/process need the cdp/desktop lanes) grades **`not_run`** — never
+`failed_new` — and the outcome is computed over coverable checks only. A run
+where nothing is coverable can never pass.
+
+Why: under v0.1 semantics every echo/bridge-lane run was permanently
+`failed_functional` even when ALL coverable checks passed (PBR-012 echo: 2/2
+coverable green, DOM/process uncoverable → red). A scoreboard that is always
+red off the desktop lane trains everyone to ignore red. `not_run` is still an
+explicit label — never a fake pass — and the report card shows it
+(`2/4 (2 not run on lane)`).
+
+Evidence: PBR-012 echo run `arena-pbr012-echo-2` → **passed**, 2/2 coverable,
+2 not_run; zero model calls. Pre-fix run dirs preserved under
+`bench-archive-pre-lane-aware/` (outside the results dir; gitignored).
+
+## Security incident (same session)
+
+A live Sarvam `CUSTOM_API_KEY` was pasted into `README.md` and **pushed to
+GitHub** in `a7587563`. It is public. Actions taken:
+
+- Key removed from README (commit `54c2ccbb`); real key now lives only in the
+  gitignored `.env`.
+- **The key must be rotated at the Sarvam dashboard** — scrubbing the file
+  does not un-leak it from git history.
+- Until rotation, assume anyone can drain the remaining credits.
+
+## Verification
+
+- Combined gate re-run in a fresh sandbox venv: **169 passed** (99 benchmark +
+  21 harness/cdp incl. 3 new lane-aware tests + bridge suite), 0 failed.
+- New regression tests: uncoverable → `not_run` + outcome from coverable set;
+  `not_run` never masks a real coverable failure; all-not_run never passes.
+- Sarvam API probe from this sandbox: **blocked by egress policy** (SSL
+  connect reset) — run the probe on the founder machine instead:
+  `curl -sS -w "\nHTTP %{http_code} | total %{time_total}s\n" \
+    https://api.sarvam.ai/v1/chat/completions \
+    -H "Authorization: Bearer $CUSTOM_API_KEY" -H "Content-Type: application/json" \
+    -d '{"model":"sarvam-105b-conversations","messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":8,"temperature":0}'`
+  (~30 tokens; the only sanctioned credit spend before the paid runs below.)
+
+## Credit budget (30 credits) — spend plan
+
+| # | Run | Est. cost | Buys |
+|---|---|---|---|
+| 0 | Reachability probe (above) | <0.1 | Key validity + provider latency floor |
+| 1 | **PBR-002** bridge lane, tiny fixture workspace | ~1 | First real end-to-end row: workspace routing + `llm.request` boundary + first-token latency |
+| 2 | **PBR-012** bridge lane (real engine, cancel during context prep) | ~0.5 | Cancel semantics on the REAL engine, not echo |
+| 3 | **PBR-004** bridge lane, 20k-entry fixture | ~2 | Context-bounding receipt on a big tree |
+| 4 | Hold remaining ~26 until 1–3 are green ×3 (rule of three) | — | Never spend on a red lane |
+
+Rules: no re-runs on failure without a written root cause; every paid run
+gets its result dir + card row; PBR-005…010 wait until the founder approves
+spending beyond the plan.

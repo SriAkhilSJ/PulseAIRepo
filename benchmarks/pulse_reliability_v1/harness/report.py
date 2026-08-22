@@ -72,13 +72,17 @@ def render_report(results_dir: str | Path, *, suite_path: str | Path = DEFAULT_S
         task_id = result.get("task_id", "?")
         checks = result.get("checks", [])
         passed = sum(1 for c in checks if c.get("classification") == "passed")
+        not_run = sum(1 for c in checks if c.get("classification") == "not_run")
+        checks_cell = f"{passed}/{len(checks)}"
+        if not_run:
+            checks_cell += f" ({not_run} not run on lane)"
         title = titles.get(task_id, task_id)
         hard = result.get("hard_failure")
         outcome = result.get("outcome", "?")
         if hard:
             outcome = f"{outcome} (⚠ {hard})"
         lines.append(
-            f"| {task_id} {title} | {outcome} | {passed}/{len(checks)} | "
+            f"| {task_id} {title} | {outcome} | {checks_cell} | "
             f"{result.get('checks_covered', '?')} | {_lane_of(result)} |"
         )
 
