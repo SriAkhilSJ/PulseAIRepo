@@ -438,7 +438,9 @@ A session of root-causing real bugs surfaced by live agent runs (Test 3: integra
 LLM_PROVIDER=custom
 LLM_MODEL=sarvam-105b-conversations
 CUSTOM_BASE_URL=https://api.sarvam.ai/v1
-CUSTOM_API_KEY=sk_abz8b0cg_lNzfwu64pX3O42zOJ1DkrYNJ
+# NEVER put a real key in this file — it is committed to git and public on GitHub.
+# Put the real value in .env (gitignored):  CUSTOM_API_KEY=sk_...
+CUSTOM_API_KEY=
 
 # ---------------------------------------------------------------------------
 # Efficiency: summarize giant (>8000-char) tool outputs with the CHEAP
