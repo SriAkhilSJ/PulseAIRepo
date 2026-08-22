@@ -32,6 +32,10 @@
 	display: grid;
 	grid-template-rows: 34px minmax(0, 1fr) auto auto;
 	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	width: 100%;
+	overflow: hidden;
 	background: var(--vscode-sideBar-background);
 }
 
@@ -48,7 +52,9 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
+	min-width: 0;
 	padding: 0 10px;
+	overflow: hidden;
 }
 
 .pulseai-agent-brand {
@@ -134,9 +140,12 @@
 
 .pulseai-transcript-lane {
 	width: 100%;
-	max-width: 760px;
+	max-width: 950px;
+	box-sizing: border-box;
+	min-width: 0;
 	margin: 0 auto;
 	padding: 10px;
+	overflow-wrap: anywhere;
 }
 
 .pulseai-user-message {
@@ -167,6 +176,9 @@
 
 .pulseai-assistant-copy {
 	margin: 4px 0 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 	line-height: 1.55;
 	white-space: pre-wrap;
 }
@@ -195,14 +207,16 @@
 
 .pulseai-tool-summary {
 	display: grid;
-	grid-template-columns: 14px 14px auto minmax(44px, 1fr) auto auto 12px;
+	grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto auto 12px;
 	align-items: center;
 	gap: 6px;
+	min-width: 0;
 	min-height: 29px;
 	padding: 3px 2px;
 	list-style: none;
 	cursor: pointer;
 	user-select: none;
+	overflow: hidden;
 }
 
 .pulseai-tool-summary::-webkit-details-marker { display: none; }
@@ -214,7 +228,7 @@
 .pulseai-tool-row.is-approval .pulseai-tool-summary > :first-child { color: var(--pulseai-approval); }
 .pulseai-tool-row.is-running .pulseai-tool-summary > :first-child { color: var(--pulseai-running); }
 
-.pulseai-tool-summary strong { font-weight: 600; white-space: nowrap; }
+.pulseai-tool-summary strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; white-space: nowrap; }
 .pulseai-tool-target { min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-tool-duration { color: var(--vscode-descriptionForeground); font-size: 10px; }
 
@@ -308,13 +322,16 @@
 .pulseai-empty {
 	display: grid;
 	place-items: center;
-	padding: 36px 16px;
+	padding: 24px 12px;
 	color: var(--vscode-descriptionForeground);
 	text-align: center;
+	min-width: 0;
+	width: 100%;
+	box-sizing: border-box;
 }
 .pulseai-empty > .codicon { margin-bottom: 8px; color: var(--pulseai-accent); font-size: 22px; }
 .pulseai-empty h3 { margin: 0 0 5px; color: var(--vscode-foreground); font-size: 13px; }
-.pulseai-empty p { max-width: 300px; margin: 0; line-height: 1.4; }
+.pulseai-empty p { max-width: min(280px, calc(100% - 16px)); width: 100%; margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
 
 .pulseai-error-row {
 	display: flex;
@@ -332,16 +349,18 @@
 .pulseai-approval-dock {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
 	gap: 8px;
+	min-width: 0;
 	padding: 7px 9px;
 	border-top: 1px solid var(--pulseai-approval);
 	background: color-mix(in srgb, var(--pulseai-approval) 9%, var(--vscode-sideBar-background));
 }
-.pulseai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1; }
+.pulseai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
 .pulseai-approval-copy > .codicon { margin-top: 2px; color: var(--pulseai-approval); }
 .pulseai-approval-copy div { display: grid; min-width: 0; }
 .pulseai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.pulseai-approval-actions { display: flex; gap: 5px; }
+.pulseai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
 
 .pulseai-button {
 	height: 24px;
@@ -376,12 +395,13 @@
 	line-height: 1.4;
 }
 .pulseai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
-.pulseai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 2px 5px 5px; }
-.pulseai-composer-left { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.pulseai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; }
+.pulseai-composer-left { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 160px; }
 .pulseai-composer-pill,
 .pulseai-composer-select {
 	display: inline-flex;
 	align-items: center;
+	flex: 0 0 auto;
 	height: 21px;
 	padding: 0 7px;
 	border: 0;
@@ -392,7 +412,7 @@
 }
 .pulseai-composer-pill:hover,
 .pulseai-composer-select:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
-.pulseai-composer-select { max-width: 110px; outline: none; }
+.pulseai-composer-select { width: 92px; min-width: 0; flex: 0 0 auto; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-at-sign { color: var(--pulseai-accent); font-weight: 700; margin-right: 3px; }
 .pulseai-send-button {
 	display: grid;
@@ -414,7 +434,7 @@
 	outline: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
 }
 .pulseai-send-button.pulseai-send-stop:hover { color: var(--vscode-foreground); }
-.pulseai-composer-hint { display: flex; justify-content: space-between; margin-top: 5px; color: var(--vscode-descriptionForeground); font-size: 9px; }
+.pulseai-composer-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 5px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: 9px; }
 .pulseai-icon-button {
 	display: inline-flex;
 	align-items: center;

@@ -287,12 +287,16 @@ The Test-4 bundle contains the final source, four local MP4 assets, four 1280×8
 
 See [`lab/TEST1_VS_TEST3_COMPARISON.md`](lab/TEST1_VS_TEST3_COMPARISON.md) for explicit Test-1/Test-3 unknowns. Detailed Test-3 durability, latency deductions, performance, API-call and token metrics are in [`lab/TEST3_LAB_REPORT_METRICS.md`](lab/TEST3_LAB_REPORT_METRICS.md).
 
-**Run All Tests (Windows):**
+**Run All Tests (Windows) — use the repo `.venv` (see `src/tests/TEST_AGENT_GUIDE.md`):**
 ```powershell
-New-Item -ItemType Directory -Force -Path "D:\pytest-tmp" | Out-Null
-$env:TMP="D:\pytest-tmp"; $env:TEMP="D:\pytest-tmp"
-.venv\Scripts\python.exe -m pytest src\tests -q --no-header --ignore=src/tests/test_session_engines.py
+# .venv is a symlink to C:\venvs\PulseAIRepo-venv (fixes D:\ Access is denied)
+D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop
+# collect only (should show 813 collected)
+D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest --collect-only -q
+# verbose single module example
+D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest src/tests/test_cancellation_gates.py -v
 ```
+> Do not use `C:\Users\...\uv\python\...\python.exe` directly — it lacks `langchain_core`. Always run via `D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe`. If `Access is denied` returns, re-create the symlink: `cmd /c "mklink /D D:\pulseAIagent\PulseAIRepo\.venv C:\venvs\PulseAIRepo-venv"`.
 
 Current README-command-equivalent result (2026-08-14): **615 passed in 32.38s** on Linux/Python 3.13 with `test_session_engines.py` excluded. The same selection is intended for Windows; the POSIX file-mode case may skip there because Windows has no POSIX mode bits. Point `TMP`/`TEMP` at a drive with free space and outside the repository; a full system drive makes sqlite/IO tests fail, while a temp directory inside the repo can invalidate git-context tests. The provider-cap tests (`test_model_budgets`) assert both explicit-cap budgets and AUTO mode (`PROVIDER_SAFE_LIMIT=0`, where the engine trusts the discovered window), so they stay green for either a host `.env` or the shipped default.
 
