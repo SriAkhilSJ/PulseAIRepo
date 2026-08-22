@@ -226,3 +226,36 @@ stdio): cancel honoured during context prep, `turn_done cancelled=true`,
 zero `llm.request` events. Sarvam egress is blocked in this sandbox, so no
 model call was even possible — evidence obtained at literally zero credits.
 Remaining for PBR-012: DOM/process checks on the desktop lane (your machine).
+
+---
+
+# Durability receipt + guarded paid-runner (2026-08-22, arena session 3)
+
+## Provider-unreachable durability test (PBR-002, bridge lane, sandbox)
+
+Sandbox egress to api.sarvam.ai is firewalled, so a PBR-002 attempt here CANNOT
+reach the provider — a free, real test of "what happens when the provider dies
+mid-task". Result (`arena-pbr002-bridge-blocked`, archived):
+
+- Failed fast and clean in ~35 s — no hang, no watchdog kill needed.
+- All checks graded `failed_environmental` → `failed_harness`: the evaluator
+  blames the ENVIRONMENT, never silently the product.
+- **0 model calls, 0 tokens, $0.0000** — a failing run cannot burn credits.
+- **Zero orphan processes** after shutdown (bridge child reaped).
+- Run preserved in `bench-archive-pre-lane-aware/` as durability evidence.
+
+## scripts/run_paid_pbr002_guarded.ps1 (founder machine)
+
+The first paid row, guarded exactly as the founder asked (30 s checks, kill on
+fail/stall):
+
+1. Preflight: venv + `.env` key present; exact PBR-002 fixture written
+   (byte-validated against fixtures.json).
+2. Credit gate: ONE 8-token probe (~0.1 credit). Probe fails → benchmark never
+   starts, zero benchmark credits at risk.
+3. PBR-002 on the real engine as a separate process; watchdog checks every
+   30 s: stall (120 s no output) → `taskkill /T /F`; hard cap 10 min → kill.
+4. Prints graded checks + usage; exits with the benchmark's code.
+
+Usage:
+`powershell -ExecutionPolicy Bypass -File scripts\run_paid_pbr002_guarded.ps1 -Workspace C:\pbr002-ws`
