@@ -28,7 +28,25 @@ Three sets of eyes (drivers):
   = historical behaviour, byte-identical. Production path untouched. All 20 bridge tests pass.
 - `src/tests/test_benchmark_harness.py` — 15 tests (recorder, protocol v2 client, cancel
   semantics, coverage model, CDP helpers, report card, CLI).
-- **Full benchmark suite: 114 passed** (99 existing + 15 new) · **bridge suite: 20 passed**.
+- `src/tests/test_benchmark_harness_cdp.py` — **5 CDP integration tests against a real
+  mock CDP endpoint** (actual HTTP discovery + WebSocket Runtime.evaluate traffic),
+  including a full end-to-end PBR-001 run graded **PASSED** on the cdp lane.
+- **Combined gate: 139 passed** (99 benchmark + 15 harness + 5 CDP + 20 bridge).
+
+## CDP lane: what is proven, what needs your machine
+
+The built PulseAI IDE cannot exist in a fresh checkout (build artifacts are gitignored by
+design), so the live app is exercised on the founder's machine. What IS proven here:
+
+- `CdpDriver.connect()` — real HTTP `/json/version` + `/json/list` discovery, target
+  pick (workspace-URL preference), WebSocket attach, `Runtime.enable`.
+- `observe_dom()` — real `Runtime.evaluate` round-trips return correct
+  enabled/visible/text/count snapshots into the recorder.
+- `--launch` spawns the app command, waits for the endpoint, attaches, and terminates
+  the process cleanly on shutdown.
+- Unreachable endpoint → loud `DriverError` (never a silent pass).
+- **Full PBR-001 on the cdp lane grades PASSED** (composer disabled + hint text +
+  no prompt frames) against the mock — the exact task to run on your machine.
 
 ## Demo evidence (this machine, zero cost)
 
@@ -56,22 +74,26 @@ Report card: `bench-results/report-card.md` (gitignored — results never live i
 
 ## Handoff: what runs on YOUR machine (founder's Windows box)
 
+Prerequisites on your machine:
+- Full env + key configured in the repo's `.env` (gitignored — keys never committed).
+- Built IDE at `desktop/vscode/.build/electron/PulseAI.exe`.
+- The test venv needs `websockets` for the CDP lane: `pip install websockets`
+  (the driver fails loudly with this hint if it is missing — never a silent pass).
+
 ```powershell
-# 1. Full env + key configured (existing .venv)
-# 2. Build IDE already exists at desktop/vscode/.build/electron/PulseAI.exe
-# 3. Zero-cost desktop task (PBR-001: no folder => prompts blocked):
+# Zero-cost desktop task (PBR-001: no folder => prompts blocked):
 python -m benchmarks.pulse_reliability_v1.harness run `
     --task PBR-001 --driver cdp `
     --launch "desktop/vscode/.build/electron/PulseAI.exe --remote-debugging-port=9222" `
     --port 9222
 
-# 4. All zero-cost tasks, then the scoreboard:
+# All zero-cost tasks, then the scoreboard:
 python -m benchmarks.pulse_reliability_v1.harness report --results-dir bench-results
 ```
 
-CDP live-window integration (frame/event capture, native workspace open, process
-snapshot) is the next step and requires the live app — that is the one piece that
-cannot be validated in this sandbox.
+CDP live-window integration beyond DOM observation (frame/event capture, native
+workspace open, process snapshot) is the next step and requires the live app —
+that is the one piece that cannot be validated in this sandbox.
 
 ## Honest limits (v0.1)
 
