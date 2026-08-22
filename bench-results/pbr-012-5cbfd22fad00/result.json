@@ -1,0 +1,82 @@
+{
+  "artifacts": [],
+  "changes": {
+    "deletions": 0,
+    "files": [],
+    "insertions": 0,
+    "outside_scope": []
+  },
+  "checks": [
+    {
+      "check_id": "cancelled-ui",
+      "classification": "failed_new",
+      "duration_ms": 0,
+      "evidence_ids": [],
+      "exit_code": null,
+      "summary": "no dom observation for .pulseai-turn-receipt.is-cancelled"
+    },
+    {
+      "check_id": "cancelled-protocol",
+      "classification": "passed",
+      "duration_ms": 0,
+      "evidence_ids": [],
+      "exit_code": null,
+      "summary": "final frame ok"
+    },
+    {
+      "check_id": "no-post-cancel-model-call",
+      "classification": "passed",
+      "duration_ms": 0,
+      "evidence_ids": [],
+      "exit_code": null,
+      "summary": "0 event(s) after cancel"
+    },
+    {
+      "check_id": "no-worker-growth",
+      "classification": "failed_new",
+      "duration_ms": 0,
+      "evidence_ids": [],
+      "exit_code": null,
+      "summary": "missing observation 'additional_workers'"
+    }
+  ],
+  "checks_covered": 2,
+  "checks_covered_ids": [
+    "cancelled-protocol",
+    "no-post-cancel-model-call"
+  ],
+  "claims": [
+    {
+      "claim": "turn cancelled cleanly",
+      "evidence_ids": [],
+      "status": "unverified"
+    }
+  ],
+  "hard_failure": null,
+  "human_interventions": 0,
+  "lane": "echo",
+  "mock": false,
+  "outcome": "failed_functional",
+  "process_leaks": [],
+  "pulse_commit": "e1927c0c2ac0d25459eb0e2c0275018fd3244c95",
+  "run_id": "pbr-012-5cbfd22fad00",
+  "schema_id": "pulse-benchmark-result/v1",
+  "task_id": "PBR-012",
+  "task_version": 1,
+  "timing_ms": {
+    "completion": 1787411604044,
+    "first_progress": 1787411603891,
+    "first_token": 0,
+    "shutdown": 1787411604065,
+    "startup": 1787411603731,
+    "verification": 0
+  },
+  "usage": {
+    "cache_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0,
+    "tool_calls": 0
+  }
+}

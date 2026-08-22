@@ -1,0 +1,138 @@
+{
+  "artifacts": [],
+  "baseline_hashes": [],
+  "cache_tokens": 0,
+  "cancelled_at_ms": 1787411111054,
+  "changed_files": [],
+  "claims": [
+    {
+      "claim": "turn cancelled cleanly",
+      "evidence_ids": [],
+      "status": "unverified"
+    }
+  ],
+  "commands": [],
+  "completion_ms": 1787411111064,
+  "context_entries": [],
+  "dom": [],
+  "environment_notes": [],
+  "estimated_cost_usd": 0.0,
+  "events": [],
+  "final_hashes": [],
+  "first_progress_ms": 1787411110953,
+  "first_token_ms": 0,
+  "fixture_root": "D:\\pulseAIagent\\PulseAIRepo\\test-workspace",
+  "frames": [
+    {
+      "cancelled": false,
+      "payload": {
+        "capabilities": [
+          "cancel",
+          "checkpoint_list",
+          "checkpoint_restore",
+          "events_replay",
+          "prompt",
+          "queue",
+          "safety_reply",
+          "session_create",
+          "session_fork",
+          "session_list",
+          "session_load",
+          "session_resume",
+          "steer",
+          "subagent_cancel",
+          "subagent_launch",
+          "subagent_result",
+          "subagent_status"
+        ],
+        "engine": "pulseai",
+        "engine_version": "0.2.0-runtime",
+        "protocol": 2,
+        "type": "hello"
+      },
+      "ts_ms": 1787411110933,
+      "type": "hello"
+    },
+    {
+      "cancelled": false,
+      "payload": {
+        "session_id": "bench",
+        "type": "session_info",
+        "workspace": "D:\\pulseAIagent\\PulseAIRepo\\test-workspace"
+      },
+      "ts_ms": 1787411110943,
+      "type": "session_info"
+    },
+    {
+      "cancelled": false,
+      "payload": {
+        "text": "Prepare context and then reply."
+      },
+      "ts_ms": 1787411110943,
+      "type": "prompt"
+    },
+    {
+      "cancelled": false,
+      "payload": {
+        "lineage_root_id": "bench",
+        "runtime_session_id": "runtime-9cb16939973d4517bf1f25c473a62c8b",
+        "session_id": "bench",
+        "timestamp": 1787411110.9535356,
+        "turn_id": "turn-5003bf824f544715857fdc54a4a22d7e",
+        "type": "turn_started",
+        "workspace_id": "ws-6fa0a1888783f77d"
+      },
+      "ts_ms": 1787411110953,
+      "type": "turn_started"
+    },
+    {
+      "cancelled": false,
+      "payload": {
+        "cancel_requested": true,
+        "session_id": "bench",
+        "type": "session_info"
+      },
+      "ts_ms": 1787411111064,
+      "type": "session_info"
+    },
+    {
+      "cancelled": true,
+      "payload": {
+        "cancelled": true,
+        "completed": false,
+        "lineage_root_id": "bench",
+        "message": "Operation cancelled by the user.",
+        "runtime_session_id": "runtime-9cb16939973d4517bf1f25c473a62c8b",
+        "session_id": "bench",
+        "stub": false,
+        "turn_id": "turn-5003bf824f544715857fdc54a4a22d7e",
+        "type": "turn_done",
+        "workspace_id": "ws-6fa0a1888783f77d"
+      },
+      "ts_ms": 1787411111064,
+      "type": "turn_done"
+    }
+  ],
+  "harness_error": null,
+  "input_tokens": 0,
+  "model_calls": 0,
+  "network_attempts": [],
+  "observations": [],
+  "output_tokens": 0,
+  "outside_scope_changes": [],
+  "processes_after": [],
+  "pulse_commit": "e1927c0c2ac0d25459eb0e2c0275018fd3244c95",
+  "python_command": [
+    "python"
+  ],
+  "run_id": "pbr-012-6b9f63294d84",
+  "schema_id": "pulse-benchmark-run/v1",
+  "selected_root": "D:\\pulseAIagent\\PulseAIRepo\\test-workspace",
+  "selection_ms": null,
+  "shutdown_ms": 1787411111082,
+  "startup_ms": 1787411110802,
+  "task_id": "PBR-012",
+  "task_version": 1,
+  "tool_calls": 0,
+  "verification_ms": 0
+}
