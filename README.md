@@ -425,3 +425,33 @@ A session of root-causing real bugs surfaced by live agent runs (Test 3: integra
 - [ ] Per-session cost reports in PDF format
 - [ ] Benchmark harness: calls/tokens/human-helps per task, before vs after efficiency pass
 /usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy
+
+
+# PulseAI agent tuning â€” created by the CTO efficiency pass.
+# Keys (OPENAI_API_KEY etc.) live in the OS environment; this file only
+# overrides what's below. load_dotenv() never clobbers existing env vars.
+
+# ---------------------------------------------------------------------------
+# PulseAI live config â€” Sarvam AI (real provider, pinned 105B model, >=32k window)
+# Provider "custom" builds ChatOpenAI(custom_base_url) in src/llm/factory.py.
+# ---------------------------------------------------------------------------
+LLM_PROVIDER=custom
+LLM_MODEL=sarvam-105b-conversations
+CUSTOM_BASE_URL=https://api.sarvam.ai/v1
+CUSTOM_API_KEY=sk_abz8b0cg_lNzfwu64pX3O42zOJ1DkrYNJ
+
+# ---------------------------------------------------------------------------
+# Efficiency: summarize giant (>8000-char) tool outputs with the CHEAP
+# auxiliary model (janitor rates) instead of free heuristics only.
+# The summarizer memoizes per unique output, so each big output costs ONE
+# aux call, not one per turn. Degrades gracefully if the aux model fails.
+# ---------------------------------------------------------------------------
+SUMMARIZER_LLM=aux
+
+# ---------------------------------------------------------------------------
+# Context window: trust the registered window (sarvam-105b = 32768 in
+# model_budgets). PROVIDER_SAFE_LIMIT=0 means AUTO â€” trust the dynamically
+# discovered model window instead of a fixed cap. Use >0 on free/combo tiers
+# or if you see 503s on oversized requests; set back to 6000 to re-cap.
+PROVIDER_SAFE_LIMIT=0
+
