@@ -1,103 +1,189 @@
-# CDP Test Guide — Test the Fork Without Analyzing It
+# CDP Test Guide — Agent-Friendly, Copy-Paste Ready
 
-**Purpose:** Run the full PulseAI cancellation/desktop validation in ~15 min, no code-reading. This guide encodes the exact commands, ports, coordinates, and pitfalls that cost hours of analysis.
+**Purpose:** Run PulseAI CDP acceptance tests in <30 min. Zero analysis needed — just copy-paste commands.
 
-## 0. TL;DR Commands
+## Quick Start (30 seconds)
 
-```powershell
-Set-Location D:\pulseAIagent\PulseAIRepo
+```bash
+# 1. Verify Python works
+D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
 
-# Python — ALWAYS use this (D:\ venv is symlink to C:\venvs, fixes Access is denied)
-D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -c "import langchain_core; print('ok')"
-D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop  # 813 collected
+# 2. Launch app with CDP
+cd PulseAIRepo/desktop/vscode && cmd.exe //c "set PULSEAI_PYTHON_PATH=D:\\pulseAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set PULSEAI_ENGINE_ROOT=D:\\pulseAIagent\\PulseAIRepo&&scripts\\code.bat D:\\pulseAIagent\\PulseAIRepo --remote-debugging-port=9222" &
 
-# Desktop + CDP
-$env:PULSEAI_PYTHON_PATH='D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe'
-$env:PULSEAI_ENGINE_ROOT='D:\pulseAIagent\PulseAIRepo'
-Start-Process cmd.exe "/c cd /d D:\pulseAIagent\PulseAIRepo\desktop\vscode && scripts\code.bat D:\pulseAIagent\PulseAIRepo --remote-debugging-port=9222"
-# Wait 10s, then test:
-Test-NetConnection localhost -Port 9222  # must be True
+# 3. Wait 15s, verify CDP
+sleep 15 && curl -s http://localhost:9222/json/version | head -2
+
+# 4. Run tests (from CDP_test dir)
+cd D:/pulseAIagent/pulse-res/cancel-session-artifacts/CDP_test && node r03_final.js
 ```
 
-## 1. Environment (saves 1h)
+## Prerequisites
 
-- **Venv location:** `D:\pulseAIagent\PulseAIRepo\.venv` is a **symlink** to `C:\venvs\PulseAIRepo-venv` (fixes `WinError 5 Access is denied` from WDAC blocking `D:\`). Do NOT use `C:\...\uv\python\...\python.exe` directly — lacks `langchain_core`.
-- **If symlink broken:** `cmd /c "mklink /D D:\pulseAIagent\PulseAIRepo\.venv C:\venvs\PulseAIRepo-venv"`
-- **Verify:** `D:\...\python.exe -m pytest --version` → `pytest 9.1.1`, `D:\...\python.exe -c "import sys; print(sys.executable)"` → `D:\...`
-- **pytest config:** `pytest.ini` has `pythonpath=.` so `from src...` works only from repo root. Ignore `desktop/` fixtures: `--ignore=desktop` avoids `mmath` import error (814 → 813).
-- **Full suite vs targeted:** Targeted 46 tests are accepted; broader suites have pre-existing `PermissionError` on `D:\` shell spawns — compare baseline `0285836c` before calling regression.
+| Item | Value | Verify |
+|------|-------|--------|
+| Python venv | `D:\pulseAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
+| Node.js | v24+ | `node --version` |
+| ws module | `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
+| PulseAI.exe | `desktop/vscode/.build/electron/PulseAI.exe` | `ls -la` |
+| CDP port | 9222 | `curl -s http://localhost:9222/json/version` |
 
-## 2. Desktop Build Provenance (saves 45m)
+## Test Scripts (copy-paste ready)
 
-Before CDP, prove the desktop loads `cd4a2cab`:
+All scripts are in `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\`:
 
-```powershell
-git rev-parse HEAD  # must be cd4a2cab362339e77f9d1b0ddc35a51dc8fe2861
-git hash-object src/bridge/__main__.py; git rev-parse HEAD:src/bridge/__main__.py  # must match (same for chat_graph.py, factory.py, turn_control.py)
-Get-Item desktop/vscode/.build/electron/PulseAI.exe | Select LastWriteTime,Length
-Get-CimInstance Win32_Process | Where CommandLine -like "*src.bridge*"  # should show D:\...\python.exe -m src.bridge, Parent=PulseAI
+| Script | What it tests | Duration |
+|--------|--------------|----------|
+| `r03_final.js` | Criteria 2-6 (protocol, tiny turn, cancellation, shutdown) | ~60s |
+| `r03_large_v3.js` | Criterion 4 (20k-entry workspace turn) | ~30s |
+| `r03_simple_test.js` | Quick diagnostic (state check) | ~10s |
+
+### Run all tests:
+```bash
+cd D:/pulseAIagent/pulse-res/cancel-session-artifacts/CDP_test
+
+# Step 1: Trust folder (user must click "Yes, I trust" in app)
+# Step 2: Run main test
+node r03_final.js
+
+# Step 3: Run large workspace test
+node r03_large_v3.js
 ```
 
-Runtime files == HEAD blob hashes (`05caf735`, `80d6ad61`, `2479cfe6`, `1f99c233`). Electron binary timestamp `8/16 11:23 PM` is older than `cd4a2cab` but Python engine is loaded from `PULSEAI_ENGINE_ROOT` (working tree), so hash match is sufficient — do NOT rely on electron build alone.
+## CDP Cheat Sheet
 
-## 3. CDP Harness (saves 2h)
-
-**CDP basics:**
-- Port: `9222` via `scripts\code.bat --remote-debugging-port=9222` (must use `Start-Process cmd.exe` so shell survives tool kills)
-- List targets: `http://localhost:9222/json` → `webSocketDebuggerUrl`
-- Connect: `ws` module at `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\node_modules\ws` (use that dir as cwd)
-- **Screenshot:** `Page.captureScreenshot` → `r.result.data` (NOT `r.data`) — `Buffer.from(r.result.data,'base64')`
-- **JS:** `Runtime.evaluate` with `returnByValue:true`
-- **Input:** `Input.insertText` (fast) or `dispatchKeyEvent` char loop (slow, hangs), `Input.dispatchKeyEvent` for `Enter` (13), `F1` (112), `Escape` (27), `Input.dispatchMouseEvent` for clicks
-
-**Coordinates (from `D:\pulse-res\cdp-shots\`):**
-- Textarea: `(1161, 554)` centered, also `document.querySelector('textarea')` or `.pulse-ws-large textarea`
-- Send button: `(1310, 602)`
-- Stop button: `(1273, 602)` via `[class*="stop"]` (or `[class*="cancel"]`, `button[title*="Stop"]`). Probe via `document.querySelector('[class*="stop"]')?.getBoundingClientRect()`
-
-**Pitfalls that break tests:**
-1. No folder opened → `Engine stopped` + `Open a folder to start a Pulse session` — must launch with `D:\pulseAIagent\PulseAIRepo` arg or `File: Open Folder` via `F1` → `Open Folder`
-2. Engine crash `ModuleNotFoundError langchain_core` → wrong python (Python311) — set `PULSEAI_PYTHON_PATH` before launch
-3. Typing char-by-char hangs — use `Input.insertText` not loop
-4. `ws` not found — run `node script.js` from `CDP_test/` where `node_modules/ws` exists
-5. 30s wait loops without `awaitPromise:true` miss `Run cancelled`
-
-## 4. Cancellation Trial Protocol (Part 5, saves 1h)
-
-Use new dir per run: `D:\pulse-res\cancel-session-artifacts\cd4a2cab-rerun-<timestamp>\` (never copy old screenshots).
-
-**Steps per trial (loop 3×):**
-1. `F1` → `PulseAI: Focus Agent` → `Enter` (wait 2s, screenshot `panel_open.png` → check `Pulse ready`)
-2. Focus textarea via `Runtime.evaluate` click at `(1161,554)` → `Input.insertText` with prompt `Write fibonacci recursively...` → `Enter`
-3. Poll body `innerText` every 100 ms for `Thinking|Generating|fibonacci` (max 30s) → record `provider_start` monotonic time
-4. Find Stop via `[class*="stop"]` → `mousePressed/Released` → record `stop_click` time
-5. Poll every 100 ms for `Run cancelled` or `Pulse ready` (max 15s) → record `cancel_ack`, `turn_done`, `dom_cancel`
-6. Compute latencies: `stop→ack`, `stop→terminal`, `stop→DOM` (all must be <5s, target <2s, 4868 ms prior had 132 ms margin)
-7. Prove counters ==0: `requests_started_after_stop`, `retries_started_after_stop`, `failovers_started_after_stop`, `tool_starts_after_stop`, `mutations_after_stop` (query `document.body.innerText` or bridge `session_info`)
-
-**Also rerun:** same-session next-turn recovery (prompt again without restart), concurrent A/B isolation (two sessions, cancel A, B completes), shutdown (kill PulseAI → port 9222 closed, no orphan python).
-
-Existing harness: `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\cancel_4.js` (fixed with `Input.insertText`, shows `trial1_05_after_stop.png` at `D:\pulse-res\cdp-shots\`)
-
-## 5. Approval-Wait Test (Part 6)
-
-Reach `tool.approval.request` → `safety_request` dock → verify `blocked` → `cancel` → require immediate `cancelled/denied`, no `tool_start`, abort registry empty. If untestable, report `approval-wait cancellation unverified` — do not claim complete.
-
-## 6. Evidence Manifest (Part 7)
-
-Create `D:\pulse-res\cancel-session-artifacts\cd4a2cab\evidence_manifest.txt` with HEAD SHA, build hashes, artifact SHA256, timestamps, commands+exit codes, all summaries, all CDP timestamps/counters. Do not update PR body yet.
-
-## 7. Quick Validation (copy-paste)
-
-```powershell
-Set-Location D:\pulseAIagent\PulseAIRepo
-$Evidence="D:\pulse-res\cancel-session-artifacts\cd4a2cab"; New-Item -ItemType Directory -Force $Evidence | Out-Null
-$py="D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe"
-& $py -m pytest -vv --tb=long src/tests/test_bridge.py 2>&1 | Out-File $Evidence\test_bridge.txt; "exit_code=$LASTEXITCODE" | Add-Content $Evidence\test_bridge.txt
-# repeat for test_bridge_runtime_protocol, test_bridge_transport, test_bridge_workspace_routing, test_context_budget, test_git_context, test_desktop_workspace_boundary
-git worktree add --detach D:\pulse-res\baseline-0285836 0285836c35dcd8d89611c94dd6c853d10ec3c358
-Set-Location D:\pulse-res\baseline-0285836; & $py -m pytest -q src/tests/test_bridge_transport.py 2>&1 | Out-File D:\pulse-res\cancel-session-artifacts\baseline-0285836\test_bridge_transport.txt
-Set-Location D:\pulseAIagent\PulseAIRepo; git worktree remove D:\pulse-res\baseline-0285836
+### Connect to app
+```javascript
+const WebSocket = require('ws');
+const resp = await fetch('http://localhost:9222/json');
+const targets = await resp.json();
+const page = targets.find(t => t.type === 'page');
+const ws = new WebSocket(page.webSocketDebuggerUrl);
 ```
 
-**Current status:** Parts 1-4 done, Parts 5-7 pending fresh CDP rerun with correct build. Use this guide to redo in <30 min instead of 3h.
+### Key CDP commands
+```javascript
+// Screenshot
+const r = await send('Page.captureScreenshot', { format: 'png' });
+fs.writeFileSync('shot.png', Buffer.from(r.result.data, 'base64'));
+
+// Run JS
+const val = await send('Runtime.evaluate', {
+  expression: 'document.body.innerText.includes("Pulse ready")',
+  returnByValue: true
+});
+
+// Type text (fast, no hang)
+await send('Input.insertText', { text: 'your prompt here' });
+
+// Press Enter
+await send('Input.dispatchKeyEvent', {
+  type: 'keyDown', key: 'Enter',
+  windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
+});
+
+// Click at coordinates
+await send('Input.dispatchMouseEvent', {
+  type: 'mousePressed', x: 1131, y: 510,
+  button: 'left', clickCount: 1
+});
+```
+
+### Find textarea (always works)
+```javascript
+const ta = await ev(`(() => {
+  const t = document.querySelector("textarea.pulseai-composer-input");
+  if (!t) return null;
+  const r = t.getBoundingClientRect();
+  return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
+})()`);
+const {x, y} = JSON.parse(ta);
+await clickAt(x, y);
+```
+
+### Find stop button (always works)
+```javascript
+const stop = await ev(`(() => {
+  const el = document.querySelector('[class*="stop"]');
+  if (el) { const r = el.getBoundingClientRect(); return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2}); }
+  return null;
+})()`);
+```
+
+### Poll for text (with timeout)
+```javascript
+async function poll(needle, maxMs) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    const txt = await ev('document.body.innerText');
+    if (txt && txt.includes(needle)) return { found: true, ms: Date.now() - t0 };
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return { found: false, ms: Date.now() - t0 };
+}
+```
+
+## Pitfalls (Learned the Hard Way)
+
+1. **No textarea?** → App may be in restricted mode. Wait 10s for workspace to load, or trust folder via `F1` → `Workspaces: Trust`
+2. **`Input.insertText` vs char loop** → ALWAYS use `insertText`. Char-by-char `dispatchKeyEvent` hangs.
+3. **`ws` module not found** → Run from `CDP_test/` dir where `node_modules/ws` exists
+4. **Screenshot timeout** → Page may be navigating. Retry after 2s.
+5. **"Pulse ready" not showing** → Wait 10s after launch. Large workspaces take longer to load.
+6. **Stop button not found** → Use `[class*="stop"]` selector. Coordinates shift between layouts.
+7. **`PULSEAI_PYTHON_PATH`** → MUST set before launch. Wrong python = `ModuleNotFoundError langchain_core`.
+
+## Build Commands
+
+```bash
+# Full bundle (recommended, ~2min)
+cd PulseAIRepo/desktop/vscode
+node --experimental-strip-types --max-old-space-size=8192 build/next/index.ts bundle --nls --out out-vscode
+
+# Compile only (~8min)
+node --experimental-strip-types --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js compile-build-without-mangling
+
+# Full gulp build (may fail on NLS step)
+node --experimental-strip-types --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js vscode-win32-x64
+```
+
+## Generate 20k Workspace
+
+```bash
+cd PulseAIRepo
+python -c "
+from benchmarks.pulse_reliability_v1.fixtures import load_fixture_manifest, build_fixture
+from pathlib import Path
+manifest = load_fixture_manifest('benchmarks/pulse_reliability_v1/fixtures.json')
+spec = next(f for f in manifest.fixtures if f.task_id == 'PBR-004')
+build_fixture(spec, Path('D:/pulse-res/large-20k'))
+print('Done: 20,001 files')
+"
+```
+
+## Evidence Layout
+
+```
+D:\pulse-res\r03-<timestamp>\
+├── R03_REPORT.md          # Final report
+├── provenance.txt          # Commit + blob hashes
+├── build.log               # Build output
+├── *.png                   # Screenshots
+├── r03_final_results.json  # Machine-readable results
+└── r04_large_result.json   # Large workspace results
+```
+
+## Environment Variables
+
+```bash
+export PULSEAI_PYTHON_PATH='D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe'
+export PULSEAI_ENGINE_ROOT='D:/pulseAIagent/PulseAIRepo'
+```
+
+## Shutdown Cleanup
+
+```bash
+taskkill //F //IM PulseAI.exe
+sleep 3
+# Verify: 0 PulseAI, 0 python, ports 9222/5999 free
+```
