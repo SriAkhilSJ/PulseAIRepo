@@ -30,17 +30,19 @@ def _load_results(results_dir: str | Path) -> list[dict]:
     return out
 
 
-def _titles(suite_path: str | Path) -> dict[str, str]:
+def _suite_info(suite_path: str | Path) -> dict[str, tuple[str, bool]]:
+    """task id -> (title, model_calls_allowed). Falls back to titles only."""
     try:
         suite = load_suite(suite_path)
-        return {t.id: t.title for t in suite.tasks}
+        return {t.id: (t.title, bool(t.model_calls_allowed)) for t in suite.tasks}
     except Exception:
-        return TASK_TITLES
+        return {tid: (title, True) for tid, title in TASK_TITLES.items()}
 
 
 def render_report(results_dir: str | Path, *, suite_path: str | Path = DEFAULT_SUITE) -> str:
     results = _load_results(results_dir)
-    titles = _titles(suite_path)
+    suite_info = _suite_info(suite_path)
+    titles = {tid: info[0] for tid, info in suite_info.items()}
     lines: list[str] = [
         "# PulseAI — Reliability Benchmark Report Card",
         "",
@@ -104,12 +106,32 @@ def render_report(results_dir: str | Path, *, suite_path: str | Path = DEFAULT_S
             f"{usage.get('cache_tokens', 0)} | {usage.get('estimated_cost_usd', 0.0):.4f} |"
         )
 
+    lines += _pending_section(suite_info, results)
     lines += _honest_claims(results, lanes)
     return "\n".join(lines) + "\n"
 
 
 def _lane_of(result: dict) -> str:
-    return result.get("lane", "?")
+    lane = result.get("lane", "?")
+    if result.get("mock"):
+        lane = f"{lane} (mock)"
+    return lane
+
+
+def _pending_section(suite_info: dict[str, tuple[str, bool]],
+                     results: list[dict]) -> list[str]:
+    """List suite tasks that have no run in this batch, with the reason."""
+    run_ids = {r.get("task_id") for r in results}
+    pending = [tid for tid in suite_info if tid not in run_ids]
+    if not pending:
+        return []
+    lines = ["", "## Not yet run", ""]
+    for tid in sorted(pending):
+        title, model_allowed = suite_info[tid]
+        reason = "needs provider key" if model_allowed else "needs live engine/desktop lane"
+        lines.append(f"- **{tid}** {title} — *{reason}*")
+    lines.append("")
+    return lines
 
 
 def _honest_claims(results: list[dict], lanes: list[str]) -> list[str]:
@@ -118,11 +140,22 @@ def _honest_claims(results: list[dict], lanes: list[str]) -> list[str]:
     all_passed = all(
         r.get("outcome") == "passed" and not r.get("hard_failure") for r in results
     )
-    has_dom = any(_lane_of(r) == "cdp" for r in results)
+    has_live_dom = any(
+        r.get("lane") == "cdp" and not r.get("mock") for r in results
+    )
+    has_mock_dom = any(
+        r.get("lane") == "cdp" and r.get("mock") for r in results
+    )
     if all_passed and results:
         lines.append("- ✅ **On the lanes used:** every graded task passed its coverable checks.")
-    if has_dom:
-        lines.append("- ✅ Desktop-lane evidence included (DOM checks graded).")
+    if has_live_dom:
+        lines.append("- ✅ Desktop-lane evidence from the **live app** (DOM checks graded).")
+    elif has_mock_dom:
+        lines.append(
+            "- ⚠️ **Desktop-lane DOM evidence is from the CDP integration mock** — it proves "
+            "the driver+scenario+evaluator pipeline, not the live app. Re-run on a machine "
+            "with the built PulseAI IDE for product evidence."
+        )
     else:
         lines.append(
             "- ⚠️ **No desktop-lane (DOM) evidence in this batch** — UI-level checks "

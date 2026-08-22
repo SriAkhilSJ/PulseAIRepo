@@ -54,6 +54,10 @@ class DriverCapabilities:
     host_hashes: bool = False
     engine_events: bool = False
     real_model: bool = False
+    #: Whether the lane can actually run a prompt turn to completion.
+    #: False for the v0.1 desktop lane (turns land with the live-window pass),
+    #: so scenarios never pretend to complete a turn they cannot run.
+    can_run_turns: bool = False
 
     def covers_check(self, check_type: str) -> bool:
         if check_type in DOM_CHECK_TYPES:

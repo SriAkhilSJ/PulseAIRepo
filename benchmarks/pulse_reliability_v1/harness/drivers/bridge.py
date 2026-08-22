@@ -63,6 +63,7 @@ class BridgeDriver(Driver):
             host_hashes=False,
             engine_events=not self.echo,  # echo emits no engine events
             real_model=not self.echo,
+            can_run_turns=True,
         )
 
     # -- lifecycle ---------------------------------------------------------

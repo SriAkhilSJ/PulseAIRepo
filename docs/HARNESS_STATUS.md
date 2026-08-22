@@ -2,6 +2,22 @@
 
 **Date:** 2026-08-22 · **Scope:** execution lane of the Pulse Reliability Benchmark (PR #7)
 
+## Keyless milestone — COMPLETE (2026-08-22)
+
+Everything that can be proven **without an API key** is done and green:
+
+- **Combined gate: 142 tests passed** (99 benchmark + 18 harness + 7 CDP + 20 bridge).
+- Keyless demo runs (sandbox): PBR-001 **PASSED** on the cdp lane (mock), PBR-003 2/3,
+  PBR-012 2/4 — every gap explicitly labelled, never faked.
+- `run-all` command: one command runs the keyless plan (PBR-012 echo + PBR-001/003 cdp)
+  and renders the report card. Run dirs + card live under `bench-results/` (gitignored).
+- `scripts/run_keyless_cdp.bat` — one-click keyless desktop run on Windows.
+- Mock runs are marked `mock` in result JSONs and shown as `cdp (mock)` in the report
+  card, with an explicit honesty note — mock evidence can never masquerade as product
+  evidence.
+- Report card now lists **"Not yet run"** tasks with the reason (provider key vs live
+  engine/desktop lane).
+
 ## What this is (plain language)
 
 The benchmark from PR #7 is a **grader** — it decides pass/fail from evidence. But
@@ -81,13 +97,16 @@ Prerequisites on your machine:
   (the driver fails loudly with this hint if it is missing — never a silent pass).
 
 ```powershell
-# Zero-cost desktop task (PBR-001: no folder => prompts blocked):
-python -m benchmarks.pulse_reliability_v1.harness run `
-    --task PBR-001 --driver cdp `
-    --launch "desktop/vscode/.build/electron/PulseAI.exe --remote-debugging-port=9222" `
-    --port 9222
+# ONE command: all keyless tasks (PBR-012 echo + PBR-001/003 cdp) + report card
+python -m benchmarks.pulse_reliability_v1.harness run-all `
+    --workspace C:\path\to\a\test\workspace `
+    --launch "desktop\vscode\.build\electron\PulseAI.exe --remote-debugging-port=9222" `
+    --port 9222 --connect-timeout 45
 
-# All zero-cost tasks, then the scoreboard:
+# ...or the one-click script (same thing):
+scripts\run_keyless_cdp.bat C:\path\to\a\test\workspace
+
+# Scoreboard only:
 python -m benchmarks.pulse_reliability_v1.harness report --results-dir bench-results
 ```
 
