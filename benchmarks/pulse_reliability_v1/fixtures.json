@@ -138,6 +138,162 @@
         }
       ],
       "generated": null
+    },
+    {
+      "task_id": "PBR-007",
+      "root": "multi-file-rename",
+      "description": "Public symbol parse_item in src/parser.py used by src/service.py and tests/test_parser.py; rename must span all three.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "src/parser.py",
+          "content": "\"\"\"Parser for the PBR-007 workspace.\"\"\"\n\n\ndef parse_item(raw: str) -> str:\n    \"\"\"Public symbol scheduled for rename (parse_item -> parse_token).\"\"\"\n    return raw.strip()\n"
+        },
+        {
+          "path": "src/service.py",
+          "content": "from src.parser import parse_item\n\n\ndef normalize(raw: str) -> str:\n    return parse_item(raw).upper()\n"
+        },
+        {
+          "path": "tests/test_parser.py",
+          "content": "from src.parser import parse_item\n\n\ndef test_parse_item_strips() -> None:\n    assert parse_item(\"  hi  \") == \"hi\"\n"
+        },
+        {
+          "path": "tests/__init__.py",
+          "content": ""
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-007 multi-file-rename workspace.\n\nThe public symbol ``parse_item`` in src/parser.py is used by src/service.py\nand tests/test_parser.py. Rename it consistently everywhere it is referenced\nand keep all tests green.\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-008",
+      "root": "syntax-gate",
+      "description": "src/rules.py contains an intentional syntax error; the turn must not complete until verification passes.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "src/rules.py",
+          "content": "\"\"\"Rules for the PBR-008 workspace (intentional syntax error).\"\"\"\n\ndef check(x: int) -> int:\n    return x +\n"
+        },
+        {
+          "path": "tests/test_rules.py",
+          "content": "from src.rules import check\n\n\ndef test_check() -> None:\n    assert check(1) == 2\n"
+        },
+        {
+          "path": "tests/__init__.py",
+          "content": ""
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-008 syntax-gate workspace.\n\nsrc/rules.py has a syntax error. Repair the syntax and confirm verification\npasses before completing.\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-009",
+      "root": "preexisting-failure",
+      "description": "One repairable failure (src/calculator.py::divide) plus one unrelated pre-existing failure (src/legacy.py) that must be classified, not repaired.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "src/calculator.py",
+          "content": "\"\"\"Calculator for the PBR-009 workspace (one repairable bug).\"\"\"\n\n\ndef add(a: int, b: int) -> int:\n    return a + b\n\n\ndef divide(a: int, b: int) -> int:\n    return a + b\n"
+        },
+        {
+          "path": "tests/test_calculator.py",
+          "content": "from src.calculator import add, divide\n\n\ndef test_add() -> None:\n    assert add(2, 3) == 5\n\n\ndef test_divide() -> None:\n    assert divide(6, 2) == 3\n"
+        },
+        {
+          "path": "src/legacy.py",
+          "content": "\"\"\"Legacy module with a pre-existing unrelated failure (PBR-009).\n\nThis module is NOT part of the task. Its behavior is intentionally stale;\nthe pre-existing failure must be classified, not repaired.\n\"\"\"\n\n\ndef legacy_flag() -> bool:\n    return False\n"
+        },
+        {
+          "path": "tests/test_legacy.py",
+          "content": "from src.legacy import legacy_flag\n\n\ndef test_legacy_flag_is_true() -> None:\n    assert legacy_flag() is True\n"
+        },
+        {
+          "path": "tests/__init__.py",
+          "content": ""
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-009 preexisting-failure workspace.\n\n- src/calculator.py::divide is buggy; tests/test_calculator.py fails because\n  of it. Repair the implementation - do not edit the test.\n- tests/test_legacy.py fails because of a PRE-EXISTING, unrelated defect in\n  src/legacy.py. Do NOT repair it. The full suite must still report that\n  failure (expected exit code 1) and it must be classified as pre-existing.\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-010",
+      "root": "new-regression",
+      "description": "Fully green baseline; a rename edit may introduce a regression that must be detected and repaired before completion.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "src/counter.py",
+          "content": "\"\"\"Counter for the PBR-010 workspace (green baseline).\"\"\"\n\n\ndef bump(n: int) -> int:\n    return n + 1\n"
+        },
+        {
+          "path": "src/main.py",
+          "content": "from src.counter import bump\n\n\ndef run() -> int:\n    return bump(0)\n"
+        },
+        {
+          "path": "tests/test_counter.py",
+          "content": "from src.counter import bump\n\n\ndef test_bump() -> None:\n    assert bump(1) == 2\n"
+        },
+        {
+          "path": "tests/__init__.py",
+          "content": ""
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-010 new-regression workspace. Baseline is fully green.\n\nRename the public function ``bump`` in src/counter.py to ``increment``\nwherever it is referenced (src/main.py, tests/test_counter.py). A regression\nintroduced during the edit must be detected and repaired before completion;\nthe full suite must end green (expected exit code 0).\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-011",
+      "root": "process-tree-timeout",
+      "description": "Owned process tree for the lifecycle timeout task; cleanup is observed by the harness, not by fixture content.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "scripts/sleep_tree.py",
+          "content": "\"\"\"Owned process tree for the PBR-011 lifecycle task.\"\"\"\n\nimport subprocess\nimport sys\nimport time\n\nchild = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(60)\"])\nprint(f\"child pid={child.pid}\", flush=True)\ntime.sleep(60)\n"
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-011 process-tree-timeout workspace.\n\nRun scripts/sleep_tree.py with a short (1s) tool timeout. The owned process\ntree must be terminated without orphaning the child process; unrelated\nprocesses must survive. The tool result must report the timeout.\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-012",
+      "root": "cancel-context",
+      "description": "2000 generated entries plus README (2001 total); cancellation during bounded context preparation is observed by the harness.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "README.md",
+          "content": "PBR-012 cancel-context workspace.\n\nThis workspace contains 2000 generated entries (entries/e_00001.txt ..).\nStart a turn and cancel it during bounded context preparation: the turn must\nterminate as cancelled with no model call started after the Stop, no worker\ngrowth and no owned process leaks.\n"
+        }
+      ],
+      "generated": {
+        "kind": "small-2k",
+        "prefix": "entries/e_",
+        "count": 2000
+      }
     }
   ]
 }

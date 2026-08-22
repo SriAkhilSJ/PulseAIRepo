@@ -47,7 +47,7 @@ class FixtureFile(StrictModel):
 class GeneratedTree(StrictModel):
     """A deterministic generated tree (e.g. the 20k-entry workspace)."""
 
-    kind: Literal["large-20k"]
+    kind: Literal["large-20k", "small-2k"]
     prefix: str = Field(min_length=1)  # e.g. "entries/e_00001.txt"
     count: int = Field(gt=0, le=50_000)
 
@@ -64,7 +64,8 @@ class GeneratedTree(StrictModel):
 
     def content_for(self, path: str) -> str:
         index = int(Path(path).stem.split("_")[-1])
-        return f"entry {index:05d} PBR-004 generated fixture entry\n"
+        label = "PBR-004 generated fixture entry" if self.kind == "large-20k" else "PBR-012 generated fixture entry"
+        return f"entry {index:05d} {label}\n"
 
 
 class FixtureSpec(StrictModel):
