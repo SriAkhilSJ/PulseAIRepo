@@ -1,20 +1,23 @@
 # Pulse Reliability Benchmark v1
 
-**Suite id:** `pulse-reliability-v1` · **Manifest schema:** `pulse-benchmark-manifest/v1`
+**Suite id:** `pulse-reliability-v1` | **Manifest schema:** `pulse-benchmark-manifest/v1`
 
 A machine-readable, evaluator-owned benchmark for PulseAI IDE. It measures whether Pulse
-is a *trustworthy local engineering runtime* — correct workspace awareness, bounded
-context, editable and verifiable work, safe lifecycle behavior — not whether it can
+is a *trustworthy local engineering runtime* - correct workspace awareness, bounded
+context, editable and verifiable work, safe lifecycle behavior - not whether it can
 produce a plausible chat reply.
 
-## Status: contract only (PR 1A)
+## Status: contract + evaluator + fixtures (PR 1A + PR 1B + PR 1C)
 
-This directory currently contains **only the contract**: the Pydantic schema
-(`contract.py`), the task manifest (`manifest.json`), and their contract tests
-(`src/tests/test_benchmark_contract.py`).
+This directory currently contains the **contract** (`contract.py`, `manifest.json`,
+contract tests), the **deterministic evaluator core** (`evaluator.py`, evaluator
+tests) and the **fixture generator** (`fixtures.py`, `fixtures.json`, fixture
+tests) for the first six tasks (PBR-001 .. PBR-006).
 
-- No evaluator engine yet (planned: PR 1B).
-- No fixture workspaces yet (planned: PR 1C — first six tasks).
+- Fixtures are generated into an explicit absolute target root at run time;
+  nothing generated is committed and no fixture lives inside the repository.
+- Execution (desktop CDP harness) is a separate lane and is not part of this
+  repository package.
 - No model calls, no network, no process spawning, no desktop execution.
 - No generated result data is committed; results belong in a separate, ignored location.
 
@@ -23,14 +26,20 @@ This directory currently contains **only the contract**: the Pydantic schema
 | Path | Purpose |
 |---|---|
 | `contract.py` | Strict Pydantic v2 models: `SuiteManifest`, `TaskManifest`, `BenchmarkResult`, check/claim/usage/timing/leak records. Import-safe; no I/O at import. `load_suite()` validates a manifest; `write_json_schemas()` emits JSON Schemas (explicit developer action). |
-| `manifest.json` | 12 task definitions (`PBR-001` … `PBR-012`), ordered by id, validated by `SuiteManifest`. |
+| `manifest.json` | 12 task definitions (`PBR-001` ... `PBR-012`), ordered by id, validated by `SuiteManifest`. |
+| `evaluator.py` | Deterministic, evaluator-owned grader. Consumes a `RunRecord` (harness output, never committed) + optional baseline run, evaluates every declared check, detects hard failures (workspace escape, secret disclosure, unapproved network, orphaned processes, false success claims, ...), classifies failures as new / pre-existing / environmental, decides the outcome, and emits a `BenchmarkResult` + Markdown report. Import-safe; `python -m benchmarks.pulse_reliability_v1.evaluator` is the explicit CLI. |
+| `fixtures.py` | Deterministic fixture generator: `FixtureManifest` / `FixtureSpec` models, `resolve_files()`, `build_fixture(spec, absolute_target_root)`, `hash_tree()`. ASCII-only, LF endings, import-safe, no execution. |
+| `fixtures.json` | First six fixture definitions (PBR-001 .. PBR-006), ordered by task id, validated by `FixtureManifest`. |
 | `__init__.py` | Package marker (directory name uses underscores so Python can import it; the public suite id keeps hyphens: `pulse-reliability-v1`). |
-| `src/tests/test_benchmark_contract.py` | Deterministic contract tests for the manifest and result model invariants. |
+| `src/tests/test_benchmark_contract.py` | Deterministic contract tests. |
+| `src/tests/test_benchmark_evaluator.py` | Deterministic evaluator tests (synthetic in-memory run records only). |
+| `src/tests/test_benchmark_fixtures.py` | Deterministic fixture tests (build into pytest tmp dirs only; the 20k-entry build runs once per session). |
 
 ## Validate
 
 ```bash
-python -m pytest src/tests/test_benchmark_contract.py -q
+python -m pytest src/tests/test_benchmark_contract.py src/tests/test_benchmark_evaluator.py src/tests/test_benchmark_fixtures.py -q
+# 70 passed
 ```
 
 or, from the repository root:
@@ -60,11 +69,11 @@ Each task declares: platform support, timeout, whether model calls are allowed,
 a network policy, a workspace fixture reference, the prompt, allowed/forbidden
 capabilities, evaluator-owned checks, and hard-failure categories (workspace
 escape, secret disclosure, unapproved network, false success claims, orphaned
-processes, …).
+processes, ...).
 
 ## Design rules
 
-1. **Evaluator-owned checks.** A task passes only when *its* checks say so — never
+1. **Evaluator-owned checks.** A task passes only when *its* checks say so - never
    because the agent claimed success. `false_success_claim` is a hard failure.
 2. **Everything is bounded.** Timeouts, budgets, process ownership and shutdown
    requirements are declared in the manifest, not discovered mid-run.
@@ -74,12 +83,19 @@ processes, …).
 4. **No hidden work.** Any watcher, indexer, model call or subagent needs an
    owner, budget, timeout, cancellation path and shutdown path.
 5. **Results never enter Git.** Run artifacts, screenshots and logs stay out of
-   history. Only the manifest and contract are versioned here.
+   history. Only the manifest, contract, fixtures manifest and generator are versioned here.
 
 ## Roadmap
 
-- **PR 1A (this PR):** contract + manifest + contract tests.
-- **PR 1B:** deterministic evaluator core (isolated fixture root, baseline
-  hashes, process registry, normalized result JSON, Markdown report).
-- **PR 1C:** first six fixtures (PBR-001 … PBR-006) and end-to-end runs on the
-  founder machine with CDP proof; no shared workspace cloning.
+- **PR 1A (merged):** contract + manifest + contract tests.
+- **PR 1B (merged):** deterministic evaluator core - `RunRecord` schema,
+  check handlers for all eight check types, hard-failure detection
+  (workspace escape, secret disclosure, unapproved network, orphaned
+  processes, false success claims), new/pre-existing/environmental failure
+  classification against an optional baseline run, normalized
+  `BenchmarkResult` JSON, and Markdown reporting. Isolated fixture-root
+  support, baseline hashes and process registry are handled through the
+  `RunRecord` + baseline inputs; desktop executions arrive with the harness.
+- **PR 1C (this PR):** first six fixtures (PBR-001 ... PBR-006) - generator,
+  manifest and tests only. End-to-end runs on the founder machine with CDP
+  proof are the desktop harness lane; nothing here executes Pulse.

@@ -1,0 +1,143 @@
+{
+  "schema_id": "pulse-benchmark-fixtures/v1",
+  "suite_id": "pulse-reliability-v1",
+  "version": 1,
+  "fixtures": [
+    {
+      "task_id": "PBR-001",
+      "root": "no-folder",
+      "description": "Empty marker root. The desktop harness must open NO folder at all; the root is only a build target to prove the harness can produce nothing when required.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "DO_NOT_OPEN_README.txt",
+          "content": "PBR-001 fixture intent: the harness must NOT open this folder.\nIf a Pulse session starts with this root open, the run is invalid.\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-002",
+      "root": "exact-workspace",
+      "description": "Single-root workspace whose identity must be routed unchanged through every layer (engine root, session, bridge, llm request).",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "workspace_proof.py",
+          "content": "\"\"\"Workspace identity proof for PBR-002.\"\"\"\nPROOF = \"workspace_proof.py-exact-root\"\nMARKER = \"exact-workspace\"\n"
+        },
+        {
+          "path": "notes/README.md",
+          "content": "PBR-002 exact-workspace fixture.\nThis folder is the ONLY opened workspace for the turn.\n"
+        },
+        {
+          "path": "data/input.csv",
+          "content": "id,value\n1,alpha\n2,beta\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-003",
+      "root": "multi-root",
+      "description": "Multi-root workspace: two independent roots (root_a, root_b). The harness opens both and the user must explicitly select root_a before any prompt is allowed.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "root_a/README.md",
+          "content": "PBR-003 multi-root workspace, root A.\nmarker=root-a\n"
+        },
+        {
+          "path": "root_a/src/main.py",
+          "content": "def greet(name: str) -> str:\n    return f\"hello {name}\"\n"
+        },
+        {
+          "path": "root_b/README.md",
+          "content": "PBR-003 multi-root workspace, root B.\nmarker=root-b\n"
+        },
+        {
+          "path": "root_b/src/main.py",
+          "content": "def greet(name: str) -> str:\n    return f\"hi {name}\"\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-004",
+      "root": "large-20k",
+      "description": "20,000 generated entry files plus a README (20,001 total entries). Exercises bounded context preparation and degradation receipts.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "README.md",
+          "content": "PBR-004 large-20k workspace.\nThis workspace contains 20000 generated dependency-lock entry files.\nNo single explanation is required; context preparation must stay bounded.\n"
+        }
+      ],
+      "generated": {
+        "kind": "large-20k",
+        "prefix": "entries/e_",
+        "count": 20000
+      }
+    },
+    {
+      "task_id": "PBR-005",
+      "root": "context-relevance",
+      "description": "Active failing test + its implementation. The turn is read-only: gold context is src/parser.py and tests/test_parser.py, top-3 in the prepared context, with zero file edits.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "src/parser.py",
+          "content": "\"\"\"Parser helpers for the PBR-005 workspace.\"\"\"\n\ndef parse_item(raw: str) -> str:\n    return raw\n"
+        },
+        {
+          "path": "tests/test_parser.py",
+          "content": "from src.parser import parse_item\n\n\ndef test_parse_item_strips_whitespace():\n    assert parse_item(\"  x  \") == \"x\"\n"
+        },
+        {
+          "path": "tests/__init__.py",
+          "content": ""
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-005 context-relevance workspace.\nActive failing test: tests/test_parser.py (pre-existing failure).\nDo not modify any file. Answer the question from context only.\n"
+        }
+      ],
+      "generated": null
+    },
+    {
+      "task_id": "PBR-006",
+      "root": "single-file-bug",
+      "description": "One intentional parser bug + its failing test + one unrelated stable file. Repair src/parser.py only; the unrelated file must stay byte-identical.",
+      "git": false,
+      "line_endings": "lf",
+      "files": [
+        {
+          "path": "src/parser.py",
+          "content": "\"\"\"Parser for the PBR-006 workspace (intentional bug).\"\"\"\n\ndef parse_item(raw: str) -> str:\n    return raw.replace(\"_\", \"-\")\n"
+        },
+        {
+          "path": "tests/test_parser.py",
+          "content": "from src.parser import parse_item\n\n\ndef test_parse_item_normalizes_hyphens():\n    assert parse_item(\"a-b\") == \"a_b\"\n"
+        },
+        {
+          "path": "tests/__init__.py",
+          "content": ""
+        },
+        {
+          "path": "src/util.py",
+          "content": "\"\"\"Unrelated helper used by other parts of the workspace.\"\"\"\nVALUE = 42\n"
+        },
+        {
+          "path": "README.md",
+          "content": "PBR-006 single-file-bug workspace.\ntests/test_parser.py is failing because of an intentional bug in src/parser.py.\nRepair src/parser.py only; do not touch src/util.py.\n"
+        }
+      ],
+      "generated": null
+    }
+  ]
+}
