@@ -28,6 +28,7 @@ from benchmarks.pulse_reliability_v1.harness.recorder import Recorder
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _TEST_DIR = str(Path(__file__).resolve().parent)
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
+SUITE = REPO_ROOT / "benchmarks/pulse_reliability_v1/manifest.json"
 
 # ---------------------------------------------------------------------------
 # Mock CDP endpoint (real HTTP + WebSocket on 127.0.0.1)
@@ -92,6 +93,9 @@ def run_mock_cdp(http_port: int, ws_port: int, workspace_url: str = "file:///C:/
                     value = {"selector": ".pulseai-composer-hint", "count": 1,
                              "visible": True, "enabled": None,
                              "text": "Open a folder to start a Pulse session."}
+                elif "Workspace folder" in expr:
+                    value = {"selector": "select[aria-label='Workspace folder']", "count": 1,
+                             "visible": True, "enabled": True, "text": "Select folder"}
                 else:
                     value = {"selector": "unknown", "count": 0,
                              "visible": False, "enabled": None, "text": None}
@@ -215,6 +219,58 @@ def test_pbr001_cdp_end_to_end_passes_against_mock(mock_cdp, tmp_path, monkeypat
     assert by_id["no-prompt-frame"].classification.value == "passed"
     assert result.outcome.value == "passed"
     assert result.hard_failure is None
+
+
+def test_pbr003_cdp_mock_end_to_end(mock_cdp, tmp_path, monkeypatch):
+    """PBR-003 on the cdp lane: selection flow evidence, honestly partial.
+
+    The two checks the desktop lane CAN prove pass (selector visible, zero
+    prompts before selection); the engine-event check (workspace.bound)
+    cannot run on the v0.1 desktop lane and must fail — never a fake pass.
+    """
+    monkeypatch.chdir(tmp_path)
+    from benchmarks.pulse_reliability_v1.harness.orchestrator import run_task
+
+    _, result, run_dir = run_task(
+        task_id="PBR-003", driver_kind="cdp", workspace=str(tmp_path),
+        suite_path=str(REPO_ROOT / "benchmarks/pulse_reliability_v1/manifest.json"),
+        python_command=(sys.executable,),
+        port=mock_cdp.port,
+        run_id="test-pbr003-cdp-mock",
+        mock=True,
+    )
+    by_id = {c.check_id: c for c in result.checks}
+    assert by_id["selection-required"].classification.value == "passed"
+    assert by_id["blocked-before-selection"].classification.value == "passed"
+    assert by_id["chosen-root-retained"].classification.value == "failed_new"
+    assert result.outcome.value == "failed_functional"
+    payload = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+    assert payload["mock"] is True
+
+
+def test_report_shows_mock_label_and_pending(tmp_path):
+    """Report card labels mock runs and lists tasks not yet run, with reason."""
+    from benchmarks.pulse_reliability_v1.harness.report import render_report
+
+    d = tmp_path / "res"
+    d.mkdir()
+    (d / "r1" / "result.json").parent.mkdir()
+    (d / "r1" / "result.json").write_text(json.dumps({
+        "task_id": "PBR-001", "outcome": "passed", "hard_failure": None,
+        "pulse_commit": "abc", "lane": "cdp", "mock": True, "checks_covered": 3,
+        "checks": [
+            {"check_id": f"c{i}", "classification": "passed"} for i in range(3)
+        ],
+        "timing_ms": {"startup": 100, "first_token": 0, "completion": 900},
+        "usage": {"model_calls": 0, "tool_calls": 0, "input_tokens": 0,
+                  "output_tokens": 0, "cache_tokens": 0, "estimated_cost_usd": 0.0},
+    }), encoding="utf-8")
+    md = render_report(d, suite_path=str(SUITE))
+    assert "cdp (mock)" in md
+    assert "CDP integration mock" in md          # honest: not live-app evidence
+    assert "## Not yet run" in md
+    assert "PBR-005" in md and "needs provider key" in md
+    assert "PBR-011" in md                        # engine task, pending key/live lane
 
 
 def test_cdp_launch_command_spawns_and_connects(tmp_path):

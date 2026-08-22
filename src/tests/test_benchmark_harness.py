@@ -287,6 +287,30 @@ def test_report_render_honest(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_cli_run_all_keyless(workspace, tmp_path, monkeypatch, capsys):
+    """run-all: PBR-012 on echo runs; cdp tasks fail loudly without an IDE;
+    the report card is still produced and lists what is pending."""
+    monkeypatch.chdir(REPO_ROOT)
+    out_dir = tmp_path / "ra"
+    code = cli_main([
+        "run-all", "--workspace", str(workspace),
+        "--suite", str(SUITE), "--python", sys.executable,
+        "--cancel-after-start-ms", "50",
+        "--connect-timeout", "3",
+        "--out-dir", str(out_dir),
+    ])
+    captured = capsys.readouterr().out
+    assert "task=PBR-012 lane=echo outcome=" in captured
+    assert "PBR-001 lane=cdp ERROR" in captured
+    assert "PBR-003 lane=cdp ERROR" in captured
+    assert code == 1
+    card = out_dir / "report-card.md"
+    assert card.exists()
+    md = card.read_text(encoding="utf-8")
+    assert "PBR-012" in md
+    assert "## Not yet run" in md
+
+
 def test_cli_run_and_report(workspace, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(REPO_ROOT)
     out = tmp_path / "results"

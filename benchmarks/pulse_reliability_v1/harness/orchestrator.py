@@ -67,7 +67,10 @@ def run_task(*, task_id: str, driver_kind: str,
              launch_command: tuple[str, ...] | None = None,
              port: int = 9222,
              run_id: str | None = None,
-             environment_notes: tuple[str, ...] = ()) -> tuple[object, object, Path]:
+             environment_notes: tuple[str, ...] = (),
+             mock: bool = False,
+             connect_timeout_s: float = 30.0,
+             results_root: str | Path = "bench-results") -> tuple[object, object, Path]:
     """Run one task on one lane; returns (RunRecord, BenchmarkResult, run_dir)."""
     suite = load_suite(suite_path)
     task = next((t for t in suite.tasks if t.id == task_id), None)
@@ -102,7 +105,7 @@ def run_task(*, task_id: str, driver_kind: str,
 
     harness_error = None
     try:
-        driver.connect()
+        driver.connect(timeout_s=connect_timeout_s)
         scenario.run(recorder, driver, {
             "workspace": str(workspace_path),
             "cancel_after_start_ms": cancel_after_start_ms,
@@ -129,7 +132,7 @@ def run_task(*, task_id: str, driver_kind: str,
     )
     result = evaluate_suite(suite, record)
 
-    run_dir = Path("bench-results") / final_run_id
+    run_dir = Path(results_root) / final_run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "run-record.json").write_text(
         json.dumps(record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
@@ -141,6 +144,9 @@ def run_task(*, task_id: str, driver_kind: str,
     result_payload["lane"] = driver_kind
     result_payload["checks_covered"] = len(covered)
     result_payload["checks_covered_ids"] = sorted(covered)
+    # A mock-backed run (integration-test harness, not the live app) must be
+    # labelled so it can never masquerade as product evidence.
+    result_payload["mock"] = bool(mock)
     (run_dir / "result.json").write_text(
         json.dumps(result_payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
