@@ -151,6 +151,31 @@ class EmbeddingCache:
         # callers see identical failure semantics to `encode(...).tolist()`.
         return [v.tolist() for v in results]  # type: ignore[union-attr]
 
+    def lookup(
+        self,
+        embedder: Any,
+        text: str,
+        normalize_embeddings: bool = True,
+    ) -> Optional[list[float]]:
+        """Return the CACHED vector for ``text`` WITHOUT computing anything.
+
+        ``None`` when absent. This is the only embedding operation allowed
+        inside the synchronous initial-turn deadline: it is a bounded hash
+        lookup, so a slow or hung embedder can never block the turn. The
+        deadline path of ChunkIndex uses this to consume cache hits and
+        defer uncached embeddings.
+        """
+        identity = _embedder_identity(embedder)
+        key = self._key(identity, normalize_embeddings, str(text))
+        with self._lock:
+            self.served += 1
+            vec = self._store.get(key)
+            if vec is None:
+                return None
+            self._store.move_to_end(key)
+            self.hits += 1
+            return vec.tolist()
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._store)

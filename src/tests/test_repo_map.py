@@ -139,7 +139,7 @@ def test_d14_resolver_failure_falls_back_to_legacy_graph(tmp_path, monkeypatch):
     (tmp_path / "libbase.py").write_text("X = 1\n")
     (tmp_path / "a_leaf.py").write_text("import libbase\n")
     rm = RepoMap(tmp_path)
-    monkeypatch.setattr(RepoMap, "_resolved_edges", lambda self, files: {})
+    monkeypatch.setattr(RepoMap, "_resolved_edges", lambda self, files, budget=None: {})
     text = rm.get_map(max_tokens=100_000)
     assert "=== IMPORT GRAPH ===" in text
     assert "a_leaf.py -> libbase" in text  # legacy module-level style

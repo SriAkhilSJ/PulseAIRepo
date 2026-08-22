@@ -313,11 +313,17 @@ def _add_chunk(
 # ------------------------------------------------------------- extraction
 
 
-def extract_chunks_treesitter(file_path: Path, root: Path) -> list[dict[str, Any]]:
+def extract_chunks_treesitter(
+    file_path: Path, root: Path, source: str | None = None
+) -> list[dict[str, Any]]:
     """Parse any supported non-Python source file into chunks shaped exactly
     like the Python extractor's output (same schema, same truncation rules,
     same id scheme). Error-tolerant by construction: tree-sitter yields
-    ERROR nodes on broken source instead of raising."""
+    ERROR nodes on broken source instead of raising.
+
+    ``source`` (P1): the file's decoded text when the caller already read it
+    once for the physical-read ledger — avoids a second physical read.
+    """
     kind = _kind_for(file_path.suffix.lower())
     if kind is None:
         return []
@@ -327,9 +333,10 @@ def extract_chunks_treesitter(file_path: Path, root: Path) -> list[dict[str, Any
     tree_sitter, lang = loaded
 
     try:
-        if file_path.stat().st_size > _MAX_FILE_BYTES:
-            return []  # generated bundle / minified: skip, don't choke
-        source = file_path.read_text(encoding="utf-8", errors="ignore")
+        if source is None:
+            if file_path.stat().st_size > _MAX_FILE_BYTES:
+                return []  # generated bundle / minified: skip, don't choke
+            source = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return []
 

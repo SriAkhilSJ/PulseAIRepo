@@ -126,6 +126,54 @@ def test_sidecar_requires_handshake_first(sidecar):
     assert r["type"] == "error" and "handshake" in r["message"]
 
 
+# ---------------------------------------------------- workspace binding (P0)
+
+def test_sidecar_rejects_session_create_without_workspace(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    r = _send(sidecar, {"type": "session_create"})
+    assert r["type"] == "error"
+    assert "workspace required" in r["message"]
+
+
+def test_sidecar_rejects_prompt_without_workspace(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    r = _send(sidecar, {"type": "prompt", "session_id": "t-no-ws"})
+    assert r["type"] == "error"
+    assert "workspace required" in r["message"]
+
+
+def test_sidecar_rejects_blank_workspace(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    r = _send(sidecar, {"type": "session_create", "workspace": "   "})
+    assert r["type"] == "error"
+    assert "workspace required" in r["message"]
+    r2 = _send(sidecar, {"type": "session_resume", "session_id": "t-blank"})
+    assert r2["type"] == "error" and "workspace required" in r2["message"]
+
+
+def test_sidecar_binds_session_to_an_explicit_workspace(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    info = _send(sidecar, {"type": "session_create", "workspace": "d:\\pulse-ws"})
+    assert info["type"] == "session_info"
+    assert info["workspace"] == "d:\\pulse-ws"
+    listed = _send(sidecar, {"type": "session_list"})
+    assert listed["type"] == "session_info"
+    assert any(s["workspace"] == "d:\\pulse-ws" for s in listed["sessions"])
+    # A prompt routed to that session keeps the explicit binding.
+    sidecar.stdin.write(json.dumps({
+        "type": "prompt", "text": "hi", "session_id": info["session_id"],
+        "workspace": "d:\\pulse-ws",
+    }) + "\n")
+    sidecar.stdin.flush()
+    frames = []
+    while len(frames) < 5:
+        frame = json.loads(sidecar.stdout.readline())
+        frames.append(frame)
+        if frame["type"] == "turn_done":
+            break
+    assert frames[-1]["workspace_id"].startswith("ws-")
+
+
 def test_sidecar_shutdown_exits_cleanly(sidecar):
     _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
     sidecar.stdin.write(json.dumps({"type": "shutdown"}) + "\n")

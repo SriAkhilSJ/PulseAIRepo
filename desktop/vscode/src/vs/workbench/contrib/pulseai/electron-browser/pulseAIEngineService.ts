@@ -4,6 +4,7 @@
 
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { env } from '../../../../base/common/process.js';
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -11,6 +12,7 @@ import { IUtilityProcessWorker, IUtilityProcessWorkerWorkbenchService } from '..
 import {
 	IPulseAIEngineService,
 	PulseAIEngineState,
+	resolvePulseAIEngineRoot,
 } from '../common/pulseAIEngineService.js';
 import type { PulseClientMethod, PulseServerEvent } from '../common/pulseAIProtocol.js';
 import { PULSE_AI_PROTOCOL_VERSION } from '../common/pulseAIProtocol.generated.js';
@@ -47,6 +49,9 @@ export class PulseAIEngineService extends Disposable implements IPulseAIEngineSe
 	}
 
 	async start(workspace: string): Promise<void> {
+		if (!workspace?.trim()) {
+			throw new Error('PulseAI session requires an opened workspace folder');
+		}
 		await this.stop();
 		this.setState(PulseAIEngineState.Starting);
 		try {
@@ -73,7 +78,16 @@ export class PulseAIEngineService extends Disposable implements IPulseAIEngineSe
 				}
 			});
 
-			const engineRoot = this.configurationService.getValue<string>('pulseai.engineRoot')?.trim() || workspace;
+			// P0: the session workspace and the engine package are DIFFERENT.
+			// workspace binds the session; the engine root is where
+			// `python -m src.bridge` lives and must never silently fall back to
+			// the user's project folder. Only pulseai.engineRoot and
+			// PULSEAI_ENGINE_ROOT are consulted (resolvePulseAIEngineRoot has no
+			// workspace input, so start(workspace) provably cannot leak it).
+			const engineRoot = resolvePulseAIEngineRoot(
+				this.configurationService.getValue<string>('pulseai.engineRoot'),
+				env['PULSEAI_ENGINE_ROOT'],
+			);
 			const pythonPath = this.configurationService.getValue<string>('pulseai.pythonPath')?.trim() || undefined;
 			await processService.start({ engineRoot, pythonPath });
 			const handshake = new Promise<void>((resolve, reject) => {
