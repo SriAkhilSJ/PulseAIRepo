@@ -6,7 +6,8 @@ Contract:
   bill the AUXILIARY client, not the flagship
 - aux resolution: env override -> per-provider cheap table -> main fallback
   (unknown providers degrade to main = identical behavior, never breakage)
-- the aux client is a DISTINCT, cached object from get_llm() results
+- each aux call owns a DISTINCT request client, so cancellation cannot poison
+  future turns or unrelated sessions
 - SmartSummarizer stays LLM-free unless SUMMARIZER_LLM=aux opts in
 """
 
@@ -48,32 +49,43 @@ def test_aux_resolution_unknown_provider_falls_back_to_main(monkeypatch):
 
 
 # ---------------------------------------------------------------- factory
-def test_aux_client_is_distinct_and_cached(monkeypatch):
-    factory._aux_llm_cache.clear()
+def test_aux_client_is_distinct_and_request_owned(monkeypatch):
     monkeypatch.setattr(settings, "AUX_LLM_PROVIDER", "groq")
     monkeypatch.setattr(settings, "AUX_LLM_MODEL", "llama-3.1-8b-instant")
 
     builds: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        factory, "get_llm",
-        lambda provider, model: builds.append((provider, model)) or object(),
-    )
+
+    class _Client:
+        def __init__(self, number):
+            self.number = number
+
+        def invoke(self, *args, **kwargs):
+            return self.number
+
+    def _build(provider, model):
+        builds.append((provider, model))
+        return _Client(len(builds))
+
+    monkeypatch.setattr(factory, "get_llm", _build)
     aux1 = factory.get_auxiliary_llm()
     aux2 = factory.get_auxiliary_llm()
-    assert aux1 is aux2                           # cached client
-    assert builds == [("groq", "llama-3.1-8b-instant")]  # built once, AUX settings
-    main = factory.get_llm(provider="groq", model="qwen/qwen3.6-27b")
-    assert aux1 is not main                       # the curator invariant
-    assert builds[-1] == ("groq", "qwen/qwen3.6-27b")    # main model unchanged
+    assert aux1 is not aux2
+    assert aux1.invoke([]) == 1
+    assert aux1.invoke([]) == 2
+    assert aux2.invoke([]) == 3
+    assert builds == [("groq", "llama-3.1-8b-instant")] * 3
 
 
 def test_aux_client_wraps_retry_policy(monkeypatch):
-    factory._aux_llm_cache.clear()
-    monkeypatch.setattr(
-        factory, "get_llm",
-        lambda provider, model: RetryLLMProxy(object()),
-    )
-    assert isinstance(factory.get_auxiliary_llm(), RetryLLMProxy)
+    class _Client:
+        model = "aux"
+
+        def invoke(self, *args, **kwargs):
+            return "ok"
+
+    proxy = RetryLLMProxy(_Client())
+    monkeypatch.setattr(factory, "get_llm", lambda provider, model: proxy)
+    assert factory.get_auxiliary_llm().invoke([]) == "ok"
 
 
 def test_task_manager_prefers_aux_falls_back_to_main(monkeypatch):

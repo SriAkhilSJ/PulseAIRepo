@@ -20,7 +20,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'string',
 			default: '',
 			scope: ConfigurationScope.MACHINE,
-			description: localize('pulseAI.engineRoot', 'Absolute path to the PulseAI engine package. Empty uses the current workspace during development.'),
+			description: localize('pulseAI.engineRoot', 'Absolute path to the PulseAI engine package (must contain src/bridge). Falls back to the PULSEAI_ENGINE_ROOT environment variable. Never the user workspace.'),
 		},
 		'pulseai.pythonPath': {
 			type: 'string',

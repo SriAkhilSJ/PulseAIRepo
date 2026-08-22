@@ -13,6 +13,7 @@ import math
 import os
 import re
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -201,15 +202,20 @@ def test_sync_removes_stale_symbols(index, workspace):
 # ---------------------------------------------------------------------
 
 
-def test_background_indexing_thread(workspace, index):
-    """search() on an empty index kicks a background build (returns []),
-    and the build must actually succeed from that thread (a default
-    sqlite3 connection would raise ProgrammingError there)."""
+def test_empty_index_search_never_spawns_unbounded_thread(workspace, index):
+    """search() on an empty index returns [] and must NEVER kick an
+    automatic UNLIMITED full-index daemon (that recreated the runaway build).
+    The bounded incremental sync populates rows instead, and a later search
+    finds them."""
     assert index.search("auth token") == [], "empty index should return []"
-    assert index._indexing_thread is not None
-    index._indexing_thread.join(timeout=30)
-    assert not index._is_index_empty(), "background build never stored rows"
-    assert index.search("auth token"), "search after build returned nothing"
+    assert not any(
+        t.name.startswith("chunk-index") and t is not threading.current_thread()
+        for t in threading.enumerate()
+    ), "search() must not spawn an automatic indexing thread"
+    # Bounded incremental sync (the production per-turn path) fills the index.
+    index.sync_workspace()
+    assert not index._is_index_empty(), "bounded sync never stored rows"
+    assert index.search("auth token"), "search after bounded sync returned nothing"
 
 
 # ---------------------------------------------------------------------

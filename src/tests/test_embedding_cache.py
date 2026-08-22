@@ -77,7 +77,7 @@ LAYERS = [
 TASK = "fix the login bug in auth.py"
 
 
-def _engine_and_cache(monkeypatch, tmp_path):
+def _engine_and_cache(monkeypatch, tmp_path, allow_embedding: bool = False):
     """Offline engine + fresh shared cache + counting embedder, all patched."""
     fake = CountingEmbedder()
     cache = EmbeddingCache()
@@ -87,6 +87,7 @@ def _engine_and_cache(monkeypatch, tmp_path):
         "src.context.context_engine.get_embedding_cache", lambda: cache
     )
     eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
+    eng._allow_embedding_compute = allow_embedding
     return eng, fake, cache
 
 
@@ -95,7 +96,7 @@ def _engine_and_cache(monkeypatch, tmp_path):
 
 def test_warm_turn_reencodes_zero_layers(monkeypatch, tmp_path):
     """The D2 headline: turn 2 of an unchanged session computes NOTHING."""
-    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path)
+    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path, allow_embedding=True)
 
     eng._score_and_sort_layers(LAYERS, TASK, TaskType.DEBUG)
     after_turn1 = fake.encoded
@@ -117,7 +118,7 @@ def test_scoring_identical_cold_vs_warm(monkeypatch, tmp_path):
 
 def test_dedup_rides_on_scoring_vectors(monkeypatch, tmp_path):
     """Dedup used to re-encode exactly the texts scoring had just encoded."""
-    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path)
+    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path, allow_embedding=True)
     scored = eng._score_and_sort_layers(LAYERS, TASK, TaskType.DEBUG)
     before = fake.encoded
     out = eng._deduplicate_layers(scored)
@@ -131,7 +132,7 @@ def test_dedup_rides_on_scoring_vectors(monkeypatch, tmp_path):
 
 def test_ambiguity_constants_encoded_once(monkeypatch, tmp_path):
     """26 module-constant strings were re-encoded every single turn."""
-    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path)
+    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path, allow_embedding=True)
     # NOTE: the task may NOT itself be one of the 26 constants — the cache
     # correctly dedups overlaps (first draft of this test used "make it
     # better", which IS in the ambiguous list: 26 encodes, not 27).
@@ -151,7 +152,7 @@ def test_classifier_query_cached(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "src.context.context_engine.get_embedding_cache", lambda: cache
     )
-    clf = TaskClassifier()  # warm-up encodes the prototypes directly (once)
+    clf = TaskClassifier(allow_embedding_compute=True)  # warm-up encodes prototypes
     warmup_total = fake.encoded
 
     # no regex hit -> embedding path, guaranteed by a nonsense verb phrase

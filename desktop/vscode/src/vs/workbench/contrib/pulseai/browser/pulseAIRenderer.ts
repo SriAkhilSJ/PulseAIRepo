@@ -16,11 +16,14 @@ export interface PulseAIToolView {
 	readonly arguments?: unknown;
 	readonly result?: unknown;
 	readonly duration?: string;
-}
-
-export interface PulseAIRenderModel {
-	readonly engineState: string;
-	readonly workspaceLabel: string;
+}	export interface PulseAIRenderModel {
+		readonly engineState: string;
+		readonly workspaceLabel: string;
+		readonly noWorkspace: boolean;
+		readonly noWorkspaceHint: string;
+		readonly workspaceSelectionRequired: boolean;
+		readonly workspaceChoices: readonly { readonly label: string; readonly uri: string }[];
+		readonly engineSetupError: boolean;
 	readonly sessionId?: string;
 	readonly running: boolean;
 	readonly cancelRequested: boolean;
@@ -48,6 +51,9 @@ export interface PulseAIRenderHost {
 	revealFile(resource: string): void;
 	restoreCheckpoint(hash: string): void;
 	retryEngine(): void;
+	selectWorkspace(uri: string): void;
+	openFolder(): void;
+	openEngineSettings(): void;
 }
 
 export interface PulseAIRenderMount extends IDisposable {
@@ -257,7 +263,13 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		lane.append(element('div', 'pulseai-empty', icon('pulse'), element('h3', undefined, 'Work with Pulse'), element('p', undefined, 'Ask about the active editor, change code, run native tests, or inspect the workspace.')));
 	}
 	if (model.error) {
-		lane.append(element('div', 'pulseai-error-row', icon('warning'), element('span', undefined, model.error), button('Retry', 'pulseai-link-button', host.retryEngine)));
+		const setup = model.engineSetupError;
+		lane.append(element('div', 'pulseai-error-row', icon(setup ? 'settings-gear' : 'warning'),
+			element('span', undefined, setup ? `Pulse engine setup: ${model.error}` : model.error),
+			setup
+				? button('Open Settings', 'pulseai-link-button', host.openEngineSettings, 'settings-gear')
+				: button('Retry', 'pulseai-link-button', host.retryEngine),
+		));
 	}
 	scroll.append(lane);
 	return scroll;
@@ -300,6 +312,10 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 	input.placeholder = manager ? 'Steer this agent or add context...' : 'Steer Pulse or add context...';
 	input.value = model.draft;
 	input.addEventListener('input', () => host.setDraft(input.value));
+	// No project folder → blocked; multi-root without an explicit choice →
+	// blocked until the user selects one of the workspace folders.
+	const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired;
+	if (inputBlocked) { input.disabled = true; }
 	const submit = () => {
 		const value = input.value.trim();
 		if (!value) { return; }
@@ -325,6 +341,22 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 			compactSelect('Ask', ['Ask before edits', 'Approve workspace edits', 'Read only']),
 		);
 	}
+	if (model.workspaceChoices.length > 1) {
+		const workspaceSelect = element('select', 'pulseai-composer-select') as HTMLSelectElement;
+		workspaceSelect.setAttribute('aria-label', 'Workspace folder');
+		const choiceOption = element('option', undefined, model.workspaceSelectionRequired ? 'Select a folder' : model.workspaceLabel);
+		choiceOption.value = '';
+		choiceOption.disabled = true;
+		choiceOption.selected = true;
+		workspaceSelect.append(choiceOption);
+		for (const choice of model.workspaceChoices) {
+			const option = element('option', undefined, choice.label);
+			option.value = choice.uri;
+			workspaceSelect.append(option);
+		}
+		workspaceSelect.addEventListener('change', () => host.selectWorkspace(workspaceSelect.value));
+		left.append(workspaceSelect);
+	}
 
 	const running = model.running;
 	const send = element('button', running ? 'pulseai-send-button pulseai-send-stop' : 'pulseai-send-button') as HTMLButtonElement;
@@ -333,12 +365,20 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 	send.append(icon(running ? 'debug-pause' : 'send'));
 	send.addEventListener('click', running ? host.cancel : submit);
 	if (running && model.cancelRequested) { send.disabled = true; }
+	if (inputBlocked) { send.disabled = true; }
 
 	const toolbar = element('div', 'pulseai-composer-toolbar', left, send);
 	const hint = element('div', 'pulseai-composer-hint',
-		element('span', undefined, 'Enter to send'),
-		element('span', undefined, 'Shift+Enter for new line'),
+		model.noWorkspace
+			? element('span', undefined, model.noWorkspaceHint)
+			: model.workspaceSelectionRequired
+				? element('span', undefined, 'Select a workspace folder to start a Pulse session.')
+				: element('span', undefined, 'Enter to send'),
+		element('span', undefined, model.noWorkspace ? '' : 'Shift+Enter for new line'),
 	);
+	if (model.noWorkspace) {
+		hint.append(button('Open Folder', 'pulseai-link-button', host.openFolder, 'folder'));
+	}
 	return element('footer', 'pulseai-composer', element('div', 'pulseai-composer-box', input, toolbar), hint);
 }
 

@@ -266,17 +266,17 @@ time.sleep(0.3)
 
 # ------------------------------------------------- 4. fake delayed turn emits progress + turn_done
 
-def test_echo_turn_emits_progress_then_turn_done():
+def test_echo_turn_emits_progress_then_turn_done(tmp_path):
     proc = _spawn_bridge({"PULSEAI_BRIDGE_RUNNER": "echo"})
     try:
         _send(proc, {"type": "hello", "protocol": PROTOCOL_VERSION})
         hello = _read_frames(proc, lambda f: f.get("type") == "hello")[-1]
         assert hello["protocol"] == PROTOCOL_VERSION
 
-        _send(proc, {"type": "session_create", "session_id": "s-echo"})
+        _send(proc, {"type": "session_create", "session_id": "s-echo", "workspace": str(tmp_path)})
         _read_frames(proc, lambda f: f.get("type") == "session_info")
 
-        _send(proc, {"type": "prompt", "session_id": "s-echo", "text": "hello"})
+        _send(proc, {"type": "prompt", "session_id": "s-echo", "workspace": str(tmp_path), "text": "hello"})
         frames = _read_frames(proc, lambda f: f.get("type") == "turn_done")
         kinds = [f["type"] for f in frames]
         assert kinds[0] == "turn_started", kinds
@@ -447,7 +447,7 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
 
 # ------------------------------------------------- watchdog env gate (no 60 s wait)
 
-def test_diagnostics_watchdog_env_does_not_break_bridge():
+def test_diagnostics_watchdog_env_does_not_break_bridge(tmp_path):
     # With PULSEAI_BRIDGE_DIAGNOSTICS=1 the bridge arms faulthandler around a
     # real turn. The echo runner returns instantly, so we only verify the env
     # wiring is harmless on the transport level (no 60 s wait here).
@@ -456,9 +456,9 @@ def test_diagnostics_watchdog_env_does_not_break_bridge():
         _send(proc, {"type": "hello", "protocol": PROTOCOL_VERSION})
         hello = _read_frames(proc, lambda f: f.get("type") == "hello")[-1]
         assert hello["protocol"] == PROTOCOL_VERSION
-        _send(proc, {"type": "session_create", "session_id": "s-wd"})
+        _send(proc, {"type": "session_create", "session_id": "s-wd", "workspace": str(tmp_path)})
         _read_frames(proc, lambda f: f.get("type") == "session_info")
-        _send(proc, {"type": "prompt", "session_id": "s-wd", "text": "hi"})
+        _send(proc, {"type": "prompt", "session_id": "s-wd", "workspace": str(tmp_path), "text": "hi"})
         frames = _read_frames(proc, lambda f: f.get("type") == "turn_done")
         assert frames[-1]["completed"] is True
     finally:

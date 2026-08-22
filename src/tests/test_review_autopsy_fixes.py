@@ -73,9 +73,9 @@ def test_d25_second_get_map_within_ttl_skips_the_walk(tmp_path, monkeypatch):
 
     calls = {"n": 0}
     orig = RepoMap._get_latest_mtime
-    def counting(self):
+    def counting(self, budget=None):
         calls["n"] += 1
-        return orig(self)
+        return orig(self, budget)
     monkeypatch.setattr(RepoMap, "_get_latest_mtime", counting)
 
     rm.get_map()
@@ -91,9 +91,9 @@ def test_d25_ttl_zero_restores_legacy_always_walk(tmp_path, monkeypatch):
 
     calls = {"n": 0}
     orig = RepoMap._get_latest_mtime
-    def counting(self):
+    def counting(self, budget=None):
         calls["n"] += 1
-        return orig(self)
+        return orig(self, budget)
     monkeypatch.setattr(RepoMap, "_get_latest_mtime", counting)
 
     rm.get_map()
@@ -219,7 +219,7 @@ def test_d27_every_registered_builder_takes_exactly_state():
                       if isinstance(n, ast.ClassDef) and n.name == "ContextEngine")
     build_fn = next(n for n in engine_cls.body
                     if isinstance(n, ast.FunctionDef)
-                    and n.name == "_build_context_layers")
+                    and n.name == "_build_context_layers_inner")
 
     layer_methods: list[str] = []
     for sub in ast.walk(build_fn):

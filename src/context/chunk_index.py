@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from src.context.bounded_scan import ContextBudget, scan_files
 from src.context.lang_extractors import (
     _EXT_JS_FAMILY as _EXT_JS_FAMILY_LANG,
     _sha256_id,
@@ -225,10 +226,17 @@ class ChunkResult:
 # ---------------------------------------------------------------------
 
 
-def extract_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
-    """Parse a Python file into semantic chunks (plain dicts for storage)."""
+def extract_chunks(
+    file_path: Path, root: Path, source: str | None = None
+) -> list[dict[str, Any]]:
+    """Parse a Python file into semantic chunks (plain dicts for storage).
+
+    ``source`` (P1): the file's decoded text when the caller already read it
+    once for the physical-read ledger — avoids a second physical read.
+    """
     try:
-        source = file_path.read_text(encoding="utf-8", errors="ignore")
+        if source is None:
+            source = file_path.read_text(encoding="utf-8", errors="ignore")
         tree = ast.parse(source)
     except Exception:
         return []
@@ -304,14 +312,17 @@ def extract_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
     return chunks
 
 
-def extract_source_chunks(file_path: Path, root: Path) -> list[dict[str, Any]]:
+def extract_source_chunks(
+    file_path: Path, root: Path, source: str | None = None
+) -> list[dict[str, Any]]:
     """Extension dispatch (D5): stdlib AST for Python — the richest path,
     already verified for async/decorators — tree-sitter for the JS/TS
     family. Unsupported suffixes extract to nothing (and are never yielded
-    by _iter_source_files anyway)."""
+    by _iter_source_files anyway). ``source`` (P1): decoded text when the
+    caller already read the file once — never re-reads when provided."""
     if file_path.suffix.lower() == ".py":
-        return extract_chunks(file_path, root)
-    return extract_chunks_treesitter(file_path, root)
+        return extract_chunks(file_path, root, source)
+    return extract_chunks_treesitter(file_path, root, source)
 
 
 # ---------------------------------------------------------------------
@@ -358,7 +369,9 @@ class ChunkIndex:
         # for single-file sync transactions.
         self.conn.execute("PRAGMA busy_timeout=5000")
         self._write_lock = threading.RLock()
-        self._indexing_thread: Optional[threading.Thread] = None
+        self._last_scan_report = None
+        self._last_budget: ContextBudget | None = None
+        self.thread_id_hint: str | None = None
 
         # File-watcher state (started only when watch=True, i.e. via
         # get_index() in production — tests construct with watch=False and
@@ -369,14 +382,11 @@ class ChunkIndex:
         self._pending_removes: set[str] = set()
         self._sync_queue_lock = threading.Lock()
 
-        if embedder is not None:
-            self._embedder = embedder
-        else:
-            try:
-                from src.llm.factory import get_embedder
-                self._embedder = get_embedder()
-            except Exception:
-                self._embedder = None  # BM25-only degraded mode
+        # NO eager model load: opening an index during a prompt must not load
+        # the embedding model. Injected test embedders are kept as-is; the
+        # default embedder is resolved lazily ONLY on explicit offline
+        # inference-enabled paths (_ensure_embedder). Turns stay BM25/cache-only.
+        self._embedder = embedder
 
         self.uses_vec = False
         try:
@@ -396,6 +406,19 @@ class ChunkIndex:
 
         if watch:
             self.start_watcher()
+
+    def _ensure_embedder(self) -> None:
+        """Lazily resolve the default embedder — called ONLY from explicit
+        offline inference-enabled paths (``allow_embedding_compute``), never
+        from the timed turn path. ``self._embedder`` stays None for turns,
+        which is exactly the point: no model is loaded or invoked."""
+        if self._embedder is not None:
+            return
+        try:
+            from src.llm.factory import get_embedder
+            self._embedder = get_embedder()
+        except Exception:
+            self._embedder = None  # BM25-only degraded mode
 
     # ------------------------------------------------------------------
     # SCHEMA
@@ -477,8 +500,17 @@ class ChunkIndex:
     # INDEXING
     # ------------------------------------------------------------------
 
-    def index_workspace(self) -> None:
-        """Full rebuild. Blocking; used by the background thread on first run."""
+    def index_workspace(self, budget: ContextBudget | None = None) -> None:
+        """FULL REBUILD — explicit offline/maintenance only. Deletes every
+        row first, so it is NOT resumable and NO product runtime path may
+        invoke it automatically (empty-index search, the engine, the watcher
+        and session startup all use the bounded incremental ``sync_workspace``
+        instead). ``None`` means ``ContextBudget.unbounded()`` BY DESIGN:
+        this is the one place a full delete+rebuild is legitimate, so it
+        embeds everything synchronously — never an abandoned inference
+        thread. Pass an explicit budget if you need a maintenance run bounded.
+        """
+        budget = budget if budget is not None else ContextBudget.unbounded()
         with self._write_lock:
             vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
             self.conn.execute(f"DELETE FROM {vec_table}")
@@ -487,18 +519,23 @@ class ChunkIndex:
             self.conn.execute("DELETE FROM import_edges")
             self.conn.commit()
 
-        files = self._iter_source_files()
+        files = self._iter_source_files(budget)
         # Batch commits: uncommitted inserts are invisible to other
         # connections and lost on close (verified). 25 files per batch.
         for i, fpath in enumerate(files):
+            if budget.expired:
+                break
             try:
-                chunks = extract_source_chunks(fpath, self.workspace)
+                source = self._read_source(fpath, budget)
+                if source is None:
+                    continue
+                chunks = extract_source_chunks(fpath, self.workspace, source)
                 rel = str(fpath.relative_to(self.workspace))
-                edges = self._edges_for(fpath, rel)
+                edges = self._edges_for(fpath, rel, budget, source)
                 if chunks or edges:
                     with self._write_lock:
                         if chunks:
-                            self._insert_chunks_no_commit(chunks, fpath.stat().st_mtime)
+                            self._insert_chunks_no_commit(chunks, fpath.stat().st_mtime, budget)
                         # Full rebuild now inserts edges too — pre-D15-remainder
                         # it only DELETEed them, so freshly-indexed workspaces
                         # had detective mode empty until per-file syncs caught up
@@ -515,14 +552,9 @@ class ChunkIndex:
                     self.conn.commit()
         with self._write_lock:
             self.conn.commit()
+        self._emit_degraded_scan(budget)
 
-    def _trigger_background_index(self) -> None:
-        """Non-blocking first-run index; search() returns [] while it builds."""
-        if self._indexing_thread and self._indexing_thread.is_alive():
-            return
-        t = threading.Thread(target=self.index_workspace, daemon=True)
-        self._indexing_thread = t
-        t.start()
+
 
     # ------------------------------------------------------------------
     # FILE WATCHER (optional, watchdog-backed with polling fallback)
@@ -575,6 +607,10 @@ class ChunkIndex:
 
     def _apply_queued_changes(self) -> None:
         to_sync, to_remove = self._drain_pending_syncs()
+        # ONE bounded budget per debounce batch: watcher event handling must
+        # enforce the per-file size cap and NEVER launch unbounded embedding
+        # inference (bounded budget => text/FTS + cached vectors only).
+        budget = ContextBudget()
         for path in to_remove:
             try:
                 p = Path(path)
@@ -586,7 +622,7 @@ class ChunkIndex:
             try:
                 p = Path(path)
                 if p.exists() and self.workspace in p.resolve().parents:
-                    self.sync_file(p)
+                    self.sync_file(p, budget)
             except Exception as exc:
                 print(f"[ChunkIndex] watcher sync failed for {path}: {exc}")
 
@@ -682,13 +718,49 @@ class ChunkIndex:
                 self.conn.execute("DELETE FROM import_edges WHERE importer = ?", (rel,))
                 return len(old_ids) if old_ids else cur.rowcount
 
-    def sync_file(self, file_path: Path) -> None:
+    def _read_source(self, file_path: Path, budget: ContextBudget | None = None) -> str | None:
+        """Read ONE source file through the shared physical-read ledger.
+
+        Reserves the file's stat size atomically BEFORE reading, reads NO
+        MORE than the reservation (a file that grew after stat() cannot bill
+        past it), then settles the ACTUAL bytes read or refunds on failure.
+        Returns None when the file vanished / is unreadable OR the global
+        physical-read allowance is exhausted (the caller must decline, never
+        read past the cap). ``budget.read_bytes`` is therefore the honest
+        total of bytes ACTUALLY read.
+        """
+        from src.context.bounded_scan import bounded_read_text
+        return bounded_read_text(file_path, budget)
+
+    def sync_file(self, file_path: Path, budget: ContextBudget | None = None) -> None:
         """Atomic incremental re-index of one file (chunks, FTS, AND import
-        edges — one transaction, so an interrupted sync never splits them)."""
+        edges — one transaction, so an interrupted sync never splits them).
+
+        ``budget`` (P1): the shared initial-context deadline. ``None`` means
+        the BOUNDED production default (a watcher event or a caller that
+        forgot a budget must never read or embed without limits). When the
+        budget expired the file is left for a later turn (no deletes, no
+        embed), and the per-file size cap is enforced here so a watcher event
+        for a giant file cannot read it whole. The file is read ONCE and the
+        decoded text is reused for both chunk extraction and import-edge
+        resolution — no avoidable second physical read.
+        """
+        budget = budget if budget is not None else ContextBudget()
+        try:
+            st = file_path.stat()
+        except OSError:
+            return  # disappeared / unreadable between scan and read
+        mtime = st.st_mtime
+        if budget.max_file_bytes > 0 and st.st_size > budget.max_file_bytes:
+            return  # watcher/per-file size cap: skip, never read past it
+        if budget.expired:
+            return
+        source = self._read_source(file_path, budget)
+        if source is None:
+            return  # unreadable OR the global read ledger is exhausted
         rel = str(file_path.relative_to(self.workspace))
-        mtime = file_path.stat().st_mtime
-        chunks = extract_source_chunks(file_path, self.workspace)
-        edges = self._edges_for(file_path, rel)
+        chunks = extract_source_chunks(file_path, self.workspace, source)
+        edges = self._edges_for(file_path, rel, budget, source)
         vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
         with self._write_lock:
             with self.conn:  # single transaction for all five stores
@@ -699,7 +771,7 @@ class ChunkIndex:
                     self.conn.execute(f"DELETE FROM {vec_table} WHERE chunk_id = ?", (cid,))
                     self.conn.execute("DELETE FROM chunk_fts WHERE chunk_id = ?", (cid,))
                 self.conn.execute("DELETE FROM code_chunks WHERE file_path = ?", (rel,))
-                self._insert_chunks_no_commit(chunks, mtime)
+                self._insert_chunks_no_commit(chunks, mtime, budget)
                 self.conn.execute("DELETE FROM import_edges WHERE importer = ?", (rel,))
                 for target in edges:
                     self.conn.execute(
@@ -707,11 +779,21 @@ class ChunkIndex:
                         (rel, target),
                     )
 
-    def _edges_for(self, file_path: Path, rel: str) -> set[str]:
+    def _edges_for(
+        self,
+        file_path: Path,
+        rel: str,
+        budget: ContextBudget | None = None,
+        source: str | None = None,
+    ) -> set[str]:
         """Resolved in-repo import targets of one source file (D15):
         Python via stdlib-ast resolver; JS/TS, Go, Rust, Java via the
         lang_extractors resolvers (§41). Empty set for unsupported or
-        unparseable sources — edges are a bonus, never fatal."""
+        unparseable sources — edges are a bonus, never fatal.
+
+        ``source`` (P1): the file's decoded text, passed by the caller that
+        already read it once through the ledger — NO second physical read.
+        """
         suffix = file_path.suffix.lower()
         if suffix == ".py":
             resolver = _extract_py_import_edges
@@ -725,17 +807,31 @@ class ChunkIndex:
             resolver = extract_java_import_edges
         else:
             return set()
-        try:
-            source = file_path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+        if source is None:
+            source = self._read_source(file_path, budget)
+        if source is None:
             return set()
         try:
             return resolver(source, Path(rel), self.workspace)
         except Exception:
             return set()
 
-    def sync_workspace(self) -> int:
-        """Re-index files whose mtime is newer than what we stored. Returns count."""
+    def sync_workspace(self, budget: ContextBudget | None = None) -> int:
+        """Re-index files whose mtime is newer than what we stored. Returns count.
+
+        ``budget`` (P1): the walk is bounded by the scan limits AND the same
+        shared deadline is checked before each file's read/chunk/embed, so a
+        huge or rapidly-changing workspace returns partial context instead of
+        blocking the first model call. ``None`` means the BOUNDED production
+        default (watcher poll, per-turn sync, tests): a background or
+        automatic sync must never read or embed without limits.
+
+        GHOST-PRUNING SAFETY: ``indexed - on_disk`` deletion only runs after a
+        COMPLETE scan. When the scan was truncated, cancelled, or the deadline
+        expired, ``on_disk`` is only a bounded prefix — anything outside it
+        would be mistaken for a deleted file and wrongly pruned.
+        """
+        budget = budget if budget is not None else ContextBudget()
         # One lock for the whole sweep: concurrent sync_workspace() calls used
         # to race on the same files (wasteful duplicated delete+insert cycles;
         # RLock is reentrant so sync_file's internal acquire is free).
@@ -749,7 +845,9 @@ class ChunkIndex:
                 print("[ChunkIndex] v2 upgrade: one-time import-edge rebuild start")
             changed = 0
             on_disk: set[str] = set()
-            for fpath in self._iter_source_files():
+            for fpath in self._iter_source_files(budget):
+                if budget.expired:
+                    break
                 rel = str(fpath.relative_to(self.workspace))
                 on_disk.add(rel)
                 row = self.conn.execute(
@@ -757,33 +855,96 @@ class ChunkIndex:
                 ).fetchone()
                 current = fpath.stat().st_mtime
                 if force_all or not row or row[0] is None or row[0] < current:
-                    self.sync_file(fpath)
+                    self.sync_file(fpath, budget)
                     changed += 1
             if force_all:
                 print("[ChunkIndex] v2 upgrade: import-edge rebuild done")
-            # Prune ghosts: chunks whose source file no longer exists.
-            # One DISTINCT scan + set diff — cheap, and it makes deletions
-            # visible even when the watcher missed them (or isn't installed).
-            indexed = {
-                r[0] for r in self.conn.execute(
-                    "SELECT DISTINCT file_path FROM code_chunks"
-                )
-            }
-            for ghost in indexed - on_disk:
-                changed += self.remove_file(self.workspace / ghost)
+            report = getattr(self, "_last_scan_report", None)
+            incomplete = (
+                budget.expired
+                or budget.cancelled
+                or (report is not None and report.truncated)
+            )
+            if not incomplete:
+                # Prune ghosts ONLY after a complete scan: the indexed-on_disk
+                # diff is only sound when on_disk covers the whole tree.
+                indexed = {
+                    r[0] for r in self.conn.execute(
+                        "SELECT DISTINCT file_path FROM code_chunks"
+                    )
+                }
+                for ghost in indexed - on_disk:
+                    changed += self.remove_file(self.workspace / ghost)
+            # P1-fix: fold this walker's consumption back into the shared
+            # pool so its other scans (and other walkers) see only remaining.
+            if report is not None:
+                budget.absorb(report)
+            self._emit_degraded_scan(budget)
             return changed
 
-    def _iter_source_files(self):
+    def _iter_source_files(self, budget: ContextBudget | None = None):
         """Generator — a 10K-file workspace shouldn't materialize a list.
         Extension allowlist is DYNAMIC: grammar packages that failed to
         load simply drop out (Python-only degraded mode), so a slim
-        environment never walks files it cannot parse."""
+        environment never walks files it cannot parse.
+
+        The walk is BOUNDED (P1): elapsed / file-count / byte budgets, a
+        per-file size cap, symlink skip, the exclusion set, and the root
+        ``.gitignore``. ``budget`` supplies the limits AND the shared stop
+        predicate, so traversal and the downstream read/chunk/embed pipeline
+        expire together. Changes the scan order to deterministic priority so
+        a truncated cold build indexes shallow non-test files before
+        deep/bloat ones. The last report is kept on ``self._last_scan_report``;
+        callers surface it as a ``runtime.degraded`` receipt when truncated.
+        """
+        budget = budget or ContextBudget()
+        self._last_budget = budget
         exts = source_extensions()
-        for f in self.workspace.rglob("*"):
-            if f.suffix.lower() not in exts:
-                continue
-            if not any(part in _SKIP_DIRS for part in f.parts):
-                yield f
+        iterator, report = scan_files(
+            self.workspace,
+            limits=budget.to_limits(),
+            skip_dirs=_SKIP_DIRS,
+            extensions=exts,
+            should_stop=budget.should_stop,
+            priority=True,
+            budget=budget,
+        )
+        self._last_scan_report = report
+        return iterator
+
+    def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
+        """Surface a truncated index walk as a structured runtime.degraded
+        receipt (real counts, emitted ONCE per shared budget).
+
+        Inside an engine build (``collect_receipts``) the walker only RECORDS
+        its component summary — the engine emits ONE aggregate build receipt
+        afterwards. Standalone (watcher / background / tests) the walker
+        emits its own receipt. Zero-value receipts are honest evidence of
+        deadline exhaustion and are NEVER suppressed.
+        """
+        report = getattr(self, "_last_scan_report", None)
+        if report is None or not report.truncated:
+            return
+        budget = budget or self._last_budget or ContextBudget()
+        if getattr(budget, "collect_receipts", False):
+            budget.record_component("chunk_index", report)
+            return
+        budget.emit_degraded({
+            "thread_id": getattr(self, "thread_id_hint", None) or "unknown",
+            "component": "chunk_index",
+            "reason": "context scan bounded",
+            "error": f"context index scan {report.summarize()}",
+            "files_considered": report.considered,
+            "files_read": budget.read_files,
+            "bytes_read": budget.read_bytes,
+            "elapsed_ms": int(budget.elapsed * 1000),
+            "skipped_generated": (
+                report.skipped_dirs + report.skipped_generated + report.skipped_gitignore
+            ),
+            "skipped_oversized": report.skipped_oversize,
+            "skipped_binary": report.skipped_binary,
+            "cancelled": budget.cancelled,
+        })
 
     def _insert_chunks(self, chunks: list[dict], mtime: float, commit: bool) -> None:
         with self._write_lock:
@@ -791,9 +952,50 @@ class ChunkIndex:
             if commit:
                 self.conn.commit()
 
-    def _insert_chunks_no_commit(self, chunks: list[dict], mtime: float) -> None:
-        """Insert chunks into all stores. Caller holds the lock / transaction."""
-        embeddings = self._embed_batch([c["content"] for c in chunks])
+    def _insert_chunks_no_commit(
+        self, chunks: list[dict], mtime: float, budget: ContextBudget | None = None
+    ) -> None:
+        """Insert chunks into all stores. Caller holds the lock / transaction.
+
+        ``budget`` (P1): the synchronous initial-turn path NEVER launches
+        uncancellable model inference. Text and FTS land synchronously for
+        every chunk; VECTORS come only from the content-addressed cache
+        (cache hits are bounded lookups) and uncached embeddings are DEFERRED
+        — a later sync backfills them. ``None`` means the BOUNDED production
+        default (cache-only), so a caller that forgets a budget can never
+        launch inference. ONLY an explicit ``ContextBudget.unbounded()``
+        (offline full rebuild) encodes synchronously, exactly like the
+        pre-P1 behavior.
+        """
+        budget = budget if budget is not None else ContextBudget()
+        if budget.expired:
+            embeddings: list[list[float] | None] = [None] * len(chunks)
+        elif budget.allow_embedding_compute:
+            # EXPLICIT offline inference policy (unbounded() maintenance
+            # rebuild ONLY): synchronous encode — never an abandoned thread.
+            self._ensure_embedder()
+            if self._embedder is None:
+                embeddings = [None] * len(chunks)
+            else:
+                from src.context.embedding_cache import get_embedding_cache
+                try:
+                    vecs = get_embedding_cache().encode(
+                        self._embedder, [c["content"] for c in chunks]
+                    )
+                    embeddings = [list(v) for v in vecs]
+                except Exception:
+                    embeddings = [None] * len(chunks)
+        elif self._embedder is not None:
+            # Default/turn/watcher path: cache hits ONLY — no inference
+            # inside the turn. ``max_elapsed <= 0`` does NOT permit compute;
+            # only the explicit policy flag does.
+            from src.context.embedding_cache import get_embedding_cache
+            cache = get_embedding_cache()
+            embeddings = [
+                cache.lookup(self._embedder, c["content"]) for c in chunks
+            ]
+        else:
+            embeddings = [None] * len(chunks)  # BM25-only degraded mode
         vec_table_insert = (
             "INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, vec_f32(?))"
             if self.uses_vec else
@@ -811,41 +1013,42 @@ class ChunkIndex:
                 chunk["signature"], chunk["docstring"], chunk["body"],
                 chunk["content"], chunk["content_hash"], mtime,
             ))
-            if self.uses_vec:
-                self.conn.execute(vec_table_insert, (chunk["id"], json.dumps(emb)))
-            else:
-                self.conn.execute(vec_table_insert, (chunk["id"], json.dumps(emb).encode("utf-8")))
+            if emb is not None:
+                if self.uses_vec:
+                    self.conn.execute(vec_table_insert, (chunk["id"], json.dumps(emb)))
+                else:
+                    self.conn.execute(vec_table_insert, (chunk["id"], json.dumps(emb).encode("utf-8")))
             self.conn.execute(
                 "INSERT INTO chunk_fts (content, file_path, symbol_name, chunk_id) VALUES (?, ?, ?, ?)",
                 (chunk["content"], chunk["file_path"], chunk["symbol_name"], chunk["id"]),
             )
 
-    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """One encode call per file (not per chunk) — batching is ~10x faster."""
-        if not self._embedder:
-            return [[0.0] * EMBED_DIM for _ in texts]
-        try:
-            # D2+D5 synergy: re-syncing an edited file re-embeds ALL its
-            # chunks, but only the edited ones have new content — the
-            # content-addressed cache returns the rest for free.
-            from src.context.embedding_cache import get_embedding_cache
-            return get_embedding_cache().encode(self._embedder, texts)
-        except Exception:
-            return [[0.0] * EMBED_DIM for _ in texts]
-
     # ------------------------------------------------------------------
     # RETRIEVAL
     # ------------------------------------------------------------------
 
-    def search(self, query: str, top_k: int = 3) -> list[ChunkResult]:
+    def search(
+        self, query: str, top_k: int = 3, budget: ContextBudget | None = None
+    ) -> list[ChunkResult]:
         """Hybrid search: KNN vector + BM25, fused via RRF (rank positions),
         then D13 feature re-rank (name/path/hot/test signals) before top_k.
-        top_k defaults to 3 so the layer can't eat the context budget."""
-        if self._is_index_empty():
-            self._trigger_background_index()
-            return []  # caller falls back to repo_map while we build
+        top_k defaults to 3 so the layer can't eat the context budget.
 
-        vec = self._search_vector(query, top_k * 3)
+        ``budget`` (P1): the turn's shared budget. A BOUNDED budget is
+        cache-only for the query vector — on a cache miss vector retrieval is
+        skipped and FTS/BM25 still returns context; ``embedder.encode`` is
+        NEVER called on the timed path. ``budget=None`` (legacy direct calls)
+        and an explicit ``allow_embedding_compute`` budget may compute the
+        query vector.
+        """
+        if self._is_index_empty():
+            # Automatic unlimited full-index is DISABLED (it recreated the
+            # runaway daemon build): an empty index returns [] and the caller
+            # falls back to repo_map. The bounded per-turn sync_workspace()
+            # populates a text/FTS + cached-vector prefix instead.
+            return []
+
+        vec = self._search_vector(query, top_k * 3, budget)
         bm25 = self._search_bm25(query, top_k * 3)
         fused = self._rrf_fuse(vec, bm25, k=RRF_K)
         return self._rerank(fused, query)[:top_k]
@@ -910,13 +1113,34 @@ class ChunkIndex:
             row = self.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()
         return not row or row[0] == 0
 
-    def _search_vector(self, query: str, limit: int) -> list[tuple[str, float]]:
-        if not self._embedder:
-            return []
-        try:
-            q_emb = self._embedder.encode([query], normalize_embeddings=True).tolist()[0]
-        except Exception:
-            return []
+    def _search_vector(
+        self, query: str, limit: int, budget: ContextBudget | None = None
+    ) -> list[tuple[str, float]]:
+        """Query-vector preparation gated by the inference policy.
+
+        - budget None (legacy direct call): compute the query vector.
+        - budget.allow_embedding_compute (explicit offline): compute it.
+        - otherwise (bounded turn): a cached query vector ONLY; on a cache
+          miss vector retrieval is skipped (BM25 still serves context).
+          ``embedder.encode`` is never called on the timed path.
+        """
+        if budget is None or budget.allow_embedding_compute:
+            self._ensure_embedder()
+            if self._embedder is None:
+                return []
+            try:
+                q_emb = self._embedder.encode(
+                    [query], normalize_embeddings=True
+                ).tolist()[0]
+            except Exception:
+                return []
+        else:
+            if self._embedder is None:
+                return []
+            from src.context.embedding_cache import get_embedding_cache
+            q_emb = get_embedding_cache().lookup(self._embedder, query)
+            if q_emb is None:
+                return []  # no cached query vector -> BM25 only, no inference
         if self.uses_vec:
             return self._search_vec_fast(q_emb, limit)
         return self._search_vec_linear(q_emb, limit)
@@ -1093,8 +1317,14 @@ def get_index(
 # ---------------------------------------------------------------------
 
 
-def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
-    """ContextEngine layer: top-k code chunks relevant to the current task."""
+def build_relevant_chunks_layer(state: dict[str, Any], budget: ContextBudget | None = None) -> Any:
+    """ContextEngine layer: top-k code chunks relevant to the current task.
+
+    ``budget`` (P1): one shared deadline for the whole initial context build.
+    The index sync (scan → read → chunk → embed) stops when it expires and
+    emits a structured ``runtime.degraded`` receipt; the turn continues on
+    partial context.
+    """
     task = state.get("current_task", "")
     if not task:
         return None
@@ -1103,9 +1333,13 @@ def build_relevant_chunks_layer(state: dict[str, Any]) -> Any:
 
     try:
         index = get_index(state.get("workspace", "."))
-        # Cheap: rglob + stat only; re-indexes only files whose mtime changed.
-        index.sync_workspace()
-        chunks = index.search(task, top_k=3)
+        index.thread_id_hint = str(state.get("thread_id") or state.get("session_id") or "")
+        # Cheap: bounded walk + stat only; re-indexes only changed files.
+        index.sync_workspace(budget)
+        # The SAME shared budget gates retrieval: bounded => cache-only query
+        # vector (BM25/FTS fallback on miss), never embedder.encode on the
+        # timed path.
+        chunks = index.search(task, top_k=3, budget=budget)
         if not chunks:
             return None
     except Exception as exc:

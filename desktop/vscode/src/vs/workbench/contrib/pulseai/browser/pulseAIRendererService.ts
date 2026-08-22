@@ -4,9 +4,11 @@
 
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { IPulseAIEngineService, PulseAIEngineState } from '../common/pulseAIEngineService.js';
+import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
+import { PulseAICommandId } from '../common/pulseAI.js';
+import { IPulseAIEngineService, PulseAIEngineSetupError, PulseAIEngineState } from '../common/pulseAIEngineService.js';
 import type { PulseClientMethod, PulseServerEvent } from '../common/pulseAIProtocol.js';
 import { IPulseAIRendererService, PulseAISurface } from '../common/pulseAIRendererService.js';
 import { IPulseAIWorkbenchService } from '../common/pulseAIWorkbenchService.js';
@@ -73,6 +75,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private verification: string | undefined;
 	private telemetry: PulseAIRenderModel['telemetry'] = {};
 	private error: string | undefined;
+	private engineSetupError = false;
+
+	/**
+	 * Explicit multi-root selection (P0): never silently pick folders[0].
+	 * Set through selectWorkspace() and retained for the session, surviving
+	 * re-renders, until the folder leaves the workspace or is replaced.
+	 */
+	private selectedWorkspaceUri: URI | undefined;
 
 	private readonly host: PulseAIRenderHost = {
 		setDraft: value => { this.draft = value; },
@@ -102,6 +112,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.restartAttempts = 0;
 			void this.ensureEngine();
 		},
+		selectWorkspace: uri => this.selectWorkspace(uri),
+		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
+		openEngineSettings: () => { void this.commandService.executeCommand(PulseAICommandId.OpenSettings); },
 	};
 
 	constructor(
@@ -109,6 +122,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		@IPulseAIWorkbenchService private readonly workbenchService: IPulseAIWorkbenchService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {
@@ -140,12 +154,61 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		});
 	}
 
+	/**
+	 * P0 workspace acquisition: the session folder comes ONLY from
+	 * IWorkspaceContextService.getWorkspace().folders. Zero folders -> undefined
+	 * (submission blocked). One folder -> its exact uri.fsPath. Multiple folders
+	 * -> the explicitly retained selection (never folders[0] implicitly).
+	 */
+	private get sessionFolder(): IWorkspaceFolder | undefined {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) { return undefined; }
+		if (folders.length === 1) { return folders[0]; }
+		if (this.selectedWorkspaceUri) {
+			const selected = folders.find(folder => folder.uri.toString() === this.selectedWorkspaceUri?.toString());
+			if (selected) { return selected; }
+			this.selectedWorkspaceUri = undefined;
+		}
+		return undefined;
+	}
+
 	private get workspacePath(): string | undefined {
-		return this.workspaceContextService.getWorkspace().folders[0]?.uri.fsPath;
+		return this.sessionFolder?.uri.fsPath;
 	}
 
 	private get workspaceLabel(): string {
-		return this.workspaceContextService.getWorkspace().folders[0]?.name ?? 'Local workspace';
+		return this.sessionFolder?.name ?? 'Local workspace';
+	}
+
+	private get workspaceFolderCount(): number {
+		return this.workspaceContextService.getWorkspace().folders.length;
+	}
+
+	private get workspaceChoices(): readonly { label: string; uri: string }[] {
+		return this.workspaceContextService.getWorkspace().folders.map(folder => ({
+			label: folder.name,
+			uri: folder.uri.toString(),
+		}));
+	}
+
+	private selectWorkspace(uri: string): void {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		const matched = folders.find(folder => folder.uri.toString() === uri);
+		if (!matched) { return; }
+		const changed = this.selectedWorkspaceUri?.toString() !== uri;
+		this.selectedWorkspaceUri = matched.uri;
+		if (changed) {
+			// Retain the selection for the SESSION; a folder switch resets the
+			// session binding so frames always carry the same workspace.
+			this.sessionId = undefined;
+			this.running = false;
+			this.cancelRequested = false;
+			this.turnOutcome = 'idle';
+			this.userMessage = undefined;
+			this.assistantText = '';
+			this.pendingPrompt = undefined;
+		}
+		this.render();
 	}
 
 	private get capabilitySummary(): PulseAIRenderModel['capabilitySummary'] {
@@ -161,6 +224,12 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		return {
 			engineState: this.engineService.state,
 			workspaceLabel: this.workspaceLabel,
+			noWorkspace: this.workspaceFolderCount === 0,
+			// P0: exact hint the renderer shows when no project folder is open.
+			noWorkspaceHint: 'Open a folder to start a Pulse session.',
+			workspaceSelectionRequired: this.workspaceFolderCount > 1 && !this.sessionFolder,
+			workspaceChoices: this.workspaceChoices,
+			engineSetupError: this.engineSetupError,
 			sessionId: this.sessionId,
 			running: this.running,
 			cancelRequested: this.cancelRequested,
@@ -202,20 +271,24 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private async ensureEngine(): Promise<void> {
 		if (this.engineService.state === PulseAIEngineState.Ready) { return; }
 		if (this.startPromise) { return this.startPromise; }
+		// P0: no project folder -> no session, no engine start, no frames. The
+		// composer is disabled, so this is never an error state; an engine-root
+		// problem is still reported as an actionable engine-setup error below.
 		const workspace = this.workspacePath;
-		if (!workspace && !this.configurationService.getValue<string>('pulseai.engineRoot')?.trim()) {
-			this.error = 'Open a workspace or configure pulseai.engineRoot before starting the local engine.';
-			this.render();
+		if (!workspace) {
+			this.engineSetupError = false;
 			return;
 		}
 		this.error = undefined;
 		const resumeSession = this.sessionId;
-		this.startPromise = this.engineService.start(workspace ?? '').then(() => {
+		this.startPromise = this.engineService.start(workspace).then(() => {
+			this.engineSetupError = false;
 			if (resumeSession && this.engineService.state === PulseAIEngineState.Ready) {
 				this.send({ type: 'session_resume', session_id: resumeSession, workspace });
 				this.send({ type: 'events_replay', session_id: resumeSession });
 			}
 		}).catch(error => {
+			this.engineSetupError = error instanceof PulseAIEngineSetupError;
 			this.error = error instanceof Error ? error.message : String(error);
 		}).finally(() => {
 			this.startPromise = undefined;
