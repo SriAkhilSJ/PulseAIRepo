@@ -14,7 +14,7 @@
     },
     "product.json": {
       "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
-      "overlay_sha256": "a131f8789ce3995f4597ec90e034742987c2a8384c7f45db2c608551a4792398",
+      "overlay_sha256": "226e19929b7381ba0530119972d4b962c7c6f8efcc255e2743a3e7aafb58f086",
       "modified": true
     },
     "src/vs/workbench/workbench.common.main.ts": {
