@@ -162,15 +162,25 @@ def repair_tool_call_ids(tool_calls: list[dict]) -> tuple[list[dict], bool]:
     import json as _json
 
     seen: set[str] = set()
+    # #14 (external review): the seed used the POSITIONAL index — reordering
+    # the same calls changed every repaired id, defeating the byte-stable
+    # prefix claim. Seed on the per-signature OCCURRENCE instead: distinct
+    # calls are reorder-stable (occurrence 0); duplicated identical calls
+    # (pathological — the D36 sanitizer collapses them) get 0,1,2... in
+    # appearance order, which is the only assignable distinction.
+    signature_occurrence: dict[str, int] = {}
     changed = False
     repaired: list[dict] = []
-    for i, tc in enumerate(tool_calls):
+    for tc in tool_calls:
         cid = str(tc.get("id") or "").strip()
         if not cid or cid in seen:
-            seed = (
+            signature = (
                 f"{tc.get('name', '')}:"
-                f"{_json.dumps(tc.get('args', {}), sort_keys=True)}:{i}"
+                f"{_json.dumps(tc.get('args', {}), sort_keys=True)}"
             )
+            occurrence = signature_occurrence.get(signature, 0)
+            signature_occurrence[signature] = occurrence + 1
+            seed = f"{signature}:{occurrence}"
             cid = "call_" + hashlib.sha256(
                 seed.encode("utf-8", errors="replace")
             ).hexdigest()[:12]
