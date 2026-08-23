@@ -307,6 +307,15 @@ class ContextEngine:
         # P1: this engine's session id. The degraded-scan receipts must carry
         # it (not "unknown") or the session-scoped bridge forwarder drops them.
         self.thread_id: str | None = thread_id or None
+        # By-design bounding receipt latch: engines are SESSION-scoped (one
+        # per conversation thread), so an instance-level once-latch makes the
+        # "workspace exceeds scan budget" receipt fire exactly ONCE per
+        # session/turn-set. Measured live (founder-pbr004-1): a 20-lap turn
+        # emitted 20 identical receipts — the FACT ("this workspace is bigger
+        # than the budget") does not change per graph iteration; re-emitting
+        # it per lap is noise and breaks the 1-receipt benchmark contract.
+        # Truncation receipts (distinct real events) are NOT latched.
+        self._by_design_receipt_emitted = False
         self._active_thread_id: str | None = None
 
         # Per-instance copy: _apply_learned_weights() mutates these weights,
@@ -682,11 +691,23 @@ class ContextEngine:
         pool = self._active_pool
         if pool is None:
             return
-        oversized = self._workspace_exceeds_budget(
-            getattr(self, "_active_workspace", ".") or ".", pool.max_considered
+        oversized = (
+            not self._by_design_receipt_emitted
+            and self._workspace_exceeds_budget(
+                getattr(self, "_active_workspace", ".") or ".", pool.max_considered
+            )
         )
         if not (pool.truncated or pool.cancelled or oversized):
             return
+        # ONE consolidated receipt per session (benchmark contract: count==1).
+        # The receipt answers "was context prep bounded, and how" — a single
+        # answer per session; per-walk detail lives in `components`. A turn
+        # that laps the graph must not emit one receipt per lap (measured:
+        # 20), and a truncation + by-design pair in one run is still one
+        # consolidated claim, strongest reason first.
+        if self._by_design_receipt_emitted:
+            return
+        self._by_design_receipt_emitted = True
         reason = (
             "context scan bounded"
             if (pool.truncated or pool.cancelled)
