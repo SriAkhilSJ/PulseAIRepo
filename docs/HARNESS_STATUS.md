@@ -513,3 +513,37 @@ Frame count (3) == telemetry count (3): the forwarder visibility gap is closed.
 2. `python scripts\analyze_llm_requests.py bench-results\founder-pbr002-5 bench-results\founder-pbr002-6 bench-results\founder-pbr002-7`
 3. Then PBR-012 on the REAL engine (bridge lane, cancel fires before any
    model call — effectively free) and PBR-004 (20k-entry workspace, ~$0.02-0.05).
+
+---
+
+# COST CLAIM VERIFIED — clean rule of three (2026-08-23, runs 5/6/7)
+
+| Run | Calls | Tokens in | Est. $ |
+|---|---|---|---|
+| founder-pbr002-5 | 3 | 14,931 | $0.0152 |
+| founder-pbr002-6 | 4 | 22,562 | $0.0228 |
+| founder-pbr002-7 | 3 | 14,884 | $0.0151 |
+
+**Claimable: one trivial turn = 3–4 provider calls, $0.015–0.023, median
+$0.015.** 7 consecutive greens overall. Cumulative spend $0.26.
+
+## Reading the swing honestly
+
+The min-max swing (52%) is bimodal, not noisy: runs 5 and 7 are within 1%
+of each other; run 6 alone added ONE call with ~7.6k more input tokens —
+the shape of an extra main-agent graph iteration (a second/third
+full-context lap), not a repair retry (all attempts observed = 1).
+
+Why it matters beyond $0.008: the +1-lap mechanism scales with context —
+on a real coding task (large context per lap) one extra iteration per turn
+is a 30–50% cost multiplier. Attribution BEFORE fixing: the run-6 record
+already contains the answer — `analyze_llm_requests.py
+bench-results\founder-pbr002-6` (free) shows the extra call's message
+heads and iteration shape.
+
+## Next lanes
+
+1. FREE: analyzer on run 6 alone (attribute the 4th call).
+2. FREE: PBR-012 on the real engine (bridge lane) — cancel fires before any
+   provider call; proves real-engine cancel + zero post-cancel sends.
+3. ~$0.03: PBR-004 (20k-entry workspace) — context bounding under load.
