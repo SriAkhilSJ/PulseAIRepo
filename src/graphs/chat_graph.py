@@ -924,13 +924,19 @@ def _quick_task_decision(
     if " ".join(raw.lower().split()) in _D30_APPROVAL_WORDS:
         return None
 
-    # Boundary consistency (external review #7): an ack CONTAINING an
-    # approval word is approval-flavoured ("ok go ahead" ~ "go ahead") —
-    # the approval branch owns routing it, so it must pay the classifier
-    # exactly like the exact phrase does. Free "continue" is for pure acks.
-    for approval_word in _D30_APPROVAL_WORDS:
-        if approval_word in norm:
-            return None
+    # Boundary consistency (external review #7, round 3): an ack CONTAINING
+    # an approval phrase is approval-flavoured ("ok go ahead" ~ "go ahead")
+    # and must pay the classifier like the exact phrase. Matching is on
+    # WHOLE TOKENS / token n-grams, never substrings — "yesterday" must not
+    # match "yes". Free "continue" stays reserved for pure acks.
+    norm_tokens = norm.split()
+    norm_ngrams = {
+        " ".join(norm_tokens[i:i + n])
+        for n in (1, 2, 3)
+        for i in range(len(norm_tokens) - n + 1)
+    }
+    if norm_ngrams & _D30_APPROVAL_WORDS:
+        return None
 
     tokens = norm.split()
     if any(t in _D30_DANGER_TOKENS for t in tokens):
@@ -2747,7 +2753,14 @@ def invoke_agent(
         ai_messages = [m for m in result["messages"] if getattr(m, "type", "") == "ai"]
         if not ai_messages:
             return ""
-        return ai_messages[-1].content
+        final = ai_messages[-1].content
+        if isinstance(final, list):
+            # Multimodal content blocks: join text blocks (same rule as the
+            # stream_agent fallback) so callers always get a string.
+            final = "".join(
+                b.get("text", "") for b in final if isinstance(b, dict)
+            ) or str(final)
+        return final
     finally:
         turn_controls.end(thread_id)
         set_active_session(None)

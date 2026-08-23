@@ -387,3 +387,20 @@ def test_bridge_driver_session_id_is_unique_per_instance():
     b = BridgeDriver(Recorder(), python_command=("python",))
     assert a._session_id != b._session_id
     assert a._session_id.startswith("bench-")
+
+
+def test_turn_control_stale_cancel_never_poisons_reuse():
+    """External review #15 pin: a cancelled turn's cancel_event must not
+    outlive the turn — an unmanaged caller reusing the id without begin()
+    would have admit_action() refuse forever."""
+    from src.runtime.turn_control import TurnControlRegistry
+
+    tc = TurnControlRegistry()
+    sid = "poison-test"
+    tc.begin(sid)
+    assert tc.cancel(sid) is True          # event set, turn cancelled
+    tc.end(sid)                            # last owner releases
+    # Unmanaged reuse (no begin): admission must succeed — stale cleared.
+    assert tc.admit_action(sid) is True
+    # And a late cancel after end is still rejected (inactive session):
+    assert tc.cancel(sid) is False
