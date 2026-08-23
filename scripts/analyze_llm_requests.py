@@ -39,6 +39,26 @@ def _load(run_dir: Path) -> dict:
 def _breakdown(record: dict) -> None:
     events = [e for e in record.get("events", []) if e.get("type") == "llm.request"]
     startup = int(record.get("startup_ms") or 0)
+
+    # Loop anatomy (hermes doctrine: attribute before fixing): the frame
+    # stream shows WHAT the model actually did — tool calls, safety
+    # denials, plans, replans — not just provider requests.
+    frames = record.get("frames", [])
+    from collections import Counter
+    frame_counts = Counter(f.get("type") for f in frames)
+    tool_starts = [f for f in frames if f.get("type") == "tool_call_start"]
+    safety = [f for f in frames if f.get("type") == "safety_request"]
+    if tool_starts or safety or frame_counts.get("plan_updated"):
+        print("loop anatomy:")
+        if tool_starts:
+            names = Counter(t.get("name") for t in tool_starts)
+            print(f"  tool calls started: {len(tool_starts)} -> {dict(names)}")
+        if safety:
+            print(f"  safety requests (approvals/denials): {len(safety)}")
+        if frame_counts.get("plan_updated"):
+            print(f"  plan_updated frames: {frame_counts['plan_updated']}")
+        print()
+
     print(f"run: {record.get('run_id')}  task: {record.get('task_id')}")
     print(f"llm.request events: {len(events)}")
     print()
