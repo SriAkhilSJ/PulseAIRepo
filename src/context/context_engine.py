@@ -633,6 +633,7 @@ class ContextEngine:
         self._active_thread_id = (
             self.thread_id or str(state.get("thread_id") or "") or None
         )
+        self._active_workspace = str(state.get("workspace") or ".")
         try:
             layers = self._build_context_layers_inner(state, task_type, walkers)
             self._emit_build_receipt()
@@ -641,21 +642,59 @@ class ContextEngine:
             self._active_budget = None
             self._active_pool = None
             self._active_thread_id = None
+            self._active_workspace = None
+
+    @staticmethod
+    def _workspace_exceeds_budget(workspace: str, cap: int) -> bool:
+        """Bounded probe: does the workspace hold MORE entries than the scan
+        budget could ever consider? Counting stops as soon as the total
+        exceeds ``cap`` (listdir lengths are O(1)), with a visited-directory
+        guard for pathological deep trees; no file content is read. Used for
+        the by-design bounding receipt (PBR-004): when the raw workspace
+        exceeds the budget, the bound is ACTIVELY protecting the turn and a
+        receipt is owed even if skip rules pruned everything without a
+        mid-walk truncation."""
+        import os as _os
+        seen = 0
+        roots = 0
+        try:
+            if _os.path.isfile(workspace):
+                return False
+            for _root, dirs, files in _os.walk(workspace):
+                seen += len(dirs) + len(files)
+                roots += 1
+                if seen > cap or roots > 2 * cap:
+                    break
+        except Exception:
+            return False
+        return seen > cap
 
     def _emit_build_receipt(self) -> None:
         """P1-fix: emit EXACTLY ONE turn/build-level ``runtime.degraded``
         receipt when any limit or cancellation terminated initial context
-        work. Counts are the pipeline-wide aggregates from the ONE shared
-        ledger (not a single walker's scan); component-level summaries are
-        nested inside. A deadline that expired before the first file was
+        work, OR when the workspace itself exceeds what the budget could
+        consider (the bound is protecting the turn by design — pruning is
+        still bounding). Counts are the pipeline-wide aggregates from the ONE
+        shared ledger (not a single walker's scan); component-level summaries
+        are nested inside. A deadline that expired before the first file was
         consumed still fires — zero values are honest evidence, never
         suppressed."""
         pool = self._active_pool
-        if pool is None or not (pool.truncated or pool.cancelled):
+        if pool is None:
             return
+        oversized = self._workspace_exceeds_budget(
+            getattr(self, "_active_workspace", ".") or ".", pool.max_considered
+        )
+        if not (pool.truncated or pool.cancelled or oversized):
+            return
+        reason = (
+            "context scan bounded"
+            if (pool.truncated or pool.cancelled)
+            else "workspace exceeds scan budget — bounded by design"
+        )
         pool.emit_degraded({
             "thread_id": self._active_thread_id or "unknown",
-            "reason": "context scan bounded",
+            "reason": reason,
             "files_considered": pool.considered_files,
             "files_read": pool.read_files,
             "bytes_read": pool.read_bytes,

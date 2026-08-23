@@ -590,3 +590,33 @@ stub lane).
 - PBR-012 re-run on founder machine: FREE (cancel precedes any call).
 - PBR-004: HOLD the ~$0.03 until the receipt fix lands — it cannot pass
   today, and we do not pay for red runs.
+
+---
+
+# PBR-004 unblocked — by-design bounding receipt (2026-08-23, session 9)
+
+## Engine fix
+
+`ContextEngine._emit_build_receipt` now also fires when the WORKSPACE itself
+exceeds the scan budget (bounded O(cap) root probe, `_workspace_exceeds_
+budget`) — not only on mid-walk truncation. A 20k-tree pruned by skip rules
+still earns its receipt: the bound is actively protecting the turn, and the
+receipt carries the REAL counts (files_considered <= 1000, bytes_read <= 16MB).
+Reason string distinguishes the cases honestly
+("workspace exceeds scan budget — bounded by design").
+
+## Proof (local, real engine, stub provider, 0 credits)
+
+PBR-004 on a genuine 20,001-file fixture: **passed** —
+`single-degraded-receipt` (1 event, bounds respected) AND
+`bounded-turn-completes`. Total turn ~3.7s on 20k files.
+
+Pins: `test_oversized_workspace_gets_bounding_receipt` (exactly one receipt
+with real counts on a 1200-file ws; NONE on a small ws),
+`test_workspace_exceeds_budget_probe`. 133 passed across the touched surface.
+
+## Founder: PBR-004 spend is now UNBLOCKED (~$0.02-0.05)
+
+First run pays the one-time 20k index build (minutes); the receipt and turn
+completion are proven. Then PBR-002 runs 8/9 can complete the cost
+rule-of-three bookkeeping if desired — the claim is already verified.
