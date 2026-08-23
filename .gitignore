@@ -92,3 +92,6 @@ claude_test/
 # Benchmark run artifacts (design rule: results live outside git)
 bench-results/
 bench-archive*/
+
+# Agent scratch: web image-search artifacts
+image-search/
