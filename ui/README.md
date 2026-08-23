@@ -1,5 +1,12 @@
 # PulseAI IDE UI Lab
 
+> **⚠️ AGENTS: read [`docs/DESIGN/PULSEAI_DESIGN_PLAN.md`](../docs/DESIGN/PULSEAI_DESIGN_PLAN.md) before editing anything under `ui/`.**
+> The interface is mid-migration to the "Pulse Native" design system. `ui/src/styles.css`
+> is **pre-system** and is being replaced by generated tokens + split modules — do not
+> derive design decisions from it, and do not hand-edit
+> `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/*.css` (mirrored from `ui/`).
+> File ownership and invariants: §7 of that plan. Owner: Interface agent.
+
 Browser-testable source for the two PulseAI IDE product surfaces:
 
 1. **Agent UI** — compact, current-workspace execution surface.
