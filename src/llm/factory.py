@@ -569,9 +569,16 @@ def get_llm(provider, model):
             "1", "true", "yes", "on",
         }
         try:
-            timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "60"))
+            # Default sized to GENERATION length, not ping latency (hermes
+            # doctrine): a 100B-class model writing a large first response
+            # (Test 5: the GARGANTUA raytracer turn) legitimately needs
+            # >60s wall time when not streaming — the old 60s default killed
+            # exactly that turn twice (~122s = 2 attempts) and failed the
+            # run. Classifiers are unaffected: a timeout only matters when
+            # exceeded, and they return in seconds.
+            timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "180"))
         except (TypeError, ValueError):
-            timeout = 60.0
+            timeout = 180.0
         llm = ChatOpenAI(
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
