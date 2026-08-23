@@ -67,6 +67,27 @@ class BridgeServer:
             self._protocol_out.write(encode(frame))
             self._protocol_out.flush()
 
+    @staticmethod
+    def _prior_checkpoint_count(sid: str, db_path: str | None = None) -> int | None:
+        """Count durable checkpoints for a thread id (read-only, no engine
+        import). None = unknown (db unreadable/schema changed) — never
+        reported as 0 when unknown."""
+        db = db_path or os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
+        if not os.path.exists(db):
+            return 0
+        try:
+            import sqlite3
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2.0)
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", (sid,)
+                ).fetchone()
+                return int(row[0])
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
     def _session(self, requested: str | None, workspace: str = "") -> str:
         """Resolve a session id, binding the FIRST workspace only.
 
@@ -369,7 +390,16 @@ class BridgeServer:
             self.emit(error_frame(str(exc)))
             return True
         if kind == "session_create":
-            self.emit({"type": "session_info", **self._sessions[sid]})
+            prior = self._prior_checkpoint_count(sid)
+            info = {"type": "session_info", **self._sessions[sid]}
+            if prior is not None:
+                # Visibility: a session id with durable history SILENTLY
+                # resumes it (the langgraph checkpointer keys by thread id).
+                # Measured live: a fixed id made each benchmark run replay
+                # every prior run (+3 calls / +~10k tokens per run, linear).
+                # The create reply must never claim a fresh start silently.
+                info["prior_checkpoints"] = prior
+            self.emit(info)
         elif kind in {"session_load", "session_resume"}:
             try:
                 from src.runtime.factory import get_runtime_services

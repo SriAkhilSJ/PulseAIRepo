@@ -8,6 +8,7 @@ the fork will see.
 from __future__ import annotations
 
 import json
+import uuid
 import subprocess
 import sys
 
@@ -276,3 +277,32 @@ def test_forwarder_keeps_sessionless_events_drops_other_sessions():
     assert kinds.count("llm.request") == 2, kinds      # sessionless + own kept, other dropped
     assert kinds.count("token") == 1, kinds            # sessionless chunk kept
     assert "tool_call_start" not in kinds              # other session dropped
+
+
+def test_session_create_reports_prior_checkpoints(sidecar, tmp_path):
+    """session_create must not claim a fresh start silently: a session id with
+    durable checkpointer history resumes it (live-measured as linear call
+    growth across benchmark runs). Fresh id -> prior_checkpoints == 0."""
+    import sqlite3
+    from src.bridge.__main__ import BridgeServer
+
+    # Helper: missing db -> 0; existing db with rows -> count; junk -> None.
+    assert BridgeServer._prior_checkpoint_count("anyone", str(tmp_path / "nope.db")) == 0
+    db = tmp_path / "sessions.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE checkpoints (thread_id TEXT)")
+    conn.execute("INSERT INTO checkpoints VALUES ('old-id')")
+    conn.commit(); conn.close()
+    assert BridgeServer._prior_checkpoint_count("old-id", str(db)) == 1
+    assert BridgeServer._prior_checkpoint_count("new-id", str(db)) == 0
+    junk = tmp_path / "junk.db"
+    junk.write_text("not a database")
+    assert BridgeServer._prior_checkpoint_count("x", str(junk)) is None
+
+    # End-to-end: a fresh session_create reply carries prior_checkpoints == 0.
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    import os
+    info = _send(sidecar, {"type": "session_create", "workspace": str(tmp_path),
+                           "session_id": f"fresh-{uuid.uuid4().hex[:8]}"})
+    assert info["type"] == "session_info"
+    assert info.get("prior_checkpoints") == 0

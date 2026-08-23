@@ -430,3 +430,47 @@ frame — full attribution without new tooling.
 2. Run 4 with a fresh run-id at tip (forwarder fix included).
 3. If frames now equal telemetry and the extras are repair loops → engine
    fix lands free before any further spend.
+
+---
+
+# Cross-run pollution — root cause found, proven, fixed (2026-08-23, session 7)
+
+## The tell
+
+Founder PBR-002 call counts grew LINEARLY: 7 → 11 → 14 → 17 calls and
++~10k input tokens per run (30,747 → 47,690 → 56,767 → 66,224), same task,
+all green. Not variance — accumulation.
+
+## Proof (local stub lane, zero credits, same session id three times)
+
+| run | llm frames | main-call msgs |
+|---|---|---|
+| 1 | 2 | 9 |
+| 2 | 3 | 12 (+3) |
+| 3 | 3 | 15 (+3) |
+
+Root cause: the engine's durable langgraph checkpointer (`~/.pulseai/
+sessions.db`) keys history by thread id, and the harness driver used the
+FIXED session id `bench` for every run — so each run created a session that
+silently resumed ALL prior benchmark runs' turns. The four "green" rows
+measured the history of all previous runs, not this run. (Earlier local
+stub runs with different ids were byte-stable — which is what narrowed it.)
+
+## Fixes
+
+1. **Driver**: every BridgeDriver instance mints a unique
+   `bench-<hex10>` session id — each benchmark run is an isolated thread.
+   Pin: `test_bridge_driver_session_id_is_unique_per_instance`.
+2. **Bridge honesty**: `session_create` replies now carry
+   `prior_checkpoints` (read-only count from sessions.db; None when
+   unknown) — a session id with durable history can never again claim a
+   fresh start silently. Pin: `test_session_create_reports_prior_checkpoints`.
+
+## Consequences for the scoreboard
+
+- Runs 2/2re/3/4 stay green for CORRECTNESS (routing/proof/completion are
+  unaffected by replayed history) but their cost/latency numbers are
+  polluted and must not be used as a baseline.
+- The clean baseline = next run at tip with unique ids (expect ~2-4 calls,
+  small msg count — the local lane suggests ~$0.01-0.02 per isolated run).
+- Rule-of-three for COST claims must be re-earned on clean runs.
