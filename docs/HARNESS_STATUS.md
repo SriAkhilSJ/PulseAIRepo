@@ -649,3 +649,33 @@ Sarvam replies). The run record has all 21 llm.request events:
 `python scripts\analyze_llm_requests.py bench-results\founder-pbr004-1`
 (free) attributes them before any engine change. Hold further PBR-004
 spend until the lap fix lands; a re-run should then cost ~$0.02, not $0.12.
+
+---
+
+# The 20-lap root cause FIXED — one-step questions never plan (2026-08-23, session 11)
+
+## Attribution (founder analyzer paste, founder-pbr004-1)
+
+22 calls total: PLAN/DIRECT classifier (verdict: PLAN — wrong) → ~20 plan
+laps at ~25s cadence, msgs 5→62, ZERO tool calls, one summarizer call, a
+186s gap for the 20k index build. The router gates were bounded — the PLAN
+LOOP was the lap source, entered because the LLM classifier's confident-wrong
+PLAN verdict was trusted unconditionally.
+
+## Fix (planner)
+
+`_looks_like_direct_question`: obvious one-step questions (summarize /
+explain / describe / what-is / tell-me / list / show-me, <200 chars, not a
+creation+execution plan shape) return DIRECT **without spending the
+classifier call**; and a PLAN verdict on such a question is overridden (the
+heuristic only wins when the task is not ALSO an obvious plan task).
+
+## Local e2e proof (20,001-file workspace, stub provider, 0 credits)
+
+PBR-004: **passed** — provider calls **1** (was 2; classifier call gone),
+PLAN-classifier calls 0, exactly 1 runtime_degraded receipt, turn completes.
+Expected founder effect: the $0.12 20-lap turn becomes a 1-3 lap ~$0.02 turn.
+
+Pins: test_planner_direct_gate.py (3 tests — obvious questions skip the
+classifier and never plan; wrong PLAN verdict overridden; real multi-step
+tasks still reach the classifier). 83 passed on the touched surface.
