@@ -866,3 +866,35 @@ another lap. Conservative by construction; fail-open on short inputs.
 
 Effect on the founder's 20-lap class: capped at 3 laps worst case, no
 matter which loop causes it. No intent classification involved.
+
+---
+
+# TEST 5, attempt 1 — VERDICT: FAIL (provider timeout; discipline held) 2026-08-23
+
+## Graded per the pre-registered rules
+
+turn_failed / completed=false => FAIL. But the failure CLASS is the cheapest
+possible: ~$0.02 spent, ZERO human interventions, watchdog + circuit-breaker
+never misfired, full frame evidence captured.
+
+## Anatomy (from frames.jsonl)
+
+1. PLAN/DIRECT classifier -> PLAN (1s)
+2. Planner -> 8-step plan (15s)
+3. MAIN call (11 msgs, full GARGANTUA task) -> died at ~122s with
+   "Request timed out." = TWO 60s attempts. Root cause: the custom-provider
+   request timeout default (60s) is sized for ping latency, not GENERATION
+   length -- a 100B model writing the first big response of a huge build
+   legitimately needs >60s when NOT streaming. Hermes sizes timeouts to
+   generation and streams first (timeout then guards stalls, not length);
+   it also continues truncated responses with boosted budgets.
+
+## Fix (hermes-aligned)
+
+- factory default timeout 60 -> 180s (env override unchanged, cap 300)
+- runner sets PULSEAI_LLM_STREAMING=1 + PULSEAI_LLM_TIMEOUT=280 for the
+  child (pre-set env wins); script made pure-ASCII (em-dash encoding bug
+  on the founder box fixed by their agent, now structural)
+
+Engine verified importing + a full stub turn completes with the new
+default. Retry = same command, fresh RunId.

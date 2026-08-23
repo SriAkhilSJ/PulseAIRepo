@@ -1,4 +1,4 @@
-# run_test5_guarded.ps1 — Test 5 (GARGANTUA) through the real bridge, guarded.
+# run_test5_guarded.ps1 - Test 5 (GARGANTUA) through the real bridge, guarded.
 #
 # Watchdog: 30s checks; kills the tree after 300s of total silence or at the
 # hard cap (90 min). Every frame recorded; analyzer runs at the end.
@@ -52,7 +52,13 @@ except Exception as e:
     print("PROBE_FAIL", type(e).__name__, str(e)[:200]); raise SystemExit(1)
 "@ | Set-Content -Encoding UTF8 $probePy
 & $Python $probePy
-if ($LASTEXITCODE -ne 0) { Write-Host "[probe] FAILED — test NOT started." -ForegroundColor Red; exit 2 }
+if ($LASTEXITCODE -ne 0) { Write-Host "[probe] FAILED - test NOT started." -ForegroundColor Red; exit 2 }
+
+# Hermes alignment for long build turns: STREAM the provider (first token
+# arrives in seconds; the timeout then guards stalls, not total generation
+# length) and give big generations room. Pre-set env values win.
+if (-not $env:PULSEAI_LLM_STREAMING) { $env:PULSEAI_LLM_STREAMING = "1" }
+if (-not $env:PULSEAI_LLM_TIMEOUT)   { $env:PULSEAI_LLM_TIMEOUT = "280" }
 
 # Long build turn: the driver records every frame; watchdog watches the run dir.
 $LogOut = Join-Path $env:TEMP "$RunId.out.log"
@@ -73,7 +79,7 @@ while (-not $proc.HasExited) {
     $now = Get-Date
     if ($now -gt $deadline) {
         & taskkill /T /F /PID $proc.Id 2>&1 | Out-Null
-        Write-Host "[watchdog] hard cap $MaxMinutes min exceeded — killed." -ForegroundColor Red; exit 3
+        Write-Host "[watchdog] hard cap $MaxMinutes min exceeded - killed." -ForegroundColor Red; exit 3
     }
     $newest = $epoch
     if ((Test-Path $LogOut) -and ((Get-Item $LogOut).LastWriteTime -gt $newest)) { $newest = (Get-Item $LogOut).LastWriteTime }
@@ -87,7 +93,7 @@ while (-not $proc.HasExited) {
     Write-Host ("[watchdog] +{0:n0}s alive pid={1} idle={2:n0}s" -f ($now - $started).TotalSeconds, $proc.Id, $idle)
     if ($idle -gt $StallSeconds) {
         & taskkill /T /F /PID $proc.Id 2>&1 | Out-Null
-        Write-Host "[watchdog] STALLED ${idle}s — killed." -ForegroundColor Red; exit 3
+        Write-Host "[watchdog] STALLED ${idle}s - killed." -ForegroundColor Red; exit 3
     }
 }
 
