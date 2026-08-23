@@ -14,6 +14,12 @@
   "contributes": {
     "themes": [
       {
+        "id": "PulseAI Dark",
+        "label": "%pulseaiDarkThemeLabel%",
+        "uiTheme": "vs-dark",
+        "path": "./themes/pulseai-dark.json"
+      },
+      {
         "id": "Light 2026",
         "label": "%light2026ThemeLabel%",
         "uiTheme": "vs",
@@ -80,7 +86,10 @@
         "label": "%minimalIconThemeLabel%",
         "path": "./fileicons/vs_minimal-icon-theme.json"
       }
-    ]
+    ],
+    "configurationDefaults": {
+      "workbench.colorTheme": "PulseAI Dark"
+    }
   },
   "repository": {
     "type": "git",
