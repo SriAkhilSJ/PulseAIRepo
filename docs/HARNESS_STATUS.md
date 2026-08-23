@@ -474,3 +474,42 @@ stub runs with different ids were byte-stable — which is what narrowed it.)
 - The clean baseline = next run at tip with unique ids (expect ~2-4 calls,
   small msg count — the local lane suggests ~$0.01-0.02 per isolated run).
 - Rule-of-three for COST claims must be re-earned on clean runs.
+
+---
+
+# CLEAN BASELINE — PBR-002 at $0.0152/turn (2026-08-23, founder run founder-pbr002-5)
+
+## The number
+
+**3 model calls · 14,931 in / 278 out tokens · $0.0152 · 3/3 checks · 5th
+consecutive green.** The session-pollution fix (349f8a88) dropped calls
+17 → 3 and cost $0.0676 → $0.0152 (**-78%**) on the identical task —
+closing the loop on the linear-growth diagnosis (fix the id, growth vanishes).
+
+## Clean-run anatomy (analyzer, frames == telemetry now)
+
+| # | offset | msgs | call |
+|---|---|---|---|
+| 1 | +35.3s | 2 | PLAN/DIRECT classifier |
+| 2 | +36.8s | 10 | main agent (context + question) |
+| 3 | +40.3s | 14 | main agent, 2nd graph iteration (replays #2's exchange) |
+
+Frame count (3) == telemetry count (3): the forwarder visibility gap is closed.
+
+## What is now claimable vs pending
+
+- ✅ CORRECTNESS (rule of three ×5): workspace routing verified.
+- ✅ Efficiency DIRECTION: one trivial turn = 3 calls / $0.015 clean.
+- 🔜 COST claim (rule of three): two more clean runs (±% swing), ~$0.03 total.
+- 🔜 LATENCY: first provider call at +35.3s (engine boot + context prep).
+  The API itself answers in ~0.7s (probe). The 35s is process cold-start —
+  the IDE's persistent utility process is the structural fix (warm engine),
+  plus the 2nd main iteration (msgs 10→14) is the next token saver.
+
+## Next (founder, ~$0.03)
+
+1. Two more clean runs: `-RunId founder-pbr002-6`, then `-7` (fresh ids,
+   same workspace — unique session ids make reuse safe now).
+2. `python scripts\analyze_llm_requests.py bench-results\founder-pbr002-5 bench-results\founder-pbr002-6 bench-results\founder-pbr002-7`
+3. Then PBR-012 on the REAL engine (bridge lane, cancel fires before any
+   model call — effectively free) and PBR-004 (20k-entry workspace, ~$0.02-0.05).
