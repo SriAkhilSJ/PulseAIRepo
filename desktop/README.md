@@ -18,6 +18,26 @@ npm run gulp minify-vscode
 
 The pulseai worker entrypoint (`pulseAIWorkerMain`) is emitted as a desktop-only optimized bundle entry by **both** packaging paths: `vscode/build/buildfile.ts` (legacy gulp path) and `vscode/build/next/index.ts` (current esbuild path). String-addressed utility workers are not discovered from the workbench import graph, so each path lists the entry explicitly.
 
+## Branding & theme (Interface agent)
+
+The fork ships **PulseAI Dark** as the default color theme
+(`extensions/theme-defaults/themes/pulseai-dark.json`), generated from upstream
+`2026-dark.json` by `scripts/generate_pulseai_theme.py`. Regenerate it after any
+upstream pin bump; never hand-edit the generated theme.
+
+`PulseAI Dark` is registered and made default from
+`extensions/theme-defaults/package.json` (`contributes.themes` +
+`contributes.configurationDefaults`) — **additive, no upstream source file is
+modified**, so invariant 7 still holds.
+
+**Copilot (`src/vs/workbench/contrib/chat/`, `extensions/copilot/`) is
+deliberately untouched** — it is the reference implementation for Pulse's
+integration work. Do not delete or edit it. See
+`docs/DESIGN/COPILOT_INTEGRATION_ANALYSIS.md` and
+`docs/DESIGN/FORK_REBRANDING.md` §5.
+
+Remaining rebranding gaps are tracked in `docs/DESIGN/FORK_REBRANDING.md` §4.
+
 ## Invariants
 
 1. Pulse is registered from `vscode/src/vs/workbench/contrib/pulseai/`.
