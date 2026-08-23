@@ -69,6 +69,14 @@ def uncovered_check_ids(task: TaskManifest, caps: DriverCapabilities) -> set[str
 # ---------------------------------------------------------------------------
 
 
+def _lane_wait_s(driver: Driver, echo_s: float, real_s: float) -> float:
+    """Echo lane is instant; REAL lanes pay engine cold start (~25-40s to
+    turn_started on the founder machine) plus first-run workspace indexing
+    (minutes for a 20k-entry tree). Echo-tuned windows made every real-lane
+    PBR-012/004 run die as failed_harness before the engine even spoke."""
+    return echo_s if driver.kind == "echo" else real_s
+
+
 def _open_and_ping(recorder: Recorder, driver: Driver, workspace: str, prompt: str,
                    timeout_s: float, *, cancel_after_start_ms: int | None = None) -> None:
     """Open a workspace, submit a prompt, wait for the turn to finish.
@@ -133,7 +141,8 @@ def _scenario_pbr_001(recorder: Recorder, driver: Driver, opts: dict) -> None:
 def _scenario_pbr_002(recorder: Recorder, driver: Driver, opts: dict) -> None:
     """Route the exact opened workspace through every layer."""
     workspace = opts["workspace"]
-    _open_and_ping(recorder, driver, workspace, "Explain workspace_proof.py", 60.0)
+    _open_and_ping(recorder, driver, workspace, "Explain workspace_proof.py",
+                    _lane_wait_s(driver, 60.0, 240.0))
     recorder.claim("workspace routed through the stack", status="unverified")
 
 
@@ -148,7 +157,8 @@ def _scenario_pbr_003(recorder: Recorder, driver: Driver, opts: dict) -> None:
         # Engine lanes: the workspace argument IS the selection; record it
         # before the prompt so `prompt_count_before_selection` counts 0.
         recorder.selection_ms = int(time.time() * 1000)
-        _open_and_ping(recorder, driver, workspace, "Use the selected folder.", 60.0)
+        _open_and_ping(recorder, driver, workspace, "Use the selected folder.",
+                    _lane_wait_s(driver, 60.0, 240.0))
     else:
         # Desktop v0.1 lane: record the selection flow evidence; the turn
         # after selection lands with the live-window pass. The observation
@@ -166,7 +176,8 @@ def _scenario_pbr_004(recorder: Recorder, driver: Driver, opts: dict) -> None:
     """Bound initial context for a 20k-entry workspace."""
     workspace = opts["workspace"]
     recorder.claim("context preparation is bounded", status="unverified")
-    _open_and_ping(recorder, driver, workspace, "Summarize the workspace.", 60.0)
+    _open_and_ping(recorder, driver, workspace, "Summarize the workspace.",
+                    _lane_wait_s(driver, 60.0, 900.0))  # 20k-tree first index build is minutes
 
 
 def _scenario_pbr_011(recorder: Recorder, driver: Driver, opts: dict) -> None:
@@ -174,7 +185,8 @@ def _scenario_pbr_011(recorder: Recorder, driver: Driver, opts: dict) -> None:
     workspace = opts["workspace"]
     # The engine's terminal tool must time out a long foreground command and
     # kill its tree; process evidence needs the real engine / desktop lane.
-    _open_and_ping(recorder, driver, workspace, "Run: python -c \"import time; time.sleep(300)\"", 60.0)
+    _open_and_ping(recorder, driver, workspace, "Run: python -c \"import time; time.sleep(300)\"",
+                    _lane_wait_s(driver, 60.0, 300.0))
     recorder.claim("timed-out command tree cleaned up", status="unverified")
 
 
@@ -183,7 +195,7 @@ def _scenario_pbr_012(recorder: Recorder, driver: Driver, opts: dict) -> None:
     workspace = opts["workspace"]
     _open_and_ping(
         recorder, driver, workspace,
-        "Prepare context and then reply.", 30.0,
+        "Prepare context and then reply.", _lane_wait_s(driver, 30.0, 300.0),
         cancel_after_start_ms=int(opts.get("cancel_after_start_ms", 100)),
     )
     recorder.claim("turn cancelled cleanly", status="unverified")

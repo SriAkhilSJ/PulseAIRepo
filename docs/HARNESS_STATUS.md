@@ -547,3 +547,46 @@ heads and iteration shape.
 2. FREE: PBR-012 on the real engine (bridge lane) — cancel fires before any
    provider call; proves real-engine cancel + zero post-cancel sends.
 3. ~$0.03: PBR-004 (20k-entry workspace) — context bounding under load.
+
+---
+
+# Lane-aware timeouts + PBR-012 real-engine green; PBR-004 gap isolated (2026-08-23, session 8)
+
+## Founder failures diagnosed (both free)
+
+- **PBR-012 bridge failed_harness**: the scenario waited 30s for turn_started;
+  the real engine's cold start is ~26-36s. The cancel itself worked PERFECTLY
+  (0 provider calls after cancel — engine honours cancel before any spend).
+- **PBR-004 bridge failed_environmental**: 60s window for a 20k-entry first
+  index build. Also needs the engine receipt (below).
+
+## Fix: lane-aware waits (echo instant, real lanes generous)
+
+`_lane_wait_s(driver, echo_s, real_s)` — PBR-002/003: 240s, PBR-004: 900s
+(first 20k index build is minutes), PBR-011: 300s, PBR-012: 300s.
+
+## Local proof (stub lane, 0 credits, real engine)
+
+- **PBR-012 bridge: PASSED** (cancelled-protocol + no-post-cancel-model-call;
+  cancel honoured during prep, zero provider calls).
+- **PBR-004 on a real 20,001-file fixture: turn COMPLETED in ~3.4s** —
+  `bounded-turn-completes` now passes; the engine handles a 20k tree fast.
+- Remaining PBR-004 gap, isolated: `single-degraded-receipt` — the engine
+  emits `runtime.degraded` only on MID-WALK truncation; a workspace pruned
+  within budget by design (skip rules / task-aware layer selection) emits
+  NOTHING. The check demands a receipt (count 1, files_considered <= 1000)
+  proving the bound was respected. Engine work, next session: emit the
+  receipt whenever the workspace exceeds the scan budget — with real counts.
+
+## Run-6 attribution (from founder analyzer paste)
+
+4th call = a THIRD main-agent iteration (msgs 10 -> 13 -> 16), not a repair
+retry (all attempts = 1). The +lap mechanism is the last token lever; cap
+or early-exit trivial turns engine-side (future work, free to build on the
+stub lane).
+
+## Spend guidance
+
+- PBR-012 re-run on founder machine: FREE (cancel precedes any call).
+- PBR-004: HOLD the ~$0.03 until the receipt fix lands — it cannot pass
+  today, and we do not pay for red runs.
