@@ -189,6 +189,14 @@ Copilot as this IDE's default chat agent* — which was never true of PulseAI.
 `webviewContentExternalBaseUrlTemplate` was left alone: it is read only by the
 **web** environment service and falls back to the same URL anyway.
 
+**Awaiting hardware confirmation.** Round-2 instructions for the desktop agent
+are at `DESKTOP_AGENT_VERIFICATION_R2.md` (repo root): fresh clean profile, no
+seeded settings, no `--disable-extension`, 4 checks — (1) no GitHub sign-in
+dialog on first launch, (2) single Pulse panel header, (3) no `CHAT` tab in the
+auxiliary bar, (4) Chat commands still reachable (regression guard). It also
+picks up the two round-1 rows that were only statically verified (explorer
+selection wash; error/git decoration colors).
+
 ## 3. Not yet verified
 
 The theme is **statically correct** (valid JSON, registered, 0 upstream leftovers)
