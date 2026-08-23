@@ -363,3 +363,109 @@ claim it in our fork (see `COPILOT_INTEGRATION_ANALYSIS.md` §6 A3).
 |---|---|
 | 2026-08-23 | Initial audit. Shipped PulseAI Dark theme + generator, set as default via extension `configurationDefaults`. Zero upstream source files touched. Copilot untouched per founder direction. |
 | 2026-08-23 | **Theme verified on hardware — 9/9 pass, zero teal** (§2b). Fixed the Copilot onboarding takeover by removing `defaultChatAgent` from `product.json` (§2c); also removed `voiceWsUrl` and repointed license URLs. Corrected my earlier wrong claim that `mergeViewWithContainerWhenSingleView` was missing — it was already set. 23 desktop tests green. |
+
+---
+
+## §2d — The correct lever: `chat.disableAIFeatures` (settings, not surgery)
+
+§2c reverted the `defaultChatAgent` deletion. This is the replacement, and it
+changes **zero lines of TypeScript**. It is a settings default shipped through
+the mechanism already proven on this hardware in round 1.
+
+### The mechanism, traced end to end
+
+`extensions/theme-defaults/package.json` → `contributes.configurationDefaults`:
+
+```json
+{
+  "workbench.colorTheme": "PulseAI Dark",
+  "chat.disableAIFeatures": true,
+  "workbench.welcomePage.experimentalOnboarding": false,
+  "workbench.startupEditor": "none"
+}
+```
+
+`chat.disableAIFeatures` is a **first-class upstream setting**
+(`platform/chat/common/chatSettings.ts:6`, declared in
+`chat.shared.contribution.ts:2198`, default `false`, scope `WINDOW`). Its own
+description is exactly our intent: *"Disable and hide built-in AI features
+provided by GitHub Copilot, including chat and inline suggestions."*
+
+**Symptom 1 — the GitHub sign-in modal.** It was never the marketplace
+extension and never a device-code flow we triggered directly. It is upstream's
+own onboarding wizard: `startupPage.ts:262` calls `onboardingService.show()`,
+and `onboardingVariationA.ts` step 1 is a *"Sign In — GitHub Copilot, Google,
+Apple"* hero. `startupPage.ts:249` guards it:
+
+```ts
+if (this.chatEntitlementService.sentiment.hidden) {
+    return; // AI features are hidden, do not show AI-focused onboarding
+}
+```
+
+`chatEntitlementService.ts:1397` sets `hidden: true` whenever
+`chat.disableAIFeatures === true`. `workbench.welcomePage.experimentalOnboarding:
+false` is a second, independent guard on the same modal
+(`startupPage.ts:245`).
+
+**Symptoms 2 and 3 — the doubled header and the `CHAT` tab.** The chat view's
+registration is conditional (`chatParticipant.contribution.ts:71`):
+
+```ts
+when: ContextKeyExpr.and(
+    ChatContextKeys.accountPolicyGateActive.negate(),
+    ContextKeyExpr.or(
+        ContextKeyExpr.and(
+            ChatContextKeys.Setup.hidden.negate(),          // false when AI disabled
+            ChatContextKeys.Setup.disabledInWorkspace.negate(),
+        ),
+        ChatContextKeys.panelParticipantRegistered,         // false, see below
+        ChatContextKeys.extensionInvalid                    // false
+    )
+)
+```
+
+With AI disabled every branch is false, so the view is inactive. The container
+declares `hideIfEmpty: true` (line 46), so a container with no active views
+**leaves the auxiliary bar entirely**. One container remains — Pulse's — so the
+per-container tab strip collapses and the "doubled header" resolves.
+
+`panelParticipantRegistered` was the one real risk: `extensions/copilot`
+(`GitHub.copilot-chat`) contributes a `chatParticipants` entry with
+`isDefault: true`, `locations: ["panel"]`, `onStartupFinished`. It **cannot
+activate**: its manifest declares `main: ./dist/extension` and the vendored copy
+has **no `dist/` directory**. Independently,
+`extensionEnablementService.ts:183` disables the built-in chat extension on any
+profile where chat setup was never completed.
+
+`maybeHideAuxiliaryBar()` (`chatSetupContributions.ts:858`) hides the whole
+auxiliary bar only when chat is the *sole* container. Pulse is registered there
+too, so the bar survives.
+
+### Why this cannot repeat §2c
+
+Every consumer reads the setting through `configurationService.getValue(...)`,
+which returns the registered default when unset. There is no `assertDefined`, no
+required-field dereference, and no module-level evaluation involved. It is also
+**reversible by the user at runtime** — flipping the setting brings Chat back,
+which is the round-3 check 4.
+
+### Known wart
+
+These settings live in the **theme** extension. That is semantically wrong and
+is done only because `configurationDefaults` from `theme-defaults` is the exact
+mechanism already verified to work on the target hardware. `product.json`
+`configurationDefaults` is web-only and cannot be used here. **Follow-up: move
+these into a dedicated `pulseai-defaults` built-in extension** once round 3
+confirms the behaviour.
+
+### Guard rails added
+
+`src/tests/test_pulseai_branding.py` gains two tests: one asserting the
+`configurationDefaults` contract, one asserting `defaultChatAgent` is still
+present in `product.json` so §2c cannot be repeated. Suite: **32 passing**.
+
+**Rule of thumb for this fork: prefer a setting over a source edit; prefer a
+source edit over deleting a `product.json` key. Check
+`src/vs/base/common/product.ts` for a `?` before touching any product key.**
+

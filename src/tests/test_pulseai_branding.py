@@ -96,3 +96,49 @@ def test_product_identifiers_no_longer_ship_as_code_oss():
     ):
         assert "code-oss" not in product[key].lower()
         assert "microsoft code oss" not in product[key].lower()
+
+def test_pulseai_defaults_suppress_copilot_onboarding():
+    """The bundled defaults must ship the PulseAI first-run contract.
+
+    Rationale (see docs/DESIGN/FORK_REBRANDING.md section 2d): removing
+    `product.defaultChatAgent` bricked the renderer, because
+    `base/common/product.ts:272` declares it REQUIRED and
+    `onboardingVariationA.ts:80` calls `assertDefined` on it at module top
+    level. The supported lever is the `chat.disableAIFeatures` SETTING, which
+    is read at runtime with a safe default by every consumer.
+
+    `chat.disableAIFeatures: true` makes `ChatContextKeys.Setup.hidden` true
+    (chatEntitlementService.ts:1397), which falsifies the `when` clause on the
+    chat view (chatParticipant.contribution.ts:71). The container declares
+    `hideIfEmpty: true`, so it leaves the auxiliary bar entirely, and
+    `startupPage.ts:249` returns early instead of showing the sign-in modal.
+    """
+    pkg = json.loads(
+        (FORK / "extensions" / "theme-defaults" / "package.json").read_text(encoding="utf-8")
+    )
+    defaults = pkg["contributes"]["configurationDefaults"]
+
+    assert defaults["workbench.colorTheme"] == "PulseAI Dark"
+    # Suppresses the GitHub sign-in modal AND removes the CHAT container.
+    assert defaults["chat.disableAIFeatures"] is True
+    # Second, independent guard on the onboarding modal.
+    assert defaults["workbench.welcomePage.experimentalOnboarding"] is False
+
+
+def test_product_json_keeps_required_default_chat_agent():
+    """Regression guard: `defaultChatAgent` must NOT be removed again.
+
+    It is declared without `?` in `src/vs/base/common/product.ts`, and
+    `onboardingVariationA.ts:80` runs `assertDefined` on it during workbench
+    bundle evaluation. Removing it produced a black screen (renderer never
+    paints). Hide Copilot with settings, never by deleting this key.
+    """
+    product = json.loads(
+        (FORK / "product.json").read_text(encoding="utf-8")
+    )
+    assert "defaultChatAgent" in product, (
+        "defaultChatAgent is a REQUIRED product key; removing it bricks the "
+        "renderer. See docs/DESIGN/FORK_REBRANDING.md section 2c."
+    )
+    # voiceWsUrl IS optional (`voiceWsUrl?: string`) and is intentionally gone.
+    assert "voiceWsUrl" not in product
