@@ -469,3 +469,73 @@ present in `product.json` so §2c cannot be repeated. Suite: **32 passing**.
 source edit over deleting a `product.json` key. Check
 `src/vs/base/common/product.ts` for a `?` before touching any product key.**
 
+---
+
+## §2e — The build was broken by missing vendored files, not by code
+
+Reported: `compile-client` failing with **205 TypeScript errors** — missing
+Codex protocol modules, missing `logs.contribution.js`, plus implicit-`any`,
+`unknown`-narrowing, generic-mismatch and missing-return errors.
+
+**They were not 205 independent bugs.** Two directories were simply absent from
+the vendored fork. Every other error cascaded from the missing types.
+
+| Missing directory | Files | Broken imports |
+|---|---:|---:|
+| `src/vs/platform/agentHost/node/codex/protocol/` | 702 | 130 |
+| `src/vs/workbench/contrib/logs/` | 6 | 7 |
+
+### Method
+
+Rather than fix errors one at a time, scan every relative import in the fork and
+check whether its target exists:
+
+```
+7,793 .ts files scanned -> 138 unresolved relative imports across 3 directories
+```
+
+After restoring the two above: **1 remaining**, and that one
+(`aiCustomizationManagement.css`) is absent from the pinned upstream commit too
+— a pre-existing upstream bug, not our gap. Re-run that scan after any pin bump;
+it is the cheapest possible check that vendoring is complete.
+
+### Restoration
+
+All files pulled byte-identically from
+`microsoft/vscode@6c27443ce6fdf6ac798c64025d45175e2e23c4b4` (the existing pin).
+Verified by recomputing each file's **git blob SHA-1** against the upstream tree:
+**723/723 match, 0 mismatches.** Nothing hand-written.
+
+*Sandbox note:* `raw.githubusercontent.com` is unreachable from the agent
+sandbox (TLS EOF); `api.github.com` works. Fetch blobs via
+`gh api repos/microsoft/vscode/git/blobs/<sha>` and base64-decode.
+
+### A wrong theory, tested before it was acted on
+
+The obvious explanation was that unanchored `.gitignore` rules (`logs/`,
+`generated/`) matched at any depth inside `desktop/vscode/`, and that
+`!desktop/vscode/**` could not rescue them because *git cannot re-include a file
+whose parent directory is excluded*.
+
+**That theory is false here.** `git check-ignore -v` resolves both paths to the
+negation, and `git add -A .` stages all 708 files with `.gitignore` exactly as
+it is. **`.gitignore` was left untouched.** The real cause is that the original
+vendoring copy never brought these directories across.
+
+Worth recording because it is the second diagnosis this week that looked
+airtight and was wrong (§2c was the first). The difference is that this one was
+falsified by a two-command experiment *before* anything was changed.
+
+### Not fixed, deliberately
+
+`build/vite` (15 files) is genuinely ignored, by the intentional
+`desktop/vscode/build/*` rule at `.gitignore:81`. Its only consumer is
+`componentFixtures/fixtureUtils.ts`, a test fixture outside `compile-client`.
+Left alone; revisit if component-fixture tests are ever wired up.
+
+### Scope
+
+The Codex protocol is agent-engine territory, not interface work. This was
+**vendoring repair** — restoring upstream files verbatim — undertaken because a
+broken build blocks all UI verification. No agent logic was written or modified.
+
