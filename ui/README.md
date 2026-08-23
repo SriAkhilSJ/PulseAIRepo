@@ -6,6 +6,11 @@
 > derive design decisions from it, and do not hand-edit
 > `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/*.css` (mirrored from `ui/`).
 > File ownership and invariants: §7 of that plan. Owner: Interface agent.
+>
+> **Current palette (2026-08-23):** true black `#000` chrome · white `#fff` bold text ·
+> grey `#9b9b9b` thinking text · blue `#3b82f6` buttons. Cyan is retired.
+> Applied in `ui/` only — the production mirror is gated on `test_pulseai_branding.py` (§4.5b).
+> `ui/screenshots/*.png` are STALE (still show the old design).
 
 Browser-testable source for the two PulseAI IDE product surfaces:
 

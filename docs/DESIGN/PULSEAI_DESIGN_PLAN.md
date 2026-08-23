@@ -134,21 +134,59 @@ Three elevation planes (fixes the flat-sheet problem):
 `--pulse-plane-0` chrome `#151515` · `--pulse-plane-1` surface `#1c1c1c` ·
 `--pulse-plane-2` raised `#232323`, each with a `1px` top highlight at 4% white.
 
-### 4.5 Color — semantic, state-driven
+### 4.5 Color — TRUE BLACK (founder direction, 2026-08-23)
 
-Keep the existing hues (they are good and already in `pulseAI-tokens.css`), add
-the missing *soft/border/glow* triads so states can fill a surface, not just a hairline:
+**Superseded the earlier native-neutral grey direction.** Founder call: full
+black chrome, white for bold/primary text, grey for thinking/secondary text,
+**blue** as the action accent. Cyan is retired as the Pulse accent.
 
-| State | Core | Meaning |
+**Surfaces (dark, default):**
+
+| Token | Value | Use |
 |---|---|---|
-| Pulse / working | `#22d3ee` cyan | Agent is acting |
-| Verified | `#49d190` green | Proof passed |
-| Approval | `#efb75c` amber | Human decision required |
-| Failed | `#ed727c` red | Stopped |
-| Sub-agent | `#9b8cff` violet | Delegated work |
+| `--bg` / `--chrome` / `--editor` | `#000000` | True black chrome and editor |
+| `--surface` | `#050505` | Panels |
+| `--surface-2` | `#0d0d0d` | Expanded tool bodies, raised blocks |
+| `--surface-active` | `#1c1c1c` | Hover/selected |
+| `--border` | `#232323` | Hairline seams (never grey slabs) |
+| `--border-soft` | `#151515` | Internal dividers |
 
-**Light theme gets a real pass** — current `#e9edf2` background is muddy; move to
-a warm-neutral `#f6f7f9` / `#ffffff` pairing with WCAG AA-verified text.
+**Text — the white/grey contract:**
+
+| Token | Value | Meaning |
+|---|---|---|
+| `--strong` | `#ffffff` | **Bold/emphasis** — titles, tool names, numbers, results |
+| `--text` | `#e8e8e8` | Default body |
+| `--muted` | `#9b9b9b` | **Thinking / reasoning / secondary prose** |
+| `--faint` | `#6a6a6a` | Eyebrows, timestamps, counts |
+
+**Blue — the single action accent:**
+
+| Token | Value | Use |
+|---|---|---|
+| `--accent` | `#3b82f6` | Buttons, active state, working state, links |
+| `--accent-hover` | `#5b9bff` | Button hover |
+| `--accent-soft` | `#0c1a30` | Hover fills, selected rows |
+| `--accent-border` | `#1d4ed8` | Accent hairlines |
+| `--on-accent` | `#ffffff` | Text on blue (white, not dark) |
+
+**States retained:** verified `#3fd68a` · approval `#f0b64f` · failed `#f2646f`
+· sub-agent `#9b8cff`. **Blue = working/action, never error.** (This replaces the
+old "cyan is the Pulse state" invariant — same rule, new hue.)
+
+Light theme accent moves to `#1d4ed8`.
+
+### 4.5b ⚠️ Production port is GATED — read before mirroring
+
+`src/tests/test_pulseai_branding.py:79` asserts `#22d3ee` (and the other legacy
+semantics) exist in
+`desktop/vscode/.../media/pulseAI-tokens.css`. **The new palette is applied in
+`ui/` only.** Mirroring it to production requires a coordinated change:
+
+1. Interface agent updates `pulseAI-tokens.css`.
+2. **Engine/CTO agent** updates the assertion in `test_pulseai_branding.py`.
+
+Do not do (1) without (2) — it turns the branding suite red. This is Phase 7.
 
 ### 4.6 Motion — choreograph the three beats
 
@@ -195,10 +233,27 @@ Each phase is independently shippable and independently screenshot-able.
 - Delete the ~40-selector `display:flex` block.
 - **Exit:** `npm run build` clean, Playwright screenshots byte-comparable.
 
-### Phase 1 — Typography, spacing, radius, elevation ← *biggest visible win*
-- Apply §4.2–4.4 across both surfaces.
-- **Exit:** side-by-side before/after at 1440×900. This is the phase that makes
-  people say "oh, this is a real product."
+### Phase 1 — Typography, palette, radius, density — ✅ **DONE (2026-08-23, `ui/` only)**
+Shipped in `ui/src/styles.css`:
+- **Type scale applied.** Every size remapped off the 7–10px floor:
+  7/7.5/8→11 · 8.5/9→12 · 9.5/10→13 · 13/14→15 · 16→18 · 17→20.
+  Smallest shipped size is now **11px** (was 7px). Verified:
+  `grep -o "font-size: [0-9.]*px" ui/src/styles.css | sort -u`.
+- **True-black palette + blue accent** per §4.5.
+- **Density pass** — row heights grown so the larger type breathes
+  (tree 25→30, tab 34→38, tool row 36→42, code line 22→24, etc.).
+- **Radius** — 6/8/10px applied to buttons, cards, docks, shells (was ~all 0px).
+- **Blue buttons** — Approve/Send are filled blue with white text, hover +
+  active-press states; ghost buttons get a blue-soft hover.
+- **`:focus-visible` ring on every interactive element** (was 0 in the codebase).
+- **Tabular numerals** on all usage/evidence numbers.
+- **Text contract wired**: white+700 for bold/emphasis, grey for thinking prose.
+
+**Exit evidence:** `npm run build` clean (38.9 kB CSS, 7.76 kB gzip).
+**Known gap:** `ui/screenshots/*.png` are **stale** — the sandbox could not
+download a Playwright browser, so they still show the old grey/cyan design.
+Regenerate with `npm run test:ui` (or the shot script) on a machine with
+browsers available before using them anywhere.
 
 ### Phase 2 — Agent Panel refinement
 - Transcript rhythm, tool-row states with a colored state rail, streaming caret.
@@ -236,8 +291,8 @@ the marketing screenshot.
 
 | Metric | Now | Target |
 |---|---|---|
-| Smallest shipped font | 7px | 10px (eyebrow only), 13px body |
-| `:focus-visible` coverage | 0 | 100% of interactives |
+| Smallest shipped font | 7px | **11px — done** |
+| `:focus-visible` coverage | 0 | **100% of interactives — done** |
 | Off-grid spacing values | ~30 | 0 |
 | Token sources of truth | 2 (hand-synced) | 1 (generated) |
 | Largest CSS file | 562 lines | < 200 lines per module |
@@ -280,3 +335,4 @@ usage as direct numerals · agent code never under `/extensions/`.
 | Date | Change |
 |---|---|
 | 2026-08-23 | Initial plan. Repo audit + Aug-2026 competitor research. No code changed yet. |
+| 2026-08-23 | **Founder direction: true black + white/grey text + blue buttons.** §4.5 rewritten (cyan retired). Phase 1 implemented in `ui/` and marked DONE. Production port gated on a branding-test update (§4.5b). Screenshots stale — see Phase 1. |
