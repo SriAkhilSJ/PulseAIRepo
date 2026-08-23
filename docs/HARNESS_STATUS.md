@@ -898,3 +898,33 @@ never misfired, full frame evidence captured.
 
 Engine verified importing + a full stub turn completes with the new
 default. Retry = same command, fresh RunId.
+
+---
+
+# TEST 5, attempt 3 (test5-3) — product FAIL, harness PASS (2026-08-23)
+
+## Graded
+
+turn_done, in budget (17 calls / ~127k in / breaker untouched), zero kills,
+zero interventions -- every harness fix held. Product: FAIL -- deliverable
+is package.json only; no site, no vendored Three.js, nothing renders.
+
+## Root cause (agent strategy, not machinery)
+
+The execute_code sandbox blocks imports/sockets/open() by design. Faced
+with "use local Three.js files", the agent burned turns trying
+urllib/subprocess INSIDE scripts, pivoted to web_fetch, then tried
+execute_code downloading again -- and never used the working paths it
+already has (run_terminal npm install WORKED in attempt 2; web_fetch ->
+write_file was never tried).
+
+## Fix (teaching at the moment of failure)
+
+- execute_code docstring: explicit vendoring playbook -- install via
+  run_terminal("npm install <pkg>"), vendor a file via web_fetch(url) +
+  write_file(path, content); never urllib/subprocess/open() here.
+- Sandbox denial message now carries the PIVOT, not just the block --
+  the model reads exactly what to do at the moment it is told no.
+
+38 code-exec/PTC tests green. Attempt 4 expectations: same command, fresh
+RunId; npm cache warm; the strategy dead-end is now taught away.
