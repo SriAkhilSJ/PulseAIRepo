@@ -417,24 +417,6 @@ def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsa
 system_message = SystemMessage(content=system_persona())
 
 
-def _zero_token_usage() -> dict[str, Any]:
-    """Return an empty token usage snapshot."""
-    return TokenUsage().to_dict()
-
-
-def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsage]) -> dict[str, Any]:
-    """Merge a list of TokenUsage records into an existing state snapshot."""
-    total = TokenUsage.from_dict(existing)
-
-    for usage in additions:
-        total = total + usage
-
-    return total.to_dict()
-
-
-# =========================================================
-# AI NODE (with Context Engine)
-# =========================================================
 def ai_node(
     state: AgentState,
     config: RunnableConfig,
@@ -2952,8 +2934,12 @@ def stream_agent(
             try:
                 snap = graph.get_state(config)
                 msgs = (snap.values or {}).get("messages", [])
-                if msgs:
-                    final_response = msgs[-1].content
+                # Only an ASSISTANT message is a final answer. Falling back to
+                # msgs[-1] blindly returns tool output / system prompts /
+                # cancellation nudges to the user as the "response".
+                ai_msgs = [m for m in msgs if getattr(m, "type", "") == "ai"]
+                if ai_msgs:
+                    final_response = ai_msgs[-1].content
                     if isinstance(final_response, list):
                         final_response = "".join(
                             b.get("text", "") for b in final_response

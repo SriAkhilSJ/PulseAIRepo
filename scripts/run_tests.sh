@@ -31,10 +31,12 @@ if [[ "${PULSEAI_TEST_KEEP_KEYS:-0}" != "1" ]]; then
   export LLM_PROVIDER="${LLM_PROVIDER:-}"   # neutral if inherited
 fi
 
-# 2. Fresh HOME per run (the pollution guard).
+# 2. Fresh HOME per run (the pollution guard). Absolute template: the dir is
+#    created under TMPDIR (never the repo) and mktemp returns an absolute
+#    path, so HOME is valid on GNU and BSD mktemp alike.
 if [[ "${PULSEAI_TEST_REAL_HOME:-0}" != "1" ]]; then
-  export PULSEAI_TEST_HOME_DIR="$(mktemp -d pulseai-test-home-XXXXXX)"
-  export HOME="$PWD/$PULSEAI_TEST_HOME_DIR"
+  export PULSEAI_TEST_HOME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pulseai-test-home-XXXXXX")"
+  export HOME="$PULSEAI_TEST_HOME_DIR"
   # Keep git usable (some tests call `git ls-files`).
   export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 fi
