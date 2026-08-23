@@ -1277,3 +1277,63 @@ def test_token_counting_never_dies_without_tiktoken(monkeypatch):
     monkeypatch.setattr(tb.tiktoken, "get_encoding", boom)
     n = tb.count_tokens([HumanMessage(content="hello world, this is a test")], "any-model")
     assert n > 0  # heuristic: imprecise but never fatal
+
+
+def test_oversized_workspace_gets_bounding_receipt(tmp_path):
+    """PBR-004 contract: a workspace larger than the scan budget earns
+    EXACTLY ONE runtime.degraded receipt with the REAL considered counts —
+    even when skip rules prune it without a mid-walk truncation. A small
+    workspace earns none."""
+    from src.dashboard.event_bus import event_bus
+    from src.context.context_engine import ContextEngine, TaskType
+
+    big = tmp_path / "big-ws"
+    big.mkdir()
+    for i in range(1200):  # > max_considered (1000)
+        (big / f"entry_{i:05d}.py").write_text("x = 1\n")
+
+    small = tmp_path / "small-ws"
+    small.mkdir()
+    (small / "workspace_proof.py").write_text("PROOF = 1\n")
+
+    q = event_bus.subscribe(None)
+    while not q.empty():
+        q.get_nowait()
+    try:
+        eng = ContextEngine(thread_id="receipt-1", probe_window=False)
+        eng._build_context_layers({"messages": [], "workspace": str(big)}, TaskType.EXPLORE)
+        receipts = []
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == "runtime.degraded":
+                receipts.append(ev["payload"])
+        assert len(receipts) == 1, receipts
+        assert receipts[0]["files_considered"] <= 1000
+        assert receipts[0]["bytes_read"] <= 16 * 1024 * 1024
+
+        while not q.empty():
+            q.get_nowait()
+        eng2 = ContextEngine(thread_id="receipt-2", probe_window=False)
+        eng2._build_context_layers({"messages": [], "workspace": str(small)}, TaskType.EXPLORE)
+        small_receipts = []
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == "runtime.degraded":
+                small_receipts.append(ev)
+        assert small_receipts == []
+    finally:
+        event_bus.unsubscribe(q)
+
+
+def test_workspace_exceeds_budget_probe(tmp_path):
+    from src.context.context_engine import ContextEngine
+    big = tmp_path / "b"
+    big.mkdir()
+    for i in range(1001):
+        (big / f"f{i}.py").write_text("x")
+    small = tmp_path / "s"
+    small.mkdir()
+    (small / "f.py").write_text("x")
+    assert ContextEngine._workspace_exceeds_budget(str(big), 1000) is True
+    assert ContextEngine._workspace_exceeds_budget(str(small), 1000) is False
+    assert ContextEngine._workspace_exceeds_budget(str(tmp_path / "missing"), 1000) is False
