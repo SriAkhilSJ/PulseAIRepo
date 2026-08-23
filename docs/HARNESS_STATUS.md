@@ -928,3 +928,30 @@ write_file was never tried).
 
 38 code-exec/PTC tests green. Attempt 4 expectations: same command, fresh
 RunId; npm cache warm; the strategy dead-end is now taught away.
+
+---
+
+# Plan-vs-task constraint validator — general, no hardcoded data (2026-08-23)
+
+Founder correction accepted: after the test5-3 strategy failure, the WRONG
+fix was another hardcoded planner rule (a Next.js-specific line was one
+keystroke away -- same disease as the reverted keyword gate). What shipped
+instead is a GENERAL mechanism:
+
+`_plan_constraint_violation` asks the model to check the plan against the
+TASK's own explicit constraints and answer OK or VIOLATION with the quoted
+contradiction. One bounded retry with the contradiction quoted. Zero
+hardcoded technology names -- the knowledge that "Next.js implies a build
+step" lives in the model, where it belongs; the mechanism only moves text.
+
+Category note (what is and is not "hardcoding"):
+- environment documentation (the sandbox denial's PIVOT line, the
+  execute_code docstring playbook) describes the environment's REAL
+  capabilities -- that is API documentation, kept.
+- task-specific or tech-specific rules in prompts -- NOT added; the
+  near-miss was discarded.
+
+Pins: 3 tests (OK path actually asks the model; contradiction is quoted;
+validator failure is advisory). The first draft of test 1 passed
+vacuously without patching get_llm (real provider raised -> advisory "");
+the rewrite asserts the model was actually asked.

@@ -160,6 +160,50 @@ def should_create_plan(
     return _looks_like_plan_task(task)
 
 
+def _plan_constraint_violation(
+    task: str,
+    steps: list[dict],
+    provider: str,
+    model: str,
+    usage_list: list | None = None,
+) -> str:
+    """Ask a model to check the plan against the TASK's explicit constraints.
+
+    General mechanism, ZERO hardcoded technology names (test5-3: the plan
+    said 'scaffold Next.js' against a task demanding 'native HTML/JS, no
+    build step' -- the planner carried a habit, and no regex can know that
+    Next.js implies a build step; only reading the task can). Returns ""
+    when consistent, else the quoted contradiction for the retry.
+    """
+    try:
+        llm = get_llm(provider=provider, model=model)
+        numbered = "\n".join(
+            f"{i + 1}. {str(step.get('step') or step.get('description') or step)}"
+            for i, step in enumerate(steps)
+        )
+        response = _invoke_and_track(
+            llm,
+            [
+                SystemMessage(content=(
+                    "You check a plan against the task's EXPLICIT constraints. "
+                    "Answer with EXACTLY one line:\n"
+                    "OK\n"
+                    "or\n"
+                    "VIOLATION: <step number> contradicts <quoted task phrase>"
+                )),
+                HumanMessage(content=f"TASK:\n{task}\n\nPLAN:\n{numbered}"),
+            ],
+            model,
+            usage_list or [],
+        )
+        answer = str(response.content).strip()
+        if answer.upper().startswith("OK"):
+            return ""
+        return answer.splitlines()[0][:300]
+    except Exception:
+        return ""  # validation is advisory; never block planning
+
+
 def create_plan(
     task: str,
     provider: str,
@@ -167,14 +211,36 @@ def create_plan(
     usage_list: list | None = None,
 ) -> TaskPlan:
     """
-    Create a plan from scratch.
+    Create a plan from scratch, then check it once against the task's own
+    constraints (test5-3: a Next.js-shaped plan for a no-build-step task).
+    One bounded retry with the quoted contradiction; no hardcoded tech
+    lists anywhere.
     """
     messages = plan_context_engine.build_planner_messages(
         task=task,
         planner_prompt=PLANNER_PROMPT,
     )
 
-    return _execute_plan_llm(messages, provider, model, task, usage_list=usage_list)
+    plan = _execute_plan_llm(messages, provider, model, task, usage_list=usage_list)
+
+    violation = _plan_constraint_violation(
+        task, list(getattr(plan, "steps", []) or []), provider, model, usage_list
+    )
+    if violation:
+        retry_messages = plan_context_engine.build_planner_messages(
+            task=(
+                f"{task}\n\nCONSTRAINT CHECK FAILED on the previous plan: "
+                f"{violation}\nProduce a corrected plan that satisfies the "
+                "quoted task constraint exactly."
+            ),
+            planner_prompt=PLANNER_PROMPT,
+        )
+        corrected = _execute_plan_llm(
+            retry_messages, provider, model, task, usage_list=usage_list
+        )
+        if list(getattr(corrected, "steps", []) or []):
+            return corrected
+    return plan
 
 
 def create_replan(
