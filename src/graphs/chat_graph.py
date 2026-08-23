@@ -84,7 +84,20 @@ from src.tools.terminal_tools import (
     read_terminal_output
 )
 from src.tools.web_tools import web_search, web_fetch
-from src.tools.browser_mcp import BROWSER_TOOLS
+# #8 (external review): fault-tolerant browser-tool import. The optional
+# mcp/pywintypes stack must never break engine boot — if it is missing the
+# browser tools are simply unbound (the D5 fake-verification hole is
+# documented in browser_mcp's docstring) and the degradation is loud.
+try:
+    from src.tools.browser_mcp import BROWSER_TOOLS
+except Exception as _browser_mcp_exc:  # ImportError + any transitive boot failure
+    BROWSER_TOOLS = []
+    print(
+        f"[chat_graph] browser tools UNAVAILABLE (import failed: "
+        f"{type(_browser_mcp_exc).__name__}: {_browser_mcp_exc}) — "
+        "engine boots without them",
+        flush=True,
+    )
 from src.tools.code_exec_tool import execute_code
 from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
@@ -1992,6 +2005,45 @@ class SafeToolNode:
         except Exception as exc:
             return {"error": f"could not prepare diff: {exc}"}
 
+    def _deny_and_execute_safe_batch(
+        self, *, tool_calls, verdicts, unsafe, state, messages, last_msg,
+        config, denial_content, log_line,
+    ):
+        """Shared unsafe-batch path (#9, external review): the sub-agent
+        auto-deny and the autonomous main-thread deny were two copy-pasted
+        50-line blocks — a bug fixed in one silently lived on in the other.
+        One implementation now owns the whole shape: denial ToolMessages for
+        the unsafe calls, execution of the SAFE remainder, results returned
+        in the model's original tool_call order (pairing/order invariants
+        hold regardless of which batch members were denied). Callers own the
+        denial TEXT and the audit-log line; everything else is identical
+        because it must be.
+        """
+        denials: dict[str, ToolMessage] = {}
+        for tc, _, warning in unsafe:
+            first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
+            denials[tc["id"]] = ToolMessage(
+                content=denial_content(tc, first_line),
+                tool_call_id=tc["id"],
+                name=tc.get("name", ""),
+                status="error",
+            )
+            log_line(tc)
+        safe_tcs = [tc for tc, ok, _ in verdicts if ok]
+        results: dict[str, ToolMessage] = dict(denials)
+        if safe_tcs:
+            filtered_ai = AIMessage(
+                content=last_msg.content,
+                tool_calls=safe_tcs,
+                id=getattr(last_msg, "id", None),
+            )
+            filtered_state = dict(state)
+            filtered_state["messages"] = messages[:-1] + [filtered_ai]
+            for m in self._execute_durable(safe_tcs, config):
+                results[m.tool_call_id] = m
+        ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+        return ordered
+
     def __call__(self, state, config=None):
         # ── Pre-execution cancellation gate ─────────────────────────
         # If the user pressed Stop before tool execution begins, deny
@@ -2109,46 +2161,30 @@ class SafeToolNode:
                 return _with_repaired(self._execute_durable(tool_calls, config))
 
             import logging
-            log = logging.getLogger("pulseai.safety")
-            denials: dict[str, ToolMessage] = {}
-            for tc, _, warning in unsafe:
-                first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
-                denials[tc["id"]] = ToolMessage(
-                    content=(
-                        f"⛔ AUTO-DENIED (sub-agent safety policy): "
-                        f"`{tc.get('name', '')}` was blocked. {first_line}\n"
-                        "Sub-agents cannot ask the human for approval, so "
-                        "dangerous operations are denied immediately. Do not "
-                        "retry this operation; either accomplish the task a "
-                        "safe way, or finish and report that this step needs "
-                        "the human to run it directly in the main session."
-                    ),
-                    tool_call_id=tc["id"],
-                    name=tc.get("name", ""),
-                    status="error",
+            _log = logging.getLogger("pulseai.safety")
+
+            def _content(tc, first_line):
+                return (
+                    f"⛔ AUTO-DENIED (sub-agent safety policy): "
+                    f"`{tc.get('name', '')}` was blocked. {first_line}\n"
+                    "Sub-agents cannot ask the human for approval, so "
+                    "dangerous operations are denied immediately. Do not "
+                    "retry this operation; either accomplish the task a "
+                    "safe way, or finish and report that this step needs "
+                    "the human to run it directly in the main session."
                 )
-                log.warning(
+
+            def _log_line(tc):
+                _log.warning(
                     "sub-agent %s AUTO-DENIED %s args=%s",
                     thread_id, tc.get("name", ""), str(tc.get("args", {}))[:160],
                 )
 
-            safe_tcs = [tc for tc, ok, _ in verdicts if ok]
-            results: dict[str, ToolMessage] = dict(denials)
-            if safe_tcs:
-                filtered_ai = AIMessage(
-                    content=last_msg.content,
-                    tool_calls=safe_tcs,
-                    id=getattr(last_msg, "id", None),
-                )
-                filtered_state = dict(state)
-                filtered_state["messages"] = messages[:-1] + [filtered_ai]
-                for m in self._execute_durable(safe_tcs, config):
-                    results[m.tool_call_id] = m
-
-            # Return ToolMessages in the model's original tool_call order:
-            # pairing/order invariants (see §28 crash-net round) must hold
-            # regardless of which batch members were denied.
-            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+            ordered = self._deny_and_execute_safe_batch(
+                tool_calls=tool_calls, verdicts=verdicts, unsafe=unsafe,
+                state=state, messages=messages, last_msg=last_msg,
+                config=config, denial_content=_content, log_line=_log_line,
+            )
             return _with_repaired(ordered)
 
         if thread_id.startswith("sub-"):
@@ -2183,43 +2219,27 @@ class SafeToolNode:
             # adapts in one turn, hermes delegate policy), safe calls in
             # the same batch still execute, order preserved.
             import logging
-            log = logging.getLogger("pulseai.safety")
-            denials: dict[str, ToolMessage] = {}
-            for tc, _, warning in unsafe:
-                first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
-                denials[tc["id"]] = ToolMessage(
-                    content=(
-                        f"⛔ BLOCKED (safety policy): `{tc.get('name', '')}` was not "
-                        f"executed. {first_line}\n"
-                        f"Choose a safe alternative (edit_file for small "
-                        f"changes, a different path, or a non-destructive "
-                        f"command) and continue — do not wait for approval."
-                    ),
-                    tool_call_id=tc["id"],
-                    name=tc.get("name", ""),
-                    status="error",
+            _log = logging.getLogger("pulseai.safety")
+
+            def _content(tc, first_line):
+                return (
+                    f"⛔ BLOCKED (safety policy): `{tc.get('name', '')}` was not "
+                    f"executed. {first_line}\n"
+                    f"Choose a safe alternative (edit_file for small "
+                    f"changes, a different path, or a non-destructive "
+                    f"command) and continue — do not wait for approval."
                 )
-                log.warning(
+
+            def _log_line(tc):
+                _log.warning(
                     "BLOCKED %s args=%s", tc.get("name", ""), str(tc.get("args", {}))[:160]
                 )
 
-            safe_tcs = [tc for tc, ok, _ in verdicts if ok]
-            results: dict[str, ToolMessage] = dict(denials)
-            if safe_tcs:
-                filtered_ai = AIMessage(
-                    content=last_msg.content,
-                    tool_calls=safe_tcs,
-                    id=getattr(last_msg, "id", None),
-                )
-                filtered_state = dict(state)
-                filtered_state["messages"] = messages[:-1] + [filtered_ai]
-                for m in self._execute_durable(safe_tcs, config):
-                    results[m.tool_call_id] = m
-
-            # Return results in the model's original tool_call order so
-            # pairing/order invariants hold regardless of which batch
-            # members were denied.
-            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+            ordered = self._deny_and_execute_safe_batch(
+                tool_calls=tool_calls, verdicts=verdicts, unsafe=unsafe,
+                state=state, messages=messages, last_msg=last_msg,
+                config=config, denial_content=_content, log_line=_log_line,
+            )
             return _with_repaired(ordered)
 
         approval_channel = bool(
