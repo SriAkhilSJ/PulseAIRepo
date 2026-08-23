@@ -419,6 +419,32 @@ def should_continue(state: AgentState):
     if bool(getattr(last_message, "additional_kwargs", {}).get("pulse_cancelled")):
         return "finalize"
 
+    # ── Hermes loop law (ported, behavior-based) ─────────────────────────
+    # Two mechanical guards that no intent classifier can misroute around:
+    #
+    # 1. NO-PROGRESS TURN END: a model that keeps replying WITHOUT tool
+    #    calls is answering, not working. The bounded finish/verify nudges
+    #    below still get their shot, but after NO_TOOL_TURN_LIMIT
+    #    consecutive no-tool assistant replies the turn CONCLUDES — the
+    #    measured 20-lap turn ($0.12 for one question) came from a plan
+    #    loop no intent gate could see; this cap makes the class
+    #    structurally impossible.
+    # 2. REPETITION CONTENT-SANITY: a degenerate model echoing one fragment
+    #    (hermes #86581: a 60k-char turn of repeated text) must never be
+    #    fed back for another lap — conclude with what exists.
+    from src.graphs.loop_guards import (
+        NO_TOOL_TURN_LIMIT,
+        consecutive_no_tool_ai_messages,
+        is_repetition_dominated,
+    )
+    if not getattr(last_message, "tool_calls", None):
+        _no_tool_streak = consecutive_no_tool_ai_messages(state.get("messages", []))
+        _repetition = is_repetition_dominated(
+            str(getattr(last_message, "content", "") or "")
+        )
+        if _repetition or _no_tool_streak >= NO_TOOL_TURN_LIMIT:
+            return "finalize"
+
     # D40: once the ai iteration budget is spent, this run must conclude.
     # The grace call produced a text answer (or a tool_call the no-tools
     # binding prevented) — finalize it instead of re-entering gates that
