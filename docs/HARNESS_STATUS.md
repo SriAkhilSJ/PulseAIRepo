@@ -720,3 +720,50 @@ retired entirely (hermes architecture) or kept as advisory UX.
 the per-call list — re-run it on founder-pbr004-1 (free) to see whether
 the 20 laps were plan-steps or denied/dropped tool calls. Attribute, then
 fix the loop once, correctly.
+
+---
+
+# Value extracted from hermes-agent's TEST infrastructure (2026-08-23, session 13)
+
+Read hermes' AGENTS.md testing doctrine + tests/ layout (3,298 files) and
+adopted what fits; documented what we deliberately did not.
+
+## Adopted
+
+1. **`scripts/run_tests.sh` — hermetic runner** (their "ALWAYS use the
+   wrapper, never bare pytest" rule):
+   - provider keys UNSET by default → no test can ever make a paid call
+     (PULSEAI_TEST_KEEP_KEYS=1 opt-out for integration scripts)
+   - fresh temp HOME per run → ~/.pulseai state (sessions.db,
+     runtime_events.db, code indexes) can never leak across runs or onto the
+     developer machine — the cross-run pollution class, killed at test level
+     (PULSEAI_TEST_REAL_HOME=1 opt-out)
+   - TZ=UTC, LANG=C.UTF-8 for determinism
+   Proven: single-file run green under wrapper; key stripped (checked);
+   real ~/.pulseai untouched after state-heavy bridge/context runs (71 passed).
+
+2. **Audit against "never read source code in tests"** (their hard ban):
+   `src/tests/test_workbench_capabilities.py` reads TS source text with
+   regexes — flagged as a banned pattern. It currently guards the desktop
+   catalog the only way possible without the Node toolchain; conversion path
+   (behavior test over a compiled catalog, or a codegen-time check in the TS
+   build) is queued for the desktop lane, not silently deleted.
+
+## Deliberately NOT adopted (yet / ever)
+
+- Per-file subprocess isolation (`run_tests_parallel.py`) — follow-up once
+  the suite grows into it; the wrapper is the entry point either way.
+- Flake-retry-with-⚠-FLAKY-summary policy — follow-up; needs the per-file
+  runner first.
+- Conformance vector generators — platform-rendering specific (discord/
+  slack/...); our referee (drivers → recorder → evaluator, lanes with
+  graded evidence) already goes beyond what hermes ships for product claims.
+  Our benchmark lane approach is ORIGINAL relative to hermes; what we took
+  from them is the testing discipline AROUND it.
+
+## Doctrine deltas now enforced in this repo
+
+- Behavior contracts, not change-detectors (already our evaluator's shape).
+- Never read source in tests (newly flagged violation).
+- E2E over mocks: our stub-provider lane is exactly this and stays the
+  zero-credit attribution path.
