@@ -1,6 +1,6 @@
 # INSTRUCTIONS — Desktop Agent: Round 3 (retry of R2)
 
-**Verify tip:** `2fbd25d6` or newer · **Branch:** `arena/01a02fe3-pulseairepo`
+**Verify tip:** `053ad488` or newer · **Branch:** `arena/01a02fe3-pulseairepo`
 **Zero credits. No model calls. No source edits.**
 
 > **R2 was my fault.** I removed `product.defaultChatAgent`, which bricked the
@@ -52,10 +52,13 @@ python -m pytest src/tests/ -q
 
 ---
 
-## 2. Refresh `.build` — **REQUIRED, this is the only real setup step**
+## 2. Compile (the 205 errors are fixed), then refresh `.build`
 
-The fix lives in `theme-defaults/package.json`, and in R1 you found `.build`
-does not pick that up automatically. **Copy it exactly as you did in R1:**
+### Then refresh `.build`
+
+If `npm run compile` succeeded it should already have synced
+`extensions/theme-defaults` into `.build\extensions\`. Do the copy anyway — it
+is cheap, idempotent, and in R1 you found `.build` can go stale:
 
 ```powershell
 $src = "desktop\vscode\extensions\theme-defaults"
@@ -72,9 +75,59 @@ python -c "import json;print(json.load(open(r'desktop\vscode\.build\extensions\t
 **If that last line does not show `chat.disableAIFeatures: True`, everything
 below is invalid.** Stop and report.
 
-**Do NOT run `npm run compile` or `npm run gulp -- compile`.** You already found
-it fails on a pre-existing `codex` protocol generation gap. It is unrelated and
-not needed — no TypeScript changed this round.
+### The 205 compile errors are fixed — please compile normally
+
+My earlier instruction to skip `npm run compile` is **withdrawn**. You were right
+that the `codex` protocol gap was real and pre-existing; it is now repaired.
+
+They were never 205 independent bugs. **Two whole directories were missing from
+the vendored fork**, and every other error — the `TurnStartParams` mismatch, the
+implicit `any` on `candidate`/`left`/`right`, the un-narrowed `unknown`, the `M`
+vs `string` generics, the missing return paths — cascaded from the absent types:
+
+| Missing directory | Files | Broken imports |
+|---|---:|---:|
+| `src/vs/platform/agentHost/node/codex/protocol/` | 702 | 130 |
+| `src/vs/workbench/contrib/logs/` | 6 | 7 |
+
+All 708 restored byte-identically from the pin
+`microsoft/vscode@6c27443ce6fdf6ac798c64025d45175e2e23c4b4`, verified by
+recomputing each file's git blob SHA-1 against the upstream tree (723/723 match).
+
+```powershell
+npm run compile
+```
+
+**Expected: 0 errors.** If `compile-client` still fails, capture the FULL error
+list and stop — do not fix anything. A short scan tells us instantly whether it
+is another vendoring hole:
+
+```powershell
+# lists every relative import in the fork whose target file does not exist
+python - <<'EOF'
+import os,re,collections
+os.chdir(r'desktop\vscode')
+i1=re.compile(r'''^\s*(?:import|export)\b[^'"]*?from\s+['"](\.[^'"]+)['"]''',re.M)
+i2=re.compile(r'''^\s*import\s+['"](\.[^'"]+)['"]''',re.M)
+m=collections.Counter()
+for dp,dn,fn in os.walk('src'):
+    for f in fn:
+        if not f.endswith('.ts'): continue
+        s=open(os.path.join(dp,f),encoding='utf-8',errors='ignore').read()
+        for r in i1.findall(s)+i2.findall(s):
+            if not (r.endswith('.js') or r.endswith('.css')): continue
+            t=os.path.normpath(os.path.join(dp,r))
+            c=[t[:-3]+'.ts',t[:-3]+'.d.ts',t] if t.endswith('.js') else [t]
+            if not any(os.path.exists(x) for x in c): m[os.path.dirname(t)]+=1
+print('unresolved:',sum(m.values()))
+for k,v in m.most_common(10): print('  ',k,v)
+EOF
+```
+
+**Expected output: `unresolved: 1`** — and that one
+(`aiCustomizationManagement.css`) is missing from upstream too, so it is
+harmless. Anything higher means another directory did not survive vendoring;
+report the list and stop.
 
 ---
 
@@ -165,7 +218,8 @@ copy (you should only have edited the `.build` copy).
 - **Never touch** `desktop\vscode\src\vs\workbench\contrib\chat\` or
   `desktop\vscode\extensions\copilot\`.
 - **No pushing from the laptop.**
-- **No `npm run compile`** — it fails on an unrelated pre-existing gap.
+- **`npm run compile` is now expected to pass.** If it fails, report the
+  errors — do not fix them.
 - Hang > 10 min → `taskkill /T /F /PID <pid>`, then report.
 
 ---
