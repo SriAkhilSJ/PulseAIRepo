@@ -109,6 +109,86 @@ Users can still switch themes; this only moves the default.
 
 ---
 
+## 2b. VERIFIED on hardware (desktop agent, 2026-08-23, tip `efccaa10`)
+
+Launched from a **clean profile** so `configurationDefaults` was genuinely
+exercised. **All 9 checklist rows PASS. Zero teal found** — visually confirmed
+across command palette, settings, SCM, find widget, and hovers, and statically
+(`Select-String #3994BC → 0`).
+
+- Editor + all chrome render true black `#000000` with `#1A1A1A` hairlines.
+- Focus rings, badges, buttons, selections all blue (`#3B82F6` / `#2563EB` / `#60A5FA`).
+- Syntax colors and red/amber/green states correctly **unchanged**.
+- `PulseAI Dark` present and selectable in the theme picker.
+
+Rows 7 and 9 (explorer selection wash, git/error decorations) were verified
+**statically from the theme JSON, not visually** — re-confirm opportunistically.
+
+**Build-pipeline note:** `.build\extensions\theme-defaults\` did not contain
+the new theme; the agent copied `pulseai-dark.json` + `package.json` in by hand
+to avoid a multi-hour compile. On a real `npm run compile` the extension build
+step syncs these, so this is a stale-`.build` artifact, **not** a packaging bug.
+Worth re-confirming after the next full compile.
+
+## 2c. Fixed this session — the Copilot onboarding takeover
+
+The verification surfaced three problems with a **single root cause**:
+
+1. **A GitHub "Device Code / Sign in to use GitHub Copilot" dialog blocked the
+   entire UI on first launch** of a clean profile. The agent needed `Esc` ×5.
+   For a product called PulseAI IDE this is the worst possible first impression.
+2. **Doubled panel header** — the auxiliary bar showed a `CHAT | PULSE` tab
+   strip *plus* the `Pulse` view title.
+3. **Two agent surfaces** — both `CHAT` and `PULSE` present.
+
+### Root-cause correction (I was wrong earlier)
+
+`COPILOT_INTEGRATION_ANALYSIS.md` §1 claimed Pulse was missing
+`mergeViewWithContainerWhenSingleView`. **That was wrong** — it is already set at
+`pulseAI.contribution.ts:57`, and the desktop agent caught the error.
+
+The real mechanism: the auxiliary bar renders a **tab strip per view
+*container***. Pulse's container holds exactly one view, so its own header
+merges correctly. The second bar appears because **two containers** occupy the
+auxiliary bar — Chat's and Pulse's. Remove Chat's, and both #2 and #3 disappear.
+`--disable-extension GitHub.copilot` does nothing here: `contrib/chat` is
+**built-in workbench code**, not the marketplace extension.
+
+### The fix — `product.json`, not `contrib/chat`
+
+Chat's setup UI, its view gating, and the GitHub sign-in flow are all driven by
+**`product.defaultChatAgent`**. Upstream explicitly supports its absence:
+
+```ts
+// chatEntitlementService.ts:732
+// No ChatEntitlementContext (e.g. no defaultChatAgent in product.json).
+// chatGettingStarted.ts:35
+if (!defaultChatAgent || hideWelcomeView) { return; }
+```
+
+Every consumer reads it as `product.defaultChatAgent?.…` with `?? ''` fallbacks.
+Removing it is the **sanctioned path for a fork that does not ship Copilot**.
+
+Applied to `desktop/vscode/product.json` (an already-modified, allowed file —
+invariant 7 holds; **`contrib/chat/` and `extensions/copilot/` untouched**):
+
+| Key | Change | Why |
+|---|---|---|
+| `defaultChatAgent` | **removed** | Kills the GitHub sign-in dialog and the Chat setup/welcome UI; should leave Pulse alone in the auxiliary bar |
+| `voiceWsUrl` | **removed** | Pointed at `falcon-caas.mai.microsoft.com`; we ship no voice feature |
+| `licenseUrl`, `serverLicenseUrl` | repointed | Were `github.com/microsoft/vscode`; now our repo |
+
+`desktop/SELECTIVE_MANIFEST.json` `product.json → overlay_sha256` refreshed.
+Desktop suites green: **23 passed** (branding 5, contrib overlay 5, renderer 6,
+sidecar 7).
+
+**This preserves the founder's rule exactly.** Copilot source remains the
+integration reference, byte-for-byte. We only stopped *advertising GitHub
+Copilot as this IDE's default chat agent* — which was never true of PulseAI.
+
+`webviewContentExternalBaseUrlTemplate` was left alone: it is read only by the
+**web** environment service and falls back to the same URL anyway.
+
 ## 3. Not yet verified
 
 The theme is **statically correct** (valid JSON, registered, 0 upstream leftovers)
@@ -139,9 +219,9 @@ in the theme picker. Preview of the intent: `branding/pulseai-dark-theme-preview
 | 2 | **Empty-editor watermark** | `contrib/watermark` (part of editor group) | S | Shows upstream keybinding list on an empty window. |
 | 3 | **Product icon theme** | `extensions/theme-modern-icons` / `product.json` `PRODUCT_ICON_THEME` | M | The codicon set. Replacing key glyphs is a strong brand signal. |
 | 4 | **About dialog** | driven by `product.json` + `LICENSE` | S | Verify it reads "PulseAI IDE" and our repo URL, not Microsoft's. |
-| 5 | **`licenseUrl` / `serverLicenseUrl`** | `product.json` | S | Both still point at `github.com/microsoft/vscode/blob/main/LICENSE.txt`. |
-| 6 | **`webviewContentExternalBaseUrlTemplate`** | `product.json` | S | Still a `vscode-cdn.net` URL pinned to an upstream commit hash. |
-| 7 | **`voiceWsUrl`** | `product.json` | S | Points at `falcon-caas.mai.microsoft.com`. Should be removed or repointed. |
+| ~~5~~ | ~~`licenseUrl` / `serverLicenseUrl`~~ | — | — | ✅ **Done** (§2c) |
+| 6 | `webviewContentExternalBaseUrlTemplate` | `product.json` | S | `vscode-cdn.net` URL. **Web-only code path**; harmless on desktop. Low priority. |
+| ~~7~~ | ~~`voiceWsUrl`~~ | — | — | ✅ **Done** (§2c) |
 | 8 | **Light theme** | `theme-defaults` | M | No PulseAI Light yet — generator handles it when wanted. |
 | 9 | **Splash / startup colors** | window background before workbench paints | S | Prevents a grey flash on cold start. |
 
@@ -195,3 +275,4 @@ claim it in our fork (see `COPILOT_INTEGRATION_ANALYSIS.md` §6 A3).
 | Date | Change |
 |---|---|
 | 2026-08-23 | Initial audit. Shipped PulseAI Dark theme + generator, set as default via extension `configurationDefaults`. Zero upstream source files touched. Copilot untouched per founder direction. |
+| 2026-08-23 | **Theme verified on hardware — 9/9 pass, zero teal** (§2b). Fixed the Copilot onboarding takeover by removing `defaultChatAgent` from `product.json` (§2c); also removed `voiceWsUrl` and repointed license URLs. Corrected my earlier wrong claim that `mergeViewWithContainerWhenSingleView` was missing — it was already set. 23 desktop tests green. |

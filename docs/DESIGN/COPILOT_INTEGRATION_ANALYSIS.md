@@ -28,6 +28,14 @@ Copilot Chat registers exactly the way Pulse does. Side by side:
 **Conclusion: the integration shape is right.** Both are first-party workbench
 contributions in the secondary (auxiliary) sidebar. No change needed here.
 
+> **⚠️ CORRECTION (2026-08-23, after hardware verification).** The claim below
+> that Pulse lacks `mergeViewWithContainerWhenSingleView` is **WRONG** — it is
+> already set at `pulseAI.contribution.ts:57`. The desktop agent caught this.
+> The real cause of the doubled header is that the auxiliary bar renders a tab
+> strip per view *container*, and two containers (Chat's and Pulse's) were
+> present. Fixed by removing `defaultChatAgent` from `product.json`.
+> See `FORK_REBRANDING.md` §2c. Action A1 below is void; A2/A3/A4 still stand.
+
 ### The one thing worth stealing
 
 Copilot's container passes options Pulse does not:
