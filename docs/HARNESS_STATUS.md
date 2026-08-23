@@ -827,3 +827,42 @@ New claims, graded:
 Remaining queue (real refactors, unchanged): #3 checkpoint repair
 persistence, #4 Windows append atomicity, #9 denial-block dedup, #10 double
 hash, #13 sandbox-grade safety, #14 id-seed reorder, #15 session reuse.
+
+---
+
+# Hermes loop architecture ported into the agent (2026-08-23, session 16)
+
+Founder directive: extract the ARCHITECTURE value from hermes-agent and
+implement it. Read the source (conversation_loop.py, repetition_guard.py),
+not the docs, and ported the two behavior-based loop disciplines:
+
+## 1. The loop law — `src/graphs/loop_guards.py` + `gates.should_continue`
+
+Hermes: a reply without tool calls IS the final answer; only bounded
+behavior re-prompts (stall 2/turn, dropped-call 3) may continue. Ported
+for a LangGraph router: `consecutive_no_tool_ai_messages` counts the
+TRAILING no-tool assistant streak (resets on tool activity or user input);
+after `NO_TOOL_TURN_LIMIT = 3` the turn MUST finalize regardless of which
+loop produced the laps (plan, replan, intent misroute). PulseAI's bounded
+finish/verify nudges are untouched below the cap — first no-tool reply
+still gets its nudge; the cap only backstops the pathological streak.
+
+## 2. Repetition content-sanity — faithful port of hermes #86581 guard
+
+`is_repetition_dominated`: 60+ char verbatim windows, >=5 occurrences,
+>=50% coverage of a >=400-char fragment (line-aligned fast path + sliding
+window). A degenerate echo reply concludes the turn instead of feeding
+another lap. Conservative by construction; fail-open on short inputs.
+
+## Proof (stub lane, real engine, 0 credits)
+
+- 102 tests green across loop-guards + bridge + benchmark + context +
+  subagent-autodeny (5 new loop-guard pins: streak counting, hermes-shape
+  repetition detection, router caps at 3, bounded nudges preserved below
+  the cap, repetition reply finalizes).
+- Live e2e with guards active: PBR-002 **passed 3/3 — 1 provider call**
+  (guards did not interfere with a clean turn); PBR-004 on the 20k
+  workspace **passed** (receipt + completion).
+
+Effect on the founder's 20-lap class: capped at 3 laps worst case, no
+matter which loop causes it. No intent classification involved.
