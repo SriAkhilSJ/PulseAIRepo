@@ -308,3 +308,33 @@ Usage:
 
 Pull latest `arena/01a02a5c-pulseairepo`, then re-run the SAME guarded
 command (~1 credit): PBR-002 should now grade 3/3 with a real cost row.
+
+---
+
+# FIRST GREEN PAID ROW — PBR-002 (2026-08-23, founder run founder-pbr002-2)
+
+## Result
+
+**PASSED 3/3 on the bridge lane (real engine, real provider)** at commit
+`dcd90b2f`: workspace-hops (all hops equal fixture root), proof-reaches-boundary
+(workspace_proof.py visible in the llm.request), turn-completes.
+
+**First real usage row: 7 model calls · 30,747 in / 507 out tokens · $0.0313.**
+Probe 0.65 s. Total credits consumed to date: ~3 of 100.
+
+Fix→re-run loop validated end to end: run 1 exposed the observability gap
+(~1.5 cr), fix landed zero-credit, run 2 green (~1.5 cr).
+
+## Next efficiency question (evidence, not vibes)
+
+A one-question turn on a 3-file workspace made **7 provider calls** with
+**~4.4k input tokens per call**. Candidates: planner call, main agent call(s),
+aux/janitor calls (SUMMARIZER_LLM=aux, D38 post-turn review), reflection.
+Before spending on the rule-of-three, run the free analyzer on the founder
+machine:
+
+    python scripts/analyze_llm_requests.py bench-results\founder-pbr002-2
+
+It prints one line per recorded request (offset, model, attempt, message
+heads' first lines) — enough to attribute each call to a subsystem and decide
+which calls to kill, gate, or cheapen. Zero credits; local file only.
