@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from benchmarks.pulse_reliability_v1.harness.drivers.base import (
@@ -57,7 +58,13 @@ class BridgeDriver(Driver):
         self._reader: threading.Thread | None = None
         self._lines: list[dict] = []
         self._line_lock = threading.Lock()
-        self._session_id = "bench"
+        # UNIQUE session id per run: the engine's durable checkpoint
+        # (~/.pulseai/sessions.db) keys history by thread id, so a fixed id
+        # like "bench" silently REPLAYS every previous run's turns into the
+        # next run's context — measured live as 7→11→14→17 calls and
+        # +~10k input tokens per run, linear. Each benchmark run must be an
+        # isolated thread to measure THIS run, not the history of all runs.
+        self._session_id = f"bench-{uuid.uuid4().hex[:10]}"
         self._greeted = False
         # Last cumulative usage snapshot seen in a telemetry frame; usage is
         # added as a DELTA so repeated cumulative telemetry never double-counts.

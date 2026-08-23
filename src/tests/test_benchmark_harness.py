@@ -376,3 +376,14 @@ def test_bridge_driver_records_events_and_usage_deltas():
     assert record.input_tokens == 250
     assert record.output_tokens == 60
     assert abs(record.estimated_cost_usd - 0.03) < 1e-9
+
+
+def test_bridge_driver_session_id_is_unique_per_instance():
+    """Cross-run pollution pin: a FIXED session id made every benchmark run
+    replay all prior runs' durable checkpoint history (7->11->14->17 calls,
+    linear). Each driver instance must mint a fresh thread id."""
+    from benchmarks.pulse_reliability_v1.harness.drivers.bridge import BridgeDriver
+    a = BridgeDriver(Recorder(), python_command=("python",))
+    b = BridgeDriver(Recorder(), python_command=("python",))
+    assert a._session_id != b._session_id
+    assert a._session_id.startswith("bench-")
