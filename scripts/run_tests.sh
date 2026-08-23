@@ -20,8 +20,19 @@
 #   scripts/run_tests.sh                          # full suite
 #   scripts/run_tests.sh src/tests/test_bridge.py # one file
 #   scripts/run_tests.sh -k workspace             # passthrough pytest args
+#
+# Footgun guard: KEEP_KEYS + REAL_HOME together runs tests with live
+# credentials against the real HOME — only with an explicit extra ack.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if [[ "${PULSEAI_TEST_KEEP_KEYS:-0}" == "1" && "${PULSEAI_TEST_REAL_HOME:-0}" == "1" \
+      && "${PULSEAI_TEST_UNSAFE_INTEGRATION:-0}" != "1" ]]; then
+  echo "REFUSED: PULSEAI_TEST_KEEP_KEYS=1 + PULSEAI_TEST_REAL_HOME=1 runs tests with" >&2
+  echo "live credentials against your real HOME. Set PULSEAI_TEST_UNSAFE_INTEGRATION=1" >&2
+  echo "to acknowledge and proceed (integration debugging only)." >&2
+  exit 2
+fi
 
 # 1. Hermetic credentials (unless explicitly kept for integration work).
 if [[ "${PULSEAI_TEST_KEEP_KEYS:-0}" != "1" ]]; then

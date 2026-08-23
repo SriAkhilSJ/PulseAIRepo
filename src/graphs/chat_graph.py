@@ -924,6 +924,14 @@ def _quick_task_decision(
     if " ".join(raw.lower().split()) in _D30_APPROVAL_WORDS:
         return None
 
+    # Boundary consistency (external review #7): an ack CONTAINING an
+    # approval word is approval-flavoured ("ok go ahead" ~ "go ahead") —
+    # the approval branch owns routing it, so it must pay the classifier
+    # exactly like the exact phrase does. Free "continue" is for pure acks.
+    for approval_word in _D30_APPROVAL_WORDS:
+        if approval_word in norm:
+            return None
+
     tokens = norm.split()
     if any(t in _D30_DANGER_TOKENS for t in tokens):
         return None
@@ -2733,7 +2741,13 @@ def invoke_agent(
         except Exception:
             pass
 
-        return result["messages"][-1].content
+        # Only an ASSISTANT message is a final answer (same rule the
+        # stream_agent fallback enforces): a graph ending on a ToolMessage or
+        # nudge must never surface tool output as the response.
+        ai_messages = [m for m in result["messages"] if getattr(m, "type", "") == "ai"]
+        if not ai_messages:
+            return ""
+        return ai_messages[-1].content
     finally:
         turn_controls.end(thread_id)
         set_active_session(None)
