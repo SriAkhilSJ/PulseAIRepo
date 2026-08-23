@@ -388,3 +388,45 @@ Run 3 for the rule of three (~1.5–2 cr, FRESH run-id) AND paste the analyzer
 output on the 11-call run. If repair loops confirm, the fix is engine-side
 (JSON-tolerant parsing / single-retry budget) — land it free, then the
 rule-of-three baseline is both green AND cheap.
+
+---
+
+# Rule of three banked + the 4-vs-11 visibility gap fixed (2026-08-23, session 6)
+
+## Founder results
+
+PBR-002: **three consecutive greens** (runs 2, 2-re, 3) — the correctness
+claim (exact-workspace routing through every layer) is now verified under the
+rule of three. Cumulative spend ≈ $0.14.
+
+But the efficiency axis trends the WRONG way: 7 → 11 → 14 model calls
+($0.031 → $0.049 → $0.058) for the identical task, and the analyzer saw only
+**4 llm.request frames vs 11 counted calls**.
+
+## Root cause of the visibility gap (found + fixed)
+
+The bridge subscribed the event bus SESSION-FILTERED; provider calls made
+where no active session is set (planner pre-turn, post-turn review threads)
+carry session_id=None and were silently dropped from frames while still
+counted by engine telemetry. Fix: the forwarder takes an admin subscription
+and filters itself — session-less events are kept, another session's events
+are dropped (concurrent-turn isolation preserved). Pin:
+`test_forwarder_keeps_sessionless_events_drops_other_sessions`.
+
+## Growth attribution status
+
+Local stub lane (deterministic, keyless): two sequential full turns —
+IDENTICAL call count and message counts (2 frames, msgs 2+9 both runs).
+The engine core is not self-growing. The founder's 7→11→14 growth is
+environment-driven: prime suspects are (a) Sarvam response variance →
+structured-output repair loops, (b) cross-run memory accumulation on the
+founder machine (embeddings active there; disabled in the sandbox lane).
+The forwarder fix makes the NEXT founder run show every provider call as a
+frame — full attribution without new tooling.
+
+## Next (founder, ~2 credits)
+
+1. `python scripts\analyze_llm_requests.py bench-results\founder-pbr002-3 bench-results\founder-pbr002-4`
+2. Run 4 with a fresh run-id at tip (forwarder fix included).
+3. If frames now equal telemetry and the extras are repair loops → engine
+   fix lands free before any further spend.

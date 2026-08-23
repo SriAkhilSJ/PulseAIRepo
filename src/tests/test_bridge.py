@@ -238,3 +238,41 @@ def test_project_event_forwards_llm_request():
     assert frame["type"] == "llm.request"
     assert frame["model"] == "sarvam-105b-conversations"
     assert "workspace_proof.py" in json.dumps(frame)
+
+
+def test_forwarder_keeps_sessionless_events_drops_other_sessions():
+    """Provider calls made with no active session (planner pre-turn, post-turn
+    review) must still reach the client; another session's events must not
+    (concurrent-turn isolation). Founder run counted 11 calls, only 4 frames."""
+    import queue as _queue
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="own", workspace="/tmp/ws")
+    q: _queue.Queue = _queue.Queue()
+    done = __import__("threading").Event()
+    emitted = []
+    server = object.__new__(BridgeServer)
+    server.emit = emitted.append
+
+    q.put({"type": "llm.request", "payload": {"session_id": None, "model": "m"}})       # sessionless -> keep
+    q.put({"type": "llm.request", "payload": {"session_id": "other", "model": "m"}})    # other session -> drop
+    q.put({"type": "llm.request", "payload": {"session_id": "own", "model": "m"}})      # own -> keep
+    q.put({"type": "message.agent.chunk", "payload": {"text": "hi"}})                   # sessionless -> keep
+    q.put({"type": "tool.call", "payload": {"session_id": "other", "name": "x"}})       # other -> drop
+    done.set()  # loop exits after draining? no — loop checks done first; drain manually
+    # Drain: run the loop body once by calling it with a tiny timeout pattern:
+    # simplest is to process the queue directly through the same filter logic.
+    # Instead of sleeping, temporarily unset done and stop via empty queue + timeout:
+    done.clear()
+    import threading
+    t = threading.Thread(target=server._forward_events, args=(q, identity, done, "own"), daemon=True)
+    t.start()
+    import time
+    time.sleep(0.5)
+    done.set(); t.join(timeout=2)
+
+    kinds = [f["type"] for f in emitted]
+    assert kinds.count("llm.request") == 2, kinds      # sessionless + own kept, other dropped
+    assert kinds.count("token") == 1, kinds            # sessionless chunk kept
+    assert "tool_call_start" not in kinds              # other session dropped
