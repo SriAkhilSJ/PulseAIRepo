@@ -106,6 +106,15 @@ $LogOut = Join-Path $env:TEMP "$RunId.out.log"
 $LogErr = Join-Path $env:TEMP "$RunId.err.log"
 $RunDir = Join-Path $RepoRoot "bench-results\$RunId"
 
+# Never silently overwrite graded evidence: a re-run with the same id would
+# destroy the previous run's artifacts (it happened once — run A's 7-call
+# evidence was lost to a re-run). Fail fast with the fix in the message.
+if (Test-Path $RunDir) {
+    Write-Host "RUN-ID CONFLICT: $RunDir already exists (graded evidence)." -ForegroundColor Red
+    Write-Host "Re-run with a fresh id, e.g.: -RunId $RunId-$(Get-Date -Format HHmmss)" -ForegroundColor Yellow
+    exit 2
+}
+
 Write-Host "[run] PBR-002 bridge lane starting (watchdog: 30s checks, kill on stall)..."
 $proc = Start-Process -FilePath $Python `
     -ArgumentList "-m", "benchmarks.pulse_reliability_v1.harness", "run",
