@@ -23,7 +23,7 @@ hard credit budget, with watchdog protection. Concretely, in order:
 ## 1. Sync the workspace (the laptop folder is NOT latest)
 
 The latest code lives on branch **`arena/01a02a5c-pulseairepo`** on GitHub
-(current tip: `f137f237`). It contains 4 commits the laptop does not have:
+(current tip: `8cbb12ea`). It contains 4 commits the laptop does not have:
 
 ```
 f137f237  bench: guarded paid-runner script + provider-unreachable durability receipt
@@ -40,7 +40,7 @@ git stash push -u -m "pre-arena-sync"   # only if dirty; do NOT lose them
 git fetch origin
 git checkout arena/01a02a5c-pulseairepo
 git pull origin arena/01a02a5c-pulseairepo
-git log --oneline -1           # MUST show f137f237 (or newer)
+git log --oneline -1           # MUST show 8cbb12ea (or newer)
 ```
 
 **Warnings:**
@@ -73,6 +73,11 @@ Environment check (one-time):
 ```
 
 ## 3. THE PAID RUN — guarded PBR-002 (priority)
+
+> **Update 2026-08-23:** the first run (founder-pbr002-1) exposed a real
+> observability gap — fixed on the branch you just pulled (commit 8cbb12ea:
+> the bridge now emits workspace.bound + llm.request; the harness records
+> them and real token/cost usage). Re-run the SAME command; expect 3/3.
 
 One command. It is self-protecting: 8-token probe first (~0.1 credit); if the
 probe fails the benchmark never starts; watchdog checks every 30 s; kills the
