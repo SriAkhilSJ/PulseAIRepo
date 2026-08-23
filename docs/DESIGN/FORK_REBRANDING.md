@@ -115,7 +115,10 @@ The theme is **statically correct** (valid JSON, registered, 0 upstream leftover
 but has **not been rendered in a running IDE** — the fork needs a multi-hour
 build that cannot run in this sandbox.
 
-**Founder action:** rebuild and eyeball it.
+**Founder action:** hand `DESKTOP_AGENT_THEME_VERIFICATION.md` (repo root) to the
+desktop agent. It contains the sync commands, the launch paths, a 9-row pass/fail
+checklist, a teal-hunt list, and the two open questions (doubled panel header;
+two agent icons). Zero credits.
 
 ```bash
 cd desktop/vscode
