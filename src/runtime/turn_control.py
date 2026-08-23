@@ -60,12 +60,22 @@ class TurnControlRegistry:
             item.active = True
 
     def end(self, session_id: str) -> None:
-        """Release one turn owner; repeated cleanup is harmless."""
+        """Release one turn owner; repeated cleanup is harmless.
+
+        When the LAST owner releases, any consumed cancellation is cleared:
+        a stale cancel_event must never outlive the turn that earned it
+        (external review #15 — an unmanaged caller reusing the id without
+        begin() would otherwise see admit_action() refuse forever). Late
+        cancels arriving after this point are rejected by cancel() itself
+        (inactive session), so nothing is lost.
+        """
         item = self._get(session_id)
         with item.lock:
             if item.active_depth > 0:
                 item.active_depth -= 1
             item.active = item.active_depth > 0
+            if item.active_depth == 0:
+                item.cancel_event.clear()
 
     def cancel(self, session_id: str) -> bool:
         """Cancel an active turn and interrupt its registered requests.

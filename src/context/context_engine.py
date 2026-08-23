@@ -549,8 +549,10 @@ class ContextEngine:
             )
         task_type = self._classifier.classify(task)
 
-        # 2. Differential state check
-        current_hash = self._hash_state(state)
+        # 2. Differential state check — #10: the ONE hash computation of the
+        # turn; _build_context_layers and the inner builder reuse the slot.
+        self._active_state_hash = self._hash_state(state)
+        current_hash = self._active_state_hash
         rebuild_all = current_hash != self._last_state_hash
 
         # 3. Build layers (task-aware + differential cache)
@@ -643,6 +645,11 @@ class ContextEngine:
             self.thread_id or str(state.get("thread_id") or "") or None
         )
         self._active_workspace = str(state.get("workspace") or ".")
+        # #10: hash the state ONCE per turn. _build_ai_messages normally
+        # computed it already (differential check); only compute here when
+        # called directly.
+        if getattr(self, "_active_state_hash", None) is None:
+            self._active_state_hash = self._hash_state(state)
         try:
             layers = self._build_context_layers_inner(state, task_type, walkers)
             self._emit_build_receipt()
@@ -652,6 +659,7 @@ class ContextEngine:
             self._active_pool = None
             self._active_thread_id = None
             self._active_workspace = None
+            self._active_state_hash = None
 
     @staticmethod
     def _workspace_exceeds_budget(workspace: str, cap: int) -> bool:
@@ -758,13 +766,15 @@ class ContextEngine:
         }
 
         # Compute the state hash ONCE for the whole build. (Previously this
-        # ran json.dumps + sha256 up to 15x per turn on cache-hit paths.)
+        # ran json.dumps + sha256 up to 15x per turn on cache-hit paths, and
+        # until #10 the wrapper recomputed it once more per turn — the
+        # wrapper now passes its hash down via _active_state_hash.)
         # NOTE: invalidation is COARSE by design — one hash covers all layers,
         # so any change to a HASHED key rebuilds every layer. Correct, just
         # not granular; true per-layer dependency hashing is a deliberate
         # non-goal. (D26 narrowed the keyset to what layers actually read —
         # before that, per-turn token/execution noise busted it every turn.)
-        current_hash = self._hash_state(state)
+        current_hash = self._active_state_hash or self._hash_state(state)
 
         for name, builder in builders.items():
             relevance_map = self.LAYER_RELEVANCE.get(name, {})
