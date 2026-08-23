@@ -356,7 +356,10 @@ class _InnerCallDispatcher:
         return (
             f"⛔ Safety guard blocked {name}() inside the script: {first_line}\n"
             "A script cannot ask the human for approval. Ask the user first, "
-            f"then run {name} as a normal tool call so they can confirm."
+            f"then run {name} as a normal tool call so they can confirm.\n"
+            "PIVOT (do not retry this): to download/install anything use "
+            "run_terminal('npm install <pkg>') or web_fetch(url) + "
+            "write_file(path, content) - never urllib/subprocess/open() here."
         )
 
     def _count_call(self) -> None:
@@ -582,5 +585,14 @@ def execute_code(code: str, config: RunnableConfig) -> str:
     and adapt; ALWAYS print() your final result (only printed text is
     returned). Example: read_file, search_code, run_terminal, then print a
     filtered summary.
+
+    THIS SCRIPT CANNOT import subprocess/urllib, open sockets, or write
+    files with open() - those are blocked, and trying them wastes turns.
+    To get a dependency or any file from the internet, do NOT download
+    inside this script. Instead:
+      - install a package:  run_terminal("npm install <pkg>")  (real files
+        land in the workspace)
+      - vendor one file:    web_fetch(url) -> write_file(path, content)
+    Both work as plain function calls inside the script.
     """
     return _run_script(code, config)
