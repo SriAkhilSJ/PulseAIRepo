@@ -767,3 +767,34 @@ adopted what fits; documented what we deliberately did not.
 - Never read source in tests (newly flagged violation).
 - E2E over mocks: our stub-provider lane is exactly this and stays the
   zero-credit attribution path.
+
+---
+
+# External 16-point code review — fact-checked, verdicts + fixes (2026-08-23, session 14)
+
+Every claim was verified against the code before acting. Scorecard:
+
+| # | Claim | Verdict |
+|---|---|---|
+| 1 | duplicate `_zero/_merge_token_usage` defs (merge artifact) | **TRUE — FIXED** (second copy deleted; file parses, tests green) |
+| 2 | `_allow_embedding_compute = False`, never flipped; semantic scoring/dedup/memory layers dead | **TRUE** (0 `= True` anywhere). Nuance: matches the bounded-scan doctrine (production budgets cache-only; only `unbounded()` maintenance may compute) — but the README oversells active semantics. README correction queued; enabling is a founder product decision |
+| 3 | repaired tool-call ids not persisted to checkpointer | **TRUE in substance** — repaired AIMessage is appended to state, the broken original remains in checkpointed history |
+| 4 | feedback append not atomic on Windows | **TRUE-ish** — O_APPEND atomicity claim in the comment is wrong on Windows; defensive JSONDecodeError handling already exists |
+| 5 | memory_manager late binding fragile | TRUE (style; works today) |
+| 6 | `store_replan_lesson` unguarded → crash | **FALSE** — guarded by `if memory_manager:` two lines above (reviewer missed it) |
+| 7 | "go ahead" vs "ok go ahead" quick-path inconsistency | **TRUE** — both strings sit in the veto list AND the ack vocab |
+| 8 | final-response fallback returns any message type | **TRUE — FIXED** (only assistant messages qualify now) |
+| 9 | duplicated 50-line denial blocks in SafeToolNode | TRUE (refactor queued) |
+| 10 | state hash computed twice per turn | TRUE (two call sites; micro-perf) |
+| 11 | run_tests.sh HOME path bug | **FALSE in mechanism** — `mktemp -d TEMPLATE` creates in CWD and returns a RELATIVE path, so `$PWD/$OUT` was valid (71 tests ran under it). Still, the reviewer's instinct was right that the pattern was fragile — **hardened** to an absolute `${TMPDIR}/...` template (verified absolute on GNU) |
+| 12 | BROWSER_TOOLS module-level import vs README "lazy" claim | **TRUE** — contradiction stands |
+| 13 | safety-guard regex bypass (`wget|bash`, `python -c`) | TRUE (acknowledged in its own comments; human checkpoint, not sandbox) |
+| 14 | tool-call id seed includes index → reorder changes ids | TRUE by code (volatile-tail nuance softens the cache impact) |
+| 15 | cancelled session id poisons reuse without begin() | TRUE (stale cancel_event; unique session ids mask it in the benchmark) |
+| 16 | "branch is just a bot adding a broken script" | **MISLEADING** — the branch carries the session's product fixes (key scrub, observability frames, pollution fix, tokenizer durability, receipts); the review's real finds (#1,#2,#3,#8...) predate the branch — they are the inherited engine's bugs and are now tracked |
+
+Fixes landed this session: #1 (dedup), #8 (AI-only fallback), #11 (mktemp
+hardening). Queued with owners: #2/#12 (README honesty + product decision),
+#3 (checkpoint repair), #7 (quick-path consistency), #9 (denial dedup), #15
+(reuse cleanup). The referee culture applies to us too: the review was
+graded, not trusted.
