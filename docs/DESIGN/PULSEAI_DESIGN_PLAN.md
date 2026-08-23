@@ -101,6 +101,22 @@ keeping them:
 - No token/activity graph, no node-canvas UI.
 - Usage shown as **direct numeric evidence**.
 
+### 4.2 ⚠️ SUPERSEDED — use the fork's own design tokens
+
+**Correction (2026-08-23).** §4.2–4.4 below invented a bespoke type/spacing/
+radius scale. That was wrong. `desktop/vscode/src/vs/platform/theme/common/sizes/baseSizes.ts`
+already registers a full scale that Copilot Chat renders with, exposed as
+`--vscode-fontSize-*`, `--vscode-cornerRadius-*`, `--vscode-spacing-*`.
+Pulse must **consume** those, not parallel them — otherwise it ignores user
+font-size, editor zoom, and theme overrides.
+
+Notably `fontSize.body1` = **13px**, documented in-source as the base body size.
+The custom **color** direction (§4.5) stands; sizes do not.
+
+**Full evidence and the migration actions: [`COPILOT_INTEGRATION_ANALYSIS.md`](COPILOT_INTEGRATION_ANALYSIS.md) §3.**
+
+<details><summary>Original §4.2–4.4 (kept for history — do not implement)</summary>
+
 ### 4.2 Type scale (the single highest-impact fix)
 
 Move to a real scale anchored at **13px base**, matching VS Code/Cursor.
@@ -133,6 +149,8 @@ Row heights: 28 (tree/tab), 32 (toolbar), 36 (tool row), 44 (rail button).
 Three elevation planes (fixes the flat-sheet problem):
 `--pulse-plane-0` chrome `#151515` · `--pulse-plane-1` surface `#1c1c1c` ·
 `--pulse-plane-2` raised `#232323`, each with a `1px` top highlight at 4% white.
+
+</details>
 
 ### 4.5 Color — TRUE BLACK (founder direction, 2026-08-23)
 
@@ -335,4 +353,5 @@ usage as direct numerals · agent code never under `/extensions/`.
 | Date | Change |
 |---|---|
 | 2026-08-23 | Initial plan. Repo audit + Aug-2026 competitor research. No code changed yet. |
+| 2026-08-23 | **Copilot integration analysis.** Fork already ships a design-token system (`baseSizes.ts`); Pulse uses 0 of it vs 34 hardcoded sizes. §4.2–4.4 superseded. New doc: `COPILOT_INTEGRATION_ANALYSIS.md`. |
 | 2026-08-23 | **Founder direction: true black + white/grey text + blue buttons.** §4.5 rewritten (cyan retired). Phase 1 implemented in `ui/` and marked DONE. Production port gated on a branding-test update (§4.5b). Screenshots stale — see Phase 1. |

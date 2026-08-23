@@ -11,6 +11,10 @@
 > grey `#9b9b9b` thinking text · blue `#3b82f6` buttons. Cyan is retired.
 > Applied in `ui/` only — the production mirror is gated on `test_pulseai_branding.py` (§4.5b).
 > `ui/screenshots/*.png` are STALE (still show the old design).
+>
+> **Also read [`docs/DESIGN/COPILOT_INTEGRATION_ANALYSIS.md`](../docs/DESIGN/COPILOT_INTEGRATION_ANALYSIS.md)** —
+> the fork ships a design-token system (`--vscode-fontSize-*`, `--vscode-cornerRadius-*`,
+> `--vscode-spacing-*`) that Pulse must consume instead of hardcoding px.
 
 Browser-testable source for the two PulseAI IDE product surfaces:
 
