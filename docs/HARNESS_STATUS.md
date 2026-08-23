@@ -798,3 +798,32 @@ hardening). Queued with owners: #2/#12 (README honesty + product decision),
 #3 (checkpoint repair), #7 (quick-path consistency), #9 (denial dedup), #15
 (reuse cleanup). The referee culture applies to us too: the review was
 graded, not trusted.
+
+---
+
+# Round 2 of the external review — verified + fixed (2026-08-23, session 15)
+
+New claims, graded:
+
+- **invoke_agent had the same msgs[-1] bug** — TRUE (fair hit: fixed the
+  stream path last commit, missed the sibling). **FIXED**: only assistant
+  messages qualify as the final answer, empty string if none.
+- **#7 quick-path boundary** ("go ahead" pays, "ok go ahead" was free) —
+  TRUE. **FIXED conservatively**: any ack CONTAINING an approval word now
+  pays the classifier like the exact phrase (the approval branch owns
+  routing; free "continue" is for pure acks only).
+- **run_tests.sh footgun** (KEEP_KEYS + REAL_HOME) — TRUE-ish. **FIXED**:
+  the combination now REFUSES without an explicit
+  PULSEAI_TEST_UNSAFE_INTEGRATION=1 ack (verified firing).
+- **#16 "spin"** — fair: the latest commit WAS micro-fixes + scorecard; the
+  characterization was of the commit, the defense was of the branch. Both
+  true, no dispute.
+- **"README not updated" (founder's own diagnosis)** — CORRECT and now
+  treated as the root cause it was: README carried two claims the code
+  never satisfied (#2 embeddings active, #12 browser lazy import). Both
+  sections now carry honest status notes; enabling embeddings stays a
+  founder product decision.
+
+Remaining queue (real refactors, unchanged): #3 checkpoint repair
+persistence, #4 Windows append atomicity, #9 denial-block dedup, #10 double
+hash, #13 sandbox-grade safety, #14 id-seed reorder, #15 session reuse.

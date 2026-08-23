@@ -43,6 +43,18 @@ Then open `http://localhost:8080`.
 - **Replanning:** Pivot strategy mid-task if the current plan becomes unviable.
 
 ### Task-Aware Context Engine (v2)
+
+> **⚠️ Honest status (2026-08-23, verified by external review + code audit):**
+> the *embedding-backed* features below — semantic similarity scoring,
+> semantic dedup, the embedding path of long-term memory — are **disabled in
+> normal operation** (`_allow_embedding_compute = False`; production budgets
+> are cache-only per the bounded-scan doctrine — only the explicit
+> `unbounded()` maintenance path may compute). Until that changes, scoring
+> runs on task-type priors + recency heuristics, dedup is skipped, and the
+> memory layer is a no-op. Enabling embeddings in live turns is an open
+> product decision (quality vs. compute), not a toggle to flip quietly.
+> The classifier/assembly/budget machinery described below IS active.
+
 PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, fixed budget), v2 is task-aware:
 
 - **Task Classification:** Regex heuristics + embedding similarity classify each task into 9 types (debug, create, refactor, test, explore, explain, plan, recovery, chat).
@@ -361,7 +373,7 @@ Second hardening pass, driven by the Test-3 E2/R3 retests (both "Finished" with 
 
 ### Prompt caching & boot reliability
 - **P1 prompt-cache plan** (`src/context/prompt_cache_plan.py`) — marks the byte-stable prefix head with cache breakpoints, hermes `prompt_caching.py` shape. **Default off** (`PULSEAI_PROMPT_CACHE=1` + allowlisted provider); pure, never raises, undoable by the failover stripper.
-- **`browser_mcp` lazy import** — the `mcp` package (and its Windows `pywintypes` requirement) is imported lazily so the engine boots even without the optional stack.
+- **`browser_mcp` import (status corrected 2026-08-23):** `BROWSER_TOOLS` is currently imported at MODULE level in `chat_graph.py` — the earlier "lazy import" claim was README drift, not code. If the optional `mcp`/`pywintypes` stack is missing on Windows, boot can break; making this genuinely lazy is queued.
 
 ### Test-3 retest result
 ✅ **PASS** — both components placed **verbatim** (byte-identical via `copy_file`), full scaffold, `tsc` proves soundness; remaining errors are inherent to the provided component's bleeding-edge WebGPU/TSL API. Eval artifacts under `lab/` (`TEST3_E2_REPORT.md`, `report_test3_retest.json`, `test3_expected/`, harness scripts).
