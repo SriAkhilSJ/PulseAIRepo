@@ -189,13 +189,92 @@ Copilot as this IDE's default chat agent* — which was never true of PulseAI.
 `webviewContentExternalBaseUrlTemplate` was left alone: it is read only by the
 **web** environment service and falls back to the same URL anyway.
 
-**Awaiting hardware confirmation.** Round-2 instructions for the desktop agent
-are at `DESKTOP_AGENT_VERIFICATION_R2.md` (repo root): fresh clean profile, no
-seeded settings, no `--disable-extension`, 4 checks — (1) no GitHub sign-in
-dialog on first launch, (2) single Pulse panel header, (3) no `CHAT` tab in the
-auxiliary bar, (4) Chat commands still reachable (regression guard). It also
-picks up the two round-1 rows that were only statically verified (explorer
-selection wash; error/git decoration colors).
+### ⚠️ §2c REVERTED — removing `defaultChatAgent` bricks the workbench
+
+**Status: the removal was WRONG and has been reverted. Do not retry it.**
+
+Round-2 hardware verification (`e73e48b4`) found a **black screen**: the window
+opens, the title stays `PulseAI IDE`, and the renderer never paints. No
+`logs/window1` is created. All four checks were blocked.
+
+The desktop agent's **control test is what cracked it**: restoring `product.json`
+to `f2f1eb5e` (with `defaultChatAgent`) against the *same* `out/` made the
+workbench paint; re-removing it went black again.
+
+**Their conclusion — "the stale `out/` from 8/21 was built against the old
+product shape" — is wrong, and their own control test disproves it.**
+`product.json` is not compiled into `out/`. It is injected at runtime via
+`globalThis._VSCODE_PRODUCT_JSON` (`platform/product/common/product.ts:37`).
+Both control runs executed *identical JavaScript*; only the injected data
+differed. That isolates the failure to a **runtime null-dereference**, and it
+means rebuilding `out/` would not have helped.
+
+**The actual crash site:**
+
+```ts
+// contrib/welcomeOnboarding/browser/onboardingVariationA.ts:80  (module top level)
+assertDefined(product.defaultChatAgent, 'Onboarding requires a default chat agent product configuration.');
+const defaultChat = product.defaultChatAgent;
+```
+
+`assertDefined` throws (`base/common/types.ts:156`). This runs at **module
+evaluation**, not inside a function, and the module is pulled into the workbench
+bundle by `workbench.common.main.ts:402`. A throw there aborts bundle
+evaluation, so the renderer dies before it can paint anything — which is exactly
+a black window with no renderer log.
+
+**Why my earlier reasoning failed.** I quoted `chatEntitlementService.ts:732`
+("No ChatEntitlementContext (e.g. no defaultChatAgent in product.json)") as
+proof that absence is supported. That comment is real, but it describes *one
+service's* tolerance — I generalised it to the whole workbench. The type
+declaration stated the truth plainly and I did not check it:
+
+```ts
+// base/common/product.ts:272-276
+readonly defaultChatAgent: IDefaultChatAgent;   // ← required, no `?`
+readonly voiceWsUrl?: string;                   // ← optional, has `?`
+```
+
+**`defaultChatAgent` is a required field.** A survey of consumers found ~34
+unguarded dereferences beyond the fatal one, including `defaultAccount.ts:151`
+(constructor), `extensionGalleryService.ts:1980` (would break the Extensions
+view) and `chatWidget.ts:1377`. Optional chaining is common but *not* universal.
+
+**Lesson for future rebranding: grep the type declaration in
+`base/common/product.ts` before removing any product key. A `?` means
+removable; no `?` means a consumer will dereference it.**
+
+#### What is retained
+
+| Change | Status | Why |
+|---|---|---|
+| `defaultChatAgent` removed | **REVERTED** — restored byte-identical | Required field; module-level `assertDefined` bricks the renderer |
+| `voiceWsUrl` removed | **KEPT** | Declared `voiceWsUrl?: string`; all three consumers use `\|\| ''` fallbacks |
+| `licenseUrl` / `serverLicenseUrl` repointed | **KEPT** | Plain strings, no dereference risk |
+
+`product.json` is now byte-identical to the last-known-booting revision
+(`f2f1eb5e`) apart from those two safe edits.
+
+#### The original three symptoms are still open
+
+The GitHub Device Code dialog, the doubled panel header, and the `CHAT` tab in
+the auxiliary bar are all **unfixed**. `product.defaultChatAgent` is not an
+available lever. Candidate approaches, none yet validated:
+
+1. **Drop `workbench.common.main.ts:402`** (`welcomeOnboarding.contribution.js`).
+   That file is already one of the 5 permitted modified files, and Microsoft's
+   "Sign in with GitHub Copilot / Google / Apple" wizard is wrong for PulseAI on
+   its own merits. Removes the onboarding modal; does **not** address the CHAT
+   container.
+2. **Neuter rather than delete** — keep `defaultChatAgent`'s full shape so no
+   consumer throws, but replace GitHub URLs/ids with PulseAI-neutral values.
+   Needs care: empty provider ids may produce a broken dialog instead of none.
+3. **Hide the Chat view container** via a contribution in the Pulse custom root,
+   leaving `contrib/chat` untouched. Most surgical; needs research.
+
+Option 1 is cheapest to test and independently desirable. It should be verified
+**alone**, so a boot failure is unambiguous.
+
 
 ## 3. Not yet verified
 

@@ -235,3 +235,26 @@ From the `contrib/chat/browser/` directory listing — each is a shipped surface
    native *and* respect every user's zoom/theme settings for free.
 3. **13px is not my preference — it is `fontSize.body1` in your own repo,** the
    token Copilot Chat renders its messages with.
+
+
+---
+
+## ⚠️ SECOND CORRECTION (2026-08-23) — `defaultChatAgent` is NOT removable
+
+An earlier revision of this document proposed removing `product.defaultChatAgent`
+to suppress the Copilot onboarding dialog and the `CHAT` auxiliary-bar tab.
+**That was implemented, shipped, and bricked the workbench** (black screen, the
+renderer never paints). It has been reverted.
+
+Root cause: `contrib/welcomeOnboarding/browser/onboardingVariationA.ts:80` calls
+`assertDefined(product.defaultChatAgent, …)` at **module top level**, and that
+module is in the workbench bundle via `workbench.common.main.ts:402`. The throw
+aborts bundle evaluation.
+
+`base/common/product.ts:272` declares the field **required** (`defaultChatAgent:
+IDefaultChatAgent`, no `?`). ~34 further unguarded dereferences exist.
+
+**Rule: before removing any `product.json` key, check `base/common/product.ts`.
+No `?` on the declaration means it is not removable.**
+
+Full analysis and the retained/reverted breakdown: `FORK_REBRANDING.md` §2c.
