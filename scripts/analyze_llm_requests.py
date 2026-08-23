@@ -1,16 +1,18 @@
-"""Analyze llm.request events in a benchmark run record — zero credits.
+"""Analyze llm.request events in benchmark run records — zero credits.
 
-Reads bench-results/<run-id>/run-record.json (local file; no network, no key)
+Reads bench-results/<run-id>/run-record.json (local files; no network, no key)
 and prints one line per recorded provider request: time offset, model,
 attempt, message count, and the first line of each message head — enough to
 infer WHICH subsystem made the call (planner / main agent / aux janitor /
 reflection) without sending any prompt content anywhere.
 
+Pass ONE run dir for the per-call breakdown, or SEVERAL run dirs of the SAME
+task for a variance comparison (calls / tokens / cost min-max-avg) — the
+consistency signal for the rule-of-three.
+
 Usage (repo root, any python):
     python scripts/analyze_llm_requests.py bench-results\\founder-pbr002-2
-
-Also prints a usage roll-up (model calls, in/out tokens, est. cost) from the
-same record, so one command gives the full efficiency picture of a run.
+    python scripts/analyze_llm_requests.py bench-results\\founder-pbr002-2 bench-results\\founder-pbr002-3
 """
 from __future__ import annotations
 
@@ -27,20 +29,16 @@ def _first_line(head: str, limit: int = 90) -> str:
     return ""
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__)
-        return 2
-    run_dir = Path(argv[1])
+def _load(run_dir: Path) -> dict:
     record_path = run_dir / "run-record.json"
     if not record_path.exists():
-        print(f"no run record at {record_path}")
-        return 2
+        raise SystemExit(f"no run record at {record_path}")
+    return json.loads(record_path.read_text(encoding="utf-8"))
 
-    record = json.loads(record_path.read_text(encoding="utf-8"))
+
+def _breakdown(record: dict) -> None:
     events = [e for e in record.get("events", []) if e.get("type") == "llm.request"]
     startup = int(record.get("startup_ms") or 0)
-
     print(f"run: {record.get('run_id')}  task: {record.get('task_id')}")
     print(f"llm.request events: {len(events)}")
     print()
@@ -56,7 +54,6 @@ def main(argv: list[str]) -> int:
         print(f"   first: {head0}")
         print(f"   last : {head_last}")
         print()
-
     usage = {
         "model_calls": record.get("model_calls"),
         "tool_calls": record.get("tool_calls"),
@@ -69,8 +66,50 @@ def main(argv: list[str]) -> int:
     it = usage["input_tokens"] or 0
     if mc:
         print(f"avg input tokens/call: {it / mc:.0f}")
+
+
+def _variance(records: list[dict]) -> None:
+    rows = []
+    for r in records:
+        rows.append({
+            "run": r.get("run_id"),
+            "calls": int(r.get("model_calls") or 0),
+            "in": int(r.get("input_tokens") or 0),
+            "out": int(r.get("output_tokens") or 0),
+            "cost": float(r.get("estimated_cost_usd") or 0.0),
+        })
+    print("## Variance across runs (same task) — the consistency signal")
+    print()
+    print("| Run | Model calls | Tokens in | Tokens out | Est. $ |")
+    print("|---|---|---|---|---|")
+    for row in rows:
+        print(f"| {row['run']} | {row['calls']} | {row['in']} | {row['out']} | {row['cost']:.4f} |")
+    if len(rows) >= 2:
+        def stats(key: str) -> str:
+            vals = [row[key] for row in rows]
+            return f"min {min(vals)} · max {max(vals)} · avg {sum(vals) / len(vals):.1f}"
+        print()
+        print(f"- Model calls: {stats('calls')}  (spread {max(r['calls'] for r in rows) - min(r['calls'] for r in rows)})")
+        print(f"- Tokens in:   {stats('in')}")
+        print(f"- Est. cost:   {stats('cost')}")
+        spread = max(r["cost"] for r in rows) - min(r["cost"] for r in rows)
+        base = min(r["cost"] for r in rows) or 1e-9
+        print(f"- Cost swing: {spread / base * 100:.0f}% — anything above ~20% on the "
+              f"identical task means call bloat is nondeterministic (attribute it before claiming a baseline)")
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        print(__doc__)
+        return 2
+    records = [_load(Path(p)) for p in argv[1:]]
+    if len(records) == 1:
+        _breakdown(records[0])
+    else:
+        _variance(records)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
+

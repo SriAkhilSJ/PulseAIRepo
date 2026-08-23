@@ -22,12 +22,21 @@ def count_tokens(messages: list[BaseMessage], model: str | None = None) -> int:
     """
     model_name = model or CONTEXT_MODEL
 
+    encoder = None
     try:
-        # Try to get the right tokenizer for this model
-        encoder = tiktoken.encoding_for_model(model_name)
-    except KeyError:
-        # If we don't know the model, use a generic one
-        encoder = tiktoken.get_encoding("cl100k_base")
+        # Try to get the right tokenizer for this model. ANY failure (unknown
+        # model, unavailable BPE download, offline) degrades to the heuristic
+        # encoder — token counting must never kill a turn.
+        try:
+            encoder = tiktoken.encoding_for_model(model_name)
+        except Exception as exc:
+            from src.context.tokenizer_fallback import HEURISTIC_ENCODER, warn_once
+            warn_once(f"encoding_for_model({model_name!r})", exc)
+            encoder = tiktoken.get_encoding("cl100k_base")
+    except Exception as exc:
+        from src.context.tokenizer_fallback import HEURISTIC_ENCODER, warn_once
+        warn_once("tiktoken cache lookup", exc)
+        encoder = HEURISTIC_ENCODER
 
     total = 0
 

@@ -164,10 +164,21 @@ class TokenTracker:
 
     @staticmethod
     def _encoder_for_model(model: str):
+        # ANY acquisition failure (unknown model, BPE download unavailable,
+        # offline) degrades to the heuristic encoder — token accounting must
+        # never kill a turn (found live: a real turn died on the cl100k_base
+        # download behind a blocked network).
         try:
-            return tiktoken.encoding_for_model(model)
-        except KeyError:
-            return tiktoken.get_encoding("cl100k_base")
+            try:
+                return tiktoken.encoding_for_model(model)
+            except Exception as exc:
+                from src.context.tokenizer_fallback import warn_once
+                warn_once(f"encoding_for_model({model!r})", exc)
+                return tiktoken.get_encoding("cl100k_base")
+        except Exception as exc:
+            from src.context.tokenizer_fallback import HEURISTIC_ENCODER, warn_once
+            warn_once("tiktoken cache lookup", exc)
+            return HEURISTIC_ENCODER
 
     @staticmethod
     def _count_input_tokens(messages: list[BaseMessage], model: str) -> int:

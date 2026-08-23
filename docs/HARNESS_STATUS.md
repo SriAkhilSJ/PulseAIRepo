@@ -338,3 +338,53 @@ machine:
 It prints one line per recorded request (offset, model, attempt, message
 heads' first lines) — enough to attribute each call to a subsystem and decide
 which calls to kill, gate, or cheapen. Zero credits; local file only.
+
+---
+
+# Call attribution — the 7–11 call mystery, solved free (2026-08-23, session 5)
+
+Founder runs: PBR-002 run A = 7 calls / 30,747 in / $0.0313; re-run = 11 calls /
+47,690 in / $0.0485. Same task, same commit → **55% cost swing**. Before
+spending anything, the calls were attributed with a LOCAL stub provider lane
+(`scripts/stub_provider_server.py` — OpenAI-compatible fixed-response server on
+127.0.0.1:8765; the real engine runs a complete turn against it; every
+subsystem call is visible in llm.request frames; zero credits, zero key,
+explicitly NOT product evidence).
+
+## Baseline anatomy of ONE trivial turn (stub lane, deterministic)
+
+| # | Caller | Payload | Verdict |
+|---|---|---|---|
+| 1 | Task-decision classifier ("You manage the active task…") | 2 msgs | overhead — killable |
+| 2 | PLAN/DIRECT classifier ("Classify the coding request…") | 2 msgs | overhead — killable |
+| 3 | Main agent call (persona + full context) | 11 msgs | the real call |
+
+3 calls baseline. The founder's 7–11 = 3 + **4–8 provider-dependent extra
+calls** (structured-output parse/repair loops against Sarvam are the prime
+suspect — the stub returns instantly-valid JSON and needs zero repairs; each
+repair resends the FULL ~4–8k-token context).
+
+## Second real bug found & fixed while building the lane
+
+The first stub run DIED mid-turn: `tiktoken.get_encoding("cl100k_base")`
+downloads its BPE file on first use and the failure propagated UNGUARDED
+through `token_budget`/`token_tracker` → `turn_failed`. On the founder's
+machine the cache was warm, so this was latent: **any fresh machine /
+offline / proxied first run would kill turn #1.** Fixed: any tokenizer
+acquisition failure now degrades to a ~chars/4 heuristic encoder (logged
+once, never fatal). Pin: `test_token_counting_never_dies_without_tiktoken`.
+Also un-broke 37 sandbox-only test failures with the same root cause.
+
+## Also
+
+- `scripts/run_paid_pbr002_guarded.ps1` now REFUSES to reuse an existing
+  run-id (founder-pbr002-2 re-run silently destroyed run A's artifacts).
+- `scripts/analyze_llm_requests.py` now compares MULTIPLE run dirs and prints
+  the variance table (calls/tokens/cost min-max-avg + swing %).
+
+## Next spend decision (founder)
+
+Run 3 for the rule of three (~1.5–2 cr, FRESH run-id) AND paste the analyzer
+output on the 11-call run. If repair loops confirm, the fix is engine-side
+(JSON-tolerant parsing / single-retry budget) — land it free, then the
+rule-of-three baseline is both green AND cheap.

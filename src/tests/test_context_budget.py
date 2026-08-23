@@ -1260,3 +1260,20 @@ def test_gitignore_and_source_reads_share_one_byte_cap(tmp_path):
     assert mid.read_bytes <= ignore_bytes + 50, "physical reads must never exceed the cap"
     assert mid.read_bytes >= ignore_bytes, "the .gitignore must be metered, not free"
     assert mid.read_files == 1, "only the .gitignore was physically read"
+
+
+def test_token_counting_never_dies_without_tiktoken(monkeypatch):
+    """Durability pin: a tokenizer acquisition failure (offline first run,
+    blocked BPE download) degrades to the heuristic encoder — a turn must
+    never die on token counting. Found live on 2026-08-23: a real turn
+    failed with the tiktoken cl100k_base download SSLError."""
+    import src.context.token_budget as tb
+    from langchain_core.messages import HumanMessage
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("blocked network: no BPE download")
+
+    monkeypatch.setattr(tb.tiktoken, "encoding_for_model", boom)
+    monkeypatch.setattr(tb.tiktoken, "get_encoding", boom)
+    n = tb.count_tokens([HumanMessage(content="hello world, this is a test")], "any-model")
+    assert n > 0  # heuristic: imprecise but never fatal
