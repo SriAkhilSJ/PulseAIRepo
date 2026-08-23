@@ -30,24 +30,26 @@ export const PULSE_AI_CLIENT_METHODS = [
 export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
 
 export const PULSE_AI_SERVER_EVENTS = [
+	'checkpoint_event',
+	'error',
+	'events_replay',
 	'hello',
-	'session_info',
-	'token',
-	'reasoning',
+	'llm.request',
 	'plan_updated',
-	'tool_call_start',
-	'tool_call_end',
+	'reasoning',
+	'runtime_degraded',
 	'safety_request',
-	'verification_updated',
+	'session_info',
 	'subagent_updated',
 	'telemetry',
-	'turn_started',
+	'token',
+	'tool_call_end',
+	'tool_call_start',
 	'turn_done',
 	'turn_failed',
-	'checkpoint_event',
-	'runtime_degraded',
-	'events_replay',
-	'error',
+	'turn_started',
+	'verification_updated',
+	'workspace.bound',
 ] as const;
 export type PulseServerEventName = (typeof PULSE_AI_SERVER_EVENTS)[number];
 

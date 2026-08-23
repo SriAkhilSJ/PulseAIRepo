@@ -1,4 +1,4 @@
-﻿"""P0: workspace identity routing on the bridge (no-model, deterministic).
+"""P0: workspace identity routing on the bridge (no-model, deterministic).
 
 The desktop must bind every Pulse session to the user's OPENED workspace and
 never silently fall back to ".", the engine root, pulse-res/app, or the app
@@ -44,7 +44,12 @@ def send(proc, frame, expect_reply=True):
     proc.stdin.flush()
     if not expect_reply:
         return None
-    return json.loads(proc.stdout.readline())
+    # Async observability frames (workspace.bound) follow direct replies and
+    # are never the answer to a method — skip them.
+    while True:
+        reply = json.loads(proc.stdout.readline())
+        if reply.get("type") not in {"workspace.bound", "llm.request"}:
+            return reply
 
 
 # ---------------------------------------------------------------------------

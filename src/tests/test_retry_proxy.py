@@ -145,3 +145,50 @@ def test_fallback_log_announces_the_model_used(capsys):
     out = capsys.readouterr().out
     assert "falling back to LLM_MODEL" in out
     assert proxy.model == settings.LLM_MODEL
+
+
+# ------------------------------------------------ llm.request telemetry (PBR-002)
+
+def test_invoke_emits_llm_request_with_bounded_heads():
+    """Every provider attempt emits an llm.request event carrying bounded,
+    honest message heads — the evidence the benchmark grades (the workspace
+    proof filename must be visible in the head of the context message)."""
+    from src.dashboard.event_bus import event_bus
+
+    q = event_bus.subscribe(None)  # admin subscription sees all sessions
+    try:
+        while not q.empty():
+            q.get_nowait()  # drop replayed history from earlier tests
+        proxy = RetryLLMProxy(_StubLLM(model="sarvam-105b-conversations"))
+        messages = [
+            SystemMessage(content="repo map: workspace_proof.py PROOF MARKER; notes/README.md"),
+            HumanMessage(content="Explain workspace_proof.py"),
+        ]
+        result = proxy.invoke(messages)
+        assert result == "ok"
+        events = []
+        while not q.empty():
+            events.append(q.get_nowait())
+        requests = [e for e in events if e["type"] == "llm.request"]
+        assert len(requests) == 1, "one event per successful attempt"
+        payload = requests[0]["payload"]
+        assert payload["model"] == "sarvam-105b-conversations"
+        assert payload["attempt"] == 1
+        assert payload["message_count"] == 2
+        heads = payload["messages"]
+        assert heads[0]["role"] == "system"
+        assert "workspace_proof.py" in heads[0]["head"]
+        assert heads[1]["head"] == "Explain workspace_proof.py"
+    finally:
+        event_bus.unsubscribe(q)
+
+
+def test_llm_request_heads_are_bounded():
+    from src.llm.factory import _request_heads
+
+    big = "x" * 50_000
+    heads = _request_heads([SystemMessage(content=big), HumanMessage(content=big)])
+    assert len(heads) == 2
+    assert len(heads[0]["head"]) == 3000   # first message: largest head
+    assert len(heads[1]["head"]) == 800
+    assert _request_heads(None) == []      # never raises

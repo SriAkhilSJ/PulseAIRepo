@@ -275,10 +275,12 @@ def test_echo_turn_emits_progress_then_turn_done(tmp_path):
 
         _send(proc, {"type": "session_create", "session_id": "s-echo", "workspace": str(tmp_path)})
         _read_frames(proc, lambda f: f.get("type") == "session_info")
+        # (the bind also emits an async workspace.bound frame — drain it)
+        _read_frames(proc, lambda f: f.get("type") == "workspace.bound")
 
         _send(proc, {"type": "prompt", "session_id": "s-echo", "workspace": str(tmp_path), "text": "hello"})
         frames = _read_frames(proc, lambda f: f.get("type") == "turn_done")
-        kinds = [f["type"] for f in frames]
+        kinds = [f["type"] for f in frames if f["type"] != "workspace.bound"]
         assert kinds[0] == "turn_started", kinds
         assert "token" in kinds, kinds
         assert kinds[-1] == "turn_done", kinds
