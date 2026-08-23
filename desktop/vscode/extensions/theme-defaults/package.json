@@ -88,7 +88,10 @@
       }
     ],
     "configurationDefaults": {
-      "workbench.colorTheme": "PulseAI Dark"
+      "workbench.colorTheme": "PulseAI Dark",
+      "chat.disableAIFeatures": true,
+      "workbench.welcomePage.experimentalOnboarding": false,
+      "workbench.startupEditor": "none"
     }
   },
   "repository": {
