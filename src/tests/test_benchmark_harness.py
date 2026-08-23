@@ -404,3 +404,33 @@ def test_turn_control_stale_cancel_never_poisons_reuse():
     assert tc.admit_action(sid) is True
     # And a late cancel after end is still rejected (inactive session):
     assert tc.cancel(sid) is False
+
+
+
+def test_terminal_timeout_tree_kills_and_returns_promptly(monkeypatch, tmp_path):
+    """test5-2 pin: a hung command must produce a bounded tool result via
+    TREE kill -- the old Windows path killed only the wrapper, orphaned
+    children held the pipes, and the unbounded communicate() hung forever
+    (322s silence, watchdog killed a healthy build)."""
+    import sys
+    import time as _time
+
+    import src.tools.terminal_tools as tt
+
+    killed = []
+    monkeypatch.setattr(tt, "_IS_WINDOWS", True)
+    import src.context.git_context as gc
+    monkeypatch.setattr(
+        gc, "_taskkill_tree",
+        lambda pid: (killed.append(pid), True)[1],
+    )
+    monkeypatch.setenv("PULSEAI_TERMINAL_TIMEOUT", "1")
+    hang = f'"{sys.executable}" -c "import time; time.sleep(60)"'
+    t0 = _time.monotonic()
+    runner = getattr(tt.run_terminal, "func", tt.run_terminal)  # StructuredTool -> raw fn
+    result = runner(hang, {"configurable": {"thread_id": "t5-pin", "workspace": str(tmp_path)}})
+    elapsed = _time.monotonic() - t0
+    assert "timed out" in result, result[:200]
+    assert elapsed < 15, f"timeout path must return promptly, took {elapsed:.1f}s"
+    assert killed, "Windows timeout must consult the tree-kill (not wrapper kill)"
+    assert killed[0] > 0

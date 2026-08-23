@@ -392,7 +392,9 @@ def run_terminal(
     # legitimate first-run installs (E2's npm install took 36s) without
     # letting a dead interactive prompt block the loop forever.
     try:
-        timeout = int(os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "120"))
+        # Sized to real package installs (test5-2: npm install three on a
+        # cold Windows cache legitimately runs minutes); env-overridable.
+        timeout = int(os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "300"))
     except (TypeError, ValueError):
         timeout = 120
 
@@ -438,15 +440,30 @@ def run_terminal(
                         f"Command: {command}"
                     )
                 if time.monotonic() - started >= timeout:
+                    # TREE kill, both platforms. process.kill() on Windows
+                    # kills only the shell wrapper -- npm/node grandchildren
+                    # survive, hold the stdout/stderr pipes, and the old
+                    # unbounded communicate() then hung FOREVER (test5-2: no
+                    # tool_call_end for 322s, watchdog kill on a healthy
+                    # build). Same disease git_context's _taskkill_tree
+                    # already cures; reuse it.
                     try:
                         if _IS_WINDOWS:
-                            process.kill()
+                            from src.context.git_context import _taskkill_tree
+                            if not _taskkill_tree(process.pid):
+                                process.kill()
                         else:
                             import signal
-                            os.killpg(process.pid, signal.SIGKILL)
+                            try:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            except Exception:
+                                process.kill()
                     except Exception:
                         process.kill()
-                    process.communicate()
+                    try:
+                        process.communicate(timeout=10)
+                    except Exception:
+                        pass  # pipes may be held by orphaned grandchildren; never hang here
                     raise subprocess.TimeoutExpired(command, timeout)
 
         output = ""

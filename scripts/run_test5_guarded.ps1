@@ -11,7 +11,7 @@ param(
     [string]$Python = ".venv\Scripts\python.exe",
     [string]$RunId = "test5-1",
     [int]$MaxMinutes = 90,
-    [int]$StallSeconds = 300,
+    [int]$StallSeconds = 600,
     [int]$MaxLlmCalls = 60,
     [int]$MaxInputTokens = 250000
 )
@@ -88,6 +88,23 @@ while (-not $proc.HasExited) {
             if ($_.LastWriteTime -gt $newest) { $newest = $_.LastWriteTime }
         }
     }
+    # The WORKSPACE is activity too: a long npm install writes thousands of
+    # files there while emitting no frames (test5-2 was killed mid-install
+    # at 5/8 steps -- healthy, just quiet). Any file younger than the stall
+    # window anywhere under the workspace counts as a heartbeat.
+    if (Test-Path $Workspace) {
+        $wsNewest = Get-ChildItem $Workspace -Recurse -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($wsNewest -and ($wsNewest.LastWriteTime -gt $newest)) { $newest = $wsNewest.LastWriteTime }
+    }
+    # CPU is activity: a busy build burns cycles even when files are quiet.
+    try {
+        $cpu = (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue).CPU
+        if ($null -ne $script:LastCpu -and $null -ne $cpu -and ($cpu - $script:LastCpu) -gt 0.5) {
+            $lastActivity = $now
+        }
+        $script:LastCpu = $cpu
+    } catch { }
     if ($newest -gt $lastActivity) { $lastActivity = $newest }
     $idle = ($now - $lastActivity).TotalSeconds
     Write-Host ("[watchdog] +{0:n0}s alive pid={1} idle={2:n0}s" -f ($now - $started).TotalSeconds, $proc.Id, $idle)
