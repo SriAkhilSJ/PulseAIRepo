@@ -336,3 +336,43 @@ def test_cli_run_and_report(workspace, tmp_path, monkeypatch, capsys):
     md = report_path.read_text(encoding="utf-8")
     assert "Reliability Benchmark Report Card" in md
     assert "PBR-012" in md
+
+
+# ------------------------------------------------ observability wiring (PBR-002)
+
+def test_bridge_driver_records_events_and_usage_deltas():
+    """Event-like frames become RunEvents; cumulative telemetry frames add
+    usage as a DELTA (repeated snapshots never double-count)."""
+    from benchmarks.pulse_reliability_v1.harness.drivers.bridge import (
+        BridgeDriver, EVENT_FRAME_TYPES,
+    )
+    from benchmarks.pulse_reliability_v1.harness.recorder import Recorder
+
+    rec = Recorder()
+    drv = BridgeDriver(rec, python_command=("python",))
+    assert "workspace.bound" in EVENT_FRAME_TYPES
+    assert "llm.request" in EVENT_FRAME_TYPES
+
+    drv._record_frame({"type": "workspace.bound", "session_id": "s",
+                       "workspace": "/tmp/pbr-ws", "hops": "/tmp/pbr-ws"})
+    drv._record_frame({"type": "llm.request", "model": "m", "attempt": 1,
+                       "messages": [{"role": "system", "head": "... workspace_proof.py ..."}]})
+    drv._record_frame({"type": "token", "text": "hi"})
+    assert [e.type for e in rec.events] == ["workspace.bound", "llm.request"]
+    assert rec.events[0].payload["hops"] == "/tmp/pbr-ws"
+    assert "workspace_proof.py" in json.dumps(rec.events[1].payload)
+    # token frames are frames, not events:
+    assert [f.type for f in rec.frames][-1] == "token"
+
+    # Cumulative telemetry: 2 snapshots -> usage counted ONCE as deltas.
+    drv._record_frame({"type": "telemetry", "apiCalls": 1, "tokensIn": 100,
+                       "tokensOut": 20, "totalCost": 0.01})
+    drv._record_frame({"type": "telemetry", "apiCalls": 2, "tokensIn": 250,
+                       "tokensOut": 60, "totalCost": 0.03})
+    record = rec.build_run_record(
+        run_id="t", task_id="PBR-002", task_version=1, pulse_commit="x",
+    )
+    assert record.model_calls == 2
+    assert record.input_tokens == 250
+    assert record.output_tokens == 60
+    assert abs(record.estimated_cost_usd - 0.03) < 1e-9

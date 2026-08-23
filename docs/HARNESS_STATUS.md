@@ -259,3 +259,52 @@ fail/stall):
 
 Usage:
 `powershell -ExecutionPolicy Bypass -File scripts\run_paid_pbr002_guarded.ps1 -Workspace C:\pbr002-ws`
+
+---
+
+# Observability wiring fix (2026-08-23, arena session 4 — from founder run founder-pbr002-1)
+
+## What the founder's first paid run proved
+
+- Probe: HTTP 200 in 0.81 s (new key healthy). PBR-002 turn pipeline works
+  end-to-end (turn_started → token → turn_done, first token 37.7 s — includes
+  ~19 s engine warm-up; the latency column now has a REAL baseline).
+- Two checks failed for one root cause: **Bridge Protocol v2 never emitted
+  `workspace.bound` or `llm.request`**, and the harness driver never recorded
+  frames as RunEvents — event checks could only ever see zero events (and
+  `no-post-cancel-model-call` was a vacuous pass). Real observability gap,
+  found by the benchmark doing its job. Cost of the discovery: ~1.5 credits.
+
+## Fix (this session, zero credits)
+
+1. **Engine** (`src/llm/factory.py`): `RetryLLMProxy` emits an `llm.request`
+   event-bus event per ACTUAL provider attempt (after the cancel gate — a
+   cancelled turn never records a send it did not make), payload = model,
+   attempt, bounded honest message heads (first message 3000 chars so the
+   repo-map/workspace proof is visible).
+2. **Bridge** (`src/bridge/`): forwards `llm.request`; every
+   workspace-bearing frame emits `workspace.bound` with
+   `workspace == hops == engine_root == bound root` (after the direct reply,
+   so existing clients/tests are unaffected). Protocol v2 manifest + generated
+   TS types updated; replay allowlist includes both.
+3. **Driver** (`harness/drivers/bridge.py`): event-like frames become
+   RunEvents (`workspace.bound`, `llm.request`, `runtime_degraded`,
+   `tool_call_*`, `telemetry`) — event checks are no longer structurally
+   vacuous; telemetry frames feed usage as a DELTA of cumulative engine
+   totals (the four-axes cost column was permanently 0 before);
+   `_collect` stops on any stop-type frame (async frames can trail replies).
+
+## Verification
+
+- 177 passed across bridge + benchmark selections (new tests: bridge emits
+  workspace.bound with exact hops; llm.request projection; proxy emission +
+  bounded heads; driver event recording + usage deltas).
+- Live echo-lane PBR-012 run `obs-pbr012-echo`: passed AND the run record now
+  contains real `workspace.bound` events — the event pipeline is proven.
+- Known environmental failure unchanged: `test_guard_trims_at_auto_limit`
+  needs the tiktoken BPE download (blocked in sandbox; passes online).
+
+## Next (founder machine)
+
+Pull latest `arena/01a02a5c-pulseairepo`, then re-run the SAME guarded
+command (~1 credit): PBR-002 should now grade 3/3 with a real cost row.

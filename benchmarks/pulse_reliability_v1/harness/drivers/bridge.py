@@ -35,6 +35,14 @@ TERMINAL_TYPES = frozenset({
     "turn_done", "turn_failed", "error",
 })
 
+#: Frame types that are also recorded as RunEvents — the evaluator's event
+#: checks (workspace.bound, llm.request, runtime_degraded, ...) grade these.
+#: Without this, event checks can only ever see zero events (vacuous passes).
+EVENT_FRAME_TYPES = frozenset({
+    "llm.request", "workspace.bound", "runtime_degraded",
+    "tool_call_start", "tool_call_end", "telemetry",
+})
+
 
 class BridgeDriver(Driver):
     """Protocol v2 client over a spawned ``python -m src.bridge`` process."""
@@ -51,6 +59,34 @@ class BridgeDriver(Driver):
         self._line_lock = threading.Lock()
         self._session_id = "bench"
         self._greeted = False
+        # Last cumulative usage snapshot seen in a telemetry frame; usage is
+        # added as a DELTA so repeated cumulative telemetry never double-counts.
+        self._last_usage = {"model_calls": 0, "tool_calls": 0, "input_tokens": 0,
+                            "output_tokens": 0, "cache_tokens": 0, "estimated_cost_usd": 0.0}
+
+    def _record_frame(self, frame: dict, *, cancelled: bool = False) -> None:
+        """Record a frame; event-like frames also become RunEvents; telemetry
+        feeds the usage counters (delta of cumulative engine totals)."""
+        ftype = frame.get("type")
+        self.recorder.record_frame(ftype, frame, cancelled=cancelled)
+        if ftype in EVENT_FRAME_TYPES:
+            payload = {k: v for k, v in frame.items() if k != "type"}
+            self.recorder.record_event(ftype, payload)
+        if ftype == "telemetry":
+            def _cur(key: str) -> int:
+                return int(frame.get(key) or 0)
+            current = {
+                "model_calls": _cur("apiCalls"),
+                "tool_calls": 0,
+                "input_tokens": _cur("tokensIn"),
+                "output_tokens": _cur("tokensOut"),
+                "cache_tokens": _cur("tokensCache"),
+                "estimated_cost_usd": float(frame.get("totalCost") or 0.0),
+            }
+            delta = {k: max(0, v - self._last_usage[k]) for k, v in current.items()}
+            if any(delta.values()):
+                self.recorder.add_usage(**delta)
+                self._last_usage = current
 
     @property
     def capabilities(self) -> DriverCapabilities:
@@ -127,7 +163,10 @@ class BridgeDriver(Driver):
 
     def _collect(self, timeout_s: float, stop_types: frozenset[str] = TERMINAL_TYPES,
                  deadline_ms: int | None = None) -> list[dict]:
-        """Drain frames until a stop type arrives or timeout."""
+        """Drain frames until a stop type arrives or timeout.
+
+        Stops on ANY stop-type frame (not just the last collected): async
+        observability frames (workspace.bound) can trail the direct reply."""
         deadline = time.monotonic() + timeout_s
         out: list[dict] = []
         while time.monotonic() < deadline:
@@ -135,7 +174,7 @@ class BridgeDriver(Driver):
                 if self._lines:
                     out.extend(self._lines)
                     self._lines.clear()
-            if out and out[-1].get("type") in stop_types:
+            if out and any(f.get("type") in stop_types for f in out):
                 return out
             if deadline_ms is not None and out and any(
                 f.get("type") in TERMINAL_TYPES for f in out
@@ -157,8 +196,10 @@ class BridgeDriver(Driver):
         self._send(HELLO_FRAME)
         frames = self._collect(timeout_s, stop_types=frozenset({"hello", "error"}))
         for f in frames:
-            self.recorder.record_frame(f["type"], f)
-        last = frames[-1]
+            self._record_frame(f)
+        last = next((f for f in frames if f.get("type") in {"hello", "error"}), None)
+        if last is None:
+            raise DriverError("bridge did not send hello")
         if last.get("type") == "error":
             raise DriverError(f"bridge handshake failed: {last.get('message')}")
         if last.get("type") != "hello":
@@ -174,8 +215,10 @@ class BridgeDriver(Driver):
         self._send({"type": "session_create", "session_id": self._session_id, "workspace": root})
         frames = self._collect(10.0, stop_types=frozenset({"session_info", "error"}))
         for f in frames:
-            self.recorder.record_frame(f["type"], f)
-        last = frames[-1]
+            self._record_frame(f)
+        last = next((f for f in frames if f.get("type") in {"session_info", "error"}), None)
+        if last is None:
+            raise DriverError("no session_info after session_create")
         if last.get("type") == "error":
             raise DriverError(f"session_create failed: {last.get('message')}")
         if last.get("type") != "session_info":
@@ -194,7 +237,7 @@ class BridgeDriver(Driver):
                 else:
                     batch = []
             for f in batch:
-                self.recorder.record_frame(f["type"], f, cancelled=bool(f.get("cancelled")))
+                self._record_frame(f, cancelled=bool(f.get("cancelled")))
                 if f.get("type") == "turn_started" and self.recorder.first_progress_ms is None:
                     self.recorder.first_progress_ms = now_ms()
                 if f.get("type") == "token" and self.recorder.first_token_ms is None:
@@ -229,7 +272,7 @@ class BridgeDriver(Driver):
                     batch = []
             for f in batch:
                 ftype = f.get("type")
-                self.recorder.record_frame(ftype, f, cancelled=bool(f.get("cancelled")))
+                self._record_frame(f, cancelled=bool(f.get("cancelled")))
                 summary.frames_since.append(f)
                 if ftype == "turn_started":
                     summary.started = True

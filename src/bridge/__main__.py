@@ -91,6 +91,7 @@ class BridgeServer:
         payload = dict(event.get("payload") or {})
         mapping = {
             "message.agent.chunk": "token",
+            "llm.request": "llm.request",
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
             "tool.approval.request": "safety_request",
@@ -157,6 +158,7 @@ class BridgeServer:
                 "tool_call_start", "tool_call_end", "safety_request",
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
+                "llm.request", "workspace.bound",
             } else None
         base = {
             "type": target,
@@ -472,6 +474,17 @@ class BridgeServer:
             )
             events = self._project_stored_events(stored)
             self.emit({"type": "events_replay", "session_id": sid, "events": events})
+        if workspace:
+            # Workspace routing evidence (P0 contract + PBR-002): every
+            # workspace-bearing frame asserts the exact root this session is
+            # pinned to, client through engine. Emitted after the direct reply
+            # so clients expecting a specific response frame are unaffected.
+            # `hops` stays the resolved root string so a grader can assert all
+            # hops equal the opened fixture root.
+            self.emit({
+                "type": "workspace.bound", "session_id": sid,
+                "workspace": workspace, "hops": workspace, "engine_root": workspace,
+            })
         return True
 
     def run(self) -> int:

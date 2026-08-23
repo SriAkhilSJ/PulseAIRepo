@@ -106,6 +106,31 @@ class _AbortState:
                 pass
 
 
+def _request_heads(messages: Any, *, first_limit: int = 3000,
+                   rest_limit: int = 800, max_messages: int = 4) -> list[dict]:
+    """Bounded, honest heads of an outgoing message list for llm.request telemetry.
+
+    The FIRST message (system + context prefix) gets the largest head so the
+    repo-map/context content is visible — that is what proves which workspace
+    reached the model boundary. Never raises; telemetry must not break sends.
+    """
+    try:
+        if not isinstance(messages, list):
+            return []
+        heads: list[dict] = []
+        for i, m in enumerate(messages[:max_messages]):
+            role = getattr(m, "type", None) or (m.get("role") if isinstance(m, dict) else None) or "unknown"
+            content = getattr(m, "content", None)
+            if content is None and isinstance(m, dict):
+                content = m.get("content")
+            if not isinstance(content, str):
+                content = str(content)
+            heads.append({"role": role, "head": content[:first_limit if i == 0 else rest_limit]})
+        return heads
+    except Exception:
+        return []
+
+
 class RetryLLMProxy:
     """Provider proxy with bounded retry and session-scoped cancellation."""
 
@@ -313,6 +338,23 @@ class RetryLLMProxy:
                 # Cancellation gate BEFORE every attempt: a Stop that fired while
                 # the previous attempt was blocked must never launch a new request.
                 self._raise_if_cancelled()
+
+                # LLM request telemetry (benchmark evidence, PBR-002/012): one
+                # event per ACTUAL provider request attempt, emitted after the
+                # cancellation gate — a cancelled turn never records a send it
+                # did not make. Session-filtered so the bridge forwards it only
+                # to the owning session's subscriber. Never raises.
+                try:
+                    from src.dashboard.event_bus import event_bus
+                    event_bus.emit("llm.request", {
+                        "session_id": sid,
+                        "model": self.model,
+                        "attempt": attempt + 1,
+                        "message_count": len(messages_arg) if isinstance(messages_arg, list) else None,
+                        "messages": _request_heads(messages_arg),
+                    })
+                except Exception:
+                    pass  # telemetry must never break a send
 
                 try:
                     return self._invoke_provider(provider_loop, *args, **kwargs)
