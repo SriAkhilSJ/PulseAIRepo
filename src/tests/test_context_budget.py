@@ -1337,3 +1337,40 @@ def test_workspace_exceeds_budget_probe(tmp_path):
     assert ContextEngine._workspace_exceeds_budget(str(big), 1000) is True
     assert ContextEngine._workspace_exceeds_budget(str(small), 1000) is False
     assert ContextEngine._workspace_exceeds_budget(str(tmp_path / "missing"), 1000) is False
+
+
+def test_by_design_receipt_fires_once_per_session(tmp_path):
+    """Founder pin (founder-pbr004-1): a turn that lapped the graph 20 times
+    emitted 20 identical by-design receipts (event count 20 != 1). The fact
+    does not change per iteration — exactly ONE receipt per session."""
+    from src.dashboard.event_bus import event_bus
+    from src.context.context_engine import ContextEngine, TaskType
+
+    big = tmp_path / "big-ws"
+    big.mkdir()
+    for i in range(1200):
+        (big / f"entry_{i:05d}.py").write_text("x = 1\n")
+
+    q = event_bus.subscribe(None)
+    while not q.empty():
+        q.get_nowait()
+    try:
+        eng = ContextEngine(thread_id="latch-1", probe_window=False)
+        for _ in range(5):  # simulate a multi-lap turn: 5 builds, one engine
+            eng._build_context_layers(
+                {"messages": [], "workspace": str(big)}, TaskType.EXPLORE
+            )
+        receipts = []
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == "runtime.degraded":
+                receipts.append(ev)
+        assert len(receipts) == 1, receipts
+        # The CONTRACT: exactly one receipt per session with honest bounds.
+        # Whichever emitter wins the atomic once-flag (engine build receipt
+        # or a component's direct pool emission), the payload must carry the
+        # bounded counts.
+        assert receipts[0].get("files_considered", 0) <= 1000
+        assert receipts[0].get("bytes_read", 0) <= 16 * 1024 * 1024
+    finally:
+        event_bus.unsubscribe(q)

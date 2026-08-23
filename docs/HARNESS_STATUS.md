@@ -620,3 +620,32 @@ with real counts on a 1200-file ws; NONE on a small ws),
 First run pays the one-time 20k index build (minutes); the receipt and turn
 completion are proven. Then PBR-002 runs 8/9 can complete the cost
 rule-of-three bookkeeping if desired — the claim is already verified.
+
+---
+
+# PBR-004 receipt consolidation + the 20-lap finding (2026-08-23, session 10)
+
+## Founder run founder-pbr004-1 (first paid 20k run, ~$0.12)
+
+- `bounded-turn-completes` PASSED — the turn finishes on a real 20k tree.
+- `single-degraded-receipt` FAILED: **20 events != 1** — one receipt per
+  graph lap. The engine lapped ~20 times (21 model calls, 118k input
+  tokens): the receipt-per-lap was noise; the LAP COUNT is the real issue.
+
+## Fix: ONE consolidated receipt per session
+
+The engine-level receipt now carries an instance once-latch (engines are
+session-scoped), and the pool's atomic once-flag already dedupes within a
+build — whichever emitter fires first wins, later laps stay silent.
+Pin: `test_by_design_receipt_fires_once_per_session` (5 builds -> exactly 1
+receipt, bounds respected). Local e2e PBR-004 on the 20,001-file fixture:
+**passed** (1 receipt, bounds respected, turn completes).
+
+## The 20-lap problem (OPEN — next free attribution)
+
+21 calls / 118k in-tokens for "Summarize the workspace." is the +lap
+mechanism at scale (probably PLAN-path steps or finish-detection misses on
+Sarvam replies). The run record has all 21 llm.request events:
+`python scripts\analyze_llm_requests.py bench-results\founder-pbr004-1`
+(free) attributes them before any engine change. Hold further PBR-004
+spend until the lap fix lands; a re-run should then cost ~$0.02, not $0.12.
