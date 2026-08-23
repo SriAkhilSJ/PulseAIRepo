@@ -183,14 +183,27 @@ class BridgeServer:
     def _project_stored_events(cls, events: list[dict]) -> list[dict]:
         return [projected for event in events if (projected := cls._project_stored_event(event))]
 
-    def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event) -> None:
-        """Forward event-bus events to protocol frames; never dies silently."""
+    def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event,
+                        own_sid: str | None = None) -> None:
+        """Forward event-bus events to protocol frames; never dies silently.
+
+        Events naming a DIFFERENT session are dropped (concurrent-turn
+        isolation); session-less events (aux/pre-turn/post-turn calls) are
+        kept — they belong to whoever is running the turn.
+        """
         while not done.is_set():
             try:
                 event = q.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
+                if own_sid is not None:
+                    payload = event.get("payload") or {}
+                    event_session = str(
+                        payload.get("session_id") or payload.get("thread_id") or ""
+                    ) or None
+                    if event_session is not None and event_session != own_sid:
+                        continue
                 frame = self._project_event(event, identity)
                 if frame:
                     self.emit(frame)
@@ -261,10 +274,17 @@ class BridgeServer:
 
             from src.dashboard.event_bus import event_bus
             from src.graphs.chat_graph import stream_agent
-            q = event_bus.subscribe(thread_id=sid)
+            # ADMIN subscription + own filter, not a session-filtered one:
+            # provider calls made where no active session is set (planner
+            # pre-turn, post-turn review threads) carry session_id=None and a
+            # session-filtered queue silently DROPS them — the founder's
+            # PBR-002 run counted 11 provider calls but only 4 llm.request
+            # frames reached the client. Events that DO name another session
+            # are still excluded here so concurrent turns never cross-wire.
+            q = event_bus.subscribe(thread_id=None)
             done = threading.Event()
             forwarder = threading.Thread(
-                target=self._forward_events, args=(q, identity, done),
+                target=self._forward_events, args=(q, identity, done, sid),
                 name=f"bridge-events-{sid}", daemon=True,
             )
             forwarder.start()
