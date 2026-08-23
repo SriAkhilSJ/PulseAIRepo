@@ -679,3 +679,44 @@ Expected founder effect: the $0.12 20-lap turn becomes a 1-3 lap ~$0.02 turn.
 Pins: test_planner_direct_gate.py (3 tests — obvious questions skip the
 classifier and never plan; wrong PLAN verdict overridden; real multi-step
 tasks still reach the classifier). 83 passed on the touched surface.
+
+---
+
+# Hermes-source review: the keyword hack was wrong — reverted (2026-08-23, session 12)
+
+## What the hermes-agent source actually does (read, not guessed)
+
+Fetched and read `agent/conversation_loop.py` from
+NousResearch/hermes-agent (8,418 lines):
+
+- **There is no PLAN/DIRECT intent classifier at all.** No upfront
+  "should I plan?" model call.
+- The loop is mechanical: model replies WITH tool calls -> dispatch, loop;
+  model replies WITHOUT tool calls -> **that is the final answer**, turn
+  ends.
+- The only re-prompt guards are bounded (stall-guard 2/turn, dropped
+  tool-call 3/consecutive, budget wrap-up) and watch **what the model DID**
+  (trailing "I will now..." intent, finish_reason=tool_calls with empty
+  array) — never keyword-guess what the user MEANT.
+
+## Verdict on my session-11 fix
+
+`_looks_like_direct_question` (keyword list) was the same disease as the
+PLAN/DIRECT classifier it patched — intent interpretation by word list.
+**Reverted.** The classifier override and its tests are gone
+(commit history preserves the episode).
+
+## The hermes-faithful fix (needs founder sign-off — product behavior)
+
+Make the LOOP obey the law: an iteration with no tool call and no state
+change ends the turn with the model's answer; keep only bounded behavior
+guards. The PLAN/DIRECT classifier + upfront planner call can then be
+retired entirely (hermes architecture) or kept as advisory UX.
+
+## Before implementing: one free attribution
+
+`scripts/analyze_llm_requests.py` now prints the run's LOOP ANATOMY
+(tool_call_start names, safety_request counts, plan_updated frames) before
+the per-call list — re-run it on founder-pbr004-1 (free) to see whether
+the 20 laps were plan-steps or denied/dropped tool calls. Attribute, then
+fix the loop once, correctly.
