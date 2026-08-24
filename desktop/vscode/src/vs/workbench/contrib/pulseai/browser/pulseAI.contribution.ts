@@ -114,7 +114,7 @@ registerAction2(class extends Action2 {
 			id: PulseAICommandId.Focus,
 			title: localize2('pulseAI.focus', 'Pulse: Open Agent'),
 			f1: true,
-			category: 'Pulse',
+			category: localize2('pulseAI.category', 'Pulse'),
 			icon: Codicon.pulse,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
