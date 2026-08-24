@@ -142,3 +142,57 @@ def test_product_json_keeps_required_default_chat_agent():
     )
     # voiceWsUrl IS optional (`voiceWsUrl?: string`) and is intentionally gone.
     assert "voiceWsUrl" not in product
+
+
+def test_pulse_is_first_class_top_level_menu_not_buried_after_help():
+    """The Pulse menu must sit between Terminal and Help (order 7.5), not at
+    group '9_pulseAI' after Help. Discoverability regression guard for R4.
+    """
+    contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    # Must register to MenubarMainMenu with order between Terminal(7) and Help(8).
+    assert "MenuId.MenubarMainMenu" in contribution
+    assert "order: 7.5" in contribution, "Pulse menu must sit between Terminal (7) and Help (8)"
+    # The old bury-at-end position must not come back.
+    assert "'9_pulseAI'" not in contribution and '"9_pulseAI"' not in contribution, (
+        "Pulse menu was regressed to group 9_pulseAI (sorted after Help). "
+        "Keep it at order: 7.5."
+    )
+
+
+def test_pulse_panel_opens_via_ctrl_cmd_l():
+    """Market-standard AI hotkey: Ctrl+L (Win/Linux) / Cmd+L (Mac) opens Pulse.
+
+    Cursor and Windsurf both use Ctrl/Cmd+L for their AI agent panel. We match
+    that muscle memory. The binding is registered through the view container's
+    `openCommandActionDescriptor`, which viewsService wires with
+    KeybindingWeight.WorkbenchContrib (200), outranking the editor's
+    'expandLineSelection' (EditorCore=0) — same trick Cursor/Windsurf use.
+    """
+    contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    assert "KeyCode.KeyL" in contribution, "Ctrl/Cmd+L must be the Pulse hotkey"
+    assert "KeyMod.CtrlCmd | KeyCode.KeyL" in contribution, (
+        "Ctrl/Cmd+L must be the primary keybinding for opening Pulse"
+    )
+    assert "openCommandActionDescriptor" in contribution, (
+        "Pulse must expose an openCommandActionDescriptor so F1 / View menu / "
+        "keybinding are auto-registered via viewsService."
+    )
+    # Pulse must NOT claim Copilot's legacy Ctrl+Alt+I — that is reserved for
+    # Copilot Chat which we hide but do not delete per project rules.
+    assert "KeyMod.Alt | KeyCode.KeyI" not in contribution, (
+        "Do not claim Ctrl+Alt+I — that collides with Copilot Chat which we "
+        "keep in source. Use Ctrl+L like Cursor/Windsurf."
+    )
+
+
+def test_pulse_lives_in_auxiliary_bar_not_sidebar():
+    """Default location matches market leaders (Cursor, Copilot Chat): right
+    side (Auxiliary Bar), not the left activity bar. Access via Ctrl+L / menu
+    makes sidebar placement unnecessary.
+    """
+    contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    assert "ViewContainerLocation.AuxiliaryBar" in contribution
+    assert "ViewContainerLocation.Sidebar" not in contribution, (
+        "Pulse belongs in the right-side auxiliary bar (Cursor/Copilot Chat "
+        "pattern); do not move it to the left sidebar."
+    )
