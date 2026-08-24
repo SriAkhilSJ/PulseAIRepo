@@ -1,11 +1,12 @@
 /*---------------------------------------------------------------------------------------------
  * PulseAI IDE first-party workbench registration. Never an extension.
  *
- * Follows the same shape as Copilot Chat (chatParticipant.contribution.ts):
- *   - View container on the right (Auxiliary Bar), doNotRegisterOpenCommand:true
- *   - View descriptor carries openCommandActionDescriptor with Ctrl/Cmd+L
- *   - Top-level menubar entry between Terminal and Help
- *   - Title-bar (command center) icon, one click to open Agent
+ * Entry points (all fire the same command -> pulseai.focus):
+ *   - Top-level "Pulse" menu between Terminal and Help
+ *   - Ctrl/Cmd+L (market standard: Cursor, Windsurf)
+ *   - Title-bar (command center) Pulse icon, one-click open
+ *   - F1 Command Palette: "Pulse: Open Agent"
+ *   - View menu (auto-added by viewsService for AuxiliaryBar views)
  *--------------------------------------------------------------------------------------------*/
 
 import { Codicon } from '../../../../base/common/codicons.js';
@@ -16,13 +17,13 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import {
 	Extensions as ViewContainerExtensions,
 	IViewContainersRegistry,
-	IViewDescriptor,
 	IViewsRegistry,
 	ViewContainerLocation,
 } from '../../../common/views.js';
@@ -55,11 +56,8 @@ registerSingleton(IPulseAIWorkbenchService, PulseAIWorkbenchService, Instantiati
 registerSingleton(IPulseAIRendererService, PulseAIRendererService, InstantiationType.Delayed);
 
 // --- Pulse container (right-side auxiliary bar) ---------------------------
-// Same shape used by Copilot Chat:
-//   • AuxiliaryBar (right-side secondary sidebar)
-//   • doNotRegisterOpenCommand: true  — we wire the open command on the VIEW
-//     descriptor, which is the pattern viewsService.ts actually reads to
-//     install the keybinding + F1 + View-menu entry.
+// Lives on the right (secondary) sidebar — same default location as Cursor's
+// chat panel, Windsurf's Cascade, and VS Code's Copilot Chat.
 const container = Registry.as<IViewContainersRegistry>(
 	ViewContainerExtensions.ViewContainersRegistry
 ).registerViewContainer({
@@ -72,42 +70,18 @@ const container = Registry.as<IViewContainersRegistry>(
 	]),
 	storageId: PULSE_AI_VIEW_CONTAINER_ID,
 	order: 6,
-}, ViewContainerLocation.AuxiliaryBar, { doNotRegisterOpenCommand: true });
+}, ViewContainerLocation.AuxiliaryBar);
 
-// --- Pulse Agent view ------------------------------------------------------
-// Keybinding: Ctrl/Cmd+L — market standard "talk to the AI" chord:
-//   • Cursor   → Ctrl/Cmd+L opens AI chat
-//   • Windsurf → Ctrl/Cmd+L opens Cascade (agent)
-// We register this on the view descriptor (same as Copilot does at
-// chatParticipant.contribution.ts:58) so viewsService.ts auto-generates the
-// toggle command, F1 Command Palette entry, and View-menu entry with the
-// keybinding at KeybindingWeight.WorkbenchContrib (200), which outranks
-// the editor's built-in 'expandLineSelection' (EditorCore = 0) — same
-// global-steal trick Cursor and Windsurf ship with.
-const pulseViewDescriptor: IViewDescriptor = {
+Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews([{
 	id: PULSE_AI_VIEW_ID,
 	name: localize2('pulseAI.view.name', 'Pulse Agent'),
 	containerIcon: Codicon.pulse,
-	containerTitle: localize('pulseAI.containerTitle', 'Pulse'),
-	singleViewPaneContainerTitle: localize('pulseAI.singlePaneTitle', 'Pulse'),
 	canToggleVisibility: true,
 	canMoveView: false,
 	ctorDescriptor: new SyncDescriptor(PulseAIViewPane),
-	openCommandActionDescriptor: {
-		id: PULSE_AI_VIEW_CONTAINER_ID,
-		title: localize2('pulseAI.openAgent', 'Pulse: Open Agent'),
-		mnemonicTitle: localize({ key: 'miTogglePulse', comment: ['&& denotes a mnemonic'] }, '&&Pulse Agent'),
-		keybindings: {
-			primary: KeyMod.CtrlCmd | KeyCode.KeyL,
-		},
-		order: 1,
-	},
-};
-Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews(
-	[pulseViewDescriptor], container
-);
+}], container);
 
-// --- Manager editor (Agent Manager, Copilot's "Agents Window" analogue) ---
+// --- Pulse Manager (full-width editor tab, Copilot "Agents Window" analogue)
 Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(
 	PulseAIManagerInput.ID,
 	PulseAIManagerInputSerializer,
@@ -121,12 +95,46 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 	[new SyncDescriptor(PulseAIManagerInput)],
 );
 
-// --- Top-level Pulse menu --------------------------------------------------
-// order: 7.5 sits between Terminal(7) and Help(8) in MenubarMainMenu.
-// On Windows/Linux the menubar reads:
-//   File · Edit · Selection · View · Go · Run · Terminal · Pulse · Help
-// (The 'Window' menu is a macOS-native Electron menu injected only on darwin;
-// it is not present on Windows/Linux in Code OSS at this pin.)
+// --- Primary open command: pulseai.focus ----------------------------------
+// Explicit action, not auto-wired. Keybinding Ctrl/Cmd+L (market-standard
+// "talk to the AI" chord: Cursor, Windsurf). Weighted at WorkbenchContrib
+// (200) which outranks the editor's built-in expandLineSelection (EditorCore
+// = 0) — same global-steal trick Cursor and Windsurf ship.
+async function openPulseAgent(accessor: ServicesAccessor): Promise<void> {
+	const viewsService = accessor.get(IViewsService);
+	// If the Pulse pane is already focused, return focus to the editor (toggle
+	// behavior, matching Cursor's Cmd+L).
+	if (viewsService.isViewVisible(PULSE_AI_VIEW_ID)) {
+		const activePane = (viewsService as any).getActiveViewPaneWithId?.(PULSE_AI_VIEW_ID);
+		if (activePane && activePane.hasFocus?.()) {
+			accessor.get(IEditorService).activeEditorPane?.focus();
+			return;
+		}
+	}
+	await viewsService.openView(PULSE_AI_VIEW_ID, true);
+}
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: PulseAICommandId.Focus,
+			title: localize2('pulseAI.focus', 'Pulse: Open Agent'),
+			f1: true,
+			category: 'Pulse',
+			icon: Codicon.pulse,
+			keybinding: {
+				weight: KeybindingWeight.WorkbenchContrib,
+				primary: KeyMod.CtrlCmd | KeyCode.KeyL,
+			},
+		});
+	}
+	run(accessor: ServicesAccessor): Promise<void> { return openPulseAgent(accessor); }
+});
+
+// --- Top-level Pulse menu (between Terminal and Help) ---------------------
+// Menubar order reference (menubar.contribution.ts + debug.contribution.ts):
+//   File(1) · Edit(2) · Selection(3) · View(4) · Go(5) · Run(6) · Terminal(7)
+//   ······ Pulse(7.5) ······ Help(8) · Preferences(9, Mac-only)
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	submenu: PULSE_AI_MENU_ID,
 	title: {
@@ -137,38 +145,32 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	order: 7.5,
 });
 
-// --- Title-bar (command center) icon ---------------------------------------
-// Copilot ships a Copilot icon in the command center (top-center of the
-// title bar) that one-clicks open chat. We match that: a Pulse icon in the
-// command center that fires the same open command Ctrl+L fires. Appears when
-// window.commandCenter is enabled (default in modern Code OSS).
-MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
-	command: {
-		id: PULSE_AI_VIEW_CONTAINER_ID,
-		title: localize2('pulseAI.commandCenter.tooltip', 'Open Pulse Agent (Ctrl+L)'),
-		icon: Codicon.pulse,
-	},
-	order: -100, // far-left of command center, next to the back/forward icons
-});
-
-// Helper: open Pulse and focus it.
-async function focusPulse(accessor: ServicesAccessor): Promise<void> {
-	await accessor.get(IViewsService).openView(PULSE_AI_VIEW_ID, true);
-}
-
-// --- Pulse dropdown entries -----------------------------------------------
-// "Open Pulse Agent" reuses the container's auto-registered toggle command
-// (id: PULSE_AI_VIEW_CONTAINER_ID → 'workbench.view.pulseai') which is the
-// same command that Ctrl+L and the command-center icon fire. This way the
-// shortcut shows up next to the menu item automatically.
+// First item in the Pulse dropdown reuses the explicit open command so the
+// Ctrl+L shortcut shows up next to it automatically.
 MenuRegistry.appendMenuItem(PULSE_AI_MENU_ID, {
 	command: {
-		id: PULSE_AI_VIEW_CONTAINER_ID,
+		id: PulseAICommandId.Focus,
 		title: localize('pulseAI.menu.openAgent', 'Open Pulse Agent'),
 	},
 	group: '0_open',
 	order: 1,
 });
+
+// --- Title-bar (command center) Pulse icon --------------------------------
+// Copilot shows a Copilot/sparkle icon in the top-center command center that
+// one-clicks opens chat. We mirror that with a pulse icon firing the same
+// open command as Ctrl+L. Appears when window.commandCenter is enabled
+// (default in modern Code OSS).
+MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
+	command: {
+		id: PulseAICommandId.Focus,
+		title: localize2('pulseAI.commandCenter.tooltip', 'Open Pulse Agent (Ctrl+L)'),
+		icon: Codicon.pulse,
+	},
+	order: -100,
+});
+
+// --- Session / review / control / settings entries -----------------------
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -180,7 +182,7 @@ registerAction2(class extends Action2 {
 			menu: [{ id: PULSE_AI_MENU_ID, group: '1_session', order: 1 }],
 		});
 	}
-	run(accessor: ServicesAccessor): Promise<void> { return focusPulse(accessor); }
+	run(accessor: ServicesAccessor): Promise<void> { return openPulseAgent(accessor); }
 });
 
 registerAction2(class extends Action2 {
@@ -209,7 +211,7 @@ registerAction2(class extends Action2 {
 			menu: [{ id: PULSE_AI_MENU_ID, group: '2_review', order: 1 }],
 		});
 	}
-	run(accessor: ServicesAccessor): Promise<void> { return focusPulse(accessor); }
+	run(accessor: ServicesAccessor): Promise<void> { return openPulseAgent(accessor); }
 });
 
 registerAction2(class extends Action2 {
@@ -222,7 +224,7 @@ registerAction2(class extends Action2 {
 			menu: [{ id: PULSE_AI_MENU_ID, group: '2_review', order: 2 }],
 		});
 	}
-	run(accessor: ServicesAccessor): Promise<void> { return focusPulse(accessor); }
+	run(accessor: ServicesAccessor): Promise<void> { return openPulseAgent(accessor); }
 });
 
 registerAction2(class extends Action2 {
@@ -235,7 +237,7 @@ registerAction2(class extends Action2 {
 			menu: [{ id: PULSE_AI_MENU_ID, group: '3_control', order: 1 }],
 		});
 	}
-	run(accessor: ServicesAccessor): Promise<void> { return focusPulse(accessor); }
+	run(accessor: ServicesAccessor): Promise<void> { return openPulseAgent(accessor); }
 });
 
 registerAction2(class extends Action2 {
