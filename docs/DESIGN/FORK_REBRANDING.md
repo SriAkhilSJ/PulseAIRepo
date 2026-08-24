@@ -539,3 +539,81 @@ The Codex protocol is agent-engine territory, not interface work. This was
 **vendoring repair** — restoring upstream files verbatim — undertaken because a
 broken build blocks all UI verification. No agent logic was written or modified.
 
+
+## 2f. R4 — Pulse menu discoverability + Ctrl/Cmd+L hotkey (August 2026)
+
+### Problem (R3 hardware verification)
+
+R3 core checks passed (5/5), but the user reported he never saw the Pulse
+dropdown menu in the upper-left during testing. Investigation:
+
+- Pulse registered to `MenuId.MenubarMainMenu` (the hamburger app menu) with
+  `group: '9_pulseAI'`, which sorts **after** Help (group `9_Help`) — i.e.
+  last, visually buried.
+- On Windows/Linux with the compact titlebar the entire menubar collapses
+  behind the hamburger `☰`, so the menu was effectively invisible.
+- No `openCommandActionDescriptor`, no keybinding, no left activity-bar icon.
+  The only way to reach Pulse was to (a) know it existed, (b) open the
+  hamburger, (c) scroll to the absolute bottom.
+
+### Competitor research
+
+| IDE         | AI hotkey              | Panel location        |
+|-------------|------------------------|-----------------------|
+| Cursor      | `Ctrl/Cmd+L` (chat)    | Right auxiliary bar   |
+| Windsurf    | `Ctrl/Cmd+L` (Cascade) | Right sidebar         |
+| Copilot (VS Code) | `Ctrl+Alt+I` (legacy) | Right auxiliary bar |
+| GitHub Copilot (new) | title-bar icon + `Ctrl+Alt+I` | title bar   |
+
+The market has converged on **`Ctrl/Cmd+L`** as the "talk to the AI" chord.
+Cursor and Windsurf both globally overwrite VS Code's default `Ctrl+L`
+("Expand Line Selection", `KeybindingWeight.EditorCore = 0`) for their AI
+panel. We match them.
+
+### Fix
+
+One file touched: `src/vs/workbench/contrib/pulseai/browser/pulseAI.contribution.ts`.
+
+1. **Top-level menu item at `order: 7.5`**, between Terminal (7) and Help (8).
+   Resulting menubar on Windows/Linux:
+   `File · Edit · Selection · View · Go · Run · Terminal · Pulse · Help`.
+   (On macOS, Electron's native Window menu sits between Terminal and Pulse;
+   Preferences also appears after Help natively.)
+2. **`openCommandActionDescriptor`** added to the view container, binding
+   `KeyMod.CtrlCmd | KeyCode.KeyL` as the primary keybinding.
+   `viewsService.ts` registers this at `KeybindingWeight.WorkbenchContrib (200)`,
+   which outranks the editor's built-in `expandLineSelection` (weight 0) and
+   also exposes the command via F1 (Command Palette: "View: Toggle Pulse") and
+   the `View` menu automatically.
+3. **Location kept in Auxiliary (right) Bar** — matches Cursor/Copilot/Windsurf.
+   No left activity-bar icon added; the keyboard + menu + Command Palette
+   entries give it three visible entry points without cluttering the primary
+   sidebar.
+4. **Did NOT move to Sidebar.** Adding a left-bar icon was considered and
+   rejected: it would compete with Explorer/Search/SCM/Run/Extensions for
+   attention on a feature most users reach via `Ctrl+L`. Cursor and Windsurf
+   both keep their AI panel on the right.
+
+### Guard rails
+
+Three new tests in `src/tests/test_pulseai_branding.py`:
+
+- `test_pulse_is_first_class_top_level_menu_not_buried_after_help` — pins
+  `order: 7.5` and forbids `'9_pulseAI'`.
+- `test_pulse_panel_opens_via_ctrl_cmd_l` — pins `Ctrl/Cmd+L` and forbids
+  regressing to `Ctrl+Alt+I`.
+- `test_pulse_lives_in_auxiliary_bar_not_sidebar` — pins the right-side
+  placement.
+
+Suite: **35 passed** (up from 32).
+
+### Keybinding rationale vs. native Ctrl+L uses
+
+| Existing binding            | Weight | When / precondition                       | Outcome             |
+|-----------------------------|--------|-------------------------------------------|---------------------|
+| Expand Line Selection       | 0      | `EditorContextKeys.textInputFocus`        | Shadowed globally by Pulse — matches Cursor/Windsurf behavior. |
+| Browser: Focus URL Input    | 200    | `BROWSER_EDITOR_ACTIVE`                   | Still wins inside the embedded browser view (equal weight, more specific precondition). |
+| Notebook: Add Cursor To Line Ends (Ctrl+Shift+L) | 0 | —                | Different chord (Shift), unaffected. |
+| Search: Search Editor Ctrl+L, etc. | varies | contextual when clauses | Unaffected. |
+
+This is identical to Cursor's shipped keybinding conflict resolution.

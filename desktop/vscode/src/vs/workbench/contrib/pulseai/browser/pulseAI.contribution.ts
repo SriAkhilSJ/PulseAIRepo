@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Codicon } from '../../../../base/common/codicons.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { MenuId, MenuRegistry, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -46,6 +47,18 @@ registerSingleton(IPulseAIEngineService, PulseAIUnavailableEngineService, Instan
 registerSingleton(IPulseAIWorkbenchService, PulseAIWorkbenchService, InstantiationType.Delayed);
 registerSingleton(IPulseAIRendererService, PulseAIRendererService, InstantiationType.Delayed);
 
+// --- Pulse view container (right-side auxiliary bar) ----------------------
+// Default location matches Cursor's chat panel and VS Code's Copilot chat
+// (secondary/auxiliary side bar on the right). The
+// `openCommandActionDescriptor` is consumed by viewsService.ts to register
+// a toggle command with F1 command-palette entry, a View-menu entry, and a
+// keybinding — all from a single descriptor.
+//
+// Keybinding: Ctrl+L (Win/Linux) / Cmd+L (Mac). This is the market-standard
+// hotkey for "open the AI panel", used by both Cursor and Windsurf. It
+// overrides VS Code's built-in "Expand Line Selection" (EditorCore weight 0)
+// because we bind at WorkbenchContrib weight 200 — the same trick Cursor
+// and Windsurf use to claim the chord for AI.
 const container = Registry.as<IViewContainersRegistry>(
 	ViewContainerExtensions.ViewContainersRegistry
 ).registerViewContainer({
@@ -58,6 +71,15 @@ const container = Registry.as<IViewContainersRegistry>(
 	]),
 	storageId: PULSE_AI_VIEW_CONTAINER_ID,
 	order: 6,
+	openCommandActionDescriptor: {
+		id: PULSE_AI_VIEW_CONTAINER_ID,
+		title: localize2('pulseAI.viewContainer.open', 'Toggle Pulse'),
+		mnemonicTitle: localize({ key: 'miViewPulse', comment: ['&& denotes a mnemonic'] }, '&&Pulse Agent'),
+		keybindings: {
+			primary: KeyMod.CtrlCmd | KeyCode.KeyL,
+		},
+		order: 6,
+	},
 }, ViewContainerLocation.AuxiliaryBar);
 
 Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews([{
@@ -82,27 +104,34 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 	[new SyncDescriptor(PulseAIManagerInput)],
 );
 
+// --- Top-level Pulse menu --------------------------------------------------
+// Sits between Terminal (order 7) and Help (order 8) in the menubar,
+// mirroring how AI-first IDEs (Cursor, Windsurf, VS Code + Copilot) surface
+// the AI feature as a first-class chrome affordance.
+//
+// Native order reference (see menubar.contribution.ts + debug.contribution.ts):
+//   File(1) · Edit(2) · Selection(3) · View(4) · Go(5) · Run(6) · Terminal(7)
+//   ·········· Pulse(7.5) ·········· Help(8) · Preferences(9, Mac only)
+//
+// The "Window" menu is a Mac-native menu injected by Electron on darwin;
+// on Windows/Linux there is no Window menu, so the menubar reads exactly
+// the requested …Terminal/Pulse/Help sequence.
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
-	title: localize2('pulseAI.menu.title', 'Pulse'),
 	submenu: PULSE_AI_MENU_ID,
-	group: '9_pulseAI',
-	order: 1,
+	title: {
+		value: 'Pulse',
+		original: 'Pulse',
+		mnemonicTitle: localize({ key: 'mPulse', comment: ['&& denotes a mnemonic'] }, '&&Pulse'),
+	},
+	order: 7.5,
 });
 
+// Helper: open Pulse and focus it.
 async function focusPulse(accessor: ServicesAccessor): Promise<void> {
 	await accessor.get(IViewsService).openView(PULSE_AI_VIEW_ID, true);
 }
 
-registerAction2(class extends Action2 {
-	constructor() {
-		super({
-			id: PulseAICommandId.Focus,
-			title: localize2('pulseAI.focus', 'PulseAI: Focus Agent'),
-			f1: true,
-		});
-	}
-	run(accessor: ServicesAccessor): Promise<void> { return focusPulse(accessor); }
-});
+// --- Pulse dropdown entries -----------------------------------------------
 
 registerAction2(class extends Action2 {
 	constructor() {
