@@ -1,5 +1,11 @@
 /*---------------------------------------------------------------------------------------------
  * PulseAI IDE first-party workbench registration. Never an extension.
+ *
+ * Follows the same shape as Copilot Chat (chatParticipant.contribution.ts):
+ *   - View container on the right (Auxiliary Bar), doNotRegisterOpenCommand:true
+ *   - View descriptor carries openCommandActionDescriptor with Ctrl/Cmd+L
+ *   - Top-level menubar entry between Terminal and Help
+ *   - Title-bar (command center) icon, one click to open Agent
  *--------------------------------------------------------------------------------------------*/
 
 import { Codicon } from '../../../../base/common/codicons.js';
@@ -16,6 +22,7 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import {
 	Extensions as ViewContainerExtensions,
 	IViewContainersRegistry,
+	IViewDescriptor,
 	IViewsRegistry,
 	ViewContainerLocation,
 } from '../../../common/views.js';
@@ -36,7 +43,7 @@ import { PulseAIRendererService } from './pulseAIRendererService.js';
 import { PulseAIViewPane } from './pulseAIViewPane.js';
 import { PulseAIWorkbenchService } from './pulseAIWorkbenchService.js';
 import { PulseAIUnavailableEngineService } from './pulseAIUnavailableEngineService.js';
-import './media/pulseAI-tokens.css';
+import './media/pulseai-tokens.css';
 import './media/pulseAI.css';
 
 const PULSE_AI_MENU_ID = new MenuId('MenubarPulseAI');
@@ -47,18 +54,12 @@ registerSingleton(IPulseAIEngineService, PulseAIUnavailableEngineService, Instan
 registerSingleton(IPulseAIWorkbenchService, PulseAIWorkbenchService, InstantiationType.Delayed);
 registerSingleton(IPulseAIRendererService, PulseAIRendererService, InstantiationType.Delayed);
 
-// --- Pulse view container (right-side auxiliary bar) ----------------------
-// Default location matches Cursor's chat panel and VS Code's Copilot chat
-// (secondary/auxiliary side bar on the right). The
-// `openCommandActionDescriptor` is consumed by viewsService.ts to register
-// a toggle command with F1 command-palette entry, a View-menu entry, and a
-// keybinding — all from a single descriptor.
-//
-// Keybinding: Ctrl+L (Win/Linux) / Cmd+L (Mac). This is the market-standard
-// hotkey for "open the AI panel", used by both Cursor and Windsurf. It
-// overrides VS Code's built-in "Expand Line Selection" (EditorCore weight 0)
-// because we bind at WorkbenchContrib weight 200 — the same trick Cursor
-// and Windsurf use to claim the chord for AI.
+// --- Pulse container (right-side auxiliary bar) ---------------------------
+// Same shape used by Copilot Chat:
+//   • AuxiliaryBar (right-side secondary sidebar)
+//   • doNotRegisterOpenCommand: true  — we wire the open command on the VIEW
+//     descriptor, which is the pattern viewsService.ts actually reads to
+//     install the keybinding + F1 + View-menu entry.
 const container = Registry.as<IViewContainersRegistry>(
 	ViewContainerExtensions.ViewContainersRegistry
 ).registerViewContainer({
@@ -71,26 +72,42 @@ const container = Registry.as<IViewContainersRegistry>(
 	]),
 	storageId: PULSE_AI_VIEW_CONTAINER_ID,
 	order: 6,
-	openCommandActionDescriptor: {
-		id: PULSE_AI_VIEW_CONTAINER_ID,
-		title: localize2('pulseAI.viewContainer.open', 'Toggle Pulse'),
-		mnemonicTitle: localize({ key: 'miViewPulse', comment: ['&& denotes a mnemonic'] }, '&&Pulse Agent'),
-		keybindings: {
-			primary: KeyMod.CtrlCmd | KeyCode.KeyL,
-		},
-		order: 6,
-	},
-}, ViewContainerLocation.AuxiliaryBar);
+}, ViewContainerLocation.AuxiliaryBar, { doNotRegisterOpenCommand: true });
 
-Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews([{
+// --- Pulse Agent view ------------------------------------------------------
+// Keybinding: Ctrl/Cmd+L — market standard "talk to the AI" chord:
+//   • Cursor   → Ctrl/Cmd+L opens AI chat
+//   • Windsurf → Ctrl/Cmd+L opens Cascade (agent)
+// We register this on the view descriptor (same as Copilot does at
+// chatParticipant.contribution.ts:58) so viewsService.ts auto-generates the
+// toggle command, F1 Command Palette entry, and View-menu entry with the
+// keybinding at KeybindingWeight.WorkbenchContrib (200), which outranks
+// the editor's built-in 'expandLineSelection' (EditorCore = 0) — same
+// global-steal trick Cursor and Windsurf ship with.
+const pulseViewDescriptor: IViewDescriptor = {
 	id: PULSE_AI_VIEW_ID,
 	name: localize2('pulseAI.view.name', 'Pulse Agent'),
 	containerIcon: Codicon.pulse,
+	containerTitle: localize('pulseAI.containerTitle', 'Pulse'),
+	singleViewPaneContainerTitle: localize('pulseAI.singlePaneTitle', 'Pulse'),
 	canToggleVisibility: true,
 	canMoveView: false,
 	ctorDescriptor: new SyncDescriptor(PulseAIViewPane),
-}], container);
+	openCommandActionDescriptor: {
+		id: PULSE_AI_VIEW_CONTAINER_ID,
+		title: localize2('pulseAI.openAgent', 'Pulse: Open Agent'),
+		mnemonicTitle: localize({ key: 'miTogglePulse', comment: ['&& denotes a mnemonic'] }, '&&Pulse Agent'),
+		keybindings: {
+			primary: KeyMod.CtrlCmd | KeyCode.KeyL,
+		},
+		order: 1,
+	},
+};
+Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews(
+	[pulseViewDescriptor], container
+);
 
+// --- Manager editor (Agent Manager, Copilot's "Agents Window" analogue) ---
 Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(
 	PulseAIManagerInput.ID,
 	PulseAIManagerInputSerializer,
@@ -105,17 +122,11 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 );
 
 // --- Top-level Pulse menu --------------------------------------------------
-// Sits between Terminal (order 7) and Help (order 8) in the menubar,
-// mirroring how AI-first IDEs (Cursor, Windsurf, VS Code + Copilot) surface
-// the AI feature as a first-class chrome affordance.
-//
-// Native order reference (see menubar.contribution.ts + debug.contribution.ts):
-//   File(1) · Edit(2) · Selection(3) · View(4) · Go(5) · Run(6) · Terminal(7)
-//   ·········· Pulse(7.5) ·········· Help(8) · Preferences(9, Mac only)
-//
-// The "Window" menu is a Mac-native menu injected by Electron on darwin;
-// on Windows/Linux there is no Window menu, so the menubar reads exactly
-// the requested …Terminal/Pulse/Help sequence.
+// order: 7.5 sits between Terminal(7) and Help(8) in MenubarMainMenu.
+// On Windows/Linux the menubar reads:
+//   File · Edit · Selection · View · Go · Run · Terminal · Pulse · Help
+// (The 'Window' menu is a macOS-native Electron menu injected only on darwin;
+// it is not present on Windows/Linux in Code OSS at this pin.)
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	submenu: PULSE_AI_MENU_ID,
 	title: {
@@ -126,12 +137,38 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	order: 7.5,
 });
 
+// --- Title-bar (command center) icon ---------------------------------------
+// Copilot ships a Copilot icon in the command center (top-center of the
+// title bar) that one-clicks open chat. We match that: a Pulse icon in the
+// command center that fires the same open command Ctrl+L fires. Appears when
+// window.commandCenter is enabled (default in modern Code OSS).
+MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
+	command: {
+		id: PULSE_AI_VIEW_CONTAINER_ID,
+		title: localize2('pulseAI.commandCenter.tooltip', 'Open Pulse Agent (Ctrl+L)'),
+		icon: Codicon.pulse,
+	},
+	order: -100, // far-left of command center, next to the back/forward icons
+});
+
 // Helper: open Pulse and focus it.
 async function focusPulse(accessor: ServicesAccessor): Promise<void> {
 	await accessor.get(IViewsService).openView(PULSE_AI_VIEW_ID, true);
 }
 
 // --- Pulse dropdown entries -----------------------------------------------
+// "Open Pulse Agent" reuses the container's auto-registered toggle command
+// (id: PULSE_AI_VIEW_CONTAINER_ID → 'workbench.view.pulseai') which is the
+// same command that Ctrl+L and the command-center icon fire. This way the
+// shortcut shows up next to the menu item automatically.
+MenuRegistry.appendMenuItem(PULSE_AI_MENU_ID, {
+	command: {
+		id: PULSE_AI_VIEW_CONTAINER_ID,
+		title: localize('pulseAI.menu.openAgent', 'Open Pulse Agent'),
+	},
+	group: '0_open',
+	order: 1,
+});
 
 registerAction2(class extends Action2 {
 	constructor() {
