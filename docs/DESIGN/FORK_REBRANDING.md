@@ -617,3 +617,66 @@ Suite: **35 passed** (up from 32).
 | Search: Search Editor Ctrl+L, etc. | varies | contextual when clauses | Unaffected. |
 
 This is identical to Cursor's shipped keybinding conflict resolution.
+<<<<<<< HEAD
+=======
+
+## 2g. R4.2 — Copilot surfaces hidden at context-key level (Aug 2026)
+
+### Symptom (R4 hardware verification)
+
+After R4's menu/keybinding work, the IDE booted cleanly but the screenshot
+showed three Copilot leaks:
+
+1. A **CHAT tab** visible in the right auxiliary bar next to Pulse.
+2. An **"Open Chat Ctrl+Alt+I" entry** in the empty-editor watermark.
+3. A **Copilot "Sign In" button** in the title bar.
+
+### Root cause
+
+`chat.disableAIFeatures: true` only takes effect AFTER
+`ChatEntitlementService.update()` resolves (network call, sign-in state).
+Before that async resolution — i.e. on first paint — the context keys
+Copilot actually reads are all in their default "not hidden" state:
+
+- `chatSetupHidden` (default `false`) — read by watermark
+  (editorGroupWatermark.ts:34), chatGettingStarted, CHAT view `when` clause.
+- `chatSetupInstalled` (default `false`).
+- `chatIsEnabled` (default `true`) — read by
+  agentTitleBarStatusWidget.ts:1430 for the title-bar Copilot sparkle.
+
+Result: Copilot UI paints for several frames before the entitlement
+service catches up, and in some cases (no network, empty window) never
+gets hidden at all.
+
+### Fix
+
+New file `src/vs/workbench/contrib/pulseai/browser/pulseAIHideCopilot.ts`
+registers an `IWorkbenchContribution` at `LifecyclePhase.Starting` that:
+
+1. Reads two settings — `pulseai.hideBuiltInCopilotUI` (default `true`) and
+   `chat.disableAIFeatures` — and forces the four Copilot context keys
+   (`chatSetupHidden`, `chatSetupInstalled`, `chatSetupDisabled`,
+   `chatIsEnabled`) to their "Copilot hidden" values immediately, before
+   the first paint.
+2. Calls `IChatEntitlementService.setForceHidden(true)` so Copilot's own
+   state machine agrees.
+3. Re-applies on every relevant configuration change so the entitlement
+   service can't flip them back during its async update.
+4. Exposes a Command-Palette toggle "Pulse: Toggle Built-in Copilot UI"
+   for power users who want Copilot visible alongside Pulse.
+
+No files under `src/vs/workbench/contrib/chat/` or `extensions/copilot/`
+were modified — per standing rule the Copilot source remains untouched as
+the future integration guide.
+
+### Guard rail
+
+`test_pulse_forces_copilot_context_keys_hidden_at_startup` in
+`src/tests/test_pulseai_branding.py` pins:
+- `pulseAIHideCopilot.ts` exists and binds all four context keys,
+- it calls `setForceHidden(hide)`,
+- it registers at `LifecyclePhase.Starting`,
+- it is imported from `pulseAI.contribution.ts`,
+- `chatParticipant.contribution.ts` is >5KB (not deleted/hollowed).
+
+38 tests pass.
