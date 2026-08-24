@@ -23,7 +23,7 @@ class SafetyGuard:
     Checks tool calls for safety before execution.
     """
     DANGEROUS_COMMANDS = {
-        "rm", "rm -rf", "del ", "rd /s", "mkfs", "dd ", "format ",
+        "rm ", "rm -rf", "del ", "rd /s", "mkfs", "dd ", "format ",
         ":(){ :|:& };:",  # fork bomb
     }
 
