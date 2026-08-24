@@ -101,17 +101,11 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 // (200) which outranks the editor's built-in expandLineSelection (EditorCore
 // = 0) — same global-steal trick Cursor and Windsurf ship.
 async function openPulseAgent(accessor: ServicesAccessor): Promise<void> {
-	const viewsService = accessor.get(IViewsService);
-	// If the Pulse pane is already focused, return focus to the editor (toggle
-	// behavior, matching Cursor's Cmd+L).
-	if (viewsService.isViewVisible(PULSE_AI_VIEW_ID)) {
-		const activePane = (viewsService as any).getActiveViewPaneWithId?.(PULSE_AI_VIEW_ID);
-		if (activePane && activePane.hasFocus?.()) {
-			accessor.get(IEditorService).activeEditorPane?.focus();
-			return;
-		}
-	}
-	await viewsService.openView(PULSE_AI_VIEW_ID, true);
+	// openView with focus=true behaves like every other VS Code "open view"
+	// command (Explorer, Search, SCM, Debug, Terminal, Chat): if the view is
+	// already open it just focuses it; if closed it opens and mounts the pane.
+	// Deliberately avoids casting to any or reaching into private API.
+	await accessor.get(IViewsService).openView(PULSE_AI_VIEW_ID, true);
 }
 
 registerAction2(class extends Action2 {
