@@ -44,7 +44,7 @@ import { PulseAIRendererService } from './pulseAIRendererService.js';
 import { PulseAIViewPane } from './pulseAIViewPane.js';
 import { PulseAIWorkbenchService } from './pulseAIWorkbenchService.js';
 import { PulseAIUnavailableEngineService } from './pulseAIUnavailableEngineService.js';
-import './media/pulseai-tokens.css';
+import './media/pulseAI-tokens.css';
 import './media/pulseAI.css';
 
 const PULSE_AI_MENU_ID = new MenuId('MenubarPulseAI');
