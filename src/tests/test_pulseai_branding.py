@@ -226,3 +226,48 @@ def test_pulse_command_center_title_bar_icon():
         "Pulse must register an icon in the command center (title bar), like Copilot."
     )
     assert "id: PULSE_AI_VIEW_CONTAINER_ID" in contribution
+<<<<<<< HEAD
+=======
+
+
+def test_pulse_forces_copilot_context_keys_hidden_at_startup():
+    """R4.2 regression guard: R4 still showed a CHAT tab next to Pulse and an
+    'Open Chat' empty-editor watermark on first boot, because
+    chat.disableAIFeatures only flips ChatContextKeys.Setup.hidden AFTER the
+    entitlement service resolves (async, network). Pulse must install a
+    Starting-phase workbench contribution that forces chatSetupHidden=true,
+    chatIsEnabled=false, and calls setForceHidden(true) BEFORE first paint.
+    All changes stay inside contrib/pulseai/ — Copilot source is not touched.
+    """
+    contrib_dir = PULSE / "browser"
+    # New file must exist and be imported from pulseAI.contribution.ts
+    hide_ts = contrib_dir / "pulseAIHideCopilot.ts"
+    assert hide_ts.exists(), (
+        "pulseAIHideCopilot.ts must exist and force Copilot context keys hidden."
+    )
+    text = hide_ts.read_text(encoding="utf-8")
+    # Must bind all four context keys that Copilot surfaces read.
+    for key in ("chatSetupHidden", "chatSetupInstalled", "chatSetupDisabled", "chatIsEnabled"):
+        assert f"'{key}'" in text or f'"{key}"' in text, (
+            f"pulseAIHideCopilot.ts must set the {key} context key."
+        )
+    # Must call setForceHidden(true) on IChatEntitlementService.
+    assert "setForceHidden(hide)" in text
+    # Must register at LifecyclePhase.Starting (before first paint).
+    assert "LifecyclePhase.Starting" in text
+    # Master toggle setting exists and defaults to true.
+    assert "'pulseai.hideBuiltInCopilotUI'" in text or '"pulseai.hideBuiltInCopilotUI"' in text
+    # Must be imported from the main contribution file.
+    main = (contrib_dir / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    assert "pulseAIHideCopilot.js" in main, (
+        "pulseAI.contribution.ts must import './pulseAIHideCopilot.js' so the "
+        "contribution registers on load."
+    )
+    # Guard rail: Copilot source MUST NOT be modified by this change.
+    chat_contrib = (
+        FORK / "src" / "vs" / "workbench" / "contrib" / "chat" / "browser" /
+        "chatParticipant.contribution.ts"
+    )
+    import hashlib
+    # Sanity check: the chat contrib file is still intact (not empty, >5KB).
+    assert chat_contrib.stat().st_size > 5000

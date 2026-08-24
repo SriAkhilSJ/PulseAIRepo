@@ -44,8 +44,12 @@ import { PulseAIRendererService } from './pulseAIRendererService.js';
 import { PulseAIViewPane } from './pulseAIViewPane.js';
 import { PulseAIWorkbenchService } from './pulseAIWorkbenchService.js';
 import { PulseAIUnavailableEngineService } from './pulseAIUnavailableEngineService.js';
-import './media/pulseAI-tokens.css';
+import './media/pulseai-tokens.css';
 import './media/pulseAI.css';
+// Hide Copilot's CHAT tab, empty-editor watermark, and title-bar sign-in UI
+// when Pulse is the primary AI. No Copilot source is modified; this file
+// forces Copilot's own "hidden" context keys at startup.
+import './pulseAIHideCopilot.js';
 
 const PULSE_AI_MENU_ID = new MenuId('MenubarPulseAI');
 
