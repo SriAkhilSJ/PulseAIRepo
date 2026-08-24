@@ -196,3 +196,39 @@ def test_pulse_lives_in_auxiliary_bar_not_sidebar():
         "Pulse belongs in the right-side auxiliary bar (Cursor/Copilot Chat "
         "pattern); do not move it to the left sidebar."
     )
+
+
+def test_pulse_ctrl_l_is_on_view_descriptor_not_container_copilot_pattern():
+    """Regression for R4.1: R4 originally attached openCommandActionDescriptor
+    to the VIEW CONTAINER, but viewsService.ts only consumes it from the VIEW
+    descriptor (when the container is registered with doNotRegisterOpenCommand
+    true) — that was why Ctrl+L had no effect on real hardware. Copilot
+    (chatParticipant.contribution.ts:58) attaches it to the view descriptor;
+    we match exactly.
+    """
+    contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    # Container must opt out of auto-open.
+    assert "doNotRegisterOpenCommand: true" in contribution, (
+        "Container must be registered with doNotRegisterOpenCommand:true so "
+        "the view descriptor owns the open command (same as Copilot)."
+    )
+    # openCommandActionDescriptor must be attached to an IViewDescriptor
+    # literal (pulseViewDescriptor), NOT passed as a property of the
+    # registerViewContainer argument.
+    assert "const pulseViewDescriptor: IViewDescriptor = {" in contribution, (
+        "openCommandActionDescriptor must live on a view descriptor, not the "
+        "container — viewsService only reads view.openCommandActionDescriptor "
+        "for AuxiliaryBar containers."
+    )
+
+
+def test_pulse_command_center_title_bar_icon():
+    """Copilot has a Copilot icon in the top-center command center that
+    one-clicks open chat. Pulse must mirror that with a pulse icon that fires
+    the same open command (workbench.view.pulseai) that Ctrl+L fires.
+    """
+    contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    assert "MenuId.CommandCenterCenter" in contribution, (
+        "Pulse must register an icon in the command center (title bar), like Copilot."
+    )
+    assert "id: PULSE_AI_VIEW_CONTAINER_ID" in contribution
