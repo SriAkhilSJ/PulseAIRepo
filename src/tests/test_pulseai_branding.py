@@ -173,9 +173,10 @@ def test_pulse_panel_opens_via_ctrl_cmd_l():
     assert "KeyMod.CtrlCmd | KeyCode.KeyL" in contribution, (
         "Ctrl/Cmd+L must be the primary keybinding for opening Pulse"
     )
-    assert "openCommandActionDescriptor" in contribution, (
-        "Pulse must expose an openCommandActionDescriptor so F1 / View menu / "
-        "keybinding are auto-registered via viewsService."
+    assert "PulseAICommandId.Focus" in contribution, (
+        "Ctrl/Cmd+L must be bound to the explicit pulseai.focus action, not "
+        "via the auto-wired openCommandActionDescriptor (which produced a "
+        "command-ID mismatch in R4/R4.1a)."
     )
     # Pulse must NOT claim Copilot's legacy Ctrl+Alt+I — that is reserved for
     # Copilot Chat which we hide but do not delete per project rules.
@@ -198,28 +199,21 @@ def test_pulse_lives_in_auxiliary_bar_not_sidebar():
     )
 
 
-def test_pulse_ctrl_l_is_on_view_descriptor_not_container_copilot_pattern():
-    """Regression for R4.1: R4 originally attached openCommandActionDescriptor
-    to the VIEW CONTAINER, but viewsService.ts only consumes it from the VIEW
-    descriptor (when the container is registered with doNotRegisterOpenCommand
-    true) — that was why Ctrl+L had no effect on real hardware. Copilot
-    (chatParticipant.contribution.ts:58) attaches it to the view descriptor;
-    we match exactly.
+def test_pulse_ctrl_l_is_registered_on_explicit_focus_action():
+    """Regression for R4.1: R4/R4.1a tried to auto-wire the keybinding via
+    openCommandActionDescriptor, which silently created a command ID mismatch
+    (nothing fired on Ctrl+L). R4.1b binds Ctrl+L to an EXPLICIT
+    registerAction2 with id = PulseAICommandId.Focus ('pulseai.focus'), same
+    pattern every other first-class panel uses. Title-bar icon + menu item
+    both reference the same command id.
     """
     contribution = (PULSE / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
-    # Container must opt out of auto-open.
-    assert "doNotRegisterOpenCommand: true" in contribution, (
-        "Container must be registered with doNotRegisterOpenCommand:true so "
-        "the view descriptor owns the open command (same as Copilot)."
-    )
-    # openCommandActionDescriptor must be attached to an IViewDescriptor
-    # literal (pulseViewDescriptor), NOT passed as a property of the
-    # registerViewContainer argument.
-    assert "const pulseViewDescriptor: IViewDescriptor = {" in contribution, (
-        "openCommandActionDescriptor must live on a view descriptor, not the "
-        "container — viewsService only reads view.openCommandActionDescriptor "
-        "for AuxiliaryBar containers."
-    )
+    assert "id: PulseAICommandId.Focus" in contribution
+    assert "KeyMod.CtrlCmd | KeyCode.KeyL" in contribution
+    assert "KeybindingWeight.WorkbenchContrib" in contribution
+    # No more doNotRegisterOpenCommand or openCommandActionDescriptor indirection.
+    assert "doNotRegisterOpenCommand" not in contribution
+    assert "openCommandActionDescriptor" not in contribution
 
 
 def test_pulse_command_center_title_bar_icon():
