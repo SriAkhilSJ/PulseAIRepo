@@ -46,6 +46,14 @@ class TestGuardSubstitution:
         assert not self._blocked(guard, "echo hello world")       # benign passes
         assert not self._blocked(guard, "ls -la && pwd")          # benign operators pass
 
+    def test_rm_is_matched_as_a_shell_token_not_a_substring(self, guard):
+        assert self._blocked(guard, "rm file.txt")
+        assert self._blocked(guard, "rm\tfile.txt")
+        assert self._blocked(guard, "rm")
+        assert self._blocked(guard, "sudo rm -rf build")
+        assert not self._blocked(guard, "Get-ChildItem | Format-Table")
+        assert not self._blocked(guard, "echo platform")
+
 
 # --- Issue 6: hard timeouts on every provider constructor
 class TestLLMTimeouts:

@@ -162,7 +162,7 @@ def should_create_plan(
 
 def _plan_constraint_violation(
     task: str,
-    steps: list[dict],
+    steps: list[object],
     provider: str,
     model: str,
     usage_list: list | None = None,
@@ -177,8 +177,17 @@ def _plan_constraint_violation(
     """
     try:
         llm = get_llm(provider=provider, model=model)
+        def _step_text(step: object) -> str:
+            if isinstance(step, dict):
+                return str(step.get("step") or step.get("description") or step)
+            return str(
+                getattr(step, "step", None)
+                or getattr(step, "description", None)
+                or step
+            )
+
         numbered = "\n".join(
-            f"{i + 1}. {str(step.get('step') or step.get('description') or step)}"
+            f"{i + 1}. {_step_text(step)}"
             for i, step in enumerate(steps)
         )
         response = _invoke_and_track(
@@ -194,7 +203,7 @@ def _plan_constraint_violation(
                 HumanMessage(content=f"TASK:\n{task}\n\nPLAN:\n{numbered}"),
             ],
             model,
-            usage_list or [],
+            usage_list if usage_list is not None else [],
         )
         answer = str(response.content).strip()
         if answer.upper().startswith("OK"):

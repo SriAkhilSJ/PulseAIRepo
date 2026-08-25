@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -70,6 +71,17 @@ def main() -> int:
 
     threading.Thread(target=stderr_pump, daemon=True).start()
 
+    stdout_lines: queue.Queue[str | None] = queue.Queue()
+
+    def stdout_pump() -> None:
+        try:
+            for line in proc.stdout:
+                stdout_lines.put(line)
+        finally:
+            stdout_lines.put(None)
+
+    threading.Thread(target=stdout_pump, daemon=True).start()
+
     def send(frame: dict) -> None:
         proc.stdin.write(json.dumps(frame) + "\n")
         proc.stdin.flush()
@@ -86,8 +98,12 @@ def main() -> int:
             tokens_in_seen = 0
             budget_stop = False
             while time.time() < deadline:
-                line = proc.stdout.readline()
-                if not line:
+                remaining = deadline - time.time()
+                try:
+                    line = stdout_lines.get(timeout=max(0.01, min(1.0, remaining)))
+                except queue.Empty:
+                    continue
+                if line is None:
                     outcome["result"] = "bridge-exited"
                     break
                 try:

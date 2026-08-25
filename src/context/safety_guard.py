@@ -15,6 +15,7 @@ What this changes:
 - Accidental data loss is prevented
 """
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,9 +24,13 @@ class SafetyGuard:
     Checks tool calls for safety before execution.
     """
     DANGEROUS_COMMANDS = {
-        "rm ", "rm -rf", "del ", "rd /s", "mkfs", "dd ", "format ",
+        "del ", "rd /s", "mkfs", "dd ", "format ",
         ":(){ :|:& };:",  # fork bomb
     }
+    # Match rm as a shell token instead of a raw substring. The old "rm"
+    # pattern blocked harmless commands such as PowerShell's Format-Table;
+    # the branch's interim "rm " fix still missed tabs and a bare `rm`.
+    RM_COMMAND = re.compile(r"(?<![\w-])rm(?=\s|$)", re.IGNORECASE)
 
     CRITICAL_PATHS = {
         ".env", ".env.local", "secrets", "credentials",
@@ -100,6 +105,8 @@ class SafetyGuard:
         if "$(" in command or "`" in command:
             return True
         cmd_lower = command.lower().strip()
+        if self.RM_COMMAND.search(cmd_lower):
+            return True
         return any(danger in cmd_lower for danger in self.DANGEROUS_COMMANDS)
 
     def _overwrite_warning(self, path: str) -> str:
