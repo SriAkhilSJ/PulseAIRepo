@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GARGANTUA - Schwarzschild Black Hole Raytracer</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }
+  #c { display:block; position:fixed; inset:0; }
+  #hud {
+    position:fixed; inset:0; pointer-events:none; z-index:10;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color:#e0e0e0; font-size:13px; line-height:1.35;
+    padding:10px 14px 10px 14px;
+    text-shadow:0 1px 4px #000;
+  }
+  #hud .row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  #hud .lbl { color:#888; min-width:90px; }
+  #hud .val { color:#fff; }
+  #hud .warn { color:#ffaa33; }
+  #hud .err { color:#ff4444; }
+  #hud .pill {
+    background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.15);
+    padding:2px 8px; border-radius:999px; font-size:11px;
+  }
+  #hud .pill.on { border-color:rgba(0,255,120,0.5); color:#6fdd6f; }
+  #hud .pill.off { opacity:.6; }
+  #hud .sep { width:1px; background:rgba(255,255,255,0.12); margin:0 6px; }
+  #hud .hud-top { justify-content:space-between; }
+  #hud .hud-mid { justify-content:center; }
+  #hud .hud-bot { justify-content:flex-end; }
+  #toast {
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.85); border:1px solid rgba(255,255,255,0.2);
+    padding:10px 18px; border-radius:8px; pointer-events:auto; z-index:20;
+    font-size:12px; opacity:0; transition:opacity .3s;
+    text-align:center; max-width:92%;
+  }
+  #toast.show { opacity:1; }
+  #toast.err { border-color:rgba(255,60,60,0.7); color:#ff8888; }
+  #toast.ok { border-color:rgba(60,255,140,0.7); color:#66ffa6; }
+  #toast.warn { border-color:rgba(255,170,50,0.7); color:#ffaa66; }
+  #toast.info { border-color:rgba(100,180,255,0.7); color:#88bfff; }
+  #toast.warn.show, #toast.ok.show, #toast.err.show, #toast.info.show {
+    animation: toastIn .35s ease both;
+  }
+  @keyframes toastIn { from{opacity:0; transform:translateX(-50%) translateY(6px);} to{opacity:1; transform:translateX(-50%) translateY(0);} }
+  #toast.hide { animation: toastOut .35s ease both; }
+  @keyframes toastOut { from{opacity:1;} to{opacity:0;} }
+  #toast .t-body { font-weight:600; }
+  #toast .t-sub { opacity:.85; font-size:11px; }
+  #toast .t-sub.err { color:#ff7777; }
+  #toast .t-sub.ok { color:#77ffa7; }
+  #toast .t-sub.warn { color:#ffa366; }
+  #toast .t-sub.info { color:#77bfff; }
+  #toast .t-close { position:absolute; top:8px; right:10px; cursor:pointer; color:#aaa; font-size:16px; }
+  #toast .t-close:hover { color:#fff; }
+  #toast .t-close:before { content:'×'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
+  #toast .t-sub.ok::before { content:'✓'; }
+  #toast .t-sub.err::before { content:'✗'; }
+  #toast .t-sub.info::before { content:'ℹ'; }
+  #toast .t-sub.warn::before { content:'⚠'; }
