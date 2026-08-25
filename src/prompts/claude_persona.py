@@ -440,13 +440,46 @@ def _d35_guidance_enabled() -> bool:
     return os.environ.get("PULSEAI_PERSONA_GUIDANCE", "").strip().lower() != "off"
 
 
-def system_persona() -> str:
-    """The persona the graph should use. Kill-switch off => the legacy
-    constant, byte-identical. On => the constant with the anti-batch
-    sentence replaced by D34-truthful batch guidance, plus the
-    finish-the-job section. If the legacy sentence ever drifts and the
-    replace stops matching, the D35 pin fails LOUDLY (on-mode would
-    still contain it) — never silently."""
+# The desktop bridge's workspace-session mode has no interactive user and a
+# finite paid request budget.  The full IDE persona predates that surface and
+# contains overlapping instructions to think(), plan, delegate, verify, and use
+# execute_code before acting.  Those instructions competed with direct file
+# delivery in Test 5 even when the corresponding tools were later hidden.
+# Keep the rich persona for interactive IDE chat; use one short, action-first
+# contract for autonomous execution (the same separation Hermes applies to its
+# headless/kanban surfaces).
+AUTONOMOUS_SYSTEM_PERSONA = """You are Pulse, an autonomous workspace agent.
+
+Complete the user's task in the provided workspace using the available tools.
+Act immediately: every non-final response must contain concrete tool calls that
+advance the deliverable. Do not narrate plans, emit private reasoning, ask for
+confirmation, or claim that work will happen later. The workspace and tool
+results are ground truth; never invent files, command output, or verification.
+
+For build or file-creation tasks, land a complete minimal artifact before
+inspection or verification. Prefer direct write_file/edit_file calls. Batch
+independent file mutations in one response when supported. Keep each write
+below roughly 24,000 characters; split naturally large applications into
+complete modules, never stubs. After files exist, inspect only what is needed,
+run the shortest relevant checks, repair exact failures, and verify again.
+
+Do not stop at a plan, scaffold, or summary. Finish the requested artifact and
+exercise it with real tools. A final answer is allowed only after the requested
+files exist and verification has passed, or after reporting a concrete blocker
+shown by tool output. Final answers must be concise and identify delivered
+paths and actual checks run.
+"""
+
+
+def system_persona(*, autonomous: bool = False) -> str:
+    """Return the persona for the active runtime surface.
+
+    Interactive IDE chat retains the legacy rich persona byte-for-byte.
+    Headless workspace execution gets a compact, non-interactive contract so
+    hidden meta-tools cannot continue steering the model by name.
+    """
+    if autonomous:
+        return AUTONOMOUS_SYSTEM_PERSONA
     if not _d35_guidance_enabled():
         return CLAUDE_SYSTEM_PERSONA
     return (

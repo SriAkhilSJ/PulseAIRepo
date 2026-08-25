@@ -369,6 +369,7 @@ class ContextEngine:
     # stale there.
     _HASHED_STATE_KEYS: frozenset[str] = frozenset({
         "current_task", "latest_instruction", "workspace",
+        "_autonomous_workspace",
         "plan", "plan_goal",
         "steps_completed", "failed_steps",
         "recovery_mode", "recovery_attempts", "recovery_command",
@@ -776,7 +777,40 @@ class ContextEngine:
         # before that, per-turn token/execution noise busted it every turn.)
         current_hash = self._active_state_hash or self._hash_state(state)
 
+        autonomous = bool(state.get("_autonomous_workspace"))
+        autonomous_skip = {
+            "task", "tone", "quality", "ambiguity",
+            # Keep headless runs deterministic and network/startup inert. Old
+            # cross-session lessons and tool summaries must not contaminate a
+            # fresh workspace contract; successful completion may still write
+            # memory after the run.
+            "long_term_memory", "tool_memory", "memory_validation", "reflections",
+        }
+        if autonomous and not state.get("plan"):
+            autonomous_skip.add("plan")
+        if autonomous and not (
+            state.get("steps_completed") or state.get("failed_steps")
+            or state.get("execution_trace")
+        ):
+            autonomous_skip.add("progress")
+        if autonomous:
+            from pathlib import Path
+            workspace = Path(state.get("workspace", "."))
+            try:
+                empty_workspace = not any(path.is_file() for path in workspace.rglob("*"))
+            except OSError:
+                empty_workspace = False
+            if empty_workspace:
+                autonomous_skip.update({"repo_map", "relevant_chunks", "git_context", "conventions"})
+
         for name, builder in builders.items():
+            # Headless requests already carry the task as the HumanMessage.
+            # Interactive response-style layers told Sarvam to explain its
+            # reasoning, start with an overview, and ask questions—the direct
+            # opposite of the autonomous action contract. Hermes keeps such UI
+            # presentation policy out of its headless prompt.
+            if autonomous and name in autonomous_skip:
+                continue
             relevance_map = self.LAYER_RELEVANCE.get(name, {})
             score = relevance_map.get(task_type, 0.0)
             if score < 0.15:

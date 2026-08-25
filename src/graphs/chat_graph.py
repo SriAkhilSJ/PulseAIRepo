@@ -435,12 +435,25 @@ def _pre_delivery_stalled(state: AgentState, *, threshold: int = 4) -> bool:
     )
 
 
+def _workspace_is_effectively_empty(workspace: Any) -> bool:
+    """Whether a fresh delivery workspace has no user-visible input files."""
+    from pathlib import Path
+    root = Path(workspace)
+    try:
+        return not any(
+            path.is_file() and not any(part.startswith(".") for part in path.relative_to(root).parts)
+            for path in root.rglob("*")
+        )
+    except (OSError, ValueError):
+        return False
+
+
 def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     """The tool OBJECTS to bind for this turn (narrowed by task type).
 
-    Returns the full registry when the waist is disabled or when resolution
-    yields nothing — a safe superset, never an empty bind (an empty tool
-    list would strip the agent's entire capability surface).
+    The autonomous surface deliberately has a smaller waist than interactive
+    IDE chat. It cannot answer ask_user, and broad meta/delegation/process
+    schemas diluted the direct actions in six Test-5 traces.
     """
     if not _PULSEAI_TOOLSETS_ON:
         return tools
@@ -448,6 +461,16 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     names = resolve_toolset_names(
         state.get("current_task", ""), config
     )
+    autonomous = _is_autonomous_workspace(config)
+    if autonomous:
+        autonomous_tools = {
+            "read_file", "list_files", "search_code",
+            "write_file", "edit_file", "copy_file",
+            "run_terminal", "typecheck_workspace",
+            "web_search", "web_fetch",
+            "verify_ui_workspace", "verify_ui_routes",
+        }
+        names = [name for name in names if name in autonomous_tools]
     # A verifier with no project cannot produce evidence. Hiding it is stronger
     # than repeatedly telling a weak model not to call it: Test5-5 paid three
     # model/replan cycles for typecheck_workspace on an empty directory.
@@ -460,24 +483,31 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     from src.runtime.execution_phases import derive_execution_phase, filter_tool_names
     phase = derive_execution_phase(dict(state))
     names = filter_tool_names(resolved_names, phase)
-    if _pre_delivery_stalled(state):
-        # Hermes' guardrails stop idempotent no-progress loops. For a task that
-        # explicitly requires files, four iterations/observations without one
-        # landed mutation is enough exploration. Expose ONLY direct mutation
-        # tools until a baseline lands. Test5-6 proved execute_code cannot stay
-        # here: the model used it for os.walk four times, bypassing the cap.
-        forced = {"write_file", "edit_file", "copy_file"}
+    empty_autonomous_delivery = (
+        autonomous
+        and _requires_file_delivery(state)
+        and not _has_landed_file_delivery(state)
+        and _workspace_is_effectively_empty(workspace)
+    )
+    if _pre_delivery_stalled(state) or empty_autonomous_delivery:
+        # A fresh autonomous build has nothing useful to inspect. Hermes begins
+        # headless jobs with action-capable tools; Pulse previously exposed 33
+        # schemas and waited four paid observations before narrowing. Make the
+        # first provider decision structurally about delivery, while retaining
+        # the four-observation cap for non-empty interactive workspaces.
+        forced = {"write_file"} if empty_autonomous_delivery else {
+            "write_file", "edit_file", "copy_file"
+        }
         names = [name for name in resolved_names if name in forced]
         phase = type(phase)(
             "forced_delivery", frozenset(forced),
             max_file_mutations_per_turn=2,
             guidance=(
-                "NO-PROGRESS CAP: this task requires files, but four main-agent "
-                "iterations produced none. Exploration and verification are now "
-                "disabled until a real file lands. Call write_file NOW with a "
-                "complete minimal baseline. Do not think, list, search, verify, "
-                "run terminal, or use execute_code. Additional dependencies can "
-                "be acquired after the first real source file lands."
+                "DIRECT DELIVERY PHASE: this task requires files and no file has "
+                "landed. Exploration and verification are disabled until a real "
+                "file exists. Call write_file NOW with a complete minimal "
+                "baseline. Additional files and dependencies can be handled on "
+                "the next iteration."
             ),
         )
     # Persist the same allowlist into the tool-node config: textual tool-call
@@ -516,6 +546,27 @@ def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsa
 # AI NODE (with Context Engine)
 # =========================================================
 system_message = SystemMessage(content=system_persona())
+autonomous_system_message = SystemMessage(content=system_persona(autonomous=True))
+
+
+def _is_autonomous_workspace(config: RunnableConfig) -> bool:
+    """True for the non-interactive desktop/benchmark workspace surface."""
+    return str(config.get("configurable", {}).get("approval_policy", "")).strip().lower() == "workspace_session"
+
+
+def _insert_system_prefix(messages: list, content: str) -> None:
+    """Insert runtime guidance before conversation history, never after user.
+
+    Sarvam receives an OpenAI-compatible role sequence. Appending SystemMessage
+    after HumanMessage made the highest-priority delivery instruction a trailing
+    role that some adapters/models handle inconsistently. Hermes assembles its
+    stable/context/volatile system prefix before conversation messages.
+    """
+    index = next(
+        (i for i, message in enumerate(messages) if getattr(message, "type", "") != "system"),
+        len(messages),
+    )
+    messages.insert(index, SystemMessage(content=content))
 
 
 def ai_node(
@@ -540,7 +591,14 @@ def ai_node(
     # Cost-aware routing: try to use a cheaper/better model for this task
     task_for_routing = state.get("current_task", "")
     plan_for_routing = state.get("plan", [])
-    routed_provider, routed_model = cost_router.route(task_for_routing, plan_for_routing)
+    if _is_autonomous_workspace(config):
+        # The guarded runner authorizes one named provider/model. Never route a
+        # headless paid run through process-global alternative credentials.
+        routed_provider, routed_model = base_provider, base_model
+    else:
+        routed_provider, routed_model = cost_router.route(
+            task_for_routing, plan_for_routing
+        )
 
     provider = routed_provider
     model = routed_model
@@ -575,16 +633,23 @@ def ai_node(
     # Use the Context Engine to build clean, organized messages.
     # Session-scoped: this thread's thread_id selects an isolated engine
     # (cache, attribution snapshot, learned weights all independent).
+    context_state = dict(state)
+    context_state["_autonomous_workspace"] = _is_autonomous_workspace(config)
     messages = get_context_engine(config).build_ai_messages(
-        state=dict(state),
-        system_message=system_message,
+        state=context_state,
+        system_message=(
+            autonomous_system_message
+            if context_state["_autonomous_workspace"]
+            else system_message
+        ),
     )
     phase_guidance = str(configurable.get("phase_guidance") or "").strip()
     if phase_guidance:
-        messages.append(SystemMessage(content=(
+        _insert_system_prefix(
+            messages,
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
-            + phase_guidance
-        )))
+            + phase_guidance,
+        )
 
     # State the actual shell contract before the model guesses. The terminal
     # tool uses shell=True, which is cmd.exe on the founder's Windows runtime;
@@ -593,14 +658,15 @@ def ai_node(
     import platform as _platform
     _os_name = _platform.system() or os.name
     if _os_name == "Windows":
-        messages.append(SystemMessage(content=(
+        _insert_system_prefix(
+            messages,
             "=== ACTIVE TERMINAL PLATFORM ===\n"
             "Windows cmd.exe. NEVER use POSIX commands such as ls, pwd, find, "
             "head, grep, cat, rm, cp, mv, touch, chmod, or /tmp paths. Use "
             "dir, cd, where, type, findstr, copy, move, del, or an explicit "
             "PowerShell -NoProfile -Command invocation. Prefer native file "
-            "tools over shell inspection."
-        )))
+            "tools over shell inspection.",
+        )
 
     if (
         _requires_file_delivery(state)
@@ -608,14 +674,15 @@ def ai_node(
         and int(state.get("iteration_used", 0)) >= 2
         and configurable.get("execution_phase") != "forced_delivery"
     ):
-        messages.append(SystemMessage(content=(
+        _insert_system_prefix(
+            messages,
             "=== PRE-DELIVERY NO-PROGRESS WARNING ===\n"
             "This task requires files, but no file mutation has landed after "
             "multiple main-agent iterations. Stop inspecting/planning. Your "
             "next response must create the smallest complete baseline with "
             "write_file (batch independent files). Do not verify an empty "
-            "workspace."
-        )))
+            "workspace.",
+        )
     steers = turn_controls.drain_steer(session_id)
     if steers:
         messages.append(SystemMessage(content=(
@@ -1546,11 +1613,20 @@ def progress_node(
     }
 
     if processed_tools:
-        result["messages"] = [
-            SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
-        ]
-        if injected:
-            result["messages"] = result["messages"] + injected
+        # ToolMessage already carries the observation. The generic reflection
+        # system message repeats planning/verify/ask guidance after every tool
+        # and competed with direct progress in non-interactive runs. Preserve it
+        # for rich IDE chat; autonomous execution gets only concrete recovery
+        # injections, if any.
+        if _is_autonomous_workspace(config):
+            if injected:
+                result["messages"] = injected
+        else:
+            result["messages"] = [
+                SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
+            ]
+            if injected:
+                result["messages"] = result["messages"] + injected
 
     if command_retries:
         result["command_retries"] = command_retries
@@ -1686,6 +1762,19 @@ def planner_node(
     # Nothing meaningful to plan.
     if not current_task:
         return {}
+
+    # The autonomous workspace request is already a complete task contract and
+    # has a finite provider budget. Pulse previously spent multiple provider
+    # calls classifying, generating, and validating a plan before the action
+    # loop, unlike Hermes' direct headless conversation loop. Planning remains
+    # available in explicit plan mode and throughout interactive IDE chat.
+    if _is_autonomous_workspace(config) and state.get("execution_mode", "agent") == "agent":
+        return {
+            "plan": [],
+            "plan_goal": "",
+            "plan_created": False,
+            "token_usage": state.get("token_usage", _zero_token_usage()),
+        }
 
     usages: list[TokenUsage] = []
 
@@ -2729,23 +2818,20 @@ builder.add_edge(
 # Use PersistentMemoryWrapper so memories survive across restarts.
 from src.context.persistent_memory import PersistentMemoryWrapper
 
-# Long-term memory needs the embedding backend (sentence-transformers, ~100MB
-# model). VectorMemory RAISES when that backend is unavailable (fresh CI,
-# slim containers) — and because this runs at module import time, it would
-# crash the entire agent on boot. Degrade to memory_manager=None instead,
-# matching the ContextEngine's documented fallback pattern (all memory layers
-# already treat None as "feature off").
-try:
-    if os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
-        "1", "true", "yes", "on"
-    }:
-        memory_manager = None
-    else:
-        base_memory = MemoryManager()
-        memory_manager = PersistentMemoryWrapper(base_memory)
-except Exception as exc:  # e.g. RuntimeError from VectorMemory
-    print(f"[chat_graph] Long-term memory DISABLED (boot degraded): {exc}")
+# Long-term memory is optional and must not perform model/network/database work
+# while this graph module imports. Construct it on first real use; failures are
+# isolated by the lazy proxy and degrade to no-op memory for the process.
+if os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}:
     memory_manager = None
+else:
+    from src.context.lazy_memory import LazyMemoryManager
+
+    def _create_memory_manager():
+        return PersistentMemoryWrapper(MemoryManager())
+
+    memory_manager = LazyMemoryManager(_create_memory_manager)
 
 # ---------------------------------------------------------------------
 # SESSION-SCOPED CONTEXT ENGINES (D1)
@@ -2790,6 +2876,11 @@ def get_context_engine(
         if isinstance(config_or_key, str)
         else _session_key_from_config(config_or_key)
     )
+    requested_model = LLM_MODEL
+    if isinstance(config_or_key, dict):
+        requested_model = str(
+            config_or_key.get("configurable", {}).get("model") or LLM_MODEL
+        )
     if key == "default":
         # Sessions with no thread_id all collapse into one shared engine —
         # the SAFE degradation (isolation loss, never correctness loss, thanks
@@ -2805,6 +2896,13 @@ def get_context_engine(
             )
     with _ENGINES_LOCK:
         engine = _ENGINES.get(key)
+        # Context budgeting/tokenization must follow the model that will
+        # actually receive this session's requests, not the process-global
+        # default captured at import. Recreate only when a caller explicitly
+        # changes models for the same thread.
+        if engine is not None and str(getattr(engine, "model", "")) != requested_model:
+            _ENGINES.pop(key, None)
+            engine = None
         if engine is None:
             # D21: >8000-char tool outputs may be summarized by the
             # AUXILIARY model (janitor prices) when explicitly enabled;
@@ -2817,7 +2915,7 @@ def get_context_engine(
                 except Exception:
                     summarizer_llm = None
             engine = ContextEngine(
-                model=LLM_MODEL,
+                model=requested_model,
                 llm=summarizer_llm,
                 memory_manager=memory_manager,
                 thread_id=None if key == "default" else key,
