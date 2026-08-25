@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 import threading
 import time
@@ -104,6 +105,74 @@ class _AbortState:
                 candidate.close()
             except Exception:
                 pass
+
+
+def _bound_tool_schemas(runnable: Any) -> list[dict[str, Any]]:
+    """Extract OpenAI-style schemas from nested LangChain bindings."""
+    current = runnable
+    seen: set[int] = set()
+    for _ in range(8):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        kwargs = getattr(current, "kwargs", None)
+        if isinstance(kwargs, dict) and isinstance(kwargs.get("tools"), list):
+            return [tool for tool in kwargs["tools"] if isinstance(tool, dict)]
+        current = getattr(current, "bound", None) or getattr(current, "_llm", None)
+    return []
+
+
+def build_request_snapshot(messages: Any, runnable: Any) -> dict[str, Any]:
+    """Build a deterministic, JSON-safe provider-boundary snapshot.
+
+    This contains the complete messages and tool schemas after sanitization and
+    prompt trimming, so a failed desktop run can be inspected/replayed without
+    another paid call. It is emitted only when payload capture is explicitly
+    enabled; compact counts/fingerprints are always safe telemetry.
+    """
+    import hashlib
+    import json
+
+    serialized_messages: list[dict[str, Any]] = []
+    if isinstance(messages, list):
+        for message in messages:
+            if isinstance(message, dict):
+                item = dict(message)
+            else:
+                item = {
+                    "role": getattr(message, "type", "unknown"),
+                    "content": getattr(message, "content", ""),
+                }
+                tool_calls = getattr(message, "tool_calls", None)
+                if tool_calls:
+                    item["tool_calls"] = tool_calls
+                tool_call_id = getattr(message, "tool_call_id", None)
+                if tool_call_id:
+                    item["tool_call_id"] = tool_call_id
+                name = getattr(message, "name", None)
+                if name:
+                    item["name"] = name
+            serialized_messages.append(item)
+    tools_payload = _bound_tool_schemas(runnable)
+    canonical = json.dumps(
+        {"messages": serialized_messages, "tools": tools_payload},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    names = []
+    for tool in tools_payload:
+        fn = tool.get("function", tool)
+        if isinstance(fn, dict) and fn.get("name"):
+            names.append(str(fn["name"]))
+    return {
+        "messages": serialized_messages,
+        "tools": tools_payload,
+        "message_chars": sum(len(str(m.get("content", ""))) for m in serialized_messages),
+        "tool_schema_chars": len(json.dumps(tools_payload, sort_keys=True, default=str)),
+        "tool_names": names,
+        "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
 
 
 def _request_heads(messages: Any, *, first_limit: int = 3000,
@@ -333,6 +402,12 @@ class RetryLLMProxy:
                         args = (trimmed,) + args[1:]
                     else:
                         kwargs["messages"] = trimmed
+                    messages_arg = trimmed
+
+            request_snapshot = build_request_snapshot(messages_arg, self._llm)
+            capture_payload = os.environ.get(
+                "PULSEAI_CAPTURE_REQUEST_PAYLOADS", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
 
             for attempt in range(self._max_attempts):
                 # Cancellation gate BEFORE every attempt: a Stop that fired while
@@ -352,6 +427,12 @@ class RetryLLMProxy:
                         "attempt": attempt + 1,
                         "message_count": len(messages_arg) if isinstance(messages_arg, list) else None,
                         "messages": _request_heads(messages_arg),
+                        "message_chars": request_snapshot["message_chars"],
+                        "tool_count": len(request_snapshot["tools"]),
+                        "tool_names": request_snapshot["tool_names"],
+                        "tool_schema_chars": request_snapshot["tool_schema_chars"],
+                        "request_sha256": request_snapshot["sha256"],
+                        **({"request_payload": request_snapshot} if capture_payload else {}),
                     })
                 except Exception:
                     pass  # telemetry must never break a send
@@ -665,7 +746,18 @@ class EmbeddingFactory:
         from src.config.settings import EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_DEVICE
         if EMBEDDING_PROVIDER == "local":
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(EMBEDDING_MODEL, device=EMBEDDING_DEVICE)
+            # Agent startup and ordinary retrieval must be network-inert. An
+            # operator may explicitly opt into the one-time model download;
+            # otherwise a missing cache cleanly disables optional memory via
+            # LazyMemoryManager instead of retrying Hugging Face at import/use.
+            allow_downloads = os.environ.get(
+                "PULSEAI_ALLOW_MODEL_DOWNLOADS", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            self._model = SentenceTransformer(
+                EMBEDDING_MODEL,
+                device=EMBEDDING_DEVICE,
+                local_files_only=not allow_downloads,
+            )
         elif EMBEDDING_PROVIDER == "openai":
             raise NotImplementedError("OpenAI embeddings not yet implemented")
         else:

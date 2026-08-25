@@ -36,7 +36,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Session-scoped cancellation, steering, queues, checkpointing, and provider retries.
 - Workspace-safe file and terminal tools with approval and mutation controls.
 - Verification gates for changed code, including syntax, type-check, test, and UI evidence paths.
-- Task-aware bounded context assembly, repository maps, hybrid chunk retrieval, compaction, and persistent memory.
+- Task-aware bounded context assembly, repository maps, hybrid chunk retrieval, compaction, and lazy persistent memory (local embedding cache only by default; no model download during graph import).
 - Parallel tool execution with conflict detection and deterministic fallback.
 - Multi-provider support for Groq, OpenAI-compatible endpoints, Gemini, and NVIDIA.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
@@ -44,7 +44,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
-> **Test-5 status (2026-08-25):** attempts 1–3, `test5-4b`, `test5-5`, and operator-cancelled `test5-6` failed to deliver a product. Attempt 6 exposed a mechanical blind spot: execute-code-only turns were refunded and `execute_code` remained available in forced-delivery mode, allowing repeated `os.walk` inspections without advancing the cap. That defect and cancellation evidence loss are under deterministic repair. Do not rerun, merge PR #9, or delete branches pending a fresh reviewed authorization.
+> **Test-5 status (2026-08-25):** attempts 1–3, `test5-4b`, `test5-5`, and operator-cancelled `test5-6` failed to deliver a product. The post-attempt audit found both the repaired accounting bypass and a request-construction failure: a 16K interactive persona, contradictory context layers, pre-action planning, trailing system guidance, and 33 initial tools steered Sarvam toward valid meta/inspection work instead of delivery. Autonomous runs now use a compact action contract, canonical system-before-user ordering, no advisory planner, and `write_file` as the sole first tool in an empty delivery workspace. Exact post-sanitizer payload snapshots are available for offline review. See [Pulse vs Hermes: Test-5 Runtime-Layer Audit](docs/HERMES_RUNTIME_AUDIT.md). No rerun is authorized; do not merge PR #9 or delete branches pending a fresh reviewed authorization.
 
 ## Requirements
 

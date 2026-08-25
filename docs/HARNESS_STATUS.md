@@ -1089,9 +1089,18 @@ read-only os.walk, so the copied Hermes refund and broad PTC capability jointly
 bypassed the cap. Hermes refunds PTC inside a larger budget/guardrail system;
 copying that one behavior into Pulse's 20-call paid harness was not equivalent.
 
-Repair direction: every Pulse provider request counts; varied pre-delivery tool
+Repair direction completed: every Pulse provider request counts; varied pre-delivery tool
 observations share one cap; forced delivery exposes only direct file mutations;
 the paid runner cancels if no file exists by a hard request threshold; operator
 cancellation always writes an outcome; and the PowerShell wrapper inherits the
-console instead of redirecting Start-Process streams. No rerun is authorized
-until deterministic regressions pass.
+console instead of redirecting Start-Process streams.
+
+The subsequent payload-level Hermes audit identified the earlier layer that
+made inspection attractive: 16,445 characters of interactive persona,
+contradictory reasoning/overview/clarification context, advisory planning, a
+trailing system role, and 33 initial tools / 18,070 schema characters. The
+repaired autonomous first request on Windows is deterministically four messages /
+3,084 content characters / one `write_file` schema (591 characters), with no
+planner calls. Complete post-sanitizer payload capture is available for offline replay.
+See `docs/HERMES_RUNTIME_AUDIT.md`. Focused deterministic tests pass, but no
+rerun is authorized by that fact alone.

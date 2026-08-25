@@ -4,13 +4,13 @@
 
 **Integration branch:** `arena/01a03741-pulseairepo`
 
-**Current verdict:** attempt 5 failed runtime and product grading; **not merge-ready**
+**Current verdict:** attempt 6 was operator-cancelled with zero delivered files; **not merge-ready and no retry authorized**
 
 ## History and merge verdict
 
 The old agent-development branch was not safe to merge wholesale: it predates the current R4 desktop tree and would regress hundreds of vendored Code OSS files. Its useful Test-5 commits were reviewed and selectively integrated instead.
 
-Attempts 1–3 failed. Desktop run `test5-4b` also failed runtime and product verification: Sarvam produced a roughly 30KB `main.js` `write_file` request, but the workspace remained empty and no outcome was written. Therefore **do not merge into `main` and do not delete branches**. A provider-backed attempt 5 must pass both runtime and independent product grading first.
+Attempts 1–3, desktop run `test5-4b`, and guarded attempts `test5-5` and `test5-6` all failed runtime/product delivery. Attempt 6 was manually cancelled after 16 observed provider requests and more than 180 seconds with an empty workspace. Therefore **do not merge into `main` and do not delete branches**. A future separately authorized run must pass both runtime and independent product grading first.
 
 ## Attempt-4b root cause and repair
 
@@ -50,4 +50,12 @@ This result proves the attempt-4b approval deadlock was not the attempt-5 bounda
 
 Preserve `C:\test5-ws-attempt5`, `C:\test5-ws-attempt6`, and both evidence directories exactly. Attempt 6 was manually cancelled after more than 180 seconds and 16 observed LLM requests with zero files. Therefore human interventions were 1, and the missing outcome cannot honestly be attributed to a bridge crash: the runner did not catch `KeyboardInterrupt`, while the PowerShell wrapper used the redirected `Start-Process` path already proven capable of hanging.
 
-The pre-delivery repair did activate too weakly: `execute_code` remained allowed, and Pulse mechanically copied Hermes' execute-code iteration refund without Hermes' surrounding guardrail posture. Four `os.walk` scripts could therefore inspect forever without advancing the counter. The corrected design counts every provider iteration, counts varied pre-delivery observations together, exposes only direct file mutations in forced-delivery mode, removes PowerShell stream redirection, records operator cancellation, and adds a runner-level no-file credit stop. Deterministic verification is required before any new live authorization. Do not merge PR #9 or delete branches.
+The pre-delivery repair did activate too weakly: `execute_code` remained allowed, and Pulse mechanically copied Hermes' execute-code iteration refund without Hermes' surrounding guardrail posture. Four `os.walk` scripts could therefore inspect forever without advancing the counter. The corrected design counts every provider iteration, counts varied pre-delivery observations together, exposes only direct file mutations in forced-delivery mode, removes PowerShell stream redirection, records operator cancellation, and adds a runner-level no-file credit stop.
+
+## Post-attempt-6 Hermes runtime audit
+
+The counter bypass was real but not the complete reason Sarvam chose inspection. A minute-layer comparison found that Pulse's first Test-5 request combined a 16,445-character interactive persona, duplicate and contradictory task/style layers, multiple advisory planner calls, a system instruction appended after the human role, and 33 tools totaling 18,070 schema characters. The prompt explicitly promoted `think`, `execute_code`, explanation before action, clarification, replanning, and verification. Sarvam's observed meta/`os.walk` choices were valid under that overloaded contract.
+
+The autonomous surface now uses a 1,234-character action contract, suppresses conflicting interactive context, bypasses advisory planning, pins the explicitly requested model/provider, orders all initial system guidance before the user message, and exposes only `write_file` for a fresh empty delivery workspace. The deterministic Windows Test-5 first-request construction is four messages / 3,084 content characters / one 591-character tool schema (the non-Windows variant omits the 313-character terminal contract). Exact post-sanitizer/post-trim payload capture and SHA-256 fingerprints are enabled for any future guarded run. Eager Hugging Face embedding initialization during graph import was also replaced with cache-only lazy memory.
+
+See [`HERMES_RUNTIME_AUDIT.md`](HERMES_RUNTIME_AUDIT.md) for the complete layer matrix and causal chain. Focused validation passes without a provider call. No new live authorization follows from these repairs; do not merge PR #9 or delete branches.

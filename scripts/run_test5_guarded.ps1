@@ -60,6 +60,9 @@ if ($LASTEXITCODE -ne 0) { Write-Host "[probe] FAILED - test NOT started." -Fore
 # length) and give big generations room. Pre-set env values win.
 if (-not $env:PULSEAI_LLM_STREAMING) { $env:PULSEAI_LLM_STREAMING = "1" }
 if (-not $env:PULSEAI_LLM_TIMEOUT)   { $env:PULSEAI_LLM_TIMEOUT = "280" }
+# Persist exact post-sanitizer messages and tool schemas in llm.request events
+# for offline inspection/replay. This does not add provider requests.
+$env:PULSEAI_CAPTURE_REQUEST_PAYLOADS = "1"
 
 # Long build turn: the driver itself records every protocol frame and bridge
 # stderr in the run directory. Do NOT use PowerShell 5.1 Start-Process stream
