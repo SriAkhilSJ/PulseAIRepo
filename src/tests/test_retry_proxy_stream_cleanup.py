@@ -1,5 +1,5 @@
 """Streaming transport cleanup regression from desktop Test 5 attempt 8."""
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from src.llm.factory import RetryLLMProxy, provider_response_info
 
@@ -93,9 +93,46 @@ def test_provider_response_info_recognizes_token_limit_metadata():
         response_metadata = {"finish_reason": "max_tokens"}
 
     assert provider_response_info(Response()) == {
+        "raw_finish_reason": "max_tokens",
         "finish_reason": "max_tokens",
         "incomplete": True,
         "tool_call_count": 1,
         "tool_names": ["write_file"],
         "content_chars": 0,
+        "reasoning_chars": 0,
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
     }
+
+
+def test_langchain_chunk_addition_reproduces_and_canonicalizes_lengthlength():
+    first = AIMessageChunk(content="", response_metadata={"finish_reason": "length"})
+    second = AIMessageChunk(content="", response_metadata={"finish_reason": "length"})
+
+    combined = first + second
+    assert combined.response_metadata["finish_reason"] == "lengthlength"
+    info = provider_response_info(combined)
+    assert info["raw_finish_reason"] == "lengthlength"
+    assert info["finish_reason"] == "length"
+    assert info["incomplete"] is True
+
+
+def test_provider_response_info_canonicalizes_repeated_terminal_reason():
+    class Response:
+        tool_calls = []
+        content = ""
+        response_metadata = {
+            "finish_reason": "LengthLength",
+            "token_usage": {"prompt_tokens": 17, "completion_tokens": 9},
+        }
+        additional_kwargs = {"reasoning_content": "private reasoning"}
+
+    info = provider_response_info(Response())
+    assert info["raw_finish_reason"] == "LengthLength"
+    assert info["finish_reason"] == "length"
+    assert info["incomplete"] is True
+    assert info["input_tokens"] == 17
+    assert info["output_tokens"] == 9
+    assert info["reasoning_chars"] == len("private reasoning")
+    assert "private reasoning" not in repr(info)

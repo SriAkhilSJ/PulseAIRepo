@@ -805,14 +805,19 @@ def ai_node(
     # returns an explicit error observation instead of mutating the workspace.
     # The next iteration can split the write or continue with a larger budget.
     completion = provider_response_info(result)
+    incomplete_retries = int(state.get("incomplete_response_retries", 0))
     if completion["incomplete"]:
+        incomplete_retries += 1
         extra = dict(getattr(result, "additional_kwargs", {}) or {})
         extra["pulse_incomplete_response"] = True
         extra["pulse_incomplete_reason"] = completion["finish_reason"]
+        extra["pulse_raw_finish_reason"] = completion["raw_finish_reason"]
         try:
             result = result.model_copy(update={"additional_kwargs": extra})
         except AttributeError:
             result.additional_kwargs = extra
+    else:
+        incomplete_retries = 0
 
     # =========================================================
     # TRACK TOKEN USAGE
@@ -841,6 +846,7 @@ def ai_node(
         "token_usage": token_usage,
         "turn_token_usage": turn_token_usage,
         "iteration_used": next_used,
+        "incomplete_response_retries": incomplete_retries,
         "grace_done": 1 if budget_exhausted else grace_done,
     }
 
@@ -3040,6 +3046,7 @@ def invoke_agent(
                 # Safety budgets are turn-scoped even when checkpoint state is resumed.
                 "iteration_used": 0,
                 "grace_done": 0,
+                "incomplete_response_retries": 0,
                 "turn_token_usage": _zero_token_usage(),
             },
             config=config,
@@ -3126,6 +3133,7 @@ def stream_agent(
             # Safety budgets are turn-scoped even when checkpoint state is resumed.
             "iteration_used": 0,
             "grace_done": 0,
+            "incomplete_response_retries": 0,
             "turn_token_usage": _zero_token_usage(),
         }
         if initial_plan is not None:

@@ -180,6 +180,64 @@ _INCOMPLETE_FINISH_REASONS = frozenset({
 })
 
 
+def normalize_finish_reason(value: Any) -> tuple[str, str]:
+    """Return ``(raw, canonical)`` provider completion reasons.
+
+    LangChain merges streaming ``response_metadata`` dictionaries with generic
+    string concatenation. If two terminal chunks both carry ``length``, the
+    final AIMessage contains ``lengthlength`` (reproduced with
+    ``AIMessageChunk + AIMessageChunk`` and observed in Test 5 Attempt 10).
+    Canonicalize only *exact repetitions* of known reasons; broad substring
+    matching could turn unrelated provider values into false output limits.
+    """
+    raw = str(value or "").strip()
+    normalized = raw.lower()
+    if not raw:
+        return "", ""
+    for reason in sorted(_INCOMPLETE_FINISH_REASONS, key=len, reverse=True):
+        if len(normalized) < len(reason) or len(normalized) % len(reason):
+            continue
+        repeats = len(normalized) // len(reason)
+        if 1 <= repeats <= 8 and normalized == reason * repeats:
+            return raw, reason
+    return raw, normalized
+
+
+def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | None]:
+    """Normalize bounded token counters from LangChain/provider metadata."""
+    usage = getattr(response, "usage_metadata", None)
+    usage = usage if isinstance(usage, dict) else {}
+    provider_usage = metadata.get("token_usage")
+    provider_usage = provider_usage if isinstance(provider_usage, dict) else {}
+
+    def value(*names: str) -> int | None:
+        for source in (usage, provider_usage):
+            for name in names:
+                candidate = source.get(name)
+                if isinstance(candidate, int) and not isinstance(candidate, bool):
+                    return max(0, candidate)
+        return None
+
+    return {
+        "input_tokens": value("input_tokens", "prompt_tokens"),
+        "output_tokens": value("output_tokens", "completion_tokens"),
+        "total_tokens": value("total_tokens"),
+    }
+
+
+def _reasoning_chars(response: Any, additional: dict[str, Any]) -> int:
+    """Count hidden-reasoning text without exposing it in telemetry."""
+    reasoning = (
+        additional.get("reasoning_content")
+        or additional.get("reasoning")
+        or getattr(response, "reasoning_content", None)
+        or ""
+    )
+    if isinstance(reasoning, str):
+        return len(reasoning)
+    return len(str(reasoning)) if reasoning else 0
+
+
 def _nested_runnable_attr(runnable: Any, name: str) -> Any:
     """Read an attribute through nested LangChain RunnableBinding views."""
     current = runnable
@@ -206,17 +264,17 @@ def provider_response_info(response: Any) -> dict[str, Any]:
     metadata = metadata if isinstance(metadata, dict) else {}
     additional = getattr(response, "additional_kwargs", None)
     additional = additional if isinstance(additional, dict) else {}
-    finish_reason = (
+    raw_finish_reason, finish_reason = normalize_finish_reason(
         metadata.get("finish_reason")
         or metadata.get("stop_reason")
         or additional.get("finish_reason")
         or additional.get("stop_reason")
         or ""
     )
-    finish_reason = str(finish_reason).strip().lower()
     tool_calls = list(getattr(response, "tool_calls", None) or [])
     content = getattr(response, "content", "")
     return {
+        "raw_finish_reason": raw_finish_reason,
         "finish_reason": finish_reason,
         "incomplete": finish_reason in _INCOMPLETE_FINISH_REASONS,
         "tool_call_count": len(tool_calls),
@@ -225,6 +283,8 @@ def provider_response_info(response: Any) -> dict[str, Any]:
             if isinstance(call, dict)
         ],
         "content_chars": len(content) if isinstance(content, str) else len(str(content)),
+        "reasoning_chars": _reasoning_chars(response, additional),
+        **_response_usage(response, metadata),
     }
 
 

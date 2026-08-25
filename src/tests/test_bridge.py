@@ -250,16 +250,21 @@ def test_project_event_forwards_bounded_llm_response_metadata():
         "type": "llm.response",
         "payload": {
             "session_id": "proj-2", "model": "sarvam-105b-conversations",
-            "finish_reason": "length", "incomplete": True,
-            "tool_call_count": 1, "tool_names": ["write_file"],
-            "content_chars": 0,
+            "raw_finish_reason": "lengthlength", "finish_reason": "length",
+            "incomplete": True, "tool_call_count": 1,
+            "tool_names": ["write_file"], "content_chars": 0,
+            "reasoning_chars": 120, "input_tokens": 400,
+            "output_tokens": 50, "total_tokens": 450,
         },
     }, identity)
     assert frame is not None
     assert frame["type"] == "llm.response"
+    assert frame["raw_finish_reason"] == "lengthlength"
     assert frame["finish_reason"] == "length"
     assert frame["incomplete"] is True
     assert frame["tool_call_count"] == 1
+    assert frame["reasoning_chars"] == 120
+    assert frame["total_tokens"] == 450
 
 
 def test_forwarder_keeps_sessionless_events_drops_other_sessions():
