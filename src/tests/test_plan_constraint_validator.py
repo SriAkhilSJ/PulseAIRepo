@@ -7,6 +7,8 @@ trigger exactly one corrected retry.
 """
 from langchain_core.messages import AIMessage
 
+from src.models.plan_models import TaskPlanStep
+
 
 class _Scripted:
     def __init__(self, replies):
@@ -40,6 +42,25 @@ def test_validator_quotes_contradiction(monkeypatch):
     assert llm.calls, "the validator must actually ask the model"
     assert out.startswith("VIOLATION"), repr(out)
     assert "no build step" in out
+
+
+def test_validator_handles_real_task_plan_steps_and_tracks_usage(monkeypatch):
+    """TaskPlan.steps contains Pydantic objects, not dictionaries."""
+    import src.agents.planner as p
+
+    llm = _Scripted(["OK"])
+    monkeypatch.setattr(p, "get_llm", lambda *a, **k: llm)
+    usage = []
+    out = p._plan_constraint_violation(
+        "build native HTML",
+        [TaskPlanStep(id=1, description="write index.html")],
+        "custom",
+        "m",
+        usage,
+    )
+    assert out == ""
+    assert "write index.html" in llm.calls[0][1].content
+    assert len(usage) == 1, "an initially-empty usage ledger must receive the validator call"
 
 
 def test_validator_failure_is_advisory(monkeypatch):

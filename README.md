@@ -221,6 +221,7 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 - [`docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md`](docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md) — first-party workbench architecture
 - [`docs/DESIGN/FORK_REBRANDING.md`](docs/DESIGN/FORK_REBRANDING.md) — branding and discoverability decisions
 - [`docs/HARNESS_STATUS.md`](docs/HARNESS_STATUS.md) — benchmark harness status
+- [`docs/TEST5_READINESS.md`](docs/TEST5_READINESS.md) — reviewed Test-5 integration and retest instructions
 - [`CTO_AUDIT_PulseAI.md`](CTO_AUDIT_PulseAI.md) and [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) — historical audits; verify dates before treating recommendations as current
 
 ## Development rules
