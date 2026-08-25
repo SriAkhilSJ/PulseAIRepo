@@ -1,9 +1,9 @@
-# Desktop Agent Instructions — Test 5 Attempt 4
+# Desktop Agent Instructions — Test 5 Attempt 5
 
 **Updated:** 2026-08-25
 **Repository:** `https://github.com/SriAkhilSJ/PulseAIRepo`
 **Integration branch:** `arena/01a03741-pulseairepo`
-**Required code commit:** `cf9e80a1` or newer
+**Required code commit:** `3d89cbc8` plus the Test-5 approval hardening, or newer
 **Credit situation:** approximately 50 credits remain
 
 > These instructions supersede every older instruction in this file. Read the entire document before running anything. Do not improvise, expose credentials, rerun a failed probe, or merge based only on `turn_done`.
@@ -20,11 +20,11 @@ Test 5 is the GARGANTUA Schwarzschild black-hole raytracer task in:
 scripts/test5_prompt.txt
 ```
 
-Attempts 1–3 are recorded failures. This is a fresh **attempt 4**. The code is a retest candidate, not an already-proven pass.
+Attempts 1–3 and desktop attempt `test5-4b` are recorded failures. Attempt 4b reached a roughly 30KB `write_file` but produced no files because the headless bridge requested interactive approval and nobody replied. This is a fresh **attempt 5** after repairing that approval deadlock; it remains a retest candidate, not an already-proven pass.
 
 ## 2. Sync the correct GitHub branch
 
-Do not use the old agent branch `arena/01a02a5c-pulseairepo` directly. Its six useful Test-5 commits were reviewed and selectively integrated into the current R4 desktop branch, then four additional integration defects were fixed.
+Do not use the old agent branch `arena/01a02a5c-pulseairepo` directly. Its six useful Test-5 commits were reviewed and selectively integrated into the current R4 desktop branch, then the integration defects and the attempt-4b approval deadlock were fixed.
 
 From the repository root in PowerShell:
 
@@ -35,7 +35,7 @@ git status --short --branch
 If tracked or untracked work exists, preserve it first:
 
 ```powershell
-git stash push -u -m "pre-test5-attempt4"
+git stash push -u -m "pre-test5-attempt5"
 ```
 
 Then sync:
@@ -47,11 +47,14 @@ git pull --ff-only origin arena/01a03741-pulseairepo
 git log --oneline -5
 ```
 
-Verify that required commit `cf9e80a1` is included:
+Verify that the reviewed integration baseline is included:
 
 ```powershell
-git merge-base --is-ancestor cf9e80a1 HEAD
-if ($LASTEXITCODE -ne 0) { throw "Wrong/stale branch: cf9e80a1 is missing" }
+git merge-base --is-ancestor 3d89cbc8 HEAD
+if ($LASTEXITCODE -ne 0) { throw "Wrong/stale branch: 3d89cbc8 is missing" }
+if (-not (Select-String -Path scripts\run_bridge_turn.py -Pattern "PULSEAI_BRIDGE_APPROVAL_POLICY" -Quiet)) {
+  throw "Missing Test-5 approval hardening"
+}
 ```
 
 Required files:
@@ -111,8 +114,8 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 Do not reuse previous workspaces or evidence directories.
 
 ```powershell
-$Workspace = "C:\test5-ws-attempt4"
-$RunId = "test5-4"
+$Workspace = "C:\test5-ws-attempt5"
+$RunId = "test5-5"
 
 if (Test-Path $Workspace) {
   throw "$Workspace already exists. Choose a fresh empty path; do not delete evidence blindly."
@@ -166,9 +169,9 @@ taskkill /T /F /PID <runner-pid>
 After the process exits, preserve and inspect:
 
 ```text
-bench-results\test5-4\frames.jsonl
-bench-results\test5-4\bridge_stderr.log
-bench-results\test5-4\outcome.json
+bench-results\test5-5\frames.jsonl
+bench-results\test5-5\bridge_stderr.log
+bench-results\test5-5\outcome.json
 ```
 
 Print only sanitized summaries:
@@ -241,9 +244,9 @@ Do not call the result PASS if major visual requirements are represented only by
 Report exactly:
 
 ```text
-TEST 5 ATTEMPT 4
+TEST 5 ATTEMPT 5
 Git commit: <git rev-parse HEAD>
-Run ID: test5-4
+Run ID: test5-5
 Runtime verdict: PASS | FAIL
 Product verdict: PASS | FAIL
 Human interventions: 0 | <count and details>
@@ -281,7 +284,7 @@ gh pr create `
   --base main `
   --head arena/01a03741-pulseairepo `
   --title "fix(agent): Test 5 readiness and regression cleanup" `
-  --body "See docs/TEST5_READINESS.md. Test 5 attempt 4 passed runtime and independent product verification; sanitized evidence is attached/referenced."
+  --body "See docs/TEST5_READINESS.md. Test 5 attempt 5 passed runtime and independent product verification; sanitized evidence is attached/referenced."
 ```
 
 Check the complete diff summary, changed-file list, and checks before merging:
@@ -323,6 +326,6 @@ Do **not** delete `arena/01a03741-pulseairepo` while the active Arena session or
 - Do not merge.
 - Do not delete any branches.
 - Do not rerun automatically.
-- Preserve the workspace and `bench-results\test5-4\` exactly.
+- Preserve the workspace and `bench-results\test5-5\` exactly.
 - Report the first root-cause boundary: provider, harness, planning, tool strategy, verification, or product quality.
 - Wait for a code review/fix and explicit approval before spending more credits.

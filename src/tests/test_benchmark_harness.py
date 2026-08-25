@@ -407,6 +407,33 @@ def test_turn_control_stale_cancel_never_poisons_reuse():
 
 
 
+def test_test5_headless_approval_is_workspace_scoped_and_payload_size_independent(tmp_path):
+    """A 30KB write must not strand the headless runner on safety_request."""
+    from scripts.run_bridge_turn import should_auto_approve_safety_request
+
+    workspace = str(tmp_path)
+    large = "const shader = `" + ("x" * 35_000) + "`;"
+    frame = {
+        "type": "safety_request",
+        "name": "write_file",
+        "warning": "",
+        "arguments": {"path": "src/main.js", "content": large},
+    }
+    assert should_auto_approve_safety_request(frame, workspace) is True
+    assert should_auto_approve_safety_request(
+        {**frame, "arguments": {"path": "../escape.js", "content": large}}, workspace
+    ) is False
+    assert should_auto_approve_safety_request(
+        {**frame, "arguments": {"path": ".env", "content": large}}, workspace
+    ) is False
+    assert should_auto_approve_safety_request(
+        {**frame, "warning": "dangerous operation"}, workspace
+    ) is False
+    assert should_auto_approve_safety_request(
+        {**frame, "name": "run_terminal", "arguments": {"command": "rm -rf x"}}, workspace
+    ) is False
+
+
 def test_terminal_timeout_tree_kills_and_returns_promptly(monkeypatch, tmp_path):
     """test5-2 pin: a hung command must produce a bounded tool result via
     TREE kill -- the old Windows path killed only the wrapper, orphaned

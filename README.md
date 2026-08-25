@@ -40,8 +40,11 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Parallel tool execution with conflict detection and deterministic fallback.
 - Multi-provider support for Groq, OpenAI-compatible endpoints, Gemini, and NVIDIA.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
+- Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
+
+> **Test-5 status (2026-08-25):** attempts 1–3 and desktop run `test5-4b` failed. The attempt-4b headless approval deadlock is repaired and covered by a deterministic 35KB write regression, but no product pass is claimed. Follow [`docs/TEST5_READINESS.md`](docs/TEST5_READINESS.md) and [`DESKTOP_AGENT_INSTRUCTIONS.md`](DESKTOP_AGENT_INSTRUCTIONS.md) for one guarded attempt 5; do not merge or delete branches unless runtime and independent product verification both pass.
 
 ## Requirements
 

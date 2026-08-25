@@ -316,9 +316,20 @@ class BridgeServer:
                 "text": "Preparing workspace context…",
             })
             try:
+                # Interactive IDE sessions default to ask. Guarded autonomous
+                # benchmark runners may opt into the same session-scoped,
+                # workspace-only mutation policy used by the dashboard. Without
+                # this handoff every safe write emits safety_request and a
+                # headless runner waits until the watchdog kills the bridge.
+                approval_policy = os.environ.get(
+                    "PULSEAI_BRIDGE_APPROVAL_POLICY", "ask"
+                ).strip()
+                if approval_policy not in {"ask", "workspace_session", "session"}:
+                    approval_policy = "ask"
                 result = stream_agent(
                     text, thread_id=sid, workspace=workspace,
                     approval_channel=True, approval_timeout=300.0,
+                    approval_policy=approval_policy,
                     turn_id=identity.turn_id,
                 )
                 cancelled = turn_controls.cancelled(sid)
