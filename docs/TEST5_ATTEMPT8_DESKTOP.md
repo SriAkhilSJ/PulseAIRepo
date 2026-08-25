@@ -75,6 +75,26 @@ Repairs:
 
 These are deterministic repairs only. They do not authorize another live run.
 
+## Windows deterministic validation
+
+Evidence commit `6b8a90b40ff2b5a8244198957669a6e561b787a1` was
+independently fetched and verified:
+
+- PowerShell parsed `run_test5_guarded.ps1` with zero errors;
+- all five wrapper guard markers were present;
+- 72 focused tests passed on Windows Python 3.14.4 in 23.98 seconds;
+- changed Python modules compiled cleanly;
+- `git diff --check` passed;
+- the committed Attempt-8 evidence tree was identical before and after;
+- all nine validation-manifest entries match their committed byte length and
+  SHA-256 after checkout;
+- provider calls were zero.
+
+This validates the implemented deterministic contracts on the founder's
+Windows runtime. It does not close the remaining Hermes stream-completeness,
+finish-reason, and partial-tool-call parity gaps and does not authorize Attempt
+9.
+
 ## Evidence-quality findings
 
 The committed console proves the watchdog itself sampled every 30 seconds from
