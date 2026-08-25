@@ -27,7 +27,8 @@ The deterministic follow-up now canonicalizes exact repeated finish reasons,
 preserves raw metadata and bounded usage/reasoning counts, provides a dedicated
 three-continuation output-limit path, retains incomplete-tool rejection, isolates
 runner heartbeat failures with traceback evidence, and recognizes OpenRouter via
-the custom base URL. Focused verification is 70/70. See
+the custom base URL. Arena and Windows focused verification are both 70/70;
+Windows protocol verification is 7/7. See
 `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md` and `docs/TEST4_PASS_FORENSIC.md`.
 
 The repair has **not** received live provider-backed validation and must not be
@@ -201,18 +202,18 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 
 ## 5. Exact next task
 
-**Next task: desktop provider-free deterministic validation, then STOP.**
+**Next task: remain stopped pending a new founder decision.**
 
-The finish normalization, dedicated bounded continuation, runner evidence, and
-custom-OpenRouter budget recognition are implemented and provider-free Arena
-tests are recorded in `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`. The desktop agent
-may now validate commit `0bb00413f4a03b0172c4f6214018bad156fb1d2a` using only
-the exact deterministic allowlist in `DESKTOP_AGENT_INSTRUCTIONS.md`, commit and
-push its new evidence, and then STOP.
+Windows deterministic validation is complete: 70/70 focused tests and 7/7
+protocol tests passed, protocol generation was current, compilation passed, and
+zero provider probes/requests were made. Evidence commit:
+`352099c158b9c70e1ce5ef46f9a17c5020f8cc9d`. Independent review is recorded in
+`docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`.
 
-No provider probe/run, cap increase, source repair, PR merge, branch deletion,
-or Agentic UI work is authorized. Only a later, separately authorized live
-runtime **and** independent product PASS can make PR #9 eligible for merge.
+This is `DETERMINISTIC_PASS`, not a live runtime or product PASS. No provider
+probe/run, cap increase, source repair, PR merge, branch deletion, or Agentic UI
+work is authorized. Only a later, separately authorized live runtime **and**
+independent product PASS can make PR #9 eligible for merge.
 
 ## 6. Fast reading map
 
