@@ -4,6 +4,13 @@
 **Pulse branch:** `arena/01a03741-pulseairepo`  
 **Hermes reference:** `NousResearch/hermes-agent@1bbb6e5bce56e721ab685af4cd87df21bbff4d35`
 
+> **Attempt-10 supplement:** Current Hermes commit
+> `4032a15ad0d5f55f5c97f3fa59709ca28a992543` was re-reviewed after Pulse
+> received `finish_reason="lengthlength"` through LangChain aggregation. See
+> [`PULSE_VS_HERMES_ATTEMPT10.md`](PULSE_VS_HERMES_ATTEMPT10.md) for the
+> current stream-ownership, finish-normalization, truncation-recovery, and
+> harness comparison.
+
 ## Verdict
 
 Sarvam was not simply “ignoring Pulse.” Pulse sent Sarvam a request that made
