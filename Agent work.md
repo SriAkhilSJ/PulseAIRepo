@@ -216,9 +216,10 @@ The next agent normally needs only these files:
 2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current mandatory STOP state.
 3. `README.md` — public status and normal repository commands.
 4. `docs/TEST5_ATTEMPT10_OPENROUTER.md` — latest failure boundary and evidence quality.
-5. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
-6. `docs/HERMES_RUNTIME_AUDIT.md` — behavioral comparison and repair rationale.
-7. The three primary implementation files listed in Section 2, only if a
+5. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — current code-level Pulse/Hermes comparison and minimal repair plan.
+6. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
+7. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
+8. The three primary implementation files listed in Section 2, only if a
    validation receipt exposes a source-level discrepancy.
 
 Avoid broad repository analysis unless the next task actually requires it.
