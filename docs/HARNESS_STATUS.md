@@ -1104,3 +1104,21 @@ repaired autonomous first request on Windows is deterministically four messages 
 planner calls. Complete post-sanitizer payload capture is available for offline replay.
 See `docs/HERMES_RUNTIME_AUDIT.md`. Focused deterministic tests pass, but no
 rerun is authorized by that fact alone.
+
+---
+
+# TEST 5, attempt 8 (`test5-8-desktop`) — runtime/product FAIL (2026-08-25)
+
+Evidence commit `6586d7af` confirms one correctly narrowed Sarvam request and
+one successful `write_file` receipt. The resulting 4,995-byte Windows
+`index.html` is truncated mid-CSS and non-executable. No second provider
+request or terminal graph frame occurred; the PowerShell watchdog killed the
+process after 613.5 idle seconds, before the runner could write `outcome.json`.
+
+The first silent boundary is post-tool and pre-request-2. Autonomous progress
+still initialized semantic tool memory it never consumes; the provider loop
+also closed with a pending async response generator. Deterministic repairs skip
+that memory path, disable optional memory in the guarded harness, drain async
+generators with a hard bound, persist watchdog-owned outcomes, and add request/
+file/byte counts to every watchdog line. Focused validation: 72 passed. No
+provider retry, merge, or branch deletion is authorized.

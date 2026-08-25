@@ -465,6 +465,20 @@ class RetryLLMProxy:
             if sid is not None:
                 turn_controls.unregister_abort(sid, abort_handle)
             if provider_loop is not None:
+                # streaming=True can leave the HTTP response async generator
+                # awaiting aclose even after ainvoke returns an accumulated
+                # tool-call message. Closing the loop immediately produced
+                # Attempt-8's "Task was destroyed but it is pending" warning
+                # and an un-awaited Response.aiter_raw aclose. Drain generators
+                # with a hard bound; cleanup must not become another wedge.
+                try:
+                    provider_loop.run_until_complete(
+                        asyncio.wait_for(
+                            provider_loop.shutdown_asyncgens(), timeout=5.0
+                        )
+                    )
+                except Exception:
+                    pass
                 provider_loop.close()
 
     def _raise_if_cancelled(self, error: Exception | None = None) -> None:

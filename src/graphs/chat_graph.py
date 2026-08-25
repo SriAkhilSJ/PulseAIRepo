@@ -1483,15 +1483,21 @@ def progress_node(
             ph.make_trace_entry(tool_name, tool_args, result, failed)
         )
 
-        # Store tool output for semantic retrieval (best-effort inside).
-        ph.record_tool_memory(
-            memory_manager,
-            tool_name,
-            state.get("current_task", ""),
-            result,
-            tool_args,
-            failed,
-        )
+        # Store tool output for semantic retrieval in interactive sessions.
+        # Autonomous context deliberately excludes historical/tool memory; do
+        # not initialize a sentence-transformer after the first landed file
+        # merely to write memory the same run will never read. Attempt 8 proved
+        # this boundary could wedge for >10 minutes between tool_call_end and
+        # the second provider request.
+        if not _is_autonomous_workspace(config):
+            ph.record_tool_memory(
+                memory_manager,
+                tool_name,
+                state.get("current_task", ""),
+                result,
+                tool_args,
+                failed,
+            )
 
         if failed:
             failure, updates = ph.build_failure(

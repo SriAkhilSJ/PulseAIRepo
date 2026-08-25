@@ -63,6 +63,11 @@ if (-not $env:PULSEAI_LLM_TIMEOUT)   { $env:PULSEAI_LLM_TIMEOUT = "280" }
 # Persist exact post-sanitizer messages and tool schemas in llm.request events
 # for offline inspection/replay. This does not add provider requests.
 $env:PULSEAI_CAPTURE_REQUEST_PAYLOADS = "1"
+# The autonomous prompt does not consume cross-session memory. Keep the
+# optional embedding stack out of the post-tool path as defense in depth: a
+# landed file must route directly back to the agent, never initialize a local
+# sentence-transformer before request 2.
+$env:PULSEAI_DISABLE_LONG_TERM_MEMORY = "1"
 
 # Long build turn: the driver itself records every protocol frame and bridge
 # stderr in the run directory. Do NOT use PowerShell 5.1 Start-Process stream
@@ -82,11 +87,62 @@ $started = Get-Date
 $deadline = $started.AddMinutes($MaxMinutes)
 $lastActivity = $started
 $epoch = Get-Date "2000-01-01"
+
+function Write-WatchdogOutcome {
+    param([string]$Result, [string]$ErrorText, [double]$IdleSeconds)
+    New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
+    $outcomePath = Join-Path $RunDir "outcome.json"
+    if (Test-Path $outcomePath) { return }
+
+    $counts = @{}
+    $framesPath = Join-Path $RunDir "frames.jsonl"
+    if (Test-Path $framesPath) {
+        Get-Content $framesPath -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+                $kind = (ConvertFrom-Json $_).type
+                if ($kind) {
+                    if (-not $counts.ContainsKey($kind)) { $counts[$kind] = 0 }
+                    $counts[$kind] += 1
+                }
+            } catch { }
+        }
+    }
+    $llmCount = if ($counts.ContainsKey("llm.request")) { $counts["llm.request"] } else { 0 }
+    $fileCount = 0
+    $fileBytes = 0
+    if (Test-Path $Workspace) {
+        $files = @(Get-ChildItem $Workspace -Recurse -File -ErrorAction SilentlyContinue)
+        $fileCount = $files.Count
+        $fileBytes = ($files | Measure-Object Length -Sum).Sum
+        if ($null -eq $fileBytes) { $fileBytes = 0 }
+    }
+    [ordered]@{
+        run_id = $RunId
+        workspace = $Workspace
+        result = $Result
+        completed = $false
+        error = $ErrorText
+        frame_counts = $counts
+        llm_request_frames = $llmCount
+        budget_stop = $false
+        no_delivery_stop = $false
+        operator_cancelled = $false
+        watchdog_kill = $true
+        watchdog_idle_seconds = [math]::Round($IdleSeconds, 3)
+        files_delivered = $fileCount
+        delivered_bytes = $fileBytes
+        written_at = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 6 | Set-Content -Path $outcomePath -Encoding UTF8
+}
+
 while (-not $proc.HasExited) {
     Start-Sleep -Seconds 30
     $now = Get-Date
     if ($now -gt $deadline) {
         & taskkill /T /F /PID $proc.Id 2>&1 | Out-Null
+        Write-WatchdogOutcome -Result "watchdog-hard-cap" `
+            -ErrorText "Hard cap of $MaxMinutes minutes exceeded; process tree killed." `
+            -IdleSeconds (($now - $lastActivity).TotalSeconds)
         Write-Host "[watchdog] hard cap $MaxMinutes min exceeded - killed." -ForegroundColor Red; exit 3
     }
     $newest = $epoch
@@ -99,8 +155,10 @@ while (-not $proc.HasExited) {
     # files there while emitting no frames (test5-2 was killed mid-install
     # at 5/8 steps -- healthy, just quiet). Any file younger than the stall
     # window anywhere under the workspace counts as a heartbeat.
+    $workspaceFiles = @()
     if (Test-Path $Workspace) {
-        $wsNewest = Get-ChildItem $Workspace -Recurse -File -ErrorAction SilentlyContinue |
+        $workspaceFiles = @(Get-ChildItem $Workspace -Recurse -File -ErrorAction SilentlyContinue)
+        $wsNewest = $workspaceFiles |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($wsNewest -and ($wsNewest.LastWriteTime -gt $newest)) { $newest = $wsNewest.LastWriteTime }
     }
@@ -114,9 +172,21 @@ while (-not $proc.HasExited) {
     } catch { }
     if ($newest -gt $lastActivity) { $lastActivity = $newest }
     $idle = ($now - $lastActivity).TotalSeconds
-    Write-Host ("[watchdog] +{0:n0}s alive pid={1} idle={2:n0}s" -f ($now - $started).TotalSeconds, $proc.Id, $idle)
+    $workspaceBytes = ($workspaceFiles | Measure-Object Length -Sum).Sum
+    if ($null -eq $workspaceBytes) { $workspaceBytes = 0 }
+    $llmRequests = 0
+    $framesPath = Join-Path $RunDir "frames.jsonl"
+    if (Test-Path $framesPath) {
+        $llmRequests = @(Select-String -Path $framesPath -Pattern '"type"\s*:\s*"llm.request"').Count
+    }
+    Write-Host ("[watchdog] +{0:n0}s alive pid={1} idle={2:n0}s llm={3} files={4} bytes={5}" -f `
+        ($now - $started).TotalSeconds, $proc.Id, $idle, $llmRequests, `
+        $workspaceFiles.Count, $workspaceBytes)
     if ($idle -gt $StallSeconds) {
         & taskkill /T /F /PID $proc.Id 2>&1 | Out-Null
+        Write-WatchdogOutcome -Result "watchdog-stalled" `
+            -ErrorText "No run/workspace/CPU activity for $([math]::Round($idle, 3)) seconds; process tree killed." `
+            -IdleSeconds $idle
         Write-Host "[watchdog] STALLED ${idle}s - killed." -ForegroundColor Red; exit 3
     }
 }

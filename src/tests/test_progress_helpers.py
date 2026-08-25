@@ -259,6 +259,38 @@ def test_d9_progress_node_success_path():
     assert "token_usage" in out
 
 
+def test_autonomous_progress_does_not_initialize_unused_tool_memory(monkeypatch):
+    from src.graphs import chat_graph
+
+    class MemoryMustNotRun:
+        def store_tool_memory(self, **kwargs):
+            raise AssertionError("autonomous progress initialized semantic memory")
+
+    monkeypatch.setattr(chat_graph, "memory_manager", MemoryMustNotRun())
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "w1", "name": "write_file", "args": {
+                    "path": "index.html", "content": "<!doctype html>"
+                }},
+            ]),
+            ToolMessage(content="File written: index.html",
+                        tool_call_id="w1", name="write_file"),
+        ],
+        "current_task": "build a website",
+    }
+    config = {"configurable": {
+        "provider": "custom", "model": "sarvam-test", "thread_id": "auto-memory",
+        "approval_policy": "workspace_session",
+    }}
+
+    out = chat_graph.progress_node(state, config)
+
+    assert out["execution_trace"][0]["tool"] == "write_file"
+    assert out["execution_trace"][0]["status"] == "success"
+    assert "messages" not in out  # no generic autonomous reflection either
+
+
 def test_d9_progress_node_failure_sets_recovery():
     from src.graphs.chat_graph import progress_node
 

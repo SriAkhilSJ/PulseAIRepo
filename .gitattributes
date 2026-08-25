@@ -10,3 +10,7 @@ desktop/vscode/src/vs/workbench/workbench.common.main.ts text eol=lf
 desktop/vscode/src/vs/workbench/workbench.desktop.main.ts text eol=lf
 desktop/vscode/resources/pulseai/pulseai-mark.svg text eol=lf
 desktop/vscode/src/vs/workbench/contrib/pulseai/** text eol=lf
+
+# Paid-run evidence may contain mixed/CRLF transcripts plus JSON hashes of the
+# exact desktop bytes. Never let Git's text normalization mutate those blobs.
+bench-results/** -text

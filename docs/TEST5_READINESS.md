@@ -4,7 +4,7 @@
 
 **Integration branch:** `arena/01a03741-pulseairepo`
 
-**Current verdict:** attempt 6 was operator-cancelled with zero delivered files; **not merge-ready and no retry authorized**
+**Current verdict:** desktop attempt 8 landed one truncated file, then stalled before request 2 and was watchdog-killed; **runtime/product FAIL, not merge-ready, and no retry authorized**
 
 ## History and merge verdict
 
@@ -58,4 +58,23 @@ The counter bypass was real but not the complete reason Sarvam chose inspection.
 
 The autonomous surface now uses a 1,234-character action contract, suppresses conflicting interactive context, bypasses advisory planning, pins the explicitly requested model/provider, orders all initial system guidance before the user message, and exposes only `write_file` for a fresh empty delivery workspace. The deterministic Windows Test-5 first-request construction is four messages / 3,084 content characters / one 591-character tool schema (the non-Windows variant omits the 313-character terminal contract). Exact post-sanitizer/post-trim payload capture and SHA-256 fingerprints are enabled for any future guarded run. Eager Hugging Face embedding initialization during graph import was also replaced with cache-only lazy memory.
 
-See [`HERMES_RUNTIME_AUDIT.md`](HERMES_RUNTIME_AUDIT.md) for the complete layer matrix and causal chain. Focused validation passes without a provider call. No new live authorization follows from these repairs; do not merge PR #9 or delete branches.
+See [`HERMES_RUNTIME_AUDIT.md`](HERMES_RUNTIME_AUDIT.md) for the complete layer matrix and causal chain.
+
+## Attempt 8 desktop result
+
+Attempt `test5-8-desktop` confirmed the repaired Windows request shape and
+Sarvam called the sole exposed `write_file` tool. Pulse wrote one 4,995-byte
+`index.html`, emitted a successful tool result, and then produced no second
+provider request or graph-terminal frame. The watchdog killed it after 613.5
+idle seconds. Static inspection proves the file is truncated mid-CSS and
+non-executable, so both runtime and product verdicts are FAIL.
+
+The first silent boundary is after `tool_call_end` and before request 2.
+Autonomous progress still initialized optional semantic tool memory in that
+path despite autonomous context never reading it; streaming cleanup also left
+an async HTTP generator pending. These faults are repaired deterministically,
+watchdog outcomes are now durable, and focused tests pass without a provider
+call. See [`TEST5_ATTEMPT8_DESKTOP.md`](TEST5_ATTEMPT8_DESKTOP.md).
+
+No new live authorization follows from these repairs; do not merge PR #9 or
+delete branches.
