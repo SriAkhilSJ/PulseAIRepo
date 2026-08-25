@@ -124,15 +124,17 @@ HTTP 403. Evidence commit `47c02f9b0bfacf3b502e2191a200834e77127a2c`
 contains only the preflight/STOP receipt. The endpoint received one rejected
 probe attempt; there were zero live-turn requests and no retry.
 
-The founder then authorized one fresh OpenRouter Attempt 10 using the secure key
-and exact model ID already supplied to the desktop agent. Wrapper commit
-`72dd56d910dd6b5707d17fca632b48ac5c44a23f` removes the hardcoded Sarvam probe
-endpoint/model so probe and live turn use the same configured custom provider.
+OpenRouter Attempt 10 used `stealth/ox-alpha`. The probe passed, but its sole
+live response contained zero content/tools and finish metadata `lengthlength`,
+which Pulse classified as complete. The runner then recorded OSError 22; no
+request 2 or file followed. Evidence commit
+`e344bc00e6de2961a2695d4fc7cfa7401ad64c87` independently verifies
+`RUNTIME_FAIL / PRODUCT_FAIL`.
 
 Still prohibited:
 
-- a second OpenRouter probe, retry, model substitution, or cap increase;
-- any provider/model/run outside Attempt 10;
+- any OpenRouter retry, probe, model substitution, or cap increase;
+- any provider/model/run after Attempt 10;
 - merge of PR #9 or branch deletion;
 - Agentic UI implementation;
 - claiming runtime/product PASS without independent evidence grading.
@@ -188,19 +190,19 @@ Important evidence commits:
 6b8a90b40ff2b5a8244198957669a6e561b787a1  prior Windows validation evidence
 7552c645d9516b1f274df59f0c91f14a4b50e653  independent validation documentation
 47c02f9b0bfacf3b502e2191a200834e77127a2c  Attempt-9 Sarvam 403 STOP evidence
+e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 ```
 
 ## 5. Exact next task
 
-**Next task: desktop executes the one authorized, monitored OpenRouter Test 5
-Attempt 10 exactly as specified in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
+**Next task: deterministic source repair only, after explicit founder approval.**
 
-The authorization permits one eight-token OpenRouter probe and one guarded turn
-in fresh workspace `C:\test5-ws-attempt10`, using only the exact secure key and
-model ID already provided to desktop. The 16-call/120k-input-token caps,
-three-call no-delivery cancellation, active 30-second inspection, strict
-runtime/product grading, complete evidence commit/push, and mandatory STOP all
-remain. It does not authorize model guessing/substitution, a retry, or PR merge.
+The repair should normalize repeated streaming finish metadata such as
+`lengthlength` to the canonical output-limit reason, ensure the response routes
+as incomplete, preserve direct bounded continuation for a zero-content/no-tool
+limit response, and add a sanitized traceback to runner-error evidence. Tests
+must reproduce both the aggregated metadata and runner exception path without a
+provider call. Desktop remains STOP and no live retry is authorized.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
@@ -211,11 +213,12 @@ not before it.
 The next agent normally needs only these files:
 
 1. `Agent work.md` — this handoff.
-2. `DESKTOP_AGENT_INSTRUCTIONS.md` — exact Attempt-10 authorization and limits.
+2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current mandatory STOP state.
 3. `README.md` — public status and normal repository commands.
-4. `docs/TEST5_ATTEMPT8_DESKTOP.md` — failure evidence and validation history.
-5. `docs/HERMES_RUNTIME_AUDIT.md` — behavioral comparison and repair rationale.
-6. The three primary implementation files listed in Section 2, only if a
+4. `docs/TEST5_ATTEMPT10_OPENROUTER.md` — latest failure boundary and evidence quality.
+5. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
+6. `docs/HERMES_RUNTIME_AUDIT.md` — behavioral comparison and repair rationale.
+7. The three primary implementation files listed in Section 2, only if a
    validation receipt exposes a source-level discrepancy.
 
 Avoid broad repository analysis unless the next task actually requires it.
