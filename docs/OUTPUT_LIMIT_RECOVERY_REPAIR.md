@@ -70,6 +70,34 @@ pytest -q \
   src/tests/test_desktop_sidecar_architecture.py
 ```
 
+### Windows deterministic validation
+
+The existing Windows checkout at `D:\pulseAIagent\PulseAIRepo` independently
+validated repair commit `0bb00413f4a03b0172c4f6214018bad156fb1d2a`:
+
+```text
+Focused tests:       70/70 passed in 26.43s
+Protocol tests:       7/7 passed in 1.71s
+Protocol generation: current
+Compilation:          PASS (6 modules)
+Provider probes:      0
+Provider requests:    0
+Verdict:              DETERMINISTIC_PASS
+```
+
+Evidence commit: `352099c158b9c70e1ce5ef46f9a17c5020f8cc9d`
+
+Evidence directory: `bench-results/test5-output-limit-repair-validation-windows/`
+
+Independent Arena review confirmed the evidence-only commit scope, correct
+parent/repair ancestry, exact test logs, and all five listed SHA-256 values (the
+manifest begins with a UTF-8 BOM). Two receipt-quality qualifications remain:
+quiet compilation produced no tracked `compile.log`, and the summary's start
+and end timestamps use inconsistent offsets. The compilation exit code is
+recorded in `validation_summary.json`; neither qualification changes the logged
+deterministic test results. This evidence still does not establish a live
+runtime or product PASS.
+
 Full runtime suite:
 
 ```text
