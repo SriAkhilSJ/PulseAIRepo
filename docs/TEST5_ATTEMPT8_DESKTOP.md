@@ -119,8 +119,21 @@ Windows contract. Independent verdict:
 RECORDED_CHECKS_PASS / REQUIRED_VALIDATION_INCOMPLETE
 ```
 
-No rerun is authorized. This qualification does not imply a source failure;
-both omitted targets passed in Arena.
+The founder authorized one missing-check-only follow-up. Evidence commit
+`496591a10e93b13d32065b3ac04d74f89d9fecde` records exactly the two omitted
+targets: 8 collected, 8 passed in 2.83 seconds on Windows Python 3.14.4, with
+zero provider calls. Arena independently verified its exact parent and
+implementation ancestry, evidence-only scope, pytest target/count/output, and
+all three receipt-manifest byte lengths and SHA-256 values.
+
+Combined Windows focused result:
+
+```text
+50 collected / 50 passed / zero provider calls / DETERMINISTIC_PASS
+```
+
+This closes the deterministic Windows validation gap. It is not a live runtime
+or product PASS and does not authorize Attempt 9 or PR merge.
 
 ## Evidence-quality findings
 
