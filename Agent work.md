@@ -114,24 +114,27 @@ Combined independent status:
 50 collected / 50 passed / zero provider calls / DETERMINISTIC_PASS
 ```
 
-Desktop is back to STOP. This does not constitute a live runtime/product PASS.
+The deterministic phase is complete. This alone is not a live runtime/product
+PASS.
 
-### B. Work still prohibited pending explicit founder authorization
+### B. Narrow live authorization and continuing prohibitions
 
-Do **not** perform any of the following merely because deterministic tests pass:
+The founder has now authorized exactly one Test 5 Attempt 9 under
+`DESKTOP_AGENT_INSTRUCTIONS.md`: one eight-token probe and one guarded Sarvam
+turn. The desktop agent may recover the previously authorized historical
+credential without exposing or committing it, solely for this attempt.
 
-- call Sarvam or another provider;
-- run Test 5 or launch Attempt 9;
-- retrieve/use the historical credential from Git history;
-- merge PR #9;
-- delete branches;
-- begin Agentic UI implementation;
-- claim runtime/product PASS.
+Still prohibited:
 
-A future live run requires separate explicit authorization. During any such
-run, the desktop agent must actively inspect output at 30-second intervals,
-protect remaining credits, preserve all logs/JSON/screenshots/files/monitoring
-receipts, and commit/push the complete evidence.
+- a second probe, retry, or cap increase;
+- any provider/model/run outside Attempt 9;
+- merge of PR #9 or branch deletion;
+- Agentic UI implementation;
+- claiming runtime/product PASS without independent evidence grading.
+
+Desktop must actively inspect output at 30-second intervals, protect remaining
+credits, preserve all logs/JSON/screenshots/files/monitoring receipts, commit
+and push complete evidence even on failure, and then STOP.
 
 ### C. Native desktop acceptance work from the earlier boot effort
 
@@ -179,13 +182,14 @@ Important evidence commits:
 
 ## 5. Exact next task
 
-**Next task: founder decision on whether to authorize a monitored live Attempt
-9.**
+**Next task: desktop executes the one authorized, monitored live Test 5 Attempt
+9 exactly as specified in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
 
-No live run is currently authorized. If authorization is granted, desktop must
-receive a fresh instruction file defining the exact source commit, clean
-workspace, provider-call/credit limits, active 30-second inspection procedure,
-product acceptance checks, evidence requirements, and automatic STOP rules.
+The authorization permits one eight-token Sarvam probe and one guarded turn in
+fresh workspace `C:\test5-ws-attempt9`, with 16-call/120k-input-token caps,
+three-call no-delivery cancellation, active 30-second inspection, strict
+runtime/product grading, complete evidence commit/push, and mandatory STOP.
+It does not authorize a retry or PR merge.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
