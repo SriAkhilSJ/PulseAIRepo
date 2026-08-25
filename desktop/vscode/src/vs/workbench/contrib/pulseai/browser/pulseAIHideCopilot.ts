@@ -31,8 +31,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
-import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
+import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IChatEntitlementService } from '../../../../workbench/services/chat/common/chatEntitlementService.js';
 
@@ -42,7 +41,7 @@ const SETTING_ID = 'pulseai.hideBuiltInCopilotUI';
 // overridable per-user.
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'pulseai',
-	title: localize2('pulseAI.configuration.title', 'PulseAI'),
+	title: localize2('pulseAI.configuration.title', 'PulseAI').value,
 	type: 'object',
 	properties: {
 		[SETTING_ID]: {
@@ -50,7 +49,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: true,
 			scope: ConfigurationScope.APPLICATION,
 			description: localize2('pulseai.hideBuiltInCopilotUI.description',
-				'Hide the built-in GitHub Copilot UI (CHAT tab, empty-editor "Open Chat" watermark, title-bar Copilot icon, Copilot sign-in prompts). Pulse is the primary AI in this IDE; Copilot source and extensions remain installed and can be re-enabled by turning this off.'),
+				'Hide the built-in GitHub Copilot UI (CHAT tab, empty-editor "Open Chat" watermark, title-bar Copilot icon, Copilot sign-in prompts). Pulse is the primary AI in this IDE; Copilot source and extensions remain installed and can be re-enabled by turning this off.').value,
 		},
 	},
 });
@@ -106,8 +105,7 @@ class PulseHideCopilotContribution implements IWorkbenchContribution {
 	}
 }
 
-Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench)
-	.registerWorkbenchContribution(PulseHideCopilotContribution, LifecyclePhase.Starting);
+registerWorkbenchContribution2(PulseHideCopilotContribution.ID, PulseHideCopilotContribution, WorkbenchPhase.BlockStartup);
 
 // Manual toggle command (Command Palette only) so a power user can flip
 // this without editing settings JSON.
