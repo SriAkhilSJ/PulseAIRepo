@@ -1055,3 +1055,15 @@ not a pytest fixture, plugin, or Pulse runtime teardown defect. Desktop
 The report did not launch the IDE, so visual workbench cleanliness remains
 unverified. No merge, branch deletion, live Test-5 rerun, provider call, or UI
 change was performed.
+
+---
+
+# Test 5 Attempt 6 authorization (2026-08-25)
+
+After the Attempt-5 postmortem repair passed deterministic desktop validation,
+the founder authorized exactly one fresh guarded provider-backed run. Run ID
+`test5-6`, workspace `C:\test5-ws-attempt6`, unchanged 20-call / 180k-input
+circuit breakers, 30-second monitoring, immutable evidence, and independent
+product grading are specified in `DESKTOP_AGENT_INSTRUCTIONS.md`. No automatic
+retry is authorized. PR #9 merge and obsolete-branch cleanup remain conditional
+on both runtime and product PASS.

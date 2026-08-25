@@ -44,7 +44,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
-> **Test-5 status (2026-08-25):** attempts 1–3, `test5-4b`, and guarded desktop attempt `test5-5` failed. The approval deadlock stayed repaired, but attempt 5 exhausted its 20-call circuit breaker in a planning/search loop, a `curl` download was blocked by safety policy, and no files were delivered. Evidence is preserved; do not rerun, merge PR #9, or delete branches pending review. See [`docs/TEST5_READINESS.md`](docs/TEST5_READINESS.md).
+> **Test-5 status (2026-08-25):** attempts 1–3, `test5-4b`, and `test5-5` failed. Attempt-5 postmortem repairs passed deterministic desktop validation with zero provider calls. The founder has authorized exactly one guarded Attempt 6 (`test5-6`); see [`DESKTOP_AGENT_INSTRUCTIONS.md`](DESKTOP_AGENT_INSTRUCTIONS.md). Merge PR #9 and clean superseded branches only if both runtime and independent product grading pass.
 
 ## Requirements
 
