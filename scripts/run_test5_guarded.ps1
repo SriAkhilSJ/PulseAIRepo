@@ -68,6 +68,10 @@ $env:PULSEAI_CAPTURE_REQUEST_PAYLOADS = "1"
 # landed file must route directly back to the agent, never initialize a local
 # sentence-transformer before request 2.
 $env:PULSEAI_DISABLE_LONG_TERM_MEMORY = "1"
+# Test 8 accepted a provider-default-sized tool argument that ended mid-CSS.
+# Bind an explicit generation ceiling for deliver/forced-delivery phases; the
+# runtime still rejects any response whose finish_reason reports a token limit.
+$env:PULSEAI_DELIVERY_MAX_TOKENS = "8192"
 
 # Long build turn: the driver itself records every protocol frame and bridge
 # stderr in the run directory. Do NOT use PowerShell 5.1 Start-Process stream

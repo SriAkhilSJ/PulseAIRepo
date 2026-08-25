@@ -113,6 +113,7 @@ class BridgeServer:
         mapping = {
             "message.agent.chunk": "token",
             "llm.request": "llm.request",
+            "llm.response": "llm.response",
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
             "tool.approval.request": "safety_request",
@@ -179,7 +180,7 @@ class BridgeServer:
                 "tool_call_start", "tool_call_end", "safety_request",
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
-                "llm.request", "workspace.bound",
+                "llm.request", "llm.response", "workspace.bound",
             } else None
         base = {
             "type": target,

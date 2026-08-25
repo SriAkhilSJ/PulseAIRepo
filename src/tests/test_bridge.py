@@ -241,6 +241,27 @@ def test_project_event_forwards_llm_request():
     assert "workspace_proof.py" in json.dumps(frame)
 
 
+def test_project_event_forwards_bounded_llm_response_metadata():
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="proj-2", workspace="/tmp/pbr-ws")
+    frame = BridgeServer._project_event({
+        "type": "llm.response",
+        "payload": {
+            "session_id": "proj-2", "model": "sarvam-105b-conversations",
+            "finish_reason": "length", "incomplete": True,
+            "tool_call_count": 1, "tool_names": ["write_file"],
+            "content_chars": 0,
+        },
+    }, identity)
+    assert frame is not None
+    assert frame["type"] == "llm.response"
+    assert frame["finish_reason"] == "length"
+    assert frame["incomplete"] is True
+    assert frame["tool_call_count"] == 1
+
+
 def test_forwarder_keeps_sessionless_events_drops_other_sessions():
     """Provider calls made with no active session (planner pre-turn, post-turn
     review) must still reach the client; another session's events must not

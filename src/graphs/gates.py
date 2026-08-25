@@ -419,6 +419,18 @@ def should_continue(state: AgentState):
     if bool(getattr(last_message, "additional_kwargs", {}).get("pulse_cancelled")):
         return "finalize"
 
+    # A token-limited text response is not a final answer. Tool-bearing
+    # incomplete responses route through SafeToolNode for paired rejection;
+    # text-only responses receive the bounded finish-gate continuation nudge.
+    if (
+        bool(getattr(last_message, "additional_kwargs", {}).get(
+            "pulse_incomplete_response"
+        ))
+        and not getattr(last_message, "tool_calls", None)
+        and not _budget_exhausted(state)
+    ):
+        return "finish_gate"
+
     # ── Hermes loop law (ported, behavior-based) ─────────────────────────
     # Two mechanical guards that no intent classifier can misroute around:
     #

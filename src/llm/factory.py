@@ -175,6 +175,59 @@ def build_request_snapshot(messages: Any, runnable: Any) -> dict[str, Any]:
     }
 
 
+_INCOMPLETE_FINISH_REASONS = frozenset({
+    "length", "max_tokens", "max_output_tokens", "token_limit", "incomplete",
+})
+
+
+def _nested_runnable_attr(runnable: Any, name: str) -> Any:
+    """Read an attribute through nested LangChain RunnableBinding views."""
+    current = runnable
+    seen: set[int] = set()
+    for _ in range(8):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        value = getattr(current, name, None)
+        if value is not None:
+            return value
+        current = getattr(current, "bound", None) or getattr(current, "_llm", None)
+    return None
+
+
+def runnable_uses_streaming(runnable: Any) -> bool:
+    """Whether a bound provider is configured to consume a native stream."""
+    return bool(_nested_runnable_attr(runnable, "streaming"))
+
+
+def provider_response_info(response: Any) -> dict[str, Any]:
+    """Normalize provider completion metadata without trusting one adapter key."""
+    metadata = getattr(response, "response_metadata", None)
+    metadata = metadata if isinstance(metadata, dict) else {}
+    additional = getattr(response, "additional_kwargs", None)
+    additional = additional if isinstance(additional, dict) else {}
+    finish_reason = (
+        metadata.get("finish_reason")
+        or metadata.get("stop_reason")
+        or additional.get("finish_reason")
+        or additional.get("stop_reason")
+        or ""
+    )
+    finish_reason = str(finish_reason).strip().lower()
+    tool_calls = list(getattr(response, "tool_calls", None) or [])
+    content = getattr(response, "content", "")
+    return {
+        "finish_reason": finish_reason,
+        "incomplete": finish_reason in _INCOMPLETE_FINISH_REASONS,
+        "tool_call_count": len(tool_calls),
+        "tool_names": [
+            str(call.get("name") or "")[:80] for call in tool_calls[:32]
+            if isinstance(call, dict)
+        ],
+        "content_chars": len(content) if isinstance(content, str) else len(str(content)),
+    }
+
+
 def _request_heads(messages: Any, *, first_limit: int = 3000,
                    rest_limit: int = 800, max_messages: int = 4) -> list[dict]:
     """Bounded, honest heads of an outgoing message list for llm.request telemetry.
@@ -309,9 +362,16 @@ class RetryLLMProxy:
         # gate below raises without starting provider traffic.
         sid = active_session()
         abort_handle = self.abort
+        # LangChain's synchronous invoke() owns and drains its configured
+        # streaming iterator. Wrapping streaming=True in a fresh async loop
+        # left Response.aiter_raw pending in desktop Attempt 8 and obscured
+        # whether all tool-argument chunks had arrived. Match Hermes' single
+        # stream owner: use the sync stream consumer; reserve the cancellable
+        # async task path for genuinely non-streaming providers.
+        native_streaming = runnable_uses_streaming(self._llm)
         provider_loop = (
             asyncio.new_event_loop()
-            if callable(getattr(self._llm, "ainvoke", None))
+            if callable(getattr(self._llm, "ainvoke", None)) and not native_streaming
             else None
         )
         if sid is not None:
@@ -438,7 +498,23 @@ class RetryLLMProxy:
                     pass  # telemetry must never break a send
 
                 try:
-                    return self._invoke_provider(provider_loop, *args, **kwargs)
+                    response = self._invoke_provider(provider_loop, *args, **kwargs)
+                    # Hermes records the provider's completion boundary before
+                    # dispatching tools. Pulse previously retained only request
+                    # metadata, so a token-limited tool call was
+                    # indistinguishable from a complete one. Emit bounded
+                    # response facts—never tool arguments or assistant text.
+                    try:
+                        from src.dashboard.event_bus import event_bus
+                        event_bus.emit("llm.response", {
+                            "session_id": sid,
+                            "model": self.model,
+                            "attempt": attempt + 1,
+                            **provider_response_info(response),
+                        })
+                    except Exception:
+                        pass
+                    return response
                 except Exception as error:
                     # A Stop pressed while this HTTP request was in flight wins
                     # over any retry/failover logic: surface the cancellation and
