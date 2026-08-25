@@ -1,0 +1,47 @@
+﻿{
+    "utc_start":  "2026-08-25T12:30:00Z",
+    "utc_end":  "2026-08-25T14:15:23.0522160-07:00",
+    "repository_remote":  "https://github.com/SriAkhilSJ/PulseAIRepo.git",
+    "branch":  "arena/01a03741-pulseairepo",
+    "validated_commit":  "0e56708c40f67dc5ba4091ac2a495e685abfccce",
+    "repair_commit":  "0bb00413f4a03b0172c4f6214018bad156fb1d2a",
+    "os":  "Windows NT 10.0.26200.0",
+    "python_version":  "3.14.4",
+    "focused_tests":  {
+                          "passed":  70,
+                          "exit_code":  0,
+                          "collected":  70,
+                          "failed":  0,
+                          "skipped":  0,
+                          "warnings":  1,
+                          "duration_seconds":  26.43
+                      },
+    "protocol_tests":  {
+                           "passed":  7,
+                           "collected":  7,
+                           "exit_code":  0
+                       },
+    "protocol_generation":  {
+                                "exit_code":  0,
+                                "result":  "current"
+                            },
+    "compilation":  {
+                        "exit_code":  0,
+                        "modules":  [
+                                        "factory.py",
+                                        "chat_graph.py",
+                                        "gates.py",
+                                        "state.py",
+                                        "model_budgets.py",
+                                        "run_bridge_turn.py"
+                                    ]
+                    },
+    "provider_requests":  0,
+    "provider_probes":  0,
+    "checkout_clean_before":  true,
+    "checkout_clean_after":  true,
+    "head_before":  "0e56708c40f67dc5ba4091ac2a495e685abfccce",
+    "head_after":  "0e56708c40f67dc5ba4091ac2a495e685abfccce",
+    "verdict":  "DETERMINISTIC_PASS",
+    "note":  "This is not runtime/product PASS evidence. It validates deterministic repair mechanics only."
+}
