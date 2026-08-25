@@ -1104,7 +1104,9 @@ class TestImmediateStopRace:
         self._tc.begin(self._sid)
         self._tc.cancel(self._sid)
         self._tc.end(self._sid)
-        assert self._tc.cancelled(self._sid)
+        # Releasing the last owner consumes the cancellation so unmanaged
+        # callers cannot inherit stale state before the next begin().
+        assert not self._tc.cancelled(self._sid)
 
         self._tc.begin(self._sid)
         assert not self._tc.cancelled(self._sid)

@@ -948,7 +948,18 @@ def _quick_task_decision(
         for n in (1, 2, 3)
         for i in range(len(norm_tokens) - n + 1)
     }
-    if norm_ngrams & _D30_APPROVAL_WORDS:
+    approval_hits = norm_ngrams & _D30_APPROVAL_WORDS
+    # Punctuation changes routing semantics for one-word approvals: the plan
+    # approval branch claims bare "yes", but intentionally does not claim
+    # conversational acknowledgements such as "yes!". Do not erase that
+    # distinction when building normalized n-grams. Multi-word approval
+    # phrases (for example "go ahead" inside "go ahead bro") remain guarded.
+    punctuated_single_ack = (
+        len(norm_tokens) == 1
+        and raw.lower() != norm
+        and norm in _D30_APPROVAL_WORDS
+    )
+    if approval_hits and not punctuated_single_ack:
         return None
 
     tokens = norm.split()
