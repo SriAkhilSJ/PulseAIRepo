@@ -8,6 +8,7 @@ the fork will see.
 from __future__ import annotations
 
 import json
+import uuid
 import subprocess
 import sys
 
@@ -66,9 +67,15 @@ def test_hello_handshake_rules():
 def _send(proc, obj):
     proc.stdin.write(json.dumps(obj) + "\n")
     proc.stdin.flush()
-    line = proc.stdout.readline()
-    assert line, "sidecar closed stdout unexpectedly"
-    return json.loads(line)
+    # Async observability frames (workspace.bound, llm.request) are emitted
+    # after direct replies and are never the answer to a method — skip them.
+    observatory = {"workspace.bound", "llm.request"}
+    while True:
+        line = proc.stdout.readline()
+        assert line, "sidecar closed stdout unexpectedly"
+        frame = json.loads(line)
+        if frame.get("type") not in observatory:
+            return frame
 
 
 @pytest.fixture()
@@ -93,12 +100,17 @@ def test_sidecar_hello_then_real_runtime_shape(sidecar):
     }) + "\n")
     sidecar.stdin.flush()
     frames = []
-    while len(frames) < 5:
+    while len(frames) < 6:
         frame = json.loads(sidecar.stdout.readline())
         frames.append(frame)
         if frame["type"] == "turn_done":
             break
-    assert [f["type"] for f in frames] == ["turn_started", "token", "turn_done"]
+    # workspace.bound may interleave (async bind evidence) — assert it AND the
+    # core sequence separately.
+    kinds = [f["type"] for f in frames if f["type"] != "workspace.bound"]
+    assert kinds == ["turn_started", "token", "turn_done"]
+    bound = [f for f in frames if f["type"] == "workspace.bound"]
+    assert bound and bound[0]["hops"] == "."
     done = frames[-1]
     assert done["stub"] is False and done["session_id"] == "t1"
     assert done["turn_id"].startswith("turn-")
@@ -180,3 +192,117 @@ def test_sidecar_shutdown_exits_cleanly(sidecar):
     sidecar.stdin.flush()
     sidecar.stdin.close()
     assert sidecar.wait(timeout=10) == 0, "shutdown must exit 0"
+
+
+# ------------------------------------------------- observability frames (PBR-002)
+
+def test_session_create_emits_workspace_bound_with_exact_hops(sidecar):
+    """PBR-002 evidence: every workspace-bearing bind asserts the exact root."""
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    sidecar.stdin.write(json.dumps({
+        "type": "session_create", "session_id": "wb-1", "workspace": "/tmp/pbr-ws",
+    }) + "\n")
+    sidecar.stdin.flush()
+    frames = []
+    while len(frames) < 2:
+        frames.append(json.loads(sidecar.stdout.readline()))
+    kinds = [f["type"] for f in frames]
+    assert "session_info" in kinds
+    bound = next(f for f in frames if f["type"] == "workspace.bound")
+    assert bound["session_id"] == "wb-1"
+    assert bound["workspace"] == "/tmp/pbr-ws"
+    assert bound["hops"] == "/tmp/pbr-ws"        # grader compares hops == fixture root
+    assert bound["engine_root"] == "/tmp/pbr-ws"
+
+
+def test_no_workspace_bound_without_workspace(sidecar):
+    """A rejected create (no workspace) binds nothing: the direct reply is the
+    error frame and the server stays responsive afterwards."""
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    r = _send(sidecar, {"type": "session_create"})   # rejected: no workspace
+    assert r["type"] == "error"
+    listed = _send(sidecar, {"type": "session_list"})  # no re-handshake needed
+    assert listed["type"] == "session_info"
+
+
+def test_project_event_forwards_llm_request():
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="proj-1", workspace="/tmp/pbr-ws")
+    frame = BridgeServer._project_event({
+        "type": "llm.request",
+        "payload": {"session_id": "proj-1", "model": "sarvam-105b-conversations",
+                    "messages": [{"role": "system", "head": "... workspace_proof.py ..."}]},
+    }, identity)
+    assert frame is not None
+    assert frame["type"] == "llm.request"
+    assert frame["model"] == "sarvam-105b-conversations"
+    assert "workspace_proof.py" in json.dumps(frame)
+
+
+def test_forwarder_keeps_sessionless_events_drops_other_sessions():
+    """Provider calls made with no active session (planner pre-turn, post-turn
+    review) must still reach the client; another session's events must not
+    (concurrent-turn isolation). Founder run counted 11 calls, only 4 frames."""
+    import queue as _queue
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="own", workspace="/tmp/ws")
+    q: _queue.Queue = _queue.Queue()
+    done = __import__("threading").Event()
+    emitted = []
+    server = object.__new__(BridgeServer)
+    server.emit = emitted.append
+
+    q.put({"type": "llm.request", "payload": {"session_id": None, "model": "m"}})       # sessionless -> keep
+    q.put({"type": "llm.request", "payload": {"session_id": "other", "model": "m"}})    # other session -> drop
+    q.put({"type": "llm.request", "payload": {"session_id": "own", "model": "m"}})      # own -> keep
+    q.put({"type": "message.agent.chunk", "payload": {"text": "hi"}})                   # sessionless -> keep
+    q.put({"type": "tool.call", "payload": {"session_id": "other", "name": "x"}})       # other -> drop
+    done.set()  # loop exits after draining? no — loop checks done first; drain manually
+    # Drain: run the loop body once by calling it with a tiny timeout pattern:
+    # simplest is to process the queue directly through the same filter logic.
+    # Instead of sleeping, temporarily unset done and stop via empty queue + timeout:
+    done.clear()
+    import threading
+    t = threading.Thread(target=server._forward_events, args=(q, identity, done, "own"), daemon=True)
+    t.start()
+    import time
+    time.sleep(0.5)
+    done.set(); t.join(timeout=2)
+
+    kinds = [f["type"] for f in emitted]
+    assert kinds.count("llm.request") == 2, kinds      # sessionless + own kept, other dropped
+    assert kinds.count("token") == 1, kinds            # sessionless chunk kept
+    assert "tool_call_start" not in kinds              # other session dropped
+
+
+def test_session_create_reports_prior_checkpoints(sidecar, tmp_path):
+    """session_create must not claim a fresh start silently: a session id with
+    durable checkpointer history resumes it (live-measured as linear call
+    growth across benchmark runs). Fresh id -> prior_checkpoints == 0."""
+    import sqlite3
+    from src.bridge.__main__ import BridgeServer
+
+    # Helper: missing db -> 0; existing db with rows -> count; junk -> None.
+    assert BridgeServer._prior_checkpoint_count("anyone", str(tmp_path / "nope.db")) == 0
+    db = tmp_path / "sessions.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE checkpoints (thread_id TEXT)")
+    conn.execute("INSERT INTO checkpoints VALUES ('old-id')")
+    conn.commit(); conn.close()
+    assert BridgeServer._prior_checkpoint_count("old-id", str(db)) == 1
+    assert BridgeServer._prior_checkpoint_count("new-id", str(db)) == 0
+    junk = tmp_path / "junk.db"
+    junk.write_text("not a database")
+    assert BridgeServer._prior_checkpoint_count("x", str(junk)) is None
+
+    # End-to-end: a fresh session_create reply carries prior_checkpoints == 0.
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    import os
+    info = _send(sidecar, {"type": "session_create", "workspace": str(tmp_path),
+                           "session_id": f"fresh-{uuid.uuid4().hex[:8]}"})
+    assert info["type"] == "session_info"
+    assert info.get("prior_checkpoints") == 0

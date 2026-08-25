@@ -6,8 +6,8 @@
 	"sharedDataFolderName": ".pulseai-ide-shared",
 	"win32MutexName": "pulseaiide",
 	"licenseName": "MIT",
-	"licenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
-	"serverLicenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+	"licenseUrl": "https://github.com/SriAkhilSJ/PulseAIRepo/blob/main/LICENSE.txt",
+	"serverLicenseUrl": "https://github.com/SriAkhilSJ/PulseAIRepo/blob/main/LICENSE.txt",
 	"serverGreeting": [],
 	"serverLicense": [],
 	"serverLicensePrompt": "",
@@ -236,6 +236,5 @@
 	"builtInExtensionsEnabledWithAutoUpdates": [
 		"GitHub.copilot-chat"
 	],
-	"sessionsWindowAllowedExtensions": [],
-	"voiceWsUrl": "wss://falcon-caas.mai.microsoft.com/voice-code/api/v1/realtime/voice"
+	"sessionsWindowAllowedExtensions": []
 }

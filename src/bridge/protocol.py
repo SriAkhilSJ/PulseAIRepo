@@ -21,6 +21,9 @@ SERVER_EVENTS = frozenset({
     "verification_updated", "subagent_updated", "telemetry",
     "turn_started", "turn_done", "turn_failed", "checkpoint_event",
     "runtime_degraded", "events_replay", "error",
+    # Observability frames (PBR-002/012 evidence): the exact workspace a
+    # session is bound to, and one frame per real provider request attempt.
+    "workspace.bound", "llm.request",
 })
 
 
