@@ -11,6 +11,14 @@ def test_guarded_run_disables_unused_autonomous_memory():
     assert '$env:PULSEAI_DISABLE_LONG_TERM_MEMORY = "1"' in SCRIPT
 
 
+def test_probe_uses_configured_custom_endpoint_and_model():
+    assert 'values.get("CUSTOM_BASE_URL", "")' in SCRIPT
+    assert 'values.get("LLM_MODEL", "")' in SCRIPT
+    assert 'base_url.rstrip("/") + "/chat/completions"' in SCRIPT
+    assert '"https://api.sarvam.ai/v1/chat/completions"' not in SCRIPT
+    assert '"model": "sarvam-105b-conversations"' not in SCRIPT
+
+
 def test_watchdog_writes_durable_outcome_before_exit():
     assert "function Write-WatchdogOutcome" in SCRIPT
     assert '-Result "watchdog-hard-cap"' in SCRIPT

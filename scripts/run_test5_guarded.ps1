@@ -31,24 +31,45 @@ $Workspace = [System.IO.Path]::GetFullPath($Workspace)
 New-Item -ItemType Directory -Force -Path $Workspace | Out-Null
 Write-Host "[preflight] workspace ready at $Workspace"
 
-# Credit gate: ONE 8-token probe. Bad provider = no test started.
+# Credit gate: ONE 8-token probe against the configured OpenAI-compatible
+# custom endpoint/model. Bad provider = no test started. Never hardcode one
+# vendor here: the live turn reads these same .env values through settings.py.
 $probePy = Join-Path $env:TEMP "pulse_probe.py"
 @"
-import json, time, urllib.request
-key = ""
-for line in open(".env", encoding="utf-8"):
-    if line.startswith("CUSTOM_API_KEY="):
-        key = line.strip().split("=", 1)[1]
-body = json.dumps({"model": "sarvam-105b-conversations",
+import json, os, time, urllib.request
+
+def dotenv(path):
+    values = {}
+    with open(path, encoding="utf-8-sig") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, value = line.split("=", 1)
+            values[name.strip()] = value.strip().strip("'\"")
+    return values
+
+values = dotenv(".env")
+key = os.environ.get("CUSTOM_API_KEY") or values.get("CUSTOM_API_KEY", "")
+base_url = os.environ.get("CUSTOM_BASE_URL") or values.get("CUSTOM_BASE_URL", "")
+model = os.environ.get("LLM_MODEL") or values.get("LLM_MODEL", "")
+if not key or not base_url or not model:
+    print("PROBE_CONFIG_FAIL: CUSTOM_API_KEY, CUSTOM_BASE_URL, and LLM_MODEL are required")
+    raise SystemExit(2)
+url = base_url.rstrip("/") + "/chat/completions"
+body = json.dumps({"model": model,
                    "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
                    "max_tokens": 8, "temperature": 0}).encode()
-req = urllib.request.Request("https://api.sarvam.ai/v1/chat/completions", data=body,
+req = urllib.request.Request(url, data=body,
                              headers={"Authorization": "Bearer " + key,
-                                      "Content-Type": "application/json"})
+                                      "Content-Type": "application/json",
+                                      "HTTP-Referer": "https://github.com/SriAkhilSJ/PulseAIRepo",
+                                      "X-Title": "PulseAI Test 5 Guarded Probe"})
 t0 = time.time()
 try:
     with urllib.request.urlopen(req, timeout=30) as r:
-        print("PROBE_OK HTTP", r.status, "in %.2fs" % (time.time() - t0))
+        print("PROBE_OK HTTP", r.status, "model", model,
+              "in %.2fs" % (time.time() - t0))
 except Exception as e:
     print("PROBE_FAIL", type(e).__name__, str(e)[:200]); raise SystemExit(1)
 "@ | Set-Content -Encoding UTF8 $probePy
