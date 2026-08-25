@@ -1,129 +1,328 @@
-# INSTRUCTIONS — Desktop Agent (founder's Windows laptop)
+# Desktop Agent Instructions — Test 5 Attempt 4
 
-**From:** Arena agent (CTO session) · **Date:** 2026-08-23
-**Repo:** `https://github.com/SriAkhilSJ/PulseAIRepo`
-**Read this whole file before running anything. Do not improvise beyond it.**
+**Updated:** 2026-08-25
+**Repository:** `https://github.com/SriAkhilSJ/PulseAIRepo`
+**Integration branch:** `arena/01a03741-pulseairepo`
+**Required code commit:** `cf9e80a1` or newer
+**Credit situation:** approximately 50 credits remain
 
----
+> These instructions supersede every older instruction in this file. Read the entire document before running anything. Do not improvise, expose credentials, rerun a failed probe, or merge based only on `turn_done`.
 
-## 0. Mission (what I need from you)
+## 1. Mission
 
-Produce the first **real, paid benchmark evidence rows** for PulseAI, under a
-hard credit budget, with watchdog protection. Concretely, in order:
+Run **one** guarded provider-backed Test 5 attempt on the founder's Windows desktop, preserve complete evidence, independently inspect the delivered website, and report PASS or FAIL honestly.
 
-1. Sync this laptop's clone to the latest branch (STEP 1) — **the local folder
-   is stale; GitHub is ahead.**
-2. Configure the NEW Sarvam key safely (STEP 2).
-3. Run the guarded PBR-002 paid row (STEP 3) — this is the priority.
-4. Run the keyless desktop CDP lane if the built IDE exists (STEP 4).
-5. Report back EXACTLY the outputs listed in STEP 5 — never the key.
+The Arena environment could not establish TLS with `api.sarvam.ai`; the desktop previously could. Therefore this run must happen on the desktop.
 
----
+Test 5 is the GARGANTUA Schwarzschild black-hole raytracer task in:
 
-## 1. Sync the workspace (the laptop folder is NOT latest)
-
-The latest code lives on branch **`arena/01a02a5c-pulseairepo`** on GitHub
-(current tip: `8cbb12ea`). It contains 4 commits the laptop does not have:
-
-```
-f137f237  bench: guarded paid-runner script + provider-unreachable durability receipt
-6ded717f  tests: fix silently-broken pins; declare pillow; keep test runs out of bench-results
-83f144d0  benchmark: lane-aware grading (uncoverable checks = not_run)
-54c2ccbb  security: remove live API key from README (was public on GitHub)
+```text
+scripts/test5_prompt.txt
 ```
 
-Run, from the repo root on the laptop:
+Attempts 1–3 are recorded failures. This is a fresh **attempt 4**. The code is a retest candidate, not an already-proven pass.
+
+## 2. Sync the correct GitHub branch
+
+Do not use the old agent branch `arena/01a02a5c-pulseairepo` directly. Its six useful Test-5 commits were reviewed and selectively integrated into the current R4 desktop branch, then four additional integration defects were fixed.
+
+From the repository root in PowerShell:
 
 ```powershell
-git status                     # note any dirty files
-git stash push -u -m "pre-arena-sync"   # only if dirty; do NOT lose them
-git fetch origin
-git checkout arena/01a02a5c-pulseairepo
-git pull origin arena/01a02a5c-pulseairepo
-git log --oneline -1           # MUST show 8cbb12ea (or newer)
+git status --short --branch
 ```
 
-**Warnings:**
-- The laptop's local `main` history contains the LEAKED API key (README).
-  Never push local `main` anywhere. Work only on the branch above.
-- `.env`, `.venv`, `desktop/vscode/.build/`, `bench-results/` are gitignored —
-  a checkout/pull will NOT touch them. Your built IDE and venv are safe.
-
-Verify sync: `scripts\run_paid_pbr002_guarded.ps1` must exist.
-
-## 2. Configure the NEW key (100 credits — guard it)
-
-The founder has a NEW Sarvam key. The OLD one is burned (public on GitHub).
-
-- Put exactly one line in `.env` at the repo root (create/keep the rest):
-  `CUSTOM_API_KEY=sk_the_new_key`
-  plus the existing lines if not already there:
-  `LLM_PROVIDER=custom`, `LLM_MODEL=sarvam-105b-conversations`,
-  `CUSTOM_BASE_URL=https://api.sarvam.ai/v1`, `SUMMARIZER_LLM=aux`,
-  `PROVIDER_SAFE_LIMIT=0`
-- The key NEVER goes in README, code, chat, commits, or screenshots.
-- The founder (human) rotates the old key in the Sarvam dashboard — remind him.
-- Sanity: `git check-ignore .env` → must print `.env`; `git status` must NOT
-  list `.env`.
-
-Environment check (one-time):
-```powershell
-.\.venv\Scripts\python.exe -c "import PIL; import pydantic; print('deps ok')"
-# if PIL missing: .\.venv\Scripts\pip.exe install pillow
-```
-
-## 3. THE PAID RUN — guarded PBR-002 (priority)
-
-> **Update 2026-08-23:** the first run (founder-pbr002-1) exposed a real
-> observability gap — fixed on the branch you just pulled (commit 8cbb12ea:
-> the bridge now emits workspace.bound + llm.request; the harness records
-> them and real token/cost usage). Re-run the SAME command; expect 3/3.
-
-One command. It is self-protecting: 8-token probe first (~0.1 credit); if the
-probe fails the benchmark never starts; watchdog checks every 30 s; kills the
-whole process tree on 120 s stall or 10 min hard cap; prints graded checks +
-token/cost usage at the end.
+If tracked or untracked work exists, preserve it first:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_paid_pbr002_guarded.ps1 -Workspace C:\pbr002-ws
+git stash push -u -m "pre-test5-attempt4"
 ```
 
-Rules:
-- Monitor it; do not interfere unless the watchdog fires (it kills by itself).
-- If the probe fails: STOP. Report the probe error. Do not retry more than
-  once without a diagnosis — each retry risks credits.
-- If it passes: expected artifacts `bench-results\founder-pbr002-1\result.md`
-  with outcome `passed` (3/3 coverable checks on the bridge lane).
-- Do NOT run any other task (PBR-004/005/…/011) — those wait for founder
-  approval of the next spend.
-
-## 4. Keyless desktop lane (only if the built IDE exists)
-
-If `desktop\vscode\.build\electron\PulseAI.exe` exists:
+Then sync:
 
 ```powershell
-scripts\run_keyless_cdp.bat C:\pbr002-ws
+git fetch origin --prune
+git switch arena/01a03741-pulseairepo
+git pull --ff-only origin arena/01a03741-pulseairepo
+git log --oneline -5
 ```
 
-This grades the DOM checks for PBR-001/003 (composer blocked with no folder,
-multi-root selection). Zero credits, zero model calls. If the IDE is not
-built, SKIP and say so — do not attempt a build (multi-hour, out of scope).
+Verify that required commit `cf9e80a1` is included:
 
-## 5. Report back (paste this to the Arena agent — NEVER the key)
+```powershell
+git merge-base --is-ancestor cf9e80a1 HEAD
+if ($LASTEXITCODE -ne 0) { throw "Wrong/stale branch: cf9e80a1 is missing" }
+```
 
-1. `git log --oneline -1` output (sync proof)
-2. The guarded script's full console output (probe line, watchdog lines, graded result)
-3. Contents of `bench-results\founder-pbr002-1\result.md` (if it exists)
-4. Contents of `bench-results\report-card.md` (regenerate:
-   `.\.venv\Scripts\python.exe -m benchmarks.pulse_reliability_v1.harness report --results-dir bench-results --out bench-results\report-card.md`)
-5. For STEP 4 (if run): the report-card rows for PBR-001/003
+Required files:
 
-## Hard constraints (do not cross)
+```powershell
+@(
+  "scripts\run_bridge_turn.py",
+  "scripts\run_test5_guarded.ps1",
+  "scripts\test5_prompt.txt",
+  "docs\TEST5_READINESS.md"
+) | ForEach-Object {
+  if (-not (Test-Path $_)) { throw "Missing required file: $_" }
+}
+```
 
-- **Budget:** probe + PBR-002 only, ≈1.5 credits of 100. Nothing else paid.
-- **No edits** to benchmark/engine code — if something looks wrong, STOP and
-  report it instead of patching. The Arena agent owns code changes.
-- **No key material** in any output, log, commit, or message.
-- **No pushing** from the laptop (the local history contains the old key).
-- If anything hangs beyond the watchdog: `taskkill /T /F /PID <pid>` on the
-  python process, then report.
+Do not merge either old agent branch into this checkout. A whole-tree merge would regress the current vendored Code OSS/R4 desktop state.
+
+## 3. Protect the provider key
+
+Use the desktop's private, gitignored `.env`. Never copy a key into README, source code, a commit, terminal output, screenshot, issue, or chat.
+
+`.env` must contain:
+
+```env
+LLM_PROVIDER=custom
+LLM_MODEL=sarvam-105b-conversations
+CONTEXT_MODEL=sarvam-105b-conversations
+CUSTOM_BASE_URL=https://api.sarvam.ai/v1
+CUSTOM_API_KEY=<private key>
+SUMMARIZER_LLM=aux
+PROVIDER_SAFE_LIMIT=0
+```
+
+Safety checks:
+
+```powershell
+git check-ignore .env
+if ($LASTEXITCODE -ne 0) { throw ".env is not ignored — STOP" }
+
+git status --short
+```
+
+The historical README key was publicly committed and later removed. Prefer a rotated private key. Never print either key to prove it exists.
+
+Verify the Python environment without making a provider call:
+
+```powershell
+if (-not (Test-Path ".venv\Scripts\python.exe")) {
+  throw "Missing repository venv — STOP and report"
+}
+
+.\.venv\Scripts\python.exe -c "import langchain_core, langgraph, PIL; print('runtime dependencies OK')"
+```
+
+## 4. Prepare a fresh workspace and run ID
+
+Do not reuse previous workspaces or evidence directories.
+
+```powershell
+$Workspace = "C:\test5-ws-attempt4"
+$RunId = "test5-4"
+
+if (Test-Path $Workspace) {
+  throw "$Workspace already exists. Choose a fresh empty path; do not delete evidence blindly."
+}
+if (Test-Path "bench-results\$RunId") {
+  throw "Run ID already exists. Choose a fresh ID; evidence is immutable."
+}
+```
+
+## 5. Run exactly one guarded attempt
+
+The limits below are deliberate for the remaining credits:
+
+- maximum 20 observed LLM request frames;
+- maximum approximately 180,000 cumulative input tokens;
+- 90-minute hard cap;
+- 600-second stall cap for long package installs/build activity;
+- watchdog status every 30 seconds.
+
+Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
+  -Workspace $Workspace `
+  -RunId $RunId `
+  -MaxMinutes 90 `
+  -StallSeconds 600 `
+  -MaxLlmCalls 20 `
+  -MaxInputTokens 180000
+```
+
+### Monitoring rules
+
+The script prints a watchdog line every 30 seconds. Watch it continuously.
+
+- If the 8-token preflight fails: **STOP. Do not retry.** Record the exact error without credentials.
+- If the provider repeatedly fails before producing a response: stop after diagnosis; do not burn through the cap merely because the cap exists.
+- A quiet `npm install` may still be healthy. Workspace file changes and CPU activity count as heartbeats; do not kill a healthy build manually.
+- Let the circuit breaker cancel at either budget limit.
+- Never increase a limit during the run.
+- Never intervene in the workspace or help the agent complete the product. Human edits make the autonomous benchmark invalid.
+
+Emergency stop, only if the wrapper itself fails to stop the tree:
+
+```powershell
+taskkill /T /F /PID <runner-pid>
+```
+
+## 6. Runtime evidence required
+
+After the process exits, preserve and inspect:
+
+```text
+bench-results\test5-4\frames.jsonl
+bench-results\test5-4\bridge_stderr.log
+bench-results\test5-4\outcome.json
+```
+
+Print only sanitized summaries:
+
+```powershell
+Get-Content "bench-results\$RunId\outcome.json"
+Get-Content "bench-results\$RunId\bridge_stderr.log" -Tail 80
+```
+
+Immediate runtime FAIL conditions:
+
+- missing `outcome.json`;
+- `result` is not `turn_done`;
+- `completed` is not `true`;
+- `budget_stop` is `true`;
+- provider/bridge crash;
+- watchdog kill;
+- human intervention;
+- no meaningful source files delivered.
+
+`turn_done` is necessary but **not sufficient** for product PASS.
+
+## 7. Independently grade the delivered product
+
+Do not modify the agent's output while grading it.
+
+### Delivery checks
+
+The workspace must contain executable source, startup instructions, local Three.js dependencies/assets, and meaningful implementation files—not only `package.json` or a scaffold.
+
+```powershell
+Get-ChildItem $Workspace -Recurse -File |
+  Select-Object FullName, Length |
+  Format-Table -AutoSize
+```
+
+Confirm there is no required external CDN dependency and no mandatory build step, because the task explicitly requires native HTML/CSS/JavaScript modules, local Three.js files, and a basic static server.
+
+### Static/runtime checks
+
+Follow the delivered startup instructions exactly. At minimum verify:
+
+1. The page loads from a basic static server.
+2. There is no black/blank screen.
+3. Browser console has no unhandled errors.
+4. The subject is rendered by a full-screen fragment shader, not substituted meshes/images/video.
+5. Event horizon, photon ring, lensed accretion disk, and starfield are visibly present.
+6. Orbit controls/cinematic camera paths work.
+7. Four presets work.
+8. Telemetry HUD appears.
+9. The 21 live parameters are present and responsive.
+10. Debug views 0–9 and documented hotkeys respond.
+11. Quality profiles work.
+12. Deterministic screenshot mode is URL-driven and reproducible.
+13. Responsive/Retina behavior does not break rendering.
+14. WebGL recovery is implemented or demonstrably handled.
+
+Capture:
+
+- one 1280×800 default screenshot;
+- screenshots for all four presets;
+- one debug-view screenshot;
+- browser-console evidence;
+- the exact URL used for deterministic screenshot mode.
+
+Do not call the result PASS if major visual requirements are represented only by comments, labels, or placeholder UI.
+
+## 8. Final verdict format
+
+Report exactly:
+
+```text
+TEST 5 ATTEMPT 4
+Git commit: <git rev-parse HEAD>
+Run ID: test5-4
+Runtime verdict: PASS | FAIL
+Product verdict: PASS | FAIL
+Human interventions: 0 | <count and details>
+LLM request frames: <count>
+Approx input tokens: <count>
+Budget stop: true | false
+Watchdog kill: true | false
+Files delivered: <count>
+Static server command: <command>
+Console errors: <count>
+Screenshots: <paths>
+Blocking defects: <none or exact list>
+Overall verdict: PASS only when runtime AND product pass
+```
+
+Never report the key.
+
+## 9. GitHub merge procedure — only after a verified PASS
+
+Do not merge or delete branches merely because the process exited zero.
+
+First ensure the integration branch is pushed and create/reuse its PR:
+
+```powershell
+git status --short --branch
+git push origin arena/01a03741-pulseairepo
+
+gh pr list --head arena/01a03741-pulseairepo --base main
+```
+
+If no PR exists:
+
+```powershell
+gh pr create `
+  --base main `
+  --head arena/01a03741-pulseairepo `
+  --title "fix(agent): Test 5 readiness and regression cleanup" `
+  --body "See docs/TEST5_READINESS.md. Test 5 attempt 4 passed runtime and independent product verification; sanitized evidence is attached/referenced."
+```
+
+Check the complete diff summary, changed-file list, and checks before merging:
+
+```powershell
+git fetch origin main
+git diff --stat origin/main...HEAD
+gh pr diff --name-only
+gh pr checks --watch
+```
+
+Merge only after the founder confirms the sanitized Test-5 evidence:
+
+```powershell
+gh pr merge --merge
+```
+
+### Branch deletion order
+
+After GitHub confirms the PR is merged into `main`, verify ancestry:
+
+```powershell
+git fetch origin --prune
+git merge-base --is-ancestor origin/arena/01a03741-pulseairepo origin/main
+if ($LASTEXITCODE -ne 0) { throw "Integration branch is not in main — do not delete anything" }
+```
+
+Only then may the two superseded source branches be deleted:
+
+```powershell
+git push origin --delete arena/01a02954-pulseairepo
+git push origin --delete arena/01a02a5c-pulseairepo
+```
+
+Do **not** delete `arena/01a03741-pulseairepo` while the active Arena session or PR still depends on it. Delete it through the GitHub PR UI only after the session is finished and `main` ancestry is verified.
+
+## 10. If Test 5 fails
+
+- Do not merge.
+- Do not delete any branches.
+- Do not rerun automatically.
+- Preserve the workspace and `bench-results\test5-4\` exactly.
+- Report the first root-cause boundary: provider, harness, planning, tool strategy, verification, or product quality.
+- Wait for a code review/fix and explicit approval before spending more credits.
