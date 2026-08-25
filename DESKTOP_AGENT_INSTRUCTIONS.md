@@ -6,7 +6,7 @@
 
 **Branch:** `arena/01a03741-pulseairepo`
 
-**Required baseline:** commit `00cf8be2` or newer on this exact branch
+**Required baseline:** commit `cfc20007` or newer on this exact branch
 
 **PR:** `https://github.com/SriAkhilSJ/PulseAIRepo/pull/9`
 
@@ -27,6 +27,11 @@
 - Hard timeout: 90 minutes
 - Automatic retries of the whole run: **zero**
 
+This is a Windows-desktop run. Do not run the Arena-only root `test5.py`, do not
+use `/home/user/PulseAIRepo`, and do not treat the separate Test-5 workspace as
+the repository. First update the existing Windows Git clone as specified below;
+then run `scripts\run_test5_guarded.ps1` from that updated clone.
+
 Preserve all earlier workspaces/evidence, including:
 
 ```text
@@ -38,28 +43,100 @@ bench-results\test5-6\
 bench-results/test5-7-arena/
 ```
 
-## 1. Sync without losing local work
+## 1. Locate and update the existing local repository first
 
-From the Windows repository root:
+Do **not** run from an old terminal's remembered directory and do not create a
+second clone: the existing clone contains the ignored `.env` and `.venv` needed
+for the run. Locate the one local folder that is both this Git repository and
+contains `scripts\run_test5_guarded.ps1`.
+
+If the terminal is already inside the clone, resolve it directly:
 
 ```powershell
-git status --short
+$RepoRoot = (git rev-parse --show-toplevel 2>$null)
+if (-not $RepoRoot) { throw 'STOP: terminal is not inside the existing PulseAIRepo clone' }
+$RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot.Trim())
+Set-Location -LiteralPath $RepoRoot
+if (-not (Test-Path '.git')) { throw "STOP: $RepoRoot is not the Git working tree" }
+if (-not (Test-Path 'scripts\run_test5_guarded.ps1')) {
+  throw "STOP: wrong local repository folder: $RepoRoot"
+}
+Write-Host "LOCAL REPOSITORY: $RepoRoot"
 ```
 
-If tracked files are dirty, stop and report them. Do not stash, reset, clean, or
-overwrite founder work. Ignored `.env`, `.venv`, desktop builds, and old
-`bench-results` are expected.
+If that first command fails, use Windows Explorer or the desktop agent's known
+workspace list to find the **existing** `PulseAIRepo` clone, `Set-Location` to
+it, and run the block again. Do not recursively search the whole drive, guess a
+folder, or clone anew. If more than one candidate exists, stop and report their
+paths so the founder can identify the authoritative local folder.
+
+Verify that the clone points to the correct GitHub repository:
 
 ```powershell
-git fetch origin
+$Remote = (git remote get-url origin).Trim()
+if ($Remote -notmatch 'SriAkhilSJ/PulseAIRepo(?:\.git)?$') {
+  throw "STOP: wrong origin remote: $Remote"
+}
+```
+
+Before updating, detect tracked or untracked source changes without exposing
+ignored credentials/builds:
+
+```powershell
+$BeforeHead = (git rev-parse HEAD).Trim()
+$Dirty = @(git status --short --untracked-files=normal)
+$Unexpected = @($Dirty | Where-Object {
+  $_ -notmatch '^\?\? (bench-results/|\.env$|\.venv/|desktop/vscode/\.build/)'
+})
+if ($Unexpected.Count -gt 0) {
+  $Unexpected
+  throw 'STOP: local repository has source changes; do not stash/reset/overwrite them'
+}
+```
+
+Now update that same local folder and switch to the fixed Arena branch:
+
+```powershell
+git fetch --prune origin
 git checkout arena/01a03741-pulseairepo
 git pull --ff-only origin arena/01a03741-pulseairepo
-git log --oneline -1
+if ($LASTEXITCODE -ne 0) { throw 'STOP: branch update was not a clean fast-forward' }
+$LocalHead = (git rev-parse HEAD).Trim()
+$RemoteHead = (git rev-parse origin/arena/01a03741-pulseairepo).Trim()
+if ($LocalHead -ne $RemoteHead) {
+  throw "STOP: local folder is stale: local=$LocalHead remote=$RemoteHead"
+}
+git merge-base --is-ancestor cfc20007 $LocalHead
+if ($LASTEXITCODE -ne 0) {
+  throw "STOP: local folder does not contain required instruction commit cfc20007"
+}
+$SourceDirty = @(git status --short --untracked-files=no)
+if ($SourceDirty.Count -gt 0) {
+  $SourceDirty
+  throw 'STOP: tracked files are not clean after updating the local folder'
+}
+Write-Host "LOCAL UPDATE PASS: $RepoRoot @ $LocalHead"
 ```
 
-The checked-out commit must be `00cf8be2` or newer on this branch.
+Create a local-sync receipt in TEMP now; it will be moved into the evidence
+directory after the guarded runner creates that directory:
 
-Confirm the attempt paths are fresh:
+```powershell
+$SyncReceipt = Join-Path $env:TEMP 'test5-8-local-sync.json'
+if (Test-Path $SyncReceipt) { throw "STOP: stale sync receipt: $SyncReceipt" }
+[pscustomobject]@{
+  timestamp = (Get-Date).ToString('o')
+  repo_root = $RepoRoot
+  origin = $Remote
+  before_head = $BeforeHead
+  local_head = $LocalHead
+  remote_head = $RemoteHead
+  branch = (git branch --show-current).Trim()
+  tracked_status_clean = ($SourceDirty.Count -eq 0)
+} | ConvertTo-Json | Out-File $SyncReceipt -Encoding utf8
+```
+
+Confirm the run paths are fresh **from the newly updated repository root**:
 
 ```powershell
 if (Test-Path 'C:\test5-ws-attempt8') {
@@ -70,9 +147,10 @@ if (Test-Path 'bench-results\test5-8-desktop') {
 }
 ```
 
-The existing `.env` must contain the configured Sarvam credential. Never print,
-paste, log, commit, or report that key. If `.env` or the key is missing, stop;
-do not improvise another credential.
+The existing `.env` in `$RepoRoot` must contain the configured Sarvam
+credential, and `.venv\Scripts\python.exe` must exist. Never print, paste, log,
+commit, or report the key. If `.env`, the key, or the venv is missing, stop; do
+not improvise another credential or install into a different local folder.
 
 ## 2. Run once and capture the complete console
 
@@ -102,6 +180,10 @@ try {
   Stop-Transcript
 }
 New-Item -ItemType Directory -Force -Path 'bench-results\test5-8-desktop' | Out-Null
+if (Test-Path $SyncReceipt) {
+  Move-Item -LiteralPath $SyncReceipt `
+    -Destination 'bench-results\test5-8-desktop\local-sync.json'
+}
 Move-Item -LiteralPath $ConsoleLog `
   -Destination 'bench-results\test5-8-desktop\desktop-console.log'
 if (Test-Path $MonitorLog) {
@@ -291,8 +373,9 @@ git diff --cached --name-only
 ```
 
 The staged list must contain only `bench-results/test5-8-desktop/**`. It must
-include at least `desktop-console.log`, `frames.jsonl`, `bridge_stderr.log`,
-`outcome.json`, `evidence-manifest.json`, the exact 30-second timeline,
+include at least `local-sync.json`, `desktop-console.log`, `frames.jsonl`,
+`bridge_stderr.log`, `outcome.json`, `evidence-manifest.json`, the exact
+30-second timeline,
 `workspace-delivery/**`, and `product-grade/**` when those files exist. If the
 run failed before one of the standard files was created, add a short
 `missing-evidence.json` naming the absent file and the observed reason rather
