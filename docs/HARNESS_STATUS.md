@@ -991,3 +991,27 @@ exact desktop serialization exception was not available and is not claimed.
 
 The next eligible live run is one guarded desktop attempt 5 (`test5-5`). It
 must pass both runtime and independent product grading before any merge.
+
+---
+
+# TEST 5, attempt 5 (test5-5) — runtime FAIL, product FAIL (2026-08-25)
+
+## Preserved desktop verdict
+
+The guarded run reached its configured 20-LLM-call circuit breaker after the
+Sarvam 105B model remained in a planning/search loop. Safety policy blocked a
+`curl` download attempt. No file mutation landed and the workspace was empty,
+so there was no product to grade. The operator reports approximately four
+credits consumed. Evidence was preserved and PR #9 was not merged.
+
+## What this result establishes
+
+The attempt-4b unattended approval deadlock was repaired: attempt 5 progressed
+to a different boundary. The observed failure class is now model/tool strategy
+before first delivery. The summary alone does not establish that permitting
+`curl` would be safe or sufficient; review the preserved frames and stderr to
+determine whether the model ignored the already documented supported vendoring
+pivot, repeated planning, or received misleading tool feedback.
+
+Stop condition: no automatic rerun, no merge, and no branch deletion. Preserve
+`C:\test5-ws-attempt5` and `bench-results\test5-5\` pending founder review.

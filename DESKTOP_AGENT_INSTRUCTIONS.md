@@ -6,7 +6,7 @@
 **Required code commit:** `7fe50089` or newer
 **Credit situation:** approximately 50 credits remain
 
-> These instructions supersede every older instruction in this file. Read the entire document before running anything. Do not improvise, expose credentials, rerun a failed probe, or merge based only on `turn_done`.
+> **STOP — attempt 5 has already run and failed.** It exhausted the 20-call breaker in a planning/search loop, delivered zero files, and consumed approximately four credits. Preserve `C:\test5-ws-attempt5` and `bench-results\test5-5\`; do not execute the run commands below again, merge PR #9, or delete branches. The remaining procedure is retained only as the immutable record of what was run.
 
 ## 1. Mission
 
