@@ -617,8 +617,6 @@ Suite: **35 passed** (up from 32).
 | Search: Search Editor Ctrl+L, etc. | varies | contextual when clauses | Unaffected. |
 
 This is identical to Cursor's shipped keybinding conflict resolution.
-<<<<<<< HEAD
-=======
 
 ## 2g. R4.2 — Copilot surfaces hidden at context-key level (Aug 2026)
 

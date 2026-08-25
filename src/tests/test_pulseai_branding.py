@@ -226,8 +226,6 @@ def test_pulse_command_center_title_bar_icon():
         "Pulse must register an icon in the command center (title bar), like Copilot."
     )
     assert "id: PULSE_AI_VIEW_CONTAINER_ID" in contribution
-<<<<<<< HEAD
-=======
 
 
 def test_pulse_forces_copilot_context_keys_hidden_at_startup():
