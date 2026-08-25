@@ -110,7 +110,9 @@ committed. Independent status is:
 RECORDED_CHECKS_PASS / REQUIRED_VALIDATION_INCOMPLETE
 ```
 
-Desktop is back to STOP. No rerun or missing-check-only follow-up is authorized.
+The founder subsequently authorized one missing-check-only Windows follow-up.
+`DESKTOP_AGENT_INSTRUCTIONS.md` now permits exactly the omitted 8 tests, with
+zero provider calls and no repetition of the 42 passing tests.
 
 ### B. Work still prohibited pending explicit founder authorization
 
@@ -175,16 +177,14 @@ Important evidence commits:
 
 ## 5. Exact next task
 
-**Next task: founder decision on whether to authorize one zero-provider,
-missing-check-only Windows follow-up.**
+**Next task: desktop runs the authorized zero-provider, missing-check-only
+Windows follow-up in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
 
-If authorized, desktop should run exactly the two omitted pytest targets once,
-commit their command/version/output receipt, and return to STOP. It must not
-repeat the 42 passing tests or call a provider. If that receipt passes and is
-independently verified, the next decision is whether to authorize a monitored
-live Attempt 9.
-
-Without that explicit authorization, perform no desktop or provider work.
+Run exactly the two omitted targets (expected collection: 8 tests), commit the
+command/version/output receipt, push it, and return to STOP. Do not repeat the
+42 passing tests or call a provider. After Arena independently verifies that
+receipt, the next founder decision is whether to authorize a monitored live
+Attempt 9.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
