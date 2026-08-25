@@ -1,0 +1,43 @@
+{
+  "attempt": 11,
+  "branch": "arena/01a03741-pulseairepo",
+  "head_commit": "58665f640fc1c096f938340028160cdaec47a26c",
+  "repair_commit": "0bb00413f4a03b0172c4f6214018bad156fb1d2a",
+  "windows_evidence_commit": "352099c158b9c70e1ce5ef46f9a17c5020f8cc9d",
+  "provider": "openrouter",
+  "model": "stealth/ox-alpha",
+  "probe": {
+    "outcome": "PROBE_OK",
+    "http_status": 200,
+    "latency_s": 2.65
+  },
+  "turn": {
+    "outcome": "turn_done",
+    "completed": true,
+    "error": null,
+    "llm_requests": 13,
+    "llm_responses": 13,
+    "tool_calls": 7,
+    "tokens_in": 86160,
+    "tokens_out": 49718,
+    "total_cost_usd": 0.135878,
+    "budget_stop": false,
+    "no_delivery_stop": false,
+    "safety_requests": 0,
+    "safety_denied": 0
+  },
+  "delivery": {
+    "files": 5,
+    "total_bytes": 42643,
+    "files_list": [
+      "index.html (3925)",
+      "css/style.css (5568)",
+      "js/config.js (3945)",
+      "js/main.js (18724)",
+      "js/shaders.js (10481)"
+    ]
+  },
+  "runtime_verdict": "PASS - turn completed, 5 files delivered, 13 LLM requests",
+  "product_verdict": "PENDING_INDEPENDENT_REVIEW",
+  "pr_merge": false
+}
