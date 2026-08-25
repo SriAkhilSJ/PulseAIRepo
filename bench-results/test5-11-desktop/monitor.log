@@ -1,0 +1,21 @@
+14:43:35 MONITOR_START frames=7 llm_req=1 llm_resp=0 tool=0 ws_files=0 ws_bytes=0
+14:44:30 MONITOR frames=9 llm_req=2 llm_resp=1 tool=0 ws_files=0 ws_bytes=0 alive=False
+14:46:24 MONITOR frames=9 llm_req=2 llm_resp=1 tool=0 ws_files=0 ws_bytes=0
+14:47:22 MONITOR frames=9 llm_req=2 llm_resp=1 tool=0 ws_files=0 ws_bytes=0
+14:48:16 MONITOR frames=11 llm_req=3 llm_resp=2 tool=0 ws_files=0 ws_bytes=0
+14:49:40 MONITOR frames=11 llm_req=3 llm_resp=2 tool=0 ws_files=0 ws_bytes=0
+14:50:32 MONITOR frames=11 llm_req=3 llm_resp=2 tool=0 ws_files=0 ws_bytes=0
+14:51:27 MONITOR frames=11 llm_req=3 llm_resp=2 tool=0 ws_files=0 ws_bytes=0
+14:52:20 MONITOR frames=13 llm_req=4 llm_resp=3 tool=0 ws_files=0 ws_bytes=0
+14:53:51 MONITOR frames=20 llm_req=5 llm_resp=5 tool=1 ws_files=1 ws_bytes=3925
+14:55:12 MONITOR frames=28 llm_req=7 llm_resp=6 tool=3 ws_files=3 ws_bytes=13438
+14:56:39 MONITOR frames=28 llm_req=7 llm_resp=6 tool=3 ws_files=3 ws_bytes=13438
+14:57:34 MONITOR frames=28 llm_req=7 llm_resp=6 tool=3 ws_files=3 ws_bytes=13438
+14:58:31 MONITOR frames=28 llm_req=7 llm_resp=6 tool=3 ws_files=3 ws_bytes=13438
+15:00:32 MONITOR frames=38 llm_req=9 llm_resp=8 tool=5 ws_files=4 ws_bytes=23919
+15:01:29 MONITOR frames=38 llm_req=9 llm_resp=8 tool=5 ws_files=4 ws_bytes=23919
+15:02:24 MONITOR frames=57 llm_req=13 llm_resp=13 tool=7 ws_files=5 ws_bytes=42643
+15:03:20 MONITOR frames=57 llm_req=13 llm_resp=13 tool=7 ws_files=5 ws_bytes=42643
+15:04:16 MONITOR frames=57 llm_req=13 llm_resp=13 tool=7 ws_files=5 ws_bytes=42643
+15:07:51 TURN_DONE result=turn_done llm=13 tool=7 files=5 bytes=42643
+15:07:51 COMMITTING evidence
