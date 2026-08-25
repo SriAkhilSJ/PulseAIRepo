@@ -201,17 +201,18 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 
 ## 5. Exact next task
 
-**Next task: review the committed deterministic repair and remain stopped.**
+**Next task: desktop provider-free deterministic validation, then STOP.**
 
 The finish normalization, dedicated bounded continuation, runner evidence, and
-custom-OpenRouter budget recognition are implemented and provider-free tests are
-recorded in `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`. Desktop remains STOP. Do not
-start a provider probe/run, raise a cap, merge PR #9, delete a branch, or begin
-Agentic UI work without separate explicit authorization.
+custom-OpenRouter budget recognition are implemented and provider-free Arena
+tests are recorded in `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`. The desktop agent
+may now validate commit `0bb00413f4a03b0172c4f6214018bad156fb1d2a` using only
+the exact deterministic allowlist in `DESKTOP_AGENT_INSTRUCTIONS.md`, commit and
+push its new evidence, and then STOP.
 
-Only a later, separately authorized live runtime **and** independent product
-PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
-not before it.
+No provider probe/run, cap increase, source repair, PR merge, branch deletion,
+or Agentic UI work is authorized. Only a later, separately authorized live
+runtime **and** independent product PASS can make PR #9 eligible for merge.
 
 ## 6. Fast reading map
 
