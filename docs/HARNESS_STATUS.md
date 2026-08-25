@@ -955,3 +955,39 @@ Pins: 3 tests (OK path actually asks the model; contradiction is quoted;
 validator failure is advisory). The first draft of test 1 passed
 vacuously without patching get_llm (real provider raised -> advisory "");
 the rewrite asserts the model was actually asked.
+
+---
+
+# TEST 5, desktop attempt 4b (test5-4b) — runtime FAIL, product FAIL (2026-08-25)
+
+## Observed boundary
+
+Sarvam reached a roughly 30KB `main.js` `write_file`, then the run produced no
+workspace files and no `outcome.json`. The payload was far below the bridge's
+1 MiB frame limit, so raising that limit was rejected as an unsupported fix.
+No merge or branch deletion followed.
+
+## Confirmed root cause
+
+The guarded runner set `PULSEAI_AUTO_APPROVE_WRITES=1`, but the real bridge
+opened an approval channel while leaving `stream_agent` at interactive policy
+`ask`. An ordinary safe mutation therefore entered `approval_queue` and could
+wait 300 seconds. The headless runner only recorded `safety_request`; it never
+sent `safety_reply`. This is the confirmed unattended approval deadlock. An
+exact desktop serialization exception was not available and is not claimed.
+
+## Repair and no-credit proof
+
+- guarded bridge turns explicitly select `workspace_session` approval;
+- residual safety requests are always answered, with auto-approval restricted
+  to warning-free workspace-contained file mutations and all other requests
+  denied;
+- runner transport errors still write a sanitized outcome receipt;
+- Hermes-aligned guidance keeps individual tool arguments below roughly 8K
+  tokens and tells the model to split rather than repeat a dropped large call;
+- a deterministic 35KB write lands through the real `SafeToolNode` path;
+- the focused bridge/tool/harness/prompt selection passes 79 tests, and an echo
+  runner smoke completes with zero model calls and zero safety requests.
+
+The next eligible live run is one guarded desktop attempt 5 (`test5-5`). It
+must pass both runtime and independent product grading before any merge.
