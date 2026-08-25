@@ -1,4 +1,13 @@
-# Desktop Agent Instructions — RUN exactly one Test 5 desktop attempt
+# Desktop Agent Instructions — RUN `test5-8-desktop` (NOT attempt 6)
+
+> **CRITICAL STALE-INSTRUCTION GUARD:** Attempt 6 is historical and its existing
+> workspace/evidence are expected. `C:\test5-ws-attempt6` is NOT the workspace
+> for this run and must never be used as a freshness check. If your plan,
+> command, report heading, or remembered instructions say `test5-6`,
+> "Attempt 6", "Step 4", or "Section 9", STOP, discard that cached plan, reopen
+> this file from the updated checkout, and start reading again at line 1. The
+> only authorized identity is `test5-8-desktop` with fresh workspace
+> `C:\test5-ws-attempt8`.
 
 **Founder instruction:** 2026-08-25
 
@@ -117,6 +126,43 @@ if ($SourceDirty.Count -gt 0) {
 }
 Write-Host "LOCAL UPDATE PASS: $RepoRoot @ $LocalHead"
 ```
+
+Immediately reload and validate the instruction file from disk. Do not rely on
+conversation memory or a previously opened editor tab:
+
+```powershell
+$InstructionText = Get-Content -LiteralPath `
+  (Join-Path $RepoRoot 'DESKTOP_AGENT_INSTRUCTIONS.md') -Raw
+$RequiredMarkers = @(
+  'RUN `test5-8-desktop` (NOT attempt 6)',
+  'Run ID: `test5-8-desktop`',
+  'Fresh workspace: `C:\test5-ws-attempt8`',
+  "-RunId 'test5-8-desktop'"
+)
+$MissingMarkers = @($RequiredMarkers | Where-Object {
+  $InstructionText.IndexOf($_, [System.StringComparison]::Ordinal) -lt 0
+})
+if ($MissingMarkers.Count -gt 0) {
+  $MissingMarkers
+  throw 'STOP: stale or wrong desktop instructions; do not run any Test 5 command'
+}
+if ($InstructionText -match "-RunId 'test5-6'" -or
+    $InstructionText -match "-Workspace 'C:\\test5-ws-attempt6'") {
+  throw 'STOP: stale Attempt-6 execution command detected'
+}
+Write-Host 'INSTRUCTION CONTRACT PASS: run=test5-8-desktop workspace=C:\test5-ws-attempt8'
+```
+
+The existing Attempt-6 paths are preservation inputs, not blockers. Their
+presence is expected:
+
+```text
+C:\test5-ws-attempt6
+bench-results\test5-6\
+```
+
+Do not delete or modify them, but do not stop merely because they exist. The
+freshness checks below apply only to Attempt 8.
 
 Create a local-sync receipt in TEMP now; it will be moved into the evidence
 directory after the guarded runner creates that directory:
