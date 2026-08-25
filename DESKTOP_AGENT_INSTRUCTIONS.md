@@ -1,30 +1,34 @@
-# Desktop Agent Instructions — Test 5 Attempt 5
+# Desktop Agent Instructions — guarded Test 5 Attempt 6
 
-**Updated:** 2026-08-25
+**Authorized:** 2026-08-25 by the founder
+
 **Repository:** `https://github.com/SriAkhilSJ/PulseAIRepo`
-**Integration branch:** `arena/01a03741-pulseairepo`
-**Required code commit:** `7fe50089` or newer
-**Credit situation:** approximately 50 credits remain
 
-> **STOP — attempt 5 has already run and failed.** It exhausted the 20-call breaker in a planning/search loop, delivered zero files, and consumed approximately four credits. Preserve `C:\test5-ws-attempt5` and `bench-results\test5-5\`; do not execute the run commands below again, merge PR #9, or delete branches. The remaining procedure is retained only as the immutable record of what was run.
+**Branch:** `arena/01a03741-pulseairepo`
 
-## 1. Mission
+**Required reliability commit:** `6d31b0b8` or newer
 
-Run **one** guarded provider-backed Test 5 attempt on the founder's Windows desktop, preserve complete evidence, independently inspect the delivered website, and report PASS or FAIL honestly.
+**PR:** `https://github.com/SriAkhilSJ/PulseAIRepo/pull/9`
 
-The Arena environment could not establish TLS with `api.sarvam.ai`; the desktop previously could. Therefore this run must happen on the desktop.
+> Run exactly one provider-backed attempt. Monitor every 30 seconds, preserve immutable evidence, and grade runtime and product independently. Do not retry a failure. Merge/branch cleanup is permitted only after both verdicts pass.
 
-Test 5 is the GARGANTUA Schwarzschild black-hole raytracer task in:
+## 1. Mission and prior boundary
 
-```text
-scripts/test5_prompt.txt
-```
+Test 5 is the GARGANTUA raytracer task in `scripts/test5_prompt.txt`. Attempt `test5-5` exhausted 20 requests in platform discovery, empty-workspace verification, replanning, and dependency acquisition without writing a file.
 
-Attempts 1–3 and desktop attempt `test5-4b` are recorded failures. Attempt 4b reached a roughly 30KB `write_file` but produced no files because the headless bridge requested interactive approval and nobody replied. This is a fresh **attempt 5** after repairing that approval deadlock; it remains a retest candidate, not an already-proven pass.
+Attempt 6 tests the reviewed repairs:
 
-## 2. Sync the correct GitHub branch
+- Windows `cmd.exe` is stated before tool use and POSIX-only commands are rejected before spawn;
+- unavailable typecheck is hidden and cannot trigger phantom KEEP/REPLAN calls;
+- deterministic policy/platform outcomes do not pay for a replan classifier;
+- required-delivery tasks warn after two main-agent iterations without a mutation;
+- after four such iterations, only delivery capabilities remain until a file lands;
+- explicit BM25-only indexing cannot enter Hugging Face download retries;
+- headless workspace mutations use the repaired workspace-scoped approval path.
 
-Do not use the old agent branch `arena/01a02a5c-pulseairepo` directly. Its six useful Test-5 commits were reviewed and selectively integrated into the current R4 desktop branch, then the integration defects and the attempt-4b approval deadlock were fixed.
+This is a candidate, not a claimed pass.
+
+## 2. Sync and prove the branch
 
 From the repository root in PowerShell:
 
@@ -32,110 +36,102 @@ From the repository root in PowerShell:
 git status --short --branch
 ```
 
-If tracked or untracked work exists, preserve it first:
+If anything is modified or untracked, preserve it—never delete it:
 
 ```powershell
-git stash push -u -m "pre-test5-attempt5"
+git stash push -u -m "pre-test5-attempt6"
 ```
 
-Then sync:
+Sync:
 
 ```powershell
 git fetch origin --prune
 git switch arena/01a03741-pulseairepo
 git pull --ff-only origin arena/01a03741-pulseairepo
-git log --oneline -5
+git log --oneline -6
+git status --short --branch
 ```
 
-Verify that the reviewed integration baseline is included:
+Require the repair baseline:
 
 ```powershell
-git merge-base --is-ancestor 7fe50089 HEAD
-if ($LASTEXITCODE -ne 0) { throw "Wrong/stale branch: 7fe50089 is missing" }
-if (-not (Select-String -Path scripts\run_bridge_turn.py -Pattern "PULSEAI_BRIDGE_APPROVAL_POLICY" -Quiet)) {
-  throw "Missing Test-5 approval hardening"
-}
-```
+git merge-base --is-ancestor 6d31b0b8 HEAD
+if ($LASTEXITCODE -ne 0) { throw "Stale branch: 6d31b0b8 is missing" }
 
-Required files:
-
-```powershell
 @(
+  "docs\AGENT_RELIABILITY_PLAN.md",
   "scripts\run_bridge_turn.py",
   "scripts\run_test5_guarded.ps1",
-  "scripts\test5_prompt.txt",
-  "docs\TEST5_READINESS.md"
+  "scripts\test5_prompt.txt"
 ) | ForEach-Object {
   if (-not (Test-Path $_)) { throw "Missing required file: $_" }
 }
+
+if (-not (Select-String scripts\run_bridge_turn.py "PULSEAI_BRIDGE_APPROVAL_POLICY" -Quiet)) {
+  throw "Missing headless approval repair"
+}
+if (-not (Select-String src\graphs\chat_graph.py "forced_delivery" -Quiet)) {
+  throw "Missing pre-delivery no-progress repair"
+}
 ```
 
-Do not merge either old agent branch into this checkout. A whole-tree merge would regress the current vendored Code OSS/R4 desktop state.
+Do not merge old branches into this checkout.
 
-## 3. Protect the provider key
+## 3. Provider key safety
 
-Use the desktop's private, gitignored `.env`. Never copy a key into README, source code, a commit, terminal output, screenshot, issue, or chat.
+Use only the private, gitignored desktop `.env`. Per the founder's standing instruction, if the desktop has no valid configured key, recover the historical README key locally and place it only in `.env` without printing it. Never put a key in terminal output, chat, screenshots, evidence, source, or Git.
 
-`.env` must contain:
+Required effective settings:
 
 ```env
 LLM_PROVIDER=custom
 LLM_MODEL=sarvam-105b-conversations
 CONTEXT_MODEL=sarvam-105b-conversations
 CUSTOM_BASE_URL=https://api.sarvam.ai/v1
-CUSTOM_API_KEY=<private key>
+CUSTOM_API_KEY=<private value>
 SUMMARIZER_LLM=aux
 PROVIDER_SAFE_LIMIT=0
 ```
 
-Safety checks:
+Validate without exposing values:
 
 ```powershell
 git check-ignore .env
 if ($LASTEXITCODE -ne 0) { throw ".env is not ignored — STOP" }
-
-git status --short
-```
-
-The historical README key was publicly committed and later removed. Prefer a rotated private key. Never print either key to prove it exists.
-
-Verify the Python environment without making a provider call:
-
-```powershell
-if (-not (Test-Path ".venv\Scripts\python.exe")) {
-  throw "Missing repository venv — STOP and report"
-}
-
+if (-not (Test-Path ".venv\Scripts\python.exe")) { throw "Missing .venv — STOP" }
 .\.venv\Scripts\python.exe -c "import langchain_core, langgraph, PIL; print('runtime dependencies OK')"
 ```
 
-## 4. Prepare a fresh workspace and run ID
-
-Do not reuse previous workspaces or evidence directories.
+Remove any temporary offline-validation variables from the current shell before the live run:
 
 ```powershell
-$Workspace = "C:\test5-ws-attempt5"
-$RunId = "test5-5"
-
-if (Test-Path $Workspace) {
-  throw "$Workspace already exists. Choose a fresh empty path; do not delete evidence blindly."
-}
-if (Test-Path "bench-results\$RunId") {
-  throw "Run ID already exists. Choose a fresh ID; evidence is immutable."
-}
+Remove-Item Env:HF_HUB_OFFLINE -ErrorAction SilentlyContinue
+Remove-Item Env:TRANSFORMERS_OFFLINE -ErrorAction SilentlyContinue
+Remove-Item Env:HF_HUB_DISABLE_TELEMETRY -ErrorAction SilentlyContinue
+Remove-Item Env:PULSEAI_WEB_TOOLS -ErrorAction SilentlyContinue
 ```
 
-## 5. Run exactly one guarded attempt
+## 4. Fresh immutable locations
 
-The limits below are deliberate for the remaining credits:
+```powershell
+$Workspace = "C:\test5-ws-attempt6"
+$RunId = "test5-6"
 
-- maximum 20 observed LLM request frames;
-- maximum approximately 180,000 cumulative input tokens;
-- 90-minute hard cap;
-- 600-second stall cap for long package installs/build activity;
-- watchdog status every 30 seconds.
+if (Test-Path $Workspace) { throw "$Workspace already exists — STOP; do not delete/reuse" }
+if (Test-Path "bench-results\$RunId") { throw "Run ID exists — STOP; evidence is immutable" }
+```
 
-Run:
+Preserve `C:\test5-ws-attempt5` and `bench-results\test5-5\` unchanged.
+
+## 5. Run exactly once
+
+Limits protect the remaining credits:
+
+- 20 observed LLM requests maximum;
+- approximately 180,000 cumulative input tokens maximum;
+- 90-minute wall cap;
+- 600-second activity-aware stall cap;
+- watchdog output every 30 seconds.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
@@ -147,111 +143,95 @@ powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
   -MaxInputTokens 180000
 ```
 
-### Monitoring rules
+Monitoring rules:
 
-The script prints a watchdog line every 30 seconds. Watch it continuously.
+- Watch continuously and record each 30-second watchdog status.
+- If the tiny provider preflight fails, stop and do not retry.
+- Never raise a limit during the run.
+- Never edit/help the generated workspace.
+- Do not manually approve tool calls; the repaired headless policy owns them.
+- A quiet package install can be healthy when CPU/workspace activity continues.
+- Let the breaker cancel at either budget cap.
+- If the wrapper cannot stop a broken process tree, use `taskkill /T /F /PID <pid>` and grade runtime FAIL.
+- Run no second provider-backed attempt.
 
-- If the 8-token preflight fails: **STOP. Do not retry.** Record the exact error without credentials.
-- If the provider repeatedly fails before producing a response: stop after diagnosis; do not burn through the cap merely because the cap exists.
-- A quiet `npm install` may still be healthy. Workspace file changes and CPU activity count as heartbeats; do not kill a healthy build manually.
-- Let the circuit breaker cancel at either budget limit.
-- Never increase a limit during the run.
-- Never intervene in the workspace or help the agent complete the product. Human edits make the autonomous benchmark invalid.
+## 6. Runtime verdict
 
-Emergency stop, only if the wrapper itself fails to stop the tree:
-
-```powershell
-taskkill /T /F /PID <runner-pid>
-```
-
-## 6. Runtime evidence required
-
-After the process exits, preserve and inspect:
+Require and preserve:
 
 ```text
-bench-results\test5-5\frames.jsonl
-bench-results\test5-5\bridge_stderr.log
-bench-results\test5-5\outcome.json
+bench-results\test5-6\frames.jsonl
+bench-results\test5-6\bridge_stderr.log
+bench-results\test5-6\outcome.json
 ```
 
-Print only sanitized summaries:
+Inspect sanitized summaries:
 
 ```powershell
 Get-Content "bench-results\$RunId\outcome.json"
-Get-Content "bench-results\$RunId\bridge_stderr.log" -Tail 80
+Get-Content "bench-results\$RunId\bridge_stderr.log" -Tail 100
+Get-ChildItem $Workspace -Recurse -File | Select-Object FullName, Length
 ```
 
-Immediate runtime FAIL conditions:
+Runtime FAIL if any condition holds:
 
 - missing `outcome.json`;
-- `result` is not `turn_done`;
-- `completed` is not `true`;
-- `budget_stop` is `true`;
-- provider/bridge crash;
-- watchdog kill;
+- result is not `turn_done`;
+- `completed` is not true;
+- `budget_stop` is true;
+- provider/bridge/watchdog crash or kill;
 - human intervention;
-- no meaningful source files delivered.
+- no meaningful source files;
+- repeated platform-discovery or empty-verification loop;
+- file mutations still have not landed after the forced-delivery threshold.
 
-`turn_done` is necessary but **not sufficient** for product PASS.
+Report `llm_request_frames`, token estimate, `safety_requests`, `safety_approved`, and `safety_denied`. A clean `turn_done` is necessary but not a product pass.
 
-## 7. Independently grade the delivered product
+## 7. Independent product grading
 
-Do not modify the agent's output while grading it.
+Do not modify the generated product. Follow its startup instructions exactly with the required basic static-server workflow.
 
-### Delivery checks
+Verify in a real browser:
 
-The workspace must contain executable source, startup instructions, local Three.js dependencies/assets, and meaningful implementation files—not only `package.json` or a scaffold.
-
-```powershell
-Get-ChildItem $Workspace -Recurse -File |
-  Select-Object FullName, Length |
-  Format-Table -AutoSize
-```
-
-Confirm there is no required external CDN dependency and no mandatory build step, because the task explicitly requires native HTML/CSS/JavaScript modules, local Three.js files, and a basic static server.
-
-### Static/runtime checks
-
-Follow the delivered startup instructions exactly. At minimum verify:
-
-1. The page loads from a basic static server.
-2. There is no black/blank screen.
-3. Browser console has no unhandled errors.
-4. The subject is rendered by a full-screen fragment shader, not substituted meshes/images/video.
-5. Event horizon, photon ring, lensed accretion disk, and starfield are visibly present.
-6. Orbit controls/cinematic camera paths work.
-7. Four presets work.
-8. Telemetry HUD appears.
-9. The 21 live parameters are present and responsive.
-10. Debug views 0–9 and documented hotkeys respond.
-11. Quality profiles work.
-12. Deterministic screenshot mode is URL-driven and reproducible.
-13. Responsive/Retina behavior does not break rendering.
-14. WebGL recovery is implemented or demonstrably handled.
+1. no blank/black failure screen or unhandled console errors;
+2. full-screen fragment-shader rendering—not substitute meshes/images/video;
+3. visible event horizon, photon ring, lensed accretion disk, and starfield;
+4. orbit controls and cinematic camera paths;
+5. all four presets;
+6. telemetry HUD;
+7. all 21 live parameters present and responsive;
+8. debug views 0–9 and documented hotkeys;
+9. quality profiles;
+10. reproducible URL-driven deterministic screenshot mode;
+11. responsive/Retina rendering;
+12. WebGL recovery;
+13. local Three.js assets/dependencies with no forbidden required CDN/build workflow.
 
 Capture:
 
-- one 1280×800 default screenshot;
-- screenshots for all four presets;
-- one debug-view screenshot;
+- 1280×800 default screenshot;
+- all four presets;
+- one debug view;
 - browser-console evidence;
-- the exact URL used for deterministic screenshot mode.
+- exact deterministic screenshot URL.
 
-Do not call the result PASS if major visual requirements are represented only by comments, labels, or placeholder UI.
+Comments, labels, placeholders, or partial stubs do not pass.
 
-## 8. Final verdict format
-
-Report exactly:
+## 8. Exact report
 
 ```text
-TEST 5 ATTEMPT 5
-Git commit: <git rev-parse HEAD>
-Run ID: test5-5
+TEST 5 ATTEMPT 6
+Git commit: <exact HEAD>
+PR: https://github.com/SriAkhilSJ/PulseAIRepo/pull/9
+Run ID: test5-6
 Runtime verdict: PASS | FAIL
 Product verdict: PASS | FAIL
-Human interventions: 0 | <count and details>
+Human interventions: 0 | <details>
 LLM request frames: <count>
 Approx input tokens: <count>
+Safety requests: <count>
+Safety approved: <count>
+Safety denied: <count>
 Budget stop: true | false
 Watchdog kill: true | false
 Files delivered: <count>
@@ -259,73 +239,45 @@ Static server command: <command>
 Console errors: <count>
 Screenshots: <paths>
 Blocking defects: <none or exact list>
-Overall verdict: PASS only when runtime AND product pass
+Overall verdict: PASS only if runtime AND product pass
 ```
 
 Never report the key.
 
-## 9. GitHub merge procedure — only after a verified PASS
+## 9. Failure rule
 
-Do not merge or delete branches merely because the process exited zero.
+If either verdict fails:
 
-First ensure the integration branch is pushed and create/reuse its PR:
+- do not merge PR #9;
+- do not delete branches;
+- do not rerun;
+- preserve the workspace and `bench-results\test5-6\` exactly;
+- report the first confirmed boundary and stop.
+
+## 10. PASS-only consolidation
+
+Only if runtime and product both pass:
 
 ```powershell
 git status --short --branch
 git push origin arena/01a03741-pulseairepo
-
-gh pr list --head arena/01a03741-pulseairepo --base main
+gh pr view 9
+gh pr diff 9 --name-only
+gh pr checks 9
 ```
 
-If no PR exists:
+Review the complete PR diff and sanitized evidence, then merge PR #9:
 
 ```powershell
-gh pr create `
-  --base main `
-  --head arena/01a03741-pulseairepo `
-  --title "fix(agent): Test 5 readiness and regression cleanup" `
-  --body "See docs/TEST5_READINESS.md. Test 5 attempt 5 passed runtime and independent product verification; sanitized evidence is attached/referenced."
+gh pr merge 9 --merge
 ```
 
-Check the complete diff summary, changed-file list, and checks before merging:
-
-```powershell
-git fetch origin main
-git diff --stat origin/main...HEAD
-gh pr diff --name-only
-gh pr checks --watch
-```
-
-Merge only after the founder confirms the sanitized Test-5 evidence:
-
-```powershell
-gh pr merge --merge
-```
-
-### Branch deletion order
-
-After GitHub confirms the PR is merged into `main`, verify ancestry:
+Verify containment:
 
 ```powershell
 git fetch origin --prune
 git merge-base --is-ancestor origin/arena/01a03741-pulseairepo origin/main
-if ($LASTEXITCODE -ne 0) { throw "Integration branch is not in main — do not delete anything" }
+if ($LASTEXITCODE -ne 0) { throw "PR branch is not contained in main — delete nothing" }
 ```
 
-Only then may the two superseded source branches be deleted:
-
-```powershell
-git push origin --delete arena/01a02954-pulseairepo
-git push origin --delete arena/01a02a5c-pulseairepo
-```
-
-Do **not** delete `arena/01a03741-pulseairepo` while the active Arena session or PR still depends on it. Delete it through the GitHub PR UI only after the session is finished and `main` ancestry is verified.
-
-## 10. If Test 5 fails
-
-- Do not merge.
-- Do not delete any branches.
-- Do not rerun automatically.
-- Preserve the workspace and `bench-results\test5-5\` exactly.
-- Report the first root-cause boundary: provider, harness, planning, tool strategy, verification, or product quality.
-- Wait for a code review/fix and explicit approval before spending more credits.
+After a verified merge, old superseded branches may be removed only after confirming they have no unintegrated intended work. Do **not** delete `arena/01a03741-pulseairepo` while this Arena session remains active. Stop and report the merge receipt before beginning Agentic UI work.
