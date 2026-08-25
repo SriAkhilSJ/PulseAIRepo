@@ -1,0 +1,45 @@
+﻿{
+    "validation_parent_commit":  "55111f4f8af7a2b8f9af8cab1f0e62b9ff00fb26",
+    "implementation_commit":  "b82381d36662e2f0dc9262bafafbedd8508318d6",
+    "ancestor_check":  true,
+    "checks":  [
+                   {
+                       "result":  "PASS",
+                       "name":  "powershell_parser",
+                       "exit_code":  0
+                   },
+                   {
+                       "result":  "PASS",
+                       "name":  "bridge_protocol_check",
+                       "exit_code":  0
+                   },
+                   {
+                       "result":  "PASS",
+                       "name":  "compileall",
+                       "exit_code":  0
+                   },
+                   {
+                       "exit_code":  0,
+                       "name":  "pytest",
+                       "passed":  42,
+                       "tests":  42,
+                       "result":  "PASS",
+                       "duration_seconds":  16.63,
+                       "warnings":  1
+                   },
+                   {
+                       "result":  "PASS",
+                       "name":  "git_diff_check",
+                       "exit_code":  0
+                   },
+                   {
+                       "result":  "PASS",
+                       "name":  "evidence_integrity",
+                       "unchanged":  true
+                   }
+               ],
+    "provider_call_count":  0,
+    "verdict":  "DETERMINISTIC_PASS",
+    "note":  "This is not a live-runtime/product PASS and does not authorize Attempt 9 or PR merge",
+    "timestamp":  "2026-08-25T11:12:41.9886134-07:00"
+}
