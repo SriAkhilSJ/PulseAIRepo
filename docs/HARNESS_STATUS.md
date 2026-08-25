@@ -1042,10 +1042,16 @@ for language/index/context, and 161/161 for the broader selection. Python
 compile and diff checks passed; Git was clean; failed-run workspace/evidence
 remained preserved.
 
-However, every pytest process reportedly hung during session teardown after all
-assertions passed. Therefore the accurate status is **assertions PASS / clean
-process lifecycle UNVERIFIED-FAIL**, not an unconditional deterministic PASS.
-The process/thread owner must be identified before Agent UI work. The report
-also did not launch the IDE, so visual workbench cleanliness remains unverified.
-No merge, branch deletion, live Test-5 rerun, provider call, or UI change was
-performed.
+A follow-up process-lifecycle diagnostic resolved the apparent teardown hang.
+Direct `python -m pytest`, direct `pytest.exe`, an in-process `pytest.main()`,
+and `Start-Process -NoNewWindow` without redirection all returned cleanly in
+about 8–10 seconds for the targeted test. No non-daemon thread or child process
+remained, and `pytest.main()` returned before process exit. The hang reproduced
+only when Windows PowerShell 5.1 `Start-Process` redirected stdout or stderr;
+it is a parent/child pipe-redirection deadlock in the diagnostic invocation,
+not a pytest fixture, plugin, or Pulse runtime teardown defect. Desktop
+**deterministic validation PASS** is therefore supported for these selections.
+
+The report did not launch the IDE, so visual workbench cleanliness remains
+unverified. No merge, branch deletion, live Test-5 rerun, provider call, or UI
+change was performed.
