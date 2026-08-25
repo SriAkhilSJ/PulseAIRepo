@@ -159,7 +159,14 @@ def test_python_only_degradation_is_loud_once(monkeypatch, tmp_path, capsys):
 # ---------------------------------------------------------- index e2e
 
 
-def test_index_mixed_workspace_search_and_sync(tmp_path):
+def test_index_mixed_workspace_search_and_sync(tmp_path, monkeypatch):
+    # Explicit embedder=None is a BM25-only contract. It must never be treated
+    # as "load the default from Hugging Face" (that network retry made the
+    # offline suite appear deadlocked at this test).
+    monkeypatch.setattr(
+        "src.llm.factory.get_embedder",
+        lambda: (_ for _ in ()).throw(AssertionError("must stay BM25-only")),
+    )
     (tmp_path / "auth.py").write_text(
         'def validate_password(pw):\n    """Check pw rules."""\n    return len(pw) > 7\n'
     )

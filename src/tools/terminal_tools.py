@@ -26,7 +26,8 @@ _IS_WINDOWS = platform.system() == "Windows"
 # path like `C:\Program Files` is not (it contains a backslash, not /tmp).
 _POSIX_ONLY_VERBS = frozenset({
     "mkdir", "mv", "cp", "rm", "chmod", "chown", "which", "pwd",
-    "touch", "ls", "grep", "sed", "awk", "cat", "tar", "unzip",
+    "touch", "ls", "find", "head", "tail", "wc", "grep", "sed", "awk",
+    "cat", "tar", "unzip",
 })
 _POSIX_FLAGS = ("-p", "-rf", "-R", "-f", "+x")
 _POSIX_TMP_RE = re.compile(
@@ -58,10 +59,16 @@ def _posix_violations(command: str) -> list[str]:
                     f"(use PowerShell: New-Item -ItemType Directory, Copy-Item, "
                     f"Move-Item, Remove-Item — or cmd: mkdir/copy/move/del)."
                 )
-            elif verb in ("which", "chmod", "chown", "touch", "sudo"):
+            elif verb in _POSIX_ONLY_VERBS or verb == "sudo":
+                # The old detector listed ls/pwd/find-style verbs but only
+                # emitted a violation for which/chmod/etc. Test5-5 therefore
+                # spawned bare `ls -la` and `pwd` on cmd.exe and paid for the
+                # predictable failures. Every listed POSIX-only verb must
+                # produce the typed platform pivot before process spawn.
                 violations.append(
-                    f"`{verb}` is a POSIX-only command with no Windows equivalent. "
-                    f"Use PowerShell Get-Command/Get-Item, or cmd `where`."
+                    f"`{verb}` is a POSIX-only command in this cmd.exe runtime. "
+                    "Use cmd/PowerShell equivalents (dir, cd, where, Get-ChildItem, "
+                    "Get-Content, Select-String)."
                 )
     if _POSIX_TMP_RE.search(command):
         violations.append(

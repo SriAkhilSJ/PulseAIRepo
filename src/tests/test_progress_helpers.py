@@ -51,6 +51,10 @@ def test_failed_verification_receipts_are_tool_failures():
         "typecheck_workspace", "✅ typecheck_workspace: passed with 0 errors"
     ) == ph.OUTCOME_SUCCESS
     assert ph.classify_tool_outcome(
+        "typecheck_workspace",
+        "ℹ️ typecheck_workspace: no tsconfig.json — nothing to typecheck",
+    ) == ph.OUTCOME_SKIP
+    assert ph.classify_tool_outcome(
         "verify_ui_routes", "❌ UI ROUTE VERIFICATION FAILED"
     ) == ph.OUTCOME_FAILED
 
@@ -152,6 +156,18 @@ def test_d9_build_failure_terminal_variants():
 def test_d9_maybe_replan(monkeypatch):
     needed, usages = ph.maybe_replan("t", [], "f", "p", "m")
     assert needed is False and usages == []
+
+    def _must_not_call(**kwargs):
+        raise AssertionError("deterministic local failure must not call the LLM")
+
+    monkeypatch.setattr(ph, "should_replan", _must_not_call)
+    plan = [{"step": 1}]
+    for failure in (
+        "Tool failed: PHASE POLICY DENIED run_terminal",
+        "Command failed: curl\n⛔ BLOCKED (safety policy)",
+        "run_terminal uses POSIX-only shell on Windows",
+    ):
+        assert ph.maybe_replan("build", plan, failure, "p", "m") == (False, [])
 
     captured = {}
 
@@ -281,8 +297,8 @@ def test_d9_progress_node_running_check_records_nothing():
     assert out["execution_trace"] == []
     assert out["steps_completed"] == []
     assert out["failed_steps"] == []
-    # ...but the reflection message still fires (a tool message DID arrive)
-    assert isinstance(out["messages"][0], SystemMessage)
+    # A non-result must not create a phantom progress/reflection heartbeat.
+    assert "messages" not in out
 
 
 # ---------------------------------------------------------------------

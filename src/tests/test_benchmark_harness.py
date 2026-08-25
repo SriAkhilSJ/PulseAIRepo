@@ -407,6 +407,35 @@ def test_turn_control_stale_cancel_never_poisons_reuse():
 
 
 
+def test_windows_posix_guard_rejects_every_test5_dialect_before_spawn(monkeypatch):
+    import src.tools.terminal_tools as terminal_tools
+
+    monkeypatch.setattr(terminal_tools, "_IS_WINDOWS", True)
+    for command, verb in (
+        ("ls -la && find . -maxdepth 2 -type f | head", "ls"),
+        ("pwd && ls -la", "pwd"),
+        ("find . -type f", "find"),
+        ("head -20 app.js", "head"),
+    ):
+        violations = terminal_tools._posix_violations(command)
+        assert violations, f"{command!r} must be rejected before cmd.exe spawn"
+        assert any(verb in item for item in violations)
+
+
+def test_test5_curl_download_is_not_intrinsically_destructive(monkeypatch):
+    """Do not weaken safety based on an imprecise transcript diagnosis: the
+    exact direct curl command from Test5-5 already passes the safety guard."""
+    from src.context.safety_guard import SafetyGuard
+    from src.tools import terminal_tools
+
+    command = "curl -sL https://unpkg.com/three@0.160.0/build/three.min.js -o three.min.js"
+    assert SafetyGuard(".").check_tool_call(
+        "run_terminal", {"command": command}
+    ) == (True, "")
+    monkeypatch.setattr(terminal_tools, "_IS_WINDOWS", True)
+    assert terminal_tools._posix_violations(command) == []
+
+
 def test_test5_headless_approval_is_workspace_scoped_and_payload_size_independent(tmp_path):
     """A 30KB write must not strand the headless runner on safety_request."""
     from scripts.run_bridge_turn import should_auto_approve_safety_request

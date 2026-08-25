@@ -1015,3 +1015,18 @@ pivot, repeated planning, or received misleading tool feedback.
 
 Stop condition: no automatic rerun, no merge, and no branch deletion. Preserve
 `C:\test5-ws-attempt5` and `bench-results\test5-5\` pending founder review.
+
+## Postmortem repair (no provider calls)
+
+The sanitized frame timeline exposed cross-tool no-progress rather than one
+identical-call loop. The runtime now states Windows `cmd.exe` before execution,
+rejects every listed POSIX-only verb before spawn, hides unavailable typecheck,
+skips deterministic KEEP/REPLAN model calls, warns after two pre-delivery
+iterations, and narrows to delivery capabilities after four until a file lands.
+The exact reported direct curl command remains safety-allowed in regression;
+safety was not weakened without the exact denial frame.
+
+A separate apparent full-suite deadlock at 57% was traced with faulthandler to
+Hugging Face TLS backoff: explicit `ChunkIndex(embedder=None)` accidentally
+loaded the lazy default model. Explicit None is now genuinely BM25-only; the
+stuck test completes in ~0.1s. See `docs/AGENT_RELIABILITY_PLAN.md`.
