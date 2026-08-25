@@ -1,0 +1,25 @@
+{
+  "run_id": "test5-10-desktop",
+  "session_id": "t5-eb82be289f",
+  "workspace": "C:\\test5-ws-attempt10",
+  "result": "runner-error",
+  "completed": false,
+  "error": "OSError: [Errno 22] Invalid argument",
+  "frame_counts": {
+    "hello": 1,
+    "session_info": 1,
+    "workspace.bound": 2,
+    "turn_started": 1,
+    "reasoning": 1,
+    "llm.request": 1,
+    "llm.response": 1
+  },
+  "llm_request_frames": 1,
+  "tokens_in_last_telemetry": 0,
+  "budget_stop": false,
+  "no_delivery_stop": false,
+  "operator_cancelled": false,
+  "safety_requests": 0,
+  "safety_approved": 0,
+  "safety_denied": 0
+}

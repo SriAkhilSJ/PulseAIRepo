@@ -1,0 +1,17 @@
+﻿{
+    "source_commit":  "9ba5a8a333e48de8bf3333f5ff398b6d7bf07eeb",
+    "branch":  "arena/01a03741-pulseairepo",
+    "implementation_commit":  "b82381d36662e2f0dc9262bafafbedd8508318d6",
+    "probe_repair_commit":  "72dd56d910dd6b5707d17fca632b48ac5c44a23f",
+    "attempt9_stop_commit":  "47c02f9b0bfacf3b502e2191a200834e77127a2c",
+    "prompt_sha256":  "0641fdcd14bd541e0f96ab3ddf7be0fb60cc354a627cfddd457a316394babeed",
+    "wrapper_sha256":  "f2e42fdc1a3d16215140bf2616ecd2f7d548ad6c5cb4d49ee99e7374192eb6a1",
+    "ps_parse":  "PASS",
+    "preflight_pytest":  "4 passed",
+    "model":  "stealth/ox-alpha",
+    "base_url":  "https://openrouter.ai/api/v1",
+    "credential_present":  true,
+    "workspace":  "C:\\test5-ws-attempt10",
+    "run_id":  "test5-10-desktop",
+    "timestamp":  "2026-08-25T13:01:15.1534717-07:00"
+}
