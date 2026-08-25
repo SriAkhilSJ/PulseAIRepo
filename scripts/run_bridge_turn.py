@@ -69,6 +69,27 @@ def should_auto_approve_safety_request(frame: dict, workspace: str) -> bool:
     return candidate.name.lower() not in _SENSITIVE_NAMES
 
 
+def workspace_has_delivered_file(workspace: str) -> bool:
+    """Cheap fail-safe for paid empty-workspace loops.
+
+    Any regular file outside dependency/metadata trees counts as first delivery;
+    product grading remains responsible for deciding whether it is meaningful.
+    """
+    root = Path(workspace)
+    ignored = {".git", "node_modules", ".venv", "__pycache__"}
+    try:
+        return any(
+            path.is_file() and not (set(path.relative_to(root).parts) & ignored)
+            for path in root.rglob("*")
+        )
+    except OSError:
+        return False
+
+
+def should_stop_for_no_delivery(llm_calls: int, limit: int, workspace: str) -> bool:
+    return limit > 0 and llm_calls >= limit and not workspace_has_delivered_file(workspace)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", required=True)
@@ -79,6 +100,8 @@ def main() -> int:
                     help="credit circuit-breaker: cancel the turn at this many provider calls")
     ap.add_argument("--max-input-tokens", type=int, default=250000,
                     help="credit circuit-breaker: cancel when cumulative input tokens pass this")
+    ap.add_argument("--max-no-delivery-calls", type=int, default=12,
+                    help="cancel a paid build that still has no workspace file at this many LLM requests")
     ap.add_argument("--results-root", default="bench-results")
     args = ap.parse_args()
 
@@ -141,6 +164,8 @@ def main() -> int:
     llm_calls = 0
     tokens_in_seen = 0
     budget_stop = False
+    no_delivery_stop = False
+    operator_cancelled = False
     safety_requests = 0
     safety_approved = 0
     safety_denied = 0
@@ -170,6 +195,22 @@ def main() -> int:
                 counts[ftype] = counts.get(ftype, 0) + 1
                 if ftype == "llm.request":
                     llm_calls += 1
+                    if (
+                        not no_delivery_stop
+                        and should_stop_for_no_delivery(
+                            llm_calls, args.max_no_delivery_calls, workspace
+                        )
+                    ):
+                        no_delivery_stop = True
+                        print(
+                            f"[NO-DELIVERY-STOP] {llm_calls} LLM requests and "
+                            "workspace still has no files — cancelling to protect credits",
+                            flush=True,
+                        )
+                        try:
+                            send({"type": "cancel", "session_id": session_id})
+                        except Exception:
+                            pass
                 if ftype == "telemetry":
                     tokens_in_seen = max(tokens_in_seen, int(frame.get("tokensIn") or 0))
                 if ftype == "safety_request":
@@ -213,6 +254,18 @@ def main() -> int:
                     break
             else:
                 outcome["result"] = "timeout"
+    except KeyboardInterrupt:
+        # Ctrl+C is an operator cancellation, not a bridge crash. Always leave
+        # a receipt—the Attempt-6 manual stop otherwise looked like a missing
+        # outcome/serialization failure and lost the true first boundary.
+        operator_cancelled = True
+        outcome["result"] = "operator-cancelled"
+        outcome["completed"] = False
+        outcome["error"] = None
+        try:
+            send({"type": "cancel", "session_id": session_id})
+        except Exception:
+            pass
     except Exception as exc:
         # Evidence must survive transport failures. Keep this sanitized: the
         # prompt, arguments, environment, and provider key are never copied.
@@ -233,6 +286,8 @@ def main() -> int:
     outcome["llm_request_frames"] = llm_calls
     outcome["tokens_in_last_telemetry"] = tokens_in_seen
     outcome["budget_stop"] = budget_stop
+    outcome["no_delivery_stop"] = no_delivery_stop
+    outcome["operator_cancelled"] = operator_cancelled
     outcome["safety_requests"] = safety_requests
     outcome["safety_approved"] = safety_approved
     outcome["safety_denied"] = safety_denied

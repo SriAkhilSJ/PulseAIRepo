@@ -72,9 +72,25 @@ def test_pre_delivery_guard_warns_then_forces_mutation_capabilities(tmp_path):
     bound = _resolve_bound_tools(state, config)
     names = {tool.name for tool in bound}
     assert "write_file" in names
-    assert "execute_code" in names
-    assert not names & {"list_files", "web_search", "run_terminal", "typecheck_workspace"}
+    assert not names & {
+        "execute_code", "list_files", "web_search", "run_terminal",
+        "typecheck_workspace",
+    }
     assert config["configurable"]["execution_phase"] == "forced_delivery"
+
+    # Varied inspection tools count together. This is the exact Test5-6 shape:
+    # changing list_files -> terminal -> os.walk must not evade an exact-call
+    # repetition detector or an execute_code iteration refund.
+    state["iteration_used"] = 0
+    state["execution_trace"] = [
+        {"tool": "list_files", "status": "success"},
+        {"tool": "run_terminal", "status": "success"},
+        {"tool": "execute_code", "status": "success"},
+        {"tool": "execute_code", "status": "success"},
+    ]
+    assert _pre_delivery_stalled(state) is True
+    names = {tool.name for tool in _resolve_bound_tools(state, config)}
+    assert names <= {"write_file", "edit_file", "copy_file"}
 
     state["execution_trace"] = [
         {"tool": "write_file", "status": "success", "args": {"path": "index.html"}}

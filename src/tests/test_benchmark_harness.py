@@ -436,6 +436,22 @@ def test_test5_curl_download_is_not_intrinsically_destructive(monkeypatch):
     assert terminal_tools._posix_violations(command) == []
 
 
+def test_no_delivery_breaker_ignores_dependency_trees_but_sees_source(tmp_path):
+    from scripts.run_bridge_turn import (
+        should_stop_for_no_delivery,
+        workspace_has_delivered_file,
+    )
+
+    (tmp_path / "node_modules" / "pkg").mkdir(parents=True)
+    (tmp_path / "node_modules" / "pkg" / "index.js").write_text("dependency")
+    assert workspace_has_delivered_file(str(tmp_path)) is False
+    assert should_stop_for_no_delivery(11, 12, str(tmp_path)) is False
+    assert should_stop_for_no_delivery(12, 12, str(tmp_path)) is True
+    (tmp_path / "index.html").write_text("<!doctype html>")
+    assert workspace_has_delivered_file(str(tmp_path)) is True
+    assert should_stop_for_no_delivery(20, 12, str(tmp_path)) is False
+
+
 def test_test5_headless_approval_is_workspace_scoped_and_payload_size_independent(tmp_path):
     """A 30KB write must not strand the headless runner on safety_request."""
     from scripts.run_bridge_turn import should_auto_approve_safety_request

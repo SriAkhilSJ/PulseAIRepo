@@ -1,7 +1,7 @@
 # Agent reliability repair plan before VS Code Agent UI work
 
 **Date:** 2026-08-25  
-**Evidence:** desktop Test-5 run `test5-5`, Hermes Agent comparison at `e5032945cbebb64b8a819b66ec831c1906297b81`
+**Evidence:** desktop Test-5 runs `test5-5` and `test5-6`; Hermes Agent comparisons at `e5032945cbebb64b8a819b66ec831c1906297b81` and `1bbb6e5bce56e721ab685af4cd87df21bbff4d35`
 
 ## Honest status
 
@@ -47,7 +47,9 @@ Pulse already has fragments of these controls, but Attempt 5 proved gaps between
 7. After four such iterations, temporarily expose only file-delivery tools plus `execute_code`; restore normal tools after a file lands.
 8. Keep direct download safety unchanged and pin the exact reported curl command as non-destructive.
 
-Acceptance: deterministic replay cannot spend the remaining execution budget on varied reads, shell discovery, or phantom verification while delivering zero files.
+Attempt 6 showed Phase A's first implementation was incomplete. It mechanically inherited Hermes' execute-code iteration refund while leaving execute_code available during forced delivery. Unlike a successful batched PTC mutation, repeated os.walk scripts made no progress yet remained “free.” The corrected rule is outcome-independent and transport-safe: every provider request counts; four varied pre-delivery observations also trigger the cap; forced delivery exposes only direct mutation tools until a file receipt lands. A separate runner-level no-file stop protects credits if graph state regresses.
+
+Acceptance: deterministic replay cannot spend the remaining execution budget on varied reads, shell discovery, phantom verification, or read-only execute_code while delivering zero files.
 
 ### Phase B — evidence-led replay, no paid provider
 
