@@ -1030,3 +1030,22 @@ A separate apparent full-suite deadlock at 57% was traced with faulthandler to
 Hugging Face TLS backoff: explicit `ChunkIndex(embedder=None)` accidentally
 loaded the lazy default model. Explicit None is now genuinely BM25-only; the
 stuck test completes in ~0.1s. See `docs/AGENT_RELIABILITY_PLAN.md`.
+
+---
+
+# Desktop deterministic validation of 191cbeae (2026-08-25)
+
+Zero provider calls and zero credits. The former Hugging Face retry boundary is
+fixed: the targeted index test completed in under five seconds with no network
+request. Desktop assertion receipts were 69/69 for the repair selection, 93/93
+for language/index/context, and 161/161 for the broader selection. Python
+compile and diff checks passed; Git was clean; failed-run workspace/evidence
+remained preserved.
+
+However, every pytest process reportedly hung during session teardown after all
+assertions passed. Therefore the accurate status is **assertions PASS / clean
+process lifecycle UNVERIFIED-FAIL**, not an unconditional deterministic PASS.
+The process/thread owner must be identified before Agent UI work. The report
+also did not launch the IDE, so visual workbench cleanliness remains unverified.
+No merge, branch deletion, live Test-5 rerun, provider call, or UI change was
+performed.
