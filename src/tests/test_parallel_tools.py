@@ -435,6 +435,38 @@ def test_unsafe_call_in_batch_denied_alone_rest_execute(tmp_path, monkeypatch):
     assert not any(isinstance(m, AIMessage) for m in out["messages"])
 
 
+def test_workspace_session_lands_large_safe_write_without_approval_wait(tmp_path, monkeypatch):
+    """Test-5 regression: a large complete write is valid work, not a reason
+    for a headless bridge to emit safety_request and wait for a UI forever."""
+    monkeypatch.delenv("PULSEAI_AUTO_APPROVE_WRITES", raising=False)
+    payload = "const shader = `" + ("x" * 35_000) + "`;\n"
+
+    def write_file(path: str = "", content: str = "") -> str:
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return "wrote"
+
+    tool = StructuredTool.from_function(
+        write_file, name="write_file", description="fake writer"
+    )
+    node = SafeToolNode([tool], SafetyGuard(str(tmp_path)))
+    cfg = _cfg(tmp_path)
+    cfg["configurable"].update({
+        "approval_channel": True,
+        "approval_policy": "workspace_session",
+        "approval_timeout": 0.01,
+    })
+    out = _reach_node(
+        node,
+        _state(_calls(("write_file", {"path": "src/main.js", "content": payload}))),
+        cfg,
+    )
+    messages = [m for m in out["messages"] if isinstance(m, ToolMessage)]
+    assert len(messages) == 1 and messages[0].content == "wrote"
+    assert (tmp_path / "src" / "main.js").read_text(encoding="utf-8") == payload
+
+
 def test_auto_approve_writes_allows_ordinary_overwrite(tmp_path, monkeypatch):
     """D11: PULSEAI_AUTO_APPROVE_WRITES=1 (autonomous eval, no human)
     lets the agent overwrite ordinary workspace files — it must be able

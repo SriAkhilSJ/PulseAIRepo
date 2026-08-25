@@ -69,6 +69,13 @@ def test_d35_finish_job_patterns_present():
         assert marker in p, f"finish-the-job pattern missing: {marker!r}"
 
 
+def test_d35_large_write_recovery_is_bounded_and_actionable():
+    p = system_persona()
+    assert "roughly 8K tokens" in p
+    assert "NEVER retry it unchanged" in p
+    assert "natural module boundaries" in p
+
+
 def test_d35_anti_fabrication_deliberately_not_doubled():
     """hermes' third block is already covered by the legacy persona
     ("Never invent file contents..."). One coverage, zero paste."""

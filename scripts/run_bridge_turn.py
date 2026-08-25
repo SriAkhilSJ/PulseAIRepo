@@ -22,6 +22,51 @@ import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_MUTATION_TOOLS = frozenset({"write_file", "edit_file", "copy_file"})
+_SENSITIVE_NAMES = frozenset({
+    ".env", ".env.local", ".env.production", "id_rsa", "id_ed25519",
+    "credentials", "secrets",
+})
+
+
+def should_auto_approve_safety_request(frame: dict, workspace: str) -> bool:
+    """Approve only an ordinary mutation contained by this run's workspace.
+
+    This is the headless equivalent of Hermes ACP's workspace-session edit
+    policy: sensitive paths and warnings fail closed. The full content stays in
+    the bridge/tool pipeline; this decision reads only tool name and path, so a
+    large write cannot balloon the approval logic or leak into logs.
+    """
+    if frame.get("type") != "safety_request":
+        return False
+    if str(frame.get("name") or "") not in _MUTATION_TOOLS:
+        return False
+    if str(frame.get("warning") or "").strip():
+        return False
+    arguments = frame.get("arguments")
+    if not isinstance(arguments, dict):
+        return False
+    raw_path = (
+        arguments.get("path")
+        or arguments.get("destination")
+        or arguments.get("dest")
+        or arguments.get("dst")
+    )
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return False
+    candidate = Path(raw_path).expanduser()
+    root = Path(workspace).resolve()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    candidate = candidate.resolve(strict=False)
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    lowered_parts = {part.lower() for part in candidate.parts}
+    if lowered_parts & {".git", ".ssh", ".aws"}:
+        return False
+    return candidate.name.lower() not in _SENSITIVE_NAMES
 
 
 def main() -> int:
@@ -51,6 +96,10 @@ def main() -> int:
 
     env = dict(os.environ)
     env.setdefault("PULSEAI_AUTO_APPROVE_WRITES", "1")  # autonomous build: no human to approve
+    # Tell the bridge/SafeToolNode to auto-approve ordinary workspace edits.
+    # The runner also handles a residual safety_request defensively below so
+    # protocol drift can never strand the turn waiting for a nonexistent UI.
+    env.setdefault("PULSEAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"],
@@ -86,6 +135,15 @@ def main() -> int:
         proc.stdin.write(json.dumps(frame) + "\n")
         proc.stdin.flush()
 
+    # Defaults live outside the transport try so even an early broken pipe or
+    # malformed first frame still produces a complete outcome receipt.
+    counts: dict[str, int] = {}
+    llm_calls = 0
+    tokens_in_seen = 0
+    budget_stop = False
+    safety_requests = 0
+    safety_approved = 0
+    safety_denied = 0
     try:
         with open(frames_path, "w", encoding="utf-8") as out:
             send({"type": "hello", "protocol": 2})
@@ -93,10 +151,6 @@ def main() -> int:
             send({"type": "prompt", "session_id": session_id,
                   "workspace": workspace, "text": prompt})
             deadline = time.time() + args.timeout_s
-            counts: dict[str, int] = {}
-            llm_calls = 0
-            tokens_in_seen = 0
-            budget_stop = False
             while time.time() < deadline:
                 remaining = deadline - time.time()
                 try:
@@ -118,6 +172,22 @@ def main() -> int:
                     llm_calls += 1
                 if ftype == "telemetry":
                     tokens_in_seen = max(tokens_in_seen, int(frame.get("tokensIn") or 0))
+                if ftype == "safety_request":
+                    safety_requests += 1
+                    approved = should_auto_approve_safety_request(frame, workspace)
+                    if approved:
+                        safety_approved += 1
+                    else:
+                        safety_denied += 1
+                    # Always answer. A headless run must never wait five
+                    # minutes for an approval UI that does not exist.
+                    send({
+                        "type": "safety_reply",
+                        "session_id": session_id,
+                        "tool_id": str(frame.get("tool_id") or ""),
+                        "approved": approved,
+                        "always_allow": False,
+                    })
                 print(f"[{time.strftime('%H:%M:%S')}] {ftype} x{counts[ftype]}"
                       + (f" | calls={llm_calls}/{args.max_llm_calls} tokensIn~{tokens_in_seen}/{args.max_input_tokens}"
                          if ftype in ("llm.request", "telemetry") else ""),
@@ -143,6 +213,12 @@ def main() -> int:
                     break
             else:
                 outcome["result"] = "timeout"
+    except Exception as exc:
+        # Evidence must survive transport failures. Keep this sanitized: the
+        # prompt, arguments, environment, and provider key are never copied.
+        outcome["result"] = "runner-error"
+        outcome["completed"] = False
+        outcome["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         try:
             send({"type": "shutdown"})
@@ -157,6 +233,9 @@ def main() -> int:
     outcome["llm_request_frames"] = llm_calls
     outcome["tokens_in_last_telemetry"] = tokens_in_seen
     outcome["budget_stop"] = budget_stop
+    outcome["safety_requests"] = safety_requests
+    outcome["safety_approved"] = safety_approved
+    outcome["safety_denied"] = safety_denied
     (run_dir / "outcome.json").write_text(
         json.dumps(outcome, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"OUTCOME: {outcome.get('result')} completed={outcome.get('completed')} "

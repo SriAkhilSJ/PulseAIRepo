@@ -1,56 +1,55 @@
 # Test 5 readiness review
 
-**Reviewed:** 2026-08-25  
-**Source branch:** `arena/01a02a5c-pulseairepo` at `00d8ced8`  
-**Integration target:** `arena/01a03741-pulseairepo`
+**Reviewed:** 2026-08-25
 
-## Verdict
+**Integration branch:** `arena/01a03741-pulseairepo`
 
-The source branch was **not safe to merge wholesale**. It predates the merged R4 desktop work and differs from current `main` across hundreds of vendored Code OSS files; a tree merge would remove restored upstream files and current branding/discoverability changes.
+**Current verdict:** repaired retest candidate; **no Test-5 pass yet**
 
-Its six Test-5 commits were therefore reviewed and cherry-picked individually. The useful runtime, harness, and documentation changes are integrated without replacing the current desktop tree.
+## History and merge verdict
 
-The agent is now a **candidate for Test 5 attempt 4**, not a claimed Test-5 pass. Attempts 1–3 remain honestly recorded as failures in `docs/HARNESS_STATUS.md`. A provider-backed attempt 4 is required for a product verdict.
+The old agent-development branch was not safe to merge wholesale: it predates the current R4 desktop tree and would regress hundreds of vendored Code OSS files. Its useful Test-5 commits were reviewed and selectively integrated instead.
 
-## Integrated Test-5 work
+Attempts 1–3 failed. Desktop run `test5-4b` also failed runtime and product verification: Sarvam produced a roughly 30KB `main.js` `write_file` request, but the workspace remained empty and no outcome was written. Therefore **do not merge into `main` and do not delete branches**. A provider-backed attempt 5 must pass both runtime and independent product grading first.
 
-1. Instrumented single-turn bridge runner with immutable JSONL evidence and credit circuit breakers.
-2. Guarded Windows runner with provider preflight, hard wall-time cap, stall detection, and workspace/build activity checks.
-3. Custom-provider generation timeout raised from 60 to 180 seconds (bounded to 10–300 seconds) with streaming support.
-4. Terminal timeout handling tree-kills Windows child processes, bounds pipe cleanup, and permits cold package installs.
-5. `execute_code` denial and tool documentation now teach the supported dependency-vendoring pivot.
-6. General model-driven plan/task constraint validation with one bounded correction attempt.
-7. `rm` safety detection no longer false-positives on `Format-Table` and still catches whitespace variants and bare `rm`.
+## Attempt-4b root cause and repair
 
-## Defects found during integration review
+The failure was not caused by the bridge's 1 MiB frame limit; a roughly 30KB payload is well below it. The confirmed deadlock was an approval-policy mismatch:
 
-The source branch was not accepted unchanged. This review fixed:
+1. `scripts/run_bridge_turn.py` enabled autonomous writes but did not answer `safety_request` frames.
+2. The bridge enabled the approval channel while leaving `stream_agent` at its interactive `ask` policy.
+3. `SafeToolNode` queued an ordinary workspace mutation and waited up to 300 seconds for a UI that the headless runner does not have.
 
-- **Constraint validation silently skipped real plans.** `TaskPlan.steps` contains Pydantic `TaskPlanStep` objects, but the branch called `step.get(...)`; the broad advisory exception handler converted that error into a false clean result. The validator now handles dictionaries and model objects.
-- **Validator usage was not recorded for an initially empty ledger.** `usage_list or []` replaced an empty caller-owned list. It now preserves every provided list.
-- **The runner's own timeout was not enforceable during silent output.** Blocking `stdout.readline()` could outlive `--timeout-s`. Stdout now feeds a queue on a reader thread, allowing the deadline loop to continue.
-- **The interim `"rm "` safety fix was incomplete.** It missed tabs and a bare command. Token-aware matching now fixes the false positive without those bypasses.
+The repair preserves interactive behavior while making the benchmark path explicit and fail-safe:
 
-Regression tests were added for the real Pydantic plan-step shape, usage accounting, and `rm` command boundaries.
+- the guarded runner sets `PULSEAI_BRIDGE_APPROVAL_POLICY=workspace_session`;
+- the bridge validates and forwards that policy to `stream_agent`;
+- the runner always answers any residual approval frame, auto-approving only warning-free `write_file`, `edit_file`, or `copy_file` operations contained by the run workspace and denying sensitive/escaping/other calls;
+- outcome evidence records safety request, approval, and denial counts;
+- model guidance applies Hermes' recovery rule: keep individual tool argument payloads below roughly 8K tokens, split naturally modular applications across files, and never repeat a dropped oversized payload unchanged.
 
-## Verification completed
+No Hermes source was copied. The comparison was performed against NousResearch/hermes-agent commit `e5032945cbebb64b8a819b66ec831c1906297b81`.
 
-- Test-5 bridge runner echo smoke: `turn_done`, `completed=true`, zero provider calls.
-- Test-5 planner/safety/harness/PTC selection: **66 passed**.
-- Earlier focused selection covering planner, PTC, engine smoke, and review guards: **56 passed** before the additional integration fixes.
-- Python compile check: passed.
-- Diff whitespace check: passed.
+## Deterministic regression evidence
 
-The historical procedural `test_planner_manual.py` still performs a real provider call at import time and remains excluded by `src/tests/conftest.py`; it is not part of the deterministic readiness receipt.
+The new regression drives a 35KB safe write through the real `SafeToolNode` policy/tool path and proves that the file lands without an approval wait. Separate tests pin bridge policy forwarding and fail-closed headless approval classification.
 
-## How to run attempt 4
+Focused verification on 2026-08-25:
 
-On the configured Windows test machine, use a fresh workspace and run ID:
+- new approval/large-write regressions: **3 passed**;
+- bridge transport, parallel tools, benchmark harness, prompt guard, and prompt-cache audit selection: **79 passed** with the prompt-size budget green;
+- Python diff whitespace check: passed.
+
+The provider-backed product test cannot run in this Arena sandbox because TLS to Sarvam fails. That is why these deterministic checks must precede exactly one guarded desktop attempt.
+
+## How to run attempt 5
+
+Follow `DESKTOP_AGENT_INSTRUCTIONS.md` exactly. Use a fresh workspace and immutable run ID:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
-  -Workspace C:\test5-ws `
-  -RunId test5-4
+  -Workspace C:\test5-ws-attempt5 `
+  -RunId test5-5
 ```
 
-Do not reuse a run ID. Evidence is written under `bench-results/test5-4/`. Grade the generated product and runtime evidence; a clean harness exit alone is not a product pass.
+Monitor the watchdog every 30 seconds and preserve `bench-results/test5-5/`. A clean harness exit is not a product pass: independently launch and grade the generated raytracer against `scripts/test5_prompt.txt`. Do not rerun, merge, or delete branches after any runtime or product failure.

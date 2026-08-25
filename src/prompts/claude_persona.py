@@ -382,6 +382,18 @@ format or schema).
 # batch. On the cache prefix (Law #1) but constant per process, so it is
 # cache-safe within a conversation; the ~1k chars pay back the first time a
 # task avoids 4+ round-trips.
+_D35_LARGE_WRITE_DISCIPLINE = """
+
+## Large tool calls (Hermes recovery rule)
+
+Keep EACH tool call below roughly 8K tokens (~24K text characters). Do not put a
+complex app in one giant `main.js` when it has natural module boundaries: batch
+cohesive rendering, shader, controls, UI, and boot-file writes instead. If a
+large write is dropped/refused, NEVER retry it unchanged; split it, then verify
+every file exists. Splitting must not produce stubs or incomplete files.
+"""
+
+
 _D35_PTC_DEFAULT = """
 
 ## Programmatic Tool Calling = your default for multi-step work
@@ -442,6 +454,7 @@ def system_persona() -> str:
             _D35_LEGACY_BATCH_SENTENCE, _D35_BATCH_SENTENCE
         )
         + _D35_FINISH_JOB
+        + _D35_LARGE_WRITE_DISCIPLINE
         + _D35_PTC_DEFAULT
         + _D35_GROUNDING
     )
