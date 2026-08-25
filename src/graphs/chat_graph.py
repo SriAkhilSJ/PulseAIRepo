@@ -30,7 +30,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, InjectedState
 
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
-from src.llm.factory import get_llm, get_auxiliary_llm, TurnCancelledError
+from src.llm.factory import (
+    get_llm, get_auxiliary_llm, TurnCancelledError, provider_response_info,
+)
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
@@ -693,12 +695,16 @@ def ai_node(
 
     call_model = model
     call_llm = llm_with_tools
-    if configurable.get("execution_phase") == "deliver":
+    if configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
         try:
-            delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+            delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
         except (TypeError, ValueError):
             delivery_cap = 4096
-        call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
+        bind_generation = getattr(llm_with_tools, "bind", None)
+        if callable(bind_generation):
+            call_llm = bind_generation(
+                max_tokens=max(512, min(delivery_cap, 8192))
+            )
     if budget_exhausted:
         call_llm = llm  # unhidden tools: the model cannot make more calls
         if not grace_done:
@@ -744,14 +750,16 @@ def ai_node(
         messages, _d37_info = redecorate_for_failover(messages)
         call_model = model
         call_llm = llm_with_tools
-        if configurable.get("execution_phase") == "deliver":
+        if configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
             try:
-                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
             except (TypeError, ValueError):
                 delivery_cap = 4096
-            call_llm = llm_with_tools.bind(
-                max_tokens=max(512, min(delivery_cap, 8192))
-            )
+            bind_generation = getattr(llm_with_tools, "bind", None)
+            if callable(bind_generation):
+                call_llm = bind_generation(
+                    max_tokens=max(512, min(delivery_cap, 8192))
+                )
         if budget_exhausted:
             call_llm = llm
         try:
@@ -791,6 +799,20 @@ def ai_node(
     # tool_calls. Parse them so the loop can execute instead of stalling.
     from src.graphs.parallel_tools import repair_text_tool_calls
     result = repair_text_tool_calls(result)
+
+    # Hermes refuses to dispatch tool arguments from a token-limited response.
+    # Preserve the assistant/tool pairing, but mark the message so SafeToolNode
+    # returns an explicit error observation instead of mutating the workspace.
+    # The next iteration can split the write or continue with a larger budget.
+    completion = provider_response_info(result)
+    if completion["incomplete"]:
+        extra = dict(getattr(result, "additional_kwargs", {}) or {})
+        extra["pulse_incomplete_response"] = True
+        extra["pulse_incomplete_reason"] = completion["finish_reason"]
+        try:
+            result = result.model_copy(update={"additional_kwargs": extra})
+        except AttributeError:
+            result.additional_kwargs = extra
 
     # =========================================================
     # TRACK TOKEN USAGE
@@ -2338,6 +2360,36 @@ class SafeToolNode:
             return _with_repaired(
                 self._cancelled_tool_messages(calls or tool_calls)
             )
+
+        # Never execute tool arguments from a token-limited provider response.
+        # Hermes treats a mid-tool/length completion as incomplete and asks the
+        # model to split or continue; Attempt 8 showed that accepting a partial
+        # write can land a syntactically valid JSON string whose file content
+        # ends mid-CSS. Return one paired error per call, with zero side effects.
+        incomplete = bool(
+            getattr(last_msg, "additional_kwargs", {}).get(
+                "pulse_incomplete_response"
+            )
+        )
+        if incomplete:
+            reason = str(
+                getattr(last_msg, "additional_kwargs", {}).get(
+                    "pulse_incomplete_reason", "provider token limit"
+                )
+            )
+            return _with_repaired([
+                ToolMessage(
+                    content=(
+                        "Error: provider response was incomplete "
+                        f"({reason}); tool was NOT executed. Split large file "
+                        "writes into smaller complete files/calls and continue."
+                    ),
+                    tool_call_id=tc.get("id", ""),
+                    name=tc.get("name", ""),
+                    status="error",
+                )
+                for tc in tool_calls
+            ])
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.

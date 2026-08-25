@@ -90,10 +90,15 @@ independently fetched and verified:
   SHA-256 after checkout;
 - provider calls were zero.
 
-This validates the implemented deterministic contracts on the founder's
-Windows runtime. It does not close the remaining Hermes stream-completeness,
-finish-reason, and partial-tool-call parity gaps and does not authorize Attempt
-9.
+This validates the then-implemented deterministic contracts on the founder's
+Windows runtime. A subsequent Arena repair now closes the identified source
+parity gaps by using LangChain's synchronous invocation owner whenever native
+streaming is enabled, retaining bounded provider finish metadata, rejecting
+all tool calls from token-limited responses with paired error observations,
+feeding those observations directly into request 2, and applying an explicit
+output cap to both delivery phases. Deterministic fake-provider tests cover the
+stream close and request-2 boundary. That follow-up has not run against a live
+provider and does not authorize Attempt 9.
 
 ## Evidence-quality findings
 

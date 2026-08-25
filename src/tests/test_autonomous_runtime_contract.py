@@ -1,7 +1,7 @@
 """Contracts for the headless runtime repairs found after Test 5 attempt 6."""
 from __future__ import annotations
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from src.context.lazy_memory import LazyMemoryManager
 from src.llm.factory import build_request_snapshot
@@ -113,6 +113,7 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
             return self
 
         def bind(self, **kwargs):
+            captured.setdefault("binds", []).append(kwargs)
             return self
 
         def invoke(self, messages):
@@ -159,6 +160,7 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
     result = chat_graph.ai_node(state, config)
 
     assert captured["tools"] == ["write_file"]
+    assert {"max_tokens": 4096} in captured["binds"]
     assert [message.type for message in captured["messages"]] == [
         "system", "system", "system", "human"
     ]
@@ -204,3 +206,101 @@ def test_autonomous_initial_prompt_has_one_user_tail_and_no_style_conflicts(tmp_
     assert "start with a high-level overview" not in combined
     assert "ask clarifying questions" not in combined
     assert messages[-1].content == task
+
+
+
+
+def test_incomplete_tool_call_is_rejected_then_observed_by_request_two(tmp_path, monkeypatch):
+    """A token-limited request-1 call cannot mutate disk and its paired
+    error is fed directly to provider request 2 (Hermes parity contract)."""
+    from src.graphs import chat_graph
+
+    requests = []
+
+    class TwoRequestLLM:
+        model = "fake"
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, messages):
+            requests.append(list(messages))
+            if len(requests) == 1:
+                return AIMessage(
+                    content="",
+                    tool_calls=[{
+                        "name": "write_file",
+                        "args": {
+                            "path": "partial.html",
+                            "content": "<style>body{",
+                        },
+                        "id": "truncated-call",
+                        "type": "tool_call",
+                    }],
+                    response_metadata={"finish_reason": "length"},
+                )
+            return AIMessage(
+                content="continuing with a smaller complete write",
+                response_metadata={"finish_reason": "stop"},
+            )
+
+    llm = TwoRequestLLM()
+    monkeypatch.setattr(chat_graph, "get_llm", lambda **kwargs: llm)
+    monkeypatch.setattr(chat_graph, "memory_manager", None)
+    config = {
+        "configurable": {
+            "thread_id": "incomplete-request-two",
+            "workspace": str(tmp_path),
+            "provider": "custom",
+            "model": "fake",
+        }
+    }
+    base_state = {
+        "messages": [HumanMessage(content="build")],
+        "latest_instruction": "build",
+        "current_task": "build a complete web app",
+        "workspace": str(tmp_path),
+        "plan": [],
+        "steps_completed": [],
+        "failed_steps": [],
+        "execution_trace": [],
+        "iteration_used": 0,
+        "grace_done": 0,
+        "turn_token_usage": {},
+        "token_usage": {},
+        "execution_mode": "agent",
+    }
+
+    request_one = chat_graph.ai_node(base_state, config)
+    assistant = request_one["messages"][0]
+    assert assistant.additional_kwargs["pulse_incomplete_response"] is True
+    assert assistant.additional_kwargs["pulse_incomplete_reason"] == "length"
+
+    tool_state = dict(base_state)
+    tool_state["messages"] = [*base_state["messages"], assistant]
+    node = chat_graph.SafeToolNode.__new__(chat_graph.SafeToolNode)
+    rejected = node(tool_state, config)["messages"]
+    assert len(rejected) == 1
+    assert isinstance(rejected[0], ToolMessage)
+    assert rejected[0].tool_call_id == "truncated-call"
+    assert rejected[0].status == "error"
+    assert "NOT executed" in rejected[0].content
+    assert not (tmp_path / "partial.html").exists()
+
+    second_state = dict(tool_state)
+    second_state.update({
+        "messages": [*tool_state["messages"], *rejected],
+        "execution_trace": [{"tool": "write_file", "status": "error"}],
+        "iteration_used": 1,
+    })
+    request_two = chat_graph.ai_node(second_state, config)
+
+    assert len(requests) == 2
+    assert requests[1][-1].type == "tool"
+    assert requests[1][-1].tool_call_id == "truncated-call"
+    assert "NOT executed" in requests[1][-1].content
+    assert request_two["messages"][0].content.startswith("continuing")
+    assert request_two["iteration_used"] == 2

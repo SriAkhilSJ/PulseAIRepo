@@ -374,6 +374,10 @@ class ContextEngine:
         "steps_completed", "failed_steps",
         "recovery_mode", "recovery_attempts", "recovery_command",
         "replan_count", "prior_attempts",
+        # The progress layer now summarizes recent execution outcomes. Keep it
+        # in the differential key or request 2 can reuse a pre-tool layer and
+        # hide the paired rejection/result from the model context.
+        "execution_trace",
         # P1: session identity used to route degraded receipts; stable per
         # session, so hashing it never busts the differential cache.
         "thread_id",

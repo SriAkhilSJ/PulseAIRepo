@@ -35,6 +35,7 @@ export const PULSE_AI_SERVER_EVENTS = [
 	'events_replay',
 	'hello',
 	'llm.request',
+	'llm.response',
 	'plan_updated',
 	'reasoning',
 	'runtime_degraded',
