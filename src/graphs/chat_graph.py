@@ -375,6 +375,44 @@ _PULSEAI_TOOLSETS_ON = (
     os.environ.get("PULSEAI_TOOLSETS", "on").strip().lower() != "off"
 )
 
+_FILE_DELIVERY_TOOLS = frozenset({
+    "write_file", "edit_file", "copy_file", "scaffold_nextjs",
+})
+_FILE_DELIVERY_WORDS = frozenset({
+    "build", "create", "implement", "write", "fix", "edit", "modify",
+    "update", "scaffold", "deliver",
+})
+
+
+def _has_landed_file_delivery(state: AgentState) -> bool:
+    """Whether this turn has a successful file-producing receipt."""
+    for item in state.get("execution_trace", []) or []:
+        if (
+            item.get("status") == "success"
+            and item.get("tool") in _FILE_DELIVERY_TOOLS
+        ):
+            return True
+    return False
+
+
+def _requires_file_delivery(state: AgentState) -> bool:
+    """Conservative task/plan signal for the pre-delivery loop guard."""
+    text = " ".join([
+        str(state.get("current_task", "")),
+        *(str(step.get("description", "")) for step in state.get("plan", []) or []),
+    ]).lower()
+    return any(re.search(rf"\b{re.escape(word)}\b", text) for word in _FILE_DELIVERY_WORDS)
+
+
+def _pre_delivery_stalled(state: AgentState, *, threshold: int = 4) -> bool:
+    """Hermes-style no-progress cap: exploration cannot consume the turn
+    indefinitely before the first required deliverable lands."""
+    return (
+        _requires_file_delivery(state)
+        and not _has_landed_file_delivery(state)
+        and int(state.get("iteration_used", 0)) >= threshold
+    )
+
 
 def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     """The tool OBJECTS to bind for this turn (narrowed by task type).
@@ -389,9 +427,38 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     names = resolve_toolset_names(
         state.get("current_task", ""), config
     )
+    # A verifier with no project cannot produce evidence. Hiding it is stronger
+    # than repeatedly telling a weak model not to call it: Test5-5 paid three
+    # model/replan cycles for typecheck_workspace on an empty directory.
+    from pathlib import Path
+    workspace = Path(config.get("configurable", {}).get("workspace", "."))
+    if not (workspace / "tsconfig.json").exists():
+        names = [name for name in names if name != "typecheck_workspace"]
+    resolved_names = list(names)
+
     from src.runtime.execution_phases import derive_execution_phase, filter_tool_names
     phase = derive_execution_phase(dict(state))
-    names = filter_tool_names(names, phase)
+    names = filter_tool_names(resolved_names, phase)
+    if _pre_delivery_stalled(state):
+        # Hermes' guardrails stop idempotent no-progress loops. For a task that
+        # explicitly requires files, four main-agent iterations without one
+        # landed mutation is enough exploration. Narrow capability until a
+        # baseline lands; execute_code remains because it can batch web_fetch
+        # -> write_file without shell downloads or extra model round-trips.
+        forced = {"write_file", "edit_file", "copy_file", "execute_code"}
+        names = [name for name in resolved_names if name in forced]
+        phase = type(phase)(
+            "forced_delivery", frozenset(forced),
+            max_file_mutations_per_turn=2,
+            guidance=(
+                "NO-PROGRESS CAP: this task requires files, but four main-agent "
+                "iterations produced none. Exploration and verification are now "
+                "disabled until a real file lands. Write a complete minimal "
+                "baseline NOW. If an external file is essential, use one "
+                "execute_code call with web_fetch(url) then write_file(path, "
+                "content). Do not think/list/search/verify or use shell download."
+            ),
+        )
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
     configurable = config.setdefault("configurable", {})
@@ -496,6 +563,37 @@ def ai_node(
         messages.append(SystemMessage(content=(
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
             + phase_guidance
+        )))
+
+    # State the actual shell contract before the model guesses. The terminal
+    # tool uses shell=True, which is cmd.exe on the founder's Windows runtime;
+    # Test5-5 wasted its first execution calls discovering that ls/pwd/find do
+    # not exist. Keep this dynamic so Linux/macOS behavior is unchanged.
+    import platform as _platform
+    _os_name = _platform.system() or os.name
+    if _os_name == "Windows":
+        messages.append(SystemMessage(content=(
+            "=== ACTIVE TERMINAL PLATFORM ===\n"
+            "Windows cmd.exe. NEVER use POSIX commands such as ls, pwd, find, "
+            "head, grep, cat, rm, cp, mv, touch, chmod, or /tmp paths. Use "
+            "dir, cd, where, type, findstr, copy, move, del, or an explicit "
+            "PowerShell -NoProfile -Command invocation. Prefer native file "
+            "tools over shell inspection."
+        )))
+
+    if (
+        _requires_file_delivery(state)
+        and not _has_landed_file_delivery(state)
+        and int(state.get("iteration_used", 0)) >= 2
+        and configurable.get("execution_phase") != "forced_delivery"
+    ):
+        messages.append(SystemMessage(content=(
+            "=== PRE-DELIVERY NO-PROGRESS WARNING ===\n"
+            "This task requires files, but no file mutation has landed after "
+            "multiple main-agent iterations. Stop inspecting/planning. Your "
+            "next response must create the smallest complete baseline with "
+            "write_file (batch independent files). Do not verify an empty "
+            "workspace."
         )))
     steers = turn_controls.drain_steer(session_id)
     if steers:
@@ -1282,6 +1380,7 @@ def progress_node(
 
     latest_tools = ph.latest_tool_messages(messages)
     injected: list = []
+    processed_tools = 0
 
     for message in latest_tools:
         tool_name = message.name or "unknown_tool"
@@ -1290,8 +1389,9 @@ def progress_node(
 
         outcome = ph.classify_tool_outcome(tool_name, result)
         if outcome == ph.OUTCOME_SKIP:
-            continue  # check_terminal still running: record NOTHING
+            continue  # running/unavailable check: record NOTHING
 
+        processed_tools += 1
         failed = outcome == ph.OUTCOME_FAILED
 
         # Trace comes before memory/failure/success handling (pre-D9 order).
@@ -1428,7 +1528,7 @@ def progress_node(
         "token_usage": total_usage.to_dict(),
     }
 
-    if latest_tools:
+    if processed_tools:
         result["messages"] = [
             SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
         ]
