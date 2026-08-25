@@ -101,18 +101,20 @@ zero provider calls. Arena independently matched all ten committed receipt
 entries and confirmed the evidence commit changed only the new validation
 folder.
 
-The pytest log omitted two targets required by the handoff:
-`test_bridge_protocol_v2.py` and the D26 hashed-key AST test. It therefore ran
-42 tests instead of the expected 50. Exact command/version capture was also not
-committed. Independent status is:
+The first pytest log omitted two required targets, so the founder authorized a
+missing-check-only follow-up. Evidence commit
+`496591a10e93b13d32065b3ac04d74f89d9fecde` records exactly those targets: 8
+collected and 8 passed in 2.83 seconds on Windows Python 3.14.4, with zero
+provider calls. Arena independently verified the exact parent/ancestry,
+evidence-only scope, pytest log, and all receipt hashes.
+
+Combined independent status:
 
 ```text
-RECORDED_CHECKS_PASS / REQUIRED_VALIDATION_INCOMPLETE
+50 collected / 50 passed / zero provider calls / DETERMINISTIC_PASS
 ```
 
-The founder subsequently authorized one missing-check-only Windows follow-up.
-`DESKTOP_AGENT_INSTRUCTIONS.md` now permits exactly the omitted 8 tests, with
-zero provider calls and no repetition of the 42 passing tests.
+Desktop is back to STOP. This does not constitute a live runtime/product PASS.
 
 ### B. Work still prohibited pending explicit founder authorization
 
@@ -177,14 +179,13 @@ Important evidence commits:
 
 ## 5. Exact next task
 
-**Next task: desktop runs the authorized zero-provider, missing-check-only
-Windows follow-up in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
+**Next task: founder decision on whether to authorize a monitored live Attempt
+9.**
 
-Run exactly the two omitted targets (expected collection: 8 tests), commit the
-command/version/output receipt, push it, and return to STOP. Do not repeat the
-42 passing tests or call a provider. After Arena independently verifies that
-receipt, the next founder decision is whether to authorize a monitored live
-Attempt 9.
+No live run is currently authorized. If authorization is granted, desktop must
+receive a fresh instruction file defining the exact source commit, clean
+workspace, provider-call/credit limits, active 30-second inspection procedure,
+product acceptance checks, evidence requirements, and automatic STOP rules.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
