@@ -1,0 +1,15 @@
+﻿{
+    "validation_parent_commit":  "4a8dbc312c5b30dade4a2b37dd723b37b1f36902",
+    "implementation_commit":  "b82381d36662e2f0dc9262bafafbedd8508318d6",
+    "tests":  [
+                  "src/tests/test_bridge_protocol_v2.py",
+                  "src/tests/test_review_autopsy_fixes.py::test_d26_hashed_keys_match_builder_usage_ast"
+              ],
+    "collected":  8,
+    "passed":  8,
+    "failed":  0,
+    "duration_seconds":  2.83,
+    "provider_call_count":  0,
+    "verdict":  "DETERMINISTIC_PASS",
+    "timestamp":  "2026-08-25T11:32:33.9530707-07:00"
+}
