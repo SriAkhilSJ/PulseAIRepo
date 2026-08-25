@@ -3,7 +3,7 @@
 **Updated:** 2026-08-25
 **Repository:** `https://github.com/SriAkhilSJ/PulseAIRepo`
 **Integration branch:** `arena/01a03741-pulseairepo`
-**Required code commit:** `3d89cbc8` plus the Test-5 approval hardening, or newer
+**Required code commit:** `7fe50089` or newer
 **Credit situation:** approximately 50 credits remain
 
 > These instructions supersede every older instruction in this file. Read the entire document before running anything. Do not improvise, expose credentials, rerun a failed probe, or merge based only on `turn_done`.
@@ -50,8 +50,8 @@ git log --oneline -5
 Verify that the reviewed integration baseline is included:
 
 ```powershell
-git merge-base --is-ancestor 3d89cbc8 HEAD
-if ($LASTEXITCODE -ne 0) { throw "Wrong/stale branch: 3d89cbc8 is missing" }
+git merge-base --is-ancestor 7fe50089 HEAD
+if ($LASTEXITCODE -ne 0) { throw "Wrong/stale branch: 7fe50089 is missing" }
 if (-not (Select-String -Path scripts\run_bridge_turn.py -Pattern "PULSEAI_BRIDGE_APPROVAL_POLICY" -Quiet)) {
   throw "Missing Test-5 approval hardening"
 }
