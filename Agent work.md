@@ -119,15 +119,20 @@ PASS.
 
 ### B. Narrow live authorization and continuing prohibitions
 
-The founder has now authorized exactly one Test 5 Attempt 9 under
-`DESKTOP_AGENT_INSTRUCTIONS.md`: one eight-token probe and one guarded Sarvam
-turn. The desktop agent may recover the previously authorized historical
-credential without exposing or committing it, solely for this attempt.
+Attempt 9 stopped before the live turn because the sole Sarvam probe returned
+HTTP 403. Evidence commit `47c02f9b0bfacf3b502e2191a200834e77127a2c`
+contains only the preflight/STOP receipt. The endpoint received one rejected
+probe attempt; there were zero live-turn requests and no retry.
+
+The founder then authorized one fresh OpenRouter Attempt 10 using the secure key
+and exact model ID already supplied to the desktop agent. Wrapper commit
+`72dd56d910dd6b5707d17fca632b48ac5c44a23f` removes the hardcoded Sarvam probe
+endpoint/model so probe and live turn use the same configured custom provider.
 
 Still prohibited:
 
-- a second probe, retry, or cap increase;
-- any provider/model/run outside Attempt 9;
+- a second OpenRouter probe, retry, model substitution, or cap increase;
+- any provider/model/run outside Attempt 10;
 - merge of PR #9 or branch deletion;
 - Agentic UI implementation;
 - claiming runtime/product PASS without independent evidence grading.
@@ -162,11 +167,15 @@ Preserve these historical workspaces/evidence trees:
 ```text
 C:\test5-ws-attempt6
 C:\test5-ws-attempt8
+C:\test5-ws-attempt9
+C:\test5-ws-attempt10
 bench-results/test5-5/
 bench-results/test5-6/
 bench-results/test5-7-arena/
 bench-results/test5-8-desktop/
 bench-results/test5-8-postmortem-validation/
+bench-results/test5-9-desktop/
+bench-results/test5-10-desktop/
 /home/user/test5-workspace-attempt7
 ```
 
@@ -178,18 +187,20 @@ Important evidence commits:
 6586d7afab1558274353dd34256f1783503b83c1  Attempt-8 desktop evidence
 6b8a90b40ff2b5a8244198957669a6e561b787a1  prior Windows validation evidence
 7552c645d9516b1f274df59f0c91f14a4b50e653  independent validation documentation
+47c02f9b0bfacf3b502e2191a200834e77127a2c  Attempt-9 Sarvam 403 STOP evidence
 ```
 
 ## 5. Exact next task
 
-**Next task: desktop executes the one authorized, monitored live Test 5 Attempt
-9 exactly as specified in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
+**Next task: desktop executes the one authorized, monitored OpenRouter Test 5
+Attempt 10 exactly as specified in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
 
-The authorization permits one eight-token Sarvam probe and one guarded turn in
-fresh workspace `C:\test5-ws-attempt9`, with 16-call/120k-input-token caps,
+The authorization permits one eight-token OpenRouter probe and one guarded turn
+in fresh workspace `C:\test5-ws-attempt10`, using only the exact secure key and
+model ID already provided to desktop. The 16-call/120k-input-token caps,
 three-call no-delivery cancellation, active 30-second inspection, strict
-runtime/product grading, complete evidence commit/push, and mandatory STOP.
-It does not authorize a retry or PR merge.
+runtime/product grading, complete evidence commit/push, and mandatory STOP all
+remain. It does not authorize model guessing/substitution, a retry, or PR merge.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
@@ -200,7 +211,7 @@ not before it.
 The next agent normally needs only these files:
 
 1. `Agent work.md` — this handoff.
-2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current STOP state and validation gap.
+2. `DESKTOP_AGENT_INSTRUCTIONS.md` — exact Attempt-10 authorization and limits.
 3. `README.md` — public status and normal repository commands.
 4. `docs/TEST5_ATTEMPT8_DESKTOP.md` — failure evidence and validation history.
 5. `docs/HERMES_RUNTIME_AUDIT.md` — behavioral comparison and repair rationale.
