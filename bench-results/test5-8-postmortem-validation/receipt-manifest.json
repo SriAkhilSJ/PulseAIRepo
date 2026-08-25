@@ -1,0 +1,47 @@
+﻿[
+    {
+        "path":  "attempt8-evidence-tree-after.txt",
+        "bytes":  950,
+        "sha256":  "31146f691f5596c9ddbdcb49048c2857baf09d5e993aa04a589b67490626ec24"
+    },
+    {
+        "path":  "attempt8-evidence-tree-before.txt",
+        "bytes":  950,
+        "sha256":  "31146f691f5596c9ddbdcb49048c2857baf09d5e993aa04a589b67490626ec24"
+    },
+    {
+        "path":  "powershell-parse-errors.json",
+        "bytes":  0,
+        "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+        "path":  "powershell-parse.txt",
+        "bytes":  26,
+        "sha256":  "f9df79140fc4054d567bc831ea3e2b6582535e45decbcfdaeb8532068b97099b"
+    },
+    {
+        "path":  "py-compile-outcome.json",
+        "bytes":  30,
+        "sha256":  "f2bd07bf3c36af1c63e62548245508ab9a6abcdc8c91e2a2687e9c46bb26e511"
+    },
+    {
+        "path":  "pytest-outcome.json",
+        "bytes":  497,
+        "sha256":  "9ed300082cded26dd38757a0d7237a1a9063b2e251dded4a8525300d3f27e904"
+    },
+    {
+        "path":  "pytest.log",
+        "bytes":  1952,
+        "sha256":  "9989c1ef8172c50cf7ea9f2f26a837c7d7de9d89ce9a2eaafab384c9a5fd173f"
+    },
+    {
+        "path":  "validation-summary.json",
+        "bytes":  241,
+        "sha256":  "db1e47b0872a61e4aaaea52620fdba1fcb00e6b46f071e06e14727d94a5cfb2b"
+    },
+    {
+        "path":  "wrapper-static-contract.json",
+        "bytes":  400,
+        "sha256":  "e881c61760618af0c3ecf1e41190006ec83a72159c7d906ff90b2d1fb5a68311"
+    }
+]

@@ -1,0 +1,13 @@
+﻿{
+    "exit_code":  0,
+    "tests":  [
+                  "src/tests/test_progress_helpers.py",
+                  "src/tests/test_retry_proxy.py",
+                  "src/tests/test_retry_proxy_stream_cleanup.py",
+                  "src/tests/test_autonomous_runtime_contract.py",
+                  "src/tests/test_cancellation_gates.py",
+                  "src/tests/test_test5_guarded_script.py"
+              ],
+    "provider_calls_authorized":  0,
+    "network_blocked":  true
+}

@@ -1,0 +1,13 @@
+﻿{
+    "required":  [
+                     "$env:PULSEAI_DISABLE_LONG_TERM_MEMORY = \"1\"",
+                     "function Write-WatchdogOutcome",
+                     "-Result \"watchdog-hard-cap\"",
+                     "-Result \"watchdog-stalled\"",
+                     "llm={3} files={4} bytes={5}"
+                 ],
+    "missing":  [
+
+                ],
+    "passed":  true
+}
