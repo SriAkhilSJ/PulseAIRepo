@@ -200,6 +200,9 @@ class TestWindowsShimHangDefense:
         monkeypatch.setattr(gc, "_SPAWN", fake_spawn)
         monkeypatch.setattr(gc, "_taskkill_tree",
                            lambda pid: (killed.append(pid), True)[1])
+        # The tree-kill branch is Windows-only (_terminate gates on os.name);
+        # simulate it so the defense is pinned on every platform.
+        monkeypatch.setattr(gc.os, "name", "nt")
 
         started = time.perf_counter()
         out = gc._run_git(["status", "--short"], cwd=str(tmp_path), timeout=1.0)
@@ -247,6 +250,8 @@ class TestWindowsShimHangDefense:
         # _taskkill_tree returns False so _terminate falls back to proc.kill()
         monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
         monkeypatch.setattr(gc, "_taskkill_tree", lambda pid: False)
+        # Exercise the real (Windows) path: tree-kill attempted, fails, falls back.
+        monkeypatch.setattr(gc.os, "name", "nt")
         assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
         # The fallback path: kill then wait
         assert kills_called, "proc.kill() must be called when tree-kill fails"
@@ -280,6 +285,8 @@ class TestWindowsShimHangDefense:
         monkeypatch.setattr(gc, "_SPAWN", lambda *a, **k: FakeProc())
         monkeypatch.setattr(gc, "_taskkill_tree",
                            lambda pid: (tree_kills.append(pid), True)[1])
+        # Windows-only tree-kill branch: simulate it on every platform.
+        monkeypatch.setattr(gc.os, "name", "nt")
         assert gc._run_git(["status"], cwd=str(tmp_path), timeout=1.0) == ""
         # _terminate was called (not just _reap), so tree-kill was invoked
         # with the exact owned PID.

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+<rect width="1200" height="720" fill="#000000"/>
+<rect x="0" y="0" width="1200" height="36" fill="#000000"/>
+<line x1="0" y1="36" x2="1200" y2="36" stroke="#1A1A1A"/>
+<text x="600" y="23" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#E8E8E8">pulseai-web — PulseAI IDE</text>
+<rect x="0" y="36" width="48" height="660" fill="#000000"/>
+<line x1="48" y1="36" x2="48" y2="696" stroke="#1A1A1A"/>
+<rect x="0" y="70" width="2" height="30" fill="#3B82F6"/>
+<rect x="16" y="77" width="16" height="16" rx="3" fill="#FFFFFF" opacity="1"/><rect x="16" y="117" width="16" height="16" rx="3" fill="#6A6A6A" opacity="0.55"/><rect x="16" y="157" width="16" height="16" rx="3" fill="#6A6A6A" opacity="0.55"/><rect x="16" y="197" width="16" height="16" rx="3" fill="#6A6A6A" opacity="0.55"/>
+<circle cx="34" cy="80" r="7" fill="#3B82F6"/>
+<text x="34" y="84" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="9" font-weight="700" fill="#FFFFFF">3</text>
+<rect x="48" y="36" width="200" height="660" fill="#000000"/>
+<line x1="248" y1="36" x2="248" y2="696" stroke="#1A1A1A"/>
+<text x="64" y="62" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#9B9B9B" letter-spacing="1.2">EXPLORER</text>
+<rect x="48" y="104" width="200" height="26" fill="#0C1A30"/>
+<rect x="48" y="104" width="2" height="26" fill="#3B82F6"/>
+<text x="80" y="96" font-family="Segoe UI,sans-serif" font-size="13" fill="#BFBFBF">src</text><text x="80" y="121" font-family="Segoe UI,sans-serif" font-size="13" fill="#FFFFFF">session.ts</text><text x="80" y="147" font-family="Segoe UI,sans-serif" font-size="13" fill="#BFBFBF">callback.ts</text><text x="80" y="173" font-family="Segoe UI,sans-serif" font-size="13" fill="#BFBFBF">package.json</text>
+<rect x="248" y="36" width="632" height="38" fill="#000000"/>
+<rect x="248" y="36" width="150" height="38" fill="#0A0A0A"/>
+<rect x="248" y="36" width="150" height="2" fill="#3B82F6"/>
+<text x="272" y="60" font-family="Segoe UI,sans-serif" font-size="13" fill="#FFFFFF">session.ts</text>
+<text x="420" y="60" font-family="Segoe UI,sans-serif" font-size="13" fill="#9B9B9B">callback.ts</text>
+<rect x="248" y="252" width="632" height="26" fill="#0C1A30"/><rect x="248" y="252" width="2" height="26" fill="#3B82F6"/>
+<text x="150" y="150" font-family="monospace" font-size="13" fill="#6A6A6A">1</text><text x="185" y="150" font-family="monospace" font-size="13" fill="#9B8CFF">import { Telegraf } from 'telegraf';</text><text x="150" y="176" font-family="monospace" font-size="13" fill="#6A6A6A">2</text><text x="185" y="176" font-family="monospace" font-size="13" fill="#9B8CFF">import { Pulse } from '@pulseai/sdk';</text><text x="150" y="202" font-family="monospace" font-size="13" fill="#6A6A6A">3</text><text x="185" y="202" font-family="monospace" font-size="13" fill="#E8E8E8"></text><text x="150" y="228" font-family="monospace" font-size="13" fill="#6A6A6A">4</text><text x="185" y="228" font-family="monospace" font-size="13" fill="#60A5FA">export async function completeSession(code) {</text><text x="150" y="254" font-family="monospace" font-size="13" fill="#6A6A6A">5</text><text x="185" y="254" font-family="monospace" font-size="13" fill="#E8E8E8">  const jar = await cookies();</text><text x="150" y="280" font-family="monospace" font-size="13" fill="#6A6A6A">6</text><text x="185" y="280" font-family="monospace" font-size="13" fill="#E8E8E8">  if (staleState) jar.delete('oauth_state');</text><text x="150" y="306" font-family="monospace" font-size="13" fill="#6A6A6A">7</text><text x="185" y="306" font-family="monospace" font-size="13" fill="#E8E8E8">  redirect(safeDestination(destination));</text><text x="150" y="332" font-family="monospace" font-size="13" fill="#6A6A6A">8</text><text x="185" y="332" font-family="monospace" font-size="13" fill="#E8E8E8">}</text>
+<rect x="880" y="36" width="320" height="660" fill="#000000"/>
+<line x1="880" y1="36" x2="880" y2="696" stroke="#1A1A1A"/>
+<text x="896" y="72" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#6A6A6A" letter-spacing="1.2">CURRENT SESSION</text>
+<text x="896" y="98" font-family="Segoe UI,sans-serif" font-size="17" font-weight="700" fill="#FFFFFF">Fix authentication redirect</text>
+<text x="896" y="120" font-family="Segoe UI,sans-serif" font-size="11" fill="#9B9B9B">Agent · 2 of 3 steps</text>
+<line x1="880" y1="140" x2="1176" y2="140" stroke="#1A1A1A"/>
+<text x="896" y="172" font-family="Segoe UI,sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Pulse</text>
+<text x="896" y="196" font-family="Segoe UI,sans-serif" font-size="12" fill="#9B9B9B">I traced the redirect loop to a stale</text>
+<text x="896" y="214" font-family="Segoe UI,sans-serif" font-size="12" fill="#9B9B9B">session cookie surviving the OAuth</text>
+<text x="896" y="232" font-family="Segoe UI,sans-serif" font-size="12" fill="#9B9B9B">callback. Repairing the guard now.</text>
+<text x="896" y="272" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#6A6A6A" letter-spacing="1.2">ACTIONS</text>
+<circle cx="880" cy="300" r="4" fill="#3FD68A"/><text x="896" y="304" font-family="Segoe UI,sans-serif" font-size="12" fill="#FFFFFF">Read  src/auth/callback.ts</text><circle cx="880" cy="328" r="4" fill="#F0B64F"/><text x="896" y="332" font-family="Segoe UI,sans-serif" font-size="12" fill="#FFFFFF">Edit  src/auth/session.ts</text><circle cx="880" cy="356" r="4" fill="#3B82F6"/><text x="896" y="360" font-family="Segoe UI,sans-serif" font-size="12" fill="#9B9B9B">Verify  authentication flow</text>
+<rect x="880" y="392" width="296" height="86" rx="8" fill="#0A0A0A" stroke="#F0B64F"/>
+<rect x="880" y="392" width="3" height="86" fill="#F0B64F"/>
+<text x="898" y="416" font-family="Segoe UI,sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Permission required</text>
+<text x="898" y="436" font-family="Segoe UI,sans-serif" font-size="11" fill="#9B9B9B">Pulse wants to edit a tracked file.</text>
+<text x="898" y="462" font-family="monospace" font-size="11" fill="#BFBFBF">session.ts</text>
+<text x="1010" y="462" font-family="monospace" font-size="11" fill="#3FD68A">+12</text>
+<text x="1040" y="462" font-family="monospace" font-size="11" fill="#F2646F">-4</text>
+<rect x="1092" y="446" width="72" height="24" rx="6" fill="#3B82F6"/>
+<text x="1128" y="462" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF">Approve</text>
+<rect x="880" y="596" width="296" height="72" rx="8" fill="#0A0A0A" stroke="#1F1F1F"/>
+<text x="898" y="622" font-family="Segoe UI,sans-serif" font-size="12" fill="#6A6A6A">Steer Pulse or add context…</text>
+<rect x="1136" y="632" width="28" height="28" rx="8" fill="#3B82F6"/>
+<path d="M1144 646 l10 -5 -4 5 4 5 z" fill="#FFFFFF"/>
+<rect x="0" y="696" width="1200" height="24" fill="#000000"/>
+<line x1="0" y1="696" x2="1200" y2="696" stroke="#1A1A1A"/>
+<text x="16" y="712" font-family="Segoe UI,sans-serif" font-size="11" fill="#9B9B9B">main*   0   0</text>
+<text x="1184" y="712" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="11" fill="#3B82F6">Pulse ready</text>
+</svg>

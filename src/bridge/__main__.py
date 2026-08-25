@@ -67,6 +67,27 @@ class BridgeServer:
             self._protocol_out.write(encode(frame))
             self._protocol_out.flush()
 
+    @staticmethod
+    def _prior_checkpoint_count(sid: str, db_path: str | None = None) -> int | None:
+        """Count durable checkpoints for a thread id (read-only, no engine
+        import). None = unknown (db unreadable/schema changed) — never
+        reported as 0 when unknown."""
+        db = db_path or os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
+        if not os.path.exists(db):
+            return 0
+        try:
+            import sqlite3
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2.0)
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", (sid,)
+                ).fetchone()
+                return int(row[0])
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
     def _session(self, requested: str | None, workspace: str = "") -> str:
         """Resolve a session id, binding the FIRST workspace only.
 
@@ -91,6 +112,7 @@ class BridgeServer:
         payload = dict(event.get("payload") or {})
         mapping = {
             "message.agent.chunk": "token",
+            "llm.request": "llm.request",
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
             "tool.approval.request": "safety_request",
@@ -157,6 +179,7 @@ class BridgeServer:
                 "tool_call_start", "tool_call_end", "safety_request",
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
+                "llm.request", "workspace.bound",
             } else None
         base = {
             "type": target,
@@ -181,14 +204,27 @@ class BridgeServer:
     def _project_stored_events(cls, events: list[dict]) -> list[dict]:
         return [projected for event in events if (projected := cls._project_stored_event(event))]
 
-    def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event) -> None:
-        """Forward event-bus events to protocol frames; never dies silently."""
+    def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event,
+                        own_sid: str | None = None) -> None:
+        """Forward event-bus events to protocol frames; never dies silently.
+
+        Events naming a DIFFERENT session are dropped (concurrent-turn
+        isolation); session-less events (aux/pre-turn/post-turn calls) are
+        kept — they belong to whoever is running the turn.
+        """
         while not done.is_set():
             try:
                 event = q.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
+                if own_sid is not None:
+                    payload = event.get("payload") or {}
+                    event_session = str(
+                        payload.get("session_id") or payload.get("thread_id") or ""
+                    ) or None
+                    if event_session is not None and event_session != own_sid:
+                        continue
                 frame = self._project_event(event, identity)
                 if frame:
                     self.emit(frame)
@@ -228,6 +264,25 @@ class BridgeServer:
         try:
             self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
             if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
+                # Test seam (PULSEAI_ECHO_DELAY_MS): simulate an in-flight turn
+                # that honours a cancel request, mirroring real turn semantics.
+                # Used by the reliability-benchmark harness (PBR-012) to verify
+                # cancel behaviour with zero model calls. Default 0 => the
+                # historical instant echo turn, byte-compatible with past tests.
+                delay_ms = int(os.environ.get("PULSEAI_ECHO_DELAY_MS", "0") or "0")
+                if delay_ms > 0:
+                    from src.runtime.turn_control import turn_controls
+                    import time as _time
+                    deadline = _time.monotonic() + max(delay_ms, 0) / 1000.0
+                    while _time.monotonic() < deadline and not turn_controls.cancelled(sid):
+                        _time.sleep(0.05)
+                    if turn_controls.cancelled(sid):
+                        self.emit({
+                            "type": "turn_done", **identity.event_fields(),
+                            "message": "Operation cancelled by the user.",
+                            "completed": False, "cancelled": True, "stub": False,
+                        })
+                        return
                 self.emit({
                     "type": "token", **identity.event_fields(),
                     "text": text, "test_runner": "echo",
@@ -240,10 +295,17 @@ class BridgeServer:
 
             from src.dashboard.event_bus import event_bus
             from src.graphs.chat_graph import stream_agent
-            q = event_bus.subscribe(thread_id=sid)
+            # ADMIN subscription + own filter, not a session-filtered one:
+            # provider calls made where no active session is set (planner
+            # pre-turn, post-turn review threads) carry session_id=None and a
+            # session-filtered queue silently DROPS them — the founder's
+            # PBR-002 run counted 11 provider calls but only 4 llm.request
+            # frames reached the client. Events that DO name another session
+            # are still excluded here so concurrent turns never cross-wire.
+            q = event_bus.subscribe(thread_id=None)
             done = threading.Event()
             forwarder = threading.Thread(
-                target=self._forward_events, args=(q, identity, done),
+                target=self._forward_events, args=(q, identity, done, sid),
                 name=f"bridge-events-{sid}", daemon=True,
             )
             forwarder.start()
@@ -328,7 +390,16 @@ class BridgeServer:
             self.emit(error_frame(str(exc)))
             return True
         if kind == "session_create":
-            self.emit({"type": "session_info", **self._sessions[sid]})
+            prior = self._prior_checkpoint_count(sid)
+            info = {"type": "session_info", **self._sessions[sid]}
+            if prior is not None:
+                # Visibility: a session id with durable history SILENTLY
+                # resumes it (the langgraph checkpointer keys by thread id).
+                # Measured live: a fixed id made each benchmark run replay
+                # every prior run (+3 calls / +~10k tokens per run, linear).
+                # The create reply must never claim a fresh start silently.
+                info["prior_checkpoints"] = prior
+            self.emit(info)
         elif kind in {"session_load", "session_resume"}:
             try:
                 from src.runtime.factory import get_runtime_services
@@ -453,6 +524,17 @@ class BridgeServer:
             )
             events = self._project_stored_events(stored)
             self.emit({"type": "events_replay", "session_id": sid, "events": events})
+        if workspace:
+            # Workspace routing evidence (P0 contract + PBR-002): every
+            # workspace-bearing frame asserts the exact root this session is
+            # pinned to, client through engine. Emitted after the direct reply
+            # so clients expecting a specific response frame are unaffected.
+            # `hops` stays the resolved root string so a grader can assert all
+            # hops equal the opened fixture root.
+            self.emit({
+                "type": "workspace.bound", "session_id": sid,
+                "workspace": workspace, "hops": workspace, "engine_root": workspace,
+            })
         return True
 
     def run(self) -> int:

@@ -4,6 +4,12 @@
 **Status:** Active
 **Founder constraints:** `/contrib/pulseai/`, no Pulse extension, no activity/token graph, no card-heavy or over-spaced dashboard, canonical vendored fork only under `desktop/vscode/`.
 
+> **Visual design is tracked separately.** This document covers UI *structure and
+> integration* (T1–T7). The *visual* layer — tokens, typography, spacing, motion,
+> accessibility, and the Pulse Native design system — is owned by the Interface
+> agent in [`DESIGN/PULSEAI_DESIGN_PLAN.md`](DESIGN/PULSEAI_DESIGN_PLAN.md).
+> Do not make styling decisions here; do not make protocol/host decisions there.
+
 ## Capacity rules
 
 1. Never clone full Kilo or VS Code working trees into the sandbox (the vendored `desktop/vscode/` checkout is the single committed Code OSS tree).

@@ -61,6 +61,37 @@ def _looks_like_plan_task(task: str) -> bool:
     )
 
 
+# Obvious single-action questions — DIRECT by the classifier prompt's own
+# definition ("explaining something"). Measured why this list exists
+# (founder-pbr004-1): the model returned a confident-wrong PLAN for
+# "Summarize the workspace." and the plan loop burned 20 full-context laps
+# (21 calls / 118k tokens / $0.12) to answer one question.
+_DIRECT_QUESTION_PATTERNS = (
+    "summarize",
+    "explain",
+    "describe",
+    "what is",
+    "what are",
+    "why is",
+    "why does",
+    "how does",
+    "tell me about",
+    "list the",
+    "show me",
+)
+
+
+def _looks_like_direct_question(task: str) -> bool:
+    """Obvious one-step question that must never enter the plan loop —
+    and must not even spend the PLAN/DIRECT classifier call."""
+    text = str(task).lower().strip()
+    if not text or len(text) > 200:
+        return False  # long prompts may genuinely need steps
+    if _looks_like_plan_task(text):
+        return False  # creation+execution pairs outrank question verbs
+    return any(p in text for p in _DIRECT_QUESTION_PATTERNS)
+
+
 def _extract_decision(response_content: object) -> str:
     answer = str(response_content).strip().upper()
 
@@ -76,6 +107,12 @@ def should_create_plan(
     model: str,
     usage_list: list | None = None,
 ) -> bool:
+    # Obvious one-step questions never enter the plan loop and never spend
+    # the classifier call (founder-pbr004-1: "Summarize the workspace." got
+    # a wrong PLAN verdict and cost 20 full-context laps).
+    if _looks_like_direct_question(task):
+        return False
+
     llm = get_llm(
         provider=provider,
         model=model,
@@ -111,7 +148,10 @@ def should_create_plan(
     decision = _extract_decision(response.content)
 
     if decision == "PLAN":
-        return True
+        # Measured override (founder-pbr004-1): a confident-wrong PLAN on an
+        # obvious one-step question is overridden — the heuristic only wins
+        # when the task is NOT also an obvious multi-step plan task.
+        return not _looks_like_direct_question(task)
 
     if decision == "DIRECT":
         return _looks_like_plan_task(task)

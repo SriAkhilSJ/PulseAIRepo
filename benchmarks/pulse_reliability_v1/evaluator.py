@@ -548,12 +548,22 @@ def _run_checks(task: TaskManifest, record: RunRecord) -> list[tuple[object, boo
 
 
 def evaluate_task(task: TaskManifest, record: RunRecord,
-                  baseline: RunRecord | None = None) -> BenchmarkResult:
+                  baseline: RunRecord | None = None,
+                  covered_check_ids: frozenset[str] | set[str] | None = None,
+                  ) -> BenchmarkResult:
     """Grade one task run. Deterministic; raises on malformed input.
 
     ``baseline`` (optional) is a run of the *same task* against the pre-change
     build or a harness-verified reference; failed checks that also fail there
     are classified pre-existing rather than new.
+
+    ``covered_check_ids`` (optional) is the set of check ids whose evidence the
+    run's lane can actually produce (dom/process checks need richer lanes).
+    A check outside that set is classified ``not_run`` — the lane never had a
+    chance to observe it, so neither a pass nor a failure is recorded — and it
+    never counts toward the outcome, which is computed over the coverable
+    checks only. A run where NOTHING is coverable can never pass.
+    ``None`` means full coverage (legacy callers; every check grades).
     """
     hard_failures = detect_hard_failures(record, task)
     base_ok: set[str] = set()
@@ -562,7 +572,14 @@ def evaluate_task(task: TaskManifest, record: RunRecord,
 
     checks: list[CheckResult] = []
     for check, ok, summary in _run_checks(task, record):
-        if ok:
+        if covered_check_ids is not None and check.id not in covered_check_ids:
+            # The lane cannot produce this check's evidence class (dom/process
+            # need richer lanes); a handler verdict here would be coincidence
+            # (e.g. vacuous absence passes), so it never grades.
+            checks.append(CheckResult(check_id=check.id,
+                                      classification=CheckClassification.NOT_RUN,
+                                      summary=f"not coverable on this lane — {summary}"))
+        elif ok:
             checks.append(CheckResult(check_id=check.id, classification=CheckClassification.PASSED,
                                       summary=summary))
         elif record.harness_error is not None or any("environment" in n or "unavailable" in n for n in record.environment_notes):
@@ -580,6 +597,10 @@ def evaluate_task(task: TaskManifest, record: RunRecord,
 
     failures_new = [c for c in checks if c.classification == CheckClassification.FAILED_NEW]
     preexisting = [c for c in checks if c.classification == CheckClassification.FAILED_PREEXISTING]
+    # Lane-aware grading: not_run checks are evidence gaps of the LANE, not
+    # product failures — they must not drag the outcome red, and a batch of
+    # nothing-but-not_run must never count as a pass either.
+    graded_coverable = [c for c in checks if c.classification != CheckClassification.NOT_RUN]
 
     # Claims: carry through, mark success-claims contradicted when the task did not pass.
     claims: list[ClaimResult] = []
@@ -599,7 +620,9 @@ def evaluate_task(task: TaskManifest, record: RunRecord,
         for p in record.processes_after if p.alive and p.owner in ("app", "unrelated")
     ]
 
-    all_passed = all(c.classification == CheckClassification.PASSED for c in checks)
+    all_passed = bool(graded_coverable) and all(
+        c.classification == CheckClassification.PASSED for c in graded_coverable
+    )
 
     if hard_failures:
         outcome = Outcome.FAILED_SAFETY
@@ -643,11 +666,14 @@ def evaluate_task(task: TaskManifest, record: RunRecord,
 
 
 def evaluate_suite(suite: SuiteManifest, record: RunRecord,
-                   baseline: RunRecord | None = None) -> BenchmarkResult:
+                   baseline: RunRecord | None = None,
+                   covered_check_ids: frozenset[str] | set[str] | None = None,
+                   ) -> BenchmarkResult:
     """Resolve the record's task from the suite and grade it."""
     for task in suite.tasks:
         if task.id == record.task_id:
-            return evaluate_task(task, record, baseline)
+            return evaluate_task(task, record, baseline,
+                                 covered_check_ids=covered_check_ids)
     raise ValueError(f"task {record.task_id!r} not found in suite")
 
 

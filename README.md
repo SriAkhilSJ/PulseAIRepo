@@ -43,6 +43,18 @@ Then open `http://localhost:8080`.
 - **Replanning:** Pivot strategy mid-task if the current plan becomes unviable.
 
 ### Task-Aware Context Engine (v2)
+
+> **⚠️ Honest status (2026-08-23, verified by external review + code audit):**
+> the *embedding-backed* features below — semantic similarity scoring,
+> semantic dedup, the embedding path of long-term memory — are **disabled in
+> normal operation** (`_allow_embedding_compute = False`; production budgets
+> are cache-only per the bounded-scan doctrine — only the explicit
+> `unbounded()` maintenance path may compute). Until that changes, scoring
+> runs on task-type priors + recency heuristics, dedup is skipped, and the
+> memory layer is a no-op. Enabling embeddings in live turns is an open
+> product decision (quality vs. compute), not a toggle to flip quietly.
+> The classifier/assembly/budget machinery described below IS active.
+
 PulseAI builds a 16-layer context for every LLM call. Unlike v1 (static order, fixed budget), v2 is task-aware:
 
 - **Task Classification:** Regex heuristics + embedding similarity classify each task into 9 types (debug, create, refactor, test, explore, explain, plan, recovery, chat).
@@ -361,7 +373,7 @@ Second hardening pass, driven by the Test-3 E2/R3 retests (both "Finished" with 
 
 ### Prompt caching & boot reliability
 - **P1 prompt-cache plan** (`src/context/prompt_cache_plan.py`) — marks the byte-stable prefix head with cache breakpoints, hermes `prompt_caching.py` shape. **Default off** (`PULSEAI_PROMPT_CACHE=1` + allowlisted provider); pure, never raises, undoable by the failover stripper.
-- **`browser_mcp` lazy import** — the `mcp` package (and its Windows `pywintypes` requirement) is imported lazily so the engine boots even without the optional stack.
+- **`browser_mcp` import (status corrected 2026-08-23):** `BROWSER_TOOLS` is currently imported at MODULE level in `chat_graph.py` — the earlier "lazy import" claim was README drift, not code. If the optional `mcp`/`pywintypes` stack is missing on Windows, boot can break; making this genuinely lazy is queued.
 
 ### Test-3 retest result
 ✅ **PASS** — both components placed **verbatim** (byte-identical via `copy_file`), full scaffold, `tsc` proves soundness; remaining errors are inherent to the provided component's bleeding-edge WebGPU/TSL API. Eval artifacts under `lab/` (`TEST3_E2_REPORT.md`, `report_test3_retest.json`, `test3_expected/`, harness scripts).
@@ -427,54 +439,33 @@ A session of root-causing real bugs surfaced by live agent runs (Test 3: integra
 /usr/bin/bash: line 7: C:/Users/Administrator/AppData/Local/hermes/cache/terminal/hermes-cwd-6275bbbba2d3.txt: Device or resource busy
 
 
-# PulseAI agent tuning â€” created by the CTO efficiency pass.  
-  
-# Keys (OPENAI_API_KEY etc.) live in the OS environment; this file only  
-  
-# overrides what's below. load_dotenv() never clobbers existing env vars.  
-  
-# ---------------------------------------------------------------------------  
-  
-# PulseAI live config â€” Sarvam AI (real provider, pinned 105B model, &amp;gt;=32k window)  
-  
-# Provider "custom" builds ChatOpenAI(custom_base_url) in src/llm/[[factory.py](http://factory.py)]([http://factory.py](http://factory.py)).  
-  
-# ---------------------------------------------------------------------------  
-  
-LLM_PROVIDER=custom  
-  
-LLM_MODEL=sarvam-105b-conversations  
-  
-CUSTOM_BASE_URL=[[https://api.sarvam.ai/v1](https://api.sarvam.ai/v1)](https://api.sarvam.ai/v1](https://api.sarvam.ai/v1))  
-  
-CUSTOM_API_KEY="""sk_abz8b0cg_lNzfwu64pX3O42zOJ1DkrYNJ"""  
-  
-# ---------------------------------------------------------------------------  
-  
-# Efficiency: summarize giant (&amp;gt;8000-char) tool outputs with the CHEAP  
-  
-# auxiliary model (janitor rates) instead of free heuristics only.  
-  
-# The summarizer memoizes per unique output, so each big output costs ONE  
-  
-# aux call, not one per turn. Degrades gracefully if the aux model fails.  
-  
-# ---------------------------------------------------------------------------  
-  
-SUMMARIZER_LLM=aux  
-  
-# ---------------------------------------------------------------------------  
-  
-# Context window: trust the registered window (sarvam-105b = 32768 in  
-  
-# model_budgets). PROVIDER_SAFE_LIMIT=0 means AUTO â€” trust the dynamically  
-  
-# discovered model window instead of a fixed cap. Use &amp;gt;0 on free/combo tiers  
-  
-# or if you see 503s on oversized requests; set back to 6000 to re-cap.  
-  
-PROVIDER_SAFE_LIMIT=0  
-  
-  
-  
- 
+# PulseAI agent tuning â€” created by the CTO efficiency pass.
+# Keys (OPENAI_API_KEY etc.) live in the OS environment; this file only
+# overrides what's below. load_dotenv() never clobbers existing env vars.
+
+# ---------------------------------------------------------------------------
+# PulseAI live config â€” Sarvam AI (real provider, pinned 105B model, >=32k window)
+# Provider "custom" builds ChatOpenAI(custom_base_url) in src/llm/factory.py.
+# ---------------------------------------------------------------------------
+LLM_PROVIDER=custom
+LLM_MODEL=sarvam-105b-conversations
+CUSTOM_BASE_URL=https://api.sarvam.ai/v1
+# NEVER put a real key in this file — it is committed to git and public on GitHub.
+# Put the real value in .env (gitignored):  CUSTOM_API_KEY=sk_...
+CUSTOM_API_KEY=
+
+# ---------------------------------------------------------------------------
+# Efficiency: summarize giant (>8000-char) tool outputs with the CHEAP
+# auxiliary model (janitor rates) instead of free heuristics only.
+# The summarizer memoizes per unique output, so each big output costs ONE
+# aux call, not one per turn. Degrades gracefully if the aux model fails.
+# ---------------------------------------------------------------------------
+SUMMARIZER_LLM=aux
+
+# ---------------------------------------------------------------------------
+# Context window: trust the registered window (sarvam-105b = 32768 in
+# model_budgets). PROVIDER_SAFE_LIMIT=0 means AUTO â€” trust the dynamically
+# discovered model window instead of a fixed cap. Use >0 on free/combo tiers
+# or if you see 503s on oversized requests; set back to 6000 to re-cap.
+PROVIDER_SAFE_LIMIT=0
+

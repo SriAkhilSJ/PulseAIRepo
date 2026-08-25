@@ -1,5 +1,21 @@
 # PulseAI IDE UI Lab
 
+> **⚠️ AGENTS: read [`docs/DESIGN/PULSEAI_DESIGN_PLAN.md`](../docs/DESIGN/PULSEAI_DESIGN_PLAN.md) before editing anything under `ui/`.**
+> The interface is mid-migration to the "Pulse Native" design system. `ui/src/styles.css`
+> is **pre-system** and is being replaced by generated tokens + split modules — do not
+> derive design decisions from it, and do not hand-edit
+> `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/*.css` (mirrored from `ui/`).
+> File ownership and invariants: §7 of that plan. Owner: Interface agent.
+>
+> **Current palette (2026-08-23):** true black `#000` chrome · white `#fff` bold text ·
+> grey `#9b9b9b` thinking text · blue `#3b82f6` buttons. Cyan is retired.
+> Applied in `ui/` only — the production mirror is gated on `test_pulseai_branding.py` (§4.5b).
+> `ui/screenshots/*.png` are STALE (still show the old design).
+>
+> **Also read [`docs/DESIGN/COPILOT_INTEGRATION_ANALYSIS.md`](../docs/DESIGN/COPILOT_INTEGRATION_ANALYSIS.md)** —
+> the fork ships a design-token system (`--vscode-fontSize-*`, `--vscode-cornerRadius-*`,
+> `--vscode-spacing-*`) that Pulse must consume instead of hardcoding px.
+
 Browser-testable source for the two PulseAI IDE product surfaces:
 
 1. **Agent UI** — compact, current-workspace execution surface.

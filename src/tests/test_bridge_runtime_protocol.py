@@ -13,7 +13,12 @@ from src.bridge.protocol import PROTOCOL_VERSION
 def send(proc, frame):
     proc.stdin.write(json.dumps(frame) + "\n")
     proc.stdin.flush()
-    return json.loads(proc.stdout.readline())
+    # Async observability frames (workspace.bound) trail direct replies and
+    # are never the answer to a method — skip them.
+    while True:
+        reply = json.loads(proc.stdout.readline())
+        if reply.get("type") not in {"workspace.bound", "llm.request"}:
+            return reply
 
 
 @pytest.fixture

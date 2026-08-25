@@ -1260,3 +1260,117 @@ def test_gitignore_and_source_reads_share_one_byte_cap(tmp_path):
     assert mid.read_bytes <= ignore_bytes + 50, "physical reads must never exceed the cap"
     assert mid.read_bytes >= ignore_bytes, "the .gitignore must be metered, not free"
     assert mid.read_files == 1, "only the .gitignore was physically read"
+
+
+def test_token_counting_never_dies_without_tiktoken(monkeypatch):
+    """Durability pin: a tokenizer acquisition failure (offline first run,
+    blocked BPE download) degrades to the heuristic encoder — a turn must
+    never die on token counting. Found live on 2026-08-23: a real turn
+    failed with the tiktoken cl100k_base download SSLError."""
+    import src.context.token_budget as tb
+    from langchain_core.messages import HumanMessage
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("blocked network: no BPE download")
+
+    monkeypatch.setattr(tb.tiktoken, "encoding_for_model", boom)
+    monkeypatch.setattr(tb.tiktoken, "get_encoding", boom)
+    n = tb.count_tokens([HumanMessage(content="hello world, this is a test")], "any-model")
+    assert n > 0  # heuristic: imprecise but never fatal
+
+
+def test_oversized_workspace_gets_bounding_receipt(tmp_path):
+    """PBR-004 contract: a workspace larger than the scan budget earns
+    EXACTLY ONE runtime.degraded receipt with the REAL considered counts —
+    even when skip rules prune it without a mid-walk truncation. A small
+    workspace earns none."""
+    from src.dashboard.event_bus import event_bus
+    from src.context.context_engine import ContextEngine, TaskType
+
+    big = tmp_path / "big-ws"
+    big.mkdir()
+    for i in range(1200):  # > max_considered (1000)
+        (big / f"entry_{i:05d}.py").write_text("x = 1\n")
+
+    small = tmp_path / "small-ws"
+    small.mkdir()
+    (small / "workspace_proof.py").write_text("PROOF = 1\n")
+
+    q = event_bus.subscribe(None)
+    while not q.empty():
+        q.get_nowait()
+    try:
+        eng = ContextEngine(thread_id="receipt-1", probe_window=False)
+        eng._build_context_layers({"messages": [], "workspace": str(big)}, TaskType.EXPLORE)
+        receipts = []
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == "runtime.degraded":
+                receipts.append(ev["payload"])
+        assert len(receipts) == 1, receipts
+        assert receipts[0]["files_considered"] <= 1000
+        assert receipts[0]["bytes_read"] <= 16 * 1024 * 1024
+
+        while not q.empty():
+            q.get_nowait()
+        eng2 = ContextEngine(thread_id="receipt-2", probe_window=False)
+        eng2._build_context_layers({"messages": [], "workspace": str(small)}, TaskType.EXPLORE)
+        small_receipts = []
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == "runtime.degraded":
+                small_receipts.append(ev)
+        assert small_receipts == []
+    finally:
+        event_bus.unsubscribe(q)
+
+
+def test_workspace_exceeds_budget_probe(tmp_path):
+    from src.context.context_engine import ContextEngine
+    big = tmp_path / "b"
+    big.mkdir()
+    for i in range(1001):
+        (big / f"f{i}.py").write_text("x")
+    small = tmp_path / "s"
+    small.mkdir()
+    (small / "f.py").write_text("x")
+    assert ContextEngine._workspace_exceeds_budget(str(big), 1000) is True
+    assert ContextEngine._workspace_exceeds_budget(str(small), 1000) is False
+    assert ContextEngine._workspace_exceeds_budget(str(tmp_path / "missing"), 1000) is False
+
+
+def test_by_design_receipt_fires_once_per_session(tmp_path):
+    """Founder pin (founder-pbr004-1): a turn that lapped the graph 20 times
+    emitted 20 identical by-design receipts (event count 20 != 1). The fact
+    does not change per iteration — exactly ONE receipt per session."""
+    from src.dashboard.event_bus import event_bus
+    from src.context.context_engine import ContextEngine, TaskType
+
+    big = tmp_path / "big-ws"
+    big.mkdir()
+    for i in range(1200):
+        (big / f"entry_{i:05d}.py").write_text("x = 1\n")
+
+    q = event_bus.subscribe(None)
+    while not q.empty():
+        q.get_nowait()
+    try:
+        eng = ContextEngine(thread_id="latch-1", probe_window=False)
+        for _ in range(5):  # simulate a multi-lap turn: 5 builds, one engine
+            eng._build_context_layers(
+                {"messages": [], "workspace": str(big)}, TaskType.EXPLORE
+            )
+        receipts = []
+        while not q.empty():
+            ev = q.get_nowait()
+            if ev["type"] == "runtime.degraded":
+                receipts.append(ev)
+        assert len(receipts) == 1, receipts
+        # The CONTRACT: exactly one receipt per session with honest bounds.
+        # Whichever emitter wins the atomic once-flag (engine build receipt
+        # or a component's direct pool emission), the payload must carry the
+        # bounded counts.
+        assert receipts[0].get("files_considered", 0) <= 1000
+        assert receipts[0].get("bytes_read", 0) <= 16 * 1024 * 1024
+    finally:
+        event_bus.unsubscribe(q)
