@@ -100,6 +100,28 @@ output cap to both delivery phases. Deterministic fake-provider tests cover the
 stream close and request-2 boundary. That follow-up has not run against a live
 provider and does not authorize Attempt 9.
 
+### Stream-parity Windows receipt
+
+Desktop evidence commit `503c1972884d6ee190aafb3d9fce7227ef255e84`
+records parser, protocol-generator, compilation, diff-check, and Attempt-8
+before/after integrity PASS, plus 42 tests passed in 16.63 seconds with one
+warning and zero provider calls. Arena independently verified all ten receipt
+manifest entries, the exact evidence-parent relationship, implementation
+ancestry, evidence-only commit scope, and unchanged committed Attempt-8 tree.
+
+The authorized pytest list contained two additional targets that do not appear
+in the committed Windows log: `test_bridge_protocol_v2.py` and
+`test_d26_hashed_keys_match_builder_usage_ast`. The receipt therefore proves
+all recorded checks passed, but not completion of the full required 50-test
+Windows contract. Independent verdict:
+
+```text
+RECORDED_CHECKS_PASS / REQUIRED_VALIDATION_INCOMPLETE
+```
+
+No rerun is authorized. This qualification does not imply a source failure;
+both omitted targets passed in Arena.
+
 ## Evidence-quality findings
 
 The committed console proves the watchdog itself sampled every 30 seconds from

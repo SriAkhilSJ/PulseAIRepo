@@ -87,22 +87,30 @@ Arena validation results:
 
 ## 3. Outstanding work not performed by this Arena repair
 
-### A. Immediate authorized work: Windows deterministic validation
+### A. Windows deterministic validation receipt
 
-Handoff commit:
+Desktop evidence commit:
 
 ```text
-f232f796d8332cdce28121091fe8c98a391227c7
+503c1972884d6ee190aafb3d9fce7227ef255e84
 ```
 
-`DESKTOP_AGENT_INSTRUCTIONS.md` authorizes exactly one zero-provider Windows
-validation of source commit `b82381d3...`. It specifies the existing repository
-folder, exact focused tests, parser/generator/compile checks, Attempt-8 evidence
-hash checks, receipt format, and mandatory STOP conditions.
+The desktop receipt records parser, protocol-generator, compilation,
+`git diff --check`, Attempt-8 before/after integrity, and 42 tests as PASS, with
+zero provider calls. Arena independently matched all ten committed receipt
+entries and confirmed the evidence commit changed only the new validation
+folder.
 
-The next desktop agent must follow that file exactly. It must commit and push
-only the new validation evidence, then stop. Do not substitute a second clone,
-an Arena path, an old checkout, or a generated Test-5 workspace.
+The pytest log omitted two targets required by the handoff:
+`test_bridge_protocol_v2.py` and the D26 hashed-key AST test. It therefore ran
+42 tests instead of the expected 50. Exact command/version capture was also not
+committed. Independent status is:
+
+```text
+RECORDED_CHECKS_PASS / REQUIRED_VALIDATION_INCOMPLETE
+```
+
+Desktop is back to STOP. No rerun or missing-check-only follow-up is authorized.
 
 ### B. Work still prohibited pending explicit founder authorization
 
@@ -167,19 +175,16 @@ Important evidence commits:
 
 ## 5. Exact next task
 
-**Next task: execute and independently verify the one authorized zero-provider
-Windows stream-parity validation described in `DESKTOP_AGENT_INSTRUCTIONS.md`.**
+**Next task: founder decision on whether to authorize one zero-provider,
+missing-check-only Windows follow-up.**
 
-After the desktop evidence commit appears, the Arena agent should:
+If authorized, desktop should run exactly the two omitted pytest targets once,
+commit their command/version/output receipt, and return to STOP. It must not
+repeat the 42 passing tests or call a provider. If that receipt passes and is
+independently verified, the next decision is whether to authorize a monitored
+live Attempt 9.
 
-1. fetch the pushed evidence commit without changing branches;
-2. verify every receipt byte length and SHA-256 against committed files;
-3. verify Attempt-8 evidence is byte-identical before/after;
-4. confirm all focused tests and static checks used source commit
-   `b82381d36662e2f0dc9262bafafbedd8508318d6`;
-5. confirm provider-call count is exactly zero;
-6. document the independent verdict and return desktop instructions to STOP;
-7. ask the founder separately whether a monitored live Attempt 9 is authorized.
+Without that explicit authorization, perform no desktop or provider work.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,
@@ -190,7 +195,7 @@ not before it.
 The next agent normally needs only these files:
 
 1. `Agent work.md` — this handoff.
-2. `DESKTOP_AGENT_INSTRUCTIONS.md` — exact currently authorized action.
+2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current STOP state and validation gap.
 3. `README.md` — public status and normal repository commands.
 4. `docs/TEST5_ATTEMPT8_DESKTOP.md` — failure evidence and validation history.
 5. `docs/HERMES_RUNTIME_AUDIT.md` — behavioral comparison and repair rationale.
