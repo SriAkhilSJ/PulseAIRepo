@@ -13,7 +13,8 @@ param(
     [int]$MaxMinutes = 90,
     [int]$StallSeconds = 600,
     [int]$MaxLlmCalls = 60,
-    [int]$MaxInputTokens = 250000
+    [int]$MaxInputTokens = 250000,
+    [int]$MaxNoDeliveryCalls = 12
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,15 +61,19 @@ if ($LASTEXITCODE -ne 0) { Write-Host "[probe] FAILED - test NOT started." -Fore
 if (-not $env:PULSEAI_LLM_STREAMING) { $env:PULSEAI_LLM_STREAMING = "1" }
 if (-not $env:PULSEAI_LLM_TIMEOUT)   { $env:PULSEAI_LLM_TIMEOUT = "280" }
 
-# Long build turn: the driver records every frame; watchdog watches the run dir.
-$LogOut = Join-Path $env:TEMP "$RunId.out.log"
+# Long build turn: the driver itself records every protocol frame and bridge
+# stderr in the run directory. Do NOT use PowerShell 5.1 Start-Process stream
+# redirection here: desktop diagnostics proved its redirected parent/child
+# path can deadlock even when the child exits cleanly. Inherit the console so
+# output is drained live; the watchdog uses immutable run/workspace files.
 $proc = Start-Process -FilePath $Python `
     -ArgumentList "scripts\run_bridge_turn.py", "--workspace", $Workspace, `
                   "--prompt-file", "scripts\test5_prompt.txt", `
                   "--run-id", $RunId, "--timeout-s", ($MaxMinutes * 60 - 120), `
                   "--max-llm-calls", $MaxLlmCalls, `
-                  "--max-input-tokens", $MaxInputTokens `
-    -NoNewWindow -PassThru -RedirectStandardOutput $LogOut -RedirectStandardError (Join-Path $env:TEMP "$RunId.err.log")
+                  "--max-input-tokens", $MaxInputTokens, `
+                  "--max-no-delivery-calls", $MaxNoDeliveryCalls `
+    -NoNewWindow -PassThru
 
 $started = Get-Date
 $deadline = $started.AddMinutes($MaxMinutes)
@@ -82,7 +87,6 @@ while (-not $proc.HasExited) {
         Write-Host "[watchdog] hard cap $MaxMinutes min exceeded - killed." -ForegroundColor Red; exit 3
     }
     $newest = $epoch
-    if ((Test-Path $LogOut) -and ((Get-Item $LogOut).LastWriteTime -gt $newest)) { $newest = (Get-Item $LogOut).LastWriteTime }
     if (Test-Path $RunDir) {
         Get-ChildItem $RunDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
             if ($_.LastWriteTime -gt $newest) { $newest = $_.LastWriteTime }
@@ -116,6 +120,5 @@ while (-not $proc.HasExited) {
 
 Write-Host "[run] exited with code $($proc.ExitCode)"
 if (Test-Path "$RunDir\outcome.json") { Get-Content "$RunDir\outcome.json" }
-if (Test-Path $LogOut) { Write-Host "`n===== driver tail ====="; Get-Content $LogOut -Tail 15 }
 & $Python scripts\analyze_llm_requests.py --help *> $null 2>&1
 exit $proc.ExitCode

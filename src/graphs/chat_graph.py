@@ -404,13 +404,34 @@ def _requires_file_delivery(state: AgentState) -> bool:
     return any(re.search(rf"\b{re.escape(word)}\b", text) for word in _FILE_DELIVERY_WORDS)
 
 
+def _pre_delivery_observation_count(state: AgentState) -> int:
+    """Completed tool observations before the first file delivery.
+
+    This count is independent of the model-iteration budget. Test5-6 exposed
+    why that matters: execute_code-only turns were refunded, so four different
+    empty-workspace scripts could keep the iteration counter below the forced
+    delivery threshold forever.
+    """
+    count = 0
+    for item in state.get("execution_trace", []) or []:
+        if (
+            item.get("status") == "success"
+            and item.get("tool") in _FILE_DELIVERY_TOOLS
+        ):
+            break
+        count += 1
+    return count
+
+
 def _pre_delivery_stalled(state: AgentState, *, threshold: int = 4) -> bool:
-    """Hermes-style no-progress cap: exploration cannot consume the turn
-    indefinitely before the first required deliverable lands."""
+    """Hermes-style no-progress cap across varied inspection strategies."""
     return (
         _requires_file_delivery(state)
         and not _has_landed_file_delivery(state)
-        and int(state.get("iteration_used", 0)) >= threshold
+        and (
+            int(state.get("iteration_used", 0)) >= threshold
+            or _pre_delivery_observation_count(state) >= threshold
+        )
     )
 
 
@@ -441,11 +462,11 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     names = filter_tool_names(resolved_names, phase)
     if _pre_delivery_stalled(state):
         # Hermes' guardrails stop idempotent no-progress loops. For a task that
-        # explicitly requires files, four main-agent iterations without one
-        # landed mutation is enough exploration. Narrow capability until a
-        # baseline lands; execute_code remains because it can batch web_fetch
-        # -> write_file without shell downloads or extra model round-trips.
-        forced = {"write_file", "edit_file", "copy_file", "execute_code"}
+        # explicitly requires files, four iterations/observations without one
+        # landed mutation is enough exploration. Expose ONLY direct mutation
+        # tools until a baseline lands. Test5-6 proved execute_code cannot stay
+        # here: the model used it for os.walk four times, bypassing the cap.
+        forced = {"write_file", "edit_file", "copy_file"}
         names = [name for name in resolved_names if name in forced]
         phase = type(phase)(
             "forced_delivery", frozenset(forced),
@@ -453,10 +474,10 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             guidance=(
                 "NO-PROGRESS CAP: this task requires files, but four main-agent "
                 "iterations produced none. Exploration and verification are now "
-                "disabled until a real file lands. Write a complete minimal "
-                "baseline NOW. If an external file is essential, use one "
-                "execute_code call with web_fetch(url) then write_file(path, "
-                "content). Do not think/list/search/verify or use shell download."
+                "disabled until a real file lands. Call write_file NOW with a "
+                "complete minimal baseline. Do not think, list, search, verify, "
+                "run terminal, or use execute_code. Additional dependencies can "
+                "be acquired after the first real source file lands."
             ),
         )
     # Persist the same allowlist into the tool-node config: textual tool-call
@@ -717,18 +738,14 @@ def ai_node(
         [call_usage],
     )
 
-    # Hermes iteration refund (code_execution_tool / conversation_loop):
-    # a turn whose ONLY tool call is execute_code is a cheap RPC-style PTC
-    # turn — it must not eat the iteration budget. The retest wrecked
-    # itself this way: 42 execute_code calls consumed nearly the whole
-    # 50-slot budget and the run died on the grace call instead of doing
-    # the copy_file deliverable. Refund such turns so script retry loops
-    # no longer starve the run budget.
+    # Every provider iteration counts. Hermes refunds execute_code-only turns,
+    # but it also runs a much larger default parent budget and a separate tool
+    # guardrail controller. Copying only the refund into Pulse's 20-call paid
+    # harness created an unbounded blind spot: Test5-6 issued four os.walk
+    # execute_code inspections without advancing the counter that activates
+    # forced delivery. PTC still saves round trips when it batches real work;
+    # it is not free when it consumes another provider request.
     next_used = iteration_used + 1
-    result_tc = getattr(result, "tool_calls", None) or []
-    if (not budget_exhausted and result_tc
-            and all(tc.get("name") == "execute_code" for tc in result_tc)):
-        next_used = iteration_used  # refund: PTC turn is free
 
     return {
         "messages": [result],

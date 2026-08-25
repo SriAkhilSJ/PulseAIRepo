@@ -1067,3 +1067,31 @@ circuit breakers, 30-second monitoring, immutable evidence, and independent
 product grading are specified in `DESKTOP_AGENT_INSTRUCTIONS.md`. No automatic
 retry is authorized. PR #9 merge and obsolete-branch cleanup remain conditional
 on both runtime and product PASS.
+
+---
+
+# TEST 5, attempt 6 (test5-6) — operator-cancelled / product FAIL (2026-08-25)
+
+After 16 observed LLM requests and more than 180 seconds, the workspace still
+contained zero files. The model varied empty-workspace inspection across think,
+list_files, cmd `dir`, and four execute_code/os.walk scripts. The founder
+manually cancelled the run. Human interventions are therefore 1, regardless of
+the initial report's zero. Missing `outcome.json` and `turn_done` are not proof
+of a bridge crash: the runner did not catch KeyboardInterrupt, and the wrapper
+used PowerShell `Start-Process` stream redirection already shown to hang.
+
+## Confirmed guard defect
+
+Forced delivery depended on `iteration_used`, but execute_code-only provider
+turns were refunded. Worse, forced-delivery mode intentionally retained
+execute_code for web_fetch->write batching. The model instead used it for
+read-only os.walk, so the copied Hermes refund and broad PTC capability jointly
+bypassed the cap. Hermes refunds PTC inside a larger budget/guardrail system;
+copying that one behavior into Pulse's 20-call paid harness was not equivalent.
+
+Repair direction: every Pulse provider request counts; varied pre-delivery tool
+observations share one cap; forced delivery exposes only direct file mutations;
+the paid runner cancels if no file exists by a hard request threshold; operator
+cancellation always writes an outcome; and the PowerShell wrapper inherits the
+console instead of redirecting Start-Process streams. No rerun is authorized
+until deterministic regressions pass.
