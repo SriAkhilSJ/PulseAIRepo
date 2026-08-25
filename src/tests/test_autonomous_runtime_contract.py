@@ -278,6 +278,8 @@ def test_incomplete_tool_call_is_rejected_then_observed_by_request_two(tmp_path,
     assistant = request_one["messages"][0]
     assert assistant.additional_kwargs["pulse_incomplete_response"] is True
     assert assistant.additional_kwargs["pulse_incomplete_reason"] == "length"
+    assert assistant.additional_kwargs["pulse_raw_finish_reason"] == "length"
+    assert request_one["incomplete_response_retries"] == 1
 
     tool_state = dict(base_state)
     tool_state["messages"] = [*base_state["messages"], assistant]
@@ -304,3 +306,4 @@ def test_incomplete_tool_call_is_rejected_then_observed_by_request_two(tmp_path,
     assert "NOT executed" in requests[1][-1].content
     assert request_two["messages"][0].content.startswith("continuing")
     assert request_two["iteration_used"] == 2
+    assert request_two["incomplete_response_retries"] == 0

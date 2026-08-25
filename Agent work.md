@@ -12,19 +12,25 @@ or broad file-by-file analysis unless new evidence contradicts this handoff.
 
 ## 1. Current verdict
 
-Test 5 Attempt 8 remains:
+Test 5 Attempt 10 remains:
 
 ```text
 RUNTIME_FAIL / PRODUCT_FAIL
 ```
 
-The provider returned one `write_file` tool call, but its response ended at an
-output/token limit. Pulse executed that incomplete call and wrote a truncated
-4,995-byte `index.html`, then stalled before provider request 2 until the
-613.5-second watchdog termination.
+Its sole live response contained no content/tools and merged finish metadata
+`lengthlength`; Pulse misclassified it as complete, then the runner encountered
+an untraced Windows `OSError 22`. Attempt 8 also remains failed for its truncated
+write and post-tool stall.
 
-The source gaps exposed by that attempt are repaired deterministically, but the
-repair has **not** received a live provider-backed validation. It must not be
+The deterministic follow-up now canonicalizes exact repeated finish reasons,
+preserves raw metadata and bounded usage/reasoning counts, provides a dedicated
+three-continuation output-limit path, retains incomplete-tool rejection, isolates
+runner heartbeat failures with traceback evidence, and recognizes OpenRouter via
+the custom base URL. Focused verification is 70/70. See
+`docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md` and `docs/TEST4_PASS_FORENSIC.md`.
+
+The repair has **not** received live provider-backed validation and must not be
 reported as a runtime or product PASS.
 
 ## 2. Work completed in the current Arena repair
@@ -195,14 +201,13 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 
 ## 5. Exact next task
 
-**Next task: deterministic source repair only, after explicit founder approval.**
+**Next task: review the committed deterministic repair and remain stopped.**
 
-The repair should normalize repeated streaming finish metadata such as
-`lengthlength` to the canonical output-limit reason, ensure the response routes
-as incomplete, preserve direct bounded continuation for a zero-content/no-tool
-limit response, and add a sanitized traceback to runner-error evidence. Tests
-must reproduce both the aggregated metadata and runner exception path without a
-provider call. Desktop remains STOP and no live retry is authorized.
+The finish normalization, dedicated bounded continuation, runner evidence, and
+custom-OpenRouter budget recognition are implemented and provider-free tests are
+recorded in `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`. Desktop remains STOP. Do not
+start a provider probe/run, raise a cap, merge PR #9, delete a branch, or begin
+Agentic UI work without separate explicit authorization.
 
 Only a later, separately authorized live runtime **and** independent product
 PASS can make PR #9 eligible for merge. Agentic UI work comes after that gate,

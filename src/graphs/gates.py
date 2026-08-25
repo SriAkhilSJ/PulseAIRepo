@@ -39,6 +39,14 @@ _EXECUTION_TASK_MARKERS = (
 )
 
 _FINISH_NUDGE_BUDGET = 2  # max early-finish nudges before finalize is allowed
+_INCOMPLETE_RESPONSE_RETRY_BUDGET = 3
+
+_INCOMPLETE_RESPONSE_NUDGE = (
+    "[System: The provider hit its output limit before returning a complete "
+    "response. Continue from a clean boundary without repeating prior work. "
+    "Keep the next response small. If a tool action was intended, reissue one "
+    "complete, valid tool call; no partial tool call was executed.]"
+)
 
 _FINISH_NUDGE = (
     "[System: You declared the task finished, but almost no real work has "
@@ -429,7 +437,9 @@ def should_continue(state: AgentState):
         and not getattr(last_message, "tool_calls", None)
         and not _budget_exhausted(state)
     ):
-        return "finish_gate"
+        if state.get("incomplete_response_retries", 0) <= _INCOMPLETE_RESPONSE_RETRY_BUDGET:
+            return "finish_gate"
+        return "finalize"
 
     # ── Hermes loop law (ported, behavior-based) ─────────────────────────
     # Two mechanical guards that no intent classifier can misroute around:
@@ -702,6 +712,12 @@ def finish_gate_node(state: AgentState) -> dict:
     - finish gate (no real work at all) — do some work.
     Each has its own bounded counter so one can never starve the other.
     """
+    # Output-limit recovery is mechanical, not an early-finish judgment. It
+    # has its own retry counter and does not spend the generic finish budget.
+    last = state.get("messages", [])[-1] if state.get("messages") else None
+    if bool(getattr(last, "additional_kwargs", {}).get("pulse_incomplete_response")):
+        return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE)]}
+
     # E2-1 first: a named deliverable missing on disk is the dominant
     # signal. Even when OTHER code files were written, the task's own
     # target files must exist before finalize.

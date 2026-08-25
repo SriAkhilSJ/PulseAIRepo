@@ -205,6 +205,28 @@ class TestDynamicResolution:
         assert second == (50000, "cache")
         assert calls["n"] == 1  # probed exactly once
 
+    def test_custom_openrouter_base_uses_openrouter_budget_probe(self, monkeypatch):
+        from src.config import settings
+
+        monkeypatch.setattr(
+            settings, "CUSTOM_BASE_URL", "https://openrouter.ai/api/v1"
+        )
+        monkeypatch.setattr(mb, "_cache_get", lambda key: None)
+        monkeypatch.setattr(mb, "_write_cache", lambda key, window: None)
+        monkeypatch.setattr(mb, "_probe_openrouter", lambda model: 114688)
+        monkeypatch.setitem(mb._PROBES, "openrouter", mb._probe_openrouter)
+
+        resolved = mb.resolve_context_window(
+            "acme/openrouter-only-model", provider="custom", allow_network=True
+        )
+        assert resolved == (114688, "openrouter-api")
+
+    def test_non_openrouter_custom_base_remains_custom(self, monkeypatch):
+        from src.config import settings
+
+        monkeypatch.setattr(settings, "CUSTOM_BASE_URL", "https://provider.example/v1")
+        assert mb._effective_provider("custom") == "custom"
+
     def test_probe_failure_falls_to_stale_cache_then_default(self, monkeypatch):
         # Write a stale cache entry by hand.
         cache = mb._cache_path()

@@ -227,3 +227,12 @@ repair is:
 No provider call is needed for these repairs. No live retry should be considered
 until the deterministic contracts pass on Windows and the desktop evidence
 workflow itself preserves monitoring, console, traceback, and product receipts.
+
+## Deterministic repair status
+
+The behavior-preserving source repair above is now implemented on the Arena
+branch and has provider-free focused coverage. Raw/canonical reasons, normalized
+usage and reasoning length, bounded empty-response continuation, incomplete-tool
+rejection, runner fallback/traceback evidence, and custom-base OpenRouter budget
+discovery are covered. See `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`. This status is
+not Windows validation and is not a runtime or product PASS.

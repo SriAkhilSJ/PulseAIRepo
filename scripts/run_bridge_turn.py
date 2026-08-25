@@ -14,10 +14,12 @@ import argparse
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 from pathlib import Path
 
@@ -27,6 +29,48 @@ _SENSITIVE_NAMES = frozenset({
     ".env", ".env.local", ".env.production", "id_rsa", "id_ed25519",
     "credentials", "secrets",
 })
+
+
+def safe_console_emit(message: str, fallback: Path) -> None:
+    """Best-effort heartbeat output that can never abort a live turn."""
+    try:
+        print(message, flush=True)
+    except OSError as exc:
+        try:
+            with fallback.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    f"[{time.strftime('%Y-%m-%dT%H:%M:%S')}] "
+                    f"console-error={type(exc).__name__}: {exc}; {message[:1000]}\n"
+                )
+        except OSError:
+            pass
+
+
+def _sanitize_runner_evidence(value: str, limit: int) -> str:
+    """Redact common credential forms and exact secret environment values."""
+    bounded = value[-limit:]
+    bounded = re.sub(
+        r"(?i)(bearer\s+)[a-z0-9._~+/=-]{8,}", r"\1[REDACTED]", bounded
+    )
+    for name, secret in os.environ.items():
+        if (
+            len(secret) >= 8
+            and any(marker in name.upper() for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
+        ):
+            bounded = bounded.replace(secret, "[REDACTED]")
+    return bounded
+
+
+def record_runner_error(outcome: dict, exc: Exception) -> None:
+    """Persist a bounded traceback without copying prompts, args, or env."""
+    outcome["result"] = "runner-error"
+    outcome["completed"] = False
+    outcome["error"] = _sanitize_runner_evidence(
+        f"{type(exc).__name__}: {exc}", 2000
+    )
+    outcome["runner_traceback"] = _sanitize_runner_evidence(
+        traceback.format_exc(limit=12), 12000
+    )
 
 
 def should_auto_approve_safety_request(frame: dict, workspace: str) -> bool:
@@ -117,6 +161,14 @@ def main() -> int:
         return 2
     run_dir.mkdir(parents=True)
 
+    # Console handles can disappear in long, redirected Windows desktop runs.
+    # Heartbeats are observability only: never let an OSError from print abort
+    # the bridge transport. Preserve a bounded fallback log instead.
+    console_fallback = run_dir / "runner_console_fallback.log"
+
+    def emit(message: str) -> None:
+        safe_console_emit(message, console_fallback)
+
     env = dict(os.environ)
     env.setdefault("PULSEAI_AUTO_APPROVE_WRITES", "1")  # autonomous build: no human to approve
     # Tell the bridge/SafeToolNode to auto-approve ordinary workspace edits.
@@ -202,10 +254,9 @@ def main() -> int:
                         )
                     ):
                         no_delivery_stop = True
-                        print(
+                        emit(
                             f"[NO-DELIVERY-STOP] {llm_calls} LLM requests and "
-                            "workspace still has no files — cancelling to protect credits",
-                            flush=True,
+                            "workspace still has no files — cancelling to protect credits"
                         )
                         try:
                             send({"type": "cancel", "session_id": session_id})
@@ -229,10 +280,9 @@ def main() -> int:
                         "approved": approved,
                         "always_allow": False,
                     })
-                print(f"[{time.strftime('%H:%M:%S')}] {ftype} x{counts[ftype]}"
-                      + (f" | calls={llm_calls}/{args.max_llm_calls} tokensIn~{tokens_in_seen}/{args.max_input_tokens}"
-                         if ftype in ("llm.request", "telemetry") else ""),
-                      flush=True)
+                emit(f"[{time.strftime('%H:%M:%S')}] {ftype} x{counts[ftype]}"
+                     + (f" | calls={llm_calls}/{args.max_llm_calls} tokensIn~{tokens_in_seen}/{args.max_input_tokens}"
+                        if ftype in ("llm.request", "telemetry") else ""))
                 # ── CREDIT CIRCUIT-BREAKER ────────────────────────────────
                 # Credits are valuable: past either cap the turn is CANCELLED
                 # (proven zero post-cancel spend) instead of burning more.
@@ -241,8 +291,8 @@ def main() -> int:
                     or tokens_in_seen >= args.max_input_tokens
                 ):
                     budget_stop = True
-                    print(f"[BUDGET-STOP] calls={llm_calls} tokensIn~{tokens_in_seen} "
-                          "— cancelling the turn to protect credits", flush=True)
+                    emit(f"[BUDGET-STOP] calls={llm_calls} tokensIn~{tokens_in_seen} "
+                         "— cancelling the turn to protect credits")
                     try:
                         send({"type": "cancel", "session_id": session_id})
                     except Exception:
@@ -269,9 +319,7 @@ def main() -> int:
     except Exception as exc:
         # Evidence must survive transport failures. Keep this sanitized: the
         # prompt, arguments, environment, and provider key are never copied.
-        outcome["result"] = "runner-error"
-        outcome["completed"] = False
-        outcome["error"] = f"{type(exc).__name__}: {exc}"
+        record_runner_error(outcome, exc)
     finally:
         try:
             send({"type": "shutdown"})
@@ -293,8 +341,8 @@ def main() -> int:
     outcome["safety_denied"] = safety_denied
     (run_dir / "outcome.json").write_text(
         json.dumps(outcome, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"OUTCOME: {outcome.get('result')} completed={outcome.get('completed')} "
-          f"llm.calls={llm_calls} -> {run_dir}")
+    emit(f"OUTCOME: {outcome.get('result')} completed={outcome.get('completed')} "
+         f"llm.calls={llm_calls} -> {run_dir}")
     return 0 if outcome.get("result") == "turn_done" and outcome.get("completed") else 1
 
 
