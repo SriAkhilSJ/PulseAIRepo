@@ -1,25 +1,25 @@
-# Desktop Agent Instructions — authorized Test 5 Attempt 9
+# Desktop Agent Instructions — authorized OpenRouter Test 5 Attempt 10
 
 **Updated:** 2026-08-25
 
 **Branch:** `arena/01a03741-pulseairepo`
 
-**Repaired implementation:** `b82381d36662e2f0dc9262bafafbedd8508318d6`
+**Stream-parity implementation:** `b82381d36662e2f0dc9262bafafbedd8508318d6`
 
-**Required deterministic evidence:**
+**Provider-agnostic probe repair:** `72dd56d910dd6b5707d17fca632b48ac5c44a23f`
 
-- `503c1972884d6ee190aafb3d9fce7227ef255e84` — initial 42 tests;
-- `496591a10e93b13d32065b3ac04d74f89d9fecde` — omitted 8 tests;
-- combined Windows result: 50/50 passed, zero provider calls.
+**Prior Attempt-9 STOP evidence:** `47c02f9b0bfacf3b502e2191a200834e77127a2c`
 
-> The founder explicitly authorized exactly one live Test 5 Attempt 9. This
-> authorization includes one eight-token Sarvam connectivity probe and one
-> guarded provider-backed turn. It does not authorize a retry, a second probe,
-> PR merge, branch deletion, source repair during the run, or Agentic UI work.
+> The founder explicitly authorized exactly one OpenRouter-backed Test 5 run
+> using the OpenRouter key and exact model identifier already provided to the
+> desktop agent under its secret-handling rules. Authorization includes one
+> eight-token OpenRouter probe and one guarded turn. It does not authorize a
+> second probe, retry, model substitution, cap increase, PR merge, branch
+> deletion, source repair during the run, or Agentic UI work.
 
-## 1. Fixed locations and identity
+## 1. Fixed run identity
 
-Use only the existing correct repository:
+Use only the existing repository:
 
 ```text
 D:\pulseAIagent\PulseAIRepo
@@ -28,75 +28,97 @@ D:\pulseAIagent\PulseAIRepo
 Use exactly:
 
 ```text
-Run ID:     test5-9-desktop
-Workspace:  C:\test5-ws-attempt9
-Evidence:   bench-results\test5-9-desktop\
+Run ID:     test5-10-desktop
+Workspace:  C:\test5-ws-attempt10
+Evidence:   bench-results\test5-10-desktop\
 Prompt:     scripts\test5_prompt.txt
-Provider:   Sarvam custom OpenAI-compatible endpoint
-Model:      sarvam-105b-conversations
+Provider:   OpenRouter through Pulse's custom OpenAI-compatible provider
+Base URL:   https://openrouter.ai/api/v1
+Model:      exact OpenRouter model ID previously supplied to the desktop agent
 ```
 
-Do not use an old checkout, Arena filesystem path, generated workspace, second
-clone, or previous Test-5 workspace.
+The model ID is not a secret and must be recorded in preflight and final
+receipts. Do not guess, use the repository default, or substitute another model.
+If the desktop agent cannot unambiguously identify the previously supplied
+model ID and secure key location, record `PRECONDITION_STOP` with zero provider
+requests and stop. Never ask for or print the key.
 
-## 2. Mandatory preconditions — STOP without provider traffic if any fail
+Attempt 9's workspace/evidence are immutable failed-preflight evidence. Do not
+reuse or modify them.
 
-1. Confirm the existing checkout is clean and on
-   `arena/01a03741-pulseairepo`.
-2. Fetch origin and fast-forward the existing local branch to
-   `origin/arena/01a03741-pulseairepo`. Never detach HEAD, reset, force-push,
-   switch/create a branch, or create another clone.
+## 2. Preconditions — STOP before provider traffic if any fail
+
+1. Confirm the checkout is clean and on `arena/01a03741-pulseairepo`.
+2. Fetch and fast-forward to `origin/arena/01a03741-pulseairepo`. Never detach
+   HEAD, reset, force-push, switch/create a branch, or create another clone.
 3. Record the full run-parent commit and prove:
 
    ```text
    git rev-parse HEAD == git rev-parse origin/arena/01a03741-pulseairepo
    git merge-base --is-ancestor b82381d36662e2f0dc9262bafafbedd8508318d6 HEAD
-   git merge-base --is-ancestor 503c1972884d6ee190aafb3d9fce7227ef255e84 HEAD
-   git merge-base --is-ancestor 496591a10e93b13d32065b3ac04d74f89d9fecde HEAD
+   git merge-base --is-ancestor 72dd56d910dd6b5707d17fca632b48ac5c44a23f HEAD
+   git merge-base --is-ancestor 47c02f9b0bfacf3b502e2191a200834e77127a2c HEAD
    ```
 
-4. Confirm both are absent. Freshness is mandatory; do not delete/reuse either:
+4. Confirm both are absent; never delete/reuse either:
 
    ```text
-   C:\test5-ws-attempt9
-   bench-results\test5-9-desktop
+   C:\test5-ws-attempt10
+   bench-results\test5-10-desktop
    ```
 
 5. Confirm `scripts/test5_prompt.txt` is tracked and unchanged.
 6. Parse `scripts/run_test5_guarded.ps1` with the PowerShell parser without
-   executing it. Any parse error is a pre-provider STOP.
-7. Record `git status --short`, Python/PowerShell versions, the full source
-   commit, prompt SHA-256, wrapper SHA-256, and freshness checks in a temporary
-   preflight receipt. Move it into the evidence directory after the runner
-   creates that directory.
-8. Record byte length/SHA-256 manifests of all preserved Test-5 evidence trees
-   before the run. Attempt 9 must not modify them.
+   executing it.
+7. Run exactly this zero-provider preflight test once and capture output:
 
-If a precondition fails, create a `PRECONDITION_STOP` receipt in a new Attempt-9
-evidence directory, commit/push it, and stop with **zero provider requests**.
+   ```text
+   python -m pytest -q src/tests/test_test5_guarded_script.py
+   ```
 
-## 3. Credential handling
+   It must collect and pass 4 tests, including the configured custom-provider
+   probe contract. Failure is a pre-provider STOP; do not repair on desktop.
+8. Record source commit, branch/status, Python/PowerShell/pytest versions,
+   prompt/wrapper SHA-256, literal non-secret OpenRouter model ID, base URL,
+   freshness, parser, and test results in a temporary receipt. Move it into the
+   run directory after the runner creates that directory.
+9. Record byte length/SHA-256 manifests for preserved Test-5 evidence before
+   the run so after-run immutability can be proven.
 
-Use the credential the founder previously authorized from historical README at
-commit `9e071f6143d616c7ecacb3e8096a4e115131ea5b`.
+If any precondition fails, create and commit a fresh Attempt-10
+`PRECONDITION_STOP` receipt, push it, and stop with zero provider requests.
 
-- Extract only the `CUSTOM_API_KEY` value directly into the gitignored `.env`.
-- Never print, echo, screenshot, log, hash, commit, or paste the credential.
-- Do not place it in PowerShell history or a command-line argument.
-- Preserve/configure the non-secret custom base URL, provider, and model values
-  expected by the guarded wrapper.
+## 3. OpenRouter secret/configuration rules
+
+Use only the OpenRouter key already available to the desktop agent in its
+approved secure location. Do not use the expired Sarvam credential or recover a
+key from README/Git history.
+
+Configure the gitignored `.env` without exposing the key:
+
+```text
+LLM_PROVIDER=custom
+LLM_MODEL=<exact previously supplied OpenRouter model ID>
+CONTEXT_MODEL=<same exact model ID>
+CUSTOM_BASE_URL=https://openrouter.ai/api/v1
+CUSTOM_API_KEY=<secure OpenRouter key>
+```
+
+- Map the secure key into `CUSTOM_API_KEY` without printing, echoing,
+  screenshotting, hashing, logging, or placing it in a command argument/history.
 - Confirm `.env` is ignored and absent from `git status`.
-- After evidence is committed, leave credential handling to the existing local
-  secret policy; never add `.env` to Git.
+- Record only key presence (`true`), never value/length/prefix/hash.
+- Do not configure provider fallback or a second model.
+- The wrapper's probe and live Pulse turn must read the same base URL/model/key.
 
-## 4. Credit and runtime limits
+## 4. One probe and one guarded turn
 
-Run exactly one foreground wrapper invocation with these bounds:
+Run exactly one foreground invocation:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
-  -Workspace C:\test5-ws-attempt9 `
-  -RunId test5-9-desktop `
+  -Workspace C:\test5-ws-attempt10 `
+  -RunId test5-10-desktop `
   -MaxMinutes 45 `
   -StallSeconds 300 `
   -MaxLlmCalls 16 `
@@ -104,190 +126,130 @@ powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
   -MaxNoDeliveryCalls 3
 ```
 
-The wrapper performs the sole authorized eight-token probe before the turn.
+The wrapper performs the only authorized eight-token OpenRouter probe.
 
-- If the probe fails, the live turn must not start and no second probe is
-  allowed.
-- Do not rerun the wrapper for any reason.
-- Do not raise caps while the run is active.
-- The no-delivery breaker must cancel after 3 provider requests with no file.
-- The request/input-token breaker, 300-second stall breaker, and 45-minute hard
-  cap must remain active.
-- Any cancellation or watchdog kill is final for Attempt 9.
+- Probe failure: live turn must not start; no second probe.
+- Probe response must identify the exact configured model in non-secret output.
+- Do not rerun the wrapper or raise caps.
+- Three bridge requests without a file must cancel the turn.
+- Request/input-token, 300-second stall, and 45-minute hard caps remain active.
+- Any cancellation/watchdog kill is final.
 
-Use a foreground console. Do not reintroduce `Start-Process` output redirection
-for the bridge child. A PowerShell transcript may be started in a temporary
-path and copied into the evidence directory afterward, provided output still
-remains live in the console.
+Use a foreground live console. Do not redirect the bridge child through the
+PowerShell 5.1 deadlock-prone path. A temporary PowerShell transcript is allowed
+if output remains visible live and is copied to evidence afterward.
 
-## 5. Active 30-second monitoring — mandatory
+## 5. Active monitoring every 30 seconds
 
-A human/desktop agent must actively inspect the live console, frames, outcome,
-and workspace at least once every 30 seconds from wrapper start until exit.
-The wrapper's own watchdog line is not sufficient proof of inspection.
+The desktop agent must actually inspect the console, frames, outcome, and
+workspace at least once every 30 seconds from wrapper start through exit. The
+wrapper watchdog is not proof of human/agent inspection.
 
-Append one observation immediately at each interval to:
+Append each observation immediately to:
 
 ```text
-bench-results\test5-9-desktop\monitor-30s.jsonl
+bench-results\test5-10-desktop\monitor-30s.jsonl
 ```
 
-Do not pre-create the run directory because the runner's freshness guard owns
-its creation. If the first observation occurs while the probe is still running
-and the directory does not yet exist, append that observation to a temporary
-monitor file and move it verbatim into the run directory immediately after the
-runner creates it.
+Do not pre-create the run directory. If the first interval occurs during the
+probe, append to a temporary monitor file and move it verbatim after the runner
+creates the evidence directory.
 
-Each line must contain the actual observation timestamp, elapsed seconds, child
-liveness, latest frame type/time, `llm.request` count, `llm.response` count,
-latest finish reason/incomplete flag, tool-call/result counts, workspace file
-count/bytes/newest-write time, console tail actually inspected, approximate
-input-token total, and operator action (`continue`, `cancel`, or `process
-already exited`). Do not reconstruct or batch-generate this file after the run.
-Consecutive live observations should normally be 25–45 seconds apart.
+Each line must record timestamp, elapsed seconds, liveness, latest frame/time,
+`llm.request` and `llm.response` counts, finish reason/incomplete flag,
+tool-call/result counts, workspace file count/bytes/newest write, inspected
+console tail, approximate tokens, and operator action. Do not reconstruct or
+batch-generate observations after the run. Live intervals should normally be
+25–45 seconds apart.
 
-At every observation, specifically check:
+At every observation verify:
 
-1. Is `llm.response` emitted for every completed request?
-2. If finish reason is `length`, `max_tokens`, or another output limit, did
-   Pulse emit paired tool errors with **no mutation from that response**?
-3. Did the paired rejection reach the next `llm.request`?
-4. After any successful tool result, did request 2 begin without semantic-memory
-   initialization or pending-stream warnings?
-5. Are provider requests, input tokens, files, and bytes advancing safely?
-6. Is the same incomplete/rejected call repeating without progress?
+1. each completed request receives `llm.response` metadata;
+2. output-limit responses execute no tool and produce paired tool errors;
+3. any paired rejection reaches the immediate next request;
+4. successful tools continue directly without semantic-memory/stream stalls;
+5. requests, tokens, files, and bytes progress within caps;
+6. incomplete/rejected calls are not repeating without progress.
 
-Cancel immediately and permanently if any of these occurs:
+Cancel permanently on credential leakage, workspace escape, 3 no-file
+requests, a credit cap, three repeated rejected writes, pending-stream warnings
+without continuation, 300 seconds without meaningful activity, preserved
+artifact mutation, or any threat to remaining OpenRouter credits.
 
-- a credential appears in output/evidence;
-- a mutation escapes `C:\test5-ws-attempt9`;
-- three requests occur with no delivered file;
-- request/input-token cap is reached;
-- the same rejected incomplete write repeats three times;
-- stream-close/pending-generator warnings recur and no next request appears;
-- no meaningful run/workspace/CPU activity reaches 300 seconds;
-- evidence paths or preserved workspaces are modified;
-- any behavior threatens remaining credits.
+## 6. Verdicts and product grading
 
-## 6. Runtime verdict
+`RUNTIME_PASS` requires runner-owned `outcome.json`, terminal `turn_done` with
+`completed=true`, no breaker/cancel/watchdog, one response receipt per completed
+request, no execution from an incomplete response, correct direct continuation,
+no pending-stream warning, and all effects contained by the fresh workspace.
+Anything else is `RUNTIME_FAIL`; do not retry.
 
-After the process exits, classify runtime independently. `RUNTIME_PASS`
-requires all of the following:
-
-- runner-owned `outcome.json` exists;
-- terminal frame is `turn_done` with `completed=true`;
-- no budget, no-delivery, operator-cancel, timeout, or watchdog stop;
-- every provider request has a bounded response receipt;
-- no incomplete-response tool call executed;
-- if an incomplete call occurred, its paired rejection reached the immediate
-  next provider request;
-- successful tool results continued directly to the next provider decision;
-- no pending async-generator/request-stream warning;
-- all tool effects remain inside the fresh workspace.
-
-Anything else is `RUNTIME_FAIL`. Preserve first-failure evidence; do not explain
-it away and do not retry.
-
-## 7. Independent product grading — no provider calls
-
-Regardless of runtime verdict, copy the complete delivered workspace into:
+Regardless of runtime outcome, copy the complete workspace to:
 
 ```text
-bench-results\test5-9-desktop\workspace-delivery\
+bench-results\test5-10-desktop\workspace-delivery\
 ```
 
-Then grade the immutable delivered copy without editing it.
+Grade that immutable copy with zero provider calls:
 
-At minimum:
+- inventory byte lengths/SHA-256 and detect truncation;
+- verify local Three.js/OrbitControls and no forbidden remote dependency;
+- serve it from a basic local static server;
+- open its deterministic screenshot URL in a real browser;
+- capture screenshots plus console/network/shader errors;
+- reject black/blank output, failed assets, unhandled errors, or shader failure;
+- exercise presets, representative parameters, debug 0–9, responsive/Retina,
+  persistence, and WebGL recovery where practical;
+- grade every requested rendering/control/quality/startup requirement as
+  PASS/FAIL/NOT_PROVEN with concrete evidence.
 
-1. Inventory every file, byte length, and SHA-256.
-2. Prove HTML/CSS/JS and shader sources are not truncated and have balanced
-   structural endings/imports.
-3. Confirm local Three.js/OrbitControls dependencies exist; no remote runtime
-   dependency may substitute for required local files.
-4. Start a basic local static server from the delivered copy.
-5. Open the deterministic screenshot URL in a real browser.
-6. Capture viewport screenshots and browser console/network logs.
-7. Confirm no black/blank screen, unhandled console error, failed local asset,
-   or shader compile/link error.
-8. Exercise presets, representative live parameters, debug views 0–9,
-   responsive/Retina behavior, persistence, and WebGL recovery where practical.
-9. Inspect code and runtime evidence for the requested geodesic integration,
-   event horizon, photon ring, multi-crossing disk, procedural starfield/Milky
-   Way, Doppler/redshift/turbulence, bloom/ACES/vignette/grain/aberration,
-   camera paths, telemetry, 21 parameters, three quality profiles, URL-driven
-   deterministic mode, startup instructions, and optional audio behavior.
+`PRODUCT_PASS` requires a complete executable product with requested core
+features and no critical runtime defect. A screenshot alone or static claim is
+not sufficient.
 
-`PRODUCT_PASS` requires a complete executable product with the requested core
-features and no critical runtime defect. A pretty screenshot alone is not a
-pass. A static-code claim without successful browser execution is not a pass.
-Record each acceptance item as PASS/FAIL/NOT_PROVEN with concrete evidence.
+## 7. Evidence, commit, and STOP
 
-Stop the local server/browser after grading. Product grading must make zero
-provider calls.
+Commit all Attempt-10 evidence even on failure:
 
-## 8. Evidence requirements
+- preflight/freshness and exact non-secret provider/model configuration;
+- exact command with key redacted;
+- console transcript, frames, stderr, outcome, and genuine monitor log;
+- probe count/status and bridge request/token counts separately;
+- response finish metadata and tool lifecycle;
+- complete delivered workspace;
+- file hashes, static/browser logs, screenshots, and acceptance matrix;
+- runtime/product verdict and first failure boundary;
+- preserved-evidence before/after proof;
+- receipt manifest with byte lengths/SHA-256;
+- final status and diff check.
 
-Commit all Attempt-9 evidence, including:
-
-- preflight and freshness receipts;
-- exact run command with secret redacted;
-- complete foreground transcript/console log;
-- `frames.jsonl`, `bridge_stderr.log`, and `outcome.json`;
-- genuine `monitor-30s.jsonl` observations;
-- request/response counts and finish metadata;
-- safety, cancellation, budget, and watchdog receipts;
-- the complete delivered workspace copy;
-- file inventory and SHA-256 manifest;
-- static analysis and browser server logs;
-- console/network logs and screenshots;
-- runtime and product grading JSON/Markdown;
-- preserved-evidence before/after comparison;
-- final evidence manifest with byte lengths/SHA-256;
-- final `git status --short` and `git diff --check` result.
-
-Mark the evidence path `-text` through the existing `bench-results/** -text`
-attribute; do not normalize or rewrite raw logs after collection. Never commit
-`.env`, credentials, dependency caches, browser profiles, or unrelated build
-output.
-
-## 9. Commit, push, and stop
-
-After grading, confirm only `bench-results/test5-9-desktop/` is new/modified.
-Commit and push all evidence even on failure:
+Confirm only `bench-results/test5-10-desktop/` is new/modified, then:
 
 ```text
-git add bench-results/test5-9-desktop/
-git commit -m "evidence: record Test 5 Attempt 9"
+git add bench-results/test5-10-desktop/
+git commit -m "evidence: record OpenRouter Test 5 Attempt 10"
 git push origin HEAD:arena/01a03741-pulseairepo
 ```
 
-Report:
+Report the evidence commit, exact model ID, one probe status, bridge request and
+approximate token counts, runtime/product verdicts, first failure boundary, and
+whether any cap fired. Then STOP. Do not merge PR #9 or delete branches; Arena
+must independently grade the evidence first.
 
-- full evidence commit;
-- provider request count split into the one probe plus bridge-turn requests,
-  and approximate token usage;
-- runtime verdict;
-- product verdict;
-- first failure boundary, if any;
-- whether credits/caps/watchdogs fired.
-
-Then STOP. Do not merge PR #9 or delete any branch. Arena must independently
-verify the evidence before the founder makes a separate merge decision.
-
-## 10. Preserve exactly
+## 8. Preserve exactly
 
 ```text
 C:\test5-ws-attempt6
 C:\test5-ws-attempt8
 C:\test5-ws-attempt9
+C:\test5-ws-attempt10
 bench-results\test5-5\
 bench-results\test5-6\
 bench-results\test5-8-desktop\
-bench-results\test5-8-postmortem-validation\
 bench-results\test5-stream-parity-validation\
 bench-results\test5-stream-parity-validation-followup\
 bench-results\test5-9-desktop\
+bench-results\test5-10-desktop\
 /home/user/test5-workspace-attempt7
 bench-results/test5-7-arena/
 ```
