@@ -1,0 +1,2 @@
+[ContextEngine] context window 8,192 for 'stealth/ox-alpha' (source: default); token budget 4,096 (provider cap 4,096) (auto: trusting discovered window)
+[tokenizer] unavailable (encoding_for_model('stealth/ox-alpha')): KeyError: 'Could not automatically map stealth/ox-alpha to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.' — degrading to ~chars/4 heuristic token counts (imprecise, never fatal). Install/populate the tiktoken cache (one online run) for exact counts.
