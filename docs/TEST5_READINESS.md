@@ -4,7 +4,7 @@
 
 **Integration branch:** `arena/01a03741-pulseairepo`
 
-**Current verdict:** repaired retest candidate; **no Test-5 pass yet**
+**Current verdict:** attempt 5 failed runtime and product grading; **not merge-ready**
 
 ## History and merge verdict
 
@@ -42,14 +42,10 @@ Focused verification on 2026-08-25:
 
 The provider-backed product test cannot run in this Arena sandbox because TLS to Sarvam fails. That is why these deterministic checks must precede exactly one guarded desktop attempt.
 
-## How to run attempt 5
+## Attempt 5 result — stop condition reached
 
-Follow `DESKTOP_AGENT_INSTRUCTIONS.md` exactly. Use a fresh workspace and immutable run ID:
+Desktop attempt `test5-5` completed on 2026-08-25 with **RUNTIME FAIL / PRODUCT FAIL**. The Sarvam 105B model consumed the configured maximum of 20 LLM calls in a planning/search loop. Safety policy blocked a `curl` download attempt, no mutation landed, and the workspace remained empty. The operator reports approximately four credits consumed. Evidence was preserved and PR #9 was not merged.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
-  -Workspace C:\test5-ws-attempt5 `
-  -RunId test5-5
-```
+This result proves the attempt-4b approval deadlock was not the attempt-5 boundary; the next boundary is model/tool strategy before the first file mutation. It does not yet prove whether the blocked download was itself incorrect or whether a supported dependency-vendoring pivot was available but ignored—the preserved frames must be reviewed before changing safety behavior.
 
-Monitor the watchdog every 30 seconds and preserve `bench-results/test5-5/`. A clean harness exit is not a product pass: independently launch and grade the generated raytracer against `scripts/test5_prompt.txt`. Do not rerun, merge, or delete branches after any runtime or product failure.
+**Do not rerun, merge, or delete branches.** Preserve `C:\test5-ws-attempt5` and `bench-results\test5-5\` exactly pending founder review. Any next attempt requires a reviewed root-cause fix and fresh explicit authorization because the 20-call breaker and approximately four-credit spend were real.
