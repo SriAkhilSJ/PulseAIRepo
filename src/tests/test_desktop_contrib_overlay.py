@@ -53,6 +53,30 @@ def test_pulse_is_registered_once_as_a_workbench_contribution():
     assert not (FORK / "extensions" / "pulseai").exists()
 
 
+def test_copilot_extension_and_pulse_core_registration_are_not_conflated():
+    """Copilot is an extension layered on core chat; Pulse is core-first.
+
+    Pinning the distinction prevents a future attempt to make Pulse "more
+    native" by assigning it Copilot's extension/auth product contract.
+    """
+    copilot = json.loads(
+        (FORK / "extensions" / "copilot" / "package.json").read_text(encoding="utf-8")
+    )
+    assert copilot["name"] == "copilot-chat"
+    assert "onStartupFinished" in copilot["activationEvents"]
+    assert copilot["contributes"]["languageModelTools"]
+    assert copilot["contributes"]["chatParticipants"]
+
+    product = json.loads((FORK / "product.json").read_text(encoding="utf-8"))
+    assert product["defaultChatAgent"]["chatExtensionId"] == "GitHub.copilot-chat"
+    assert "GitHub.copilot-chat" in product["trustedExtensionAuthAccess"]["github"]
+
+    pulse = (CONTRIB / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+    assert "registerSingleton(IPulseAIWorkbenchService" in pulse
+    assert "registerViewContainer" in pulse
+    assert not (FORK / "extensions" / "pulseai").exists()
+
+
 def test_pulse_menu_and_view_commands_are_declared():
     text = (CONTRIB / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
     assert "MenuId.MenubarMainMenu" in text

@@ -46,6 +46,8 @@ Pulse already has stricter bounded spending and a mandatory completion gate. We 
 
 ## What we learned from the vendored Code OSS workbench
 
+A focused review of Copilot's registration is recorded in [How Copilot Is Registered, and What Pulse Should Reuse](PULSE_COPILOT_REGISTRATION_REVIEW.md). Copilot combines core chat infrastructure, a built-in extension, and product-specific authentication/default-agent metadata. Pulse is already correctly registered as a first-party common workbench contribution with a desktop-only engine override; it should consume Code OSS provider registries without adopting Copilot's extension identity or trusted-auth contract.
+
 The repository already includes mature infrastructure for:
 
 - editor context and dirty-buffer awareness;
