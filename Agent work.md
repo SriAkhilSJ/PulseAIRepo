@@ -216,18 +216,20 @@ b90cb579  Product-delivery R2 deterministic FAIL (runner import path)
 
 ## 5. Exact next task
 
-**Next task: remain stopped pending a new founder decision.**
+**Next task: Desktop Agent executes exactly one guarded live Attempt 12.**
 
-The provider-free product-delivery repair is now accepted on Windows at evidence
-commit `1b7ce9e1`: 183/183 focused tests, all three fixture findings, 7/7
-protocol tests, generation, nine-module compilation, diff, all ten hashes, and
-approximately 30-second focused monitoring pass with zero provider traffic.
-The accepted runner fix is `c6d9c11c`; source repair `0370515c` is an ancestor.
+The founder explicitly authorized one live turn after accepted Windows evidence
+`1b7ce9e1`. Instructions are in `DESKTOP_AGENT_INSTRUCTIONS.md`. The run uses
+the existing securely configured OpenRouter `stealth/ox-alpha`, fresh workspace
+`C:\test5-ws-attempt12`, and run ID `test5-12-desktop`.
 
-This closes deterministic Windows validation only. It does not prove browser or
-live product behavior, and Attempt 11 remains product FAIL. No desktop rerun,
-provider probe/request, live Attempt 12, cap increase, PR merge, branch
-deletion, or Agentic UI work is authorized. PR #9 is not merge-eligible.
+No provider probe is authorized; runner commit `200783db` adds the explicit
+`-SkipProbe` path. Caps remain unchanged. The Desktop Agent must monitor at
+approximately 30-second cadence, preserve the delivered workspace, perform
+provider-free integrity and real-browser review, commit all frames/logs/files/
+screenshots/hashes, and stop. The single turn consumes the authorization
+regardless of outcome. No retry, PR merge, branch deletion, or Agentic UI work
+is authorized.
 
 ## 6. Fast reading map
 
