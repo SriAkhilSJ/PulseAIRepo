@@ -65,7 +65,7 @@ The browser UI now implements the interaction model without reintroducing floati
 
 ## Pulse tool coverage
 
-A catalog now maps all **34 current runtime tool names** to renderer families and default-open policy. A Python AST pin compares it with `src/tools/toolsets.py` and the browser tool decorators, so adding a runtime tool without a UI presentation fails tests.
+A catalog now maps all **36 current runtime tool names** to renderer families and default-open policy. A Python AST pin compares it with `src/tools/toolsets.py` and the browser tool decorators, so adding a runtime tool without a UI presentation fails tests.
 
 Families: control, file read, file write/diff, search, terminal, background process, code execution, verification, web, browser, session, sub-agent, scaffold, and generic fallback.
 

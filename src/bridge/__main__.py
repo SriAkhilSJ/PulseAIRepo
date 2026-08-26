@@ -26,6 +26,7 @@ ENGINE_VERSION = "0.2.0-runtime"
 # client can silently run against ".", the engine root, or the bundled app dir.
 _WORKSPACE_REQUIRED_METHODS = frozenset({
     "session_create", "session_load", "session_resume", "session_fork", "prompt",
+    "host_capabilities_update", "host_tool_result",
 })
 NO_WORKSPACE_ERROR = (
     "workspace required: open a project folder before starting a Pulse session"
@@ -61,6 +62,9 @@ class BridgeServer:
         self._workers: dict[str, threading.Thread] = {}
         self._subagents: dict[str, object] = {}
         self._shutdown = threading.Event()
+        from src.runtime.host_capabilities import host_capability_broker
+        host_capability_broker.reset()
+        host_capability_broker.set_emitter(self.emit)
 
     def emit(self, frame: dict) -> None:
         with self._write_lock:
@@ -413,7 +417,26 @@ class BridgeServer:
         except WorkspaceSwitchError as exc:
             self.emit(error_frame(str(exc)))
             return True
-        if kind == "session_create":
+        if kind == "host_capabilities_update":
+            from src.runtime.host_capabilities import host_capability_broker
+            descriptors = frame.get("capabilities")
+            if not isinstance(descriptors, list):
+                self.emit(error_frame("host capabilities must be an array"))
+            else:
+                count = host_capability_broker.update(sid, workspace, descriptors)
+                self.emit({
+                    "type": "session_info", "session_id": sid,
+                    "host_capabilities_updated": count,
+                })
+        elif kind == "host_tool_result":
+            from src.runtime.host_capabilities import host_capability_broker
+            request_id = str(frame.get("request_id") or "")
+            resolved = host_capability_broker.resolve(request_id, frame)
+            self.emit({
+                "type": "session_info", "session_id": sid,
+                "host_tool_result_resolved": resolved,
+            })
+        elif kind == "session_create":
             prior = self._prior_checkpoint_count(sid)
             info = {"type": "session_info", **self._sessions[sid]}
             if prior is not None:

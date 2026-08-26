@@ -22,7 +22,10 @@ class ExecutionPhase:
 
 _ALWAYS = frozenset({"ask_user"})
 _FILE_MUTATIONS = frozenset({"write_file", "edit_file", "copy_file"})
-_READS = frozenset({"read_file", "list_files", "search_code", "session_search"})
+_READS = frozenset({
+    "read_file", "list_files", "search_code", "session_search",
+    "discover_host_capabilities", "invoke_host_capability",
+})
 _TERMINAL = frozenset({
     "run_terminal", "start_terminal", "check_terminal", "read_terminal_output",
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",

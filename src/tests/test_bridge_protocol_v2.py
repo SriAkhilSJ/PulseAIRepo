@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -120,6 +121,30 @@ def test_durable_replay_projection_emits_protocol_tool_frames():
     assert [event["type"] for event in projected] == ["tool_call_start", "tool_call_end"]
     assert projected[0]["arguments"] == {"path": "README.md"}
     assert projected[1]["status"] == "ok" and projected[1]["result"] == "done"
+
+
+def test_bridge_accepts_only_allowlisted_read_only_host_capabilities(tmp_path):
+    frames = [
+        {"type": "hello", "protocol": 2},
+        {"type": "session_create", "session_id": "host-test", "workspace": str(tmp_path)},
+        {
+            "type": "host_capabilities_update", "session_id": "host-test",
+            "workspace": str(tmp_path), "capabilities": [
+                {"id": "diagnostics.markers", "availability": "available", "risk": "read"},
+                {"id": "terminal.native", "availability": "available", "risk": "execute"},
+            ],
+        },
+        {"type": "shutdown"},
+    ]
+    result = subprocess.run(
+        [sys.executable, "-m", "src.bridge"], cwd=ROOT,
+        input="".join(json.dumps(frame) + "\n" for frame in frames),
+        text=True, capture_output=True, timeout=20,
+        env={**os.environ, "PULSEAI_BRIDGE_RUNNER": "echo"},
+    )
+    assert result.returncode == 0, result.stderr
+    output = [json.loads(line) for line in result.stdout.splitlines()]
+    assert any(frame.get("host_capabilities_updated") == 1 for frame in output)
 
 
 def test_selective_desktop_metadata_stays_tiny():

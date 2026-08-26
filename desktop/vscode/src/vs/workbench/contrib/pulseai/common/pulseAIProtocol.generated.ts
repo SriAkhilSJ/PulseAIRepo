@@ -25,6 +25,8 @@ export const PULSE_AI_CLIENT_METHODS = [
 	'subagent_cancel',
 	'subagent_result',
 	'events_replay',
+	'host_capabilities_update',
+	'host_tool_result',
 	'shutdown',
 ] as const;
 export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
@@ -36,6 +38,7 @@ export const PULSE_AI_SERVER_EVENTS = [
 	'hello',
 	'llm.request',
 	'llm.response',
+	'host_tool_request',
 	'plan_updated',
 	'reasoning',
 	'runtime_degraded',

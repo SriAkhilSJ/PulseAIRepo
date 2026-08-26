@@ -68,10 +68,10 @@ def test_web_fallback_and_desktop_override_share_the_engine_contract():
     assert "PulseAIEngineState.Degraded" in fallback
 
 
-def test_native_and_lab_catalogs_cover_the_same_34_tools():
+def test_native_and_lab_catalogs_cover_the_same_36_tools():
     native = _catalog_names(_text("common", "pulseAIToolCatalog.ts"))
     lab = _catalog_names((UI / "runtime" / "toolCatalog.ts").read_text(encoding="utf-8"))
-    assert len(native) == 34
+    assert len(native) == 36
     assert native == lab
 
 

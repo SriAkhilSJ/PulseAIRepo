@@ -1,5 +1,5 @@
 /*---------------------------------------------------------------------------------------------
- * Renderer-neutral catalog for all 34 canonical Pulse tools. Native hosts select a
+ * Renderer-neutral catalog for canonical Pulse tools. Native hosts select a
  * disclosure body by family rather than hard-coding individual tool names.
  *--------------------------------------------------------------------------------------------*/
 
@@ -39,6 +39,8 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 	read_file: tool('Read', 'file-read', 'file'),
 	list_files: tool('List files', 'file-read', 'folder-opened'),
 	search_code: tool('Search code', 'search', 'search'),
+	discover_host_capabilities: tool('Discover editor capabilities', 'search', 'extensions'),
+	invoke_host_capability: tool('Use editor intelligence', 'search', 'symbol-method'),
 	write_file: tool('Write', 'file-write', 'new-file', 'preference'),
 	edit_file: tool('Edit', 'file-write', 'diff', 'preference'),
 	copy_file: tool('Copy file', 'file-write', 'copy', 'preference'),

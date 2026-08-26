@@ -75,7 +75,7 @@ ManagerEditor ───┘                         ├─ IPulseAIEngineService
                                            └─ IPulseAIWorkbenchService
 ```
 
-The renderer emits typed host intents for prompts, cancel/steer, approvals, file reveal, checkpoints, and engine retry. The host decides how to execute them. This keeps Code OSS internal APIs, Electron, and Node out of the portable renderer. The browser UI Lab remains the visual regression and tool-gallery harness; parity tests pin both catalogs to the same 34 canonical runtime names.
+The renderer emits typed host intents for prompts, cancel/steer, approvals, file reveal, checkpoints, and engine retry. The host decides how to execute them. This keeps Code OSS internal APIs, Electron, and Node out of the portable renderer. The browser UI Lab remains the visual regression and tool-gallery harness; parity tests pin both catalogs to the same 36 canonical runtime names.
 
 ## Code OSS services to use
 
