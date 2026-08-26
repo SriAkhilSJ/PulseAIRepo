@@ -1,0 +1,24 @@
+Independent static-server check of committed Attempt-11 workspace
+
+GET /                                            200
+GET /vendor/three/three.module.min.js             404
+GET /vendor/three/controls/OrbitControls.js        404
+
+Delivered regular files: 5
+Delivered vendor directory: absent
+
+js/shaders.js:
+- MAX_STEPS_LOOP is used by the scene shader loop.
+- patchScene can inject the macro.
+
+js/main.js:
+- imports patchScene but never calls it.
+- constructs sceneMat directly from unpatched FRAG_SCENE.
+
+Node syntax parsing:
+- js/config.js: PASS
+- js/shaders.js: PASS
+- js/main.js: PASS
+
+Static syntax success does not override missing module and shader compile blockers.
+No provider request was made during this review.

@@ -1,0 +1,48 @@
+{
+  "review_date": "2026-08-25",
+  "evidence_commit": "989ab85ed36ca5985864cf1b349f996c6111a75c",
+  "evidence_scope": {
+    "added_paths": 12,
+    "sha256_entries": 11,
+    "sha256_all_match": true
+  },
+  "runtime": {
+    "llm_requests": 13,
+    "llm_responses": 13,
+    "incomplete_output_limit_responses": 3,
+    "first_complete_tool_response_number": 4,
+    "tool_call_starts": 8,
+    "tool_call_ends": 7,
+    "turn_done": true,
+    "completed_flag": true,
+    "output_limit_recovery": "PASS",
+    "runner_heartbeat_isolation": "PASS",
+    "bridge_transport": "PASS",
+    "autonomous_completion_integrity": "FAIL"
+  },
+  "product_checks": {
+    "static_server_index_http_status": 200,
+    "three_module_http_status": 404,
+    "orbit_controls_http_status": 404,
+    "delivered_vendor_directory": false,
+    "max_steps_loop_used": true,
+    "max_steps_loop_defined_in_exported_scene": false,
+    "patch_scene_called_by_main": false,
+    "browser_verification_receipt": false,
+    "startup_instructions_delivered": false
+  },
+  "monitoring": {
+    "strict_30_second_cadence": false,
+    "observed_gap_range": "commonly 50-120 seconds"
+  },
+  "verdict": {
+    "product": "FAIL",
+    "overall": "FAIL",
+    "merge_eligible": false
+  },
+  "notes": [
+    "The local module imports fail before application startup.",
+    "The scene shader also uses MAX_STEPS_LOOP without applying patchScene.",
+    "No provider call was made during independent review."
+  ]
+}

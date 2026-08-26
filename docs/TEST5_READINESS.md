@@ -4,7 +4,7 @@
 
 **Integration branch:** `arena/01a03741-pulseairepo`
 
-**Current verdict:** desktop attempt 8 landed one truncated file, then stalled before request 2 and was watchdog-killed; **runtime/product FAIL, not merge-ready, and no retry authorized**
+**Current verdict:** Attempt 11 live-validated bounded output-limit recovery and runner liveness, but falsely completed without verification and delivered a non-runnable product; **overall FAIL, not merge-ready, and no retry authorized**
 
 ## History and merge verdict
 
@@ -78,3 +78,21 @@ call. See [`TEST5_ATTEMPT8_DESKTOP.md`](TEST5_ATTEMPT8_DESKTOP.md).
 
 No new live authorization follows from these repairs; do not merge PR #9 or
 delete branches.
+
+## Attempt 11 result
+
+OpenRouter Attempt 11 proved the repaired failure boundary live. Three repeated
+`lengthlength` output-limit responses were canonicalized and continued; request
+4 produced a complete tool call. Repeated Windows console `OSError 22` failures
+were isolated in the fallback log, and the bridge reached 13 responses for 13
+requests plus `turn_done`.
+
+End-to-end delivery still failed. The graph marked the turn complete without a
+successful verification receipt. The final response promised a later
+inspection, the terminal call lacked a paired end event after a Windows encoding
+exception, two required local Three.js modules were absent, and the scene shader
+used an undefined macro. Independent product verdict: FAIL. See
+[`TEST5_ATTEMPT11_REVIEW.md`](TEST5_ATTEMPT11_REVIEW.md).
+
+PR #9 remains unmergeable. No provider retry, source repair, branch deletion, or
+Agentic UI work is currently authorized.
