@@ -209,33 +209,25 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 989ab85ed36ca5985864cf1b349f996c6111a75c  Attempt-11 live evidence
 9ea6a078  Windows completion-repair validation FAIL evidence
 84b8e35b  Windows completion-repair revalidation PASS evidence
+22b1f8fd  Product-delivery validation rejected (retried failed fixture command)
+b90cb579  Product-delivery R2 deterministic FAIL (runner import path)
+1b7ce9e1  Product-delivery R3 deterministic PASS evidence
 ```
 
 ## 5. Exact next task
 
-**Next task: review the provider-free product-delivery repair; remain stopped
-for every live/desktop action.**
+**Next task: remain stopped pending a new founder decision.**
 
-After accepted Windows revalidation `84b8e35b`, the founder authorized one
-provider-free source task: compare current Hermes and repair Attempt 11's
-remaining budget/dependency verification boundary without redesigning Pulse.
-That repair now:
+The provider-free product-delivery repair is now accepted on Windows at evidence
+commit `1b7ce9e1`: 183/183 focused tests, all three fixture findings, 7/7
+protocol tests, generation, nine-module compilation, diff, all ten hashes, and
+approximately 30-second focused monitoring pass with zero provider traffic.
+The accepted runner fix is `c6d9c11c`; source repair `0370515c` is an ancestor.
 
-- reserves the final 30,000-token/six-iteration slice *inside* existing caps for
-  inspect/repair/static/runtime verification;
-- redacts old successfully landed file payloads only on the request copy;
-- blocks completion on missing local imports, undeclared packages, or
-  conservative undefined embedded-shader constants; and
-- retains mandatory executable/static/browser receipts.
-
-Provider-free results are 183/183 focused and 1013 passed, 3 skipped, 4 known
-unrelated failures in the full runtime suite. No provider traffic occurred and
-Attempt-11 evidence was not modified. See
-`docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md`.
-
-This is not Windows, browser, or product validation. Attempt 11 remains FAIL.
-No desktop rerun, provider probe/request, live turn, cap increase, PR merge,
-branch deletion, or Agentic UI work is authorized. PR #9 is not merge-eligible.
+This closes deterministic Windows validation only. It does not prove browser or
+live product behavior, and Attempt 11 remains product FAIL. No desktop rerun,
+provider probe/request, live Attempt 12, cap increase, PR merge, branch
+deletion, or Agentic UI work is authorized. PR #9 is not merge-eligible.
 
 ## 6. Fast reading map
 

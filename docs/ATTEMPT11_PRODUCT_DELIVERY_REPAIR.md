@@ -112,10 +112,39 @@ one chunk-index background-thread assertion, one repo-map cache object-identity
 assertion, and two session-engine registry/wiring assertions. No new failure was
 introduced. Python compilation also passed.
 
+## Windows validation
+
+Two earlier evidence commits remain preserved as failures:
+
+- `22b1f8fd` retried and overwrote a failed fixture command instead of stopping,
+  so its final green result is not accepted;
+- `b90cb579` correctly recorded `DETERMINISTIC_FAIL` after the one-shot runner
+  could not import `src` from the `scripts/` launch path.
+
+Runner fix `c6d9c11c` explicitly adds the repository root to `sys.path` and adds
+a regression assertion without changing the 183-test count. The fresh one-shot
+Windows R3 evidence commit `1b7ce9e1` is accepted after independent review:
+
+```text
+Focused tests:       183/183 passed in 261.97s
+Fixture findings:      3/3 detected
+Protocol tests:        7/7 passed in 14.27s
+Protocol generation: current
+Compilation:          PASS (9 modules)
+Diff check:           PASS
+Provider traffic:     0 probes / 0 requests
+Verdict:              DETERMINISTIC_PASS
+```
+
+All ten manifest hashes independently match. Only the R3 evidence directory was
+committed, repair `0370515c` and runner fix `c6d9c11c` are ancestors, no stage
+was retried, and focused monitoring maintained approximately 30-second cadence.
+
 ## Qualification and status
 
-This is deterministic evaluator/runtime source validation only. It does not
-repair the immutable Attempt-11 product, does not prove a future model will use
-the reserved capacity successfully, and is not browser or Windows validation.
-Attempt 11 remains product **FAIL**. A live turn, provider probe/request, desktop
-validation, PR merge, branch deletion, and Agentic UI work remain unauthorized.
+This establishes provider-free Windows deterministic parity for the source
+repair. It does not repair the immutable Attempt-11 product, prove a future
+model will use the reserved capacity successfully, or establish browser/live
+runtime/product PASS. Attempt 11 remains product **FAIL**. A live turn, provider
+probe/request, PR merge, branch deletion, and Agentic UI work remain
+unauthorized absent a future explicit decision.
