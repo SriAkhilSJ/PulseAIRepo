@@ -1,0 +1,16 @@
+﻿bench-results/native-capability-validation-desktop/bridge-echo-smoke.log
+bench-results/native-capability-validation-desktop/desktop-compile.log
+bench-results/native-capability-validation-desktop/desktop-syntax.log
+bench-results/native-capability-validation-desktop/desktop-typecheck-client.log
+bench-results/native-capability-validation-desktop/desktop-valid-layers.log
+bench-results/native-capability-validation-desktop/focused-pytest.log
+bench-results/native-capability-validation-desktop/head.txt
+bench-results/native-capability-validation-desktop/monitor.log
+bench-results/native-capability-validation-desktop/node-version.txt
+bench-results/native-capability-validation-desktop/npm-version.txt
+bench-results/native-capability-validation-desktop/protocol-generation.log
+bench-results/native-capability-validation-desktop/recent-commits.txt
+bench-results/native-capability-validation-desktop/required-node-version.txt
+bench-results/native-capability-validation-desktop/sha256sums.txt
+bench-results/native-capability-validation-desktop/ui-build.log
+bench-results/native-capability-validation-desktop/validation-summary.json
