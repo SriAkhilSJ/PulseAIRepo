@@ -1748,12 +1748,17 @@ class ContextEngine:
     ) -> list[BaseMessage]:
         """D22 hermes pack (compaction.py): prune-first with protected
         head/tail, structural dropping only if still over budget, dropped
-        turns folded into an iterative AUX-model summary with anti-thrash
-        suppression. PULSEAI_COMPACTION=off restores the legacy pipeline."""
+        turns folded into an iterative AUX-model summary with anti-thrash.
+        PULSEAI_COMPACTION=off restores the legacy structural pipeline; landed
+        mutation omission has its own diagnostic kill switch."""
         import os as _os
 
         if _os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
-            return self._trim_history(self._summarize_tool_messages(history), budget)
+            # Even the structural-compaction kill switch must not replay every
+            # landed write payload until the run-level token budget is gone.
+            from src.context.compaction import compact_file_mutation_arguments
+            compacted = compact_file_mutation_arguments(history)
+            return self._trim_history(self._summarize_tool_messages(compacted), budget)
 
         if self._compactor is None:
             from src.context.compaction import HistoryCompactor

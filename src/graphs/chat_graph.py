@@ -118,6 +118,7 @@ from src.graphs.budget import (
     _iteration_budget,
     _recursion_limit,
     _budget_exhausted,
+    _verification_reserve_reached,
 )
 from src.graphs.gates import (
     _deliverable_targets,
@@ -125,6 +126,7 @@ from src.graphs.gates import (
     _looks_like_copy_task,
     _looks_like_execution_task,
     _verify_unsatisfied,
+    _verification_ran_and_passed,
     _wrote_code_files,
     finish_gate_node,
     should_continue,
@@ -510,6 +512,36 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
                 "file exists. Call write_file NOW with a complete minimal "
                 "baseline. Additional files and dependencies can be handled on "
                 "the next iteration."
+            ),
+        )
+    elif (
+        _verification_reserve_reached(state)
+        and _wrote_code_files(state)
+        and not _verification_ran_and_passed(state)
+    ):
+        # Preserve a bounded final slice of the existing token ceiling for
+        # dependency/runtime proof.  This is a phase change, not a cap increase:
+        # broad delivery/exploration tools are narrowed to inspect, repair, and
+        # verify actions before the ordinary exhaustion/grace behavior fires.
+        verification_tools = {
+            "read_file", "list_files", "search_code", "write_file", "edit_file",
+            "copy_file", "run_terminal", "start_terminal", "check_terminal",
+            "read_terminal_output", "stop_terminal", "typecheck_workspace",
+            "verify_ui_workspace", "verify_ui_routes", "browser_navigate",
+            "browser_snapshot", "browser_screenshot", "browser_click",
+            "browser_type", "browser_select", "browser_hover", "browser_evaluate",
+        }
+        names = [name for name in resolved_names if name in verification_tools]
+        phase = type(phase)(
+            "verification_reserve", frozenset(verification_tools),
+            max_file_mutations_per_turn=2,
+            guidance=(
+                "VERIFICATION RESERVE PHASE: delivery has entered the final "
+                "reserved slice of the existing run budget. Stop adding optional "
+                "features. Inspect unresolved local imports/dependencies, run the "
+                "actual static/build check now, repair exact failures, then obtain "
+                "runtime/browser receipts when the task renders a UI. Do not "
+                "finalize from file presence or self-report alone."
             ),
         )
     # Persist the same allowlist into the tool-node config: textual tool-call

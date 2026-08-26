@@ -599,6 +599,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     status = {
         "static": False,
         "typecheck": False,
+        "integrity": False,
         "navigate": False,
         "snapshot": False,
         "screenshot": False,
@@ -653,7 +654,17 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
                 and "could not save" not in low
             )
 
-    required = ["static"]
+    # A successful command only proves the source tree it actually checked.
+    # Catch unresolved workspace-local imports/dependencies (and conservative
+    # embedded-shader constants) before that receipt can authorize completion.
+    # This read-only audit is intentionally additive: it never substitutes for
+    # the executable/static/browser receipts above.
+    from src.context.workspace_integrity import audit_workspace
+    workspace = state.get("workspace")
+    integrity_issues = audit_workspace(workspace) if workspace else []
+    status["integrity"] = not integrity_issues
+
+    required = ["static", "integrity"]
     if ui_task:
         required.extend(["navigate", "snapshot", "screenshot"])
     missing = [name for name in required if not bool(status[name])]
@@ -662,6 +673,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "ui_task": ui_task,
         "required": required,
         "missing": missing,
+        "integrity_issues": [issue.describe() for issue in integrity_issues[:20]],
         "ran_any": bool(seen),
         "passed": not missing,
     }
@@ -736,6 +748,15 @@ def finish_gate_node(state: AgentState) -> dict:
         not _ran_verification(state) or _verification_failed(state)
     ):
         nudge = _VERIFY_FAILED_NUDGE if _verification_failed(state) else _VERIFY_NUDGE
+        receipt = _verification_receipt_status(state)
+        issues = list(receipt.get("integrity_issues") or [])
+        if issues:
+            nudge += (
+                "\n\n[Deterministic dependency/source audit found unresolved "
+                "references. Repair these before re-running verification:\n- "
+                + "\n- ".join(issues[:10])
+                + "]"
+            )
         return {
             "messages": [SystemMessage(content=nudge)],
             "verify_nudges": state.get("verify_nudges", 0) + 1,

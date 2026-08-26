@@ -1,4 +1,4 @@
-# Desktop Agent Instructions — STOP after Windows Revalidation
+# Desktop Agent Instructions — STOP after Provider-Free Source Repair
 
 **Updated:** 2026-08-26
 
@@ -10,10 +10,11 @@
 
 **Open PR:** #9 — do not merge
 
-> The authorized provider-free Windows revalidation is complete. No further
-> deterministic rerun, provider probe/request, live turn, dependency install,
-> source repair, cap increase, PR merge, branch deletion, or Agentic UI work is
-> authorized.
+> The accepted Windows revalidation remains complete. Arena subsequently made
+> the separately authorized provider-free product-delivery source repair; it is
+> not Windows/browser/live validated. Desktop must remain stopped: no rerun,
+> provider probe/request, live turn, dependency install, source change, cap
+> increase, PR merge, branch deletion, or Agentic UI work is authorized.
 
 ## Accepted deterministic result
 
@@ -49,8 +50,12 @@ Arena confirmed:
   focused command.
 
 This proves deterministic Windows parity for the completion-integrity and
-terminal-contract repair. It does not establish a live runtime or product PASS.
-Attempt 11's delivered product remains FAIL and its evidence is immutable.
+terminal-contract repair. The later verification-reserve/dependency source
+repair is documented in `docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md` and has only
+provider-free Arena results (183/183 focused; 1013 passed, 3 skipped, four known
+unrelated failures full-suite). It does not establish Windows parity, a live
+runtime, or product PASS. Attempt 11's delivered product remains FAIL and its
+evidence is immutable.
 
 ## Preserve
 
@@ -65,7 +70,7 @@ Attempt 11's delivered product remains FAIL and its evidence is immutable.
 - No provider traffic or live turn.
 - No deterministic rerun.
 - No evidence edits.
-- No source repair.
+- No desktop source changes or validation of the latest Arena repair.
 - No PR merge or branch deletion.
 - No Agentic UI work.
 - Wait for explicit founder authorization.
