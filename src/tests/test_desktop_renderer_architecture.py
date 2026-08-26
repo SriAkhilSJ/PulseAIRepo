@@ -101,6 +101,8 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
         "pulseai-section-heading", "host.submitPrompt(prompt)", "planOpen",
     ):
         assert behavior in renderer
+    assert "openManager(): void" in renderer
+    assert "executeCommand(PulseAICommandId.OpenManager)" in _text("browser", "pulseAIRendererService.ts")
     for style in (
         ".pulseai-starter-grid", ".pulseai-working-dock", ".pulseai-plan-strip",
         "prefers-reduced-motion", "@media (max-width: 420px)",

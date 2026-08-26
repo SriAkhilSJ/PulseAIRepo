@@ -116,6 +116,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		selectWorkspace: uri => this.selectWorkspace(uri),
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
 		openEngineSettings: () => { void this.commandService.executeCommand(PulseAICommandId.OpenSettings); },
+		openManager: () => { void this.commandService.executeCommand(PulseAICommandId.OpenManager); },
 	};
 
 	constructor(
