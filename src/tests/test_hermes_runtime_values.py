@@ -121,7 +121,9 @@ def test_tool_transaction_never_executes_when_intent_persistence_fails(monkeypat
 
 
 def test_foreground_terminal_observes_session_cancel(tmp_path):
+    import os
     import shlex
+    import subprocess
     import sys
     from src.runtime.turn_control import turn_controls
     from src.tools.terminal_tools import run_terminal
@@ -130,8 +132,14 @@ def test_foreground_terminal_observes_session_cancel(tmp_path):
     timer = threading.Timer(0.15, lambda: turn_controls.cancel(session))
     timer.start()
     try:
+        argv = [sys.executable, "-c", "import time; time.sleep(10)"]
+        command = (
+            subprocess.list2cmdline(argv)
+            if os.name == "nt"
+            else shlex.join(argv)
+        )
         result = run_terminal.invoke(
-            {"command": f"{shlex.quote(sys.executable)} -c \"import time; time.sleep(10)\""},
+            {"command": command},
             config={"configurable": {"thread_id": session, "workspace": str(tmp_path)}},
         )
     finally:
