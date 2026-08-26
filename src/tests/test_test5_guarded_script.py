@@ -19,6 +19,12 @@ def test_probe_uses_configured_custom_endpoint_and_model():
     assert '"model": "sarvam-105b-conversations"' not in SCRIPT
 
 
+def test_explicit_skip_probe_avoids_the_extra_provider_request():
+    assert "[switch]$SkipProbe" in SCRIPT
+    assert "if (-not $SkipProbe)" in SCRIPT
+    assert "SKIPPED by explicit one-turn authorization" in SCRIPT
+
+
 def test_watchdog_writes_durable_outcome_before_exit():
     assert "function Write-WatchdogOutcome" in SCRIPT
     assert '-Result "watchdog-hard-cap"' in SCRIPT
