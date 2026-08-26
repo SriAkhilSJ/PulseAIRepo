@@ -1,0 +1,8 @@
+﻿0a35b71f Add provider-free desktop UI validation handoff
+0f84d2df Refine native Pulse agent interface
+fc26086a Add provider-free native capability desktop validation evidence
+d9d395f2 Add provider-free desktop capability validation handoff
+b270f8cd Bridge read-only Code OSS capabilities to Pulse
+395e8531 Document Copilot and Pulse registration layers
+61aaae6a Drive verification reserve to concrete checks
+eaebf9d9 Strengthen provider-free completion verification
