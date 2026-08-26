@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import unquote, urlsplit
 
 _SOURCE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 _RESOLVE_EXTENSIONS = _SOURCE_EXTENSIONS + (".json", ".css", ".html", ".svg")
@@ -41,6 +43,37 @@ _GLSL_BUILTIN_CONSTANTS = frozenset({
     "GL_ES", "GL_FRAGMENT_PRECISION_HIGH", "GL_FRAGMENT_SHADER",
     "GL_VERTEX_SHADER", "HIGH_PRECISION", "LOW_PRECISION", "MEDIUM_PRECISION",
 })
+_HTML_FILE_ATTRIBUTES = {
+    "script": ("src",),
+    "link": ("href",),
+    "img": ("src", "srcset"),
+    "source": ("src", "srcset"),
+    "video": ("src", "poster"),
+    "audio": ("src",),
+    "iframe": ("src",),
+    "object": ("data",),
+}
+
+
+class _HTMLFileReferenceParser(HTMLParser):
+    """Collect references that make a locally opened/served page incomplete."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.references: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        wanted = _HTML_FILE_ATTRIBUTES.get(tag.lower(), ())
+        for name, value in attrs:
+            if name.lower() not in wanted or not value:
+                continue
+            if name.lower() == "srcset":
+                self.references.extend(
+                    candidate.strip().split()[0]
+                    for candidate in value.split(",") if candidate.strip()
+                )
+            else:
+                self.references.append(value.strip())
 
 
 @dataclass(frozen=True)
@@ -54,6 +87,7 @@ class IntegrityIssue:
             "missing-local-import": "missing local import",
             "undeclared-package": "undeclared package",
             "undefined-shader-constant": "undefined shader constant",
+            "missing-html-reference": "missing HTML dependency",
         }
         return f"{self.path}: {labels.get(self.kind, self.kind)} `{self.reference}`"
 
@@ -146,6 +180,47 @@ def _shader_issues(root: Path, path: Path, text: str) -> list[IntegrityIssue]:
     return issues
 
 
+def _html_files(root: Path) -> Iterable[Path]:
+    for path in root.rglob("*.html"):
+        try:
+            relative = path.relative_to(root)
+            if not any(part in _SKIP_DIRS for part in relative.parts) and path.is_file():
+                yield path
+        except OSError:
+            continue
+
+
+def _html_reference_path(root: Path, source: Path, reference: str) -> Path | None:
+    """Resolve a browser file reference, ignoring network/data/navigation URLs."""
+    ref = reference.strip()
+    if not ref or ref.startswith(("#", "//")):
+        return None
+    parsed = urlsplit(ref)
+    if parsed.scheme:
+        return None
+    raw_path = unquote(parsed.path)
+    if not raw_path:
+        return None
+    return root / raw_path.lstrip("/") if raw_path.startswith("/") else source.parent / raw_path
+
+
+def _html_issues(root: Path, path: Path, text: str) -> list[IntegrityIssue]:
+    parser = _HTMLFileReferenceParser()
+    try:
+        parser.feed(text)
+    except Exception:
+        # HTMLParser is deliberately forgiving, but a malformed artifact must
+        # not crash finalization. Runtime/browser verification owns structure.
+        return []
+    relative = path.relative_to(root).as_posix()
+    issues: list[IntegrityIssue] = []
+    for reference in parser.references:
+        target = _html_reference_path(root, path, reference)
+        if target is not None and not target.is_file():
+            issues.append(IntegrityIssue("missing-html-reference", relative, reference))
+    return issues
+
+
 def audit_workspace(root: str | Path) -> list[IntegrityIssue]:
     """Return conservative unresolved-reference findings for ``root``.
 
@@ -174,4 +249,10 @@ def audit_workspace(root: str | Path) -> list[IntegrityIssue]:
             if has_package_manifest and package and package not in declared:
                 issues.add(IntegrityIssue("undeclared-package", relative, package))
         issues.update(_shader_issues(workspace, path, text))
+    for path in _html_files(workspace):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        issues.update(_html_issues(workspace, path, text))
     return sorted(issues, key=lambda issue: (issue.path, issue.kind, issue.reference))

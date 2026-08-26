@@ -2303,6 +2303,26 @@ class SafeToolNode:
         except Exception as exc:
             return {"error": f"could not prepare diff: {exc}"}
 
+    @staticmethod
+    def _durable_denial(tc: dict, content: str, config) -> ToolMessage:
+        """Close a blocked tool lifecycle without invoking the blocked tool.
+
+        The renderer emits ``tool.call`` as soon as the model proposes a call.
+        Safety denials used to return only a ToolMessage, leaving that visible
+        start permanently unmatched. Route the denial text through the durable
+        transaction boundary so journal and UI receive a terminal error event.
+        """
+        from src.runtime.tool_middleware import execute_tool_transaction
+        outcome = execute_tool_transaction(
+            name=tc.get("name", ""), args=dict(tc.get("args") or {}),
+            tool_call_id=tc.get("id", ""), config=config,
+            invoke=lambda: content,
+        )
+        return ToolMessage(
+            content=outcome.content, tool_call_id=tc.get("id", ""),
+            name=tc.get("name", ""), status="error",
+        )
+
     def _deny_and_execute_safe_batch(
         self, *, tool_calls, verdicts, unsafe, state, messages, last_msg,
         config, denial_content, log_line,
@@ -2320,12 +2340,8 @@ class SafeToolNode:
         denials: dict[str, ToolMessage] = {}
         for tc, _, warning in unsafe:
             first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
-            denials[tc["id"]] = ToolMessage(
-                content=denial_content(tc, first_line),
-                tool_call_id=tc["id"],
-                name=tc.get("name", ""),
-                status="error",
-            )
+            content = denial_content(tc, first_line)
+            denials[tc["id"]] = self._durable_denial(tc, content, config)
             log_line(tc)
         safe_tcs = [tc for tc, ok, _ in verdicts if ok]
         results: dict[str, ToolMessage] = dict(denials)
@@ -2640,9 +2656,10 @@ class SafeToolNode:
                         if decision and decision.get("timeout")
                         else "denied"
                     )
-                    denials[tool_id] = ToolMessage(
-                        content=f"⛔ Tool `{tc.get('name', '')}` {reason} before execution.",
-                        tool_call_id=tool_id, name=tc.get("name", ""), status="error",
+                    denials[tool_id] = self._durable_denial(
+                        tc,
+                        f"⛔ Tool `{tc.get('name', '')}` {reason} before execution.",
+                        config,
                     )
             runnable = [
                 tc for tc in tool_calls
