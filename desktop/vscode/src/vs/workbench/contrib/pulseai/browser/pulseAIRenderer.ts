@@ -236,6 +236,61 @@ function engineStatus(model: PulseAIRenderModel): HTMLElement {
 	return element('span', `pulseai-engine-status is-${tone}`, element('span', 'pulseai-status-dot'), state === 'ready' ? 'Pulse ready' : `Engine ${state}`);
 }
 
+function sessionTitle(model: PulseAIRenderModel): string {
+	const value = model.userMessage?.trim() || 'New Pulse session';
+	return value.length > 64 ? `${value.slice(0, 61)}...` : value;
+}
+
+function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggle: (open: boolean) => void): HTMLElement | undefined {
+	if (!model.plan.length) { return undefined; }
+	const details = element('details', 'pulseai-plan-strip') as HTMLDetailsElement;
+	details.open = open ?? model.running;
+	details.addEventListener('toggle', () => onToggle(details.open));
+	const summary = element('summary', 'pulseai-plan-strip-summary',
+		icon('list-ordered'),
+		element('strong', undefined, 'Plan'),
+		element('span', undefined, `${model.plan.length} steps`),
+		model.running ? element('span', 'pulseai-plan-strip-state', element('span', 'pulseai-mini-spinner'), 'In progress') : undefined,
+		icon('chevron-down'),
+	);
+	const list = element('ol', 'pulseai-plan-strip-list');
+	for (const [index, step] of model.plan.entries()) {
+		list.append(element('li', index === 0 && model.running ? 'is-active' : undefined,
+			index === 0 && model.running ? element('span', 'pulseai-mini-spinner') : icon('circle-outline'),
+			element('span', undefined, step),
+		));
+	}
+	details.append(summary, list);
+	return details;
+}
+
+function workingDock(model: PulseAIRenderModel): HTMLElement | undefined {
+	if (!model.running) { return undefined; }
+	return element('section', 'pulseai-working-dock',
+		element('span', 'pulseai-mini-spinner'),
+		element('span', 'pulseai-working-copy', model.cancelRequested ? 'Stopping safely...' : model.reasoning || 'Pulse is working...'),
+		element('span', 'pulseai-working-detail', `${model.tools.length} action${model.tools.length === 1 ? '' : 's'}`),
+	);
+}
+
+function emptyState(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement {
+	const suggestions = element('div', 'pulseai-starter-grid');
+	const blocked = model.noWorkspace || model.workspaceSelectionRequired;
+	for (const [label, prompt, iconName] of [
+		['Understand code', 'Explain the active file and its important dependencies.', 'symbol-method'],
+		['Fix diagnostics', 'Inspect current diagnostics and fix the relevant errors.', 'lightbulb'],
+		['Review changes', 'Review the current workspace changes and identify risks.', 'diff'],
+	] as const) {
+		const starter = button(label, 'pulseai-starter-card', () => host.submitPrompt(prompt), iconName);
+		starter.disabled = blocked;
+		suggestions.append(starter);
+	}
+	const guidance = blocked
+		? model.noWorkspace ? model.noWorkspaceHint : 'Select a workspace folder before starting a session.'
+		: 'Pulse can understand the editor, change code, run checks, and verify the result.';
+	return element('div', 'pulseai-empty', brandMark(), element('h3', undefined, blocked ? 'Open a project to begin' : 'What should we build?'), element('p', undefined, guidance), suggestions);
+}
+
 function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): HTMLElement {
 	const scroll = element('div', 'pulseai-transcript-scroll');
 	const lane = element('div', 'pulseai-transcript-lane');
@@ -251,6 +306,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	}
 	if (model.tools.length) {
 		const tools = element('section', 'pulseai-tool-list');
+		tools.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Actions'), element('span', 'pulseai-section-count', String(model.tools.length))));
 		for (const tool of model.tools) { tools.append(toolRow(tool, host, openTools)); }
 		lane.append(tools);
 	}
@@ -260,7 +316,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
 	}
 	if (!model.userMessage && !model.assistantText && !model.tools.length) {
-		lane.append(element('div', 'pulseai-empty', icon('pulse'), element('h3', undefined, 'Work with Pulse'), element('p', undefined, 'Ask about the active editor, change code, run native tests, or inspect the workspace.')));
+		lane.append(emptyState(model, host));
 	}
 	if (model.error) {
 		const setup = model.engineSetupError;
@@ -383,13 +439,23 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 }
 
 
-function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): void {
+function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): void {
 	const shell = element('div', 'pulseai-agent-shell');
+	const heading = element('div', 'pulseai-agent-heading', brandMark(), element('div', 'pulseai-session-copy',
+		element('span', 'pulseai-eyebrow', 'Current session'),
+		element('h2', undefined, sessionTitle(model)),
+		element('span', 'pulseai-session-subline', icon('folder'), model.workspaceLabel),
+	));
 	const header = element('header', 'pulseai-agent-header',
-		element('div', 'pulseai-agent-brand', brandMark(), element('strong', undefined, 'Pulse')),
-		engineStatus(model),
+		heading,
+		element('div', 'pulseai-agent-header-actions', engineStatus(model), button('Manager', 'pulseai-icon-button', host.openManager, 'window')),
 	);
-	shell.append(header, transcript(model, host, openTools));
+	shell.append(header);
+	const plan = planStrip(model, planOpen, setPlanOpen);
+	if (plan) { shell.append(plan); }
+	shell.append(transcript(model, host, openTools));
+	const working = workingDock(model);
+	if (working) { shell.append(working); }
 	const approval = approvalDock(model, host);
 	if (approval) { shell.append(approval); }
 	shell.append(composer(model, host, false));
@@ -440,10 +506,16 @@ function renderManager(root: HTMLElement, model: PulseAIRenderModel, host: Pulse
 
 export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface, host: PulseAIRenderHost): PulseAIRenderMount {
 	const openTools = new Set<string>();
+	let planOpen: boolean | undefined;
+	let planSession: string | undefined;
 	let disposed = false;
 	return {
 		update(model: PulseAIRenderModel): void {
 			if (disposed) { return; }
+			if (model.sessionId !== planSession) {
+				planSession = model.sessionId;
+				planOpen = undefined;
+			}
 			const previousScroll = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
 			const scrollTop = previousScroll?.scrollTop ?? 0;
 			const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
@@ -453,7 +525,7 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 			const selectionEnd = activeComposer?.selectionEnd;
 			root.replaceChildren();
 			root.dataset.surface = surface;
-			if (surface === 'agent') { renderAgent(root, model, host, openTools); }
+			if (surface === 'agent') { renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }); }
 			else { renderManager(root, model, host, openTools); }
 			const nextScroll = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
 			if (nextScroll) { nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop; }

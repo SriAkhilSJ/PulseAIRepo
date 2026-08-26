@@ -91,3 +91,21 @@ def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
         "terminal-output", "exitCode", "duration", "Copy command", "Reveal location",
     ):
         assert receipt in renderer
+
+
+def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    for behavior in (
+        "function planStrip", "function workingDock", "function emptyState",
+        "pulseai-section-heading", "host.submitPrompt(prompt)", "planOpen",
+    ):
+        assert behavior in renderer
+    for style in (
+        ".pulseai-starter-grid", ".pulseai-working-dock", ".pulseai-plan-strip",
+        "prefers-reduced-motion", "@media (max-width: 420px)",
+        "var(--vscode-focusBorder)", "var(--vscode-sideBar-background)",
+    ):
+        assert style in css
+    assert "kilocode" not in renderer.lower()
+    assert "kilocode" not in css.lower()
