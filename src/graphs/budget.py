@@ -54,6 +54,11 @@ def _recursion_limit() -> int:
 
 _TOKEN_BUDGET_DEFAULT = 120_000
 _TOKEN_BUDGET_CLAMP = 2_000_000
+# This does not increase the cap. It marks the final bounded slice as
+# verification/repair capacity so delivery and output-limit continuations do
+# not consume the entire run before any executable receipt can be produced.
+_VERIFICATION_TOKEN_RESERVE_DEFAULT = 30_000
+_VERIFICATION_ITERATION_RESERVE_DEFAULT = 6
 
 
 def _token_budget() -> int | None:
@@ -66,6 +71,52 @@ def _token_budget() -> int | None:
     if value <= 0:
         return None
     return min(max(10_000, value), _TOKEN_BUDGET_CLAMP)
+
+
+def _verification_token_reserve() -> int:
+    try:
+        value = int(os.environ.get(
+            "AGENT_VERIFICATION_TOKEN_RESERVE", _VERIFICATION_TOKEN_RESERVE_DEFAULT
+        ))
+    except (TypeError, ValueError):
+        value = _VERIFICATION_TOKEN_RESERVE_DEFAULT
+    cap = _token_budget()
+    if cap is None or value <= 0:
+        return 0
+    return min(value, cap // 2)
+
+
+def _verification_iteration_reserve() -> int:
+    try:
+        value = int(os.environ.get(
+            "AGENT_VERIFICATION_ITERATION_RESERVE",
+            _VERIFICATION_ITERATION_RESERVE_DEFAULT,
+        ))
+    except (TypeError, ValueError):
+        value = _VERIFICATION_ITERATION_RESERVE_DEFAULT
+    if value <= 0:
+        return 0
+    return min(value, _iteration_budget() // 2)
+
+
+def _verification_reserve_reached(state: AgentState) -> bool:
+    """Whether delivery entered the reserved final token/iteration slice."""
+    used_iterations = int(state.get("iteration_used", 0) or 0)
+    iteration_reserve = _verification_iteration_reserve()
+    iteration_near = (
+        iteration_reserve > 0
+        and used_iterations >= _iteration_budget() - iteration_reserve
+        and used_iterations < _iteration_budget()
+    )
+
+    cap = _token_budget()
+    token_reserve = _verification_token_reserve()
+    token_near = False
+    if cap is not None and token_reserve > 0:
+        usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
+        consumed = int(usage.get("total_tokens", 0) or 0)
+        token_near = consumed >= max(0, cap - token_reserve) and consumed < cap
+    return iteration_near or token_near
 
 
 def _budget_exhausted(state: AgentState) -> bool:

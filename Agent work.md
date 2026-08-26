@@ -213,17 +213,29 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 
 ## 5. Exact next task
 
-**Next task: remain stopped pending a new founder decision.**
+**Next task: review the provider-free product-delivery repair; remain stopped
+for every live/desktop action.**
 
-Windows revalidation commit `84b8e35b` is independently reviewed and accepted:
-145/145 focused tests, 7/7 protocol tests, generation/compilation/diff checks,
-all nine hashes, and 30-second heartbeat evidence pass with zero provider
-traffic.
+After accepted Windows revalidation `84b8e35b`, the founder authorized one
+provider-free source task: compare current Hermes and repair Attempt 11's
+remaining budget/dependency verification boundary without redesigning Pulse.
+That repair now:
 
-This closes deterministic validation only. Attempt 11's product remains FAIL.
-No desktop rerun, provider probe/run, dependency install, source repair, cap
-increase, PR merge, branch deletion, or Agentic UI work is authorized. PR #9 is
-not merge-eligible.
+- reserves the final 30,000-token/six-iteration slice *inside* existing caps for
+  inspect/repair/static/runtime verification;
+- redacts old successfully landed file payloads only on the request copy;
+- blocks completion on missing local imports, undeclared packages, or
+  conservative undefined embedded-shader constants; and
+- retains mandatory executable/static/browser receipts.
+
+Provider-free results are 183/183 focused and 1013 passed, 3 skipped, 4 known
+unrelated failures in the full runtime suite. No provider traffic occurred and
+Attempt-11 evidence was not modified. See
+`docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md`.
+
+This is not Windows, browser, or product validation. Attempt 11 remains FAIL.
+No desktop rerun, provider probe/request, live turn, cap increase, PR merge,
+branch deletion, or Agentic UI work is authorized. PR #9 is not merge-eligible.
 
 ## 6. Fast reading map
 
@@ -233,12 +245,13 @@ The next agent normally needs only these files:
 2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current mandatory STOP state.
 3. `README.md` — public status and normal repository commands.
 4. `docs/TEST5_ATTEMPT11_REVIEW.md` — latest live evidence and independent product verdict.
-5. `docs/ATTEMPT11_COMPLETION_REPAIR.md` — deterministic follow-up implementation and tests.
-6. `docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md` — Windows failure classification and provider-free correction.
-7. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — code-level Pulse/Hermes comparison and repair rationale.
-6. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
-7. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
-8. The three primary implementation files listed in Section 2, only if a
+5. `docs/ATTEMPT11_COMPLETION_REPAIR.md` — deterministic completion repair and accepted Windows revalidation.
+6. `docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md` — current reserve, compaction, dependency gate, and fresh Hermes comparison.
+7. `docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md` — Windows failure classification and provider-free correction.
+8. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — earlier code-level Pulse/Hermes comparison.
+9. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
+10. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
+11. The primary implementation files listed in Section 2, only if a
    validation receipt exposes a source-level discrepancy.
 
 Avoid broad repository analysis unless the next task actually requires it.
