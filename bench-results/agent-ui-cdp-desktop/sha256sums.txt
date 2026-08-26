@@ -1,0 +1,18 @@
+﻿
+Algorithm Hash                                                             Path                                                                                      
+--------- ----                                                             ----                                                                                      
+SHA256    EB127AB0DAFEB73ED6CDDC4C1AB9846A1D540E782550F368C52F566FB3D472C8 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\01-agent-ready.png         
+SHA256    EB127AB0DAFEB73ED6CDDC4C1AB9846A1D540E782550F368C52F566FB3D472C8 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\02-agent-narrow.png        
+SHA256    FE5E0EF78EE633B1591BA6688E6B64027921034B87E5971AD815F71F20411C9F D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\03-agent-echo-completed.png
+SHA256    7A22B7C18ED3581490BDAA885B2614760BF6A885B864802440E162ADF8A19684 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\cdp-ui-console.log         
+SHA256    6A091279551B36CF23CCA6FDB2B36F52B0955CFFB382FDCC7B6A3453775A54A2 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\cdp-ui-result.json         
+SHA256    9DEACB3B6A5406C0C5A33D03AE9895D1F4BD4D8CD694F636E75B9036CC79007E D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\cdp-version.json           
+SHA256    02FFF475F11323B452871D441A56483796705D1F8233977BD280B26F1E865BFB D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\desktop-process-id.txt     
+SHA256    876E362F77BF1D1997614962B7FBCB7E9C8A2A5F48D67F664B79054238CB6651 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\desktop-stderr.log         
+SHA256    B6F34C7F40132762A405C070C4F0F2A304F27E7505E54E6C1421DB67FDB598EC D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\desktop-stdout.log         
+SHA256    CA31BF927CCBDA3DFD8552984626085F77DA3B18D4BB9CC5CD30156459F1041A D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\head.txt                   
+SHA256    55CFCED592E6672A071C61A4755885061151B74697441F4B03CAFB7971E3BA8A D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\validation-report.md       
+SHA256    4ADE0C8E85F19E10865B02A02200E13BF1C340B9CE53BDF1EDD87DFE72CAEF44 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-cdp-desktop\validation-summary.json    
+
+
+

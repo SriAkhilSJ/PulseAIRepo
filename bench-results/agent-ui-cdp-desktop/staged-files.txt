@@ -1,0 +1,13 @@
+﻿bench-results/agent-ui-cdp-desktop/01-agent-ready.png
+bench-results/agent-ui-cdp-desktop/02-agent-narrow.png
+bench-results/agent-ui-cdp-desktop/03-agent-echo-completed.png
+bench-results/agent-ui-cdp-desktop/cdp-ui-console.log
+bench-results/agent-ui-cdp-desktop/cdp-ui-result.json
+bench-results/agent-ui-cdp-desktop/cdp-version.json
+bench-results/agent-ui-cdp-desktop/desktop-process-id.txt
+bench-results/agent-ui-cdp-desktop/desktop-stderr.log
+bench-results/agent-ui-cdp-desktop/desktop-stdout.log
+bench-results/agent-ui-cdp-desktop/head.txt
+bench-results/agent-ui-cdp-desktop/sha256sums.txt
+bench-results/agent-ui-cdp-desktop/validation-report.md
+bench-results/agent-ui-cdp-desktop/validation-summary.json

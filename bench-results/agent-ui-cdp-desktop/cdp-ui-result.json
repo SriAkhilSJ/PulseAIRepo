@@ -1,0 +1,130 @@
+{
+  "started_at": "2026-08-26T20:42:43.384Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "prompt": "Pulse Agent UI provider-free CDP smoke",
+  "checks": {
+    "Agent composer is visible and enabled": "PASS",
+    "Agent header and Manager button are visible": "PASS",
+    "Agent shell has no horizontal overflow": "PASS",
+    "Agent narrow responsive width is active": "PASS",
+    "Assistant response contains exact echo text": "PASS",
+    "Completed transcript contains completion receipt": "PASS",
+    "Pulse Manager opens as a visible editor surface": "PASS"
+  },
+  "snapshots": {
+    "agent_composer": {
+      "selector": "textarea.pulseai-composer-input",
+      "x": 946.3333740234375,
+      "y": 520.5416870117188,
+      "width": 326.66668701171875,
+      "height": 66.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "",
+      "clientWidth": 327,
+      "scrollWidth": 327
+    },
+    "agent_header": {
+      "selector": ".pulseai-agent-header",
+      "x": 935.6666870117188,
+      "y": 70,
+      "width": 348,
+      "height": 72.0625,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManager",
+      "clientWidth": 348,
+      "scrollWidth": 348
+    },
+    "agent_shell": {
+      "selector": ".pulseai-agent-shell",
+      "x": 935.6666870117188,
+      "y": 70,
+      "width": 348,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManagerWhat should we build?Pulse can understand the editor, change code, run checks, and verify the result.Understand codeFix diagnosticsReview changes@ ContextAuto modelAuto - best availableFastDeepAskAsk before editsApprove workspace editsRead onlyEnter to sendShift+Enter for new line",
+      "clientWidth": 348,
+      "scrollWidth": 348
+    },
+    "manager_button": {
+      "selector": ".pulseai-agent-header-actions .pulseai-icon-button",
+      "x": 1196.375,
+      "y": 95.19792175292969,
+      "width": 77.29167175292969,
+      "height": 21,
+      "visible": true,
+      "enabled": true,
+      "text": "Manager",
+      "clientWidth": 77,
+      "scrollWidth": 77
+    },
+    "completed_transcript": {
+      "selector": ".pulseai-transcript-lane",
+      "x": 935.6666870117188,
+      "y": 142.0625,
+      "width": 348,
+      "height": 154.98959350585938,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed",
+      "clientWidth": 348,
+      "scrollWidth": 348
+    },
+    "assistant_echo": {
+      "selector": ".pulseai-assistant-copy",
+      "x": 957.6666870117188,
+      "y": 223.45834350585938,
+      "width": 304,
+      "height": 18.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse Agent UI provider-free CDP smoke",
+      "clientWidth": 304,
+      "scrollWidth": 304
+    },
+    "manager_shell": {
+      "selector": ".pulseai-manager-shell",
+      "x": 348,
+      "y": 70,
+      "width": 587,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "CONTROL PLANEWorkspacesFind workspace or agentPulseAIRepoPulse Agent UI provider-free CDP smokesession-22466d70f2694e98b4429f2df7db707bReady1 active sessionPulseAIRepo / session-2246Pulse Agent UI provider-free CDP smokePulse readySessionTools 0ChangesPulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed@ ContextEnter to sendShift+Enter for new lineLIVE EVIDENCERun inspectorPlan0 stepsPlan appears when the run startsVerificationNot startedNo evidence rece",
+      "clientWidth": 587,
+      "scrollWidth": 860
+    },
+    "manager_main": {
+      "selector": ".pulseai-manager-main",
+      "x": 548,
+      "y": 70,
+      "width": 420,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "PulseAIRepo / session-2246Pulse Agent UI provider-free CDP smokePulse readySessionTools 0ChangesPulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed@ ContextEnter to sendShift+Enter for new line",
+      "clientWidth": 420,
+      "scrollWidth": 420
+    }
+  },
+  "console_errors": [],
+  "screenshots": [
+    "01-agent-ready.png",
+    "02-agent-narrow.png",
+    "03-agent-echo-completed.png"
+  ],
+  "overall": "FAIL",
+  "target": {
+    "id": "CA8FA4F26DC4D7863129D4DD5516A628",
+    "title": "PulseAIRepo - PulseAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "failure": {
+    "message": "Pulse Manager has no horizontal overflow",
+    "stack": "Error: Pulse Manager has no horizontal overflow\n    at assert (D:\\pulseAIagent\\PulseAIRepo\\scripts\\validate_pulse_ui_cdp.js:132:27)\n    at main (D:\\pulseAIagent\\PulseAIRepo\\scripts\\validate_pulse_ui_cdp.js:188:5)"
+  },
+  "finished_at": "2026-08-26T20:42:44.442Z"
+}

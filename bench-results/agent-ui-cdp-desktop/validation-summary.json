@@ -1,0 +1,29 @@
+{
+  "source_commit": "97f8c31f4e149f238569d315aa0818ad485affa1",
+  "required_repair_ancestor": "b790a29d",
+  "provider_requests": 0,
+  "attempt12_classification": "runtime/product FAIL (immutable; not rerun)",
+  "r1_classification": "FAIL (immutable; openManager missing)",
+  "r2_classification": "source/build PASS; interactive smoke NOT RUN",
+  "cdp_exit": 1,
+  "cdp_overall": "FAIL",
+  "cdp_failure": "Pulse Manager has no horizontal overflow (scrollWidth 860 > clientWidth 588)",
+  "checks": {
+    "agent_composer_visible_enabled": "PASS",
+    "agent_header_manager_button_visible": "PASS",
+    "agent_shell_no_overflow": "PASS",
+    "agent_narrow_responsive": "PASS",
+    "assistant_echo_exact_text": "PASS",
+    "completed_transcript_receipt": "PASS",
+    "manager_opens_visible": "PASS",
+    "manager_no_overflow": "FAIL",
+    "manager_responsive_inspector": "NOT REACHED",
+    "no_renderer_exceptions": "PASS",
+    "no_console_errors": "PASS"
+  },
+  "screenshots_captured": 3,
+  "screenshots_expected": 5,
+  "screenshots": ["01-agent-ready.png", "02-agent-narrow.png", "03-agent-echo-completed.png"],
+  "renderer_console_errors": 0,
+  "overall": "FAIL"
+}
