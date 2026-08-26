@@ -1,0 +1,14 @@
+﻿{
+    "exit_code":  0,
+    "modules":  [
+                    "src/llm/factory.py",
+                    "src/tools/terminal_tools.py",
+                    "src/bridge/__main__.py",
+                    "src/graphs/chat_graph.py",
+                    "src/graphs/gates.py",
+                    "src/graphs/budget.py",
+                    "src/context/compaction.py",
+                    "src/context/context_engine.py",
+                    "src/context/workspace_integrity.py"
+                ]
+}
