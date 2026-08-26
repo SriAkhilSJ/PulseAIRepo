@@ -215,11 +215,13 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 
 Attempt 11 is complete and independently reviewed. Its generated evidence
 workspace remains immutable. The deterministic completion-integrity source
-repair is implemented and provider-free tests pass; the next possible gate is
-separately authorized Windows deterministic validation of that repair.
+repair is implemented and provider-free tests pass. The desktop agent is now
+authorized to run only the provider-free Windows validation allowlist in
+`DESKTOP_AGENT_INSTRUCTIONS.md`, commit its new evidence, and STOP.
 
-No provider probe/run, cap increase, PR merge, branch deletion, or Agentic UI
-work is currently authorized. PR #9 is not merge-eligible.
+No provider probe/run, dependency install, source repair, cap increase, PR
+merge, branch deletion, or Agentic UI work is authorized. PR #9 is not
+merge-eligible.
 
 ## 6. Fast reading map
 
