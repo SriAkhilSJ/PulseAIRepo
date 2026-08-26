@@ -70,6 +70,9 @@ def test_main_thread_still_prompts_human(ws):
 
 # ------------------------------------------------------ sub-agents: deny
 def test_subagent_denial_is_toolmessage_not_prompt(ws, caplog):
+    from src.dashboard.event_bus import event_bus
+    event_bus.clear("sub-w-7")
+    events = event_bus.subscribe("sub-w-7")
     with caplog.at_level(logging.WARNING, logger="pulseai.safety"):
         out = _invoke(_state(("run_terminal", {"command": "rm -rf keep"})), _cfg(ws, "sub-w-7"))
     msg = out["messages"][0]
@@ -81,6 +84,14 @@ def test_subagent_denial_is_toolmessage_not_prompt(ws, caplog):
     assert (ws / "keep" / "precious.txt").read_text() == "do not delete"
     assert any("AUTO-DENIED" in r.message and "run_terminal" in r.message
                for r in caplog.records)           # hermes: both paths audit-log
+    projected = []
+    while not events.empty():
+        projected.append(events.get_nowait())
+    event_bus.unsubscribe(events)
+    terminal = [event for event in projected if event["type"] == "tool.result"]
+    assert len(terminal) == 1
+    assert terminal[0]["payload"]["tool_id"] == "tc0"
+    assert terminal[0]["payload"]["status"] == "error"
 
 
 def test_subagent_mixed_batch_partial_execution_order_preserved(ws):

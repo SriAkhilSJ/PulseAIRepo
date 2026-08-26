@@ -12,6 +12,30 @@ from src.graphs.gates import _verification_receipt_status
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ATTEMPT11_WORKSPACE = REPO_ROOT / "bench-results" / "test5-11-desktop" / "workspace"
+ATTEMPT12_WORKSPACE = REPO_ROOT / "bench-results" / "test5-12-desktop" / "workspace"
+
+
+def test_attempt12_fixture_reports_missing_html_script_dependency():
+    findings = {(issue.kind, issue.path, issue.reference) for issue in audit_workspace(ATTEMPT12_WORKSPACE)}
+    assert ("missing-html-reference", "index.html", "./src/main.js") in findings
+
+
+def test_html_integrity_handles_local_root_query_srcset_and_external_refs(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "ok.css").write_text("body {}", encoding="utf-8")
+    (tmp_path / "ok.png").write_bytes(b"png")
+    (tmp_path / "index.html").write_text(
+        '<link rel="stylesheet" href="/assets/ok.css?v=1">'
+        '<script src="src/missing.js#boot"></script>'
+        '<img src="https://example.com/remote.png" '
+        'srcset="ok.png 1x, missing@2x.png 2x">',
+        encoding="utf-8",
+    )
+    findings = {(issue.kind, issue.reference) for issue in audit_workspace(tmp_path)}
+    assert findings == {
+        ("missing-html-reference", "src/missing.js#boot"),
+        ("missing-html-reference", "missing@2x.png"),
+    }
 
 
 def test_attempt11_fixture_reports_missing_vendor_and_shader_constant(monkeypatch):
