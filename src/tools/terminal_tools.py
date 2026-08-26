@@ -191,6 +191,8 @@ def start_terminal(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if _IS_WINDOWS:
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -416,7 +418,8 @@ def run_terminal(
     try:
         popen_kwargs = dict(
             cwd=workspace, shell=True, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, env=env,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            errors="replace", env=env,
         )
         if _IS_WINDOWS:
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

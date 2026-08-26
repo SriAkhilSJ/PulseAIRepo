@@ -94,5 +94,11 @@ exception, two required local Three.js modules were absent, and the scene shader
 used an undefined macro. Independent product verdict: FAIL. See
 [`TEST5_ATTEMPT11_REVIEW.md`](TEST5_ATTEMPT11_REVIEW.md).
 
-PR #9 remains unmergeable. No provider retry, source repair, branch deletion, or
-Agentic UI work is currently authorized.
+A provider-free follow-up repairs completion-verdict propagation, final tool
+event flushing, UTF-8 terminal pipes, and repeated complete finish reasons.
+Focused contracts pass 144/144; see
+[`ATTEMPT11_COMPLETION_REPAIR.md`](ATTEMPT11_COMPLETION_REPAIR.md). This does not
+change Attempt 11's historical FAIL.
+
+PR #9 remains unmergeable. No provider retry, branch deletion, or Agentic UI
+work is currently authorized.

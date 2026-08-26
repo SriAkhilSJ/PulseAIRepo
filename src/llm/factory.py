@@ -178,6 +178,9 @@ def build_request_snapshot(messages: Any, runnable: Any) -> dict[str, Any]:
 _INCOMPLETE_FINISH_REASONS = frozenset({
     "length", "max_tokens", "max_output_tokens", "token_limit", "incomplete",
 })
+_CANONICAL_FINISH_REASONS = _INCOMPLETE_FINISH_REASONS | frozenset({
+    "stop", "tool_calls", "function_call", "content_filter", "end_turn",
+})
 
 
 def normalize_finish_reason(value: Any) -> tuple[str, str]:
@@ -194,7 +197,7 @@ def normalize_finish_reason(value: Any) -> tuple[str, str]:
     normalized = raw.lower()
     if not raw:
         return "", ""
-    for reason in sorted(_INCOMPLETE_FINISH_REASONS, key=len, reverse=True):
+    for reason in sorted(_CANONICAL_FINISH_REASONS, key=len, reverse=True):
         if len(normalized) < len(reason) or len(normalized) % len(reason):
             continue
         repeats = len(normalized) // len(reason)

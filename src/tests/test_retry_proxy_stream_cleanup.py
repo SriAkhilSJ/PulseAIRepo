@@ -118,6 +118,23 @@ def test_langchain_chunk_addition_reproduces_and_canonicalizes_lengthlength():
     assert info["incomplete"] is True
 
 
+def test_finish_normalization_covers_repeated_complete_reasons():
+    for raw, canonical in (
+        ("stopstop", "stop"),
+        ("tool_callstool_calls", "tool_calls"),
+        ("function_callfunction_call", "function_call"),
+    ):
+        class Response:
+            tool_calls = []
+            content = ""
+            response_metadata = {"finish_reason": raw}
+
+        info = provider_response_info(Response())
+        assert info["raw_finish_reason"] == raw
+        assert info["finish_reason"] == canonical
+        assert info["incomplete"] is False
+
+
 def test_provider_response_info_canonicalizes_repeated_terminal_reason():
     class Response:
         tool_calls = []
