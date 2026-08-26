@@ -1,0 +1,19 @@
+﻿
+Algorithm Hash                                                             Path                                                                                              
+--------- ----                                                             ----                                                                                              
+SHA256    62E9E280A47753020A16945849E4A24D97C00038699A163796F36F46F8327147 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\desktop-compile.log         
+SHA256    FC7ECB70FF81BEA03D2469B41C8ACA50333FF25FE19D077600675EAD02AAF5BD D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\desktop-syntax.log          
+SHA256    88B1B69F122237976B0E8D43D0CFEA147B739A4B48F72134E13079AA1F7FFA3A D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\desktop-typecheck-client.log
+SHA256    26F51BBE9496E88121D8898E19A1044B202ACB4F6BA487ED6DDC1AB6089426E3 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\desktop-valid-layers.log    
+SHA256    3F2EDD438E4C7B601FC3858F2C868D68E234F1A5A951D53DCC6059ED9B2BF8A3 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\focused-pytest.log          
+SHA256    681229A2B1284E18B4910CA0FFE89A1015568EE1F18E4D1FD123B5070393A84E D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\head.txt                    
+SHA256    718C31E258D12E4D28B313B04787F030DA7D003D79BAD68F1E774AB87730C57D D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\node-version.txt            
+SHA256    8E19F8E2A5607E979441A3BFFDC5899630E88F04234CADE7E39E659D7E90568D D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\npm-version.txt             
+SHA256    0DE07579E582BC94391F0C1F7884A9433649CD7EBF24337C0CFDB959C3085EEA D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\recent-commits.txt          
+SHA256    E326B5CC77D5D52DB959FB26B64CA8A56C5D01C9AB11E9F7B3D3920CF8A0E72A D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\required-node-version.txt   
+SHA256    53B18F34C2B32AAA9D33479DA6861B5323F81590C9B5703E56D4D993647D9329 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\ui-build.log                
+SHA256    5A8892D4EBD61C44BBE8E623D655A322A8E57B8F640EBD7B82D4B056C9DE1536 D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\validation-report.md        
+SHA256    18399FA904B5F91BC4D02173D631F9A78C348E203196F8734F708AC758A9F2CA D:\pulseAIagent\PulseAIRepo\bench-results\agent-ui-validation-desktop\validation-summary.json     
+
+
+
