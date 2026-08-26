@@ -1,5 +1,6 @@
 """Provider-free regressions for Attempt 11's product-delivery boundary."""
 from pathlib import Path
+import sys
 
 from langchain_core.messages import AIMessage, ToolMessage
 
@@ -13,7 +14,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ATTEMPT11_WORKSPACE = REPO_ROOT / "bench-results" / "test5-11-desktop" / "workspace"
 
 
-def test_attempt11_fixture_reports_missing_vendor_and_shader_constant():
+def test_attempt11_fixture_reports_missing_vendor_and_shader_constant(monkeypatch):
+    # R2 regression: launching a checked-in runner as ``python scripts/x.py``
+    # puts scripts/, not the repository root, at sys.path[0].
+    from scripts.validate_attempt11_product_delivery_windows import ensure_repo_import_path
+    root_text = str(REPO_ROOT)
+    monkeypatch.setattr(sys, "path", [entry for entry in sys.path if entry != root_text])
+    ensure_repo_import_path(REPO_ROOT)
+    assert sys.path[0] == root_text
+
     findings = {(issue.kind, issue.path, issue.reference) for issue in audit_workspace(ATTEMPT11_WORKSPACE)}
     assert ("missing-local-import", "js/main.js", "../vendor/three/three.module.min.js") in findings
     assert ("missing-local-import", "js/main.js", "../vendor/three/controls/OrbitControls.js") in findings

@@ -1,4 +1,4 @@
-# Desktop Agent Instructions — One-Shot Windows Revalidation R2
+# Desktop Agent Instructions — One-Shot Windows Revalidation R3
 
 **Updated:** 2026-08-26
 
@@ -6,11 +6,14 @@
 
 **Repair under validation:** `0370515cce811dd4d86d14379dd2729a94e640b1`
 
-**Prior failed evidence:** `22b1f8fd3aed688e6850ab254fb7b8131d929c21`
+**Prior failed evidence:** `b90cb579eb72b363491f53e2a014fd073e795552`
 
 **Open PR:** #9 — do not merge
 
 ## Authorized task
+
+R2 correctly stopped at `fixture_detection`: the runner did not add the
+repository root to `sys.path`. R3 fixes that runner-only defect.
 
 Run exactly one provider-free Windows validation using the checked-in fail-fast
 script. The script performs the 183 focused tests, three fixture findings, seven
@@ -65,7 +68,7 @@ $validationExit = $LASTEXITCODE
 Do not rerun the script for any reason. It creates:
 
 ```text
-bench-results\test5-11-product-delivery-repair-validation-windows-r2\
+bench-results\test5-11-product-delivery-repair-validation-windows-r3\
 ```
 
 If the command exits nonzero, preserve its `DETERMINISTIC_FAIL` evidence. Do not
@@ -77,11 +80,11 @@ repair, retry, overwrite, or substitute another command.
 git status --short
 ```
 
-Only the new R2 evidence directory may be untracked. If anything else changed,
+Only the new R3 evidence directory may be untracked. If anything else changed,
 preserve it and STOP without reset/clean.
 
 ```powershell
-git add -f bench-results/test5-11-product-delivery-repair-validation-windows-r2
+git add -f bench-results/test5-11-product-delivery-repair-validation-windows-r3
 git commit -m "test: revalidate Attempt 11 delivery repair on Windows"
 git push origin arena/01a03741-pulseairepo
 ```
