@@ -104,6 +104,7 @@ from src.tools.code_exec_tool import execute_code
 from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.session_search_tool import session_search
+from src.tools.host_tools import HOST_TOOLS
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
 from src.agents.cost_router import cost_router
@@ -351,6 +352,9 @@ tools = [
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
 
+    # Lazily discovered read-only intelligence from the native Code OSS host.
+    *HOST_TOOLS,
+
     # Verification receipts: static compiler proof and a deterministic UI
     # pipeline that owns server/browser mechanics without extra model turns.
     typecheck_workspace,
@@ -470,6 +474,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     if autonomous:
         autonomous_tools = {
             "read_file", "list_files", "search_code",
+            "discover_host_capabilities", "invoke_host_capability",
             "write_file", "edit_file", "copy_file",
             "run_terminal", "typecheck_workspace",
             "web_search", "web_fetch",

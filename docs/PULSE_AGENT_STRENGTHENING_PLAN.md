@@ -11,7 +11,7 @@ Pulse already has two useful halves:
 1. the Python agent can plan, edit files, run commands, and enforce completion gates;
 2. the desktop contains mature editor intelligence, diagnostics, search, source control, tasks, tests, terminals, debugging, notebooks, remote support, MCP, and extension-contributed tools.
 
-The main weakness is the connection between those halves. Pulse currently declares 29 workbench capability IDs but wires 19 of them. Its Python agent exposes 34 canonical tools, yet most native workbench capabilities cannot be selected through that tool protocol.
+The main weakness is the connection between those halves. Pulse currently declares 29 workbench capability IDs but wires 19 of them. Its Python agent exposes 36 canonical tools, yet most native workbench capabilities cannot be selected through that tool protocol.
 
 We will not solve this by showing every possible tool to the model. That would make requests larger, slower, more confusing, and less safe. Pulse will instead use a **capability broker**: a small searchable index that discovers what is available, checks trust and permissions, and reveals only the few tools relevant to the current task.
 
@@ -132,6 +132,14 @@ Text search alone is guesswork for large projects. Native language intelligence 
 ### Exit gate
 
 A deterministic desktop integration test can discover and invoke each base capability, with correct workspace identity, cancellation, limits, error projection, and no provider request.
+
+### Current progress
+
+- Protocol v2 now defines compact host capability updates, correlated host tool requests, and host tool results.
+- A Python broker accepts only the read-only Phase-2 allowlist, pins every session to one workspace, limits descriptors/results/deadlines, correlates concurrent replies, and releases in-flight waits immediately on Stop.
+- Two lazy agent tools discover and invoke native capabilities; schemas remain small and no native capability schema is eagerly added to every request.
+- The desktop publishes trust-aware capability status and dispatches only workspace trust, active/dirty editor context, diagnostics, symbols, definitions, references, bounded search, and SCM state.
+- Mutation, execution, credentials, extension tools, and MCP remain denied at this bridge stage.
 
 ## Phase 3 — Give the agent safe hands and proof
 

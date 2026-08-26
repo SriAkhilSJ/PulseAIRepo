@@ -46,6 +46,8 @@ export const PULSE_TOOL_CATALOG: Readonly<Record<string, ToolPresentation>> = {
   read_file: tool("Read", "file-read", "file"),
   list_files: tool("List files", "file-read", "folder"),
   search_code: tool("Search code", "search", "search"),
+  discover_host_capabilities: tool("Discover editor capabilities", "search", "search"),
+  invoke_host_capability: tool("Use editor intelligence", "search", "code"),
   write_file: tool("Write", "file-write", "file", "preference"),
   edit_file: tool("Edit", "file-write", "diff", "preference"),
   copy_file: tool("Copy file", "file-write", "copy", "preference"),

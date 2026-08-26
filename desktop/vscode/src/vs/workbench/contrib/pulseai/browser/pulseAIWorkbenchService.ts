@@ -171,8 +171,12 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 		}));
 	}
 
+	isWorkspaceTrusted(): boolean {
+		return this.trustManagementService.isWorkspaceTrusted();
+	}
+
 	getCapabilities(): readonly PulseAICapabilityStatus[] {
-		const trusted = this.trustManagementService.isWorkspaceTrusted();
+		const trusted = this.isWorkspaceTrusted();
 		return PULSE_AI_WORKBENCH_CAPABILITIES.map(descriptor => ({
 			id: descriptor.id,
 			availability: descriptor.requiresTrust && !trusted

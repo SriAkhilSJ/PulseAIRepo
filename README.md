@@ -39,6 +39,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Task-aware bounded context assembly, repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
 - Lazy persistent memory with local embedding cache only by default; graph import never downloads a model.
 - Parallel tool execution with conflict detection and deterministic fallback.
+- Lazy, workspace-pinned access to read-only native Code OSS intelligence: editor context, dirty text, diagnostics, symbols, definitions, references, search, SCM, and trust. Mutation/extension/MCP host invocation remains gated for later phases.
 - Multi-provider support for Groq, OpenAI-compatible endpoints, Gemini, and NVIDIA.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
 - Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
