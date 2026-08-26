@@ -101,6 +101,29 @@ Evidence qualification: `monitor.log` contains multi-minute gaps and a retry,
 not the required 30-second heartbeat cadence. This does not alter the test
 failures, but strict monitoring compliance must not be claimed.
 
+### Windows revalidation
+
+A clean revalidation at evidence commit `84b8e35b` passed:
+
+```text
+Focused tests:       145/145 passed in 356.15s
+Protocol tests:        7/7 passed in 11.14s
+Protocol generation:  current
+Compilation:           PASS
+Diff check:            PASS
+Provider probes:       0
+Provider requests:     0
+Verdict:               DETERMINISTIC_PASS
+```
+
+All nine files listed by the evidence manifest match their committed SHA-256
+values. `monitor.log` contains a separate heartbeat approximately every 30
+seconds throughout the focused command. The evidence commit is a direct child
+of instruction commit `8c9a57a0`, and repair `963eeac0` is an ancestor.
+
+This closes the deterministic Windows gate only; it does not change Attempt
+11's live product FAIL.
+
 ## Status
 
 This repair remains deterministic-only. Attempt 11's historical product remains

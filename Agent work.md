@@ -208,20 +208,22 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 352099c158b9c70e1ce5ef46f9a17c5020f8cc9d  Windows deterministic repair validation
 989ab85ed36ca5985864cf1b349f996c6111a75c  Attempt-11 live evidence
 9ea6a078  Windows completion-repair validation FAIL evidence
+84b8e35b  Windows completion-repair revalidation PASS evidence
 ```
 
 ## 5. Exact next task
 
 **Next task: remain stopped pending a new founder decision.**
 
-Windows validation commit `9ea6a078` is independently reviewed. It failed 3 of
-145 focused tests. Two failures were non-native test command quoting; one was a
-real Windows guard false positive for native bare `mkdir`. Both are repaired
-provider-free, and the focused suite is 145/145 on Arena.
+Windows revalidation commit `84b8e35b` is independently reviewed and accepted:
+145/145 focused tests, 7/7 protocol tests, generation/compilation/diff checks,
+all nine hashes, and 30-second heartbeat evidence pass with zero provider
+traffic.
 
-No desktop rerun, provider probe/run, dependency install, further source repair,
-cap increase, PR merge, branch deletion, or Agentic UI work is authorized. PR
-#9 is not merge-eligible.
+This closes deterministic validation only. Attempt 11's product remains FAIL.
+No desktop rerun, provider probe/run, dependency install, source repair, cap
+increase, PR merge, branch deletion, or Agentic UI work is authorized. PR #9 is
+not merge-eligible.
 
 ## 6. Fast reading map
 
