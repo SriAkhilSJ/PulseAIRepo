@@ -1,0 +1,25 @@
+﻿{
+    "finish_reasons":  [
+                           "length",
+                           "tool_calls",
+                           "stop"
+                       ],
+    "fallback_provider_requests":  0,
+    "llm_response_count":  15,
+    "no_delivery_stop":  false,
+    "error":  null,
+    "first_failed_boundary":  "turn_done.completed=false",
+    "probe_requests":  0,
+    "tokens_in":  83259,
+    "output_limit_continuations":  null,
+    "all_models_authorized":  true,
+    "llm_request_count":  15,
+    "request_models":  [
+                           "z-ai/glm-5.3-flash"
+                       ],
+    "tool_call_starts":  11,
+    "turn_done_completed":  false,
+    "budget_stop":  false,
+    "result":  "turn_done",
+    "tool_call_ends":  9
+}
