@@ -62,9 +62,18 @@ provider traffic was used.
 - No tracked `git-diff-check.log` exists because successful output was empty;
   the zero exit code is retained in `validation_summary.json`.
 
+## Revalidation
+
+The separately authorized revalidation is preserved at commit `84b8e35b` and
+passes 145/145 focused tests plus 7/7 protocol tests. Generation, compilation,
+and diff checks pass; all nine evidence hashes match; and monitor heartbeats
+maintain an approximately 30-second cadence during the focused command. No
+provider traffic occurred.
+
 ## Status
 
-The Windows evidence remains a valid `DETERMINISTIC_FAIL` receipt. It must not
-be rewritten. The subsequent provider-free repair requires separate
-authorization for any Windows rerun. No live provider attempt, merge, branch
-deletion, or Agentic UI work is authorized.
+The original Windows evidence remains a valid `DETERMINISTIC_FAIL` receipt and
+the revalidation is a valid `DETERMINISTIC_PASS` receipt. Neither should be
+rewritten. This closes deterministic Windows validation but does not establish
+a live runtime/product PASS. No live provider attempt, merge, branch deletion,
+or Agentic UI work is authorized.
