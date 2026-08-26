@@ -14,7 +14,8 @@ param(
     [int]$StallSeconds = 600,
     [int]$MaxLlmCalls = 60,
     [int]$MaxInputTokens = 250000,
-    [int]$MaxNoDeliveryCalls = 12
+    [int]$MaxNoDeliveryCalls = 12,
+    [switch]$SkipProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +35,10 @@ Write-Host "[preflight] workspace ready at $Workspace"
 # Credit gate: ONE 8-token probe against the configured OpenAI-compatible
 # custom endpoint/model. Bad provider = no test started. Never hardcode one
 # vendor here: the live turn reads these same .env values through settings.py.
+# A separately authorized live turn may explicitly skip this extra provider
+# request after checking local configuration; Attempt 12 uses that path so the
+# authorization is spent only on the actual turn.
+if (-not $SkipProbe) {
 $probePy = Join-Path $env:TEMP "pulse_probe.py"
 @"
 import json, os, time, urllib.request
@@ -75,6 +80,9 @@ except Exception as e:
 "@ | Set-Content -Encoding UTF8 $probePy
 & $Python $probePy
 if ($LASTEXITCODE -ne 0) { Write-Host "[probe] FAILED - test NOT started." -ForegroundColor Red; exit 2 }
+} else {
+    Write-Host "[probe] SKIPPED by explicit one-turn authorization (zero probe requests)"
+}
 
 # Hermes alignment for long build turns: STREAM the provider (first token
 # arrives in seconds; the timeout then guards stalls, not total generation
