@@ -3,7 +3,7 @@
 - **Updated:** 2026-08-25
 - **Repository:** `SriAkhilSJ/PulseAIRepo`
 - **Required branch:** `arena/01a03741-pulseairepo`
-- **Validation handoff commit:** `f232f796d8332cdce28121091fe8c98a391227c7`
+- **Latest reviewed evidence commit:** `989ab85ed36ca5985864cf1b349f996c6111a75c`
 - **Open PR:** #9 — **do not merge yet**
 
 This file is the short entry point for the next agent. Read it before exploring
@@ -12,27 +12,29 @@ or broad file-by-file analysis unless new evidence contradicts this handoff.
 
 ## 1. Current verdict
 
-Test 5 Attempt 10 remains:
+Test 5 Attempt 11 is independently classified:
 
 ```text
-RUNTIME_FAIL / PRODUCT_FAIL
+OUTPUT-LIMIT RECOVERY: PASS
+RUNNER / BRIDGE LIVENESS: PASS
+AUTONOMOUS COMPLETION INTEGRITY: FAIL
+PRODUCT: FAIL
+OVERALL: FAIL
 ```
 
-Its sole live response contained no content/tools and merged finish metadata
-`lengthlength`; Pulse misclassified it as complete, then the runner encountered
-an untraced Windows `OSError 22`. Attempt 8 also remains failed for its truncated
-write and post-tool stall.
+The repair received live validation at its intended failure boundary. Three
+canonical output-limit responses continued to request 4, and repeated Windows
+console `OSError 22` events were isolated while all 13 requests received
+responses. Five source files landed.
 
-The deterministic follow-up now canonicalizes exact repeated finish reasons,
-preserves raw metadata and bounded usage/reasoning counts, provides a dedicated
-three-continuation output-limit path, retains incomplete-tool rejection, isolates
-runner heartbeat failures with traceback evidence, and recognizes OpenRouter via
-the custom base URL. Arena and Windows focused verification are both 70/70;
-Windows protocol verification is 7/7. See
-`docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md` and `docs/TEST4_PASS_FORENSIC.md`.
+The run was not a complete task delivery. It emitted `completed=true` without a
+successful verification call; the final message said it would inspect next;
+required local Three.js files were absent; and the scene shader contains an
+undefined macro because its patch helper is never called. See
+`docs/TEST5_ATTEMPT11_REVIEW.md`.
 
-The repair has **not** received live provider-backed validation and must not be
-reported as a runtime or product PASS.
+Do not flatten the narrow recovery/liveness PASS into an autonomous runtime or
+product PASS.
 
 ## 2. Work completed in the current Arena repair
 
@@ -198,22 +200,22 @@ Important evidence commits:
 7552c645d9516b1f274df59f0c91f14a4b50e653  independent validation documentation
 47c02f9b0bfacf3b502e2191a200834e77127a2c  Attempt-9 Sarvam 403 STOP evidence
 e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
+352099c158b9c70e1ce5ef46f9a17c5020f8cc9d  Windows deterministic repair validation
+989ab85ed36ca5985864cf1b349f996c6111a75c  Attempt-11 live evidence
 ```
 
 ## 5. Exact next task
 
 **Next task: remain stopped pending a new founder decision.**
 
-Windows deterministic validation is complete: 70/70 focused tests and 7/7
-protocol tests passed, protocol generation was current, compilation passed, and
-zero provider probes/requests were made. Evidence commit:
-`352099c158b9c70e1ce5ef46f9a17c5020f8cc9d`. Independent review is recorded in
-`docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`.
+Attempt 11 is complete and independently reviewed. Do not retry it or repair
+the generated evidence workspace. The next engineering decision, if separately
+authorized, is a deterministic source repair for completion integrity, paired
+terminal-tool evidence, and strict verification gating—not another provider
+run.
 
-This is `DETERMINISTIC_PASS`, not a live runtime or product PASS. No provider
-probe/run, cap increase, source repair, PR merge, branch deletion, or Agentic UI
-work is authorized. Only a later, separately authorized live runtime **and**
-independent product PASS can make PR #9 eligible for merge.
+No provider probe/run, cap increase, source repair, PR merge, branch deletion,
+or Agentic UI work is currently authorized. PR #9 is not merge-eligible.
 
 ## 6. Fast reading map
 
@@ -222,8 +224,8 @@ The next agent normally needs only these files:
 1. `Agent work.md` — this handoff.
 2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current mandatory STOP state.
 3. `README.md` — public status and normal repository commands.
-4. `docs/TEST5_ATTEMPT10_OPENROUTER.md` — latest failure boundary and evidence quality.
-5. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — current code-level Pulse/Hermes comparison and minimal repair plan.
+4. `docs/TEST5_ATTEMPT11_REVIEW.md` — latest live evidence and independent product verdict.
+5. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — code-level Pulse/Hermes comparison and repair rationale.
 6. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
 7. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
 8. The three primary implementation files listed in Section 2, only if a

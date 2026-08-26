@@ -106,6 +106,10 @@ Full runtime suite:
 
 The four failures are outside the changed focus. A detached baseline at `b83b9669` reproduces the three repo-map/session-engine failures under the same environment; the chunk-index thread assertion is suite-order-sensitive and passes when isolated. The focused repair suite is green. No provider request was issued by these repair tests.
 
-## Evidence rule
+## Live follow-up
 
-These results prove deterministic normalization, routing, safety, budget discovery, and runner fallback behavior only. A future live attempt requires separate authorization and independent evidence review.
+Attempt 11 subsequently live-validated canonical output-limit continuation and
+runner heartbeat isolation. It did not validate autonomous completion or the
+product: verification was skipped and the delivered website is not executable
+as committed. See `docs/TEST5_ATTEMPT11_REVIEW.md`. No further live attempt is
+authorized.

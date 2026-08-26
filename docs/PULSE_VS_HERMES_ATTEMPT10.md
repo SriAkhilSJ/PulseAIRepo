@@ -230,9 +230,8 @@ workflow itself preserves monitoring, console, traceback, and product receipts.
 
 ## Deterministic repair status
 
-The behavior-preserving source repair above is now implemented on the Arena
-branch and has provider-free focused coverage. Raw/canonical reasons, normalized
-usage and reasoning length, bounded empty-response continuation, incomplete-tool
-rejection, runner fallback/traceback evidence, and custom-base OpenRouter budget
-discovery are covered. See `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md`. This status is
-not Windows validation and is not a runtime or product PASS.
+The behavior-preserving source repair above is implemented and passed Arena and
+Windows deterministic coverage. Attempt 11 then live-validated the narrow
+output-limit and runner-liveness boundaries, but autonomous completion integrity
+and the generated product failed. See `docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md` and
+`docs/TEST5_ATTEMPT11_REVIEW.md`.

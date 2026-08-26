@@ -1,110 +1,77 @@
-# Desktop Agent Instructions — STOP after Deterministic Validation
+# Desktop Agent Instructions — STOP after Attempt 11
 
 **Updated:** 2026-08-25
 
 **Required branch:** `arena/01a03741-pulseairepo`
 
-**Repair commit validated:** `0bb00413f4a03b0172c4f6214018bad156fb1d2a`
-
-**Windows evidence commit:** `352099c158b9c70e1ce5ef46f9a17c5020f8cc9d`
+**Attempt-11 evidence commit:** `989ab85ed36ca5985864cf1b349f996c6111a75c`
 
 **Open PR:** #9 — do not merge
 
-> The authorized provider-free Windows validation is complete. No further
-> desktop command, deterministic rerun, provider probe/request, live Test-5
-> attempt, cap increase, source repair, PR merge, branch deletion, or Agentic UI
-> work is authorized.
+> Attempt 11 consumed its one OpenRouter probe and one live turn. No further
+> desktop command, deterministic rerun, provider request, source repair, cap
+> increase, PR merge, branch deletion, or Agentic UI work is authorized.
 
-## Verified deterministic result
-
-Existing repository checkout:
+## Independent verdict
 
 ```text
-D:\pulseAIagent\PulseAIRepo
+Probe:                          PASS (HTTP 200, 2.65s)
+Output-limit recovery:          PASS
+Runner heartbeat isolation:     PASS
+Bridge request/response liveness: PASS (13/13)
+Autonomous completion integrity: FAIL
+Product:                         FAIL
+Overall:                         FAIL
 ```
 
-Result:
+The first three live responses exposed raw `lengthlength`, canonical `length`,
+and `incomplete=true`. Request 4 then produced the first complete tool call.
+Repeated console `OSError 22` events were preserved in the fallback log while
+the bridge continued to `turn_done`. These are genuine live passes for the
+narrow deterministic repairs.
+
+They are not an end-to-end PASS. The graph emitted `completed=true` without a
+successful verification receipt. Its final message said it would inspect next.
+The delivered application imports two missing local Three.js files, and its
+scene shader uses `MAX_STEPS_LOOP` without injecting the macro. It cannot run as
+delivered.
+
+Full independent review:
 
 ```text
-Branch:              arena/01a03741-pulseairepo
-Focused tests:       70 collected, 70 passed (26.43s)
-Protocol tests:       7 collected, 7 passed (1.71s)
-Protocol generation: current
-Compilation:          PASS (6 modules)
-Provider probes:      0
-Provider requests:    0
-Verdict:              DETERMINISTIC_PASS
+docs/TEST5_ATTEMPT11_REVIEW.md
 ```
 
-Evidence directory:
+## Evidence to preserve
 
 ```text
-bench-results\test5-output-limit-repair-validation-windows\
+C:\test5-ws-attempt11
+bench-results\test5-11-desktop\
+989ab85ed36ca5985864cf1b349f996c6111a75c
 ```
 
-This verifies deterministic Windows parity for finish-reason normalization,
-bounded empty output-limit continuation, incomplete-tool rejection, bounded
-telemetry, runner console/traceback handling, custom-base OpenRouter budget
-recognition, bridge protocol generation, and compilation.
+Also preserve all Attempt-5 through Attempt-10 workspaces and evidence already
+listed in repository history. Do not alter or “complete” the Attempt-11 snapshot;
+it is graded evidence.
 
-It does **not** establish a live runtime or product PASS. Attempt 10 remains
-`RUNTIME_FAIL / PRODUCT_FAIL`.
+## Evidence qualifications
 
-## Independent evidence review
-
-Arena confirmed:
-
-- evidence commit `352099c1` contains only six new validation files;
-- its parent is the instruction commit `0e56708c` and repair commit `0bb00413`
-  is an ancestor;
-- focused and protocol logs contain the reported 70/70 and 7/7 results;
-- protocol generation reports current;
-- all five hashes listed in `sha256sums.txt` match their committed files when
-  the manifest's UTF-8 BOM is handled correctly; and
-- the summary records zero provider probes and requests.
-
-Receipt-quality qualifications, preserved rather than rewritten:
-
-- quiet successful compilation produced no tracked `compile.log`; its zero exit
-  code and six-module allowlist are recorded in `validation_summary.json`;
-- no `monitor.log` was committed (the longest recorded command was 26.43s); and
-- the summary start/end timestamps use inconsistent timezone offsets.
-
-These qualifications do not change the deterministic test verdict, but the
-evidence must not be overstated as live behavior.
-
-## Preserve exactly
-
-```text
-C:\test5-ws-attempt6
-C:\test5-ws-attempt8
-C:\test5-ws-attempt9
-C:\test5-ws-attempt10
-bench-results\test5-5\
-bench-results\test5-6\
-bench-results\test5-8-desktop\
-bench-results\test5-stream-parity-validation\
-bench-results\test5-stream-parity-validation-followup\
-bench-results\test5-9-desktop\
-bench-results\test5-10-desktop\
-bench-results\test5-output-limit-repair-validation-windows\
-/home/user/test5-workspace-attempt7
-bench-results/test5-7-arena/
-```
-
-`C:\test5-ws-attempt5` remains absent and must not be recreated. Attempt-10
-failure evidence commit `e344bc00e6de2961a2695d4fc7cfa7401ad64c87` and the new
-Windows validation evidence are immutable.
+- Eight tool starts have seven paired tool ends. The unmatched terminal call
+  encountered a Windows `cp1252` writer-thread `UnicodeEncodeError`.
+- No browser verification tool ran.
+- The monitoring log does not demonstrate a strict 30-second cadence; observed
+  gaps are commonly around 50–120 seconds.
+- All 11 committed SHA-256 entries match their evidence files.
 
 ## Mandatory stop
 
-- No provider traffic or probe.
-- No deterministic rerun or evidence edit.
-- No source repair or cap change.
+- No provider probe, retry, fallback, or live turn.
+- No evidence edits or generated-workspace repair.
+- No source repair unless separately authorized.
 - No PR merge or branch deletion.
 - No Agentic UI work.
 - Wait for explicit founder authorization.
 
 ```text
-STOPPED — no live attempt authorized
+STOPPED — Attempt 11 independently reviewed; overall FAIL
 ```
