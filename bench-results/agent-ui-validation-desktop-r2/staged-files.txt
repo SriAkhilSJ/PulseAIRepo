@@ -1,0 +1,12 @@
+﻿bench-results/agent-ui-validation-desktop-r2/desktop-compile.log
+bench-results/agent-ui-validation-desktop-r2/desktop-syntax.log
+bench-results/agent-ui-validation-desktop-r2/desktop-typecheck-client.log
+bench-results/agent-ui-validation-desktop-r2/desktop-valid-layers.log
+bench-results/agent-ui-validation-desktop-r2/focused-pytest.log
+bench-results/agent-ui-validation-desktop-r2/head.txt
+bench-results/agent-ui-validation-desktop-r2/node-version.txt
+bench-results/agent-ui-validation-desktop-r2/npm-version.txt
+bench-results/agent-ui-validation-desktop-r2/sha256sums.txt
+bench-results/agent-ui-validation-desktop-r2/ui-build.log
+bench-results/agent-ui-validation-desktop-r2/validation-report.md
+bench-results/agent-ui-validation-desktop-r2/validation-summary.json
