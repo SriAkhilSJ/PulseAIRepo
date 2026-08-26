@@ -126,6 +126,7 @@ from src.graphs.gates import (
     _looks_like_copy_task,
     _looks_like_execution_task,
     _verify_unsatisfied,
+    _ran_verification,
     _verification_ran_and_passed,
     _wrote_code_files,
     finish_gate_node,
@@ -520,29 +521,39 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         and not _verification_ran_and_passed(state)
     ):
         # Preserve a bounded final slice of the existing token ceiling for
-        # dependency/runtime proof.  This is a phase change, not a cap increase:
-        # broad delivery/exploration tools are narrowed to inspect, repair, and
-        # verify actions before the ordinary exhaustion/grace behavior fires.
-        verification_tools = {
-            "read_file", "list_files", "search_code", "write_file", "edit_file",
-            "copy_file", "run_terminal", "start_terminal", "check_terminal",
+        # dependency/runtime proof. This is a phase change, not a cap increase.
+        # Before the first receipt, expose checks rather than another menu of
+        # inspection tools: Attempt 12 spent its reserve reading instead of
+        # discovering a concrete failure. Once a check fails, re-open narrow
+        # inspect/repair tools so the receipt can drive a targeted correction.
+        first_check_tools = {
+            "run_terminal", "start_terminal", "check_terminal",
             "read_terminal_output", "stop_terminal", "typecheck_workspace",
-            "verify_ui_workspace", "verify_ui_routes", "browser_navigate",
-            "browser_snapshot", "browser_screenshot", "browser_click",
-            "browser_type", "browser_select", "browser_hover", "browser_evaluate",
+            "verify_ui_workspace", "verify_ui_routes",
         }
+        repair_tools = first_check_tools | {
+            "read_file", "search_code", "write_file", "edit_file", "copy_file",
+        }
+        verification_attempted = _ran_verification(state)
+        verification_tools = repair_tools if verification_attempted else first_check_tools
         names = [name for name in resolved_names if name in verification_tools]
+        phase_name = (
+            "verification_repair" if verification_attempted else "verification_first_check"
+        )
+        guidance = (
+            "VERIFICATION REPAIR PHASE: a concrete check has run but required "
+            "evidence is still missing. Inspect only the files named by the "
+            "failure, make the smallest repair, and rerun the failed check."
+            if verification_attempted else
+            "VERIFICATION FIRST-CHECK PHASE: delivery has entered the final "
+            "reserved slice of the existing run budget. Stop inspecting and stop "
+            "adding features. Run the actual composite UI verifier or project "
+            "static/build/test command NOW. The resulting receipt will identify "
+            "any exact file that may be reopened for repair."
+        )
         phase = type(phase)(
-            "verification_reserve", frozenset(verification_tools),
-            max_file_mutations_per_turn=2,
-            guidance=(
-                "VERIFICATION RESERVE PHASE: delivery has entered the final "
-                "reserved slice of the existing run budget. Stop adding optional "
-                "features. Inspect unresolved local imports/dependencies, run the "
-                "actual static/build check now, repair exact failures, then obtain "
-                "runtime/browser receipts when the task renders a UI. Do not "
-                "finalize from file presence or self-report alone."
-            ),
+            phase_name, frozenset(verification_tools),
+            max_file_mutations_per_turn=2, guidance=guidance,
         )
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
@@ -2251,14 +2262,10 @@ class SafeToolNode:
             str(safety_guard.workspace): safety_guard
         }
 
-    @staticmethod
-    def _cancelled_tool_messages(tool_calls: list[dict]) -> list[ToolMessage]:
+    def _cancelled_tool_messages(self, tool_calls: list[dict], config) -> list[ToolMessage]:
         return [
-            ToolMessage(
-                content="Operation cancelled by the user — tool not executed.",
-                tool_call_id=tc.get("id", ""),
-                name=tc.get("name", ""),
-                status="error",
+            self._durable_denial(
+                tc, "⛔ Operation cancelled by the user — tool not executed.", config
             )
             for tc in tool_calls
         ]
@@ -2274,7 +2281,7 @@ class SafeToolNode:
         from src.runtime.turn_control import turn_controls
 
         if not turn_controls.admit_action(self._session_id(config)):
-            return self._cancelled_tool_messages(tool_calls)
+            return self._cancelled_tool_messages(tool_calls, config)
         from src.graphs.parallel_tools import run_durable_batch_sequential
         return run_durable_batch_sequential(
             tool_calls, self._tools_by_name, config
@@ -2385,7 +2392,7 @@ class SafeToolNode:
             tool_calls = getattr(last_msg, "tool_calls", None)
             if not tool_calls:
                 return self._node.invoke(state, config)
-            return {"messages": self._cancelled_tool_messages(tool_calls)}
+            return {"messages": self._cancelled_tool_messages(tool_calls, config)}
 
         # Check the last AI message for tool calls
         messages = state.get("messages", [])
@@ -2427,7 +2434,7 @@ class SafeToolNode:
 
         def _cancelled_result(calls: list[dict] | None = None) -> dict:
             return _with_repaired(
-                self._cancelled_tool_messages(calls or tool_calls)
+                self._cancelled_tool_messages(calls or tool_calls, config)
             )
 
         # Never execute tool arguments from a token-limited provider response.
@@ -2447,15 +2454,12 @@ class SafeToolNode:
                 )
             )
             return _with_repaired([
-                ToolMessage(
-                    content=(
-                        "Error: provider response was incomplete "
-                        f"({reason}); tool was NOT executed. Split large file "
-                        "writes into smaller complete files/calls and continue."
-                    ),
-                    tool_call_id=tc.get("id", ""),
-                    name=tc.get("name", ""),
-                    status="error",
+                self._durable_denial(
+                    tc,
+                    "Error: provider response was incomplete "
+                    f"({reason}); tool was NOT executed. Split large file "
+                    "writes into smaller complete files/calls and continue.",
+                    config,
                 )
                 for tc in tool_calls
             ])
@@ -2471,18 +2475,13 @@ class SafeToolNode:
             denied = [tc for tc in tool_calls if tc.get("name", "") not in set(phase_allowed)]
             if denied:
                 denied_names = ", ".join(sorted({tc.get("name", "") for tc in denied}))
+                denial = (
+                    f"⛔ PHASE POLICY DENIED batch in {phase_name}: {denied_names}. "
+                    "No calls in this batch executed. Use only the tools exposed for "
+                    "the current plan phase and make the required progress now."
+                )
                 return _with_repaired([
-                    ToolMessage(
-                        content=(
-                            f"⛔ PHASE POLICY DENIED batch in {phase_name}: {denied_names}. "
-                            "No calls in this batch executed. Use only the tools exposed for "
-                            "the current plan phase and make the required progress now."
-                        ),
-                        tool_call_id=tc.get("id", ""),
-                        name=tc.get("name", ""),
-                        status="error",
-                    )
-                    for tc in tool_calls
+                    self._durable_denial(tc, denial, config) for tc in tool_calls
                 ])
 
         from pathlib import Path
