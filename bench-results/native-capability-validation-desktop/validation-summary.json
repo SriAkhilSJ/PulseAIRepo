@@ -1,0 +1,16 @@
+{
+    "attempt12_classification":  "runtime/product FAIL (immutable; not rerun)",
+    "desktop_layers_exit":  0,
+    "ui_build_exit":  0,
+    "desktop_syntax_exit":  0,
+    "python_compileall_exit":  0,
+    "overall":  "PASS",
+    "desktop_compile_exit":  0,
+    "desktop_runtime_smoke":  "NOT RUN — interactive GUI required",
+    "desktop_typecheck_exit":  0,
+    "bridge_echo_exit":  0,
+    "focused_pytest_exit":  0,
+    "protocol_generation_exit":  0,
+    "provider_requests":  0,
+    "source_commit":  "d9d395f2b51f7c30bb9214ae4dd21214b51baada"
+}
