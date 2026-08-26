@@ -19,8 +19,8 @@
 
 Validate that the product-delivery boundary repair works correctly on Windows:
 
-1. The new 183-test focused suite passes (includes product-delivery boundary,
-   completion-integrity, desktop sidecar/workspace, and compaction tests).
+1. The exact 183-test focused suite passes (includes product-delivery boundary,
+   completion-integrity, bridge/runtime, budget, phase, and compaction tests).
 2. Attempt-11 fixture detection for both missing vendor modules and
    `MAX_STEPS_LOOP` is verified.
 3. Protocol generation and 7 protocol tests pass.
@@ -152,8 +152,8 @@ try {
     src/tests/test_autonomous_runtime_contract.py `
     src/tests/test_output_limit_recovery.py `
     src/tests/test_model_budgets.py `
-    src/tests/test_desktop_sidecar_architecture.py `
-    src/tests/test_desktop_workspace_boundary.py `
+    src/tests/test_iteration_budget.py `
+    src/tests/test_execution_phases.py `
     src/tests/test_compaction.py `
     2>&1 | Tee-Object -FilePath "$evidence\focused-tests.log"
   $focusedExit = $LASTEXITCODE
@@ -181,24 +181,39 @@ correctly detects the three known Attempt-11 product holes:
 ```powershell
 "$((Get-Date).ToUniversalTime().ToString('o')) FIXTURE_START" | Add-Content "$evidence\monitor.log"
 & $python -c @"
-from src.context.workspace_integrity import audit_workspace_integrity
+from src.context.workspace_integrity import audit_workspace
 import json
 
-# The Attempt-11 workspace fixture has known holes
-result = audit_workspace_integrity(r'C:\test5-ws-attempt11')
-findings = result.get('findings', [])
+# Read the committed immutable Attempt-11 fixture; do not use or modify the
+# external historical product workspace for this source contract.
+issues = audit_workspace(r'bench-results\test5-11-desktop\workspace')
+findings = [
+    {
+        'kind': issue.kind,
+        'path': issue.path,
+        'reference': issue.reference,
+        'description': issue.describe(),
+    }
+    for issue in issues
+]
 print(json.dumps({'finding_count': len(findings), 'findings': findings}, indent=2))
 
-# Verify the three expected findings exist
 expected = [
-    'three.module.min.js',
-    'OrbitControls.js',
-    'MAX_STEPS_LOOP'
+    ('missing-local-import', '../vendor/three/three.module.min.js'),
+    ('missing-local-import', '../vendor/three/controls/OrbitControls.js'),
+    ('undefined-shader-constant', 'MAX_STEPS_LOOP'),
 ]
-for exp in expected:
-    found = any(exp in f.get('path', '') or exp in f.get('detail', '') for f in findings)
-    status = 'PASS' if found else 'FAIL'
-    print(f'  {exp}: {status}')
+missing = []
+for kind, reference in expected:
+    found = any(
+        item['kind'] == kind and item['reference'] == reference
+        for item in findings
+    )
+    print(f'  {reference}: {"PASS" if found else "FAIL"}')
+    if not found:
+        missing.append((kind, reference))
+if missing:
+    raise SystemExit(f'Missing expected findings: {missing!r}')
 "@ 2>&1 | Tee-Object -FilePath "$evidence\fixture-detection.log"
 $fixtureExit = $LASTEXITCODE
 "$((Get-Date).ToUniversalTime().ToString('o')) FIXTURE_END exit=$fixtureExit" | Add-Content "$evidence\monitor.log"
@@ -223,8 +238,11 @@ $generationExit = $LASTEXITCODE
   src/tools/terminal_tools.py `
   src/bridge/__main__.py `
   src/graphs/chat_graph.py `
-  src/context/workspace_integrity.py `
-  src/graphs/budget.py
+  src/graphs/gates.py `
+  src/graphs/budget.py `
+  src/context/compaction.py `
+  src/context/context_engine.py `
+  src/context/workspace_integrity.py
 $compileExit = $LASTEXITCODE
 @{
   exit_code = $compileExit
@@ -233,8 +251,11 @@ $compileExit = $LASTEXITCODE
     'src/tools/terminal_tools.py',
     'src/bridge/__main__.py',
     'src/graphs/chat_graph.py',
-    'src/context/workspace_integrity.py',
-    'src/graphs/budget.py'
+    'src/graphs/gates.py',
+    'src/graphs/budget.py',
+    'src/context/compaction.py',
+    'src/context/context_engine.py',
+    'src/context/workspace_integrity.py'
   )
 } | ConvertTo-Json -Depth 3 | Set-Content "$evidence\compile-outcome.json" -Encoding utf8
 
