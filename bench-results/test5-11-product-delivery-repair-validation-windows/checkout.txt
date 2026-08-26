@@ -1,0 +1,5 @@
+﻿Repository root: D:/pulseAIagent/PulseAIRepo
+Remote: https://github.com/SriAkhilSJ/PulseAIRepo.git
+Branch: arena/01a03741-pulseairepo
+HEAD (before validation): b4921259c56a7b463e16f975f4908008b9cc6d2f
+Status (before validation): clean
