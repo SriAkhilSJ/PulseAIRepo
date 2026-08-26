@@ -98,8 +98,9 @@ $started = (Get-Date).ToUniversalTime().ToString('o')
 "$started VALIDATION_START" | Set-Content "$evidence\monitor.log" -Encoding utf8
 ```
 
-Record command start/end timestamps in `monitor.log`. If a command runs longer
-than 30 seconds, append a timestamped heartbeat every 30 seconds.
+Record command start/end timestamps in `monitor.log`. The focused command below
+starts a separate local PowerShell heartbeat job, so its foreground execution
+cannot prevent 30-second monitoring entries.
 
 ## Step 3 — Remove provider credentials from this child shell
 
@@ -131,21 +132,36 @@ if ($LASTEXITCODE -ne 0) { throw 'Existing Python environment is unavailable' }
 ## Step 4 — Run the exact focused suite
 
 ```powershell
-"$((Get-Date).ToUniversalTime().ToString('o')) FOCUSED_START" | Add-Content "$evidence\monitor.log"
-& $python -m pytest -q `
-  src/tests/test_attempt11_completion_integrity.py `
-  src/tests/test_retry_proxy_stream_cleanup.py `
-  src/tests/test_run_bridge_turn.py `
-  src/tests/test_bridge_transport.py `
-  src/tests/test_bridge.py `
-  src/tests/test_lab_fixes.py `
-  src/tests/test_hermes_runtime_values.py `
-  src/tests/test_autonomous_runtime_contract.py `
-  src/tests/test_output_limit_recovery.py `
-  src/tests/test_model_budgets.py `
-  2>&1 | Tee-Object -FilePath "$evidence\focused-tests.log"
-$focusedExit = $LASTEXITCODE
-"$((Get-Date).ToUniversalTime().ToString('o')) FOCUSED_END exit=$focusedExit" | Add-Content "$evidence\monitor.log"
+$monitorPath = (Resolve-Path "$evidence\monitor.log").Path
+"$((Get-Date).ToUniversalTime().ToString('o')) FOCUSED_START" | Add-Content $monitorPath
+$heartbeatJob = Start-Job -ArgumentList $monitorPath -ScriptBlock {
+  param($path)
+  while ($true) {
+    Start-Sleep -Seconds 30
+    "$((Get-Date).ToUniversalTime().ToString('o')) FOCUSED_HEARTBEAT" |
+      Add-Content $path
+  }
+}
+try {
+  & $python -m pytest -q `
+    src/tests/test_attempt11_completion_integrity.py `
+    src/tests/test_retry_proxy_stream_cleanup.py `
+    src/tests/test_run_bridge_turn.py `
+    src/tests/test_bridge_transport.py `
+    src/tests/test_bridge.py `
+    src/tests/test_lab_fixes.py `
+    src/tests/test_hermes_runtime_values.py `
+    src/tests/test_autonomous_runtime_contract.py `
+    src/tests/test_output_limit_recovery.py `
+    src/tests/test_model_budgets.py `
+    2>&1 | Tee-Object -FilePath "$evidence\focused-tests.log"
+  $focusedExit = $LASTEXITCODE
+} finally {
+  Stop-Job $heartbeatJob -ErrorAction SilentlyContinue
+  Receive-Job $heartbeatJob -ErrorAction SilentlyContinue | Out-Null
+  Remove-Job $heartbeatJob -Force -ErrorAction SilentlyContinue
+}
+"$((Get-Date).ToUniversalTime().ToString('o')) FOCUSED_END exit=$focusedExit" | Add-Content $monitorPath
 ```
 
 Expected result:
@@ -184,8 +200,14 @@ $compileExit = $LASTEXITCODE
   )
 } | ConvertTo-Json -Depth 3 | Set-Content "$evidence\compile-outcome.json" -Encoding utf8
 
-git diff --check 2>&1 | Tee-Object -FilePath "$evidence\git-diff-check.log"
+$diffOutput = @(git diff --check 2>&1)
 $diffExit = $LASTEXITCODE
+if ($diffOutput.Count -eq 0) {
+  "git diff --check: clean (exit 0)" |
+    Set-Content "$evidence\git-diff-check.log" -Encoding utf8
+} else {
+  $diffOutput | Set-Content "$evidence\git-diff-check.log" -Encoding utf8
+}
 "$((Get-Date).ToUniversalTime().ToString('o')) CHECKS_END protocol=$protocolExit generation=$generationExit compile=$compileExit diff=$diffExit" | Add-Content "$evidence\monitor.log"
 ```
 
