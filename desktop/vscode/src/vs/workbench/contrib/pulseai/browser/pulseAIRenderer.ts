@@ -54,6 +54,7 @@ export interface PulseAIRenderHost {
 	selectWorkspace(uri: string): void;
 	openFolder(): void;
 	openEngineSettings(): void;
+	openManager(): void;
 }
 
 export interface PulseAIRenderMount extends IDisposable {
