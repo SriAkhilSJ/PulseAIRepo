@@ -80,8 +80,29 @@ repo-map cache object identity, and two session-engine registry/wiring tests.
 All 145 completion-repair, bridge, terminal, finish-reason, output-limit, and
 model-budget tests pass.
 
+## Windows validation and follow-up
+
+Windows evidence commit `9ea6a078` recorded `DETERMINISTIC_FAIL`: 142/145
+focused tests passed, while protocol (7/7), generation, compilation, and diff
+checks passed with zero provider traffic. All eight listed evidence hashes match.
+
+Independent review does not accept the blanket “not code defects” explanation:
+
+- two sleeping-child tests built commands with POSIX `shlex` quoting and were
+  invalid under `cmd.exe`; these were test-portability defects;
+- the Windows dialect guard rejected native `mkdir temp_app` even though the
+  runtime guidance recommends that command; this was a source false positive.
+
+The tests now construct native command lines with `subprocess.list2cmdline` on
+Windows, and the guard permits bare native `mkdir` while continuing to reject
+`mkdir -p`. The exact focused suite passes 145/145 provider-free on Arena.
+
+Evidence qualification: `monitor.log` contains multi-minute gaps and a retry,
+not the required 30-second heartbeat cadence. This does not alter the test
+failures, but strict monitoring compliance must not be claimed.
+
 ## Status
 
-This repair is deterministic-only. Attempt 11's historical product remains
+This repair remains deterministic-only. Attempt 11's historical product remains
 FAIL and its evidence workspace must not be modified. No new provider run,
 merge, branch deletion, or Agentic UI work is authorized.

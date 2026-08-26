@@ -53,6 +53,11 @@ def _posix_violations(command: str) -> list[str]:
         verb = w.lstrip("([{").rstrip(")]};,")
         if verb in _POSIX_ONLY_VERBS:
             flags = [x for x in words[i + 1:i + 3] if x.startswith("-")]
+            # `mkdir` without POSIX flags is a native cmd.exe command. The old
+            # broad verb rule rejected the exact Windows scaffold command the
+            # runtime guidance recommends (`mkdir temp_app && cd temp_app`).
+            if verb == "mkdir" and not flags:
+                continue
             if verb in ("mkdir", "cp", "mv", "rm") and flags and flags[0] in _POSIX_FLAGS:
                 violations.append(
                     f"{verb} with POSIX flag `{flags[0]}` has no Windows equivalent "
