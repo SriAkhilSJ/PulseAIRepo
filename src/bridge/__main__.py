@@ -241,6 +241,10 @@ class BridgeServer:
                     })
                 except Exception:
                     pass
+            finally:
+                # Pair Queue.put with task_done so the turn owner can flush
+                # every provider/tool event before emitting its terminal frame.
+                q.task_done()
 
     def _run_turn(self, sid: str, text: str, workspace: str) -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
@@ -334,9 +338,17 @@ class BridgeServer:
                     turn_id=identity.turn_id,
                 )
                 cancelled = turn_controls.cancelled(sid)
+                # All provider/tool events were queued before stream_agent
+                # returned. Flush them before the terminal frame so a fast
+                # finalization cannot strand the last tool.result behind
+                # turn_done or drop it when the forwarder stops.
+                if q is not None:
+                    q.join()
+                task_completed = bool(getattr(result, "completed", True))
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
-                    "message": result, "completed": not cancelled,
+                    "message": str(result),
+                    "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
                 })
             except Exception as exc:

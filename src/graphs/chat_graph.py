@@ -868,16 +868,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     )
 
     # Store successful task in long-term memory.
-    current_task = state.get("current_task", "")
+    current_task = state.get("current_task") or state.get("latest_instruction", "")
     steps_completed = state.get("steps_completed", [])
     failed_steps = state.get("failed_steps", [])
-
-    if memory_manager and current_task and steps_completed:
-        memory_manager.store_task_completion(
-            task=current_task,
-            steps_completed=steps_completed,
-            plan=plan,
-        )
 
     # Feedback loop: record FAILURE if the task ended with failed steps,
     # otherwise success. (Previously success was recorded unconditionally,
@@ -895,6 +888,18 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
     )
+    task_succeeded = not unverified and not bool(failed_steps)
+    if not task_succeeded:
+        plan = finalize_plan(
+            plan=list(state.get("plan", [])),
+            task_succeeded=False,
+        )
+    elif memory_manager and current_task and steps_completed:
+        memory_manager.store_task_completion(
+            task=current_task,
+            steps_completed=steps_completed,
+            plan=plan,
+        )
     try:
         engine = get_context_engine(config)
         if state.get("failed_steps") or unverified:
@@ -921,6 +926,11 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             "the app was not proven to render. Do not treat this as a "
             "working deliverable until verification passes."
         )
+        lines.append("")
+    elif failed_steps:
+        lines.append(f"## ⚠️ Ended incomplete: {task_display}")
+        lines.append("")
+        lines.append("**This run ended with unresolved failures.**")
         lines.append("")
     else:
         lines.append(f"## ✅ Finished: {task_display}")
@@ -989,7 +999,12 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 
     return {
         "plan": plan,
-        "task_completed": not unverified,
+        "task_completed": task_succeeded,
+        "task_status": (
+            "unverified" if unverified
+            else "failed" if failed_steps
+            else "completed"
+        ),
         "messages": [AIMessage(content="\n".join(lines))],
     }
 
@@ -3080,6 +3095,15 @@ def invoke_agent(
 # STREAMING INVOCATION
 # =========================================================
 
+class AgentTurnResult(str):
+    """String-compatible final response carrying the graph's honest verdict."""
+
+    def __new__(cls, message: str, *, completed: bool):
+        value = super().__new__(cls, message)
+        value.completed = bool(completed)
+        return value
+
+
 def stream_agent(
     message: str,
     thread_id: str = "default",
@@ -3123,6 +3147,7 @@ def stream_agent(
         }
 
         final_response = ""
+        turn_completed: bool | None = None
         current_step = 0
         total_steps = 0
 
@@ -3254,6 +3279,27 @@ def stream_agent(
             if "recovery_limit" in event:
                 print("\n⛔ Recovery limit reached. Pausing for user input.")
 
+            # FINALIZE NODE — its verdict, not mere transport closure, owns
+            # turn completion. Attempt 11 discarded this state and returned
+            # the preceding "I will inspect" text as completed=true.
+            if "finalize" in event:
+                finalize_data = event.get("finalize") or {}
+                turn_completed = bool(finalize_data.get("task_completed", False))
+                final_messages = finalize_data.get("messages") or []
+                if final_messages:
+                    content = getattr(final_messages[-1], "content", "")
+                    if isinstance(content, list):
+                        content = "".join(
+                            block.get("text", "") for block in content
+                            if isinstance(block, dict)
+                        ) or str(content)
+                    if content:
+                        final_response = str(content)
+                        event_bus.emit("message.agent.chunk", {
+                            "chunk": final_response,
+                            "thread_id": thread_id,
+                        })
+
         event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # D38: post-run bounded background self-curation (memory review on the
         # aux model). Never blocks the response — state is snapshotted from the
@@ -3264,30 +3310,38 @@ def stream_agent(
         except Exception:
             pass
 
-        # When the run ends via the budget-exhausted / finish-gate path, the
-        # final summary is synthesized by finalize_node and never flows through
-        # an "ai" event (Test-2 retest D5 returned an empty string despite
-        # completing 12/12 plan steps). Fall back to the persisted state's last
-        # message so callers always get the real final response.
-        if not final_response:
-            try:
-                snap = graph.get_state(config)
-                msgs = (snap.values or {}).get("messages", [])
-                # Only an ASSISTANT message is a final answer. Falling back to
-                # msgs[-1] blindly returns tool output / system prompts /
-                # cancellation nudges to the user as the "response".
-                ai_msgs = [m for m in msgs if getattr(m, "type", "") == "ai"]
-                if ai_msgs:
-                    final_response = ai_msgs[-1].content
-                    if isinstance(final_response, list):
-                        final_response = "".join(
-                            b.get("text", "") for b in final_response
-                            if isinstance(b, dict)
-                        ) or str(final_response)
-            except Exception:
-                pass
+        # Read the persisted verdict even when an earlier ai event supplied
+        # text. Transport completion and task completion are different facts.
+        # Keep the string return API compatible while carrying the verdict for
+        # the bridge's terminal frame.
+        snap_values: dict[str, Any] = {}
+        try:
+            snap = graph.get_state(config)
+            snap_values = dict(snap.values or {})
+        except Exception:
+            pass
 
-        return final_response
+        if not final_response:
+            msgs = snap_values.get("messages", [])
+            # Only an ASSISTANT message is a final answer. Falling back to
+            # msgs[-1] blindly returns tool output / system prompts /
+            # cancellation nudges to the user as the "response".
+            ai_msgs = [m for m in msgs if getattr(m, "type", "") == "ai"]
+            if ai_msgs:
+                final_response = ai_msgs[-1].content
+                if isinstance(final_response, list):
+                    final_response = "".join(
+                        b.get("text", "") for b in final_response
+                        if isinstance(b, dict)
+                    ) or str(final_response)
+
+        if turn_completed is None:
+            # Preview/chat paths may intentionally end without finalize and are
+            # complete by transport convention. Finalize updates are captured
+            # above and are authoritative when present.
+            turn_completed = True
+
+        return AgentTurnResult(str(final_response or ""), completed=turn_completed)
     finally:
         turn_controls.end(thread_id)
         set_active_session(None)

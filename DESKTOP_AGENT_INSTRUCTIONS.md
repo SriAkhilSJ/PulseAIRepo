@@ -36,6 +36,12 @@ The delivered application imports two missing local Three.js files, and its
 scene shader uses `MAX_STEPS_LOOP` without injecting the macro. It cannot run as
 delivered.
 
+A subsequent Arena-only deterministic source repair addresses completion-verdict
+propagation, final tool-event flushing, UTF-8 terminal pipes, and repeated
+complete finish reasons. It is documented in
+`docs/ATTEMPT11_COMPLETION_REPAIR.md` and is not authorized for desktop or live
+execution by this STOP handoff.
+
 Full independent review:
 
 ```text

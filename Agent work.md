@@ -36,6 +36,11 @@ undefined macro because its patch helper is never called. See
 Do not flatten the narrow recovery/liveness PASS into an autonomous runtime or
 product PASS.
 
+A provider-free source follow-up now repairs completion-verdict propagation,
+final tool-event flushing, UTF-8 terminal pipes, and repeated complete finish
+reasons. Focused verification is 145/145. See
+`docs/ATTEMPT11_COMPLETION_REPAIR.md`. This follow-up has no live PASS.
+
 ## 2. Work completed in the current Arena repair
 
 Source commit:
@@ -208,14 +213,13 @@ e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
 
 **Next task: remain stopped pending a new founder decision.**
 
-Attempt 11 is complete and independently reviewed. Do not retry it or repair
-the generated evidence workspace. The next engineering decision, if separately
-authorized, is a deterministic source repair for completion integrity, paired
-terminal-tool evidence, and strict verification gating—not another provider
-run.
+Attempt 11 is complete and independently reviewed. Its generated evidence
+workspace remains immutable. The deterministic completion-integrity source
+repair is implemented and provider-free tests pass; the next possible gate is
+separately authorized Windows deterministic validation of that repair.
 
-No provider probe/run, cap increase, source repair, PR merge, branch deletion,
-or Agentic UI work is currently authorized. PR #9 is not merge-eligible.
+No provider probe/run, cap increase, PR merge, branch deletion, or Agentic UI
+work is currently authorized. PR #9 is not merge-eligible.
 
 ## 6. Fast reading map
 
@@ -225,7 +229,8 @@ The next agent normally needs only these files:
 2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current mandatory STOP state.
 3. `README.md` — public status and normal repository commands.
 4. `docs/TEST5_ATTEMPT11_REVIEW.md` — latest live evidence and independent product verdict.
-5. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — code-level Pulse/Hermes comparison and repair rationale.
+5. `docs/ATTEMPT11_COMPLETION_REPAIR.md` — deterministic follow-up implementation and tests.
+6. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — code-level Pulse/Hermes comparison and repair rationale.
 6. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
 7. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
 8. The three primary implementation files listed in Section 2, only if a
