@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPAIR = "0370515cce811dd4d86d14379dd2729a94e640b1"
-INSTRUCTION_PARENT = "22b1f8fd3aed688e6850ab254fb7b8131d929c21"
+PRIOR_FAILED_EVIDENCE = "b90cb579eb72b363491f53e2a014fd073e795552"
 BRANCH = "arena/01a03741-pulseairepo"
 EXPECTED_ROOTS = {"d:/pulseaiagent/pulseairepo"}
-EVIDENCE_REL = Path("bench-results/test5-11-product-delivery-repair-validation-windows-r2")
+EVIDENCE_REL = Path("bench-results/test5-11-product-delivery-repair-validation-windows-r3")
 FOCUSED_TESTS = [
     "src/tests/test_attempt11_product_delivery_boundary.py",
     "src/tests/test_attempt11_completion_integrity.py",
@@ -75,6 +75,13 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def ensure_repo_import_path(root: Path) -> None:
+    """Make ``src`` importable when this file is launched from ``scripts``."""
+    root_import_path = str(root)
+    if root_import_path not in sys.path:
+        sys.path.insert(0, root_import_path)
+
+
 def run_logged(command: list[str], log_path: Path, env: dict[str, str]) -> int:
     with log_path.open("wb") as output:
         process = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, env=env)
@@ -100,6 +107,11 @@ def main() -> int:
         return 2
     root = Path(root_text)
     os.chdir(root)
+    # Running ``python scripts/<file>.py`` sets sys.path[0] to ``scripts``, not
+    # the repository root. Pytest repairs its own import path, which let the
+    # focused stage pass while the direct fixture import failed in R2. Make the
+    # source package importable explicitly before any in-process source check.
+    ensure_repo_import_path(root)
 
     branch = git("branch", "--show-current").stdout.strip()
     remote = git("remote", "get-url", "origin").stdout.strip()
@@ -276,7 +288,7 @@ def main() -> int:
         "utc_start": started, "utc_end": ended,
         "repository_root": str(root), "repository_remote": remote,
         "branch": branch, "validation_head": head, "repair_commit": REPAIR,
-        "prior_failed_evidence_commit": INSTRUCTION_PARENT,
+        "prior_failed_evidence_commit": PRIOR_FAILED_EVIDENCE,
         "repair_is_ancestor": True, "checkout_clean_before": True,
         "os": "Windows", "python_version": python_version.stdout.strip(),
         "focused_test_files": FOCUSED_TESTS,
