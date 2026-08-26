@@ -1,0 +1,38 @@
+{
+  "finding_count": 3,
+  "findings": [
+    {
+      "kind": "missing-local-import",
+      "path": "js/main.js",
+      "reference": "../vendor/three/controls/OrbitControls.js",
+      "description": "js/main.js: missing local import `../vendor/three/controls/OrbitControls.js`"
+    },
+    {
+      "kind": "missing-local-import",
+      "path": "js/main.js",
+      "reference": "../vendor/three/three.module.min.js",
+      "description": "js/main.js: missing local import `../vendor/three/three.module.min.js`"
+    },
+    {
+      "kind": "undefined-shader-constant",
+      "path": "js/shaders.js",
+      "reference": "MAX_STEPS_LOOP",
+      "description": "js/shaders.js: undefined shader constant `MAX_STEPS_LOOP`"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "missing-local-import",
+      "reference": "../vendor/three/three.module.min.js"
+    },
+    {
+      "kind": "missing-local-import",
+      "reference": "../vendor/three/controls/OrbitControls.js"
+    },
+    {
+      "kind": "undefined-shader-constant",
+      "reference": "MAX_STEPS_LOOP"
+    }
+  ],
+  "missing": []
+}
