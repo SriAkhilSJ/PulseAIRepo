@@ -11,7 +11,7 @@ Pulse already has two useful halves:
 1. the Python agent can plan, edit files, run commands, and enforce completion gates;
 2. the desktop contains mature editor intelligence, diagnostics, search, source control, tasks, tests, terminals, debugging, notebooks, remote support, MCP, and extension-contributed tools.
 
-The main weakness is the connection between those halves. Pulse currently declares 32 workbench capability IDs but wires 19 of them. Its Python agent exposes 34 canonical tools, yet most native workbench capabilities cannot be selected through that tool protocol.
+The main weakness is the connection between those halves. Pulse currently declares 29 workbench capability IDs but wires 19 of them. Its Python agent exposes 34 canonical tools, yet most native workbench capabilities cannot be selected through that tool protocol.
 
 We will not solve this by showing every possible tool to the model. That would make requests larger, slower, more confusing, and less safe. Pulse will instead use a **capability broker**: a small searchable index that discovers what is available, checks trust and permissions, and reveals only the few tools relevant to the current task.
 
@@ -102,6 +102,8 @@ Implementation has started:
 - HTML local-dependency auditing now covers common loading attributes and URL query/fragment handling.
 - Native HTML/JS verification now falls back from an inapplicable TypeScript check to dependency integrity, followed by the existing real-browser proof.
 - Autonomous and sub-agent safety denials, plus approval denials, now cross the durable result boundary so the UI receives a terminal error event.
+- Cancellation, incomplete-provider tool calls, and phase-policy denials use the same terminal error boundary.
+- Verification reserve now exposes checks first instead of more inspection tools; targeted read/edit tools reopen only after a concrete failed receipt identifies what needs repair.
 - Attempt-12 and synthetic native-web regressions have been added.
 
 Python syntax and diff checks pass. The focused pytest suite is not yet executed in this workspace because neither `pytest` nor `uv` is installed in the available runtime; that remains an explicit Phase-1 validation item rather than an assumed PASS.

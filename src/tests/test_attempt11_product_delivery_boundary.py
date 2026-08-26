@@ -220,8 +220,30 @@ def test_reserve_phase_narrows_to_dependency_repair_and_verification(monkeypatch
 
     names = {tool.name for tool in chat_graph._resolve_bound_tools(state, config)}
 
-    assert config["configurable"]["execution_phase"] == "verification_reserve"
-    assert {"read_file", "edit_file", "run_terminal", "typecheck_workspace"} <= names
+    assert config["configurable"]["execution_phase"] == "verification_first_check"
+    assert {"run_terminal", "typecheck_workspace"} <= names
+    assert "read_file" not in names
+    assert "edit_file" not in names
     assert "web_search" not in names
     assert "scaffold_nextjs" not in names
-    assert "VERIFICATION RESERVE PHASE" in config["configurable"]["phase_guidance"]
+    assert "VERIFICATION FIRST-CHECK PHASE" in config["configurable"]["phase_guidance"]
+
+    # A real failed receipt, rather than budget pressure alone, re-opens only
+    # targeted inspection/repair tools for the next model decision.
+    state["messages"].extend([
+        AIMessage(content="", tool_calls=[{
+            "id": "check", "name": "typecheck_workspace", "args": {},
+        }]),
+        ToolMessage(
+            content="❌ typecheck_workspace: src/app.ts(1,1) error TS1000",
+            name="typecheck_workspace", tool_call_id="check", status="error",
+        ),
+    ])
+    repair_config = {"configurable": {"workspace": str(tmp_path)}}
+    repair_names = {
+        tool.name for tool in chat_graph._resolve_bound_tools(state, repair_config)
+    }
+    assert repair_config["configurable"]["execution_phase"] == "verification_repair"
+    assert {"read_file", "edit_file", "run_terminal", "typecheck_workspace"} <= repair_names
+    assert "list_files" not in repair_names
+    assert "VERIFICATION REPAIR PHASE" in repair_config["configurable"]["phase_guidance"]
