@@ -51,10 +51,13 @@ class TaskDecision(BaseModel):
 # =========================================================
 # STATE
 # =========================================================
+ExecutionMode = Literal["agent", "plan", "debug", "ask"]
+
+
 class AgentState(TypedDict, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
 
-    execution_mode: Literal["agent", "plan"]
+    execution_mode: ExecutionMode
 
     tool_failures: int
     recovery_mode: bool

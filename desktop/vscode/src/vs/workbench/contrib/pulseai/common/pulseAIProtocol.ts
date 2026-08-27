@@ -6,6 +6,9 @@
 import { PULSE_AI_PROTOCOL_VERSION } from './pulseAIProtocol.generated.js';
 
 export { PULSE_AI_PROTOCOL_VERSION } from './pulseAIProtocol.generated.js';
+export type { PulseExecutionMode } from './pulseAIProtocol.generated.js';
+
+import type { PulseExecutionMode } from './pulseAIProtocol.generated.js';
 
 export interface PulseIdentity {
 	readonly workspace_id?: string;
@@ -70,7 +73,7 @@ export type PulseClientMethod =
 	| ({ readonly type: 'session_resume' } & PulseSessionRequest)
 	| ({ readonly type: 'session_list' } & PulseSessionRequest)
 	| ({ readonly type: 'session_fork' } & PulseSessionRequest)
-	| ({ readonly type: 'prompt'; readonly text: string } & PulseSessionRequest)
+	| ({ readonly type: 'prompt'; readonly text: string; readonly mode?: PulseExecutionMode } & PulseSessionRequest)
 	| ({ readonly type: 'cancel' } & PulseSessionRequest)
 	| ({ readonly type: 'steer'; readonly text: string } & PulseSessionRequest)
 	| ({ readonly type: 'queue'; readonly text: string } & PulseSessionRequest)

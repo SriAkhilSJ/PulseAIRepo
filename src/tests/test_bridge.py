@@ -154,6 +154,16 @@ def test_sidecar_rejects_prompt_without_workspace(sidecar):
     assert "workspace required" in r["message"]
 
 
+def test_sidecar_rejects_unknown_execution_mode(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    response = _send(sidecar, {
+        "type": "prompt", "session_id": "bad-mode", "workspace": ".",
+        "text": "hello", "mode": "unsafe",
+    })
+    assert response["type"] == "error"
+    assert "unsupported execution mode" in response["message"]
+
+
 def test_sidecar_rejects_blank_workspace(sidecar):
     _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
     r = _send(sidecar, {"type": "session_create", "workspace": "   "})

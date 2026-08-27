@@ -33,6 +33,7 @@ def _quoted(values: list[str]) -> str:
 
 def render(data: dict) -> str:
     version = int(data["protocol"])
+    modes = list(data["execution_modes"])
     methods = list(data["client_methods"])
     events = list(data["server_events"])
     identities = list(data["identity_fields"])
@@ -44,6 +45,11 @@ def render(data: dict) -> str:
  *--------------------------------------------------------------------------------------------*/
 
 export const PULSE_AI_PROTOCOL_VERSION = {version} as const;
+
+export const PULSE_AI_EXECUTION_MODES = [
+{_quoted(modes)}
+] as const;
+export type PulseExecutionMode = (typeof PULSE_AI_EXECUTION_MODES)[number];
 
 export const PULSE_AI_CLIENT_METHODS = [
 {_quoted(methods)}

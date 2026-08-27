@@ -2,6 +2,12 @@
   "protocol": 2,
   "name": "PulseAI Bridge Protocol",
   "approval_identity_field": "tool_id",
+  "execution_modes": [
+    "agent",
+    "plan",
+    "debug",
+    "ask"
+  ],
   "client_methods": [
     "hello",
     "session_create",

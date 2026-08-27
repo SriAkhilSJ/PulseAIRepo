@@ -453,8 +453,10 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
     import src.graphs.chat_graph as chat_graph
 
     original = chat_graph.stream_agent
+    received: dict = {}
 
     def fake_stream_agent(*args, **kwargs):
+        received.update(kwargs)
         return {"content": "stub-ok", "role": "assistant"}
 
     chat_graph.stream_agent = fake_stream_agent
@@ -463,11 +465,12 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
         server = object.__new__(BridgeServer)
         server.emit = emitted.append
         server._shutdown = threading.Event()
-        server._run_turn("s-wd-real", "hi", str(tmp_path))
+        server._run_turn("s-wd-real", "hi", str(tmp_path), "debug")
     finally:
         chat_graph.stream_agent = original
 
     assert calls == ["arm", "cancel"], f"watchdog must be armed then cancelled: {calls}"
+    assert received["execution_mode"] == "debug"
     assert emitted[-1]["type"] == "turn_done"
 
 

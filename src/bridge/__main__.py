@@ -14,8 +14,8 @@ import threading
 import uuid
 
 from src.bridge.protocol import (
-    CLIENT_METHODS, ProtocolError, check_client_hello, decode_line, encode,
-    error_frame, hello,
+    CLIENT_METHODS, EXECUTION_MODES, ProtocolError, check_client_hello, decode_line,
+    encode, error_frame, hello,
 )
 from src.runtime.identity import TurnIdentity, normalize_id
 
@@ -250,7 +250,7 @@ class BridgeServer:
                 # every provider/tool event before emitting its terminal frame.
                 q.task_done()
 
-    def _run_turn(self, sid: str, text: str, workspace: str) -> None:
+    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent") -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
 
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
@@ -340,6 +340,7 @@ class BridgeServer:
                     approval_channel=True, approval_timeout=300.0,
                     approval_policy=approval_policy,
                     turn_id=identity.turn_id,
+                    execution_mode=mode,
                 )
                 cancelled = turn_controls.cancelled(sid)
                 # All provider/tool events were queued before stream_agent
@@ -474,8 +475,11 @@ class BridgeServer:
             self.emit({"type": "session_info", **self._sessions[target], "forked_from": source})
         elif kind == "prompt":
             text = str(frame.get("text") or frame.get("message") or "").strip()
+            mode = str(frame.get("mode") or "agent").strip().lower()
             if not text:
                 self.emit(error_frame("prompt text is required"))
+            elif mode not in EXECUTION_MODES:
+                self.emit(error_frame(f"unsupported execution mode: {mode}"))
             elif sid in self._workers and self._workers[sid].is_alive():
                 from src.runtime.turn_control import turn_controls
                 depth = turn_controls.queue(sid, text)
@@ -492,7 +496,8 @@ class BridgeServer:
                     from src.dashboard.event_bus import event_bus  # noqa: F401
                     from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
-                    target=self._run_turn, args=(sid, text, self._sessions[sid]["workspace"]),
+                    target=self._run_turn,
+                    args=(sid, text, self._sessions[sid]["workspace"], mode),
                     name=f"bridge-turn-{sid}", daemon=True,
                 )
                 self._workers[sid] = worker

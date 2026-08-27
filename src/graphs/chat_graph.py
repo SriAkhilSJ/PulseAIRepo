@@ -113,7 +113,7 @@ from src.agents.sub_agent import subagent_coordinator
 from src.dashboard.event_bus import event_bus
 
 # P0-D: state, budget, and gate machinery extracted to focused modules.
-from src.graphs.state import AgentState, TaskDecision
+from src.graphs.state import AgentState, ExecutionMode, TaskDecision
 from src.graphs.budget import (
     _GRACE_NUDGE,
     _iteration_budget,
@@ -659,11 +659,14 @@ def ai_node(
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
 
-    # P0-A: bind only the task-relevant tool subset (narrow waist). The full
-    # registry stays available to SafeToolNode for execution; the model just
-    # never sees gated tools, so it never calls them (and never pays their
-    # per-call definition cost).
-    llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+    execution_mode = cast(ExecutionMode, state.get("execution_mode", "agent"))
+
+    # Ask is structurally conversational: no tool schema is sent and no tool
+    # call can be executed. Other modes retain the phase-scoped tool waist.
+    llm_with_tools = (
+        llm if execution_mode == "ask"
+        else llm.bind_tools(_resolve_bound_tools(state, config))
+    )
 
     # D31: start of an AI iteration — reset shadow-checkpoint dedup so the
     # first mutation this iteration snapshots the pre-change workspace.
@@ -693,8 +696,26 @@ def ai_node(
             else system_message
         ),
     )
+    if execution_mode == "ask":
+        _insert_system_prefix(
+            messages,
+            "=== ASK MODE ===\n"
+            "Answer and explain without changing files, running commands, or calling tools. "
+            "Be clear about uncertainty and suggest next steps when useful.",
+        )
+        # A resumed session can contain earlier Agent-mode tool pairs. Ask sends
+        # no tool declarations, so remove those pairs before the provider call.
+        messages = _drop_tool_pairs(messages)
+    elif execution_mode == "debug":
+        _insert_system_prefix(
+            messages,
+            "=== DEBUG MODE ===\n"
+            "Diagnose before changing code: reproduce the failure, use concrete diagnostics, "
+            "make the smallest relevant fix, and rerun the strongest available check.",
+        )
+
     phase_guidance = str(configurable.get("phase_guidance") or "").strip()
-    if phase_guidance:
+    if phase_guidance and execution_mode != "ask":
         _insert_system_prefix(
             messages,
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
@@ -719,7 +740,8 @@ def ai_node(
         )
 
     if (
-        _requires_file_delivery(state)
+        execution_mode != "ask"
+        and _requires_file_delivery(state)
         and not _has_landed_file_delivery(state)
         and int(state.get("iteration_used", 0)) >= 2
         and configurable.get("execution_phase") != "forced_delivery"
@@ -743,7 +765,7 @@ def ai_node(
 
     call_model = model
     call_llm = llm_with_tools
-    if configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
+    if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
         try:
             delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
         except (TypeError, ValueError):
@@ -793,12 +815,15 @@ def ai_node(
         )
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
-        llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+        llm_with_tools = (
+            llm if execution_mode == "ask"
+            else llm.bind_tools(_resolve_bound_tools(state, config))
+        )
         from src.context.cache_preservation import redecorate_for_failover
         messages, _d37_info = redecorate_for_failover(messages)
         call_model = model
         call_llm = llm_with_tools
-        if configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
+        if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
             try:
                 delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
             except (TypeError, ValueError):
@@ -1948,7 +1973,10 @@ def planner_node(
 
 
 def after_task_manager(state: AgentState) -> str:
-    """Route to AI directly if executing an approved plan, else to planner."""
+    """Route conversational Ask directly; other new tasks may use planning."""
+
+    if state.get("execution_mode") == "ask":
+        return "ai"
 
     if state.get("task_action") == "plan_cancelled":
         return "plan_cancelled"
@@ -3084,7 +3112,7 @@ def invoke_agent(
     provider: str = LLM_PROVIDER,
     model: str = LLM_MODEL,
     workspace: str = ".",
-    execution_mode: Literal["agent", "plan"] = "agent",
+    execution_mode: ExecutionMode = "agent",
     scope_capabilities: tuple[str, ...] | None = None,
 ) -> str:
     from src.runtime.turn_control import set_active_session, turn_controls
@@ -3163,7 +3191,7 @@ def stream_agent(
     provider: str = LLM_PROVIDER,
     model: str = LLM_MODEL,
     workspace: str = ".",
-    execution_mode: Literal["agent", "plan"] = "agent",
+    execution_mode: ExecutionMode = "agent",
     approval_channel: bool = False,
     approval_timeout: float = 300.0,
     approval_policy: str = "ask",

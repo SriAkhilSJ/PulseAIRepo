@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
+import type { PulseExecutionMode } from '../common/pulseAIProtocol.js';
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
 
@@ -25,6 +26,7 @@ export interface PulseAIToolView {
 		readonly workspaceChoices: readonly { readonly label: string; readonly uri: string }[];
 		readonly engineSetupError: boolean;
 	readonly sessionId?: string;
+	readonly mode: PulseExecutionMode;
 	readonly running: boolean;
 	readonly cancelRequested: boolean;
 	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
@@ -43,6 +45,7 @@ export interface PulseAIToolView {
 
 export interface PulseAIRenderHost {
 	setDraft(value: string): void;
+	setMode(mode: PulseExecutionMode): void;
 	submitPrompt(text: string): void;
 	cancel(): void;
 	steer(text: string): void;
@@ -288,8 +291,8 @@ function emptyState(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLEle
 	}
 	const guidance = blocked
 		? model.noWorkspace ? model.noWorkspaceHint : 'Select a workspace folder before starting a session.'
-		: 'Pulse can understand the editor, change code, run checks, and verify the result.';
-	return element('div', 'pulseai-empty', brandMark(), element('h3', undefined, blocked ? 'Open a project to begin' : 'What should we build?'), element('p', undefined, guidance), suggestions);
+		: 'Choose a mode, add the context that matters, and describe your goal.';
+	return element('div', 'pulseai-empty', brandMark(), element('h3', undefined, blocked ? 'Open a project to begin' : 'What can Pulse help with?'), element('p', undefined, guidance), suggestions);
 }
 
 function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): HTMLElement {
@@ -345,22 +348,42 @@ function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLE
 	);
 }
 
-function compactSelect(label: string, values: readonly string[]): HTMLSelectElement {
-	const select = element('select', 'pulseai-composer-select') as HTMLSelectElement;
-	select.setAttribute('aria-label', label);
-	// First option is the dropdown's label (like the UI Lab's compact menus),
-	// so the control reads "Auto model" / "Ask" instead of the selected value.
-	const labelOption = element('option', undefined, label);
-	labelOption.value = '';
-	labelOption.disabled = true;
-	labelOption.selected = true;
-	select.append(labelOption);
-	for (const value of values) {
-		const option = element('option', undefined, value);
-		option.value = value;
-		select.append(option);
+const executionModes: readonly { readonly id: PulseExecutionMode; readonly label: string; readonly description: string; readonly icon: string }[] = [
+	{ id: 'agent', label: 'Agent', description: 'Build, change, and verify', icon: 'infinity' },
+	{ id: 'plan', label: 'Plan', description: 'Design before execution', icon: 'list-ordered' },
+	{ id: 'debug', label: 'Debug', description: 'Diagnose, fix, and retest', icon: 'debug-alt' },
+	{ id: 'ask', label: 'Ask', description: 'Explain without using tools', icon: 'comment' },
+];
+
+function modePicker(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement {
+	const selected = executionModes.find(mode => mode.id === model.mode) ?? executionModes[0];
+	const details = element('details', 'pulseai-mode-picker') as HTMLDetailsElement;
+	const summary = element('summary', 'pulseai-mode-summary', icon(selected.icon), element('span', undefined, selected.label), icon('chevron-down'));
+	summary.setAttribute('aria-label', `Execution mode: ${selected.label}`);
+	if (model.running) {
+		summary.setAttribute('aria-disabled', 'true');
+		summary.addEventListener('click', event => event.preventDefault());
 	}
-	return select;
+	const menu = element('div', 'pulseai-mode-menu');
+	menu.setAttribute('role', 'menu');
+	menu.setAttribute('aria-label', 'Execution mode');
+	for (const mode of executionModes) {
+		const item = element('button', mode.id === selected.id ? 'pulseai-mode-option is-selected' : 'pulseai-mode-option',
+			icon(mode.icon),
+			element('span', 'pulseai-mode-option-copy', element('strong', undefined, mode.label), element('small', undefined, mode.description)),
+			mode.id === selected.id ? icon('check') : undefined,
+		) as HTMLButtonElement;
+		item.type = 'button';
+		item.setAttribute('role', 'menuitemradio');
+		item.setAttribute('aria-checked', String(mode.id === selected.id));
+		item.addEventListener('click', () => {
+			details.open = false;
+			host.setMode(mode.id);
+		});
+		menu.append(item);
+	}
+	details.append(summary, menu);
+	return details;
 }
 
 function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: boolean): HTMLElement {
@@ -383,21 +406,15 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 		if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
 	});
 
-	// Mirrors the UI Lab composer: @ Context pill, model/approval dropdowns,
-	// and an icon-only send button that becomes Stop while a run is active.
+	// The execution mode is a real host/runtime setting; @ inserts context and
+	// the icon-only send button becomes Stop while a run is active.
 	const pill = element('button', 'pulseai-composer-pill') as HTMLButtonElement;
 	pill.type = 'button';
 	pill.setAttribute('aria-label', 'Insert @ context reference');
 	pill.append(element('span', 'pulseai-at-sign', '@'), document.createTextNode(' Context'));
 	pill.addEventListener('click', () => { input.value += '@'; host.setDraft(input.value); input.focus(); });
 
-	const left = element('div', 'pulseai-composer-left', pill);
-	if (!manager) {
-		left.append(
-			compactSelect('Auto model', ['Auto - best available', 'Fast', 'Deep']),
-			compactSelect('Ask', ['Ask before edits', 'Approve workspace edits', 'Read only']),
-		);
-	}
+	const left = element('div', 'pulseai-composer-left', modePicker(model, host), pill);
 	if (model.workspaceChoices.length > 1) {
 		const workspaceSelect = element('select', 'pulseai-composer-select') as HTMLSelectElement;
 		workspaceSelect.setAttribute('aria-label', 'Workspace folder');

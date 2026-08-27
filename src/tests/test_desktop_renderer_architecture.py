@@ -112,3 +112,23 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
         assert style in css
     assert "kilocode" not in renderer.lower()
     assert "kilocode" not in css.lower()
+
+
+def test_execution_mode_picker_is_functional_and_theme_driven():
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    service = _text("browser", "pulseAIRendererService.ts")
+    protocol = _text("common", "pulseAIProtocol.ts")
+    generated = _text("common", "pulseAIProtocol.generated.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    for mode in ("agent", "plan", "debug", "ask"):
+        assert f"id: '{mode}'" in renderer
+        assert f"'{mode}'" in generated
+    assert "setMode(mode: PulseExecutionMode)" in renderer
+    assert "readonly mode?: PulseExecutionMode" in protocol
+    assert "mode: this.mode" in service
+    assert "this.send({ type: 'prompt'" in service
+    assert ".pulseai-mode-menu" in css
+    for token in ("--vscode-menu-background", "--vscode-menu-foreground", "--vscode-focusBorder"):
+        assert token in css
+    assert "#071118" not in css
+    assert "#061115" not in css

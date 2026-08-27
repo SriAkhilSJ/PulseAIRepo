@@ -7,6 +7,7 @@ from typing import Any
 PROTOCOL_VERSION = 2
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({1, PROTOCOL_VERSION})
 MAX_LINE_BYTES = 1 << 20
+EXECUTION_MODES = frozenset({"agent", "plan", "debug", "ask"})
 
 CLIENT_METHODS = frozenset({
     "hello", "session_create", "session_load", "session_resume",

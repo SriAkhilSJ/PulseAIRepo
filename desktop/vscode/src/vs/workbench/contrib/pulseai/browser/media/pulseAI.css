@@ -11,7 +11,7 @@
 	color: var(--vscode-foreground);
 	background: var(--vscode-editor-background);
 	font-family: var(--vscode-font-family);
-	font-size: 12px;
+	font-size: inherit;
 	overflow: hidden;
 }
 
@@ -92,7 +92,7 @@
 .pulseai-assistant-label > .codicon { color: var(--pulseai-accent); }
 
 .pulseai-brand-mark { width: 21px; height: 21px; flex: none; }
-.pulseai-brand-mark rect { fill: #071118; stroke: color-mix(in srgb, var(--pulseai-accent) 42%, #245461); }
+.pulseai-brand-mark rect { fill: var(--vscode-editorWidget-background); stroke: color-mix(in srgb, var(--pulseai-accent) 42%, var(--vscode-panel-border)); }
 .pulseai-brand-mark path { fill: none; stroke: var(--pulseai-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .pulseai-brand-mark circle { fill: var(--pulseai-agent); }
 
@@ -406,9 +406,9 @@
 	box-sizing: border-box;
 }
 .pulseai-empty > .codicon { margin-bottom: 8px; color: var(--pulseai-accent); font-size: 22px; }
-.pulseai-empty .pulseai-brand-mark { width: 36px; height: 36px; margin-bottom: 10px; }
-.pulseai-empty h3 { margin: 0 0 5px; color: var(--vscode-foreground); font-size: 15px; font-weight: 600; }
-.pulseai-empty p { max-width: min(340px, calc(100% - 16px)); width: 100%; margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.pulseai-empty .pulseai-brand-mark { width: 2.75em; height: 2.75em; margin-bottom: .8em; }
+.pulseai-empty h3 { margin: 0 0 .4em; color: var(--vscode-foreground); font-size: 1.15em; font-weight: 600; }
+.pulseai-empty p { max-width: min(28em, calc(100% - 1em)); width: 100%; margin: 0; color: var(--vscode-descriptionForeground); font-size: .96em; line-height: 1.5; overflow-wrap: anywhere; }
 .pulseai-starter-grid {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -427,7 +427,7 @@
 	border-radius: 5px;
 	background: var(--vscode-sideBar-background);
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: .92em;
 	text-align: left;
 }
 .pulseai-starter-card .codicon { color: var(--pulseai-accent); }
@@ -497,13 +497,13 @@
 	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
 	border-radius: 7px;
 	background: var(--vscode-input-background);
-	box-shadow: 0 3px 12px color-mix(in srgb, #000 14%, transparent);
+	box-shadow: 0 3px 12px var(--vscode-widget-shadow);
 	overflow: hidden;
 	transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .pulseai-composer-box:focus-within {
 	border-color: var(--vscode-focusBorder);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent), 0 4px 14px color-mix(in srgb, #000 16%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent), 0 4px 14px var(--vscode-widget-shadow);
 }
 .pulseai-composer-input {
 	display: block;
@@ -521,6 +521,65 @@
 .pulseai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
 .pulseai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; }
 .pulseai-composer-left { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 160px; }
+
+.pulseai-mode-picker { position: relative; min-width: 0; }
+.pulseai-mode-summary {
+	display: inline-flex;
+	align-items: center;
+	gap: .4em;
+	height: 24px;
+	padding: 0 .6em;
+	border-radius: 5px;
+	list-style: none;
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+	font-size: inherit;
+	cursor: pointer;
+	user-select: none;
+}
+.pulseai-mode-summary::-webkit-details-marker { display: none; }
+.pulseai-mode-summary:hover { background: var(--vscode-toolbar-hoverBackground); }
+.pulseai-mode-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.pulseai-mode-summary[aria-disabled='true'] { cursor: default; opacity: .65; }
+.pulseai-mode-summary > .codicon:last-child { color: var(--vscode-descriptionForeground); font-size: .85em; }
+.pulseai-mode-picker[open] .pulseai-mode-summary > .codicon:last-child { transform: rotate(180deg); }
+.pulseai-mode-menu {
+	position: absolute;
+	z-index: 40;
+	bottom: calc(100% + 6px);
+	left: 0;
+	display: grid;
+	width: min(250px, calc(100vw - 24px));
+	padding: 4px;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+	border-radius: 6px;
+	background: var(--vscode-menu-background);
+	color: var(--vscode-menu-foreground);
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+}
+.pulseai-mode-option {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) 16px;
+	align-items: center;
+	gap: .5em;
+	width: 100%;
+	min-height: 38px;
+	padding: .35em .55em;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+}
+.pulseai-mode-option:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+.pulseai-mode-option:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-mode-option.is-selected { background: var(--vscode-list-inactiveSelectionBackground); }
+.pulseai-mode-option-copy { display: grid; min-width: 0; gap: 1px; }
+.pulseai-mode-option-copy strong { font-size: 1em; font-weight: 500; }
+.pulseai-mode-option-copy small { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .86em; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-mode-option:hover small { color: inherit; }
+.pulseai-mode-option > .codicon-check { color: var(--vscode-testing-iconPassed); }
+
 .pulseai-composer-pill,
 .pulseai-composer-select {
 	display: inline-flex;
@@ -546,9 +605,9 @@
 	padding: 0;
 	border: 0;
 	border-radius: 4px;
-	background: var(--pulseai-accent);
-	color: #061115;
-	font-size: 14px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font-size: 1.1em;
 	cursor: pointer;
 }
 .pulseai-send-button:hover { filter: brightness(1.08); }
