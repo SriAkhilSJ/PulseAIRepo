@@ -192,6 +192,10 @@ async function main() {
     try {
       const windowInfo = await cdp.call('Browser.getWindowForTarget', { targetId: target.id });
       report.original_window_bounds = windowInfo.bounds;
+      if (windowInfo.bounds?.windowState && windowInfo.bounds.windowState !== 'normal') {
+        await cdp.call('Browser.setWindowBounds', { windowId: windowInfo.windowId, bounds: { windowState: 'normal' } });
+        await delay(500);
+      }
       await cdp.call('Browser.setWindowBounds', { windowId: windowInfo.windowId, bounds: { width: 760, height: 800 } });
       await delay(800);
       const responsive = await evaluate(`(() => {
