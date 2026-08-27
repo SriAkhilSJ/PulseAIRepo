@@ -160,7 +160,30 @@ async function main() {
     assert(composer?.visible && composer?.enabled, 'Agent composer is visible and enabled');
     assert(header?.visible && managerButton?.visible, 'Agent header and Manager button are visible');
     assert(shell && shell.scrollWidth <= shell.clientWidth + 1, 'Agent shell has no horizontal overflow');
-    if (!managerOnly) { await screenshot('01-agent-ready.png'); }
+
+    if (!managerOnly) {
+      await evaluate(`document.querySelector('.pulseai-mode-summary').click()`);
+      await waitFor('execution mode menu', `document.querySelector('.pulseai-mode-picker')?.open === true`);
+      const modes = await evaluate(`Array.from(document.querySelectorAll('.pulseai-mode-option')).map(option => ({
+        label: option.querySelector('strong')?.textContent?.trim(),
+        description: option.querySelector('small')?.textContent?.trim(),
+        checked: option.getAttribute('aria-checked'),
+        role: option.getAttribute('role'),
+      }))`);
+      assert(JSON.stringify(modes.map(mode => mode.label)) === JSON.stringify(['Agent', 'Plan', 'Debug', 'Ask']), 'Mode menu exposes Agent, Plan, Debug, and Ask in order');
+      assert(modes.every(mode => mode.description && mode.role === 'menuitemradio'), 'Every mode has an accessible description and radio-menu role');
+      assert(modes.filter(mode => mode.checked === 'true').map(mode => mode.label).join() === 'Agent', 'Agent is initially selected');
+      report.snapshots.execution_modes = modes;
+      await screenshot('00-agent-mode-menu.png');
+      await evaluate(`Array.from(document.querySelectorAll('.pulseai-mode-option')).find(option => option.querySelector('strong')?.textContent?.trim() === 'Ask').click()`);
+      await waitFor('Ask mode selection', `document.querySelector('.pulseai-mode-summary')?.textContent?.includes('Ask')`);
+      assert(await evaluate(`document.querySelector('.pulseai-mode-summary')?.getAttribute('aria-label')`) === 'Execution mode: Ask', 'Ask selection updates the functional mode control');
+      await evaluate(`document.querySelector('.pulseai-mode-summary').click()`);
+      await evaluate(`Array.from(document.querySelectorAll('.pulseai-mode-option')).find(option => option.querySelector('strong')?.textContent?.trim() === 'Agent').click()`);
+      await waitFor('Agent mode restoration', `document.querySelector('.pulseai-mode-summary')?.textContent?.includes('Agent')`);
+      report.checks['Execution mode picker'] = 'PASS — four accessible modes; Ask selected and Agent restored through DOM interaction';
+      await screenshot('01-agent-ready.png');
+    }
 
     // At the normal auxiliary-bar width the <=420px responsive rules should be active.
     assert(shell.width <= 420, 'Agent narrow responsive width is active');
