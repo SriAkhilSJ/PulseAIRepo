@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from src.bridge.__main__ import BridgeServer
-from src.bridge.protocol import CLIENT_METHODS, SERVER_EVENTS
+from src.bridge.protocol import CLIENT_METHODS, EXECUTION_MODES, SERVER_EVENTS
 from src.runtime.identity import TurnIdentity
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +46,7 @@ def test_v2_manifest_covers_current_python_bridge_surface():
     assert data["protocol"] == 2
     assert set(data["client_methods"]) == set(CLIENT_METHODS)
     assert set(data["server_events"]) == set(SERVER_EVENTS)
+    assert set(data["execution_modes"]) == set(EXECUTION_MODES)
 
 
 def test_v2_approval_identity_is_tool_id():

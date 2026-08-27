@@ -9,7 +9,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { PulseAICommandId } from '../common/pulseAI.js';
 import { IPulseAIEngineService, PulseAIEngineSetupError, PulseAIEngineState } from '../common/pulseAIEngineService.js';
-import type { PulseClientMethod, PulseServerEvent } from '../common/pulseAIProtocol.js';
+import type { PulseClientMethod, PulseExecutionMode, PulseServerEvent } from '../common/pulseAIProtocol.js';
 import { PULSE_AI_WORKBENCH_CAPABILITIES } from '../common/pulseAIWorkbenchCapabilities.js';
 import { IPulseAIRendererService, PulseAISurface } from '../common/pulseAIRendererService.js';
 import { IPulseAIWorkbenchService } from '../common/pulseAIWorkbenchService.js';
@@ -64,6 +64,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private restartAttempts = 0;
 	private pendingPrompt: string | undefined;
 	private draft = '';
+	private mode: PulseExecutionMode = 'agent';
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
@@ -87,6 +88,11 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 
 	private readonly host: PulseAIRenderHost = {
 		setDraft: value => { this.draft = value; },
+		setMode: mode => {
+			if (this.running || this.mode === mode) { return; }
+			this.mode = mode;
+			this.render();
+		},
 		submitPrompt: text => { void this.submitPrompt(text); },
 		cancel: () => {
 			if (!this.running || this.cancelRequested) { return; }
@@ -236,6 +242,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			workspaceChoices: this.workspaceChoices,
 			engineSetupError: this.engineSetupError,
 			sessionId: this.sessionId,
+			mode: this.mode,
 			running: this.running,
 			cancelRequested: this.cancelRequested,
 			turnOutcome: this.turnOutcome,
@@ -424,7 +431,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.running = true;
 		this.cancelRequested = false;
 		this.turnOutcome = 'running';
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text });
+		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode });
 		this.render();
 	}
 

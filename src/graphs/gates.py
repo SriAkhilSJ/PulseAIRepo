@@ -441,6 +441,11 @@ def should_continue(state: AgentState):
             return "finish_gate"
         return "finalize"
 
+    # Ask mode never binds tools. Its first complete text response is the
+    # answer; execution and verification nudges must not turn it into Agent.
+    if state.get("execution_mode") == "ask":
+        return "finalize"
+
     # ── Hermes loop law (ported, behavior-based) ─────────────────────────
     # Two mechanical guards that no intent classifier can misroute around:
     #

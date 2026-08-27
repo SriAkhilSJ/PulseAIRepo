@@ -6,6 +6,14 @@
 
 export const PULSE_AI_PROTOCOL_VERSION = 2 as const;
 
+export const PULSE_AI_EXECUTION_MODES = [
+	'agent',
+	'plan',
+	'debug',
+	'ask',
+] as const;
+export type PulseExecutionMode = (typeof PULSE_AI_EXECUTION_MODES)[number];
+
 export const PULSE_AI_CLIENT_METHODS = [
 	'hello',
 	'session_create',
