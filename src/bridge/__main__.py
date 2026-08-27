@@ -319,11 +319,15 @@ class BridgeServer:
             )
             forwarder.start()
 
-            # Non-sensitive liveness frame before entering the real graph.
-            self.emit({
-                "type": "reasoning", **identity.event_fields(),
-                "text": "Preparing workspace context…",
-            })
+            # Phase 5: skip liveness frame for trivial messages — the fast
+            # path in stream_agent() handles them instantly, so "Preparing
+            # workspace context" would be misleading.
+            from src.graphs.chat_graph import _is_trivial
+            if not _is_trivial(text):
+                self.emit({
+                    "type": "reasoning", **identity.event_fields(),
+                    "text": "Preparing workspace context…",
+                })
             try:
                 # Interactive IDE sessions default to ask. Guarded autonomous
                 # benchmark runners may opt into the same session-scoped,
