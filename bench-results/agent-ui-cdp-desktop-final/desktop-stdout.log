@@ -1,0 +1,14 @@
+[[90m23:50:01[39m] Synchronizing built-in extensions...
+[[90m23:50:01[39m] You can manage built-in extensions with the [36m--builtin[39m flag
+[[90m23:50:01[39m] [34m[github][39m ms-vscode.js-debug-companion@1.1.3 [32m✔︎[39m
+[[90m23:50:01[39m] [34m[github][39m ms-vscode.js-debug@1.117.0 [32m✔︎[39m
+[[90m23:50:01[39m] [34m[github][39m ms-vscode.vscode-js-profile-table@1.0.11 [32m✔︎[39m
+
+[main 2026-08-27T06:50:02.237Z] StorageMainService: creating application shared storage
+[main 2026-08-27T06:50:02.564Z] [CSS_DEV] DONE, 448 css modules (312ms)
+[main 2026-08-27T06:50:02.664Z] update#setState disabled
+[main 2026-08-27T06:50:02.681Z] [shared storage] Creating shared storage database at 'c:\Users\Administrator\.pulseai-ide-shared\sharedStorage\state.vscdb' (wasCreated: false)
+[main 2026-08-27T06:50:02.683Z] [shared storage] Initializing fallback application storage (path: c:\Users\ADMINI~1\AppData\Local\Temp\pulseai-ui-cdp-final-profile\User\globalStorage\state.vscdb)
+[main 2026-08-27T06:50:02.708Z] [shared storage] Fallback application storage initialized with 3 items
+[main 2026-08-27T06:50:05.489Z] AgentHostProcessManager: agent host started
+[main 2026-08-27T06:54:00.537Z] Extension host with pid 3320 exited with code: 4294967295, signal: unknown.
