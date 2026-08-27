@@ -1,0 +1,15 @@
+You are a senior Three.js/WebGL/GLSL engineer; build "GARGANTUA - Schwarzschild Black Hole Raytracer" as a complete full-screen interactive website.
+
+Use native HTML, CSS, JavaScript ES modules, and local Three.js files so the project runs from a basic static server without a build step.
+
+Render the entire subject in a full-screen fragment shader by integrating Schwarzschild null geodesics; never fake it with meshes, textures, images, or video.
+
+Implement the event horizon, photon ring, multi-crossing accretion disk, procedural lensed starfield, Milky Way, Doppler beaming, redshift, and animated turbulence.
+
+Add HDR bloom, manual ACES, vignette, film grain, and subtle chromatic aberration while preserving deep blacks and fine critical-curve detail.
+
+Provide cinematic camera paths, OrbitControls, four presets, telemetry HUD, 21 live parameters, debug views 0-9, hotkeys, and optional synchronized audio.
+
+Support three quality profiles, responsive and Retina rendering, persistence, graceful WebGL recovery, and URL-driven deterministic screenshot mode.
+
+Deliver all executable source, local dependencies, assets, startup instructions, and verification results with no black screens or unhandled console errors.

@@ -1,0 +1,133 @@
+{
+  "started_at": "2026-08-27T04:52:05.827Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "prompt": "Pulse Agent UI provider-free CDP smoke",
+  "checks": {
+    "Agent composer is visible and enabled": "PASS",
+    "Agent header and Manager button are visible": "PASS",
+    "Agent shell has no horizontal overflow": "PASS",
+    "Agent narrow responsive width is active": "PASS",
+    "Assistant response contains exact echo text": "PASS",
+    "Completed transcript contains completion receipt": "PASS",
+    "Pulse Manager opens as a visible editor surface": "PASS",
+    "Pulse Manager has no horizontal overflow": "PASS",
+    "Pulse Manager responsive inspector behavior is active": "FAIL: Browser.getWindowForTarget: {\"code\":-32601,\"message\":\"'Browser.getWindowForTarget' wasn't found\"}"
+  },
+  "snapshots": {
+    "agent_composer": {
+      "selector": "textarea.pulseai-composer-input",
+      "x": 995.3333740234375,
+      "y": 500.54168701171875,
+      "width": 277.66668701171875,
+      "height": 66.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "",
+      "clientWidth": 278,
+      "scrollWidth": 278
+    },
+    "agent_header": {
+      "selector": ".pulseai-agent-header",
+      "x": 984.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 72.0625,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManager",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "agent_shell": {
+      "selector": ".pulseai-agent-shell",
+      "x": 984.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManagerWhat should we build?Pulse can understand the editor, change code, run checks, and verify the result.Understand codeFix diagnosticsReview changes@ ContextAuto modelAuto - best availableFastDeepAskAsk before editsApprove workspace editsRead onlyEnter to sendShift+Enter for new line",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "manager_button": {
+      "selector": ".pulseai-agent-header-actions .pulseai-icon-button",
+      "x": 1196.375,
+      "y": 95.19792175292969,
+      "width": 77.29167175292969,
+      "height": 21,
+      "visible": true,
+      "enabled": true,
+      "text": "Manager",
+      "clientWidth": 77,
+      "scrollWidth": 77
+    },
+    "completed_transcript": {
+      "selector": ".pulseai-transcript-lane",
+      "x": 984.6666870117188,
+      "y": 142.0625,
+      "width": 299,
+      "height": 172.3854217529297,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "assistant_echo": {
+      "selector": ".pulseai-assistant-copy",
+      "x": 1006.6666870117188,
+      "y": 240.8541717529297,
+      "width": 255,
+      "height": 18.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse Agent UI provider-free CDP smoke",
+      "clientWidth": 255,
+      "scrollWidth": 255
+    },
+    "manager_shell": {
+      "selector": ".pulseai-manager-shell",
+      "x": 348,
+      "y": 70,
+      "width": 636,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "CONTROL PLANEWorkspacesFind workspace or agentPulseAIRepoPulse Agent UI provider-free CDP smokesession-93699e4f08964b62b9eba78092fe000aReady1 active sessionPulseAIRepo / session-9369Pulse Agent UI provider-free CDP smokePulse readySessionTools 0ChangesPulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed@ ContextEnter to sendShift+Enter for new lineLIVE EVIDENCERun inspectorPlan0 stepsPlan appears when the run startsVerificationNot startedNo evidence rece",
+      "clientWidth": 636,
+      "scrollWidth": 636
+    },
+    "manager_main": {
+      "selector": ".pulseai-manager-main",
+      "x": 508,
+      "y": 70,
+      "width": 476,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "PulseAIRepo / session-9369Pulse Agent UI provider-free CDP smokePulse readySessionTools 0ChangesPulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed@ ContextEnter to sendShift+Enter for new line",
+      "clientWidth": 476,
+      "scrollWidth": 476
+    }
+  },
+  "console_errors": [],
+  "screenshots": [
+    "01-agent-ready.png",
+    "02-agent-narrow.png",
+    "03-agent-echo-completed.png",
+    "04-manager-wide.png"
+  ],
+  "overall": "FAIL",
+  "target": {
+    "id": "77F91DA29CFED14766B36D5BB1AACEF9",
+    "title": "PulseAIRepo - PulseAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "failure": {
+    "message": "Browser.getWindowForTarget: {\"code\":-32601,\"message\":\"'Browser.getWindowForTarget' wasn't found\"}",
+    "stack": "Error: Browser.getWindowForTarget: {\"code\":-32601,\"message\":\"'Browser.getWindowForTarget' wasn't found\"}\n    at WebSocket.<anonymous> (D:\\pulseAIagent\\PulseAIRepo\\scripts\\validate_pulse_ui_cdp.js:29:43)\n    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)\n    at WebSocket.dispatchEvent (node:internal/event_target:776:26)\n    at fireEvent (node:internal/deps/undici/undici:14387:14)\n    at #onMessage (node:internal/deps/undici/undici:15710:9)\n    at Object.onMessage (node:internal/deps/undici/undici:15417:76)\n    at websocketMessageReceived (node:internal/deps/undici/undici:14391:15)\n    at node:internal/deps/undici/undici:15119:21\n    at node:internal/deps/undici/undici:14899:11\n    at afterWrite (node:internal/streams/writable:708:5)"
+  },
+  "finished_at": "2026-08-27T04:52:06.658Z"
+}

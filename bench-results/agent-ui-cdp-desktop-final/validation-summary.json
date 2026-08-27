@@ -1,0 +1,31 @@
+{
+  "source_commit": "b5648705cf352147b69583d9a25ca9539ac01d95",
+  "required_harness_ancestor": "23f3f0b4",
+  "provider_requests": 0,
+  "mode": "manager-only",
+  "attempt12_classification": "runtime/product FAIL (immutable; not rerun)",
+  "r1_classification": "FAIL (immutable; openManager missing)",
+  "r2_classification": "source/build PASS; interactive smoke NOT RUN",
+  "cdp_r1_classification": "FAIL (immutable; Manager overflow)",
+  "cdp_r2_classification": "FAIL (CDP protocol limitation)",
+  "cdp_final_classification": "FAIL (Page.captureScreenshot timed out)",
+  "compile_exit": 0,
+  "cdp_exit": 1,
+  "cdp_overall": "FAIL",
+  "cdp_failure": "Page.captureScreenshot timed out (transient CDP issue)",
+  "checks": {
+    "agent_composer_visible_enabled": "PASS",
+    "agent_header_manager_button_visible": "PASS",
+    "agent_shell_no_overflow": "PASS",
+    "echo_turn": "SKIPPED (manager-only)",
+    "manager_opens_visible": "NOT REACHED",
+    "manager_no_overflow": "NOT REACHED",
+    "manager_responsive_inspector": "NOT REACHED",
+    "no_renderer_exceptions": "PASS",
+    "no_console_errors": "PASS"
+  },
+  "screenshots_captured": 0,
+  "screenshots": [],
+  "renderer_console_errors": 0,
+  "overall": "FAIL"
+}

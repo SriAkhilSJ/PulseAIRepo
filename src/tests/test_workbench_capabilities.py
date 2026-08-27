@@ -11,6 +11,8 @@ COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / 
 CATALOG = COMMON / "pulseAIWorkbenchCapabilities.ts"
 HOST = COMMON / "pulseAIWorkbenchService.ts"
 IMPLEMENTATION = COMMON.parent / "browser" / "pulseAIWorkbenchService.ts"
+RENDERER = COMMON.parent / "browser" / "pulseAIRendererService.ts"
+PROTOCOL = COMMON / "pulseAIProtocol.ts"
 AUDIT = ROOT / "docs" / "VSCODE_AGENT_CAPABILITIES_AUDIT.md"
 
 
@@ -77,6 +79,25 @@ def test_phase_a_adapter_uses_dirty_buffers_markers_and_language_providers():
     assert "Pulse cannot run tasks before workspace trust is granted" in text
     assert "confirmBeforeUndo: true" in text
     assert "expectedVersionId" in HOST.read_text(encoding="utf-8")
+
+
+def test_read_only_host_capability_bridge_is_workspace_pinned_and_allowlisted():
+    renderer = RENDERER.read_text(encoding="utf-8")
+    protocol = PROTOCOL.read_text(encoding="utf-8")
+    for frame in ("host_capabilities_update", "host_tool_request", "host_tool_result"):
+        assert frame in protocol
+    for capability in (
+        "workspace.trust", "editor.activeSelection", "editor.dirtyText",
+        "diagnostics.markers", "language.symbols", "language.definitions",
+        "language.references", "search.workspace", "scm.state",
+    ):
+        assert capability in renderer
+    for forbidden in ("terminal.native", "tasks.run", "tests.run", "mcp.tools", "editor.tools", "secrets.pulseOwned"):
+        assert f"case '{forbidden}'" not in renderer
+    assert "frame.workspace !== workspace" in renderer
+    assert "status?.availability !== 'available'" in renderer
+    assert "Math.min(Math.trunc(requested), 500)" in renderer
+    assert ".slice(0, 50)" in renderer
 
 
 def test_audit_forbids_cross_extension_secret_access():

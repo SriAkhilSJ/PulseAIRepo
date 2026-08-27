@@ -1,0 +1,42 @@
+﻿[
+    {
+        "path":  "bridge_stderr.log",
+        "bytes":  6127,
+        "sha256":  "4a9ef117f56f11e3a65bb91b54808858db15fd479ae44338804022f31d288445"
+    },
+    {
+        "path":  "desktop-console.log",
+        "bytes":  1463,
+        "sha256":  "f89bbeca327b77b6948ed2408ea086e7a3303a26fdbd296423b195867575bc37"
+    },
+    {
+        "path":  "frames.jsonl",
+        "bytes":  15419,
+        "sha256":  "6ac01b4c87396c39f406df5f5ddb4601c800634e27f66ef531d948964bc1fe32"
+    },
+    {
+        "path":  "git-status-before-evidence.txt",
+        "bytes":  0,
+        "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+        "path":  "local-sync.json",
+        "bytes":  457,
+        "sha256":  "90210de27c4532017342483da527131fdae0322a2c0b025269eca97da12ab81e"
+    },
+    {
+        "path":  "missing-evidence.json",
+        "bytes":  345,
+        "sha256":  "7655c581fd0cdf16495cb10936665a9772abed2d18847fbee6b8eda6c89404b0"
+    },
+    {
+        "path":  "monitor-30s.jsonl",
+        "bytes":  2577,
+        "sha256":  "9b5bcc8d51b1d485fbf4d4be2ca45b2972c0f54e1e1a26b2aa8c122ef126e5f0"
+    },
+    {
+        "path":  "workspace-delivery\\index.html",
+        "bytes":  4995,
+        "sha256":  "bde1bdedacc7a28139dc849ca769502bd220e6e330b760161bf5a2aa88f244d2"
+    }
+]

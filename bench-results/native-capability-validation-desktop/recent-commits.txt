@@ -1,0 +1,8 @@
+﻿d9d395f2 Add provider-free desktop capability validation handoff
+b270f8cd Bridge read-only Code OSS capabilities to Pulse
+395e8531 Document Copilot and Pulse registration layers
+61aaae6a Drive verification reserve to concrete checks
+eaebf9d9 Strengthen provider-free completion verification
+c91ae5eb test: record guarded live Attempt 12
+bbc658f4 docs: authorize one guarded live Attempt 12
+200783db allow authorized live turn without provider probe

@@ -296,6 +296,30 @@ _PROBES = {
 }
 
 
+def _effective_provider(provider: str) -> str:
+    """Recognize routed providers without changing the configured transport.
+
+    OpenRouter is intentionally configured through Pulse's generic
+    OpenAI-compatible ``custom`` route. Budget discovery still needs its public
+    model catalog rather than the unknown-provider 8k fallback.
+    """
+    normalized = provider.strip().lower()
+    if normalized in {"custom", "openai", "openai-compatible"}:
+        try:
+            from src.config.settings import CUSTOM_BASE_URL
+            base_url = CUSTOM_BASE_URL or ""
+        except Exception:
+            base_url = os.getenv("CUSTOM_BASE_URL", "")
+        try:
+            from urllib.parse import urlparse
+            host = (urlparse(base_url).hostname or "").lower()
+        except ValueError:
+            host = ""
+        if host == "openrouter.ai" or host.endswith(".openrouter.ai"):
+            return "openrouter"
+    return normalized
+
+
 def resolve_context_window(
     model_name: str | None,
     provider: str | None = None,
@@ -316,7 +340,7 @@ def resolve_context_window(
             provider = LLM_PROVIDER
         except Exception:
             provider = os.getenv("LLM_PROVIDER", "")
-    provider = provider.strip().lower()
+    provider = _effective_provider(provider)
     cache_key = f"{provider}:{raw}"
 
     # 1) Explicit user override always wins.

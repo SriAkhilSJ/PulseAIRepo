@@ -330,6 +330,9 @@ def extract_source_chunks(
 # ---------------------------------------------------------------------
 
 
+_LAZY_DEFAULT_EMBEDDER = object()
+
+
 class ChunkIndex:
     """Persistent hybrid (vector + BM25) index for code chunks."""
 
@@ -337,7 +340,7 @@ class ChunkIndex:
         self,
         workspace: str | Path,
         db_path: Optional[str] = None,
-        embedder: Any = None,
+        embedder: Any = _LAZY_DEFAULT_EMBEDDER,
         watch: bool = False,
     ):
         self.workspace = Path(workspace).resolve()
@@ -383,10 +386,13 @@ class ChunkIndex:
         self._sync_queue_lock = threading.Lock()
 
         # NO eager model load: opening an index during a prompt must not load
-        # the embedding model. Injected test embedders are kept as-is; the
-        # default embedder is resolved lazily ONLY on explicit offline
-        # inference-enabled paths (_ensure_embedder). Turns stay BM25/cache-only.
-        self._embedder = embedder
+        # the embedding model. Omitted means the production lazy default;
+        # explicit None means BM25-only. The old API collapsed both to None,
+        # so offline tests that deliberately disabled embeddings unexpectedly
+        # attempted a Hugging Face download and looked deadlocked while TLS
+        # retries backed off. Preserve that caller intent explicitly.
+        self._lazy_default_embedder = embedder is _LAZY_DEFAULT_EMBEDDER
+        self._embedder = None if self._lazy_default_embedder else embedder
 
         self.uses_vec = False
         try:
@@ -412,7 +418,7 @@ class ChunkIndex:
         offline inference-enabled paths (``allow_embedding_compute``), never
         from the timed turn path. ``self._embedder`` stays None for turns,
         which is exactly the point: no model is loaded or invoked."""
-        if self._embedder is not None:
+        if self._embedder is not None or not self._lazy_default_embedder:
             return
         try:
             from src.llm.factory import get_embedder

@@ -1,0 +1,4 @@
+﻿{
+    "missing_file":  "outcome.json",
+    "reason":  "Process stalled after first LLM request and first write_file tool call. Stall watchdog killed process at 613.5s idle. No turn_done or turn_failed frame was emitted. Only 1 LLM request made (1/20), 1 file written (index.html, 4995 bytes). Process never reached outcome generation."
+}

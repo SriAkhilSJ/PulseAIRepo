@@ -157,21 +157,18 @@ class _FakeToolLLM:
         ])
 
 
-def test_ai_node_refunds_execute_code_only_turn(monkeypatch):
-    """Hermes iteration refund: a turn whose ONLY tool call is execute_code
-    (PTC — "cheap RPC-style calls that shouldn't eat the budget") must NOT
-    consume an iteration slot. The retest burned 42 execute_code calls
-    against a 50-slot budget and died on the grace call; refunded, the run
-    keeps its budget for the real deliverable."""
+def test_ai_node_counts_execute_code_only_turn(monkeypatch):
+    """Test5-6 regression: PTC is efficient only when it batches work; each
+    provider request still counts toward Pulse's bounded paid turn. A mechanical
+    Hermes refund let repeated os.walk scripts evade forced delivery."""
     _patch_env_tool_reply(monkeypatch, budget=10, tool_names=["execute_code"])
     state = {"iteration_used": 3, "current_task": "fix bug", "messages": []}
     out = cg.ai_node(state, _config())
-    assert out["iteration_used"] == 3, "PTC-only turn refunded, not consumed"
+    assert out["iteration_used"] == 4
 
 
 def test_ai_node_no_refund_for_mixed_turns(monkeypatch):
-    """Hermes refunds ONLY when the tool-call set is exactly {"execute_code"}.
-    A turn mixing execute_code with a real tool still consumes an iteration."""
+    """Mixed execute_code/direct-tool turns also consume an iteration."""
     _patch_env_tool_reply(
         monkeypatch, budget=10, tool_names=["execute_code", "copy_file"])
     state = {"iteration_used": 3, "current_task": "fix bug", "messages": []}

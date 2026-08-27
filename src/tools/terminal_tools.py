@@ -26,7 +26,8 @@ _IS_WINDOWS = platform.system() == "Windows"
 # path like `C:\Program Files` is not (it contains a backslash, not /tmp).
 _POSIX_ONLY_VERBS = frozenset({
     "mkdir", "mv", "cp", "rm", "chmod", "chown", "which", "pwd",
-    "touch", "ls", "grep", "sed", "awk", "cat", "tar", "unzip",
+    "touch", "ls", "find", "head", "tail", "wc", "grep", "sed", "awk",
+    "cat", "tar", "unzip",
 })
 _POSIX_FLAGS = ("-p", "-rf", "-R", "-f", "+x")
 _POSIX_TMP_RE = re.compile(
@@ -52,16 +53,27 @@ def _posix_violations(command: str) -> list[str]:
         verb = w.lstrip("([{").rstrip(")]};,")
         if verb in _POSIX_ONLY_VERBS:
             flags = [x for x in words[i + 1:i + 3] if x.startswith("-")]
+            # `mkdir` without POSIX flags is a native cmd.exe command. The old
+            # broad verb rule rejected the exact Windows scaffold command the
+            # runtime guidance recommends (`mkdir temp_app && cd temp_app`).
+            if verb == "mkdir" and not flags:
+                continue
             if verb in ("mkdir", "cp", "mv", "rm") and flags and flags[0] in _POSIX_FLAGS:
                 violations.append(
                     f"{verb} with POSIX flag `{flags[0]}` has no Windows equivalent "
                     f"(use PowerShell: New-Item -ItemType Directory, Copy-Item, "
                     f"Move-Item, Remove-Item — or cmd: mkdir/copy/move/del)."
                 )
-            elif verb in ("which", "chmod", "chown", "touch", "sudo"):
+            elif verb in _POSIX_ONLY_VERBS or verb == "sudo":
+                # The old detector listed ls/pwd/find-style verbs but only
+                # emitted a violation for which/chmod/etc. Test5-5 therefore
+                # spawned bare `ls -la` and `pwd` on cmd.exe and paid for the
+                # predictable failures. Every listed POSIX-only verb must
+                # produce the typed platform pivot before process spawn.
                 violations.append(
-                    f"`{verb}` is a POSIX-only command with no Windows equivalent. "
-                    f"Use PowerShell Get-Command/Get-Item, or cmd `where`."
+                    f"`{verb}` is a POSIX-only command in this cmd.exe runtime. "
+                    "Use cmd/PowerShell equivalents (dir, cd, where, Get-ChildItem, "
+                    "Get-Content, Select-String)."
                 )
     if _POSIX_TMP_RE.search(command):
         violations.append(
@@ -184,6 +196,8 @@ def start_terminal(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if _IS_WINDOWS:
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -392,7 +406,9 @@ def run_terminal(
     # legitimate first-run installs (E2's npm install took 36s) without
     # letting a dead interactive prompt block the loop forever.
     try:
-        timeout = int(os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "120"))
+        # Sized to real package installs (test5-2: npm install three on a
+        # cold Windows cache legitimately runs minutes); env-overridable.
+        timeout = int(os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "300"))
     except (TypeError, ValueError):
         timeout = 120
 
@@ -407,7 +423,8 @@ def run_terminal(
     try:
         popen_kwargs = dict(
             cwd=workspace, shell=True, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, env=env,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            errors="replace", env=env,
         )
         if _IS_WINDOWS:
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -438,15 +455,30 @@ def run_terminal(
                         f"Command: {command}"
                     )
                 if time.monotonic() - started >= timeout:
+                    # TREE kill, both platforms. process.kill() on Windows
+                    # kills only the shell wrapper -- npm/node grandchildren
+                    # survive, hold the stdout/stderr pipes, and the old
+                    # unbounded communicate() then hung FOREVER (test5-2: no
+                    # tool_call_end for 322s, watchdog kill on a healthy
+                    # build). Same disease git_context's _taskkill_tree
+                    # already cures; reuse it.
                     try:
                         if _IS_WINDOWS:
-                            process.kill()
+                            from src.context.git_context import _taskkill_tree
+                            if not _taskkill_tree(process.pid):
+                                process.kill()
                         else:
                             import signal
-                            os.killpg(process.pid, signal.SIGKILL)
+                            try:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            except Exception:
+                                process.kill()
                     except Exception:
                         process.kill()
-                    process.communicate()
+                    try:
+                        process.communicate(timeout=10)
+                    except Exception:
+                        pass  # pipes may be held by orphaned grandchildren; never hang here
                     raise subprocess.TimeoutExpired(command, timeout)
 
         output = ""

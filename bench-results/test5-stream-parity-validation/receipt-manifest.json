@@ -1,0 +1,52 @@
+﻿[
+    {
+        "path":  "attempt8-evidence-after.json",
+        "bytes":  1528,
+        "sha256":  "d1933b5eeed432b897f6cf9f08ff67eddc296a3c75dc23130089be33a10ca8a2"
+    },
+    {
+        "path":  "attempt8-evidence-before.json",
+        "bytes":  1528,
+        "sha256":  "d1933b5eeed432b897f6cf9f08ff67eddc296a3c75dc23130089be33a10ca8a2"
+    },
+    {
+        "path":  "bridge-protocol-check.log",
+        "bytes":  300,
+        "sha256":  "96b8a49bf8c084b4bac68c7fa7369033bc4ceafc25a04f2693f27cd3572747f4"
+    },
+    {
+        "path":  "bridge-protocol-outcome.json",
+        "bytes":  30,
+        "sha256":  "f2bd07bf3c36af1c63e62548245508ab9a6abcdc8c91e2a2687e9c46bb26e511"
+    },
+    {
+        "path":  "compileall-outcome.json",
+        "bytes":  30,
+        "sha256":  "f2bd07bf3c36af1c63e62548245508ab9a6abcdc8c91e2a2687e9c46bb26e511"
+    },
+    {
+        "path":  "git-diff-check-outcome.json",
+        "bytes":  30,
+        "sha256":  "f2bd07bf3c36af1c63e62548245508ab9a6abcdc8c91e2a2687e9c46bb26e511"
+    },
+    {
+        "path":  "ps-parse-errors.json",
+        "bytes":  0,
+        "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+        "path":  "pytest-outcome.json",
+        "bytes":  99,
+        "sha256":  "1f50ed24b5ba747451fb24b2799f73a6cf62458371262c0b914060d973de1344"
+    },
+    {
+        "path":  "pytest.log",
+        "bytes":  1790,
+        "sha256":  "b6536581af78a645e5419dbbeec063f986af763bf77b409455f1c380b4c6a5a1"
+    },
+    {
+        "path":  "validation-summary.json",
+        "bytes":  1704,
+        "sha256":  "a47969c7e7d1caaff59e38510ebaa077785fae7c0c8c3277d2247c9fbae42b0a"
+    }
+]

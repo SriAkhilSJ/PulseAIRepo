@@ -1,0 +1,30 @@
+﻿[
+    {
+        "check":  "source_commit",
+        "value":  "c710e21cf9bb9c2785dd28ae387ce0944ce60674"
+    },
+    {
+        "check":  "prompt_sha256",
+        "value":  "0641fdcd14bd541e0f96ab3ddf7be0fb60cc354a627cfddd457a316394babeed"
+    },
+    {
+        "check":  "wrapper_sha256",
+        "value":  "2c3aad6741aebfe4553364689c9c663104039436ba6b0f5764e33b34837decc4"
+    },
+    {
+        "check":  "ps_parse",
+        "value":  "PASS"
+    },
+    {
+        "check":  "git_status_clean",
+        "value":  true
+    },
+    {
+        "check":  "fresh_attempt9_workspace",
+        "value":  true
+    },
+    {
+        "check":  "fresh_attempt9_evidence",
+        "value":  true
+    }
+]

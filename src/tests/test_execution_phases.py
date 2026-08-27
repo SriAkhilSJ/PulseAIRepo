@@ -55,6 +55,63 @@ def test_named_multi_file_step_requires_each_mutation_receipt():
     assert req["__file_mutation__"] == 4
 
 
+def test_pre_delivery_guard_warns_then_forces_mutation_capabilities(tmp_path):
+    from src.graphs.chat_graph import (
+        _pre_delivery_stalled,
+        _resolve_bound_tools,
+    )
+
+    state = {
+        "current_task": "Build a complete website",
+        "plan": [],
+        "execution_trace": [],
+        "iteration_used": 4,
+    }
+    assert _pre_delivery_stalled(state) is True
+    config = {"configurable": {"workspace": str(tmp_path)}}
+    bound = _resolve_bound_tools(state, config)
+    names = {tool.name for tool in bound}
+    assert "write_file" in names
+    assert not names & {
+        "execute_code", "list_files", "web_search", "run_terminal",
+        "typecheck_workspace",
+    }
+    assert config["configurable"]["execution_phase"] == "forced_delivery"
+
+    # Varied inspection tools count together. This is the exact Test5-6 shape:
+    # changing list_files -> terminal -> os.walk must not evade an exact-call
+    # repetition detector or an execute_code iteration refund.
+    state["iteration_used"] = 0
+    state["execution_trace"] = [
+        {"tool": "list_files", "status": "success"},
+        {"tool": "run_terminal", "status": "success"},
+        {"tool": "execute_code", "status": "success"},
+        {"tool": "execute_code", "status": "success"},
+    ]
+    assert _pre_delivery_stalled(state) is True
+    names = {tool.name for tool in _resolve_bound_tools(state, config)}
+    assert names <= {"write_file", "edit_file", "copy_file"}
+
+    state["execution_trace"] = [
+        {"tool": "write_file", "status": "success", "args": {"path": "index.html"}}
+    ]
+    assert _pre_delivery_stalled(state) is False
+
+
+def test_empty_workspace_hides_typecheck_tool(tmp_path):
+    from src.graphs.chat_graph import _resolve_bound_tools
+
+    state = {"current_task": "Build a TypeScript website", "iteration_used": 0}
+    config = {"configurable": {"workspace": str(tmp_path)}}
+    assert "typecheck_workspace" not in {
+        tool.name for tool in _resolve_bound_tools(state, config)
+    }
+    (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
+    assert "typecheck_workspace" in {
+        tool.name for tool in _resolve_bound_tools(state, config)
+    }
+
+
 def test_turn_token_budget_does_not_use_cumulative_session_usage(monkeypatch):
     monkeypatch.setenv("AGENT_TOKEN_BUDGET", "10000")
     state = {

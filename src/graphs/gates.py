@@ -39,6 +39,14 @@ _EXECUTION_TASK_MARKERS = (
 )
 
 _FINISH_NUDGE_BUDGET = 2  # max early-finish nudges before finalize is allowed
+_INCOMPLETE_RESPONSE_RETRY_BUDGET = 3
+
+_INCOMPLETE_RESPONSE_NUDGE = (
+    "[System: The provider hit its output limit before returning a complete "
+    "response. Continue from a clean boundary without repeating prior work. "
+    "Keep the next response small. If a tool action was intended, reissue one "
+    "complete, valid tool call; no partial tool call was executed.]"
+)
 
 _FINISH_NUDGE = (
     "[System: You declared the task finished, but almost no real work has "
@@ -419,6 +427,25 @@ def should_continue(state: AgentState):
     if bool(getattr(last_message, "additional_kwargs", {}).get("pulse_cancelled")):
         return "finalize"
 
+    # A token-limited text response is not a final answer. Tool-bearing
+    # incomplete responses route through SafeToolNode for paired rejection;
+    # text-only responses receive the bounded finish-gate continuation nudge.
+    if (
+        bool(getattr(last_message, "additional_kwargs", {}).get(
+            "pulse_incomplete_response"
+        ))
+        and not getattr(last_message, "tool_calls", None)
+        and not _budget_exhausted(state)
+    ):
+        if state.get("incomplete_response_retries", 0) <= _INCOMPLETE_RESPONSE_RETRY_BUDGET:
+            return "finish_gate"
+        return "finalize"
+
+    # Ask mode never binds tools. Its first complete text response is the
+    # answer; execution and verification nudges must not turn it into Agent.
+    if state.get("execution_mode") == "ask":
+        return "finalize"
+
     # ── Hermes loop law (ported, behavior-based) ─────────────────────────
     # Two mechanical guards that no intent classifier can misroute around:
     #
@@ -577,6 +604,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     status = {
         "static": False,
         "typecheck": False,
+        "integrity": False,
         "navigate": False,
         "snapshot": False,
         "screenshot": False,
@@ -631,7 +659,17 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
                 and "could not save" not in low
             )
 
-    required = ["static"]
+    # A successful command only proves the source tree it actually checked.
+    # Catch unresolved workspace-local imports/dependencies (and conservative
+    # embedded-shader constants) before that receipt can authorize completion.
+    # This read-only audit is intentionally additive: it never substitutes for
+    # the executable/static/browser receipts above.
+    from src.context.workspace_integrity import audit_workspace
+    workspace = state.get("workspace")
+    integrity_issues = audit_workspace(workspace) if workspace else []
+    status["integrity"] = not integrity_issues
+
+    required = ["static", "integrity"]
     if ui_task:
         required.extend(["navigate", "snapshot", "screenshot"])
     missing = [name for name in required if not bool(status[name])]
@@ -640,6 +678,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "ui_task": ui_task,
         "required": required,
         "missing": missing,
+        "integrity_issues": [issue.describe() for issue in integrity_issues[:20]],
         "ran_any": bool(seen),
         "passed": not missing,
     }
@@ -690,6 +729,12 @@ def finish_gate_node(state: AgentState) -> dict:
     - finish gate (no real work at all) — do some work.
     Each has its own bounded counter so one can never starve the other.
     """
+    # Output-limit recovery is mechanical, not an early-finish judgment. It
+    # has its own retry counter and does not spend the generic finish budget.
+    last = state.get("messages", [])[-1] if state.get("messages") else None
+    if bool(getattr(last, "additional_kwargs", {}).get("pulse_incomplete_response")):
+        return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE)]}
+
     # E2-1 first: a named deliverable missing on disk is the dominant
     # signal. Even when OTHER code files were written, the task's own
     # target files must exist before finalize.
@@ -708,6 +753,15 @@ def finish_gate_node(state: AgentState) -> dict:
         not _ran_verification(state) or _verification_failed(state)
     ):
         nudge = _VERIFY_FAILED_NUDGE if _verification_failed(state) else _VERIFY_NUDGE
+        receipt = _verification_receipt_status(state)
+        issues = list(receipt.get("integrity_issues") or [])
+        if issues:
+            nudge += (
+                "\n\n[Deterministic dependency/source audit found unresolved "
+                "references. Repair these before re-running verification:\n- "
+                + "\n- ".join(issues[:10])
+                + "]"
+            )
         return {
             "messages": [SystemMessage(content=nudge)],
             "verify_nudges": state.get("verify_nudges", 0) + 1,

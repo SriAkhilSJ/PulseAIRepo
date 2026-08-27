@@ -14,8 +14,8 @@ import threading
 import uuid
 
 from src.bridge.protocol import (
-    CLIENT_METHODS, ProtocolError, check_client_hello, decode_line, encode,
-    error_frame, hello,
+    CLIENT_METHODS, EXECUTION_MODES, ProtocolError, check_client_hello, decode_line,
+    encode, error_frame, hello,
 )
 from src.runtime.identity import TurnIdentity, normalize_id
 
@@ -26,6 +26,7 @@ ENGINE_VERSION = "0.2.0-runtime"
 # client can silently run against ".", the engine root, or the bundled app dir.
 _WORKSPACE_REQUIRED_METHODS = frozenset({
     "session_create", "session_load", "session_resume", "session_fork", "prompt",
+    "host_capabilities_update", "host_tool_result",
 })
 NO_WORKSPACE_ERROR = (
     "workspace required: open a project folder before starting a Pulse session"
@@ -61,6 +62,9 @@ class BridgeServer:
         self._workers: dict[str, threading.Thread] = {}
         self._subagents: dict[str, object] = {}
         self._shutdown = threading.Event()
+        from src.runtime.host_capabilities import host_capability_broker
+        host_capability_broker.reset()
+        host_capability_broker.set_emitter(self.emit)
 
     def emit(self, frame: dict) -> None:
         with self._write_lock:
@@ -113,6 +117,7 @@ class BridgeServer:
         mapping = {
             "message.agent.chunk": "token",
             "llm.request": "llm.request",
+            "llm.response": "llm.response",
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
             "tool.approval.request": "safety_request",
@@ -179,7 +184,7 @@ class BridgeServer:
                 "tool_call_start", "tool_call_end", "safety_request",
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
-                "llm.request", "workspace.bound",
+                "llm.request", "llm.response", "workspace.bound",
             } else None
         base = {
             "type": target,
@@ -240,8 +245,12 @@ class BridgeServer:
                     })
                 except Exception:
                     pass
+            finally:
+                # Pair Queue.put with task_done so the turn owner can flush
+                # every provider/tool event before emitting its terminal frame.
+                q.task_done()
 
-    def _run_turn(self, sid: str, text: str, workspace: str) -> None:
+    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent") -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
 
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
@@ -316,15 +325,35 @@ class BridgeServer:
                 "text": "Preparing workspace context…",
             })
             try:
+                # Interactive IDE sessions default to ask. Guarded autonomous
+                # benchmark runners may opt into the same session-scoped,
+                # workspace-only mutation policy used by the dashboard. Without
+                # this handoff every safe write emits safety_request and a
+                # headless runner waits until the watchdog kills the bridge.
+                approval_policy = os.environ.get(
+                    "PULSEAI_BRIDGE_APPROVAL_POLICY", "ask"
+                ).strip()
+                if approval_policy not in {"ask", "workspace_session", "session"}:
+                    approval_policy = "ask"
                 result = stream_agent(
                     text, thread_id=sid, workspace=workspace,
                     approval_channel=True, approval_timeout=300.0,
+                    approval_policy=approval_policy,
                     turn_id=identity.turn_id,
+                    execution_mode=mode,
                 )
                 cancelled = turn_controls.cancelled(sid)
+                # All provider/tool events were queued before stream_agent
+                # returned. Flush them before the terminal frame so a fast
+                # finalization cannot strand the last tool.result behind
+                # turn_done or drop it when the forwarder stops.
+                if q is not None:
+                    q.join()
+                task_completed = bool(getattr(result, "completed", True))
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
-                    "message": result, "completed": not cancelled,
+                    "message": str(result),
+                    "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
                 })
             except Exception as exc:
@@ -389,7 +418,26 @@ class BridgeServer:
         except WorkspaceSwitchError as exc:
             self.emit(error_frame(str(exc)))
             return True
-        if kind == "session_create":
+        if kind == "host_capabilities_update":
+            from src.runtime.host_capabilities import host_capability_broker
+            descriptors = frame.get("capabilities")
+            if not isinstance(descriptors, list):
+                self.emit(error_frame("host capabilities must be an array"))
+            else:
+                count = host_capability_broker.update(sid, workspace, descriptors)
+                self.emit({
+                    "type": "session_info", "session_id": sid,
+                    "host_capabilities_updated": count,
+                })
+        elif kind == "host_tool_result":
+            from src.runtime.host_capabilities import host_capability_broker
+            request_id = str(frame.get("request_id") or "")
+            resolved = host_capability_broker.resolve(request_id, frame)
+            self.emit({
+                "type": "session_info", "session_id": sid,
+                "host_tool_result_resolved": resolved,
+            })
+        elif kind == "session_create":
             prior = self._prior_checkpoint_count(sid)
             info = {"type": "session_info", **self._sessions[sid]}
             if prior is not None:
@@ -427,8 +475,11 @@ class BridgeServer:
             self.emit({"type": "session_info", **self._sessions[target], "forked_from": source})
         elif kind == "prompt":
             text = str(frame.get("text") or frame.get("message") or "").strip()
+            mode = str(frame.get("mode") or "agent").strip().lower()
             if not text:
                 self.emit(error_frame("prompt text is required"))
+            elif mode not in EXECUTION_MODES:
+                self.emit(error_frame(f"unsupported execution mode: {mode}"))
             elif sid in self._workers and self._workers[sid].is_alive():
                 from src.runtime.turn_control import turn_controls
                 depth = turn_controls.queue(sid, text)
@@ -445,7 +496,8 @@ class BridgeServer:
                     from src.dashboard.event_bus import event_bus  # noqa: F401
                     from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
-                    target=self._run_turn, args=(sid, text, self._sessions[sid]["workspace"]),
+                    target=self._run_turn,
+                    args=(sid, text, self._sessions[sid]["workspace"], mode),
                     name=f"bridge-turn-{sid}", daemon=True,
                 )
                 self._workers[sid] = worker

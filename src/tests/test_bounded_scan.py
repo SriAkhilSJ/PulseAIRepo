@@ -455,6 +455,10 @@ def test_context_budget_emits_degraded_receipt_once(tmp_path):
     list(it)
     assert report.truncated is True
     q = event_bus.subscribe(thread_id=None)
+    # Admin subscriptions replay global history. Discard earlier tests' events
+    # so this assertion observes the receipt emitted by this budget only.
+    while not q.empty():
+        q.get_nowait()
     first = budget.emit_degraded({
         "reason": "context scan bounded", "files_considered": report.considered,
     })

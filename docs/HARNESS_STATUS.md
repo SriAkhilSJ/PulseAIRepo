@@ -866,3 +866,259 @@ another lap. Conservative by construction; fail-open on short inputs.
 
 Effect on the founder's 20-lap class: capped at 3 laps worst case, no
 matter which loop causes it. No intent classification involved.
+
+---
+
+# TEST 5, attempt 1 — VERDICT: FAIL (provider timeout; discipline held) 2026-08-23
+
+## Graded per the pre-registered rules
+
+turn_failed / completed=false => FAIL. But the failure CLASS is the cheapest
+possible: ~$0.02 spent, ZERO human interventions, watchdog + circuit-breaker
+never misfired, full frame evidence captured.
+
+## Anatomy (from frames.jsonl)
+
+1. PLAN/DIRECT classifier -> PLAN (1s)
+2. Planner -> 8-step plan (15s)
+3. MAIN call (11 msgs, full GARGANTUA task) -> died at ~122s with
+   "Request timed out." = TWO 60s attempts. Root cause: the custom-provider
+   request timeout default (60s) is sized for ping latency, not GENERATION
+   length -- a 100B model writing the first big response of a huge build
+   legitimately needs >60s when NOT streaming. Hermes sizes timeouts to
+   generation and streams first (timeout then guards stalls, not length);
+   it also continues truncated responses with boosted budgets.
+
+## Fix (hermes-aligned)
+
+- factory default timeout 60 -> 180s (env override unchanged, cap 300)
+- runner sets PULSEAI_LLM_STREAMING=1 + PULSEAI_LLM_TIMEOUT=280 for the
+  child (pre-set env wins); script made pure-ASCII (em-dash encoding bug
+  on the founder box fixed by their agent, now structural)
+
+Engine verified importing + a full stub turn completes with the new
+default. Retry = same command, fresh RunId.
+
+---
+
+# TEST 5, attempt 3 (test5-3) — product FAIL, harness PASS (2026-08-23)
+
+## Graded
+
+turn_done, in budget (17 calls / ~127k in / breaker untouched), zero kills,
+zero interventions -- every harness fix held. Product: FAIL -- deliverable
+is package.json only; no site, no vendored Three.js, nothing renders.
+
+## Root cause (agent strategy, not machinery)
+
+The execute_code sandbox blocks imports/sockets/open() by design. Faced
+with "use local Three.js files", the agent burned turns trying
+urllib/subprocess INSIDE scripts, pivoted to web_fetch, then tried
+execute_code downloading again -- and never used the working paths it
+already has (run_terminal npm install WORKED in attempt 2; web_fetch ->
+write_file was never tried).
+
+## Fix (teaching at the moment of failure)
+
+- execute_code docstring: explicit vendoring playbook -- install via
+  run_terminal("npm install <pkg>"), vendor a file via web_fetch(url) +
+  write_file(path, content); never urllib/subprocess/open() here.
+- Sandbox denial message now carries the PIVOT, not just the block --
+  the model reads exactly what to do at the moment it is told no.
+
+38 code-exec/PTC tests green. Attempt 4 expectations: same command, fresh
+RunId; npm cache warm; the strategy dead-end is now taught away.
+
+---
+
+# Plan-vs-task constraint validator — general, no hardcoded data (2026-08-23)
+
+Founder correction accepted: after the test5-3 strategy failure, the WRONG
+fix was another hardcoded planner rule (a Next.js-specific line was one
+keystroke away -- same disease as the reverted keyword gate). What shipped
+instead is a GENERAL mechanism:
+
+`_plan_constraint_violation` asks the model to check the plan against the
+TASK's own explicit constraints and answer OK or VIOLATION with the quoted
+contradiction. One bounded retry with the contradiction quoted. Zero
+hardcoded technology names -- the knowledge that "Next.js implies a build
+step" lives in the model, where it belongs; the mechanism only moves text.
+
+Category note (what is and is not "hardcoding"):
+- environment documentation (the sandbox denial's PIVOT line, the
+  execute_code docstring playbook) describes the environment's REAL
+  capabilities -- that is API documentation, kept.
+- task-specific or tech-specific rules in prompts -- NOT added; the
+  near-miss was discarded.
+
+Pins: 3 tests (OK path actually asks the model; contradiction is quoted;
+validator failure is advisory). The first draft of test 1 passed
+vacuously without patching get_llm (real provider raised -> advisory "");
+the rewrite asserts the model was actually asked.
+
+---
+
+# TEST 5, desktop attempt 4b (test5-4b) — runtime FAIL, product FAIL (2026-08-25)
+
+## Observed boundary
+
+Sarvam reached a roughly 30KB `main.js` `write_file`, then the run produced no
+workspace files and no `outcome.json`. The payload was far below the bridge's
+1 MiB frame limit, so raising that limit was rejected as an unsupported fix.
+No merge or branch deletion followed.
+
+## Confirmed root cause
+
+The guarded runner set `PULSEAI_AUTO_APPROVE_WRITES=1`, but the real bridge
+opened an approval channel while leaving `stream_agent` at interactive policy
+`ask`. An ordinary safe mutation therefore entered `approval_queue` and could
+wait 300 seconds. The headless runner only recorded `safety_request`; it never
+sent `safety_reply`. This is the confirmed unattended approval deadlock. An
+exact desktop serialization exception was not available and is not claimed.
+
+## Repair and no-credit proof
+
+- guarded bridge turns explicitly select `workspace_session` approval;
+- residual safety requests are always answered, with auto-approval restricted
+  to warning-free workspace-contained file mutations and all other requests
+  denied;
+- runner transport errors still write a sanitized outcome receipt;
+- Hermes-aligned guidance keeps individual tool arguments below roughly 8K
+  tokens and tells the model to split rather than repeat a dropped large call;
+- a deterministic 35KB write lands through the real `SafeToolNode` path;
+- the focused bridge/tool/harness/prompt selection passes 79 tests, and an echo
+  runner smoke completes with zero model calls and zero safety requests.
+
+The next eligible live run is one guarded desktop attempt 5 (`test5-5`). It
+must pass both runtime and independent product grading before any merge.
+
+---
+
+# TEST 5, attempt 5 (test5-5) — runtime FAIL, product FAIL (2026-08-25)
+
+## Preserved desktop verdict
+
+The guarded run reached its configured 20-LLM-call circuit breaker after the
+Sarvam 105B model remained in a planning/search loop. Safety policy blocked a
+`curl` download attempt. No file mutation landed and the workspace was empty,
+so there was no product to grade. The operator reports approximately four
+credits consumed. Evidence was preserved and PR #9 was not merged.
+
+## What this result establishes
+
+The attempt-4b unattended approval deadlock was repaired: attempt 5 progressed
+to a different boundary. The observed failure class is now model/tool strategy
+before first delivery. The summary alone does not establish that permitting
+`curl` would be safe or sufficient; review the preserved frames and stderr to
+determine whether the model ignored the already documented supported vendoring
+pivot, repeated planning, or received misleading tool feedback.
+
+Stop condition: no automatic rerun, no merge, and no branch deletion. Preserve
+`C:\test5-ws-attempt5` and `bench-results\test5-5\` pending founder review.
+
+## Postmortem repair (no provider calls)
+
+The sanitized frame timeline exposed cross-tool no-progress rather than one
+identical-call loop. The runtime now states Windows `cmd.exe` before execution,
+rejects every listed POSIX-only verb before spawn, hides unavailable typecheck,
+skips deterministic KEEP/REPLAN model calls, warns after two pre-delivery
+iterations, and narrows to delivery capabilities after four until a file lands.
+The exact reported direct curl command remains safety-allowed in regression;
+safety was not weakened without the exact denial frame.
+
+A separate apparent full-suite deadlock at 57% was traced with faulthandler to
+Hugging Face TLS backoff: explicit `ChunkIndex(embedder=None)` accidentally
+loaded the lazy default model. Explicit None is now genuinely BM25-only; the
+stuck test completes in ~0.1s. See `docs/AGENT_RELIABILITY_PLAN.md`.
+
+---
+
+# Desktop deterministic validation of 191cbeae (2026-08-25)
+
+Zero provider calls and zero credits. The former Hugging Face retry boundary is
+fixed: the targeted index test completed in under five seconds with no network
+request. Desktop assertion receipts were 69/69 for the repair selection, 93/93
+for language/index/context, and 161/161 for the broader selection. Python
+compile and diff checks passed; Git was clean; failed-run workspace/evidence
+remained preserved.
+
+A follow-up process-lifecycle diagnostic resolved the apparent teardown hang.
+Direct `python -m pytest`, direct `pytest.exe`, an in-process `pytest.main()`,
+and `Start-Process -NoNewWindow` without redirection all returned cleanly in
+about 8–10 seconds for the targeted test. No non-daemon thread or child process
+remained, and `pytest.main()` returned before process exit. The hang reproduced
+only when Windows PowerShell 5.1 `Start-Process` redirected stdout or stderr;
+it is a parent/child pipe-redirection deadlock in the diagnostic invocation,
+not a pytest fixture, plugin, or Pulse runtime teardown defect. Desktop
+**deterministic validation PASS** is therefore supported for these selections.
+
+The report did not launch the IDE, so visual workbench cleanliness remains
+unverified. No merge, branch deletion, live Test-5 rerun, provider call, or UI
+change was performed.
+
+---
+
+# Test 5 Attempt 6 authorization (2026-08-25)
+
+After the Attempt-5 postmortem repair passed deterministic desktop validation,
+the founder authorized exactly one fresh guarded provider-backed run. Run ID
+`test5-6`, workspace `C:\test5-ws-attempt6`, unchanged 20-call / 180k-input
+circuit breakers, 30-second monitoring, immutable evidence, and independent
+product grading are specified in `DESKTOP_AGENT_INSTRUCTIONS.md`. No automatic
+retry is authorized. PR #9 merge and obsolete-branch cleanup remain conditional
+on both runtime and product PASS.
+
+---
+
+# TEST 5, attempt 6 (test5-6) — operator-cancelled / product FAIL (2026-08-25)
+
+After 16 observed LLM requests and more than 180 seconds, the workspace still
+contained zero files. The model varied empty-workspace inspection across think,
+list_files, cmd `dir`, and four execute_code/os.walk scripts. The founder
+manually cancelled the run. Human interventions are therefore 1, regardless of
+the initial report's zero. Missing `outcome.json` and `turn_done` are not proof
+of a bridge crash: the runner did not catch KeyboardInterrupt, and the wrapper
+used PowerShell `Start-Process` stream redirection already shown to hang.
+
+## Confirmed guard defect
+
+Forced delivery depended on `iteration_used`, but execute_code-only provider
+turns were refunded. Worse, forced-delivery mode intentionally retained
+execute_code for web_fetch->write batching. The model instead used it for
+read-only os.walk, so the copied Hermes refund and broad PTC capability jointly
+bypassed the cap. Hermes refunds PTC inside a larger budget/guardrail system;
+copying that one behavior into Pulse's 20-call paid harness was not equivalent.
+
+Repair direction completed: every Pulse provider request counts; varied pre-delivery tool
+observations share one cap; forced delivery exposes only direct file mutations;
+the paid runner cancels if no file exists by a hard request threshold; operator
+cancellation always writes an outcome; and the PowerShell wrapper inherits the
+console instead of redirecting Start-Process streams.
+
+The subsequent payload-level Hermes audit identified the earlier layer that
+made inspection attractive: 16,445 characters of interactive persona,
+contradictory reasoning/overview/clarification context, advisory planning, a
+trailing system role, and 33 initial tools / 18,070 schema characters. The
+repaired autonomous first request on Windows is deterministically four messages /
+3,084 content characters / one `write_file` schema (591 characters), with no
+planner calls. Complete post-sanitizer payload capture is available for offline replay.
+See `docs/HERMES_RUNTIME_AUDIT.md`. Focused deterministic tests pass, but no
+rerun is authorized by that fact alone.
+
+---
+
+# TEST 5, attempt 8 (`test5-8-desktop`) — runtime/product FAIL (2026-08-25)
+
+Evidence commit `6586d7af` confirms one correctly narrowed Sarvam request and
+one successful `write_file` receipt. The resulting 4,995-byte Windows
+`index.html` is truncated mid-CSS and non-executable. No second provider
+request or terminal graph frame occurred; the PowerShell watchdog killed the
+process after 613.5 idle seconds, before the runner could write `outcome.json`.
+
+The first silent boundary is post-tool and pre-request-2. Autonomous progress
+still initialized semantic tool memory it never consumes; the provider loop
+also closed with a pending async response generator. Deterministic repairs skip
+that memory path, disable optional memory in the guarded harness, drain async
+generators with a hard bound, persist watchdog-owned outcomes, and add request/
+file/byte counts to every watchdog line. Focused validation: 72 passed. No
+provider retry, merge, or branch deletion is authorized.

@@ -29,8 +29,10 @@ checkpoint store is never mutated. Their post-compaction store pollution
 placeholder text and the summary prefix below use markers the D16
 session index already skips at ingest anyway (belt and suspenders).
 
-Kill-switch: PULSEAI_COMPACTION=off restores the pre-D22 pipeline
-verbatim (summarize-then-trim, no prune, no summary).
+Kill-switch: PULSEAI_COMPACTION=off restores the pre-D22 structural pipeline
+(summarize-then-trim, no prune, no summary). Landed mutation-payload omission is
+an independent run-budget safety fix; PULSEAI_MUTATION_PAYLOAD_COMPACTION=off
+disables it for diagnosis.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ import logging
 import os
 from typing import Any, Callable, Optional
 
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 
 from src.context.token_budget import count_tokens
 
@@ -65,6 +67,73 @@ _INEFFECTIVE_COOLDOWN = 10
 _SUMMARY_MAX_CHARS = 3_000
 _DROPPED_TEXT_BUDGET = 6_000
 _DROPPED_PER_MSG = 220
+_FILE_MUTATION_TOOLS = frozenset({"write_file", "edit_file", "copy_file"})
+_MUTATION_PAYLOAD_KEYS = frozenset({"content", "old_text", "new_text"})
+_MUTATION_PAYLOAD_PLACEHOLDER = "[Persisted file payload omitted; read the workspace for current content]"
+
+
+def compact_file_mutation_arguments(
+    history: list[BaseMessage], *, keep_recent: int = 1
+) -> list[BaseMessage]:
+    """Omit landed file payloads from the request-only transcript copy.
+
+    File bodies live in assistant tool-call arguments, not ToolMessage output,
+    so ordinary tool-result pruning cannot reclaim them.  Re-sending every old
+    ``write_file`` body consumed Attempt 11's token ceiling before dependency
+    and runtime verification.  Once a mutation has a non-error ToolMessage
+    receipt, preserve its id/name/path and redact only large payload fields.
+    The newest landed mutation remains verbatim for immediate correction.
+
+    Source checkpoint messages are never mutated and tool-call/result pairing
+    remains intact.
+    """
+    if os.environ.get("PULSEAI_MUTATION_PAYLOAD_COMPACTION", "").strip().lower() == "off":
+        return history
+
+    successful_ids: list[str] = []
+    for message in history:
+        if not isinstance(message, ToolMessage):
+            continue
+        if getattr(message, "name", "") not in _FILE_MUTATION_TOOLS:
+            continue
+        content = str(getattr(message, "content", "") or "").lstrip().lower()
+        if content.startswith(("error:", "❌", "failed:")):
+            continue
+        call_id = str(getattr(message, "tool_call_id", "") or "")
+        if call_id:
+            successful_ids.append(call_id)
+    redact_ids = set(successful_ids[:-max(0, keep_recent)] if keep_recent else successful_ids)
+    if not redact_ids:
+        return history
+
+    result: list[BaseMessage] = []
+    for message in history:
+        if not isinstance(message, AIMessage) or not getattr(message, "tool_calls", None):
+            result.append(message)
+            continue
+        changed = False
+        calls = []
+        for call in message.tool_calls:
+            cloned = dict(call)
+            if str(call.get("id") or "") in redact_ids and call.get("name") in _FILE_MUTATION_TOOLS:
+                args = dict(call.get("args") or {})
+                for key in _MUTATION_PAYLOAD_KEYS:
+                    value = args.get(key)
+                    if isinstance(value, str) and len(value) > len(_MUTATION_PAYLOAD_PLACEHOLDER):
+                        args[key] = _MUTATION_PAYLOAD_PLACEHOLDER
+                        changed = True
+                cloned["args"] = args
+            calls.append(cloned)
+        if not changed:
+            result.append(message)
+            continue
+        copier = getattr(message, "model_copy", None)
+        if callable(copier):
+            result.append(copier(update={"tool_calls": calls}))
+        else:  # langchain-core/pydantic v1 compatibility
+            result.append(message.copy(update={"tool_calls": calls}))
+    return result
+
 
 _EXTEND_PROMPT = (
     "You maintain the running summary of an AI coding session. Rewrite "
@@ -258,7 +327,8 @@ class HistoryCompactor:
         # to fit, so a 6KB file read was re-billed on every later call. Hermes
         # stores/replays bounded receipts; Pulse now does the same even below
         # the structural-compaction threshold.
-        summarized_fast = summarize_tools(history)
+        payload_compacted = compact_file_mutation_arguments(history)
+        summarized_fast = summarize_tools(payload_compacted)
         before_tokens = count_tokens(history, self._model)
         if count_tokens(summarized_fast, self._model) <= budget:
             return summarized_fast

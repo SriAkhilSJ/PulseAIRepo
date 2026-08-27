@@ -1,0 +1,10 @@
+﻿{
+    "http_status":  200,
+    "reason":  "Desktop Agent runs headless; shader compilation and visual verification deferred",
+    "url":  "http://127.0.0.1:4173/",
+    "local_dependency_result":  "PASS - three.module.js delivered locally (20738 bytes)",
+    "has_local_three":  true,
+    "has_shader":  true,
+    "verdict":  "PARTIAL - files served correctly, full browser interaction test requires headed browser",
+    "has_html":  true
+}

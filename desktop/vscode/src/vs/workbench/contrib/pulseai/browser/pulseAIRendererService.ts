@@ -9,7 +9,8 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { PulseAICommandId } from '../common/pulseAI.js';
 import { IPulseAIEngineService, PulseAIEngineSetupError, PulseAIEngineState } from '../common/pulseAIEngineService.js';
-import type { PulseClientMethod, PulseServerEvent } from '../common/pulseAIProtocol.js';
+import type { PulseClientMethod, PulseExecutionMode, PulseServerEvent } from '../common/pulseAIProtocol.js';
+import { PULSE_AI_WORKBENCH_CAPABILITIES } from '../common/pulseAIWorkbenchCapabilities.js';
 import { IPulseAIRendererService, PulseAISurface } from '../common/pulseAIRendererService.js';
 import { IPulseAIWorkbenchService } from '../common/pulseAIWorkbenchService.js';
 import {
@@ -63,6 +64,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private restartAttempts = 0;
 	private pendingPrompt: string | undefined;
 	private draft = '';
+	private mode: PulseExecutionMode = 'agent';
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
@@ -86,6 +88,11 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 
 	private readonly host: PulseAIRenderHost = {
 		setDraft: value => { this.draft = value; },
+		setMode: mode => {
+			if (this.running || this.mode === mode) { return; }
+			this.mode = mode;
+			this.render();
+		},
 		submitPrompt: text => { void this.submitPrompt(text); },
 		cancel: () => {
 			if (!this.running || this.cancelRequested) { return; }
@@ -115,6 +122,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		selectWorkspace: uri => this.selectWorkspace(uri),
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
 		openEngineSettings: () => { void this.commandService.executeCommand(PulseAICommandId.OpenSettings); },
+		openManager: () => { void this.commandService.executeCommand(PulseAICommandId.OpenManager); },
 	};
 
 	constructor(
@@ -134,7 +142,10 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.render();
 		}));
 		this._register(this.engineService.onDidReceiveFrame(frame => this.acceptFrame(frame)));
-		this._register(this.workbenchService.onDidChangeCapabilities(() => this.render()));
+		this._register(this.workbenchService.onDidChangeCapabilities(() => {
+			this.publishHostCapabilities();
+			this.render();
+		}));
 		this._register(toDisposable(() => {
 			if (this.renderFrame !== undefined) { cancelAnimationFrame(this.renderFrame); }
 			if (this.restartTimer !== undefined) { clearTimeout(this.restartTimer); }
@@ -231,6 +242,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			workspaceChoices: this.workspaceChoices,
 			engineSetupError: this.engineSetupError,
 			sessionId: this.sessionId,
+			mode: this.mode,
 			running: this.running,
 			cancelRequested: this.cancelRequested,
 			turnOutcome: this.turnOutcome,
@@ -284,6 +296,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.startPromise = this.engineService.start(workspace).then(() => {
 			this.engineSetupError = false;
 			if (resumeSession && this.engineService.state === PulseAIEngineState.Ready) {
+				this.publishHostCapabilities(resumeSession);
 				this.send({ type: 'session_resume', session_id: resumeSession, workspace });
 				this.send({ type: 'events_replay', session_id: resumeSession });
 			}
@@ -295,6 +308,102 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.render();
 		});
 		return this.startPromise;
+	}
+
+	private publishHostCapabilities(sessionId = this.sessionId): void {
+		const workspace = this.workspacePath;
+		if (!sessionId || !workspace || this.engineService.state !== PulseAIEngineState.Ready) { return; }
+		const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
+		const readIds = new Set([
+			'workspace.trust', 'editor.activeSelection', 'editor.dirtyText',
+			'diagnostics.markers', 'language.symbols', 'language.definitions',
+			'language.references', 'search.workspace', 'scm.state',
+		]);
+		const capabilities = PULSE_AI_WORKBENCH_CAPABILITIES
+			.filter(item => item.risk === 'read' && readIds.has(item.id))
+			.map(item => ({ ...item, ...statuses.get(item.id) }));
+		this.send({ type: 'host_capabilities_update', session_id: sessionId, workspace, capabilities });
+	}
+
+	private async invokeHostCapability(frame: Extract<PulseServerEvent, { type: 'host_tool_request' }>): Promise<void> {
+		const started = Date.now();
+		const workspace = this.workspacePath;
+		if (!this.sessionId || frame.session_id !== this.sessionId || !workspace || frame.workspace !== workspace) {
+			this.send({
+				type: 'host_tool_result', session_id: frame.session_id, workspace: frame.workspace,
+				request_id: frame.request_id, status: 'error',
+				error: 'host tool request does not match the active Pulse workspace/session',
+				duration_ms: Date.now() - started,
+			});
+			return;
+		}
+		const args = valueRecord(frame.arguments) ?? {};
+		try {
+			const status = this.workbenchService.getCapabilities().find(item => item.id === frame.capability_id);
+			if (status?.availability !== 'available') {
+				throw new Error(`host capability is ${status?.availability ?? 'unavailable'}: ${frame.capability_id}`);
+			}
+			let result: unknown;
+			switch (frame.capability_id) {
+				case 'workspace.trust':
+					result = { trusted: this.workbenchService.isWorkspaceTrusted() };
+					break;
+				case 'editor.activeSelection':
+					result = await this.workbenchService.getActiveEditorContext(args['includeVisibleText'] === true);
+					break;
+				case 'editor.dirtyText':
+					result = await this.workbenchService.getActiveEditorContext(true);
+					break;
+				case 'diagnostics.markers': {
+					const resources = Array.isArray(args['resources'])
+						? args['resources'].filter((item): item is string => typeof item === 'string').slice(0, 50)
+						: undefined;
+					result = this.workbenchService.getDiagnostics(resources);
+					break;
+				}
+				case 'language.symbols':
+					if (typeof args['resource'] !== 'string') { throw new Error('language.symbols requires resource'); }
+					result = await this.workbenchService.getDocumentSymbols(args['resource']);
+					break;
+				case 'language.definitions':
+				case 'language.references': {
+					if (typeof args['resource'] !== 'string') { throw new Error(`${frame.capability_id} requires resource`); }
+					const line = Number(args['line']);
+					const column = Number(args['column']);
+					if (!Number.isInteger(line) || line < 1 || !Number.isInteger(column) || column < 1) {
+						throw new Error(`${frame.capability_id} requires positive integer line and column`);
+					}
+					result = frame.capability_id === 'language.definitions'
+						? await this.workbenchService.getDefinitions(args['resource'], line, column)
+						: await this.workbenchService.getReferences(args['resource'], line, column);
+					break;
+				}
+				case 'search.workspace': {
+					if (typeof args['query'] !== 'string' || !args['query'].trim()) { throw new Error('search.workspace requires query'); }
+					const requested = Number(args['maxResults'] ?? 100);
+					const maxResults = Number.isFinite(requested) ? Math.max(1, Math.min(Math.trunc(requested), 500)) : 100;
+					result = await this.workbenchService.searchWorkspace(args['query'], maxResults);
+					break;
+				}
+				case 'scm.state':
+					result = this.workbenchService.getSCMState();
+					break;
+				default:
+					throw new Error(`host capability is not allowed: ${frame.capability_id}`);
+			}
+			this.send({
+				type: 'host_tool_result', session_id: frame.session_id, workspace,
+				request_id: frame.request_id, status: 'ok', result,
+				duration_ms: Date.now() - started,
+			});
+		} catch (error) {
+			this.send({
+				type: 'host_tool_result', session_id: frame.session_id, workspace,
+				request_id: frame.request_id, status: 'error',
+				error: error instanceof Error ? error.message : String(error),
+				duration_ms: Date.now() - started,
+			});
+		}
 	}
 
 	private async submitPrompt(text: string): Promise<void> {
@@ -322,7 +431,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.running = true;
 		this.cancelRequested = false;
 		this.turnOutcome = 'running';
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text });
+		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode });
 		this.render();
 	}
 
@@ -344,8 +453,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			}
 			return;
 		}
+		if (frame.type === 'host_tool_request') {
+			void this.invokeHostCapability(frame);
+			return;
+		}
 		if (frame.type === 'session_info') {
+			const previousSessionId = this.sessionId;
 			this.sessionId = frame.session_id;
+			if (previousSessionId !== frame.session_id) { this.publishHostCapabilities(frame.session_id); }
 			if (typeof frame.cancel_requested === 'boolean') { this.cancelRequested = frame.cancel_requested; }
 			for (const event of frame.events ?? []) {
 				const candidate = valueRecord(event);

@@ -1,0 +1,75 @@
+{
+  "utc_start": "2026-08-26T16:42:36.560533Z",
+  "utc_end": "2026-08-26T16:47:07.931942Z",
+  "repository_root": "D:\\pulseAIagent\\PulseAIRepo",
+  "repository_remote": "https://github.com/SriAkhilSJ/PulseAIRepo.git",
+  "branch": "arena/01a03741-pulseairepo",
+  "validation_head": "bed545ab2e382fdb58f072e817f7ec8c282436d8",
+  "repair_commit": "0370515cce811dd4d86d14379dd2729a94e640b1",
+  "prior_failed_evidence_commit": "22b1f8fd3aed688e6850ab254fb7b8131d929c21",
+  "repair_is_ancestor": true,
+  "checkout_clean_before": true,
+  "os": "Windows",
+  "python_version": "Python 3.14.4",
+  "focused_test_files": [
+    "src/tests/test_attempt11_product_delivery_boundary.py",
+    "src/tests/test_attempt11_completion_integrity.py",
+    "src/tests/test_retry_proxy_stream_cleanup.py",
+    "src/tests/test_run_bridge_turn.py",
+    "src/tests/test_bridge_transport.py",
+    "src/tests/test_bridge.py",
+    "src/tests/test_lab_fixes.py",
+    "src/tests/test_hermes_runtime_values.py",
+    "src/tests/test_autonomous_runtime_contract.py",
+    "src/tests/test_output_limit_recovery.py",
+    "src/tests/test_model_budgets.py",
+    "src/tests/test_iteration_budget.py",
+    "src/tests/test_execution_phases.py",
+    "src/tests/test_compaction.py"
+  ],
+  "focused_collected": 183,
+  "focused_passed": 183,
+  "focused_failed": 0,
+  "focused_skipped": 0,
+  "focused_exit": 0,
+  "fixture_detection": {
+    "exit_code": 1,
+    "finding_count": 0,
+    "expected": [
+      {
+        "kind": "missing-local-import",
+        "reference": "../vendor/three/three.module.min.js"
+      },
+      {
+        "kind": "missing-local-import",
+        "reference": "../vendor/three/controls/OrbitControls.js"
+      },
+      {
+        "kind": "undefined-shader-constant",
+        "reference": "MAX_STEPS_LOOP"
+      }
+    ]
+  },
+  "protocol_collected": 0,
+  "protocol_passed": 0,
+  "protocol_exit": null,
+  "generation_exit": null,
+  "compile_modules": [
+    "src/llm/factory.py",
+    "src/tools/terminal_tools.py",
+    "src/bridge/__main__.py",
+    "src/graphs/chat_graph.py",
+    "src/graphs/gates.py",
+    "src/graphs/budget.py",
+    "src/context/compaction.py",
+    "src/context/context_engine.py",
+    "src/context/workspace_integrity.py"
+  ],
+  "compile_exit": null,
+  "diff_exit": null,
+  "provider_probes": 0,
+  "provider_requests": 0,
+  "first_failed_boundary": "fixture_detection",
+  "deterministic_verdict": "DETERMINISTIC_FAIL",
+  "note": "This is not live runtime/product PASS evidence."
+}

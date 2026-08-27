@@ -1,0 +1,171 @@
+{
+  "started_at": "2026-08-27T08:34:34.008Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "mode": "full",
+  "prompt": "Pulse Agent UI provider-free CDP smoke",
+  "checks": {
+    "Agent composer is visible and enabled": "PASS",
+    "Agent header and Manager button are visible": "PASS",
+    "Agent shell has no horizontal overflow": "PASS",
+    "Mode menu exposes Agent, Plan, Debug, and Ask in order": "PASS",
+    "Every mode has an accessible description and radio-menu role": "PASS",
+    "Agent is initially selected": "PASS",
+    "Ask selection updates the functional mode control": "PASS",
+    "Execution mode picker": "PASS — four accessible modes; Ask selected and Agent restored through DOM interaction",
+    "Agent narrow responsive width is active": "PASS",
+    "Assistant response contains exact echo text": "PASS",
+    "Completed transcript contains completion receipt": "PASS",
+    "Pulse Manager opens as a visible editor surface": "PASS",
+    "Pulse Manager has no horizontal overflow": "PASS",
+    "Pulse Manager is rendered inside its responsive container range": "PASS",
+    "Pulse Manager responsive inspector behavior is active": "PASS",
+    "No renderer exceptions or console errors were observed": "PASS"
+  },
+  "snapshots": {
+    "agent_composer": {
+      "selector": "textarea.pulseai-composer-input",
+      "x": 982.3333740234375,
+      "y": 519.5416870117188,
+      "width": 277.66668701171875,
+      "height": 66.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "",
+      "clientWidth": 278,
+      "scrollWidth": 278
+    },
+    "agent_header": {
+      "selector": ".pulseai-agent-header",
+      "x": 971.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 72.0625,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManager",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "agent_shell": {
+      "selector": ".pulseai-agent-shell",
+      "x": 971.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 580,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManagerWhat can Pulse help with?Choose a mode, add the context that matters, and describe your goal.Understand codeFix diagnosticsReview changesAgentAgentBuild, change, and verifyPlanDesign before executionDebugDiagnose, fix, and retestAskExplain without using tools@ ContextEnter to sendShift+Enter for new line",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "manager_button": {
+      "selector": ".pulseai-agent-header-actions .pulseai-icon-button",
+      "x": 1179.4271240234375,
+      "y": 95.19792175292969,
+      "width": 81.23958587646484,
+      "height": 21,
+      "visible": true,
+      "enabled": true,
+      "text": "Manager",
+      "clientWidth": 81,
+      "scrollWidth": 81
+    },
+    "execution_modes": [
+      {
+        "label": "Agent",
+        "description": "Build, change, and verify",
+        "checked": "true",
+        "role": "menuitemradio"
+      },
+      {
+        "label": "Plan",
+        "description": "Design before execution",
+        "checked": "false",
+        "role": "menuitemradio"
+      },
+      {
+        "label": "Debug",
+        "description": "Diagnose, fix, and retest",
+        "checked": "false",
+        "role": "menuitemradio"
+      },
+      {
+        "label": "Ask",
+        "description": "Explain without using tools",
+        "checked": "false",
+        "role": "menuitemradio"
+      }
+    ],
+    "completed_transcript": {
+      "selector": ".pulseai-transcript-lane",
+      "x": 971.6666870117188,
+      "y": 142.0625,
+      "width": 299,
+      "height": 176.83334350585938,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completed",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "assistant_echo": {
+      "selector": ".pulseai-assistant-copy",
+      "x": 993.6666870117188,
+      "y": 243.75,
+      "width": 255,
+      "height": 20.14583396911621,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse Agent UI provider-free CDP smoke",
+      "clientWidth": 255,
+      "scrollWidth": 255
+    },
+    "manager_shell": {
+      "selector": ".pulseai-manager-shell",
+      "x": 348,
+      "y": 70,
+      "width": 623,
+      "height": 580,
+      "visible": true,
+      "enabled": true,
+      "text": "CONTROL PLANEWorkspacesFind workspace or agentPulseAIRepoPulse Agent UI provider-free CDP smokesession-889579f1fd954a60b4ce432d7fe4902eReady1 active sessionPulseAIRepo / session-8895Pulse Agent UI provider-free CDP smokePulse readySessionTools 0ChangesPulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completedAgentAgentBuild, change, and verifyPlanDesign before executionDebugDiagnose, fix, and retestAskExplain without using tools@ ContextEnter to sendShift+Ente",
+      "clientWidth": 623,
+      "scrollWidth": 623
+    },
+    "manager_main": {
+      "selector": ".pulseai-manager-main",
+      "x": 508,
+      "y": 70,
+      "width": 463,
+      "height": 580,
+      "visible": true,
+      "enabled": true,
+      "text": "PulseAIRepo / session-8895Pulse Agent UI provider-free CDP smokePulse readySessionTools 0ChangesPulse Agent UI provider-free CDP smokePulsePulse Agent UI provider-free CDP smokeRun completedAgentAgentBuild, change, and verifyPlanDesign before executionDebugDiagnose, fix, and retestAskExplain without using tools@ ContextEnter to sendShift+Enter for new line",
+      "clientWidth": 463,
+      "scrollWidth": 463
+    },
+    "manager_responsive": {
+      "containerWidth": 623,
+      "inspectorDisplay": "none",
+      "sidebarDisplay": "grid",
+      "mainWidth": 463
+    }
+  },
+  "console_errors": [],
+  "screenshots": [
+    "00-agent-mode-menu.png",
+    "01-agent-ready.png",
+    "02-agent-narrow.png",
+    "03-agent-echo-completed.png",
+    "04-manager-wide.png",
+    "05-manager-responsive.png"
+  ],
+  "overall": "PASS",
+  "target": {
+    "id": "E98C4DCB6CCAAA5273989E00CBF9F4F6",
+    "title": "Welcome - PulseAIRepo - PulseAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "finished_at": "2026-08-27T08:34:35.946Z"
+}

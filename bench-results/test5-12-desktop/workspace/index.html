@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>GARGANTUA — Schwarzschild Black Hole Raytracer</title>
+<meta name="description" content="Real-time Schwarzschild null-geodesic raytracer rendered fully in a GLSL fragment shader.">
+<style>
+:root{
+  --hud:#bfe3ff; --hud-dim:#5f7d94; --accent:#ffb45a; --bg:#000;
+  --mono:"Consolas","SFMono-Regular",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--hud);
+  font-family:var(--mono);font-size:12px;-webkit-font-smoothing:antialiased}
+canvas{display:block}
+#app{position:fixed;inset:0}
+.overlay{position:fixed;pointer-events:none;z-index:10}
+/* ---------- Telemetry HUD ---------- */
+#hud{top:14px;left:16px;line-height:1.55;text-shadow:0 0 6px rgba(60,140,255,.35)}
+#hud .t{color:var(--accent);letter-spacing:.18em;font-size:11px;margin-bottom:4px}
+#hud b{color:#fff;font-weight:600}
+#fps{display:inline-block;min-width:64px}
+/* ---------- Presets ---------- */
+#presets{bottom:14px;left:16px;display:flex;gap:6px;pointer-events:auto}
+.pbtn{background:rgba(8,20,32,.72);border:1px solid rgba(120,180,255,.28);color:var(--hud);
+  font:600 10px/1 var(--mono);letter-spacing:.1em;padding:9px 11px;border-radius:3px;cursor:pointer;
+  transition:.15s;text-transform:uppercase}
+.pbtn:hover,.pbtn.on{border-color:var(--accent);color:var(--accent);box-shadow:0 0 10px rgba(255,170,80,.25) inset}
+/* ---------- Debug / status ---------- */
+#debug{top:14px;right:16px;text-align:right;color:var(--hud-dim)}
+#debug b{color:#9fd0ff}
+#shotmsg{position:fixed;top:46%;left:50%;transform:translate(-50%,-50%);z-index:30;
+  background:rgba(5,15,26,.92);border:1px solid rgba(255,180,90,.5);color:var(--accent);
+  padding:12px 20px;border-radius:4px;display:none;letter-spacing:.12em}
+#errbox{position:fixed;inset:auto 8% 40px 8%;z-index:40;background:rgba(30,4,6,.95);
+  border:1px solid #ff5c5c;color:#ffd7d7;padding:14px 18px;border-radius:4px;display:none;
+  font-size:11px;white-space:pre-wrap;max-height:34vh;overflow:auto}
+#fallback{position:fixed;inset:0;z-index:50;display:none;place-items:center;background:#02040a;text-align:center;padding:24px}
+#fallback h2{color:var(--accent);margin-bottom:10px}
+/* ---------- Loader ---------- */
+#loader{position:fixed;inset:0;z-index:60;background:#010208;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;transition:opacity .6s}
+#loader .g{width:70px;height:70px;border-radius:50%;border:2px solid rgba(255,180,90,.2);
+  border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader .m{color:var(--hud-dim);letter-spacing:.2em;font-size:10px}
+#titlewrap{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:11;text-align:center;
+  pointer-events:none;transition:opacity 1.2s}
+#titlewrap h1{font:300 clamp(22px,4vw,44px)/1 var(--mono);letter-spacing:.42em;color:#eaf4ff;
+  text-shadow:0 0 22px rgba(90,160,255,.35),0 0 60px rgba(255,150,60,.15)}
+#titlewrap p{margin-top:8px;font-size:10px;letter-spacing:.3em;color:var(--hud-dim)}
+@media (max-width:720px){#hud,#debug{font-size:10px}#presets .pbtn{padding:7px 8px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="overlay" id="hud" hidden>
+  <div class="t">GARGANTUA · TELEMETRY</div>
+  <div>FPS <b id="fps">--</b> · <span id="reslabel">--</span></div>
+  <div>r&thinsp;/&thinsp;r<sub>s</sub> <b id="tcamr">--</b> · φ <b id="tcamphi">--</b>° · θ <b id="tcamtheta">--</b>°</div>
+  <div>dilation <b id="tdil">--</b> · grav z <b id="tgz">--</b> · doppler β <b id="tbeta">--</b></div>
+  <div>disk η<sub>e</sub> <b id="teta">--</b> · orbit t <b id="ttime">--</b>M · quality <b id="tq">--</b></div>
+  <div style="margin-top:4px;color:var(--hud-dim)" id="hathint">[H] help · [P] params · [0–9] debug · [C] path · [F] screenshot</div>
+</div>
+
+<div class="overlay" id="debug" hidden>
+  <div>debug view <b id="dbgv">0 · render</b></div>
+  <div id="statline">step &lt;<span id="steps">450</span>&gt; · plume <span id="pl">1</span>/128 px²</div>
+</div>
+
+<div id="titlewrap">
+  <h1>GARGANTUA</h1>
+  <p>SCHWARZSCHILD NULL GEODESIC RAYTRACER</p>
+</div>
+
+<div id="presets">
+  <button class="pbtn on" data-preset="orbit">Orbit</button>
+  <button class="pbtn" data-preset="dive">Dive</button>
+  <button class="pbtn" data-preset="edge">Edge-on</button>
+  <button class="pbtn" data-preset="far">Far vantage</button>
+  <button class="pbtn" data-preset="params">◉ Params</button>
+  <button class="pbtn" id="audioBtn">Audio ○</button>
+</div>
+
+<div id="shotmsg">SAVED FRAME → SCREENSHOT/</div>
+<div id="errbox"></div>
+<div id="fallback"><div><h2>WebGL unavailable</h2>
+  <p>This raytracer needs WebGL2 with floating-point render targets.<br>Please try a recent desktop Chrome, Edge or Firefox.</p></div></div>
+
+<div id="loader"><div class="g"></div><div class="m">COMPILING GEODESIC KERNEL…</div></div>
+
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}
+</script>
+<script type="module" src="./src/main.js"></script>
+<noscript style="color:#fff;display:block;padding:20px">JavaScript is required.</noscript>
+</body>
+</html>

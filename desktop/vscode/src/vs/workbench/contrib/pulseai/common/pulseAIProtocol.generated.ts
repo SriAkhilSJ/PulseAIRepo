@@ -6,6 +6,14 @@
 
 export const PULSE_AI_PROTOCOL_VERSION = 2 as const;
 
+export const PULSE_AI_EXECUTION_MODES = [
+	'agent',
+	'plan',
+	'debug',
+	'ask',
+] as const;
+export type PulseExecutionMode = (typeof PULSE_AI_EXECUTION_MODES)[number];
+
 export const PULSE_AI_CLIENT_METHODS = [
 	'hello',
 	'session_create',
@@ -25,6 +33,8 @@ export const PULSE_AI_CLIENT_METHODS = [
 	'subagent_cancel',
 	'subagent_result',
 	'events_replay',
+	'host_capabilities_update',
+	'host_tool_result',
 	'shutdown',
 ] as const;
 export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
@@ -35,6 +45,8 @@ export const PULSE_AI_SERVER_EVENTS = [
 	'events_replay',
 	'hello',
 	'llm.request',
+	'llm.response',
+	'host_tool_request',
 	'plan_updated',
 	'reasoning',
 	'runtime_degraded',

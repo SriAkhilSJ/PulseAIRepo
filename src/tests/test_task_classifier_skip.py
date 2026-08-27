@@ -44,9 +44,9 @@ ACKS = [
     # EARLIER approval branch (pinned below, quick path must not hijack).
     "ok", "okay", "okk", "okkk", "yes!", "yess", "yahh", "yep",
     "go", "do it", "sure", "sounds good",
-    "looks good", "go for it", "ok go", "yes please", "thanks", "thank you",
+    "looks good", "go for it", "ok go", "thanks", "thank you",
     "perfect 👍", "great", "cool", "nice", "bet", "lgtm", "roger",
-    "go ahead bro", "aight", "alright then", "✅", "🔥", "y",
+    "aight", "alright then", "✅", "🔥", "y",
 ]
 
 
@@ -98,6 +98,8 @@ NEEDS_LLM = [
     "the button looks broken",
     "ok but remove the sidebar",          # ack token + danger token ("remove")
     "yes, wait",                          # ack + danger ("wait")
+    "yes please",                         # contains reserved approval word
+    "go ahead bro",                       # contains reserved approval phrase
     "new taskbar styling in the editor",  # word-boundary guard
     "ok\nnow also add tests",             # multi-line never slam-dunks
     "",
