@@ -776,3 +776,27 @@
 	.pulseai-plan-strip-summary > .codicon-chevron-down,
 	.pulseai-composer-box { transition: none; }
 }
+
+/* ---- Copilot hiding (visual layer) ----
+ * The context-key layer in pulseAIHideCopilot.ts handles the watermark and
+ * onboarding surfaces. These rules hide the remaining Copilot chrome that
+ * persists because the entitlement service's async update cycle or the
+ * agent registration re-asserts context keys after our BlockStartup pass.
+ *
+ * Targets:
+ *   1. Status bar Copilot entry (#chat.statusBarEntry)
+ *   2. Title-bar "Open in Agents" widget (.open-in-agents-titlebar-widget)
+ *   3. Title-bar "Sign In" button (Copilot sign-in affordance)
+ *   4. Auxiliary-bar Copilot Chat icon (activity-workbench-view-extension-copilot-chat-*)
+ *   5. Copilot sparkle codicon in any toolbar/title bar
+ */
+#chat\.statusBarEntry,
+.activitybar [class*="activity-workbench-view-extension-copilot-chat"],
+.open-in-agents-titlebar-widget,
+.agent-status-input-area,
+.codicon-copilot,
+.codicon-chat-sparkle,
+[class*="titlebar"] .codicon-copilot,
+[class*="titlebar"] .codicon-chat-sparkle {
+	display: none !important;
+}

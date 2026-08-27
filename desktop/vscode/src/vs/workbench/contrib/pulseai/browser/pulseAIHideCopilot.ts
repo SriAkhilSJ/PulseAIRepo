@@ -23,6 +23,14 @@
  *   "hidden" state from LifecyclePhase.Starting onward, and calls
  *   IChatEntitlementService.setForceHidden(true) so Copilot's own gating
  *   agrees. Reversible by flipping `pulseai.hideBuiltInCopilotUI` to false.
+ *
+ *   The chat view's `when` clause has 3 OR paths:
+ *     (a) chatSetupHidden=false AND chatSetupDisabledInWorkspace=false
+ *     (b) chatPanelParticipantRegistered=true
+ *     (c) chatExtensionInvalid=true
+ *   Context key forcing kills (a), but Copilot's agent registration sets
+ *   (b) to true asynchronously, so we also deregister the view from the
+ *   container to definitively remove the CHAT tab.
  *--------------------------------------------------------------------------------------------*/
 
 import { localize2 } from '../../../../nls.js';
@@ -34,6 +42,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IChatEntitlementService } from '../../../../workbench/services/chat/common/chatEntitlementService.js';
+import { Extensions as ViewExtensions, IViewsRegistry, IViewContainersRegistry } from '../../../common/views.js';
 
 const SETTING_ID = 'pulseai.hideBuiltInCopilotUI';
 
@@ -79,6 +88,7 @@ class PulseHideCopilotContribution implements IWorkbenchContribution {
 		this.chatEnabledKey = new RawContextKey<boolean>('chatIsEnabled', true).bindTo(contextKeyService);
 
 		this.apply();
+		this.deregisterChatView();
 		this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(SETTING_ID) || e.affectsConfiguration('chat.disableAIFeatures')) {
 				this.apply();
@@ -103,9 +113,45 @@ class PulseHideCopilotContribution implements IWorkbenchContribution {
 		this.disabledKey.set(hide);
 		this.chatEnabledKey.set(!hide);
 	}
+
+	/**
+	 * Deregister the Copilot Chat view from its container.
+	 *
+	 * The chat view container (chatParticipant.contribution.ts:71) has a
+	 * `when` clause with 3 OR paths. Context key forcing only kills path (a).
+	 * Path (b) (`chatPanelParticipantRegistered=true`) is set asynchronously
+	 * by ChatAgentService when the Copilot extension registers its agent,
+	 * overriding our context key. Rather than race with Copilot's agent
+	 * registration, we deregister the view from the container entirely.
+	 *
+	 * The container is registered with `hideIfEmpty: true`, so once the view
+	 * is removed, the container automatically disappears from the auxiliary bar.
+	 *
+	 * This does NOT edit Copilot source — we only call the public views API.
+	 */
+	private deregisterChatView(): void {
+		try {
+			const viewContainersRegistry = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry);
+			const viewsRegistry = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
+
+			const chatContainer = viewContainersRegistry.get('workbench.panel.chat');
+			if (!chatContainer) {
+				return; // Chat container not registered — nothing to do
+			}
+
+			const chatViews = viewsRegistry.getViews(chatContainer);
+			if (chatViews.length > 0) {
+				viewsRegistry.deregisterViews(chatViews, chatContainer);
+			}
+		} catch {
+			// If the registry is not ready or the container doesn't exist yet,
+			// silently skip. The context key forcing above still handles the
+			// watermark and title bar surfaces.
+		}
+	}
 }
 
-registerWorkbenchContribution2(PulseHideCopilotContribution.ID, PulseHideCopilotContribution, WorkbenchPhase.BlockStartup);
+registerWorkbenchContribution2(PulseHideCopilotContribution.ID, PulseHideCopilotContribution, WorkbenchPhase.AfterRestored);
 
 // Manual toggle command (Command Palette only) so a power user can flip
 // this without editing settings JSON.

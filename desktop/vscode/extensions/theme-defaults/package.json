@@ -90,6 +90,7 @@
     "configurationDefaults": {
       "workbench.colorTheme": "PulseAI Dark",
       "chat.disableAIFeatures": true,
+      "chat.titleBar.signIn.enabled": false,
       "workbench.welcomePage.experimentalOnboarding": false,
       "workbench.startupEditor": "none"
     }

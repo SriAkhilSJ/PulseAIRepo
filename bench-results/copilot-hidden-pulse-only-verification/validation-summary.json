@@ -1,0 +1,37 @@
+{
+  "source_commit": "7d2d8473f7a84e34734dde897880d7f60ae7d203",
+  "branch": "main",
+  "provider_requests": 0,
+  "focused_pytest_exit": 0,
+  "focused_pytest_count": "65 passed",
+  "protocol_generation_exit": 0,
+  "desktop_syntax_exit": 0,
+  "ui_build_exit": 0,
+  "desktop_typecheck_exit": 0,
+  "desktop_layers_exit": 0,
+  "desktop_compile_exit": 0,
+  "cdp_launch_exit": 0,
+  "screenshots": {
+    "auxbar_no_chat_tab": "PASS",
+    "watermark_no_open_chat": "PASS",
+    "titlebar_no_copilot_sparkle": "PASS",
+    "pulse_composer_visible": "PASS",
+    "mode_menu_present": "PASS"
+  },
+  "host_sensors": {
+    "no_copilot_chat": "PASS",
+    "no_mcp_invoke": "PASS",
+    "pulse_view_present": "PASS"
+  },
+  "phase1_inventory": {
+    "docs_present": "PASS",
+    "copilot_not_deleted": "PASS",
+    "default_chat_agent_present": "PASS",
+    "chat_disable_ai_features": "PASS",
+    "chat_titlebar_signin_disabled": "PASS",
+    "hide_copilot_contribution": "PASS"
+  },
+  "renderer_console_errors": 0,
+  "overall": "PASS",
+  "first_failed_boundary": "none"
+}
