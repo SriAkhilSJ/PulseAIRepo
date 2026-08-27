@@ -1,0 +1,8 @@
+﻿npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm notice run code-oss-dev@1.134.0 valid-layers-check
+npm notice run node build/checker/layersChecker.ts && node build/checker/layersTypeCheck.ts

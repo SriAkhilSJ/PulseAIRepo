@@ -1,0 +1,25 @@
+﻿npm notice run pulseai-ui-lab@0.1.0 check:desktop-syntax
+npm notice run node scripts/check-desktop-syntax.mjs
+syntax OK browser\pulseAI.contribution.ts
+syntax OK browser\pulseAIHideCopilot.ts
+syntax OK browser\pulseAIManagerEditor.ts
+syntax OK browser\pulseAIManagerInput.ts
+syntax OK browser\pulseAIRenderer.ts
+syntax OK browser\pulseAIRendererService.ts
+syntax OK browser\pulseAIUnavailableEngineService.ts
+syntax OK browser\pulseAIViewPane.ts
+syntax OK browser\pulseAIWorkbenchService.ts
+syntax OK common\pulseAI.ts
+syntax OK common\pulseAIEngineService.ts
+syntax OK common\pulseAIProtocol.generated.ts
+syntax OK common\pulseAIProtocol.ts
+syntax OK common\pulseAIRendererService.ts
+syntax OK common\pulseAIToolCatalog.ts
+syntax OK common\pulseAIWorkbenchCapabilities.ts
+syntax OK common\pulseAIWorkbenchService.ts
+syntax OK common\pulseAIWorkerService.ts
+syntax OK electron-browser\pulseAI.desktop.contribution.ts
+syntax OK electron-browser\pulseAIEngineService.ts
+syntax OK node\pulseAIWorkerMain.ts
+syntax OK node\pulseAIWorkerProcessService.ts
+22 first-party contribution TypeScript files parsed

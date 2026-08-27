@@ -1,0 +1,361 @@
+﻿npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm notice run code-oss-dev@1.134.0 compile
+npm notice run npm-run-all2 -lp compile-client compile-copilot
+[compile-client ] npm warn Unknown env config "build-from-source". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "disturl". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "ms-build-id". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "runtime". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "target". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "timeout". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "build-from-source". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "disturl". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "ms-build-id". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "runtime". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "target". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "timeout". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm notice run code-oss-dev@1.134.0 compile-client
+[compile-client ] npm notice run npm run gulp compile
+[compile-copilot] npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm notice run code-oss-dev@1.134.0 compile-copilot
+[compile-copilot] npm notice run npm --prefix extensions/copilot run compile
+[compile-client ] npm warn Unknown env config "build-from-source". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "disturl". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "ms-build-id". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "runtime". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "target". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown env config "timeout". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-client ] npm notice run code-oss-dev@1.134.0 gulp
+[compile-client ] npm notice run node --experimental-strip-types --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js compile
+[compile-copilot] npm warn Unknown env config "build-from-source". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "disturl". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "ms-build-id". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "runtime". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "target". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown env config "timeout". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[compile-copilot] npm notice run copilot-chat@0.62.0 compile
+[compile-copilot] npm notice run node .esbuild.mts --dev
+[compile-copilot] 
+[compile-copilot]   node_modules\@vscode\copilot-typescript-server-plugin\dist\main.js   250.3kb
+[compile-copilot]   ...odules\@vscode\copilot-typescript-server-plugin\dist\main.js.map  146.8kb
+[compile-copilot] 
+[compile-copilot] Done in 320ms
+[compile-copilot] 
+[compile-copilot]   .vscode\extensions\test-extension\dist\simulation-extension.js      372.7kb
+[compile-copilot]   .vscode\extensions\test-extension\dist\simulation-extension.js.map  240.7kb
+[compile-copilot] 
+[compile-copilot] Done in 332ms
+[compile-copilot] 
+[compile-copilot]   dist\suggestionsPanelWebview.js      204.0kb
+[compile-copilot]   dist\suggestionsPanelWebview.js.map  109.7kb
+[compile-copilot] 
+[compile-copilot] Done in 840ms
+[compile-copilot] 
+[compile-copilot]   dist\web.js      1.9mb
+[compile-copilot]   dist\web.js.map  1.0mb
+[compile-copilot] 
+[compile-copilot] Done in 895ms
+[compile-copilot] 
+[compile-copilot]   dist\simulationWorkbench.js      2.9mb
+[compile-copilot]   dist\simulationWorkbench.js.map  1.6mb
+[compile-copilot] 
+[compile-copilot] Done in 3810ms
+[compile-copilot] 
+[compile-copilot]   dist\simulationMain.js      29.7mb
+[compile-copilot]   dist\simulationMain.js.map  15.1mb
+[compile-copilot] 
+[compile-copilot] Done in 5625ms
+[compile-copilot] 
+[compile-copilot]   dist\sanity-test-extension.js   31.3mb
+[compile-copilot]   dist\test-extension.js          31.2mb
+[compile-copilot]   dist\extension.js               29.6mb
+[compile-copilot]   dist\worker2.js                271.3kb
+[compile-copilot]   dist\diffWorker.js             263.5kb
+[compile-copilot]   ...and 13 more output files...
+[compile-copilot] 
+[compile-copilot] Done in 6418ms
+[compile-client ] [[90m09:26:00[39m] Using gulpfile D:\pulseAIagent\PulseAIRepo\desktop\vscode\gulpfile.mjs
+[compile-client ] [[90m09:26:00[39m] Starting 'compile'...
+[compile-client ] [[90m09:26:00[39m] Starting [36mmonaco-typecheck[39m ...
+[compile-client ] [[90m09:26:01[39m] Finished [36mmonaco-typecheck[39m after [35m140 ms[39m
+[compile-client ] [[90m09:26:01[39m] Starting [36mclean-out[39m ...
+[compile-client ] [[90m09:26:08[39m] Finished [36mclean-out[39m after [35m7333 ms[39m
+[compile-client ] [[90m09:26:08[39m] Starting [36mcopy-codicons[39m ...
+[compile-client ] [[90m09:26:08[39m] Finished [36mcopy-codicons[39m after [35m4 ms[39m
+[compile-client ] [[90m09:26:08[39m] Starting [36mcompile-api-proposal-names[39m ...
+[compile-client ] [[90m09:26:08[39m] Starting [32mcompilation[39m[34m api-proposal-names[39m...
+[compile-client ] [[90m09:26:08[39m] Finished [32mcompilation[39m[34m api-proposal-names[39m with 0 errors after [35m166 ms[39m
+[compile-client ] [[90m09:26:08[39m] Finished [36mcompile-api-proposal-names[39m after [35m185 ms[39m
+[compile-client ] [[90m09:26:08[39m] Starting [36mcompile-extension-point-names[39m ...
+[compile-client ] [[90m09:26:08[39m] Starting [32mcompilation[39m[34m extension-point-names[39m...
+[compile-client ] [[90m09:26:10[39m] Finished [32mcompilation[39m[34m extension-point-names[39m with 0 errors after [35m1982 ms[39m
+[compile-client ] [[90m09:26:10[39m] Finished [36mcompile-extension-point-names[39m after [35m1985 ms[39m
+[compile-client ] [[90m09:26:10[39m] Starting [36mcompile-src[39m ...
+[compile-client ] [[90m09:26:28[39m] Starting [32mcompilation[39m...
+[compile-client ] (node:22812) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+[compile-client ] (Use `node --trace-deprecation ...` to show where the warning was created)
+[compile-client ] [[90m09:27:03[39m] Finished [32mcompilation[39m with 0 errors after [35m34609 ms[39m
+[compile-client ] [[90m09:27:35[39m] Finished [32mcompile-src[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\src\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:35[39m] Finished [36mcompile-src[39m after [35m85315 ms[39m
+[compile-client ] [[90m09:27:35[39m] Starting [36mcompile-client[39m ...
+[compile-client ] [[90m09:27:35[39m] Finished [36mcompile-client[39m after [35m0 ms[39m
+[compile-client ] [[90m09:27:35[39m] Starting [36mclean-extension-configuration-editing[39m ...
+[compile-client ] [[90m09:27:35[39m] Finished [36mclean-extension-configuration-editing[39m after [35m15 ms[39m
+[compile-client ] [[90m09:27:35[39m] Starting [36mcompile-extension:configuration-editing[39m ...
+[compile-client ] [[90m09:27:37[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\configuration-editing\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:37[39m] Finished [36mcompile-extension:configuration-editing[39m after [35m1769 ms[39m
+[compile-client ] [[90m09:27:37[39m] Starting [36mclean-extension-css-language-features-client[39m ...
+[compile-client ] [[90m09:27:37[39m] Finished [36mclean-extension-css-language-features-client[39m after [35m16 ms[39m
+[compile-client ] [[90m09:27:37[39m] Starting [36mcompile-extension:css-language-features-client[39m ...
+[compile-client ] [[90m09:27:38[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\css-language-features\client\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:38[39m] Finished [36mcompile-extension:css-language-features-client[39m after [35m848 ms[39m
+[compile-client ] [[90m09:27:38[39m] Starting [36mclean-extension-css-language-features-server[39m ...
+[compile-client ] [[90m09:27:38[39m] Finished [36mclean-extension-css-language-features-server[39m after [35m23 ms[39m
+[compile-client ] [[90m09:27:38[39m] Starting [36mcompile-extension:css-language-features-server[39m ...
+[compile-client ] [[90m09:27:39[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\css-language-features\server\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:39[39m] Finished [36mcompile-extension:css-language-features-server[39m after [35m756 ms[39m
+[compile-client ] [[90m09:27:39[39m] Starting [36mclean-extension-debug-auto-launch[39m ...
+[compile-client ] [[90m09:27:39[39m] Finished [36mclean-extension-debug-auto-launch[39m after [35m5 ms[39m
+[compile-client ] [[90m09:27:39[39m] Starting [36mcompile-extension:debug-auto-launch[39m ...
+[compile-client ] [[90m09:27:40[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\debug-auto-launch\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:40[39m] Finished [36mcompile-extension:debug-auto-launch[39m after [35m614 ms[39m
+[compile-client ] [[90m09:27:40[39m] Starting [36mclean-extension-debug-server-ready[39m ...
+[compile-client ] [[90m09:27:40[39m] Finished [36mclean-extension-debug-server-ready[39m after [35m9 ms[39m
+[compile-client ] [[90m09:27:40[39m] Starting [36mcompile-extension:debug-server-ready[39m ...
+[compile-client ] [[90m09:27:40[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\debug-server-ready\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:40[39m] Finished [36mcompile-extension:debug-server-ready[39m after [35m691 ms[39m
+[compile-client ] [[90m09:27:40[39m] Starting [36mclean-extension-emmet[39m ...
+[compile-client ] [[90m09:27:40[39m] Finished [36mclean-extension-emmet[39m after [35m36 ms[39m
+[compile-client ] [[90m09:27:40[39m] Starting [36mcompile-extension:emmet[39m ...
+[compile-client ] [[90m09:27:41[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\emmet\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:41[39m] Finished [36mcompile-extension:emmet[39m after [35m529 ms[39m
+[compile-client ] [[90m09:27:41[39m] Starting [36mclean-extension-extension-editing[39m ...
+[compile-client ] [[90m09:27:41[39m] Finished [36mclean-extension-extension-editing[39m after [35m12 ms[39m
+[compile-client ] [[90m09:27:41[39m] Starting [36mcompile-extension:extension-editing[39m ...
+[compile-client ] [[90m09:27:42[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\extension-editing\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:42[39m] Finished [36mcompile-extension:extension-editing[39m after [35m823 ms[39m
+[compile-client ] [[90m09:27:42[39m] Starting [36mclean-extension-git[39m ...
+[compile-client ] [[90m09:27:42[39m] Finished [36mclean-extension-git[39m after [35m61 ms[39m
+[compile-client ] [[90m09:27:42[39m] Starting [36mcompile-extension:git[39m ...
+[compile-client ] [[90m09:27:43[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\git\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:43[39m] Finished [36mcompile-extension:git[39m after [35m1218 ms[39m
+[compile-client ] [[90m09:27:43[39m] Starting [36mclean-extension-git-base[39m ...
+[compile-client ] [[90m09:27:43[39m] Finished [36mclean-extension-git-base[39m after [35m17 ms[39m
+[compile-client ] [[90m09:27:43[39m] Starting [36mcompile-extension:git-base[39m ...
+[compile-client ] [[90m09:27:44[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\git-base\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:44[39m] Finished [36mcompile-extension:git-base[39m after [35m757 ms[39m
+[compile-client ] [[90m09:27:44[39m] Starting [36mclean-extension-github[39m ...
+[compile-client ] [[90m09:27:44[39m] Finished [36mclean-extension-github[39m after [35m19 ms[39m
+[compile-client ] [[90m09:27:44[39m] Starting [36mcompile-extension:github[39m ...
+[compile-client ] [[90m09:27:44[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\github\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:44[39m] Finished [36mcompile-extension:github[39m after [35m733 ms[39m
+[compile-client ] [[90m09:27:44[39m] Starting [36mclean-extension-github-authentication[39m ...
+[compile-client ] [[90m09:27:44[39m] Finished [36mclean-extension-github-authentication[39m after [35m23 ms[39m
+[compile-client ] [[90m09:27:44[39m] Starting [36mcompile-extension:github-authentication[39m ...
+[compile-client ] [[90m09:27:45[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\github-authentication\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:45[39m] Finished [36mcompile-extension:github-authentication[39m after [35m847 ms[39m
+[compile-client ] [[90m09:27:45[39m] Starting [36mclean-extension-grunt[39m ...
+[compile-client ] [[90m09:27:45[39m] Finished [36mclean-extension-grunt[39m after [35m5 ms[39m
+[compile-client ] [[90m09:27:45[39m] Starting [36mcompile-extension:grunt[39m ...
+[compile-client ] [[90m09:27:46[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\grunt\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:46[39m] Finished [36mcompile-extension:grunt[39m after [35m609 ms[39m
+[compile-client ] [[90m09:27:46[39m] Starting [36mclean-extension-gulp[39m ...
+[compile-client ] [[90m09:27:46[39m] Finished [36mclean-extension-gulp[39m after [35m4 ms[39m
+[compile-client ] [[90m09:27:46[39m] Starting [36mcompile-extension:gulp[39m ...
+[compile-client ] [[90m09:27:47[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\gulp\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:47[39m] Finished [36mcompile-extension:gulp[39m after [35m672 ms[39m
+[compile-client ] [[90m09:27:47[39m] Starting [36mclean-extension-html-language-features-client[39m ...
+[compile-client ] [[90m09:27:47[39m] Finished [36mclean-extension-html-language-features-client[39m after [35m9 ms[39m
+[compile-client ] [[90m09:27:47[39m] Starting [36mcompile-extension:html-language-features-client[39m ...
+[compile-client ] [[90m09:27:47[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\html-language-features\client\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:47[39m] Finished [36mcompile-extension:html-language-features-client[39m after [35m841 ms[39m
+[compile-client ] [[90m09:27:47[39m] Starting [36mclean-extension-html-language-features-server[39m ...
+[compile-client ] [[90m09:27:47[39m] Finished [36mclean-extension-html-language-features-server[39m after [35m47 ms[39m
+[compile-client ] [[90m09:27:47[39m] Starting [36mcompile-extension:html-language-features-server[39m ...
+[compile-client ] [[90m09:27:48[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\html-language-features\server\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:48[39m] Finished [36mcompile-extension:html-language-features-server[39m after [35m1009 ms[39m
+[compile-client ] [[90m09:27:48[39m] Starting [36mclean-extension-ipynb[39m ...
+[compile-client ] [[90m09:27:49[39m] Finished [36mclean-extension-ipynb[39m after [35m21 ms[39m
+[compile-client ] [[90m09:27:49[39m] Starting [36mcompile-extension:ipynb[39m ...
+[compile-client ] [[90m09:27:50[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\ipynb\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:50[39m] Finished [36mcompile-extension:ipynb[39m after [35m1309 ms[39m
+[compile-client ] [[90m09:27:50[39m] Starting [36mclean-extension-jake[39m ...
+[compile-client ] [[90m09:27:50[39m] Finished [36mclean-extension-jake[39m after [35m5 ms[39m
+[compile-client ] [[90m09:27:50[39m] Starting [36mcompile-extension:jake[39m ...
+[compile-client ] [[90m09:27:50[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\jake\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:50[39m] Finished [36mcompile-extension:jake[39m after [35m638 ms[39m
+[compile-client ] [[90m09:27:50[39m] Starting [36mclean-extension-json-language-features-client[39m ...
+[compile-client ] [[90m09:27:50[39m] Finished [36mclean-extension-json-language-features-client[39m after [35m11 ms[39m
+[compile-client ] [[90m09:27:50[39m] Starting [36mcompile-extension:json-language-features-client[39m ...
+[compile-client ] [[90m09:27:51[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\json-language-features\client\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:51[39m] Finished [36mcompile-extension:json-language-features-client[39m after [35m905 ms[39m
+[compile-client ] [[90m09:27:51[39m] Starting [36mclean-extension-json-language-features-server[39m ...
+[compile-client ] [[90m09:27:51[39m] Finished [36mclean-extension-json-language-features-server[39m after [35m12 ms[39m
+[compile-client ] [[90m09:27:51[39m] Starting [36mcompile-extension:json-language-features-server[39m ...
+[compile-client ] [[90m09:27:52[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\json-language-features\server\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:52[39m] Finished [36mcompile-extension:json-language-features-server[39m after [35m763 ms[39m
+[compile-client ] [[90m09:27:52[39m] Starting [36mclean-extension-markdown-language-features[39m ...
+[compile-client ] [[90m09:27:52[39m] Finished [36mclean-extension-markdown-language-features[39m after [35m75 ms[39m
+[compile-client ] [[90m09:27:52[39m] Starting [36mcompile-extension:markdown-language-features[39m ...
+[compile-client ] [[90m09:27:53[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:53[39m] Finished [36mcompile-extension:markdown-language-features[39m after [35m786 ms[39m
+[compile-client ] [[90m09:27:53[39m] Starting [36mclean-extension-markdown-math[39m ...
+[compile-client ] [[90m09:27:53[39m] Finished [36mclean-extension-markdown-math[39m after [35m7 ms[39m
+[compile-client ] [[90m09:27:53[39m] Starting [36mcompile-extension:markdown-math[39m ...
+[compile-client ] [[90m09:27:53[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-math\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:53[39m] Finished [36mcompile-extension:markdown-math[39m after [35m276 ms[39m
+[compile-client ] [[90m09:27:53[39m] Starting [36mclean-extension-media-preview[39m ...
+[compile-client ] [[90m09:27:53[39m] Finished [36mclean-extension-media-preview[39m after [35m15 ms[39m
+[compile-client ] [[90m09:27:53[39m] Starting [36mcompile-extension:media-preview[39m ...
+[compile-client ] [[90m09:27:54[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\media-preview\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:54[39m] Finished [36mcompile-extension:media-preview[39m after [35m685 ms[39m
+[compile-client ] [[90m09:27:54[39m] Starting [36mclean-extension-merge-conflict[39m ...
+[compile-client ] [[90m09:27:54[39m] Finished [36mclean-extension-merge-conflict[39m after [35m14 ms[39m
+[compile-client ] [[90m09:27:54[39m] Starting [36mcompile-extension:merge-conflict[39m ...
+[compile-client ] [[90m09:27:55[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\merge-conflict\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:55[39m] Finished [36mcompile-extension:merge-conflict[39m after [35m598 ms[39m
+[compile-client ] [[90m09:27:55[39m] Starting [36mclean-extension-mermaid-markdown-features[39m ...
+[compile-client ] [[90m09:27:55[39m] Finished [36mclean-extension-mermaid-markdown-features[39m after [35m12 ms[39m
+[compile-client ] [[90m09:27:55[39m] Starting [36mcompile-extension:mermaid-markdown-features[39m ...
+[compile-client ] [[90m09:27:55[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\mermaid-markdown-features\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:55[39m] Finished [36mcompile-extension:mermaid-markdown-features[39m after [35m666 ms[39m
+[compile-client ] [[90m09:27:55[39m] Starting [36mclean-extension-terminal-suggest[39m ...
+[compile-client ] [[90m09:27:55[39m] Finished [36mclean-extension-terminal-suggest[39m after [35m132 ms[39m
+[compile-client ] [[90m09:27:55[39m] Starting [36mcompile-extension:terminal-suggest[39m ...
+[compile-client ] [[90m09:27:57[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\terminal-suggest\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:57[39m] Finished [36mcompile-extension:terminal-suggest[39m after [35m1652 ms[39m
+[compile-client ] [[90m09:27:57[39m] Starting [36mclean-extension-microsoft-authentication[39m ...
+[compile-client ] [[90m09:27:57[39m] Finished [36mclean-extension-microsoft-authentication[39m after [35m52 ms[39m
+[compile-client ] [[90m09:27:57[39m] Starting [36mcompile-extension:microsoft-authentication[39m ...
+[compile-client ] [[90m09:27:58[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\microsoft-authentication\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:58[39m] Finished [36mcompile-extension:microsoft-authentication[39m after [35m466 ms[39m
+[compile-client ] [[90m09:27:58[39m] Starting [36mclean-extension-notebook-renderers[39m ...
+[compile-client ] [[90m09:27:58[39m] Finished [36mclean-extension-notebook-renderers[39m after [35m15 ms[39m
+[compile-client ] [[90m09:27:58[39m] Starting [36mcompile-extension:notebook-renderers[39m ...
+[compile-client ] [[90m09:27:58[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\notebook-renderers\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:58[39m] Finished [36mcompile-extension:notebook-renderers[39m after [35m515 ms[39m
+[compile-client ] [[90m09:27:58[39m] Starting [36mclean-extension-npm[39m ...
+[compile-client ] [[90m09:27:58[39m] Finished [36mclean-extension-npm[39m after [35m16 ms[39m
+[compile-client ] [[90m09:27:58[39m] Starting [36mcompile-extension:npm[39m ...
+[compile-client ] [[90m09:27:59[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\npm\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:59[39m] Finished [36mcompile-extension:npm[39m after [35m682 ms[39m
+[compile-client ] [[90m09:27:59[39m] Starting [36mclean-extension-php-language-features[39m ...
+[compile-client ] [[90m09:27:59[39m] Finished [36mclean-extension-php-language-features[39m after [35m11 ms[39m
+[compile-client ] [[90m09:27:59[39m] Starting [36mcompile-extension:php-language-features[39m ...
+[compile-client ] [[90m09:27:59[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\php-language-features\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:27:59[39m] Finished [36mcompile-extension:php-language-features[39m after [35m631 ms[39m
+[compile-client ] [[90m09:27:59[39m] Starting [36mclean-extension-references-view[39m ...
+[compile-client ] [[90m09:27:59[39m] Finished [36mclean-extension-references-view[39m after [35m14 ms[39m
+[compile-client ] [[90m09:27:59[39m] Starting [36mcompile-extension:references-view[39m ...
+[compile-client ] [[90m09:28:00[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\references-view\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:00[39m] Finished [36mcompile-extension:references-view[39m after [35m714 ms[39m
+[compile-client ] [[90m09:28:00[39m] Starting [36mclean-extension-search-result[39m ...
+[compile-client ] [[90m09:28:00[39m] Finished [36mclean-extension-search-result[39m after [35m6 ms[39m
+[compile-client ] [[90m09:28:00[39m] Starting [36mcompile-extension:search-result[39m ...
+[compile-client ] [[90m09:28:01[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\search-result\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:01[39m] Finished [36mcompile-extension:search-result[39m after [35m669 ms[39m
+[compile-client ] [[90m09:28:01[39m] Starting [36mclean-extension-simple-browser[39m ...
+[compile-client ] [[90m09:28:01[39m] Finished [36mclean-extension-simple-browser[39m after [35m9 ms[39m
+[compile-client ] [[90m09:28:01[39m] Starting [36mcompile-extension:simple-browser[39m ...
+[compile-client ] [[90m09:28:02[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\simple-browser\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:02[39m] Finished [36mcompile-extension:simple-browser[39m after [35m681 ms[39m
+[compile-client ] [[90m09:28:02[39m] Starting [36mclean-extension-tunnel-forwarding[39m ...
+[compile-client ] [[90m09:28:02[39m] Finished [36mclean-extension-tunnel-forwarding[39m after [35m7 ms[39m
+[compile-client ] [[90m09:28:02[39m] Starting [36mcompile-extension:tunnel-forwarding[39m ...
+[compile-client ] [[90m09:28:02[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\tunnel-forwarding\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:02[39m] Finished [36mcompile-extension:tunnel-forwarding[39m after [35m867 ms[39m
+[compile-client ] [[90m09:28:02[39m] Starting [36mclean-extension-typescript-language-features-web[39m ...
+[compile-client ] [[90m09:28:02[39m] Finished [36mclean-extension-typescript-language-features-web[39m after [35m5 ms[39m
+[compile-client ] [[90m09:28:02[39m] Starting [36mcompile-extension:typescript-language-features-web[39m ...
+[compile-client ] [[90m09:28:03[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\typescript-language-features\web\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:03[39m] Finished [36mcompile-extension:typescript-language-features-web[39m after [35m289 ms[39m
+[compile-client ] [[90m09:28:03[39m] Starting [36mclean-extension-typescript-language-features[39m ...
+[compile-client ] [[90m09:28:03[39m] Finished [36mclean-extension-typescript-language-features[39m after [35m118 ms[39m
+[compile-client ] [[90m09:28:03[39m] Starting [36mcompile-extension:typescript-language-features[39m ...
+[compile-client ] [[90m09:28:04[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\typescript-language-features\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:04[39m] Finished [36mcompile-extension:typescript-language-features[39m after [35m1413 ms[39m
+[compile-client ] [[90m09:28:04[39m] Starting [36mclean-extension-vscode-api-tests[39m ...
+[compile-client ] [[90m09:28:04[39m] Finished [36mclean-extension-vscode-api-tests[39m after [35m40 ms[39m
+[compile-client ] [[90m09:28:04[39m] Starting [36mcompile-extension:vscode-api-tests[39m ...
+[compile-client ] [[90m09:28:05[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\vscode-api-tests\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:05[39m] Finished [36mcompile-extension:vscode-api-tests[39m after [35m812 ms[39m
+[compile-client ] [[90m09:28:05[39m] Starting [36mclean-extension-vscode-colorize-tests[39m ...
+[compile-client ] [[90m09:28:05[39m] Finished [36mclean-extension-vscode-colorize-tests[39m after [35m8 ms[39m
+[compile-client ] [[90m09:28:05[39m] Starting [36mcompile-extension:vscode-colorize-tests[39m ...
+[compile-client ] [[90m09:28:06[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\vscode-colorize-tests\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:06[39m] Finished [36mcompile-extension:vscode-colorize-tests[39m after [35m688 ms[39m
+[compile-client ] [[90m09:28:06[39m] Starting [36mclean-extension-vscode-colorize-perf-tests[39m ...
+[compile-client ] [[90m09:28:06[39m] Finished [36mclean-extension-vscode-colorize-perf-tests[39m after [35m7 ms[39m
+[compile-client ] [[90m09:28:06[39m] Starting [36mcompile-extension:vscode-colorize-perf-tests[39m ...
+[compile-client ] [[90m09:28:06[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\vscode-colorize-perf-tests\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:06[39m] Finished [36mcompile-extension:vscode-colorize-perf-tests[39m after [35m624 ms[39m
+[compile-client ] [[90m09:28:06[39m] Starting [36mclean-extension-vscode-test-resolver[39m ...
+[compile-client ] [[90m09:28:06[39m] Finished [36mclean-extension-vscode-test-resolver[39m after [35m10 ms[39m
+[compile-client ] [[90m09:28:06[39m] Starting [36mcompile-extension:vscode-test-resolver[39m ...
+[compile-client ] [[90m09:28:07[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\vscode-test-resolver\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:07[39m] Finished [36mcompile-extension:vscode-test-resolver[39m after [35m783 ms[39m
+[compile-client ] [[90m09:28:07[39m] Starting [36mclean-extension-vscode-selfhost-test-provider[39m ...
+[compile-client ] [[90m09:28:07[39m] Finished [36mclean-extension-vscode-selfhost-test-provider[39m after [35m17 ms[39m
+[compile-client ] [[90m09:28:07[39m] Starting [36mcompile-extension:vscode-selfhost-test-provider[39m ...
+[compile-client ] [[90m09:28:08[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\.vscode\extensions\vscode-selfhost-test-provider\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:08[39m] Finished [36mcompile-extension:vscode-selfhost-test-provider[39m after [35m783 ms[39m
+[compile-client ] [[90m09:28:08[39m] Starting [36mclean-extension-vscode-selfhost-import-aid[39m ...
+[compile-client ] [[90m09:28:08[39m] Finished [36mclean-extension-vscode-selfhost-import-aid[39m after [35m7 ms[39m
+[compile-client ] [[90m09:28:08[39m] Starting [36mcompile-extension:vscode-selfhost-import-aid[39m ...
+[compile-client ] [[90m09:28:09[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\.vscode\extensions\vscode-selfhost-import-aid\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:09[39m] Finished [36mcompile-extension:vscode-selfhost-import-aid[39m after [35m670 ms[39m
+[compile-client ] [[90m09:28:09[39m] Starting [36mclean-extension-vscode-extras[39m ...
+[compile-client ] [[90m09:28:09[39m] Finished [36mclean-extension-vscode-extras[39m after [35m7 ms[39m
+[compile-client ] [[90m09:28:09[39m] Starting [36mcompile-extension:vscode-extras[39m ...
+[compile-client ] [[90m09:28:09[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\.vscode\extensions\vscode-extras\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:09[39m] Finished [36mcompile-extension:vscode-extras[39m after [35m641 ms[39m
+[compile-client ] [[90m09:28:09[39m] Starting [36mclean-extension-vscode-pr-pinger[39m ...
+[compile-client ] [[90m09:28:09[39m] Finished [36mclean-extension-vscode-pr-pinger[39m after [35m9 ms[39m
+[compile-client ] [[90m09:28:09[39m] Starting [36mcompile-extension:vscode-pr-pinger[39m ...
+[compile-client ] [[90m09:28:11[39m] Finished [32mextensions[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\.vscode\extensions\vscode-pr-pinger\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:11[39m] Finished [36mcompile-extension:vscode-pr-pinger[39m after [35m1240 ms[39m
+[compile-client ] [[90m09:28:11[39m] Starting [36mcompile-extensions[39m ...
+[compile-client ] [[90m09:28:11[39m] Finished [36mcompile-extensions[39m after [35m0 ms[39m
+[compile-client ] [[90m09:28:11[39m] Starting [36mcompile-extension-media[39m ...
+[compile-client ] [[90m09:28:11[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\ipynb\notebook-src\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\simple-browser\esbuild.webview.mts with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\ipynb\esbuild.notebook.mts with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\preview-src\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\notebook-renderers\esbuild.notebook.mts with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\notebook\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\esbuild.webview.mts with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\esbuild.notebook.mts with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\simple-browser\preview-src\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-math\esbuild.notebook.mts with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-math\notebook\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\notebook-renderers\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\markdown-editor-src\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:12[39m] Finished [32mtypechecking extension media (tsgo)[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\mermaid-markdown-features\preview-src\tsconfig.json with 0 errors.
+[compile-client ] [[90m09:28:14[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\mermaid-markdown-features\esbuild.webview.mts with 0 errors.
+[compile-client ] [[90m09:28:15[39m] Finished [32mesbuilding extension media[39m D:\pulseAIagent\PulseAIRepo\desktop\vscode\extensions\markdown-language-features\esbuild.markdownEditor.mts with 0 errors.
+[compile-client ] [[90m09:28:15[39m] Finished [36mcompile-extension-media[39m after [35m4499 ms[39m
+[compile-client ] [[90m09:28:15[39m] Starting [36mcompile[39m ...
+[compile-client ] [[90m09:28:15[39m] Finished [36mcompile[39m after [35m0 ms[39m
+[compile-client ] [[90m09:28:15[39m] Finished 'compile' after 2.23 min
