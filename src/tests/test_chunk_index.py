@@ -287,6 +287,11 @@ def test_layer_builder_and_engine_integration(workspace):
         f"chunks layer missing from sent layers: {eng._last_layers_sent}"
     )
 
+    # get_index() defaults to watch=True and spawns the chunk-index-watcher
+    # daemon; stop it so it does not leak across test modules and trip the
+    # thread-enumeration assertion in test_empty_index_search_never_spawns_*.
+    idx.stop_watcher()
+
 
 # ---------------------------------------------------------------------
 # File watcher queue logic + deleted-file pruning (deterministic, no threads)
