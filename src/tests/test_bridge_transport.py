@@ -289,6 +289,30 @@ def test_echo_turn_emits_progress_then_turn_done(tmp_path):
         _stop_bridge(proc)
 
 
+def test_real_turn_forwards_headless_workspace_approval_policy(tmp_path, monkeypatch):
+    """The guarded runner's policy must reach SafeToolNode, not just exist in
+    the parent environment where it cannot resolve approval_queue waits."""
+    import src.graphs.chat_graph as chat_graph
+
+    captured = {}
+
+    def fake_stream_agent(text, **kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(chat_graph, "stream_agent", fake_stream_agent)
+    monkeypatch.setenv("PULSEAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
+    server = object.__new__(BridgeServer)
+    emitted = []
+    server.emit = emitted.append
+    server._run_turn("policy-regression", "build it", str(tmp_path))
+
+    assert captured["approval_channel"] is True
+    assert captured["approval_policy"] == "workspace_session"
+    assert captured["approval_timeout"] == 300.0
+    assert any(frame.get("type") == "turn_done" for frame in emitted)
+
+
 # ------------------------------------------------- 5. fake approval: safety_request + exact-tool_id safety_reply
 
 def test_fake_approval_request_reply_round_trip(tmp_path):
@@ -429,8 +453,10 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
     import src.graphs.chat_graph as chat_graph
 
     original = chat_graph.stream_agent
+    received: dict = {}
 
     def fake_stream_agent(*args, **kwargs):
+        received.update(kwargs)
         return {"content": "stub-ok", "role": "assistant"}
 
     chat_graph.stream_agent = fake_stream_agent
@@ -439,11 +465,12 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
         server = object.__new__(BridgeServer)
         server.emit = emitted.append
         server._shutdown = threading.Event()
-        server._run_turn("s-wd-real", "hi", str(tmp_path))
+        server._run_turn("s-wd-real", "hi", str(tmp_path), "debug")
     finally:
         chat_graph.stream_agent = original
 
     assert calls == ["arm", "cancel"], f"watchdog must be armed then cancelled: {calls}"
+    assert received["execution_mode"] == "debug"
     assert emitted[-1]["type"] == "turn_done"
 
 

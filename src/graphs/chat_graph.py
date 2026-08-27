@@ -30,7 +30,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, InjectedState
 
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
-from src.llm.factory import get_llm, get_auxiliary_llm, TurnCancelledError
+from src.llm.factory import (
+    get_llm, get_auxiliary_llm, TurnCancelledError, provider_response_info,
+)
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
@@ -102,6 +104,7 @@ from src.tools.code_exec_tool import execute_code
 from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.session_search_tool import session_search
+from src.tools.host_tools import HOST_TOOLS
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
 from src.agents.cost_router import cost_router
@@ -110,12 +113,13 @@ from src.agents.sub_agent import subagent_coordinator
 from src.dashboard.event_bus import event_bus
 
 # P0-D: state, budget, and gate machinery extracted to focused modules.
-from src.graphs.state import AgentState, TaskDecision
+from src.graphs.state import AgentState, ExecutionMode, TaskDecision
 from src.graphs.budget import (
     _GRACE_NUDGE,
     _iteration_budget,
     _recursion_limit,
     _budget_exhausted,
+    _verification_reserve_reached,
 )
 from src.graphs.gates import (
     _deliverable_targets,
@@ -123,6 +127,8 @@ from src.graphs.gates import (
     _looks_like_copy_task,
     _looks_like_execution_task,
     _verify_unsatisfied,
+    _ran_verification,
+    _verification_ran_and_passed,
     _wrote_code_files,
     finish_gate_node,
     should_continue,
@@ -346,6 +352,9 @@ tools = [
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
 
+    # Lazily discovered read-only intelligence from the native Code OSS host.
+    *HOST_TOOLS,
+
     # Verification receipts: static compiler proof and a deterministic UI
     # pipeline that owns server/browser mechanics without extra model turns.
     typecheck_workspace,
@@ -375,13 +384,85 @@ _PULSEAI_TOOLSETS_ON = (
     os.environ.get("PULSEAI_TOOLSETS", "on").strip().lower() != "off"
 )
 
+_FILE_DELIVERY_TOOLS = frozenset({
+    "write_file", "edit_file", "copy_file", "scaffold_nextjs",
+})
+_FILE_DELIVERY_WORDS = frozenset({
+    "build", "create", "implement", "write", "fix", "edit", "modify",
+    "update", "scaffold", "deliver",
+})
+
+
+def _has_landed_file_delivery(state: AgentState) -> bool:
+    """Whether this turn has a successful file-producing receipt."""
+    for item in state.get("execution_trace", []) or []:
+        if (
+            item.get("status") == "success"
+            and item.get("tool") in _FILE_DELIVERY_TOOLS
+        ):
+            return True
+    return False
+
+
+def _requires_file_delivery(state: AgentState) -> bool:
+    """Conservative task/plan signal for the pre-delivery loop guard."""
+    text = " ".join([
+        str(state.get("current_task", "")),
+        *(str(step.get("description", "")) for step in state.get("plan", []) or []),
+    ]).lower()
+    return any(re.search(rf"\b{re.escape(word)}\b", text) for word in _FILE_DELIVERY_WORDS)
+
+
+def _pre_delivery_observation_count(state: AgentState) -> int:
+    """Completed tool observations before the first file delivery.
+
+    This count is independent of the model-iteration budget. Test5-6 exposed
+    why that matters: execute_code-only turns were refunded, so four different
+    empty-workspace scripts could keep the iteration counter below the forced
+    delivery threshold forever.
+    """
+    count = 0
+    for item in state.get("execution_trace", []) or []:
+        if (
+            item.get("status") == "success"
+            and item.get("tool") in _FILE_DELIVERY_TOOLS
+        ):
+            break
+        count += 1
+    return count
+
+
+def _pre_delivery_stalled(state: AgentState, *, threshold: int = 4) -> bool:
+    """Hermes-style no-progress cap across varied inspection strategies."""
+    return (
+        _requires_file_delivery(state)
+        and not _has_landed_file_delivery(state)
+        and (
+            int(state.get("iteration_used", 0)) >= threshold
+            or _pre_delivery_observation_count(state) >= threshold
+        )
+    )
+
+
+def _workspace_is_effectively_empty(workspace: Any) -> bool:
+    """Whether a fresh delivery workspace has no user-visible input files."""
+    from pathlib import Path
+    root = Path(workspace)
+    try:
+        return not any(
+            path.is_file() and not any(part.startswith(".") for part in path.relative_to(root).parts)
+            for path in root.rglob("*")
+        )
+    except (OSError, ValueError):
+        return False
+
 
 def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     """The tool OBJECTS to bind for this turn (narrowed by task type).
 
-    Returns the full registry when the waist is disabled or when resolution
-    yields nothing — a safe superset, never an empty bind (an empty tool
-    list would strip the agent's entire capability surface).
+    The autonomous surface deliberately has a smaller waist than interactive
+    IDE chat. It cannot answer ask_user, and broad meta/delegation/process
+    schemas diluted the direct actions in six Test-5 traces.
     """
     if not _PULSEAI_TOOLSETS_ON:
         return tools
@@ -389,9 +470,96 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     names = resolve_toolset_names(
         state.get("current_task", ""), config
     )
+    autonomous = _is_autonomous_workspace(config)
+    if autonomous:
+        autonomous_tools = {
+            "read_file", "list_files", "search_code",
+            "discover_host_capabilities", "invoke_host_capability",
+            "write_file", "edit_file", "copy_file",
+            "run_terminal", "typecheck_workspace",
+            "web_search", "web_fetch",
+            "verify_ui_workspace", "verify_ui_routes",
+        }
+        names = [name for name in names if name in autonomous_tools]
+    # A verifier with no project cannot produce evidence. Hiding it is stronger
+    # than repeatedly telling a weak model not to call it: Test5-5 paid three
+    # model/replan cycles for typecheck_workspace on an empty directory.
+    from pathlib import Path
+    workspace = Path(config.get("configurable", {}).get("workspace", "."))
+    if not (workspace / "tsconfig.json").exists():
+        names = [name for name in names if name != "typecheck_workspace"]
+    resolved_names = list(names)
+
     from src.runtime.execution_phases import derive_execution_phase, filter_tool_names
     phase = derive_execution_phase(dict(state))
-    names = filter_tool_names(names, phase)
+    names = filter_tool_names(resolved_names, phase)
+    empty_autonomous_delivery = (
+        autonomous
+        and _requires_file_delivery(state)
+        and not _has_landed_file_delivery(state)
+        and _workspace_is_effectively_empty(workspace)
+    )
+    if _pre_delivery_stalled(state) or empty_autonomous_delivery:
+        # A fresh autonomous build has nothing useful to inspect. Hermes begins
+        # headless jobs with action-capable tools; Pulse previously exposed 33
+        # schemas and waited four paid observations before narrowing. Make the
+        # first provider decision structurally about delivery, while retaining
+        # the four-observation cap for non-empty interactive workspaces.
+        forced = {"write_file"} if empty_autonomous_delivery else {
+            "write_file", "edit_file", "copy_file"
+        }
+        names = [name for name in resolved_names if name in forced]
+        phase = type(phase)(
+            "forced_delivery", frozenset(forced),
+            max_file_mutations_per_turn=2,
+            guidance=(
+                "DIRECT DELIVERY PHASE: this task requires files and no file has "
+                "landed. Exploration and verification are disabled until a real "
+                "file exists. Call write_file NOW with a complete minimal "
+                "baseline. Additional files and dependencies can be handled on "
+                "the next iteration."
+            ),
+        )
+    elif (
+        _verification_reserve_reached(state)
+        and _wrote_code_files(state)
+        and not _verification_ran_and_passed(state)
+    ):
+        # Preserve a bounded final slice of the existing token ceiling for
+        # dependency/runtime proof. This is a phase change, not a cap increase.
+        # Before the first receipt, expose checks rather than another menu of
+        # inspection tools: Attempt 12 spent its reserve reading instead of
+        # discovering a concrete failure. Once a check fails, re-open narrow
+        # inspect/repair tools so the receipt can drive a targeted correction.
+        first_check_tools = {
+            "run_terminal", "start_terminal", "check_terminal",
+            "read_terminal_output", "stop_terminal", "typecheck_workspace",
+            "verify_ui_workspace", "verify_ui_routes",
+        }
+        repair_tools = first_check_tools | {
+            "read_file", "search_code", "write_file", "edit_file", "copy_file",
+        }
+        verification_attempted = _ran_verification(state)
+        verification_tools = repair_tools if verification_attempted else first_check_tools
+        names = [name for name in resolved_names if name in verification_tools]
+        phase_name = (
+            "verification_repair" if verification_attempted else "verification_first_check"
+        )
+        guidance = (
+            "VERIFICATION REPAIR PHASE: a concrete check has run but required "
+            "evidence is still missing. Inspect only the files named by the "
+            "failure, make the smallest repair, and rerun the failed check."
+            if verification_attempted else
+            "VERIFICATION FIRST-CHECK PHASE: delivery has entered the final "
+            "reserved slice of the existing run budget. Stop inspecting and stop "
+            "adding features. Run the actual composite UI verifier or project "
+            "static/build/test command NOW. The resulting receipt will identify "
+            "any exact file that may be reopened for repair."
+        )
+        phase = type(phase)(
+            phase_name, frozenset(verification_tools),
+            max_file_mutations_per_turn=2, guidance=guidance,
+        )
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
     configurable = config.setdefault("configurable", {})
@@ -428,6 +596,27 @@ def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsa
 # AI NODE (with Context Engine)
 # =========================================================
 system_message = SystemMessage(content=system_persona())
+autonomous_system_message = SystemMessage(content=system_persona(autonomous=True))
+
+
+def _is_autonomous_workspace(config: RunnableConfig) -> bool:
+    """True for the non-interactive desktop/benchmark workspace surface."""
+    return str(config.get("configurable", {}).get("approval_policy", "")).strip().lower() == "workspace_session"
+
+
+def _insert_system_prefix(messages: list, content: str) -> None:
+    """Insert runtime guidance before conversation history, never after user.
+
+    Sarvam receives an OpenAI-compatible role sequence. Appending SystemMessage
+    after HumanMessage made the highest-priority delivery instruction a trailing
+    role that some adapters/models handle inconsistently. Hermes assembles its
+    stable/context/volatile system prefix before conversation messages.
+    """
+    index = next(
+        (i for i, message in enumerate(messages) if getattr(message, "type", "") != "system"),
+        len(messages),
+    )
+    messages.insert(index, SystemMessage(content=content))
 
 
 def ai_node(
@@ -452,7 +641,14 @@ def ai_node(
     # Cost-aware routing: try to use a cheaper/better model for this task
     task_for_routing = state.get("current_task", "")
     plan_for_routing = state.get("plan", [])
-    routed_provider, routed_model = cost_router.route(task_for_routing, plan_for_routing)
+    if _is_autonomous_workspace(config):
+        # The guarded runner authorizes one named provider/model. Never route a
+        # headless paid run through process-global alternative credentials.
+        routed_provider, routed_model = base_provider, base_model
+    else:
+        routed_provider, routed_model = cost_router.route(
+            task_for_routing, plan_for_routing
+        )
 
     provider = routed_provider
     model = routed_model
@@ -463,11 +659,14 @@ def ai_node(
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
 
-    # P0-A: bind only the task-relevant tool subset (narrow waist). The full
-    # registry stays available to SafeToolNode for execution; the model just
-    # never sees gated tools, so it never calls them (and never pays their
-    # per-call definition cost).
-    llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+    execution_mode = cast(ExecutionMode, state.get("execution_mode", "agent"))
+
+    # Ask is structurally conversational: no tool schema is sent and no tool
+    # call can be executed. Other modes retain the phase-scoped tool waist.
+    llm_with_tools = (
+        llm if execution_mode == "ask"
+        else llm.bind_tools(_resolve_bound_tools(state, config))
+    )
 
     # D31: start of an AI iteration — reset shadow-checkpoint dedup so the
     # first mutation this iteration snapshots the pre-change workspace.
@@ -487,16 +686,75 @@ def ai_node(
     # Use the Context Engine to build clean, organized messages.
     # Session-scoped: this thread's thread_id selects an isolated engine
     # (cache, attribution snapshot, learned weights all independent).
+    context_state = dict(state)
+    context_state["_autonomous_workspace"] = _is_autonomous_workspace(config)
     messages = get_context_engine(config).build_ai_messages(
-        state=dict(state),
-        system_message=system_message,
+        state=context_state,
+        system_message=(
+            autonomous_system_message
+            if context_state["_autonomous_workspace"]
+            else system_message
+        ),
     )
+    if execution_mode == "ask":
+        _insert_system_prefix(
+            messages,
+            "=== ASK MODE ===\n"
+            "Answer and explain without changing files, running commands, or calling tools. "
+            "Be clear about uncertainty and suggest next steps when useful.",
+        )
+        # A resumed session can contain earlier Agent-mode tool pairs. Ask sends
+        # no tool declarations, so remove those pairs before the provider call.
+        messages = _drop_tool_pairs(messages)
+    elif execution_mode == "debug":
+        _insert_system_prefix(
+            messages,
+            "=== DEBUG MODE ===\n"
+            "Diagnose before changing code: reproduce the failure, use concrete diagnostics, "
+            "make the smallest relevant fix, and rerun the strongest available check.",
+        )
+
     phase_guidance = str(configurable.get("phase_guidance") or "").strip()
-    if phase_guidance:
-        messages.append(SystemMessage(content=(
+    if phase_guidance and execution_mode != "ask":
+        _insert_system_prefix(
+            messages,
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
-            + phase_guidance
-        )))
+            + phase_guidance,
+        )
+
+    # State the actual shell contract before the model guesses. The terminal
+    # tool uses shell=True, which is cmd.exe on the founder's Windows runtime;
+    # Test5-5 wasted its first execution calls discovering that ls/pwd/find do
+    # not exist. Keep this dynamic so Linux/macOS behavior is unchanged.
+    import platform as _platform
+    _os_name = _platform.system() or os.name
+    if _os_name == "Windows":
+        _insert_system_prefix(
+            messages,
+            "=== ACTIVE TERMINAL PLATFORM ===\n"
+            "Windows cmd.exe. NEVER use POSIX commands such as ls, pwd, find, "
+            "head, grep, cat, rm, cp, mv, touch, chmod, or /tmp paths. Use "
+            "dir, cd, where, type, findstr, copy, move, del, or an explicit "
+            "PowerShell -NoProfile -Command invocation. Prefer native file "
+            "tools over shell inspection.",
+        )
+
+    if (
+        execution_mode != "ask"
+        and _requires_file_delivery(state)
+        and not _has_landed_file_delivery(state)
+        and int(state.get("iteration_used", 0)) >= 2
+        and configurable.get("execution_phase") != "forced_delivery"
+    ):
+        _insert_system_prefix(
+            messages,
+            "=== PRE-DELIVERY NO-PROGRESS WARNING ===\n"
+            "This task requires files, but no file mutation has landed after "
+            "multiple main-agent iterations. Stop inspecting/planning. Your "
+            "next response must create the smallest complete baseline with "
+            "write_file (batch independent files). Do not verify an empty "
+            "workspace.",
+        )
     steers = turn_controls.drain_steer(session_id)
     if steers:
         messages.append(SystemMessage(content=(
@@ -507,12 +765,16 @@ def ai_node(
 
     call_model = model
     call_llm = llm_with_tools
-    if configurable.get("execution_phase") == "deliver":
+    if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
         try:
-            delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+            delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
         except (TypeError, ValueError):
             delivery_cap = 4096
-        call_llm = llm_with_tools.bind(max_tokens=max(512, min(delivery_cap, 8192)))
+        bind_generation = getattr(llm_with_tools, "bind", None)
+        if callable(bind_generation):
+            call_llm = bind_generation(
+                max_tokens=max(512, min(delivery_cap, 8192))
+            )
     if budget_exhausted:
         call_llm = llm  # unhidden tools: the model cannot make more calls
         if not grace_done:
@@ -553,19 +815,24 @@ def ai_node(
         )
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
-        llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+        llm_with_tools = (
+            llm if execution_mode == "ask"
+            else llm.bind_tools(_resolve_bound_tools(state, config))
+        )
         from src.context.cache_preservation import redecorate_for_failover
         messages, _d37_info = redecorate_for_failover(messages)
         call_model = model
         call_llm = llm_with_tools
-        if configurable.get("execution_phase") == "deliver":
+        if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
             try:
-                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "3072"))
+                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
             except (TypeError, ValueError):
                 delivery_cap = 4096
-            call_llm = llm_with_tools.bind(
-                max_tokens=max(512, min(delivery_cap, 8192))
-            )
+            bind_generation = getattr(llm_with_tools, "bind", None)
+            if callable(bind_generation):
+                call_llm = bind_generation(
+                    max_tokens=max(512, min(delivery_cap, 8192))
+                )
         if budget_exhausted:
             call_llm = llm
         try:
@@ -606,6 +873,25 @@ def ai_node(
     from src.graphs.parallel_tools import repair_text_tool_calls
     result = repair_text_tool_calls(result)
 
+    # Hermes refuses to dispatch tool arguments from a token-limited response.
+    # Preserve the assistant/tool pairing, but mark the message so SafeToolNode
+    # returns an explicit error observation instead of mutating the workspace.
+    # The next iteration can split the write or continue with a larger budget.
+    completion = provider_response_info(result)
+    incomplete_retries = int(state.get("incomplete_response_retries", 0))
+    if completion["incomplete"]:
+        incomplete_retries += 1
+        extra = dict(getattr(result, "additional_kwargs", {}) or {})
+        extra["pulse_incomplete_response"] = True
+        extra["pulse_incomplete_reason"] = completion["finish_reason"]
+        extra["pulse_raw_finish_reason"] = completion["raw_finish_reason"]
+        try:
+            result = result.model_copy(update={"additional_kwargs": extra})
+        except AttributeError:
+            result.additional_kwargs = extra
+    else:
+        incomplete_retries = 0
+
     # =========================================================
     # TRACK TOKEN USAGE
     # =========================================================
@@ -619,24 +905,21 @@ def ai_node(
         [call_usage],
     )
 
-    # Hermes iteration refund (code_execution_tool / conversation_loop):
-    # a turn whose ONLY tool call is execute_code is a cheap RPC-style PTC
-    # turn — it must not eat the iteration budget. The retest wrecked
-    # itself this way: 42 execute_code calls consumed nearly the whole
-    # 50-slot budget and the run died on the grace call instead of doing
-    # the copy_file deliverable. Refund such turns so script retry loops
-    # no longer starve the run budget.
+    # Every provider iteration counts. Hermes refunds execute_code-only turns,
+    # but it also runs a much larger default parent budget and a separate tool
+    # guardrail controller. Copying only the refund into Pulse's 20-call paid
+    # harness created an unbounded blind spot: Test5-6 issued four os.walk
+    # execute_code inspections without advancing the counter that activates
+    # forced delivery. PTC still saves round trips when it batches real work;
+    # it is not free when it consumes another provider request.
     next_used = iteration_used + 1
-    result_tc = getattr(result, "tool_calls", None) or []
-    if (not budget_exhausted and result_tc
-            and all(tc.get("name") == "execute_code" for tc in result_tc)):
-        next_used = iteration_used  # refund: PTC turn is free
 
     return {
         "messages": [result],
         "token_usage": token_usage,
         "turn_token_usage": turn_token_usage,
         "iteration_used": next_used,
+        "incomplete_response_retries": incomplete_retries,
         "grace_done": 1 if budget_exhausted else grace_done,
     }
 
@@ -658,16 +941,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     )
 
     # Store successful task in long-term memory.
-    current_task = state.get("current_task", "")
+    current_task = state.get("current_task") or state.get("latest_instruction", "")
     steps_completed = state.get("steps_completed", [])
     failed_steps = state.get("failed_steps", [])
-
-    if memory_manager and current_task and steps_completed:
-        memory_manager.store_task_completion(
-            task=current_task,
-            steps_completed=steps_completed,
-            plan=plan,
-        )
 
     # Feedback loop: record FAILURE if the task ended with failed steps,
     # otherwise success. (Previously success was recorded unconditionally,
@@ -685,6 +961,18 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
     )
+    task_succeeded = not unverified and not bool(failed_steps)
+    if not task_succeeded:
+        plan = finalize_plan(
+            plan=list(state.get("plan", [])),
+            task_succeeded=False,
+        )
+    elif memory_manager and current_task and steps_completed:
+        memory_manager.store_task_completion(
+            task=current_task,
+            steps_completed=steps_completed,
+            plan=plan,
+        )
     try:
         engine = get_context_engine(config)
         if state.get("failed_steps") or unverified:
@@ -711,6 +999,11 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             "the app was not proven to render. Do not treat this as a "
             "working deliverable until verification passes."
         )
+        lines.append("")
+    elif failed_steps:
+        lines.append(f"## ⚠️ Ended incomplete: {task_display}")
+        lines.append("")
+        lines.append("**This run ended with unresolved failures.**")
         lines.append("")
     else:
         lines.append(f"## ✅ Finished: {task_display}")
@@ -779,7 +1072,12 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 
     return {
         "plan": plan,
-        "task_completed": not unverified,
+        "task_completed": task_succeeded,
+        "task_status": (
+            "unverified" if unverified
+            else "failed" if failed_steps
+            else "completed"
+        ),
         "messages": [AIMessage(content="\n".join(lines))],
     }
 
@@ -948,7 +1246,18 @@ def _quick_task_decision(
         for n in (1, 2, 3)
         for i in range(len(norm_tokens) - n + 1)
     }
-    if norm_ngrams & _D30_APPROVAL_WORDS:
+    approval_hits = norm_ngrams & _D30_APPROVAL_WORDS
+    # Punctuation changes routing semantics for one-word approvals: the plan
+    # approval branch claims bare "yes", but intentionally does not claim
+    # conversational acknowledgements such as "yes!". Do not erase that
+    # distinction when building normalized n-grams. Multi-word approval
+    # phrases (for example "go ahead" inside "go ahead bro") remain guarded.
+    punctuated_single_ack = (
+        len(norm_tokens) == 1
+        and raw.lower() != norm
+        and norm in _D30_APPROVAL_WORDS
+    )
+    if approval_hits and not punctuated_single_ack:
         return None
 
     tokens = norm.split()
@@ -1271,6 +1580,7 @@ def progress_node(
 
     latest_tools = ph.latest_tool_messages(messages)
     injected: list = []
+    processed_tools = 0
 
     for message in latest_tools:
         tool_name = message.name or "unknown_tool"
@@ -1279,8 +1589,9 @@ def progress_node(
 
         outcome = ph.classify_tool_outcome(tool_name, result)
         if outcome == ph.OUTCOME_SKIP:
-            continue  # check_terminal still running: record NOTHING
+            continue  # running/unavailable check: record NOTHING
 
+        processed_tools += 1
         failed = outcome == ph.OUTCOME_FAILED
 
         # Trace comes before memory/failure/success handling (pre-D9 order).
@@ -1288,15 +1599,21 @@ def progress_node(
             ph.make_trace_entry(tool_name, tool_args, result, failed)
         )
 
-        # Store tool output for semantic retrieval (best-effort inside).
-        ph.record_tool_memory(
-            memory_manager,
-            tool_name,
-            state.get("current_task", ""),
-            result,
-            tool_args,
-            failed,
-        )
+        # Store tool output for semantic retrieval in interactive sessions.
+        # Autonomous context deliberately excludes historical/tool memory; do
+        # not initialize a sentence-transformer after the first landed file
+        # merely to write memory the same run will never read. Attempt 8 proved
+        # this boundary could wedge for >10 minutes between tool_call_end and
+        # the second provider request.
+        if not _is_autonomous_workspace(config):
+            ph.record_tool_memory(
+                memory_manager,
+                tool_name,
+                state.get("current_task", ""),
+                result,
+                tool_args,
+                failed,
+            )
 
         if failed:
             failure, updates = ph.build_failure(
@@ -1417,12 +1734,21 @@ def progress_node(
         "token_usage": total_usage.to_dict(),
     }
 
-    if latest_tools:
-        result["messages"] = [
-            SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
-        ]
-        if injected:
-            result["messages"] = result["messages"] + injected
+    if processed_tools:
+        # ToolMessage already carries the observation. The generic reflection
+        # system message repeats planning/verify/ask guidance after every tool
+        # and competed with direct progress in non-interactive runs. Preserve it
+        # for rich IDE chat; autonomous execution gets only concrete recovery
+        # injections, if any.
+        if _is_autonomous_workspace(config):
+            if injected:
+                result["messages"] = injected
+        else:
+            result["messages"] = [
+                SystemMessage(content=ph.PROGRESS_REFLECTION_PROMPT)
+            ]
+            if injected:
+                result["messages"] = result["messages"] + injected
 
     if command_retries:
         result["command_retries"] = command_retries
@@ -1559,6 +1885,19 @@ def planner_node(
     if not current_task:
         return {}
 
+    # The autonomous workspace request is already a complete task contract and
+    # has a finite provider budget. Pulse previously spent multiple provider
+    # calls classifying, generating, and validating a plan before the action
+    # loop, unlike Hermes' direct headless conversation loop. Planning remains
+    # available in explicit plan mode and throughout interactive IDE chat.
+    if _is_autonomous_workspace(config) and state.get("execution_mode", "agent") == "agent":
+        return {
+            "plan": [],
+            "plan_goal": "",
+            "plan_created": False,
+            "token_usage": state.get("token_usage", _zero_token_usage()),
+        }
+
     usages: list[TokenUsage] = []
 
     def _no_plan() -> dict:
@@ -1634,7 +1973,10 @@ def planner_node(
 
 
 def after_task_manager(state: AgentState) -> str:
-    """Route to AI directly if executing an approved plan, else to planner."""
+    """Route conversational Ask directly; other new tasks may use planning."""
+
+    if state.get("execution_mode") == "ask":
+        return "ai"
 
     if state.get("task_action") == "plan_cancelled":
         return "plan_cancelled"
@@ -1953,14 +2295,10 @@ class SafeToolNode:
             str(safety_guard.workspace): safety_guard
         }
 
-    @staticmethod
-    def _cancelled_tool_messages(tool_calls: list[dict]) -> list[ToolMessage]:
+    def _cancelled_tool_messages(self, tool_calls: list[dict], config) -> list[ToolMessage]:
         return [
-            ToolMessage(
-                content="Operation cancelled by the user — tool not executed.",
-                tool_call_id=tc.get("id", ""),
-                name=tc.get("name", ""),
-                status="error",
+            self._durable_denial(
+                tc, "⛔ Operation cancelled by the user — tool not executed.", config
             )
             for tc in tool_calls
         ]
@@ -1976,7 +2314,7 @@ class SafeToolNode:
         from src.runtime.turn_control import turn_controls
 
         if not turn_controls.admit_action(self._session_id(config)):
-            return self._cancelled_tool_messages(tool_calls)
+            return self._cancelled_tool_messages(tool_calls, config)
         from src.graphs.parallel_tools import run_durable_batch_sequential
         return run_durable_batch_sequential(
             tool_calls, self._tools_by_name, config
@@ -2005,6 +2343,26 @@ class SafeToolNode:
         except Exception as exc:
             return {"error": f"could not prepare diff: {exc}"}
 
+    @staticmethod
+    def _durable_denial(tc: dict, content: str, config) -> ToolMessage:
+        """Close a blocked tool lifecycle without invoking the blocked tool.
+
+        The renderer emits ``tool.call`` as soon as the model proposes a call.
+        Safety denials used to return only a ToolMessage, leaving that visible
+        start permanently unmatched. Route the denial text through the durable
+        transaction boundary so journal and UI receive a terminal error event.
+        """
+        from src.runtime.tool_middleware import execute_tool_transaction
+        outcome = execute_tool_transaction(
+            name=tc.get("name", ""), args=dict(tc.get("args") or {}),
+            tool_call_id=tc.get("id", ""), config=config,
+            invoke=lambda: content,
+        )
+        return ToolMessage(
+            content=outcome.content, tool_call_id=tc.get("id", ""),
+            name=tc.get("name", ""), status="error",
+        )
+
     def _deny_and_execute_safe_batch(
         self, *, tool_calls, verdicts, unsafe, state, messages, last_msg,
         config, denial_content, log_line,
@@ -2022,12 +2380,8 @@ class SafeToolNode:
         denials: dict[str, ToolMessage] = {}
         for tc, _, warning in unsafe:
             first_line = warning.strip().splitlines()[0] if warning else "blocked operation"
-            denials[tc["id"]] = ToolMessage(
-                content=denial_content(tc, first_line),
-                tool_call_id=tc["id"],
-                name=tc.get("name", ""),
-                status="error",
-            )
+            content = denial_content(tc, first_line)
+            denials[tc["id"]] = self._durable_denial(tc, content, config)
             log_line(tc)
         safe_tcs = [tc for tc, ok, _ in verdicts if ok]
         results: dict[str, ToolMessage] = dict(denials)
@@ -2071,7 +2425,7 @@ class SafeToolNode:
             tool_calls = getattr(last_msg, "tool_calls", None)
             if not tool_calls:
                 return self._node.invoke(state, config)
-            return {"messages": self._cancelled_tool_messages(tool_calls)}
+            return {"messages": self._cancelled_tool_messages(tool_calls, config)}
 
         # Check the last AI message for tool calls
         messages = state.get("messages", [])
@@ -2113,8 +2467,35 @@ class SafeToolNode:
 
         def _cancelled_result(calls: list[dict] | None = None) -> dict:
             return _with_repaired(
-                self._cancelled_tool_messages(calls or tool_calls)
+                self._cancelled_tool_messages(calls or tool_calls, config)
             )
+
+        # Never execute tool arguments from a token-limited provider response.
+        # Hermes treats a mid-tool/length completion as incomplete and asks the
+        # model to split or continue; Attempt 8 showed that accepting a partial
+        # write can land a syntactically valid JSON string whose file content
+        # ends mid-CSS. Return one paired error per call, with zero side effects.
+        incomplete = bool(
+            getattr(last_msg, "additional_kwargs", {}).get(
+                "pulse_incomplete_response"
+            )
+        )
+        if incomplete:
+            reason = str(
+                getattr(last_msg, "additional_kwargs", {}).get(
+                    "pulse_incomplete_reason", "provider token limit"
+                )
+            )
+            return _with_repaired([
+                self._durable_denial(
+                    tc,
+                    "Error: provider response was incomplete "
+                    f"({reason}); tool was NOT executed. Split large file "
+                    "writes into smaller complete files/calls and continue.",
+                    config,
+                )
+                for tc in tool_calls
+            ])
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.
@@ -2127,18 +2508,13 @@ class SafeToolNode:
             denied = [tc for tc in tool_calls if tc.get("name", "") not in set(phase_allowed)]
             if denied:
                 denied_names = ", ".join(sorted({tc.get("name", "") for tc in denied}))
+                denial = (
+                    f"⛔ PHASE POLICY DENIED batch in {phase_name}: {denied_names}. "
+                    "No calls in this batch executed. Use only the tools exposed for "
+                    "the current plan phase and make the required progress now."
+                )
                 return _with_repaired([
-                    ToolMessage(
-                        content=(
-                            f"⛔ PHASE POLICY DENIED batch in {phase_name}: {denied_names}. "
-                            "No calls in this batch executed. Use only the tools exposed for "
-                            "the current plan phase and make the required progress now."
-                        ),
-                        tool_call_id=tc.get("id", ""),
-                        name=tc.get("name", ""),
-                        status="error",
-                    )
-                    for tc in tool_calls
+                    self._durable_denial(tc, denial, config) for tc in tool_calls
                 ])
 
         from pathlib import Path
@@ -2312,9 +2688,10 @@ class SafeToolNode:
                         if decision and decision.get("timeout")
                         else "denied"
                     )
-                    denials[tool_id] = ToolMessage(
-                        content=f"⛔ Tool `{tc.get('name', '')}` {reason} before execution.",
-                        tool_call_id=tool_id, name=tc.get("name", ""), status="error",
+                    denials[tool_id] = self._durable_denial(
+                        tc,
+                        f"⛔ Tool `{tc.get('name', '')}` {reason} before execution.",
+                        config,
                     )
             runnable = [
                 tc for tc in tool_calls
@@ -2601,23 +2978,20 @@ builder.add_edge(
 # Use PersistentMemoryWrapper so memories survive across restarts.
 from src.context.persistent_memory import PersistentMemoryWrapper
 
-# Long-term memory needs the embedding backend (sentence-transformers, ~100MB
-# model). VectorMemory RAISES when that backend is unavailable (fresh CI,
-# slim containers) — and because this runs at module import time, it would
-# crash the entire agent on boot. Degrade to memory_manager=None instead,
-# matching the ContextEngine's documented fallback pattern (all memory layers
-# already treat None as "feature off").
-try:
-    if os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
-        "1", "true", "yes", "on"
-    }:
-        memory_manager = None
-    else:
-        base_memory = MemoryManager()
-        memory_manager = PersistentMemoryWrapper(base_memory)
-except Exception as exc:  # e.g. RuntimeError from VectorMemory
-    print(f"[chat_graph] Long-term memory DISABLED (boot degraded): {exc}")
+# Long-term memory is optional and must not perform model/network/database work
+# while this graph module imports. Construct it on first real use; failures are
+# isolated by the lazy proxy and degrade to no-op memory for the process.
+if os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}:
     memory_manager = None
+else:
+    from src.context.lazy_memory import LazyMemoryManager
+
+    def _create_memory_manager():
+        return PersistentMemoryWrapper(MemoryManager())
+
+    memory_manager = LazyMemoryManager(_create_memory_manager)
 
 # ---------------------------------------------------------------------
 # SESSION-SCOPED CONTEXT ENGINES (D1)
@@ -2662,6 +3036,11 @@ def get_context_engine(
         if isinstance(config_or_key, str)
         else _session_key_from_config(config_or_key)
     )
+    requested_model = LLM_MODEL
+    if isinstance(config_or_key, dict):
+        requested_model = str(
+            config_or_key.get("configurable", {}).get("model") or LLM_MODEL
+        )
     if key == "default":
         # Sessions with no thread_id all collapse into one shared engine —
         # the SAFE degradation (isolation loss, never correctness loss, thanks
@@ -2677,6 +3056,13 @@ def get_context_engine(
             )
     with _ENGINES_LOCK:
         engine = _ENGINES.get(key)
+        # Context budgeting/tokenization must follow the model that will
+        # actually receive this session's requests, not the process-global
+        # default captured at import. Recreate only when a caller explicitly
+        # changes models for the same thread.
+        if engine is not None and str(getattr(engine, "model", "")) != requested_model:
+            _ENGINES.pop(key, None)
+            engine = None
         if engine is None:
             # D21: >8000-char tool outputs may be summarized by the
             # AUXILIARY model (janitor prices) when explicitly enabled;
@@ -2689,7 +3075,7 @@ def get_context_engine(
                 except Exception:
                     summarizer_llm = None
             engine = ContextEngine(
-                model=LLM_MODEL,
+                model=requested_model,
                 llm=summarizer_llm,
                 memory_manager=memory_manager,
                 thread_id=None if key == "default" else key,
@@ -2726,7 +3112,7 @@ def invoke_agent(
     provider: str = LLM_PROVIDER,
     model: str = LLM_MODEL,
     workspace: str = ".",
-    execution_mode: Literal["agent", "plan"] = "agent",
+    execution_mode: ExecutionMode = "agent",
     scope_capabilities: tuple[str, ...] | None = None,
 ) -> str:
     from src.runtime.turn_control import set_active_session, turn_controls
@@ -2756,6 +3142,7 @@ def invoke_agent(
                 # Safety budgets are turn-scoped even when checkpoint state is resumed.
                 "iteration_used": 0,
                 "grace_done": 0,
+                "incomplete_response_retries": 0,
                 "turn_token_usage": _zero_token_usage(),
             },
             config=config,
@@ -2789,13 +3176,22 @@ def invoke_agent(
 # STREAMING INVOCATION
 # =========================================================
 
+class AgentTurnResult(str):
+    """String-compatible final response carrying the graph's honest verdict."""
+
+    def __new__(cls, message: str, *, completed: bool):
+        value = super().__new__(cls, message)
+        value.completed = bool(completed)
+        return value
+
+
 def stream_agent(
     message: str,
     thread_id: str = "default",
     provider: str = LLM_PROVIDER,
     model: str = LLM_MODEL,
     workspace: str = ".",
-    execution_mode: Literal["agent", "plan"] = "agent",
+    execution_mode: ExecutionMode = "agent",
     approval_channel: bool = False,
     approval_timeout: float = 300.0,
     approval_policy: str = "ask",
@@ -2832,6 +3228,7 @@ def stream_agent(
         }
 
         final_response = ""
+        turn_completed: bool | None = None
         current_step = 0
         total_steps = 0
 
@@ -2842,6 +3239,7 @@ def stream_agent(
             # Safety budgets are turn-scoped even when checkpoint state is resumed.
             "iteration_used": 0,
             "grace_done": 0,
+            "incomplete_response_retries": 0,
             "turn_token_usage": _zero_token_usage(),
         }
         if initial_plan is not None:
@@ -2962,6 +3360,27 @@ def stream_agent(
             if "recovery_limit" in event:
                 print("\n⛔ Recovery limit reached. Pausing for user input.")
 
+            # FINALIZE NODE — its verdict, not mere transport closure, owns
+            # turn completion. Attempt 11 discarded this state and returned
+            # the preceding "I will inspect" text as completed=true.
+            if "finalize" in event:
+                finalize_data = event.get("finalize") or {}
+                turn_completed = bool(finalize_data.get("task_completed", False))
+                final_messages = finalize_data.get("messages") or []
+                if final_messages:
+                    content = getattr(final_messages[-1], "content", "")
+                    if isinstance(content, list):
+                        content = "".join(
+                            block.get("text", "") for block in content
+                            if isinstance(block, dict)
+                        ) or str(content)
+                    if content:
+                        final_response = str(content)
+                        event_bus.emit("message.agent.chunk", {
+                            "chunk": final_response,
+                            "thread_id": thread_id,
+                        })
+
         event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # D38: post-run bounded background self-curation (memory review on the
         # aux model). Never blocks the response — state is snapshotted from the
@@ -2972,30 +3391,38 @@ def stream_agent(
         except Exception:
             pass
 
-        # When the run ends via the budget-exhausted / finish-gate path, the
-        # final summary is synthesized by finalize_node and never flows through
-        # an "ai" event (Test-2 retest D5 returned an empty string despite
-        # completing 12/12 plan steps). Fall back to the persisted state's last
-        # message so callers always get the real final response.
-        if not final_response:
-            try:
-                snap = graph.get_state(config)
-                msgs = (snap.values or {}).get("messages", [])
-                # Only an ASSISTANT message is a final answer. Falling back to
-                # msgs[-1] blindly returns tool output / system prompts /
-                # cancellation nudges to the user as the "response".
-                ai_msgs = [m for m in msgs if getattr(m, "type", "") == "ai"]
-                if ai_msgs:
-                    final_response = ai_msgs[-1].content
-                    if isinstance(final_response, list):
-                        final_response = "".join(
-                            b.get("text", "") for b in final_response
-                            if isinstance(b, dict)
-                        ) or str(final_response)
-            except Exception:
-                pass
+        # Read the persisted verdict even when an earlier ai event supplied
+        # text. Transport completion and task completion are different facts.
+        # Keep the string return API compatible while carrying the verdict for
+        # the bridge's terminal frame.
+        snap_values: dict[str, Any] = {}
+        try:
+            snap = graph.get_state(config)
+            snap_values = dict(snap.values or {})
+        except Exception:
+            pass
 
-        return final_response
+        if not final_response:
+            msgs = snap_values.get("messages", [])
+            # Only an ASSISTANT message is a final answer. Falling back to
+            # msgs[-1] blindly returns tool output / system prompts /
+            # cancellation nudges to the user as the "response".
+            ai_msgs = [m for m in msgs if getattr(m, "type", "") == "ai"]
+            if ai_msgs:
+                final_response = ai_msgs[-1].content
+                if isinstance(final_response, list):
+                    final_response = "".join(
+                        b.get("text", "") for b in final_response
+                        if isinstance(b, dict)
+                    ) or str(final_response)
+
+        if turn_completed is None:
+            # Preview/chat paths may intentionally end without finalize and are
+            # complete by transport convention. Finalize updates are captured
+            # above and are authoritative when present.
+            turn_completed = True
+
+        return AgentTurnResult(str(final_response or ""), completed=turn_completed)
     finally:
         turn_controls.end(thread_id)
         set_active_session(None)

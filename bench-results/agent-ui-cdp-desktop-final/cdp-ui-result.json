@@ -1,0 +1,75 @@
+{
+  "started_at": "2026-08-27T06:52:56.259Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "mode": "manager-only",
+  "prompt": null,
+  "checks": {
+    "Agent composer is visible and enabled": "PASS",
+    "Agent header and Manager button are visible": "PASS",
+    "Agent shell has no horizontal overflow": "PASS"
+  },
+  "snapshots": {
+    "agent_composer": {
+      "selector": "textarea.pulseai-composer-input",
+      "x": 951.3333740234375,
+      "y": 520.5416870117188,
+      "width": 321.66668701171875,
+      "height": 66.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "",
+      "clientWidth": 322,
+      "scrollWidth": 322
+    },
+    "agent_header": {
+      "selector": ".pulseai-agent-header",
+      "x": 940.6666870117188,
+      "y": 70,
+      "width": 343,
+      "height": 72.0625,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionInspect current diagnostics and fix the relevant errors.PulseAIRepoPulse readyManager",
+      "clientWidth": 343,
+      "scrollWidth": 343
+    },
+    "agent_shell": {
+      "selector": ".pulseai-agent-shell",
+      "x": 940.6666870117188,
+      "y": 70,
+      "width": 343,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionInspect current diagnostics and fix the relevant errors.PulseAIRepoPulse readyManagerInspect current diagnostics and fix the relevant errors.PulseInspect current diagnostics and fix the relevant errors.Run completed@ ContextAuto modelAuto - best availableFastDeepAskAsk before editsApprove workspace editsRead onlyEnter to sendShift+Enter for new line",
+      "clientWidth": 343,
+      "scrollWidth": 343
+    },
+    "manager_button": {
+      "selector": ".pulseai-agent-header-actions .pulseai-icon-button",
+      "x": 1196.375,
+      "y": 95.19792175292969,
+      "width": 77.29167175292969,
+      "height": 21,
+      "visible": true,
+      "enabled": true,
+      "text": "Manager",
+      "clientWidth": 77,
+      "scrollWidth": 77
+    }
+  },
+  "console_errors": [],
+  "screenshots": [],
+  "overall": "FAIL",
+  "target": {
+    "id": "DD745749674BDA4EA8AA18B5F7398E9D",
+    "title": "PulseAIRepo - PulseAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "failure": {
+    "message": "Page.captureScreenshot timed out",
+    "stack": "Error: Page.captureScreenshot timed out\n    at Timeout._onTimeout (D:\\pulseAIagent\\PulseAIRepo\\scripts\\validate_pulse_ui_cdp.js:48:16)\n    at listOnTimeout (node:internal/timers:605:17)\n    at process.processTimers (node:internal/timers:541:7)"
+  },
+  "finished_at": "2026-08-27T06:53:26.361Z"
+}

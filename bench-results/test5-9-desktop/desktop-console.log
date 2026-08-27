@@ -1,0 +1,26 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260825120228
+Username: DESKTOP-1ULGF16\Administrator
+RunAs User: DESKTOP-1ULGF16\Administrator
+Configuration Name: 
+Machine: DESKTOP-1ULGF16 (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -Command Set-Location 'D:\pulseAIagent\PulseAIRepo'; Start-Transcript -Path 'C:\Users\Administrator\AppData\Local\Temp\test5-9-desktop-console.log' -NoClobber; try { & '.\scripts\run_test5_guarded.ps1' -Workspace 'C:\test5-ws-attempt9' -RunId 'test5-9-desktop' -MaxMinutes 45 -StallSeconds 300 -MaxLlmCalls 16 -MaxInputTokens 120000 -MaxNoDeliveryCalls 3 } finally { Stop-Transcript }
+Process ID: 69912
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Users\Administrator\AppData\Local\Temp\test5-9-desktop-console.log
+[preflight] workspace ready at C:\test5-ws-attempt9
+
+[probe] FAILED - test NOT started.
+**********************
+Windows PowerShell transcript end
+End time: 20260825120229
+**********************

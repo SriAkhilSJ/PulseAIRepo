@@ -1,0 +1,32 @@
+﻿[
+    {
+        "path":  "bridge_stderr.log",
+        "bytes":  520,
+        "sha256":  "e7bf53cf682571b3032d36d0872327463ee907d791c373972b05532832d01f60"
+    },
+    {
+        "path":  "frames.jsonl",
+        "bytes":  9443,
+        "sha256":  "88b67040fab1f525caf65ed994a4430283076103ce5f22e28e4c843e0889772c"
+    },
+    {
+        "path":  "git-status.txt",
+        "bytes":  36,
+        "sha256":  "ec607f1b7f15a88da42eff7f2dac60e331a7f9fa64bdf55389effef725611784"
+    },
+    {
+        "path":  "outcome.json",
+        "bytes":  626,
+        "sha256":  "58308031390ec724104deac280dcdec1258fa8bfc238737b1fea45179edc893e"
+    },
+    {
+        "path":  "preflight.json",
+        "bytes":  846,
+        "sha256":  "bfc3c66f43312558ea31e722df5820f0aef05f5086ffe98ab0cc65fd66b12f20"
+    },
+    {
+        "path":  "runtime-verdict.json",
+        "bytes":  814,
+        "sha256":  "f44efda4b9ea016204e5873d858892af459e1546d45687d0874f8ee0e1f044f0"
+    }
+]

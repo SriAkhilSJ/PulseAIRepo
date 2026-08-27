@@ -51,6 +51,10 @@ def test_failed_verification_receipts_are_tool_failures():
         "typecheck_workspace", "✅ typecheck_workspace: passed with 0 errors"
     ) == ph.OUTCOME_SUCCESS
     assert ph.classify_tool_outcome(
+        "typecheck_workspace",
+        "ℹ️ typecheck_workspace: no tsconfig.json — nothing to typecheck",
+    ) == ph.OUTCOME_SKIP
+    assert ph.classify_tool_outcome(
         "verify_ui_routes", "❌ UI ROUTE VERIFICATION FAILED"
     ) == ph.OUTCOME_FAILED
 
@@ -153,6 +157,18 @@ def test_d9_maybe_replan(monkeypatch):
     needed, usages = ph.maybe_replan("t", [], "f", "p", "m")
     assert needed is False and usages == []
 
+    def _must_not_call(**kwargs):
+        raise AssertionError("deterministic local failure must not call the LLM")
+
+    monkeypatch.setattr(ph, "should_replan", _must_not_call)
+    plan = [{"step": 1}]
+    for failure in (
+        "Tool failed: PHASE POLICY DENIED run_terminal",
+        "Command failed: curl\n⛔ BLOCKED (safety policy)",
+        "run_terminal uses POSIX-only shell on Windows",
+    ):
+        assert ph.maybe_replan("build", plan, failure, "p", "m") == (False, [])
+
     captured = {}
 
     def _fake(task, plan, failure, provider, model, usage_list):
@@ -243,6 +259,38 @@ def test_d9_progress_node_success_path():
     assert "token_usage" in out
 
 
+def test_autonomous_progress_does_not_initialize_unused_tool_memory(monkeypatch):
+    from src.graphs import chat_graph
+
+    class MemoryMustNotRun:
+        def store_tool_memory(self, **kwargs):
+            raise AssertionError("autonomous progress initialized semantic memory")
+
+    monkeypatch.setattr(chat_graph, "memory_manager", MemoryMustNotRun())
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "w1", "name": "write_file", "args": {
+                    "path": "index.html", "content": "<!doctype html>"
+                }},
+            ]),
+            ToolMessage(content="File written: index.html",
+                        tool_call_id="w1", name="write_file"),
+        ],
+        "current_task": "build a website",
+    }
+    config = {"configurable": {
+        "provider": "custom", "model": "sarvam-test", "thread_id": "auto-memory",
+        "approval_policy": "workspace_session",
+    }}
+
+    out = chat_graph.progress_node(state, config)
+
+    assert out["execution_trace"][0]["tool"] == "write_file"
+    assert out["execution_trace"][0]["status"] == "success"
+    assert "messages" not in out  # no generic autonomous reflection either
+
+
 def test_d9_progress_node_failure_sets_recovery():
     from src.graphs.chat_graph import progress_node
 
@@ -281,8 +329,8 @@ def test_d9_progress_node_running_check_records_nothing():
     assert out["execution_trace"] == []
     assert out["steps_completed"] == []
     assert out["failed_steps"] == []
-    # ...but the reflection message still fires (a tool message DID arrive)
-    assert isinstance(out["messages"][0], SystemMessage)
+    # A non-result must not create a phantom progress/reflection heartbeat.
+    assert "messages" not in out
 
 
 # ---------------------------------------------------------------------

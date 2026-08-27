@@ -160,6 +160,42 @@ def test_verify_ui_composite_owns_mechanical_pipeline(monkeypatch):
     assert stopped == ["p1"]
 
 
+def test_native_html_workspace_uses_integrity_instead_of_requiring_typescript(tmp_path, monkeypatch):
+    from src.tools.ui_verification import _verify_source_workspace
+    import src.tools.file_tools as files
+
+    (tmp_path / "index.html").write_text(
+        '<script type="module" src="src/main.js"></script>', encoding="utf-8"
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.js").write_text("document.body.dataset.ready = '1';", encoding="utf-8")
+
+    def no_typescript(tool, args, config=None, **kwargs):
+        return "ℹ️ typecheck_workspace: no tsconfig.json in the workspace"
+
+    monkeypatch.setattr(type(files.typecheck_workspace), "invoke", no_typescript)
+    ok, receipt = _verify_source_workspace({
+        "configurable": {"workspace": str(tmp_path), "thread_id": "native-js"}
+    })
+    assert ok is True
+    assert "static web integrity passed" in receipt
+    assert "native JavaScript syntax passed" in receipt
+
+    (tmp_path / "src" / "main.js").write_text("const = ;", encoding="utf-8")
+    ok, receipt = _verify_source_workspace({
+        "configurable": {"workspace": str(tmp_path), "thread_id": "native-js"}
+    })
+    assert ok is False
+    assert "JavaScript syntax failed" in receipt
+
+    (tmp_path / "src" / "main.js").unlink()
+    ok, receipt = _verify_source_workspace({
+        "configurable": {"workspace": str(tmp_path), "thread_id": "native-js"}
+    })
+    assert ok is False
+    assert "missing HTML dependency `src/main.js`" in receipt
+
+
 def test_verify_ui_routes_reuses_one_server_for_all_pages(monkeypatch):
     from src.tools.ui_verification import verify_ui_routes
     import src.tools.file_tools as files

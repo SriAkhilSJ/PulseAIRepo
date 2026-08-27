@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>GARGANTUA — Schwarzschild Black Hole Raytracer</title>
+<meta name="description" content="Real-time general-relativistic raytracer: null geodesics in the Schwarzschild metric, photon ring, lensed accretion disk and starfield."/>
+<link rel="stylesheet" href="./css/style.css"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23000'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%23ffb45e' stroke-width='2'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='4.5' fill='none' stroke='%23ffd9a0'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23000'/%3E%3C/svg%3E"/>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="boot" aria-hidden="false">
+  <div class="boot-inner">
+    <div class="boot-title">GARGANTUA</div>
+    <div class="boot-sub">Schwarzschild null-geodesic raytracer</div>
+    <div class="boot-bar"><i id="bootFill"></i></div>
+    <div id="bootMsg">compiling spacetime…</div>
+  </div>
+</div>
+
+<header id="hudTop">
+  <div id="brand">GARGANTUA<span> · SCHWARZSCHILD RAYTRACER</span></div>
+  <div id="hudStats">
+    <span class="stat">FPS <b id="tFps">—</b></span>
+    <span class="stat">MS <b id="tMs">—</b></span>
+    <span class="stat">RES <b id="tRes">—</b></span>
+    <span class="stat">STEPS <b id="tSteps">—</b></span>
+  </div>
+</header>
+
+<aside id="telemetry" class="panel">
+  <h2>TELEMETRY</h2>
+  <dl>
+    <dt>r (camera)</dt><dd><b id="vRad">—</b> M</dd>
+    <dt>horizon r_s</dt><dd>2.000 M</dd>
+    <dt>photon sphere</dt><dd>3√3/2 ≈ 2.598 M</dd>
+    <dt>ISCO</dt><dd>6.000 M</dd>
+    <dt>inclination</dt><dd><b id="vInc">—</b>°</dd>
+    <dt>b_max (impact)</dt><dd><b id="vImpact">—</b> M</dd>
+    <dt>g (Doppler)</dt><dd><b id="vG">—</b></dd>
+    <dt>shadow Ø</dt><dd>~10.39 M</dd>
+    <dt>state</dt><dd id="vState">integrating</dd>
+  </dl>
+</aside>
+
+<section id="ctrl" class="panel">
+  <h2>PARAMETERS <em id="pCount"></em></h2>
+  <div id="sliders"></div>
+  <div class="row-btns">
+    <button id="btnReset" title="Reset all (R)">RESET</button>
+    <button id="btnShot" title="Save PNG (S)">SNAPSHOT</button>
+    <button id="btnAudio" title="Toggle audio (M)">AUDIO: OFF</button>
+  </div>
+</section>
+
+<footer id="hudBottom">
+  <span id="dbgLabel">VIEW 0 · BEAUTY</span>
+  <span id="pathLabel">PATH · ORBIT</span>
+  <span id="presetLabel">PRESET · INTERSTELLAR</span>
+  <span id="qLabel">Q · HIGH</span>
+  <span id="hint">H hide UI · SPACE pause · 0–9 views · P preset · C path · Q quality · S shot · M audio · R reset</span>
+</footer>
+
+<div id="helpOverlay" hidden>
+  <div class="help-card">
+    <h2>GARGANTUA — CONTROLS</h2>
+    <table>
+      <tr><td>drag / wheel</td><td>OrbitControls (free camera)</td></tr>
+      <tr><td>H</td><td>toggle interface</td></tr>
+      <tr><td>SPACE</td><td>pause / resume time</td></tr>
+      <tr><td>0 … 9</td><td>debug views (beauty→ring mask)</td></tr>
+      <tr><td>P / SHIFT+P</td><td>cycle presets fwd/back</td></tr>
+      <tr><td>C</td><td>cycle cinematic path (hands back to orbit on drag)</td></tr>
+      <tr><td>Q</td><td>quality LOW / MED / HIGH</td></tr>
+      <tr><td>S</td><td>save HDR-toned PNG snapshot</td></tr>
+      <tr><td>[ ]</td><td>exposure down / up</td></tr>
+      <tr><td>M</td><td>synchronized audio drone</td></tr>
+      <tr><td>R</td><td>reset parameters to current preset</td></tr>
+    </table>
+    <p>Screenshot determinism: append <code>?shot=1&amp;t=37.4&amp;w=1920&amp;h=1080&amp;path=grazing&amp;preset=photon</code>.</p>
+    <button id="btnCloseHelp">CLOSE</button>
+  </div>
+</div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

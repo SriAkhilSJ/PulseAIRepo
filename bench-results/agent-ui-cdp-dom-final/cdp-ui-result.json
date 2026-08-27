@@ -1,0 +1,109 @@
+{
+  "started_at": "2026-08-27T07:04:40.915Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "mode": "manager-only",
+  "prompt": null,
+  "checks": {
+    "Agent composer is visible and enabled": "PASS",
+    "Agent header and Manager button are visible": "PASS",
+    "Agent shell has no horizontal overflow": "PASS",
+    "Agent narrow responsive width is active": "PASS",
+    "Screenshots": "SKIPPED — already captured by immutable CDP R2 evidence",
+    "Echo turn": "SKIPPED — manager-only continuation makes no turn",
+    "Pulse Manager opens as a visible editor surface": "PASS",
+    "Pulse Manager has no horizontal overflow": "PASS",
+    "Pulse Manager is rendered inside its responsive container range": "PASS",
+    "Pulse Manager responsive inspector behavior is active": "PASS",
+    "No renderer exceptions or console errors were observed": "PASS"
+  },
+  "snapshots": {
+    "agent_composer": {
+      "selector": "textarea.pulseai-composer-input",
+      "x": 995.3333740234375,
+      "y": 500.54168701171875,
+      "width": 277.66668701171875,
+      "height": 66.59375,
+      "visible": true,
+      "enabled": true,
+      "text": "",
+      "clientWidth": 278,
+      "scrollWidth": 278
+    },
+    "agent_header": {
+      "selector": ".pulseai-agent-header",
+      "x": 984.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 72.0625,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManager",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "agent_shell": {
+      "selector": ".pulseai-agent-shell",
+      "x": 984.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 581,
+      "visible": true,
+      "enabled": true,
+      "text": "Current sessionNew Pulse sessionPulseAIRepoPulse readyManagerWhat should we build?Pulse can understand the editor, change code, run checks, and verify the result.Understand codeFix diagnosticsReview changes@ ContextAuto modelAuto - best availableFastDeepAskAsk before editsApprove workspace editsRead onlyEnter to sendShift+Enter for new line",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    },
+    "manager_button": {
+      "selector": ".pulseai-agent-header-actions .pulseai-icon-button",
+      "x": 1196.375,
+      "y": 95.19792175292969,
+      "width": 77.29167175292969,
+      "height": 21,
+      "visible": true,
+      "enabled": true,
+      "text": "Manager",
+      "clientWidth": 77,
+      "scrollWidth": 77
+    },
+    "manager_shell": {
+      "selector": ".pulseai-manager-shell",
+      "x": 348,
+      "y": 70,
+      "width": 636,
+      "height": 616,
+      "visible": true,
+      "enabled": true,
+      "text": "CONTROL PLANEWorkspacesFind workspace or agentPulseAIRepoNew Pulse sessionLocal workspaceReadyNo active sessionsPulseAIRepo / new-sessionPulse ManagerPulse readySessionTools 0ChangesWhat should we build?Pulse can understand the editor, change code, run checks, and verify the result.Understand codeFix diagnosticsReview changes@ ContextEnter to sendShift+Enter for new lineLIVE EVIDENCERun inspectorPlan0 stepsPlan appears when the run startsVerificationNot startedNo evidence receipt yetWorkbench ca",
+      "clientWidth": 636,
+      "scrollWidth": 636
+    },
+    "manager_main": {
+      "selector": ".pulseai-manager-main",
+      "x": 508,
+      "y": 70,
+      "width": 476,
+      "height": 616,
+      "visible": true,
+      "enabled": true,
+      "text": "PulseAIRepo / new-sessionPulse ManagerPulse readySessionTools 0ChangesWhat should we build?Pulse can understand the editor, change code, run checks, and verify the result.Understand codeFix diagnosticsReview changes@ ContextEnter to sendShift+Enter for new line",
+      "clientWidth": 476,
+      "scrollWidth": 476
+    },
+    "manager_responsive": {
+      "containerWidth": 636,
+      "inspectorDisplay": "none",
+      "sidebarDisplay": "grid",
+      "mainWidth": 476
+    }
+  },
+  "console_errors": [],
+  "screenshots": [],
+  "overall": "PASS",
+  "target": {
+    "id": "DCD5FC06D5599EBFF139CA7A52AD0D7C",
+    "title": "PulseAIRepo - PulseAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "finished_at": "2026-08-27T07:04:41.149Z"
+}

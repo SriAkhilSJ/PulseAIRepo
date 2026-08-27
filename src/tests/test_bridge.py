@@ -154,6 +154,16 @@ def test_sidecar_rejects_prompt_without_workspace(sidecar):
     assert "workspace required" in r["message"]
 
 
+def test_sidecar_rejects_unknown_execution_mode(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    response = _send(sidecar, {
+        "type": "prompt", "session_id": "bad-mode", "workspace": ".",
+        "text": "hello", "mode": "unsafe",
+    })
+    assert response["type"] == "error"
+    assert "unsupported execution mode" in response["message"]
+
+
 def test_sidecar_rejects_blank_workspace(sidecar):
     _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
     r = _send(sidecar, {"type": "session_create", "workspace": "   "})
@@ -239,6 +249,32 @@ def test_project_event_forwards_llm_request():
     assert frame["type"] == "llm.request"
     assert frame["model"] == "sarvam-105b-conversations"
     assert "workspace_proof.py" in json.dumps(frame)
+
+
+def test_project_event_forwards_bounded_llm_response_metadata():
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="proj-2", workspace="/tmp/pbr-ws")
+    frame = BridgeServer._project_event({
+        "type": "llm.response",
+        "payload": {
+            "session_id": "proj-2", "model": "sarvam-105b-conversations",
+            "raw_finish_reason": "lengthlength", "finish_reason": "length",
+            "incomplete": True, "tool_call_count": 1,
+            "tool_names": ["write_file"], "content_chars": 0,
+            "reasoning_chars": 120, "input_tokens": 400,
+            "output_tokens": 50, "total_tokens": 450,
+        },
+    }, identity)
+    assert frame is not None
+    assert frame["type"] == "llm.response"
+    assert frame["raw_finish_reason"] == "lengthlength"
+    assert frame["finish_reason"] == "length"
+    assert frame["incomplete"] is True
+    assert frame["tool_call_count"] == 1
+    assert frame["reasoning_chars"] == 120
+    assert frame["total_tokens"] == 450
 
 
 def test_forwarder_keeps_sessionless_events_drops_other_sessions():

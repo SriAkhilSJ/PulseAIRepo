@@ -3,6 +3,8 @@
 Skipped cleanly where flask isn't installed (deps list now includes it).
 """
 
+import threading
+
 import pytest
 
 flask = pytest.importorskip("flask")
@@ -11,8 +13,11 @@ from src import dashboard_server
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     dashboard_server.app.config["TESTING"] = True
+    # Validation tests must not launch a real provider-backed agent thread.
+    # The route's acceptance response is the boundary under test here.
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)
     return dashboard_server.app.test_client()
 
 

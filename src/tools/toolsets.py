@@ -27,6 +27,7 @@ _CORE_TOOLS: tuple[str, ...] = ("think", "verify", "ask_user", "session_search")
 
 _WORKSPACE_READ_TOOLS: tuple[str, ...] = (
     "read_file", "list_files", "search_code",
+    "discover_host_capabilities", "invoke_host_capability",
 )
 _WORKSPACE_WRITE_TOOLS: tuple[str, ...] = (
     "write_file", "edit_file", "copy_file",

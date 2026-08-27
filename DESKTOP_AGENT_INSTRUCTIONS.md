@@ -1,129 +1,146 @@
-# INSTRUCTIONS — Desktop Agent (founder's Windows laptop)
+# Desktop Agent Instructions — Provider-Free Four-Mode UI Validation
 
-**From:** Arena agent (CTO session) · **Date:** 2026-08-23
-**Repo:** `https://github.com/SriAkhilSJ/PulseAIRepo`
-**Read this whole file before running anything. Do not improvise beyond it.**
+**Updated:** 2026-08-27
+**Required branch:** `arena/01a03741-pulseairepo`
+**Required implementation ancestor:** `d0843937`
+**Required CDP harness ancestor:** `d9cdec27`
+**Evidence directory:** `bench-results/agent-ui-execution-modes-desktop`
+**Open PR:** #9 — do not merge
 
----
+## Authorization and stop rules
 
-## 0. Mission (what I need from you)
+This is a provider-free source/build/CDP validation of the functional **Agent / Plan / Debug / Ask** implementation. No provider request, probe, fallback, live Test 5 turn, credential inspection, merge, or branch deletion is authorized.
 
-Produce the first **real, paid benchmark evidence rows** for PulseAI, under a
-hard credit budget, with watchdog protection. Concretely, in order:
+Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone, reset, clean, amend source, or touch historical evidence. Set `PULSEAI_BRIDGE_RUNNER=echo` before launching the IDE; this is the mandatory network/provider guard. Run the CDP harness once. A failure remains evidence and must not be overwritten by a retry.
 
-1. Sync this laptop's clone to the latest branch (STEP 1) — **the local folder
-   is stale; GitHub is ahead.**
-2. Configure the NEW Sarvam key safely (STEP 2).
-3. Run the guarded PBR-002 paid row (STEP 3) — this is the priority.
-4. Run the keyless desktop CDP lane if the built IDE exists (STEP 4).
-5. Report back EXACTLY the outputs listed in STEP 5 — never the key.
-
----
-
-## 1. Sync the workspace (the laptop folder is NOT latest)
-
-The latest code lives on branch **`arena/01a02a5c-pulseairepo`** on GitHub
-(current tip: `8cbb12ea`). It contains 4 commits the laptop does not have:
-
-```
-f137f237  bench: guarded paid-runner script + provider-unreachable durability receipt
-6ded717f  tests: fix silently-broken pins; declare pillow; keep test runs out of bench-results
-83f144d0  benchmark: lane-aware grading (uncoverable checks = not_run)
-54c2ccbb  security: remove live API key from README (was public on GitHub)
-```
-
-Run, from the repo root on the laptop:
+## 1. Establish the exact clean source
 
 ```powershell
-git status                     # note any dirty files
-git stash push -u -m "pre-arena-sync"   # only if dirty; do NOT lose them
-git fetch origin
-git checkout arena/01a02a5c-pulseairepo
-git pull origin arena/01a02a5c-pulseairepo
-git log --oneline -1           # MUST show 8cbb12ea (or newer)
+$ErrorActionPreference = 'Stop'
+cd D:\pulseAIagent\PulseAIRepo
+
+if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+if (git status --porcelain=v1) { throw 'Checkout is not clean — preserve it and STOP' }
+
+git fetch origin arena/01a03741-pulseairepo
+git pull --ff-only origin arena/01a03741-pulseairepo
+if ($LASTEXITCODE -ne 0) { throw 'Fast-forward failed — STOP' }
+git merge-base --is-ancestor d0843937 HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Mode implementation is not an ancestor — STOP' }
+git merge-base --is-ancestor d9cdec27 HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Mode CDP harness is not an ancestor — STOP' }
+
+$evidence = 'bench-results\agent-ui-execution-modes-desktop'
+if (Test-Path $evidence) { throw 'Evidence directory already exists — STOP; never overwrite or retry' }
+New-Item -ItemType Directory -Path $evidence | Out-Null
+
+git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
+git status --short | Set-Content "$evidence\initial-status.txt" -Encoding utf8
+node --version | Set-Content "$evidence\node-version.txt" -Encoding utf8
+npm --version | Set-Content "$evidence\npm-version.txt" -Encoding utf8
+$python = (Resolve-Path '.venv\Scripts\python.exe').Path
+& $python --version 2>&1 | Set-Content "$evidence\python-version.txt" -Encoding utf8
 ```
 
-**Warnings:**
-- The laptop's local `main` history contains the LEAKED API key (README).
-  Never push local `main` anywhere. Work only on the branch above.
-- `.env`, `.venv`, `desktop/vscode/.build/`, `bench-results/` are gitignored —
-  a checkout/pull will NOT touch them. Your built IDE and venv are safe.
+If the existing `.venv` or installed desktop/UI dependencies are unavailable, record that as the first failed boundary and stop. Do not install or alter dependencies for this validation.
 
-Verify sync: `scripts\run_paid_pbr002_guarded.ps1` must exist.
+## 2. Provider-free focused contracts and builds
 
-## 2. Configure the NEW key (100 credits — guard it)
-
-The founder has a NEW Sarvam key. The OLD one is burned (public on GitHub).
-
-- Put exactly one line in `.env` at the repo root (create/keep the rest):
-  `CUSTOM_API_KEY=sk_the_new_key`
-  plus the existing lines if not already there:
-  `LLM_PROVIDER=custom`, `LLM_MODEL=sarvam-105b-conversations`,
-  `CUSTOM_BASE_URL=https://api.sarvam.ai/v1`, `SUMMARIZER_LLM=aux`,
-  `PROVIDER_SAFE_LIMIT=0`
-- The key NEVER goes in README, code, chat, commits, or screenshots.
-- The founder (human) rotates the old key in the Sarvam dashboard — remind him.
-- Sanity: `git check-ignore .env` → must print `.env`; `git status` must NOT
-  list `.env`.
-
-Environment check (one-time):
-```powershell
-.\.venv\Scripts\python.exe -c "import PIL; import pydantic; print('deps ok')"
-# if PIL missing: .\.venv\Scripts\pip.exe install pillow
-```
-
-## 3. THE PAID RUN — guarded PBR-002 (priority)
-
-> **Update 2026-08-23:** the first run (founder-pbr002-1) exposed a real
-> observability gap — fixed on the branch you just pulled (commit 8cbb12ea:
-> the bridge now emits workspace.bound + llm.request; the harness records
-> them and real token/cost usage). Re-run the SAME command; expect 3/3.
-
-One command. It is self-protecting: 8-token probe first (~0.1 credit); if the
-probe fails the benchmark never starts; watchdog checks every 30 s; kills the
-whole process tree on 120 s stall or 10 min hard cap; prints graded checks +
-token/cost usage at the end.
+Run each command once and preserve complete output plus exit code. Do not continue to CDP if any source/build check fails.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_paid_pbr002_guarded.ps1 -Workspace C:\pbr002-ws
+& $python -m pytest -q `
+  src/tests/test_execution_modes.py `
+  src/tests/test_bridge.py `
+  src/tests/test_bridge_transport.py `
+  src/tests/test_bridge_protocol_v2.py `
+  src/tests/test_desktop_renderer_architecture.py `
+  src/tests/test_pulseai_branding.py 2>&1 |
+  Tee-Object "$evidence\focused-pytest.log"
+if ($LASTEXITCODE -ne 0) { throw 'Focused pytest failed — STOP' }
+
+& $python scripts\generate_bridge_protocol.py --check 2>&1 |
+  Tee-Object "$evidence\protocol-generation.log"
+if ($LASTEXITCODE -ne 0) { throw 'Protocol generation check failed — STOP' }
+
+Push-Location ui
+npm run check:desktop-syntax 2>&1 | Tee-Object "..\$evidence\desktop-syntax.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop syntax failed — STOP' }
+npm run build 2>&1 | Tee-Object "..\$evidence\ui-build.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'UI build failed — STOP' }
+Pop-Location
+
+Push-Location desktop\vscode
+npm run typecheck-client 2>&1 | Tee-Object "..\..\$evidence\desktop-typecheck-client.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop typecheck failed — STOP' }
+npm run valid-layers-check 2>&1 | Tee-Object "..\..\$evidence\desktop-valid-layers.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop layer check failed — STOP' }
+npm run compile 2>&1 | Tee-Object "..\..\$evidence\desktop-compile.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop compile failed — STOP' }
+Pop-Location
 ```
 
-Rules:
-- Monitor it; do not interfere unless the watchdog fires (it kills by itself).
-- If the probe fails: STOP. Report the probe error. Do not retry more than
-  once without a diagnosis — each retry risks credits.
-- If it passes: expected artifacts `bench-results\founder-pbr002-1\result.md`
-  with outcome `passed` (3/3 coverable checks on the bridge lane).
-- Do NOT run any other task (PBR-004/005/…/011) — those wait for founder
-  approval of the next spend.
+The focused tests must prove mode manifest parity, generated TypeScript currency, bridge rejection/propagation, Ask no-execution routing, preserved Plan behavior, and Agent/Debug execution routing.
 
-## 4. Keyless desktop lane (only if the built IDE exists)
+## 3. One raw-CDP desktop run
 
-If `desktop\vscode\.build\electron\PulseAI.exe` exists:
+Read `CDP_TEST_GUIDE.md` first. Launch the built desktop with the exact existing Python environment, repository root, echo runner, and CDP port. Never read or print `.env`.
 
 ```powershell
-scripts\run_keyless_cdp.bat C:\pbr002-ws
+$env:PULSEAI_PYTHON_PATH = $python
+$env:PULSEAI_ENGINE_ROOT = 'D:\pulseAIagent\PulseAIRepo'
+$env:PULSEAI_BRIDGE_RUNNER = 'echo'
+$env:PULSEAI_CDP_PORT = '9222'
+
+$desktop = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', `
+  'set PULSEAI_BRIDGE_RUNNER=echo&&set PULSEAI_PYTHON_PATH=D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe&&set PULSEAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\pulseAIagent\PulseAIRepo --remote-debugging-port=9222' `
+  -PassThru
+try {
+  node scripts\validate_pulse_ui_cdp.js $evidence 2>&1 |
+    Tee-Object "$evidence\cdp-ui.log"
+  $cdpExit = $LASTEXITCODE
+} finally {
+  if ($desktop -and -not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue }
+}
+if ($cdpExit -ne 0) { throw 'CDP validation failed — preserve evidence and STOP without retry' }
 ```
 
-This grades the DOM checks for PBR-001/003 (composer blocked with no folder,
-multi-root selection). Zero credits, zero model calls. If the IDE is not
-built, SKIP and say so — do not attempt a build (multi-hour, out of scope).
+The committed harness must capture and verify:
 
-## 5. Report back (paste this to the Arena agent — NEVER the key)
+- restrained theme-aware welcome/composer rendering;
+- the upward mode menu screenshot with Agent, Plan, Debug, and Ask;
+- accessible menu roles, descriptions, selected state, and working Ask→Agent DOM selection;
+- exact echo turn and completion receipt with zero provider traffic;
+- narrow Agent layout, Manager opening, responsive Manager layout, and no overflow;
+- screenshots and zero renderer/console errors.
 
-1. `git log --oneline -1` output (sync proof)
-2. The guarded script's full console output (probe line, watchdog lines, graded result)
-3. Contents of `bench-results\founder-pbr002-1\result.md` (if it exists)
-4. Contents of `bench-results\report-card.md` (regenerate:
-   `.\.venv\Scripts\python.exe -m benchmarks.pulse_reliability_v1.harness report --results-dir bench-results --out bench-results\report-card.md`)
-5. For STEP 4 (if run): the report-card rows for PBR-001/003
+## 4. Evidence report, hashes, and commit
 
-## Hard constraints (do not cross)
+Create `validation-summary.json` and `validation-report.md` from the actual logs. Record exact HEAD, every command and exit code, focused test count, all CDP checks/snapshots/screenshots, console error count, `provider_requests: 0`, overall PASS/FAIL, and the first failed boundary. A build PASS cannot upgrade a CDP FAIL. Do not claim runtime behavior not demonstrated by the focused tests and echo CDP run.
 
-- **Budget:** probe + PBR-002 only, ≈1.5 credits of 100. Nothing else paid.
-- **No edits** to benchmark/engine code — if something looks wrong, STOP and
-  report it instead of patching. The Arena agent owns code changes.
-- **No key material** in any output, log, commit, or message.
-- **No pushing** from the laptop (the local history contains the old key).
-- If anything hangs beyond the watchdog: `taskkill /T /F /PID <pid>` on the
-  python process, then report.
+Confirm no provider events or credential material appear in evidence. Save only boolean/count results in `credential-scan.json`, never any secret value. Then hash every evidence file except the hash manifest itself:
+
+```powershell
+Get-ChildItem $evidence -Recurse -File |
+  Where-Object Name -ne 'sha256sums.txt' |
+  Sort-Object FullName |
+  ForEach-Object {
+    $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+    $relative = [IO.Path]::GetRelativePath((Resolve-Path $evidence), $_.FullName).Replace('\','/')
+    "$hash  $relative"
+  } | Set-Content "$evidence\sha256sums.txt" -Encoding ascii
+
+git status --short
+```
+
+Only `bench-results/agent-ui-execution-modes-desktop/` may be new. If source, tests, generated files, lockfiles, or historical evidence changed, preserve everything and STOP without reset/clean.
+
+```powershell
+git add -f bench-results/agent-ui-execution-modes-desktop
+git commit -m "test(ui): validate functional execution modes on desktop"
+git push origin arena/01a03741-pulseairepo
+```
+
+Report exact results and evidence commit, then stop. Do not merge PR #9 or delete any branch.
+
+Desktop agent task

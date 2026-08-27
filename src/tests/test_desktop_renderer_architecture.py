@@ -68,10 +68,10 @@ def test_web_fallback_and_desktop_override_share_the_engine_contract():
     assert "PulseAIEngineState.Degraded" in fallback
 
 
-def test_native_and_lab_catalogs_cover_the_same_34_tools():
+def test_native_and_lab_catalogs_cover_the_same_36_tools():
     native = _catalog_names(_text("common", "pulseAIToolCatalog.ts"))
     lab = _catalog_names((UI / "runtime" / "toolCatalog.ts").read_text(encoding="utf-8"))
-    assert len(native) == 34
+    assert len(native) == 36
     assert native == lab
 
 
@@ -91,3 +91,44 @@ def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
         "terminal-output", "exitCode", "duration", "Copy command", "Reveal location",
     ):
         assert receipt in renderer
+
+
+def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    for behavior in (
+        "function planStrip", "function workingDock", "function emptyState",
+        "pulseai-section-heading", "host.submitPrompt(prompt)", "planOpen",
+    ):
+        assert behavior in renderer
+    assert "openManager(): void" in renderer
+    assert "executeCommand(PulseAICommandId.OpenManager)" in _text("browser", "pulseAIRendererService.ts")
+    for style in (
+        ".pulseai-starter-grid", ".pulseai-working-dock", ".pulseai-plan-strip",
+        "prefers-reduced-motion", "@media (max-width: 420px)",
+        "container-name: pulseai-manager-editor", "@container pulseai-manager-editor (max-width: 610px)",
+        "var(--vscode-focusBorder)", "var(--vscode-sideBar-background)",
+    ):
+        assert style in css
+    assert "kilocode" not in renderer.lower()
+    assert "kilocode" not in css.lower()
+
+
+def test_execution_mode_picker_is_functional_and_theme_driven():
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    service = _text("browser", "pulseAIRendererService.ts")
+    protocol = _text("common", "pulseAIProtocol.ts")
+    generated = _text("common", "pulseAIProtocol.generated.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    for mode in ("agent", "plan", "debug", "ask"):
+        assert f"id: '{mode}'" in renderer
+        assert f"'{mode}'" in generated
+    assert "setMode(mode: PulseExecutionMode)" in renderer
+    assert "readonly mode?: PulseExecutionMode" in protocol
+    assert "mode: this.mode" in service
+    assert "this.send({ type: 'prompt'" in service
+    assert ".pulseai-mode-menu" in css
+    for token in ("--vscode-menu-background", "--vscode-menu-foreground", "--vscode-focusBorder"):
+        assert token in css
+    assert "#071118" not in css
+    assert "#061115" not in css

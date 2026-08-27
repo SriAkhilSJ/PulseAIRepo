@@ -168,6 +168,7 @@ export interface IPulseAIWorkbenchService {
 	readonly onDidChangeTests: Event<PulseAITestReceipt>;
 
 	getCapabilities(): readonly PulseAICapabilityStatus[];
+	isWorkspaceTrusted(): boolean;
 	getActiveEditorContext(includeVisibleText?: boolean): Promise<PulseAIEditorContext | undefined>;
 	getDiagnostics(resources?: readonly string[]): readonly PulseAIDiagnostic[];
 	getDocumentSymbols(resource: string): Promise<readonly PulseAISymbol[]>;

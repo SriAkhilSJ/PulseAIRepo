@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 import threading
 import time
@@ -104,6 +105,190 @@ class _AbortState:
                 candidate.close()
             except Exception:
                 pass
+
+
+def _bound_tool_schemas(runnable: Any) -> list[dict[str, Any]]:
+    """Extract OpenAI-style schemas from nested LangChain bindings."""
+    current = runnable
+    seen: set[int] = set()
+    for _ in range(8):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        kwargs = getattr(current, "kwargs", None)
+        if isinstance(kwargs, dict) and isinstance(kwargs.get("tools"), list):
+            return [tool for tool in kwargs["tools"] if isinstance(tool, dict)]
+        current = getattr(current, "bound", None) or getattr(current, "_llm", None)
+    return []
+
+
+def build_request_snapshot(messages: Any, runnable: Any) -> dict[str, Any]:
+    """Build a deterministic, JSON-safe provider-boundary snapshot.
+
+    This contains the complete messages and tool schemas after sanitization and
+    prompt trimming, so a failed desktop run can be inspected/replayed without
+    another paid call. It is emitted only when payload capture is explicitly
+    enabled; compact counts/fingerprints are always safe telemetry.
+    """
+    import hashlib
+    import json
+
+    serialized_messages: list[dict[str, Any]] = []
+    if isinstance(messages, list):
+        for message in messages:
+            if isinstance(message, dict):
+                item = dict(message)
+            else:
+                item = {
+                    "role": getattr(message, "type", "unknown"),
+                    "content": getattr(message, "content", ""),
+                }
+                tool_calls = getattr(message, "tool_calls", None)
+                if tool_calls:
+                    item["tool_calls"] = tool_calls
+                tool_call_id = getattr(message, "tool_call_id", None)
+                if tool_call_id:
+                    item["tool_call_id"] = tool_call_id
+                name = getattr(message, "name", None)
+                if name:
+                    item["name"] = name
+            serialized_messages.append(item)
+    tools_payload = _bound_tool_schemas(runnable)
+    canonical = json.dumps(
+        {"messages": serialized_messages, "tools": tools_payload},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    names = []
+    for tool in tools_payload:
+        fn = tool.get("function", tool)
+        if isinstance(fn, dict) and fn.get("name"):
+            names.append(str(fn["name"]))
+    return {
+        "messages": serialized_messages,
+        "tools": tools_payload,
+        "message_chars": sum(len(str(m.get("content", ""))) for m in serialized_messages),
+        "tool_schema_chars": len(json.dumps(tools_payload, sort_keys=True, default=str)),
+        "tool_names": names,
+        "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
+
+
+_INCOMPLETE_FINISH_REASONS = frozenset({
+    "length", "max_tokens", "max_output_tokens", "token_limit", "incomplete",
+})
+_CANONICAL_FINISH_REASONS = _INCOMPLETE_FINISH_REASONS | frozenset({
+    "stop", "tool_calls", "function_call", "content_filter", "end_turn",
+})
+
+
+def normalize_finish_reason(value: Any) -> tuple[str, str]:
+    """Return ``(raw, canonical)`` provider completion reasons.
+
+    LangChain merges streaming ``response_metadata`` dictionaries with generic
+    string concatenation. If two terminal chunks both carry ``length``, the
+    final AIMessage contains ``lengthlength`` (reproduced with
+    ``AIMessageChunk + AIMessageChunk`` and observed in Test 5 Attempt 10).
+    Canonicalize only *exact repetitions* of known reasons; broad substring
+    matching could turn unrelated provider values into false output limits.
+    """
+    raw = str(value or "").strip()
+    normalized = raw.lower()
+    if not raw:
+        return "", ""
+    for reason in sorted(_CANONICAL_FINISH_REASONS, key=len, reverse=True):
+        if len(normalized) < len(reason) or len(normalized) % len(reason):
+            continue
+        repeats = len(normalized) // len(reason)
+        if 1 <= repeats <= 8 and normalized == reason * repeats:
+            return raw, reason
+    return raw, normalized
+
+
+def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | None]:
+    """Normalize bounded token counters from LangChain/provider metadata."""
+    usage = getattr(response, "usage_metadata", None)
+    usage = usage if isinstance(usage, dict) else {}
+    provider_usage = metadata.get("token_usage")
+    provider_usage = provider_usage if isinstance(provider_usage, dict) else {}
+
+    def value(*names: str) -> int | None:
+        for source in (usage, provider_usage):
+            for name in names:
+                candidate = source.get(name)
+                if isinstance(candidate, int) and not isinstance(candidate, bool):
+                    return max(0, candidate)
+        return None
+
+    return {
+        "input_tokens": value("input_tokens", "prompt_tokens"),
+        "output_tokens": value("output_tokens", "completion_tokens"),
+        "total_tokens": value("total_tokens"),
+    }
+
+
+def _reasoning_chars(response: Any, additional: dict[str, Any]) -> int:
+    """Count hidden-reasoning text without exposing it in telemetry."""
+    reasoning = (
+        additional.get("reasoning_content")
+        or additional.get("reasoning")
+        or getattr(response, "reasoning_content", None)
+        or ""
+    )
+    if isinstance(reasoning, str):
+        return len(reasoning)
+    return len(str(reasoning)) if reasoning else 0
+
+
+def _nested_runnable_attr(runnable: Any, name: str) -> Any:
+    """Read an attribute through nested LangChain RunnableBinding views."""
+    current = runnable
+    seen: set[int] = set()
+    for _ in range(8):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        value = getattr(current, name, None)
+        if value is not None:
+            return value
+        current = getattr(current, "bound", None) or getattr(current, "_llm", None)
+    return None
+
+
+def runnable_uses_streaming(runnable: Any) -> bool:
+    """Whether a bound provider is configured to consume a native stream."""
+    return bool(_nested_runnable_attr(runnable, "streaming"))
+
+
+def provider_response_info(response: Any) -> dict[str, Any]:
+    """Normalize provider completion metadata without trusting one adapter key."""
+    metadata = getattr(response, "response_metadata", None)
+    metadata = metadata if isinstance(metadata, dict) else {}
+    additional = getattr(response, "additional_kwargs", None)
+    additional = additional if isinstance(additional, dict) else {}
+    raw_finish_reason, finish_reason = normalize_finish_reason(
+        metadata.get("finish_reason")
+        or metadata.get("stop_reason")
+        or additional.get("finish_reason")
+        or additional.get("stop_reason")
+        or ""
+    )
+    tool_calls = list(getattr(response, "tool_calls", None) or [])
+    content = getattr(response, "content", "")
+    return {
+        "raw_finish_reason": raw_finish_reason,
+        "finish_reason": finish_reason,
+        "incomplete": finish_reason in _INCOMPLETE_FINISH_REASONS,
+        "tool_call_count": len(tool_calls),
+        "tool_names": [
+            str(call.get("name") or "")[:80] for call in tool_calls[:32]
+            if isinstance(call, dict)
+        ],
+        "content_chars": len(content) if isinstance(content, str) else len(str(content)),
+        "reasoning_chars": _reasoning_chars(response, additional),
+        **_response_usage(response, metadata),
+    }
 
 
 def _request_heads(messages: Any, *, first_limit: int = 3000,
@@ -240,9 +425,16 @@ class RetryLLMProxy:
         # gate below raises without starting provider traffic.
         sid = active_session()
         abort_handle = self.abort
+        # LangChain's synchronous invoke() owns and drains its configured
+        # streaming iterator. Wrapping streaming=True in a fresh async loop
+        # left Response.aiter_raw pending in desktop Attempt 8 and obscured
+        # whether all tool-argument chunks had arrived. Match Hermes' single
+        # stream owner: use the sync stream consumer; reserve the cancellable
+        # async task path for genuinely non-streaming providers.
+        native_streaming = runnable_uses_streaming(self._llm)
         provider_loop = (
             asyncio.new_event_loop()
-            if callable(getattr(self._llm, "ainvoke", None))
+            if callable(getattr(self._llm, "ainvoke", None)) and not native_streaming
             else None
         )
         if sid is not None:
@@ -333,6 +525,12 @@ class RetryLLMProxy:
                         args = (trimmed,) + args[1:]
                     else:
                         kwargs["messages"] = trimmed
+                    messages_arg = trimmed
+
+            request_snapshot = build_request_snapshot(messages_arg, self._llm)
+            capture_payload = os.environ.get(
+                "PULSEAI_CAPTURE_REQUEST_PAYLOADS", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
 
             for attempt in range(self._max_attempts):
                 # Cancellation gate BEFORE every attempt: a Stop that fired while
@@ -352,12 +550,34 @@ class RetryLLMProxy:
                         "attempt": attempt + 1,
                         "message_count": len(messages_arg) if isinstance(messages_arg, list) else None,
                         "messages": _request_heads(messages_arg),
+                        "message_chars": request_snapshot["message_chars"],
+                        "tool_count": len(request_snapshot["tools"]),
+                        "tool_names": request_snapshot["tool_names"],
+                        "tool_schema_chars": request_snapshot["tool_schema_chars"],
+                        "request_sha256": request_snapshot["sha256"],
+                        **({"request_payload": request_snapshot} if capture_payload else {}),
                     })
                 except Exception:
                     pass  # telemetry must never break a send
 
                 try:
-                    return self._invoke_provider(provider_loop, *args, **kwargs)
+                    response = self._invoke_provider(provider_loop, *args, **kwargs)
+                    # Hermes records the provider's completion boundary before
+                    # dispatching tools. Pulse previously retained only request
+                    # metadata, so a token-limited tool call was
+                    # indistinguishable from a complete one. Emit bounded
+                    # response facts—never tool arguments or assistant text.
+                    try:
+                        from src.dashboard.event_bus import event_bus
+                        event_bus.emit("llm.response", {
+                            "session_id": sid,
+                            "model": self.model,
+                            "attempt": attempt + 1,
+                            **provider_response_info(response),
+                        })
+                    except Exception:
+                        pass
+                    return response
                 except Exception as error:
                     # A Stop pressed while this HTTP request was in flight wins
                     # over any retry/failover logic: surface the cancellation and
@@ -384,6 +604,20 @@ class RetryLLMProxy:
             if sid is not None:
                 turn_controls.unregister_abort(sid, abort_handle)
             if provider_loop is not None:
+                # streaming=True can leave the HTTP response async generator
+                # awaiting aclose even after ainvoke returns an accumulated
+                # tool-call message. Closing the loop immediately produced
+                # Attempt-8's "Task was destroyed but it is pending" warning
+                # and an un-awaited Response.aiter_raw aclose. Drain generators
+                # with a hard bound; cleanup must not become another wedge.
+                try:
+                    provider_loop.run_until_complete(
+                        asyncio.wait_for(
+                            provider_loop.shutdown_asyncgens(), timeout=5.0
+                        )
+                    )
+                except Exception:
+                    pass
                 provider_loop.close()
 
     def _raise_if_cancelled(self, error: Exception | None = None) -> None:
@@ -569,9 +803,16 @@ def get_llm(provider, model):
             "1", "true", "yes", "on",
         }
         try:
-            timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "60"))
+            # Default sized to GENERATION length, not ping latency (hermes
+            # doctrine): a 100B-class model writing a large first response
+            # (Test 5: the GARGANTUA raytracer turn) legitimately needs
+            # >60s wall time when not streaming — the old 60s default killed
+            # exactly that turn twice (~122s = 2 attempts) and failed the
+            # run. Classifiers are unaffected: a timeout only matters when
+            # exceeded, and they return in seconds.
+            timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "180"))
         except (TypeError, ValueError):
-            timeout = 60.0
+            timeout = 180.0
         llm = ChatOpenAI(
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
@@ -658,7 +899,18 @@ class EmbeddingFactory:
         from src.config.settings import EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_DEVICE
         if EMBEDDING_PROVIDER == "local":
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(EMBEDDING_MODEL, device=EMBEDDING_DEVICE)
+            # Agent startup and ordinary retrieval must be network-inert. An
+            # operator may explicitly opt into the one-time model download;
+            # otherwise a missing cache cleanly disables optional memory via
+            # LazyMemoryManager instead of retrying Hugging Face at import/use.
+            allow_downloads = os.environ.get(
+                "PULSEAI_ALLOW_MODEL_DOWNLOADS", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            self._model = SentenceTransformer(
+                EMBEDDING_MODEL,
+                device=EMBEDDING_DEVICE,
+                local_files_only=not allow_downloads,
+            )
         elif EMBEDDING_PROVIDER == "openai":
             raise NotImplementedError("OpenAI embeddings not yet implemented")
         else:

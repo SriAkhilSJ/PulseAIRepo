@@ -191,6 +191,13 @@ def classify_tool_outcome(tool_name: str, result: str) -> str:
     failed = bool(_ERROR_MARKER_RE.search(result))
 
     if tool_name == "typecheck_workspace":
+        # "No tsconfig" / "typescript missing" is an unavailable check, not
+        # a failed implementation. Test5-5 classified this no-op as failure
+        # three times and paid a KEEP/REPLAN model call after each one. Keep it
+        # out of failure/replan accounting; the tool's own message already
+        # tells the main model what prerequisite is absent.
+        if result.lstrip().startswith("ℹ️"):
+            return OUTCOME_SKIP
         # Compiler invocation is evidence only when it explicitly returns the
         # green receipt. Unicode status markers are part of the tool contract.
         failed = not result.lstrip().startswith("✅")
@@ -348,14 +355,29 @@ IDENTICAL_READ_NUDGE = (
 )
 
 
+_DETERMINISTIC_KEEP_MARKERS = (
+    "blocked (safety policy)",
+    "phase policy denied",
+    "posix-only shell",
+    "does not exist on this windows environment",
+    "nothing to typecheck",
+    "no tsconfig.json",
+)
+
+
 def maybe_replan(task: str, plan: list, failure: str,
                  provider: str, model: str):
-    """Consult the replanner (failure + non-empty plan only).
+    """Consult the replanner only when a failure may invalidate the plan.
 
-    Returns (replan_needed, usages) — usages for token accounting; the
-    empty-plan case short-circuits without touching the LLM path.
+    Hermes keeps policy/loop decisions deterministic. Paying a second model to
+    answer KEEP after a local policy denial or typed platform mismatch adds no
+    information; Test5-5 burned four calls on that shape. Unknown strategic
+    failures retain the existing model review.
     """
     if not plan:
+        return False, []
+    lowered = str(failure).lower()
+    if any(marker in lowered for marker in _DETERMINISTIC_KEEP_MARKERS):
         return False, []
     usages: list = []
     needed = should_replan(

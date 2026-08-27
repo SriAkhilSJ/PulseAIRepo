@@ -51,10 +51,13 @@ class TaskDecision(BaseModel):
 # =========================================================
 # STATE
 # =========================================================
+ExecutionMode = Literal["agent", "plan", "debug", "ask"]
+
+
 class AgentState(TypedDict, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
 
-    execution_mode: Literal["agent", "plan"]
+    execution_mode: ExecutionMode
 
     tool_failures: int
     recovery_mode: bool
@@ -79,6 +82,7 @@ class AgentState(TypedDict, total=False):
     pivot_count: int        # strategy pivots performed (bounded)
     prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
     finish_nudges: int      # hermes-style early-finish nudges applied (bounded)
+    incomplete_response_retries: int  # output-limit continuations this turn (bounded)
     verify_nudges: int      # Test-2: nudges to run a verification tool (bounded)
     token_usage: dict[str, Any]  # Cumulative tokens/cost for the active task/session
     turn_token_usage: dict[str, Any]  # Turn-scoped safety budget; resets on each user turn

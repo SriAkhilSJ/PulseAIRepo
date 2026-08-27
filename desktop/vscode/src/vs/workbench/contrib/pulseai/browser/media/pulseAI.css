@@ -11,7 +11,7 @@
 	color: var(--vscode-foreground);
 	background: var(--vscode-editor-background);
 	font-family: var(--vscode-font-family);
-	font-size: 12px;
+	font-size: inherit;
 	overflow: hidden;
 }
 
@@ -29,8 +29,8 @@
 .pulseai-render-root button { cursor: pointer; }
 
 .pulseai-agent-shell {
-	display: grid;
-	grid-template-rows: 34px minmax(0, 1fr) auto auto;
+	display: flex;
+	flex-direction: column;
 	height: 100%;
 	min-width: 0;
 	min-height: 0;
@@ -51,24 +51,48 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
+	gap: 10px;
 	min-width: 0;
-	padding: 0 10px;
+	min-height: 64px;
+	padding: 8px 10px;
 	overflow: hidden;
 }
 
-.pulseai-agent-brand {
+.pulseai-agent-heading,
+.pulseai-agent-header-actions {
 	display: flex;
 	align-items: center;
-	gap: 7px;
-	font-size: 12px;
+	gap: 8px;
+	min-width: 0;
 }
+.pulseai-agent-heading { flex: 1; }
+.pulseai-session-copy { display: grid; min-width: 0; gap: 1px; }
+.pulseai-session-copy h2 {
+	margin: 0;
+	overflow: hidden;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 17px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pulseai-session-subline {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	font-size: 9px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pulseai-session-subline .codicon { font-size: 10px; }
 
 .pulseai-agent-brand > .codicon,
 .pulseai-assistant-label > .codicon { color: var(--pulseai-accent); }
 
 .pulseai-brand-mark { width: 21px; height: 21px; flex: none; }
-.pulseai-brand-mark rect { fill: #071118; stroke: color-mix(in srgb, var(--pulseai-accent) 42%, #245461); }
+.pulseai-brand-mark rect { fill: var(--vscode-editorWidget-background); stroke: color-mix(in srgb, var(--pulseai-accent) 42%, var(--vscode-panel-border)); }
 .pulseai-brand-mark path { fill: none; stroke: var(--pulseai-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .pulseai-brand-mark circle { fill: var(--pulseai-agent); }
 
@@ -131,6 +155,35 @@
 
 .pulseai-native-select:focus { border-color: var(--vscode-focusBorder); }
 
+.pulseai-plan-strip {
+	border-bottom: 1px solid var(--vscode-panel-border, transparent);
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 92%, var(--pulseai-accent));
+}
+.pulseai-plan-strip-summary {
+	display: grid;
+	grid-template-columns: 14px auto 1fr auto 12px;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 4px 10px;
+	list-style: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	cursor: pointer;
+}
+.pulseai-plan-strip-summary::-webkit-details-marker { display: none; }
+.pulseai-plan-strip-summary:hover { background: var(--vscode-list-hoverBackground); }
+.pulseai-plan-strip-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-plan-strip-summary strong { color: var(--vscode-foreground); font-size: 11px; }
+.pulseai-plan-strip-summary > .codicon-chevron-down { transition: transform 120ms ease; }
+.pulseai-plan-strip:not([open]) .pulseai-plan-strip-summary > .codicon-chevron-down { transform: rotate(-90deg); }
+.pulseai-plan-strip-state { display: inline-flex; align-items: center; gap: 5px; color: var(--pulseai-running); }
+.pulseai-plan-strip-list { display: grid; gap: 5px; margin: 0; padding: 2px 12px 9px 30px; list-style: none; }
+.pulseai-plan-strip-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; line-height: 1.35; }
+.pulseai-plan-strip-list li.is-active { color: var(--vscode-foreground); }
+
+.pulseai-agent-shell > .pulseai-transcript-scroll { flex: 1 1 auto; }
+
 .pulseai-transcript-scroll {
 	min-width: 0;
 	min-height: 0;
@@ -140,11 +193,11 @@
 
 .pulseai-transcript-lane {
 	width: 100%;
-	max-width: 950px;
+	max-width: 720px;
 	box-sizing: border-box;
 	min-width: 0;
 	margin: 0 auto;
-	padding: 10px;
+	padding: 14px clamp(10px, 3vw, 22px) 20px;
 	overflow-wrap: anywhere;
 }
 
@@ -193,8 +246,31 @@
 }
 
 .pulseai-tool-list {
-	margin: 7px 0;
+	margin: 13px 0 7px;
 	border-top: 1px solid var(--vscode-panel-border, transparent);
+}
+.pulseai-section-heading {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 25px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 9px;
+	font-weight: 600;
+	letter-spacing: .06em;
+	text-transform: uppercase;
+}
+.pulseai-section-count {
+	display: grid;
+	place-items: center;
+	min-width: 17px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 8px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: 9px;
+	letter-spacing: 0;
 }
 
 .pulseai-tool-row {
@@ -330,8 +406,34 @@
 	box-sizing: border-box;
 }
 .pulseai-empty > .codicon { margin-bottom: 8px; color: var(--pulseai-accent); font-size: 22px; }
-.pulseai-empty h3 { margin: 0 0 5px; color: var(--vscode-foreground); font-size: 13px; }
-.pulseai-empty p { max-width: min(280px, calc(100% - 16px)); width: 100%; margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.pulseai-empty .pulseai-brand-mark { width: 2.75em; height: 2.75em; margin-bottom: .8em; }
+.pulseai-empty h3 { margin: 0 0 .4em; color: var(--vscode-foreground); font-size: 1.15em; font-weight: 600; }
+.pulseai-empty p { max-width: min(28em, calc(100% - 1em)); width: 100%; margin: 0; color: var(--vscode-descriptionForeground); font-size: .96em; line-height: 1.5; overflow-wrap: anywhere; }
+.pulseai-starter-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 6px;
+	width: min(100%, 520px);
+	margin-top: 18px;
+}
+.pulseai-starter-card {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+	min-height: 39px;
+	padding: 7px 9px;
+	border: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+	border-radius: 5px;
+	background: var(--vscode-sideBar-background);
+	color: var(--vscode-descriptionForeground);
+	font-size: .92em;
+	text-align: left;
+}
+.pulseai-starter-card .codicon { color: var(--pulseai-accent); }
+.pulseai-starter-card:hover:not(:disabled) { border-color: var(--vscode-focusBorder); background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-starter-card:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.pulseai-starter-card:disabled { cursor: default; opacity: .5; }
 
 .pulseai-error-row {
 	display: flex;
@@ -345,6 +447,21 @@
 	line-height: 1.35;
 }
 .pulseai-error-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
+.pulseai-working-dock {
+	display: grid;
+	grid-template-columns: 13px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 7px;
+	min-height: 31px;
+	padding: 5px 10px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 94%, var(--pulseai-running));
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+}
+.pulseai-working-copy { overflow: hidden; color: var(--vscode-foreground); text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-working-detail { white-space: nowrap; }
 
 .pulseai-approval-dock {
 	display: flex;
@@ -372,15 +489,22 @@
 .pulseai-button-secondary { border-color: var(--vscode-button-secondaryBackground); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 
 .pulseai-composer {
-	padding: 8px 10px 7px;
+	padding: 9px 10px 7px;
 	border-top: 1px solid var(--vscode-panel-border, transparent);
 	background: var(--vscode-sideBar-background);
 }
 .pulseai-composer-box {
-	border: 1px solid var(--vscode-input-border, transparent);
+	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+	border-radius: 7px;
 	background: var(--vscode-input-background);
+	box-shadow: 0 3px 12px var(--vscode-widget-shadow);
+	overflow: hidden;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.pulseai-composer-box:focus-within { border-color: var(--vscode-focusBorder); }
+.pulseai-composer-box:focus-within {
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent), 0 4px 14px var(--vscode-widget-shadow);
+}
 .pulseai-composer-input {
 	display: block;
 	width: 100%;
@@ -397,6 +521,65 @@
 .pulseai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
 .pulseai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; }
 .pulseai-composer-left { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 160px; }
+
+.pulseai-mode-picker { position: relative; min-width: 0; }
+.pulseai-mode-summary {
+	display: inline-flex;
+	align-items: center;
+	gap: .4em;
+	height: 24px;
+	padding: 0 .6em;
+	border-radius: 5px;
+	list-style: none;
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+	font-size: inherit;
+	cursor: pointer;
+	user-select: none;
+}
+.pulseai-mode-summary::-webkit-details-marker { display: none; }
+.pulseai-mode-summary:hover { background: var(--vscode-toolbar-hoverBackground); }
+.pulseai-mode-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.pulseai-mode-summary[aria-disabled='true'] { cursor: default; opacity: .65; }
+.pulseai-mode-summary > .codicon:last-child { color: var(--vscode-descriptionForeground); font-size: .85em; }
+.pulseai-mode-picker[open] .pulseai-mode-summary > .codicon:last-child { transform: rotate(180deg); }
+.pulseai-mode-menu {
+	position: absolute;
+	z-index: 40;
+	bottom: calc(100% + 6px);
+	left: 0;
+	display: grid;
+	width: min(250px, calc(100vw - 24px));
+	padding: 4px;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+	border-radius: 6px;
+	background: var(--vscode-menu-background);
+	color: var(--vscode-menu-foreground);
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+}
+.pulseai-mode-option {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) 16px;
+	align-items: center;
+	gap: .5em;
+	width: 100%;
+	min-height: 38px;
+	padding: .35em .55em;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+}
+.pulseai-mode-option:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+.pulseai-mode-option:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-mode-option.is-selected { background: var(--vscode-list-inactiveSelectionBackground); }
+.pulseai-mode-option-copy { display: grid; min-width: 0; gap: 1px; }
+.pulseai-mode-option-copy strong { font-size: 1em; font-weight: 500; }
+.pulseai-mode-option-copy small { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .86em; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-mode-option:hover small { color: inherit; }
+.pulseai-mode-option > .codicon-check { color: var(--vscode-testing-iconPassed); }
+
 .pulseai-composer-pill,
 .pulseai-composer-select {
 	display: inline-flex;
@@ -422,9 +605,9 @@
 	padding: 0;
 	border: 0;
 	border-radius: 4px;
-	background: var(--pulseai-accent);
-	color: #061115;
-	font-size: 14px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font-size: 1.1em;
 	cursor: pointer;
 }
 .pulseai-send-button:hover { filter: brightness(1.08); }
@@ -450,10 +633,14 @@
 .pulseai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
 
 /* Pulse Manager occupies an editor tab, leaving source editors and the global menu intact. */
-.pulseai-manager-editor { display: block; }
+.pulseai-manager-editor {
+	display: block;
+	container-name: pulseai-manager-editor;
+	container-type: inline-size;
+}
 .pulseai-manager-shell {
 	display: grid;
-	grid-template-columns: minmax(200px, 18%) minmax(420px, 1fr) minmax(240px, 22%);
+	grid-template-columns: minmax(160px, 18%) minmax(0, 1fr) minmax(200px, 22%);
 	height: 100%;
 	min-width: 0;
 	background: var(--vscode-editor-background);
@@ -536,7 +723,7 @@
 .pulseai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: 11px; }
 .pulseai-manager-tabs button:hover { color: var(--vscode-foreground); }
 .pulseai-manager-tabs button.is-active { border-bottom-color: var(--pulseai-accent); color: var(--vscode-foreground); }
-.pulseai-manager-main .pulseai-transcript-lane { padding: 14px 18px; }
+.pulseai-manager-main .pulseai-transcript-lane { max-width: 860px; padding: 18px clamp(18px, 4vw, 42px) 24px; }
 .pulseai-manager-main .pulseai-composer { padding: 8px 16px 10px; background: var(--vscode-editor-background); }
 .pulseai-manager-main .pulseai-composer-input { min-height: 58px; }
 
@@ -551,16 +738,41 @@
 .pulseai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: 10px; }
 .pulseai-usage-grid strong { color: var(--vscode-foreground); font-weight: 500; }
 
+/* Viewport queries are a fallback; container queries are authoritative because
+ * editor width also changes when Explorer and the auxiliary Agent view are open. */
 @media (max-width: 880px) {
-	.pulseai-manager-shell { grid-template-columns: minmax(190px, 25%) minmax(380px, 1fr); }
+	.pulseai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
 	.pulseai-manager-inspector { display: none; }
 }
 
 @media (max-width: 610px) {
-	.pulseai-manager-shell { grid-template-columns: 1fr; }
+	.pulseai-manager-shell { grid-template-columns: minmax(0, 1fr); }
 	.pulseai-manager-sidebar { display: none; }
+}
+
+@container pulseai-manager-editor (max-width: 880px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
+	.pulseai-manager-inspector { display: none; }
+}
+
+@container pulseai-manager-editor (max-width: 610px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(0, 1fr); }
+	.pulseai-manager-sidebar { display: none; }
+}
+
+@media (max-width: 420px) {
+	.pulseai-agent-header { min-height: 58px; }
+	.pulseai-agent-header-actions .pulseai-engine-status { display: none; }
+	.pulseai-starter-grid { grid-template-columns: 1fr; }
+	.pulseai-starter-card { min-height: 34px; }
+	.pulseai-plan-strip-state,
+	.pulseai-working-detail { display: none; }
+	.pulseai-tool-summary { grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto 12px; }
+	.pulseai-tool-duration { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.pulseai-mini-spinner { animation: none; }
+	.pulseai-plan-strip-summary > .codicon-chevron-down,
+	.pulseai-composer-box { transition: none; }
 }

@@ -369,10 +369,15 @@ class ContextEngine:
     # stale there.
     _HASHED_STATE_KEYS: frozenset[str] = frozenset({
         "current_task", "latest_instruction", "workspace",
+        "_autonomous_workspace",
         "plan", "plan_goal",
         "steps_completed", "failed_steps",
         "recovery_mode", "recovery_attempts", "recovery_command",
         "replan_count", "prior_attempts",
+        # The progress layer now summarizes recent execution outcomes. Keep it
+        # in the differential key or request 2 can reuse a pre-tool layer and
+        # hide the paired rejection/result from the model context.
+        "execution_trace",
         # P1: session identity used to route degraded receipts; stable per
         # session, so hashing it never busts the differential cache.
         "thread_id",
@@ -776,7 +781,40 @@ class ContextEngine:
         # before that, per-turn token/execution noise busted it every turn.)
         current_hash = self._active_state_hash or self._hash_state(state)
 
+        autonomous = bool(state.get("_autonomous_workspace"))
+        autonomous_skip = {
+            "task", "tone", "quality", "ambiguity",
+            # Keep headless runs deterministic and network/startup inert. Old
+            # cross-session lessons and tool summaries must not contaminate a
+            # fresh workspace contract; successful completion may still write
+            # memory after the run.
+            "long_term_memory", "tool_memory", "memory_validation", "reflections",
+        }
+        if autonomous and not state.get("plan"):
+            autonomous_skip.add("plan")
+        if autonomous and not (
+            state.get("steps_completed") or state.get("failed_steps")
+            or state.get("execution_trace")
+        ):
+            autonomous_skip.add("progress")
+        if autonomous:
+            from pathlib import Path
+            workspace = Path(state.get("workspace", "."))
+            try:
+                empty_workspace = not any(path.is_file() for path in workspace.rglob("*"))
+            except OSError:
+                empty_workspace = False
+            if empty_workspace:
+                autonomous_skip.update({"repo_map", "relevant_chunks", "git_context", "conventions"})
+
         for name, builder in builders.items():
+            # Headless requests already carry the task as the HumanMessage.
+            # Interactive response-style layers told Sarvam to explain its
+            # reasoning, start with an overview, and ask questions—the direct
+            # opposite of the autonomous action contract. Hermes keeps such UI
+            # presentation policy out of its headless prompt.
+            if autonomous and name in autonomous_skip:
+                continue
             relevance_map = self.LAYER_RELEVANCE.get(name, {})
             score = relevance_map.get(task_type, 0.0)
             if score < 0.15:
@@ -1710,12 +1748,17 @@ class ContextEngine:
     ) -> list[BaseMessage]:
         """D22 hermes pack (compaction.py): prune-first with protected
         head/tail, structural dropping only if still over budget, dropped
-        turns folded into an iterative AUX-model summary with anti-thrash
-        suppression. PULSEAI_COMPACTION=off restores the legacy pipeline."""
+        turns folded into an iterative AUX-model summary with anti-thrash.
+        PULSEAI_COMPACTION=off restores the legacy structural pipeline; landed
+        mutation omission has its own diagnostic kill switch."""
         import os as _os
 
         if _os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
-            return self._trim_history(self._summarize_tool_messages(history), budget)
+            # Even the structural-compaction kill switch must not replay every
+            # landed write payload until the run-level token budget is gone.
+            from src.context.compaction import compact_file_mutation_arguments
+            compacted = compact_file_mutation_arguments(history)
+            return self._trim_history(self._summarize_tool_messages(compacted), budget)
 
         if self._compactor is None:
             from src.context.compaction import HistoryCompactor

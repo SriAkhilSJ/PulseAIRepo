@@ -834,13 +834,19 @@ def test_terminal_timeout_env_returns_pivot_message():
     """A platform-neutral sleeping child must hit the foreground timeout."""
     import os
     import shlex
+    import subprocess
     import sys
     from src.tools.terminal_tools import run_terminal
     from langchain_core.runnables import RunnableConfig
     cfg = RunnableConfig({"configurable": {"workspace": "."}})
     old = os.environ.get("PULSEAI_TERMINAL_TIMEOUT")
     os.environ["PULSEAI_TERMINAL_TIMEOUT"] = "1"
-    command = f"{shlex.quote(sys.executable)} -c \"import time; time.sleep(60)\""
+    argv = [sys.executable, "-c", "import time; time.sleep(60)"]
+    command = (
+        subprocess.list2cmdline(argv)
+        if os.name == "nt"
+        else shlex.join(argv)
+    )
     try:
         out = run_terminal.invoke({"command": command}, cfg)
     finally:
@@ -985,12 +991,16 @@ def test_posix_guard_allows_windows_safe_commands():
 
 
 def test_posix_guard_allows_windows_temp_inside_workspace():
-    import os
-    from src.tools.terminal_tools import _posix_violations
-    if os.name != "nt":
-        return
-    cmd = "mkdir temp_app && cd temp_app && npx create-next-app@latest . --typescript --tailwind --yes"
-    assert _posix_violations(cmd) == [], "legit Windows scaffold must pass"
+    import src.tools.terminal_tools as terminal
+
+    original = terminal._IS_WINDOWS
+    terminal._IS_WINDOWS = True
+    try:
+        cmd = "mkdir temp_app && cd temp_app && npx create-next-app@latest . --typescript --tailwind --yes"
+        assert terminal._posix_violations(cmd) == [], "legit Windows scaffold must pass"
+        assert terminal._posix_violations("mkdir -p temp_app"), "POSIX -p must still fail"
+    finally:
+        terminal._IS_WINDOWS = original
 
 
 def test_posix_guard_non_windows_noop():

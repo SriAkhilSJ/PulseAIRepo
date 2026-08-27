@@ -1,319 +1,251 @@
-# Agent Work — First Native PulseAI IDE Boot
+# Agent Work — Current Handoff
 
-> **Session report (2026-08-15, continuation):** Sections 5–7 executed on a 15.4 GB RAM / 9.2 GB pagefile machine (~24.5 GB commit limit, ~19.5 GB already committed at idle — only ~5 GB headroom). All semantic checks PASS. `npm run compile` PASSED (0 errors, `out/` 350 MB). Optimized desktop bundle verified with `pulseAIWorkerMain` as its own desktop entry point.
->
-> **Machine constraints and accommodations (all local-only, never committed — they live in gitignored `desktop/vscode/build/**`):**
-> - `tsc` in this fork is the native Go compiler (TypeScript 6.0.2 / 7.0.2). Its 4-checker pool OOM'd the machine (`fatal error: runtime: cannot allocate memory`). Fixed by: `build/lib/tsgo.ts` appends `--checkers 1` to every spawn; `build/gulpfile.editor.ts` monaco typecheck uses `--checkers 1`; `build/lib/gulp/task.ts` `parallel()` capped at `CONCURRENCY = 1` (the ~50-extension fan-out was blowing the commit limit); run builds with `GOMEMLIMIT=2GiB` so tsgo/esbuild Go heaps stay bounded.
-> - Root `npm install` had skipped the four `.vscode/extensions/*` selfhost dirs (missing `istanbul-to-vscode`, `cockatiel`, …) — installed them manually.
-> - `extensions/markdown-language-features/node_modules/d3-force/src/simulation.js` was corrupted on disk (binary `FILE0…` garbage); reinstalled `d3-force@3.0.0 --prefer-online`. The corrupted file surfaced as an esbuild `stderr maxBuffer` blowout in `esbuild.markdownEditor.mts`.
->
-> **Known breakage at the pinned upstream commit `6c27443` (documented, not fixed upstream):**
-> - `npm run compile-build` (mangled CI compile) FAILS: the ts-morph mangler's strict check rejects pristine upstream `sessionChangesEditor.ts` overriding protected `updateChecked`/`getTooltip` (only `saveState` is allow-listed). Used the unmangled/`compile-build-without-mangling` output and the esbuild transpile for `out-build` instead (mangling is only a size optimization).
-> - Legacy `npm run gulp minify-vscode` FAILS at this commit for three independent reasons: (1) its TS-boilerplate remover regex `^var __decorate` accidentally strips esbuild's `__decorateClass`/`__decorateParam` helpers and half the file — fixed locally by anchoring to `^var __decorate =`; (2) its non-ASCII check trips on 575 runs in the workbench bundle (e.g. a raw `—` regex in `chatGoalSummaryService.ts:148`, an em dash comment in vendored `dompurify.js`); (3) upstream has replaced this legacy AMD path with the esbuild bundler. The fork's actual CI path was used instead: `node build/next/index.ts bundle --out out-vscode-min --target desktop --minify --mangle-privates --nls`, with `build/next/index.ts` `desktopEntryPoints` extended by `vs/workbench/contrib/pulseai/node/pulseAIWorkerMain`.
->
-> **Section 6 evidence (all PASS):** `out-vscode-min/vs/workbench/contrib/pulseai/node/pulseAIWorkerMain.js` (+`.map`) exists; it is absent from web/server paths; `workbench.desktop.main.js` references `pulseai` (6 hits incl. the `pulseai/node/pulseAIWorkerMain` module id and `pulseaiide` branding) and contains **0** `child_process` references; the worker bundle itself uses `child_process`/`spawn` (python bridge). 25 desktop bundles built in ~6 min.
->
-> **Section 7 (PASS):** `printf '%s\n' '{"type":"hello","protocol":2}' | .venv/Scripts/python.exe -m src.bridge` returns one-line hello frame `{"type": "hello", "protocol": 2, "engine": "pulseai", "engine_version": "0.2.0-runtime", "capabilities": [cancel, checkpoint_list, checkpoint_restore, events_replay, prompt, queue, safety_reply, session_create, session_fork, session_list, session_load, session_resume, steer, subagent_cancel, subagent_launch, subagent_result, subagent_status]}`.
->
-> **Next:** Section 8 (`scripts/code.bat`) launch, Section 9 visual acceptance, Section 10 real-engine vertical slice, and evidence items 7–12 (screenshots, logs). The optimized worker path for evidence item 6 is `out-vscode-min/vs/workbench/contrib/pulseai/node/pulseAIWorkerMain.js`.
+- **Updated:** 2026-08-25
+- **Repository:** `SriAkhilSJ/PulseAIRepo`
+- **Required branch:** `arena/01a03741-pulseairepo`
+- **Latest reviewed evidence commit:** `989ab85ed36ca5985864cf1b349f996c6111a75c`
+- **Open PR:** #9 — **do not merge yet**
 
-> **Session report (2026-08-15, continuation 2 — Sections 8–11 status + completion gate):**
->
-> **Section 8 — launch: PASS (with environment repairs).** The `.build/electron/` install was incomplete — `icudtl.dat` was missing, which crashed a child at startup (ICU/V8 breakpoint). Rebuilt with `npm run electron` (345 MB branded build, `icudtl.dat` present, `PulseAI.exe`). Launched `.build/electron/PulseAI.exe --user-data-dir .freebuff/pulseai-ud` (skipping preLaunch): window title **"PulseAI IDE Dev"** confirmed and the Pulse Manager editor opened. `main.log` shows the utility-process chain live: `[UtilityProcessWorker]: createWorker() ... moduleId: vs/workbench/contrib/pulseai/node/pulseAIWorkerMain` (worker created/restarted across engine reconnects), and the engine's `python -m src.bridge` processes spawned from the configured `.venv`.
->
-> **Section 9 — visual acceptance: PARTIAL.** Window title and branding verified; screenshots saved at `.freebuff/evidence/pulseai-window.png` and `pulseai-window-final.png`. Pixel-level items (cyan/navy chrome, Activity Bar Pulse icon, sidebar Agent UI, Pulse Manager beside a source editor, native menus, high-contrast themes, taskbar icon) need human eyes on the live window.
->
-> **Section 10 — real-engine vertical slice: PARTIAL (protocol and graph verified; bridge-level real turn blocked on approval semantics).**
-> - Bridge Protocol v2 driver (`.freebuff/bridge_slice.py`, deterministic echo runner): `hello` protocol 2, `session_create → session_info`, streaming `token` events, `turn_done completed=true` — all PASS (`.freebuff/bridge-slice.log`).
-> - Real model turn at the graph level: `stream_agent("Reply with exactly: OK")` against the Sarvam custom provider COMPLETED in ~183 s with a real `OK` reply. Two env-only workarounds (no source edits): the graph's emoji status prints (`📋 🧭 💭`) crash on Windows cp1252 stdout → run with `PYTHONIOENCODING=utf-8`; a stale IDE-engine process held a SQLite lock (`[ChunkIndex] relevant_chunks layer failed: database is locked` — non-fatal, degrades gracefully; stale processes killed).
-> - Bridge-level real turn: after `turn_started` the graph blocks up to 300 s waiting for approval — the bridge runs `stream_agent(approval_channel=True, approval_policy="ask")`, so any unsafe or mutation tool call (`write_file`/`edit_file`/`copy_file`/`scaffold_nextjs`) emits a `safety_request` frame (with `tool_id` + `diff` payload) and waits for `safety_reply` resolved by exact `tool_id`. The driver now auto-approves (the IDE's **Allow** button equivalent) and asserts the `diff` payload; the confirming run was interrupted by the user (credit-conscious) before completion.
-> - Cancel: code-verified — `turn_controls.cancel(session_id)` sets the flag; `ai_node` returns "Operation cancelled by the user." at the next step; the bridge emits `turn_done` with `completed: false, cancelled: true`.
-> - Replay dedup: `events_replay` is journal-only (no LLM); the real-session replay/dedup check is wired into the driver but the run was interrupted.
-> - Crash/restart: `main.log` shows the worker-restart machinery firing (`createWorker() found an existing worker that will be terminated`); a full bounded-backoff restart cycle was not re-verified end-to-end.
->
-> **Completion gate status:** 1 ✓ semantic checks all PASS (typecheck-client, valid-layers-check, compile); 2 ✓ branded desktop launches; 3 ✓ `pulseAIWorkerMain` in optimized output; 4 ◐ real model turn verified at graph level, bridge-level real turn driver-ready (auto-approve) — interrupted before completion; 5 ◐ approval/cancel/replay code-verified and driver-ready, native-diff UI pending a live UI session; 6 ✓ engine focused suite green (27 tests, earlier session).
->
-> **Evidence 1–12:** 1–5 recorded in earlier sessions (Node v24.18.0; HEAD pin `6c27443`; typecheck/valid-layers/compile outputs); 6 `out-vscode-min/vs/workbench/contrib/pulseai/node/pulseAIWorkerMain.js`; 7–9 window screenshots captured, Agent / Manager-beside-editor / approval-diff shots pending live UI; 10 bridge echo-turn log + `main.log` `pulseAIWorkerMain` lines; 11 partial (worker restart lines); 12 pending final `git diff --stat`.
->
-> **Remaining (needs a human at the keyboard or one unblocked driver run):** Section 9 visual acceptance on the live window; Section 10 end-to-end real turn with the auto-approve driver (one tiny turn), native approval-diff screenshot, crash/restart/replay cycle; evidence 12.
->
-> **Credit note:** real-model usage kept minimal against the Sarvam custom provider — one reachability probe (21 tokens) plus one completed graph turn (`Reply with exactly: OK`), both tiny. The `.env` (gitignored) holds the CTO-provided custom-provider config; keys are never committed.
+This file is the short entry point for the next agent. Read it before exploring
+the repository. Do not repeat the historical branch audit, Attempt-8 autopsy,
+or broad file-by-file analysis unless new evidence contradicts this handoff.
 
-> **Session report (2026-08-15):** the overlay refactor is committed and pushed.
-> - Commit `3b8ccf60` moved the full Pulse overlay into the canonical fork: `desktop/vscode/product.json`, `desktop/vscode/build/buildfile.ts`, branded platform resources, the first-party contribution (`src/vs/workbench/contrib/pulseai/`), and the `extensionPoints.json` registration. The old selective `desktop/` overlay layout (`desktop/product.json`, `desktop/resources/`, `desktop/build/`) was deleted.
-> - The bridge protocol generator and the desktop syntax checker now target the fork path (`scripts/generate_bridge_protocol.py`, `ui/scripts/check-desktop-syntax.mjs`).
-> - `.gitignore` keeps local fork dependencies/build outputs on disk but never committed (node_modules, `build/*` except `build/buildfile.ts`, `**/.vscode/`, `extensions/**/build/`).
-> - Focused desktop verification: **27 passed** (`test_desktop_contrib_overlay`, `test_desktop_renderer_architecture`, `test_desktop_sidecar_architecture`, `test_pulseai_branding`, `test_bridge_protocol_v2`).
-> - **Next:** `npm install` in `desktop/vscode/` (npm only), then Section 5 semantic checks.
+## 1. Current verdict
 
-This checklist is for validating PulseAI inside the **canonical vendored Code OSS fork** at `PulseAIRepo/desktop/vscode/`. The Pulse overlay is committed in place inside that fork; the build runs directly there. Do this on a machine with enough disk space.
-
-## Goal
-
-Prove this complete native path:
+Test 5 Attempt 11 is independently classified:
 
 ```text
-Pulse Agent / Pulse Manager
-  → shared native renderer
-  → IPulseAIEngineService
-  → Code OSS utility process
-  → PulseAIWorkerProcessService
-  → python -m src.bridge
-  → real PulseAI Engine
+OUTPUT-LIMIT RECOVERY: PASS
+RUNNER / BRIDGE LIVENESS: PASS
+AUTONOMOUS COMPLETION INTEGRITY: FAIL
+PRODUCT: FAIL
+OVERALL: FAIL
 ```
 
-## Fixed inputs
+The repair received live validation at its intended failure boundary. Three
+canonical output-limit responses continued to request 4, and repeated Windows
+console `OSError 22` events were isolated while all 13 requests received
+responses. Five source files landed.
 
-- PulseAI repository: `PulseAIRepo`
-- Code OSS upstream: `https://github.com/microsoft/vscode`
-- Required Code OSS commit: `6c27443ce6fdf6ac798c64025d45175e2e23c4b4`
-- Required Node version: `24.18.0`
-- Pulse contribution: `src/vs/workbench/contrib/pulseai/`
-- Canonical fork root: `PulseAIRepo/desktop/vscode/` (overlay committed in place)
-- Do not place Pulse under `/extensions/`.
-- Do not modify additional upstream source files while diagnosing failures.
+The run was not a complete task delivery. It emitted `completed=true` without a
+successful verification call; the final message said it would inspect next;
+required local Three.js files were absent; and the scene shader contains an
+undefined macro because its patch helper is never called. See
+`docs/TEST5_ATTEMPT11_REVIEW.md`.
 
-## 1. Prepare the machine
+Do not flatten the narrow recovery/liveness PASS into an autonomous runtime or
+product PASS.
 
-Recommended free space: **15 GB or more**.
+A provider-free source follow-up now repairs completion-verdict propagation,
+final tool-event flushing, UTF-8 terminal pipes, and repeated complete finish
+reasons. Focused verification is 145/145. See
+`docs/ATTEMPT11_COMPLETION_REPAIR.md`. This follow-up has no live PASS.
 
-Required tools:
+## 2. Work completed in the current Arena repair
 
-- Git
-- Node.js `24.18.0`
-- npm from that Node installation
-- Python compatible with PulseAI
-- PulseAI Engine dependencies
-- Native build tools required by Code OSS for your operating system
-
-Confirm versions:
-
-```bash
-node --version
-npm --version
-python --version
-git --version
-```
-
-Expected Node result:
+Source commit:
 
 ```text
-v24.18.0
+b82381d36662e2f0dc9262bafafbedd8508318d6
 ```
 
-## 2. Point at the canonical fork
+Implemented behavior:
 
-The full Code OSS checkout lives in the repo at `desktop/vscode/` with the Pulse overlay already applied and committed in place:
+1. A LangChain runnable configured for native streaming uses the synchronous
+   invocation owner. The stream is consumed and closed before the response can
+   reach tool dispatch.
+2. Provider completion facts survive as bounded `llm.response` events:
+   normalized finish reason, incomplete flag, tool-call count/names, and
+   assistant-content character count. Assistant text and tool arguments are
+   not emitted in this event.
+3. `ai_node` marks output-limit responses as incomplete.
+4. `SafeToolNode` executes **zero** calls from an incomplete response and emits
+   one correctly paired error `ToolMessage` for every rejected call.
+5. The paired rejection is fed directly into provider request 2, allowing the
+   model to split the write and continue safely.
+6. Both `deliver` and `forced_delivery` bind an explicit output-token cap. The
+   guarded Windows wrapper sets `PULSEAI_DELIVERY_MAX_TOKENS=8192`.
+7. Context differential hashing includes `execution_trace`, preventing request
+   2 from reusing a stale pre-tool progress layer.
+8. Protocol v2, generated TypeScript, README, Attempt-8 documentation, and the
+   Hermes runtime audit are aligned with the repair.
 
-```bash
-export PULSE_REPO=/absolute/path/to/PulseAIRepo
-export VSCODE_ROOT="$PULSE_REPO/desktop/vscode"
+Primary implementation paths:
 
-test -d "$VSCODE_ROOT" || { echo "fork missing"; exit 1; }
-printf 'Pin:  %s\n' "$(cat "$PULSE_REPO/desktop/UPSTREAM_PIN")"
-printf 'Fork: %s\n' "$VSCODE_ROOT"
+- `src/llm/factory.py` — stream ownership and response metadata normalization.
+- `src/graphs/chat_graph.py` — delivery caps, incomplete-response marking, and
+  SafeToolNode rejection.
+- `src/graphs/gates.py` — bounded continuation for incomplete text responses.
+- `src/context/context_engine.py` — post-tool context-cache correctness.
+- `src/bridge/` and `desktop/vscode/.../pulseAIProtocol*.ts` — `llm.response`
+  wire contract.
+- `scripts/run_test5_guarded.ps1` — guarded delivery-token setting.
+
+Deterministic tests added or expanded:
+
+- `src/tests/test_retry_proxy_stream_cleanup.py`
+- `src/tests/test_autonomous_runtime_contract.py`
+- `src/tests/test_bridge.py`
+
+Arena validation results:
+
+- 50 focused tests passed.
+- Changed Python sources compiled successfully.
+- Generated Protocol v2 file check passed.
+- `git diff --check` passed.
+- The README-default suite run produced 961 passed, 4 skipped, and 2 failed.
+  The D26 context-hash failure was fixed afterward and its test passed. The
+  remaining chunk-index watcher assertion passes in isolation and is an
+  existing suite-order/global-thread issue, not a stream-parity regression.
+- Provider calls made by this repair and validation: exactly zero.
+
+## 3. Outstanding work not performed by this Arena repair
+
+### A. Windows deterministic validation receipt
+
+Desktop evidence commit:
+
+```text
+503c1972884d6ee190aafb3d9fce7227ef255e84
 ```
 
-Confirm the required Node version again before building:
+The desktop receipt records parser, protocol-generator, compilation,
+`git diff --check`, Attempt-8 before/after integrity, and 42 tests as PASS, with
+zero provider calls. Arena independently matched all ten committed receipt
+entries and confirmed the evidence commit changed only the new validation
+folder.
 
-```bash
-node --version   # expect v24.18.0
+The first pytest log omitted two required targets, so the founder authorized a
+missing-check-only follow-up. Evidence commit
+`496591a10e93b13d32065b3ac04d74f89d9fecde` records exactly those targets: 8
+collected and 8 passed in 2.83 seconds on Windows Python 3.14.4, with zero
+provider calls. Arena independently verified the exact parent/ancestry,
+evidence-only scope, pytest log, and all receipt hashes.
+
+Combined independent status:
+
+```text
+50 collected / 50 passed / zero provider calls / DETERMINISTIC_PASS
 ```
 
-## 3. Verify the canonical fork overlay
+The deterministic phase is complete. This alone is not a live runtime/product
+PASS.
 
-The fork is a git repository of its own vendored into the tree; verify that the Pulse-modified files match the manifest receipts before building:
+### B. Narrow live authorization and continuing prohibitions
 
-```bash
-export PULSE_REPO VSCODE_ROOT
-python - <<'PY'
-import hashlib
-import json
-import os
-from pathlib import Path
+Attempt 9 stopped before the live turn because the sole Sarvam probe returned
+HTTP 403. Evidence commit `47c02f9b0bfacf3b502e2191a200834e77127a2c`
+contains only the preflight/STOP receipt. The endpoint received one rejected
+probe attempt; there were zero live-turn requests and no retry.
 
-pulse = Path(os.environ["PULSE_REPO"])
-target = Path(os.environ["VSCODE_ROOT"])
-manifest = json.loads((pulse / "desktop/SELECTIVE_MANIFEST.json").read_text())
+OpenRouter Attempt 10 used `stealth/ox-alpha`. The probe passed, but its sole
+live response contained zero content/tools and finish metadata `lengthlength`,
+which Pulse classified as complete. The runner then recorded OSError 22; no
+request 2 or file followed. Evidence commit
+`e344bc00e6de2961a2695d4fc7cfa7401ad64c87` independently verifies
+`RUNTIME_FAIL / PRODUCT_FAIL`.
 
-for section in ("files", "brand_assets"):
-    for relative, receipt in manifest[section].items():
-        actual = hashlib.sha256((target / relative).read_bytes()).hexdigest()
-        expected = receipt["overlay_sha256"]
-        if actual != expected:
-            raise SystemExit(f"OVERLAY HASH MISMATCH: {relative}\nexpected {expected}\nactual   {actual}")
-        print("overlay OK", relative)
-PY
+Still prohibited:
+
+- any OpenRouter retry, probe, model substitution, or cap increase;
+- any provider/model/run after Attempt 10;
+- merge of PR #9 or branch deletion;
+- Agentic UI implementation;
+- claiming runtime/product PASS without independent evidence grading.
+
+Desktop must actively inspect output at 30-second intervals, protect remaining
+credits, preserve all logs/JSON/screenshots/files/monitoring receipts, commit
+and push complete evidence even on failure, and then STOP.
+
+### C. Native desktop acceptance work from the earlier boot effort
+
+The old long checklist in this file was not completed end-to-end. The following
+items remain unverified and are **not currently authorized work**:
+
+- human visual acceptance of Pulse Agent, Pulse Manager beside a source editor,
+  native-neutral chrome, iconography, and high-contrast behavior;
+- live native approval-diff flow using the exact `tool_id`;
+- end-to-end cancel behavior in the native UI;
+- bounded worker/Python crash restart;
+- session replay without duplicate event IDs or transcript rows;
+- final screenshots and utility-process logs for those flows.
+
+Earlier work did establish that the branded desktop launched, the optimized
+`pulseAIWorkerMain` desktop entry existed, Protocol v2 hello worked, and a tiny
+real graph-level model response returned `OK`. Those historical observations do
+not validate the repaired Attempt-8 runtime and must not be reused as a current
+PASS.
+
+## 4. Evidence that must remain untouched
+
+Preserve these historical workspaces/evidence trees:
+
+```text
+C:\test5-ws-attempt6
+C:\test5-ws-attempt8
+C:\test5-ws-attempt9
+C:\test5-ws-attempt10
+bench-results/test5-5/
+bench-results/test5-6/
+bench-results/test5-7-arena/
+bench-results/test5-8-desktop/
+bench-results/test5-8-postmortem-validation/
+bench-results/test5-9-desktop/
+bench-results/test5-10-desktop/
+/home/user/test5-workspace-attempt7
 ```
 
-Also confirm the `pulseAI` contribution is registered and not placed under `/extensions/`:
+`C:\test5-ws-attempt5` is absent and must not be recreated.
 
-```bash
-test -d "$VSCODE_ROOT/src/vs/workbench/contrib/pulseai" || exit 1
-test ! -e "$VSCODE_ROOT/extensions/pulseai"
+Important evidence commits:
+
+```text
+6586d7afab1558274353dd34256f1783503b83c1  Attempt-8 desktop evidence
+6b8a90b40ff2b5a8244198957669a6e561b787a1  prior Windows validation evidence
+7552c645d9516b1f274df59f0c91f14a4b50e653  independent validation documentation
+47c02f9b0bfacf3b502e2191a200834e77127a2c  Attempt-9 Sarvam 403 STOP evidence
+e344bc00e6de2961a2695d4fc7cfa7401ad64c87  Attempt-10 OpenRouter failure evidence
+352099c158b9c70e1ce5ef46f9a17c5020f8cc9d  Windows deterministic repair validation
+989ab85ed36ca5985864cf1b349f996c6111a75c  Attempt-11 live evidence
+9ea6a078  Windows completion-repair validation FAIL evidence
+84b8e35b  Windows completion-repair revalidation PASS evidence
+22b1f8fd  Product-delivery validation rejected (retried failed fixture command)
+b90cb579  Product-delivery R2 deterministic FAIL (runner import path)
+1b7ce9e1  Product-delivery R3 deterministic PASS evidence
 ```
 
-## 4. Install Code OSS dependencies
+## 5. Exact next task
 
-```bash
-cd "$VSCODE_ROOT"
-npm install
-```
+**Next task: Desktop Agent executes exactly one guarded live Attempt 12.**
 
-`node_modules` stays in `desktop/vscode/` and is never committed (the fork's nested `.gitignore` protects it).
+The founder explicitly authorized one live turn after accepted Windows evidence
+`1b7ce9e1`. Instructions are in `DESKTOP_AGENT_INSTRUCTIONS.md`. The run uses
+the existing securely configured OpenRouter `stealth/ox-alpha`, fresh workspace
+`C:\test5-ws-attempt12`, and run ID `test5-12-desktop`.
 
-## 5. Run the semantic checks
+No provider probe is authorized; runner commit `200783db` adds the explicit
+`-SkipProbe` path. Caps remain unchanged. The Desktop Agent must monitor at
+approximately 30-second cadence, preserve the delivered workspace, perform
+provider-free integrity and real-browser review, commit all frames/logs/files/
+screenshots/hashes, and stop. The single turn consumes the authorization
+regardless of outcome. No retry, PR merge, branch deletion, or Agentic UI work
+is authorized.
 
-Start with the focused client type-check:
+## 6. Fast reading map
 
-```bash
-npm run typecheck-client
-```
+The next agent normally needs only these files:
 
-Then run the layer checks:
+1. `Agent work.md` — this handoff.
+2. `DESKTOP_AGENT_INSTRUCTIONS.md` — current mandatory STOP state.
+3. `README.md` — public status and normal repository commands.
+4. `docs/TEST5_ATTEMPT11_REVIEW.md` — latest live evidence and independent product verdict.
+5. `docs/ATTEMPT11_COMPLETION_REPAIR.md` — deterministic completion repair and accepted Windows revalidation.
+6. `docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md` — current reserve, compaction, dependency gate, and fresh Hermes comparison.
+7. `docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md` — Windows failure classification and provider-free correction.
+8. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — earlier code-level Pulse/Hermes comparison.
+9. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
+10. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
+11. The primary implementation files listed in Section 2, only if a
+   validation receipt exposes a source-level discrepancy.
 
-```bash
-npm run valid-layers-check
-```
-
-Compile the desktop client:
-
-```bash
-npm run compile
-```
-
-Record the complete error output if any command fails. Do not hide errors with `--skipLibCheck` beyond the pinned script and do not add `any` casts merely to silence Code OSS APIs.
-
-## 6. Verify optimized worker packaging
-
-The Pulse utility worker is string-addressed and must be emitted as its own desktop entry point.
-
-```bash
-npm run gulp minify-vscode
-```
-
-Then check for the worker:
-
-```bash
-find out-vscode out-vscode-min -path '*pulseai*' -o -name 'pulseAIWorkerMain.js' 2>/dev/null
-```
-
-Required evidence:
-
-- `pulseAIWorkerMain` exists in optimized desktop output.
-- It is not emitted as a web or server entry point.
-- `workbench.desktop.main` contains the desktop registration.
-- Common/web bundles do not import `node:child_process` or Electron-only Pulse modules.
-
-## 7. Configure the PulseAI Engine
-
-In the launched IDE settings, set:
-
-```json
-{
-  "pulseai.engineRoot": "/absolute/path/to/PulseAIRepo",
-  "pulseai.pythonPath": "/absolute/path/to/python",
-  "pulseai.autoStart": true
-}
-```
-
-The engine root must be absolute and must contain `src/bridge/`.
-
-Before launching Code OSS, verify the bridge directly:
-
-```bash
-cd "$PULSE_REPO"
-printf '%s\n' '{"type":"hello","protocol":2}' | python -m src.bridge
-```
-
-Expected first response: a one-line JSON `hello` frame with protocol `2`.
-
-## 8. Launch PulseAI IDE
-
-Linux/macOS:
-
-```bash
-cd "$VSCODE_ROOT"
-./scripts/code.sh
-```
-
-Windows PowerShell:
-
-```powershell
-cd $env:VSCODE_ROOT
-.\scripts\code.bat
-```
-
-## 9. Visual acceptance checklist
-
-- [ ] Window/product title says **PulseAI IDE**.
-- [ ] PulseAI application icon appears in the window/taskbar/dock.
-- [ ] IDE chrome is **native-neutral Dark 2026** (no global cyan/navy workbench recoloring); hiding the Pulse panel leaves a stock-looking Code OSS window.
-- [ ] Pulse semantic colors appear only on Pulse surfaces/states (cyan running/focus/primary, violet delegation, green verified, amber approval, red failure).
-- [ ] High-contrast themes remain unchanged and usable.
-- [ ] User color customizations still override Pulse defaults.
-- [ ] Activity Bar contains **Pulse**.
-- [ ] The compact Agent UI opens in the sidebar.
-- [ ] **Pulse Manager** opens as an editor tab.
-- [ ] Opening Pulse Manager does not close or replace source-code editors.
-- [ ] Native File/Edit/Selection/View/Go/Run/Terminal/Help menus remain available.
-
-## 10. Real-engine vertical slice
-
-Run these in order:
-
-- [ ] Open a trusted test workspace.
-- [ ] Open the Pulse Agent view.
-- [ ] Engine state moves `stopped → starting → ready`.
-- [ ] Submit a simple prompt.
-- [ ] Streaming text appears without losing composer focus.
-- [ ] Tool rows update in place.
-- [ ] Terminal disclosure shows command, bounded output, state, exit result, and duration.
-- [ ] An edit approval shows **Review**, **Deny**, and **Allow**.
-- [ ] **Review** opens a native diff using the engine's `old_text` and `new_text`.
-- [ ] Approval resolves using the exact `tool_id`.
-- [ ] Cancel shows `Stopping…` and ends with `Run cancelled` when `completed` is false.
-- [ ] Stop or crash the Python process.
-- [ ] Automatic restart uses bounded backoff.
-- [ ] Session resume/replay does not duplicate event IDs or transcript rows.
-- [ ] Pulse Manager and Agent show the same active session state.
-
-## 11. Evidence to save
-
-Save the following outside generated build directories or attach them to the implementation report:
-
-1. `node --version`
-2. `git rev-parse HEAD` from the fork (or the vendored commit confirmed against `desktop/UPSTREAM_PIN`)
-3. Output of `npm run typecheck-client`
-4. Output of `npm run valid-layers-check`
-5. Output of `npm run compile`
-6. Optimized worker path from `out-vscode-min`
-7. Screenshot of Pulse Agent
-8. Screenshot of Pulse Manager beside a source editor
-9. Screenshot of the native approval diff
-10. Utility worker and Python bridge logs for one successful turn
-11. Crash/restart/replay evidence
-12. Final `git diff --stat` from the full checkout
-
-## 12. Failure rules
-
-If something fails:
-
-- Do not move Pulse into `/extensions/`.
-- Do not spawn Python from browser/common renderer code.
-- Do not remove workspace-trust or approval checks.
-- Do not bypass Protocol v2 negotiation.
-- Do not add broad upstream edits without approval.
-- Install and drive builds from the canonical fork (`desktop/vscode/`); do not copy the complete Code OSS checkout elsewhere under `PulseAIRepo/desktop/`.
-- Preserve the exact error, file, line, command, platform, and Node version.
-
-## Completion gate
-
-This job is complete only when:
-
-1. Full Code OSS semantic checks pass.
-2. The native desktop launches with PulseAI branding.
-3. `pulseAIWorkerMain` exists in optimized output.
-4. A real prompt streams through the utility-process/Python bridge.
-5. Native approval diff, cancellation, restart, and replay all work.
-6. The PulseAI engine focused suite remains green.
+Avoid broad repository analysis unless the next task actually requires it.

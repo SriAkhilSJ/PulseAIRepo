@@ -206,8 +206,11 @@ def test_desktop_frame_sequence_binds_pulse_ws(bridge, tmp_path):
     created = send({"type": "session_create", "session_id": "s", "workspace": ws})
     assert created["type"] == "session_info"
     assert created["workspace"] == ws, "hop 3: session_create echoes the opened folder unchanged"
-    turn = send({"type": "prompt", "session_id": "s", "workspace": ws, "text": "hi"})
-    assert turn["type"] == "turn_started"
+    first = send({"type": "prompt", "session_id": "s", "workspace": ws, "text": "hi"})
+    # The observability layer may publish workspace.bound before turn_started.
+    turn = first if first["type"] == "turn_started" else drain_until(
+        lambda frame: frame["type"] == "turn_started"
+    )
     assert turn["workspace_id"] == workspace_id(ws), "hop 5: turn identity derives from the exact folder"
     done = drain_until(lambda frame: frame["type"] == "turn_done")
     assert done["completed"] is True
@@ -223,8 +226,10 @@ def test_desktop_route_uses_canonical_pulse_ws_fixture_when_present(bridge):
     created = send({"type": "session_create", "session_id": "s", "workspace": ws})
     assert created["type"] == "session_info"
     assert created["workspace"] == ws
-    turn = send({"type": "prompt", "session_id": "s", "workspace": ws, "text": "hi"})
-    assert turn["type"] == "turn_started"
+    first = send({"type": "prompt", "session_id": "s", "workspace": ws, "text": "hi"})
+    turn = first if first["type"] == "turn_started" else drain_until(
+        lambda frame: frame["type"] == "turn_started"
+    )
     assert turn["workspace_id"] == workspace_id(ws)
     done = drain_until(lambda frame: frame["type"] == "turn_done")
     assert done["completed"] is True

@@ -1,0 +1,51 @@
+[2026-08-25T14:43:45] console-error=OSError: [Errno 22] Invalid argument; [14:43:45] llm.response x1
+[2026-08-25T14:43:45] console-error=OSError: [Errno 22] Invalid argument; [14:43:45] llm.request x2 | calls=2/60 tokensIn~0/250000
+[2026-08-25T14:47:57] console-error=OSError: [Errno 22] Invalid argument; [14:47:57] llm.response x2
+[2026-08-25T14:47:57] console-error=OSError: [Errno 22] Invalid argument; [14:47:57] llm.request x3 | calls=3/60 tokensIn~0/250000
+[2026-08-25T14:51:33] console-error=OSError: [Errno 22] Invalid argument; [14:51:33] llm.response x3
+[2026-08-25T14:51:33] console-error=OSError: [Errno 22] Invalid argument; [14:51:33] llm.request x4 | calls=4/60 tokensIn~0/250000
+[2026-08-25T14:53:12] console-error=OSError: [Errno 22] Invalid argument; [14:53:12] llm.response x4
+[2026-08-25T14:53:12] console-error=OSError: [Errno 22] Invalid argument; [14:53:12] tool_call_start x1
+[2026-08-25T14:53:13] console-error=OSError: [Errno 22] Invalid argument; [14:53:13] verification_updated x1
+[2026-08-25T14:53:14] console-error=OSError: [Errno 22] Invalid argument; [14:53:14] tool_call_end x1
+[2026-08-25T14:53:14] console-error=OSError: [Errno 22] Invalid argument; [14:53:14] llm.request x5 | calls=5/60 tokensIn~0/250000
+[2026-08-25T14:53:47] console-error=OSError: [Errno 22] Invalid argument; [14:53:47] llm.response x5
+[2026-08-25T14:53:47] console-error=OSError: [Errno 22] Invalid argument; [14:53:47] tool_call_start x2
+[2026-08-25T14:53:53] console-error=OSError: [Errno 22] Invalid argument; [14:53:53] verification_updated x2
+[2026-08-25T14:53:53] console-error=OSError: [Errno 22] Invalid argument; [14:53:53] tool_call_end x2
+[2026-08-25T14:53:54] console-error=OSError: [Errno 22] Invalid argument; [14:53:54] llm.request x6 | calls=6/60 tokensIn~0/250000
+[2026-08-25T14:54:27] console-error=OSError: [Errno 22] Invalid argument; [14:54:27] llm.response x6
+[2026-08-25T14:54:27] console-error=OSError: [Errno 22] Invalid argument; [14:54:27] tool_call_start x3
+[2026-08-25T14:54:31] console-error=OSError: [Errno 22] Invalid argument; [14:54:31] verification_updated x3
+[2026-08-25T14:54:31] console-error=OSError: [Errno 22] Invalid argument; [14:54:31] tool_call_end x3
+[2026-08-25T14:54:32] console-error=OSError: [Errno 22] Invalid argument; [14:54:32] llm.request x7 | calls=7/60 tokensIn~0/250000
+[2026-08-25T14:59:19] console-error=OSError: [Errno 22] Invalid argument; [14:59:19] llm.response x7
+[2026-08-25T14:59:19] console-error=OSError: [Errno 22] Invalid argument; [14:59:19] tool_call_start x4
+[2026-08-25T14:59:23] console-error=OSError: [Errno 22] Invalid argument; [14:59:23] verification_updated x4
+[2026-08-25T14:59:23] console-error=OSError: [Errno 22] Invalid argument; [14:59:23] tool_call_end x4
+[2026-08-25T14:59:23] console-error=OSError: [Errno 22] Invalid argument; [14:59:23] llm.request x8 | calls=8/60 tokensIn~0/250000
+[2026-08-25T14:59:32] console-error=OSError: [Errno 22] Invalid argument; [14:59:32] llm.response x8
+[2026-08-25T14:59:32] console-error=OSError: [Errno 22] Invalid argument; [14:59:32] tool_call_start x5
+[2026-08-25T14:59:57] console-error=OSError: [Errno 22] Invalid argument; [14:59:57] verification_updated x5
+[2026-08-25T14:59:57] console-error=OSError: [Errno 22] Invalid argument; [14:59:57] tool_call_end x5
+[2026-08-25T14:59:58] console-error=OSError: [Errno 22] Invalid argument; [14:59:58] llm.request x9 | calls=9/60 tokensIn~0/250000
+[2026-08-25T15:01:30] console-error=OSError: [Errno 22] Invalid argument; [15:01:30] llm.response x9
+[2026-08-25T15:01:30] console-error=OSError: [Errno 22] Invalid argument; [15:01:30] tool_call_start x6
+[2026-08-25T15:01:35] console-error=OSError: [Errno 22] Invalid argument; [15:01:35] verification_updated x6
+[2026-08-25T15:01:35] console-error=OSError: [Errno 22] Invalid argument; [15:01:35] tool_call_end x6
+[2026-08-25T15:01:36] console-error=OSError: [Errno 22] Invalid argument; [15:01:36] llm.request x10 | calls=10/60 tokensIn~0/250000
+[2026-08-25T15:01:43] console-error=OSError: [Errno 22] Invalid argument; [15:01:43] llm.response x10
+[2026-08-25T15:01:43] console-error=OSError: [Errno 22] Invalid argument; [15:01:43] tool_call_start x7
+[2026-08-25T15:01:43] console-error=OSError: [Errno 22] Invalid argument; [15:01:43] tool_call_end x7
+[2026-08-25T15:01:43] console-error=OSError: [Errno 22] Invalid argument; [15:01:43] llm.request x11 | calls=11/60 tokensIn~0/250000
+[2026-08-25T15:01:50] console-error=OSError: [Errno 22] Invalid argument; [15:01:50] llm.response x11
+[2026-08-25T15:01:50] console-error=OSError: [Errno 22] Invalid argument; [15:01:50] tool_call_start x8
+[2026-08-25T15:01:51] console-error=OSError: [Errno 22] Invalid argument; [15:01:51] llm.request x12 | calls=12/60 tokensIn~0/250000
+[2026-08-25T15:02:08] console-error=OSError: [Errno 22] Invalid argument; [15:02:08] llm.response x12
+[2026-08-25T15:02:08] console-error=OSError: [Errno 22] Invalid argument; [15:02:08] token x1
+[2026-08-25T15:02:08] console-error=OSError: [Errno 22] Invalid argument; [15:02:08] llm.request x13 | calls=13/60 tokensIn~0/250000
+[2026-08-25T15:02:13] console-error=OSError: [Errno 22] Invalid argument; [15:02:13] llm.response x13
+[2026-08-25T15:02:13] console-error=OSError: [Errno 22] Invalid argument; [15:02:13] token x2
+[2026-08-25T15:02:13] console-error=OSError: [Errno 22] Invalid argument; [15:02:13] telemetry x1 | calls=13/60 tokensIn~86160/250000
+[2026-08-25T15:02:13] console-error=OSError: [Errno 22] Invalid argument; [15:02:13] turn_done x1
+[2026-08-25T15:02:14] console-error=OSError: [Errno 22] Invalid argument; OUTCOME: turn_done completed=True llm.calls=13 -> bench-results\test5-11-desktop

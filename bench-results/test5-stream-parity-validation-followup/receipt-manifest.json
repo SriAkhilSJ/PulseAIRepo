@@ -1,0 +1,17 @@
+﻿[
+    {
+        "path":  "pytest-outcome.json",
+        "bytes":  121,
+        "sha256":  "996df404117dcf22a8024c07c35348844d70f411da541a836b40916a5eb97adc"
+    },
+    {
+        "path":  "pytest.log",
+        "bytes":  1302,
+        "sha256":  "7c204ac01f3d11d6345e6b0ac92721ef9ef8554ede91096fc6658f9b2bb1ca4d"
+    },
+    {
+        "path":  "validation-summary.json",
+        "bytes":  580,
+        "sha256":  "84446d339c1a292922dc265c269607807e7769eeecc7166740aea1ce8da07dfc"
+    }
+]
