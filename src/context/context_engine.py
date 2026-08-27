@@ -363,28 +363,35 @@ class ContextEngine:
         feedback and weights are session-scoped, not model-scoped.
         """
         new_model = model or CONTEXT_MODEL
-        if new_model == self.model:
-            return
-        self.model = new_model
-        from src.config.settings import PROVIDER_SAFE_LIMIT
-        from src.context.model_budgets import (
-            resolve_context_window,
-            usable_window_budget,
-        )
-        window, source = resolve_context_window(
-            self.model, allow_network=probe_window
-        )
-        self.context_window = window
-        self.context_window_source = source
-        usable = usable_window_budget(window)
-        cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
-        self.max_tokens = max(min(usable, cap), 4_096)
-        self.context_budget = int(self.max_tokens * 0.4)
-        self.history_budget = self.max_tokens - self.context_budget
-        print(
-            f"[ContextEngine] repointed session engine to model {self.model!r}; "
-            f"token budget {self.max_tokens:,} (source: {source})."
-        )
+        # Same lock that guards build_ai_messages / record_feedback: a model
+        # repoint mutates self.model + the budget fields that a concurrent
+        # turn reads under _api_lock, so it must be atomic w.r.t. that build.
+        # RLock: safe even if a caller already holds it (no nested-lock path
+        # today, but the registry's _ENGINES_LOCK is a separate lock and this
+        # never calls back into the registry, so no deadlock).
+        with self._api_lock:
+            if new_model == self.model:
+                return
+            self.model = new_model
+            from src.config.settings import PROVIDER_SAFE_LIMIT
+            from src.context.model_budgets import (
+                resolve_context_window,
+                usable_window_budget,
+            )
+            window, source = resolve_context_window(
+                self.model, allow_network=probe_window
+            )
+            self.context_window = window
+            self.context_window_source = source
+            usable = usable_window_budget(window)
+            cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
+            self.max_tokens = max(min(usable, cap), 4_096)
+            self.context_budget = int(self.max_tokens * 0.4)
+            self.history_budget = self.max_tokens - self.context_budget
+            print(
+                f"[ContextEngine] repointed session engine to model {self.model!r}; "
+                f"token budget {self.max_tokens:,} (source: {source})."
+            )
 
     # =========================================================
     # MAIN METHOD: Build messages for the AI node
