@@ -1,259 +1,146 @@
-# Desktop Agent Instructions — One Authorized Live Attempt 12
+# Desktop Agent Instructions — Provider-Free Four-Mode UI Validation
 
-**Updated:** 2026-08-26
-
+**Updated:** 2026-08-27
 **Required branch:** `arena/01a03741-pulseairepo`
-
-**Validated source repair:** `0370515cce811dd4d86d14379dd2729a94e640b1`
-
-**Accepted Windows evidence:** `1b7ce9e1f48de834451abde7f0d41aaf0fac106e`
-
-**No-probe runner commit:** `200783db6ec135022a199cf37c47fea112781a87`
-
+**Required implementation ancestor:** `d0843937`
+**Required CDP harness ancestor:** `d9cdec27`
+**Evidence directory:** `bench-results/agent-ui-execution-modes-desktop`
 **Open PR:** #9 — do not merge
 
-## Authorization
+## Authorization and stop rules
 
-The founder authorized exactly **one live Attempt 12** using the existing
-securely configured OpenRouter model `stealth/ox-alpha`. This authorization is
-consumed by the single guarded bridge turn below.
+This is a provider-free source/build/CDP validation of the functional **Agent / Plan / Debug / Ask** implementation. No provider request, probe, fallback, live Test 5 turn, credential inspection, merge, or branch deletion is authorized.
 
-- Do not make a provider probe; use `-SkipProbe`.
-- Do not retry the turn for any reason.
-- Do not use a fallback provider or model.
-- Do not increase any cap.
-- Do not print, copy, or commit credentials.
-- Provider-free product inspection after the turn is required and does not
-  authorize another model call.
+Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone, reset, clean, amend source, or touch historical evidence. Set `PULSEAI_BRIDGE_RUNNER=echo` before launching the IDE; this is the mandatory network/provider guard. Run the CDP harness once. A failure remains evidence and must not be overwritten by a retry.
 
-## Fixed locations
-
-```text
-Repository: D:\pulseAIagent\PulseAIRepo
-Workspace:  C:\test5-ws-attempt12
-Run ID:     test5-12-desktop
-Evidence:   bench-results\test5-12-desktop
-```
-
-Use only the existing repository. The workspace and evidence directory must not
-already exist. Preserve all Attempt-5 through Attempt-11 workspaces/evidence and
-all failed/accepted Windows validation evidence.
-
-## 1. Checkout and local-only configuration check
+## 1. Establish the exact clean source
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 cd D:\pulseAIagent\PulseAIRepo
 
-if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') {
-  throw 'Wrong branch — STOP'
-}
-if (git status --porcelain=v1) {
-  throw 'Checkout is not clean — preserve it and STOP; never reset or clean'
-}
+if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+if (git status --porcelain=v1) { throw 'Checkout is not clean — preserve it and STOP' }
 
 git fetch origin arena/01a03741-pulseairepo
 git pull --ff-only origin arena/01a03741-pulseairepo
 if ($LASTEXITCODE -ne 0) { throw 'Fast-forward failed — STOP' }
+git merge-base --is-ancestor d0843937 HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Mode implementation is not an ancestor — STOP' }
+git merge-base --is-ancestor d9cdec27 HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Mode CDP harness is not an ancestor — STOP' }
 
-git merge-base --is-ancestor 0370515cce811dd4d86d14379dd2729a94e640b1 HEAD
-if ($LASTEXITCODE -ne 0) { throw 'Validated repair is not an ancestor — STOP' }
-git merge-base --is-ancestor 200783db6ec135022a199cf37c47fea112781a87 HEAD
-if ($LASTEXITCODE -ne 0) { throw 'No-probe runner is not an ancestor — STOP' }
+$evidence = 'bench-results\agent-ui-execution-modes-desktop'
+if (Test-Path $evidence) { throw 'Evidence directory already exists — STOP; never overwrite or retry' }
+New-Item -ItemType Directory -Path $evidence | Out-Null
 
-if (Test-Path C:\test5-ws-attempt12) { throw 'Attempt-12 workspace exists — STOP' }
-if (Test-Path bench-results\test5-12-desktop) { throw 'Attempt-12 evidence exists — STOP' }
-
-$python = if (Test-Path '.venv\Scripts\python.exe') {
-  (Resolve-Path '.venv\Scripts\python.exe').Path
-} else { 'python' }
-
-# Local .env parsing only. This prints provider/model/host and a boolean, never
-# the key. It sends no network request.
-& $python -c "import json; from urllib.parse import urlparse; from src.config.settings import LLM_PROVIDER, LLM_MODEL, CUSTOM_BASE_URL, CUSTOM_API_KEY; host=urlparse(CUSTOM_BASE_URL or '').hostname or ''; ok=(LLM_PROVIDER=='custom' and LLM_MODEL=='stealth/ox-alpha' and host.lower()=='openrouter.ai' and bool(CUSTOM_API_KEY)); print(json.dumps({'provider':LLM_PROVIDER,'model':LLM_MODEL,'endpoint_host':host,'credential_configured':bool(CUSTOM_API_KEY)})); raise SystemExit(0 if ok else 2)"
-if ($LASTEXITCODE -ne 0) { throw 'Exact authorized provider/model is not configured — STOP without probing' }
+git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
+git status --short | Set-Content "$evidence\initial-status.txt" -Encoding utf8
+node --version | Set-Content "$evidence\node-version.txt" -Encoding utf8
+npm --version | Set-Content "$evidence\npm-version.txt" -Encoding utf8
+$python = (Resolve-Path '.venv\Scripts\python.exe').Path
+& $python --version 2>&1 | Set-Content "$evidence\python-version.txt" -Encoding utf8
 ```
 
-Do not edit `.env` and do not install dependencies in the repository.
+If the existing `.venv` or installed desktop/UI dependencies are unavailable, record that as the first failed boundary and stop. Do not install or alter dependencies for this validation.
 
-## 2. Run exactly one guarded live turn
+## 2. Provider-free focused contracts and builds
 
-Use the committed prompt `scripts\test5_prompt.txt` and unchanged guards: 90
-minutes, 600-second stall limit, 60 request cap, 250,000 cumulative input-token
-runner cap, 12-call no-delivery stop. Pulse's internal 120,000-token and
-30-iteration caps remain unchanged, including the new reserve.
+Run each command once and preserve complete output plus exit code. Do not continue to CDP if any source/build check fails.
 
 ```powershell
-$monitorTemp = Join-Path $env:TEMP 'pulse-test5-12-monitor.log'
-if (Test-Path $monitorTemp) { throw 'Monitor temp file exists — STOP' }
-"$((Get-Date).ToUniversalTime().ToString('o')) ATTEMPT12_START" |
-  Set-Content $monitorTemp -Encoding utf8
+& $python -m pytest -q `
+  src/tests/test_execution_modes.py `
+  src/tests/test_bridge.py `
+  src/tests/test_bridge_transport.py `
+  src/tests/test_bridge_protocol_v2.py `
+  src/tests/test_desktop_renderer_architecture.py `
+  src/tests/test_pulseai_branding.py 2>&1 |
+  Tee-Object "$evidence\focused-pytest.log"
+if ($LASTEXITCODE -ne 0) { throw 'Focused pytest failed — STOP' }
 
-$heartbeat = Start-Job -ArgumentList $monitorTemp -ScriptBlock {
-  param($path)
-  while ($true) {
-    Start-Sleep -Seconds 30
-    $frames = 'D:\pulseAIagent\PulseAIRepo\bench-results\test5-12-desktop\frames.jsonl'
-    $workspace = 'C:\test5-ws-attempt12'
-    $requests = if (Test-Path $frames) {
-      @(Select-String -Path $frames -Pattern '"type"\s*:\s*"llm.request"').Count
-    } else { 0 }
-    $responses = if (Test-Path $frames) {
-      @(Select-String -Path $frames -Pattern '"type"\s*:\s*"llm.response"').Count
-    } else { 0 }
-    $files = if (Test-Path $workspace) {
-      @(Get-ChildItem $workspace -Recurse -File -ErrorAction SilentlyContinue)
-    } else { @() }
-    $bytes = ($files | Measure-Object Length -Sum).Sum
-    if ($null -eq $bytes) { $bytes = 0 }
-    "$((Get-Date).ToUniversalTime().ToString('o')) HEARTBEAT requests=$requests responses=$responses files=$($files.Count) bytes=$bytes" |
-      Add-Content $path
-  }
-}
+& $python scripts\generate_bridge_protocol.py --check 2>&1 |
+  Tee-Object "$evidence\protocol-generation.log"
+if ($LASTEXITCODE -ne 0) { throw 'Protocol generation check failed — STOP' }
 
-try {
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_test5_guarded.ps1 `
-    -Workspace C:\test5-ws-attempt12 `
-    -Python $python `
-    -RunId test5-12-desktop `
-    -MaxMinutes 90 `
-    -StallSeconds 600 `
-    -MaxLlmCalls 60 `
-    -MaxInputTokens 250000 `
-    -MaxNoDeliveryCalls 12 `
-    -SkipProbe
-  $turnExit = $LASTEXITCODE
-} finally {
-  Stop-Job $heartbeat -ErrorAction SilentlyContinue
-  Receive-Job $heartbeat -ErrorAction SilentlyContinue | Out-Null
-  Remove-Job $heartbeat -Force -ErrorAction SilentlyContinue
-}
-"$((Get-Date).ToUniversalTime().ToString('o')) ATTEMPT12_END exit=$turnExit" |
-  Add-Content $monitorTemp
+Push-Location ui
+npm run check:desktop-syntax 2>&1 | Tee-Object "..\$evidence\desktop-syntax.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop syntax failed — STOP' }
+npm run build 2>&1 | Tee-Object "..\$evidence\ui-build.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'UI build failed — STOP' }
+Pop-Location
 
-$runDir = 'bench-results\test5-12-desktop'
-if (-not (Test-Path $runDir)) { throw 'Runner produced no evidence directory — STOP' }
-Move-Item $monitorTemp "$runDir\monitor.log"
+Push-Location desktop\vscode
+npm run typecheck-client 2>&1 | Tee-Object "..\..\$evidence\desktop-typecheck-client.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop typecheck failed — STOP' }
+npm run valid-layers-check 2>&1 | Tee-Object "..\..\$evidence\desktop-valid-layers.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop layer check failed — STOP' }
+npm run compile 2>&1 | Tee-Object "..\..\$evidence\desktop-compile.log"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Desktop compile failed — STOP' }
+Pop-Location
 ```
 
-The authorization is now consumed regardless of exit code. **Never rerun.**
+The focused tests must prove mode manifest parity, generated TypeScript currency, bridge rejection/propagation, Ask no-execution routing, preserved Plan behavior, and Agent/Debug execution routing.
 
-## 3. Preserve the delivered product before inspection
+## 3. One raw-CDP desktop run
+
+Read `CDP_TEST_GUIDE.md` first. Launch the built desktop with the exact existing Python environment, repository root, echo runner, and CDP port. Never read or print `.env`.
 
 ```powershell
-if (Test-Path "$runDir\workspace") { throw 'Evidence workspace already exists — STOP' }
-Copy-Item C:\test5-ws-attempt12 "$runDir\workspace" -Recurse
-```
+$env:PULSEAI_PYTHON_PATH = $python
+$env:PULSEAI_ENGINE_ROOT = 'D:\pulseAIagent\PulseAIRepo'
+$env:PULSEAI_BRIDGE_RUNNER = 'echo'
+$env:PULSEAI_CDP_PORT = '9222'
 
-Do not repair the product after the turn. Product inspection is read-only.
-
-## 4. Provider-free integrity and trace review
-
-Run the workspace audit and save JSON:
-
-```powershell
-& $python -c "import json; from src.context.workspace_integrity import audit_workspace; issues=audit_workspace(r'C:\test5-ws-attempt12'); print(json.dumps({'finding_count':len(issues),'findings':[{'kind':x.kind,'path':x.path,'reference':x.reference,'description':x.describe()} for x in issues]},indent=2))" |
-  Set-Content "$runDir\integrity-audit.json" -Encoding utf8
-```
-
-Read `outcome.json`, `frames.jsonl`, `bridge_stderr.log`, and the copied
-workspace. Create `trace-review.json` recording:
-
-- exact `llm.request` and `llm.response` counts;
-- every request model (must all be `stealth/ox-alpha`);
-- probe requests: zero;
-- fallback provider/model requests: zero;
-- finish reasons, output-limit continuations, and budget/reserve stop status;
-- tool-call starts/ends and any unpaired IDs;
-- final `turn_done.completed` value and graph `task_status` if present;
-- mutations after the final passing verification receipt;
-- static/build receipt and browser receipt details; and
-- first failed boundary, if any.
-
-Do not call a model for this analysis.
-
-## 5. Independent browser/product inspection
-
-This section is provider-free. If executable files were delivered, start a
-basic static server rooted at `C:\test5-ws-attempt12`, then use the Desktop
-Agent's real browser automation against:
-
-```text
-http://127.0.0.1:4173/?shot=1&t=37.4&w=1920&h=1080&path=grazing&preset=photon
-```
-
-Use a local command such as:
-
-```powershell
-$server = Start-Process -FilePath $python `
-  -ArgumentList '-m','http.server','4173','--directory','C:\test5-ws-attempt12' `
+$desktop = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', `
+  'set PULSEAI_BRIDGE_RUNNER=echo&&set PULSEAI_PYTHON_PATH=D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe&&set PULSEAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\pulseAIagent\PulseAIRepo --remote-debugging-port=9222' `
   -PassThru
+try {
+  node scripts\validate_pulse_ui_cdp.js $evidence 2>&1 |
+    Tee-Object "$evidence\cdp-ui.log"
+  $cdpExit = $LASTEXITCODE
+} finally {
+  if ($desktop -and -not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue }
+}
+if ($cdpExit -ne 0) { throw 'CDP validation failed — preserve evidence and STOP without retry' }
 ```
 
-Wait for rendering, then save screenshots inside `$runDir`, including the main
-1920×1080 deterministic view. Exercise at least one preset, one debug view, one
-parameter, pause/resume, and responsive layout. Capture browser console and
-failed network requests. Stop the server in `finally`.
+The committed harness must capture and verify:
 
-Create `browser-review.json` containing URL, HTTP status, title, rendered text,
-canvas dimensions, non-blank screenshot result, console errors, failed requests,
-interaction results, local-dependency result (no CDN/external runtime assets),
-and PASS/FAIL. If no executable product exists, write a skipped/FAIL review with
-the reason; do not create fake screenshots.
+- restrained theme-aware welcome/composer rendering;
+- the upward mode menu screenshot with Agent, Plan, Debug, and Ask;
+- accessible menu roles, descriptions, selected state, and working Ask→Agent DOM selection;
+- exact echo turn and completion receipt with zero provider traffic;
+- narrow Agent layout, Manager opening, responsive Manager layout, and no overflow;
+- screenshots and zero renderer/console errors.
 
-Create `product-review.md` against every requirement in `scripts/test5_prompt.txt`.
-A visually attractive screenshot alone is not enough: shader compilation,
-non-black canvas, local dependencies, interactions, and verification receipts
-must all be proven.
+## 4. Evidence report, hashes, and commit
 
-## 6. Verdict, secret scan, hashes, commit
+Create `validation-summary.json` and `validation-report.md` from the actual logs. Record exact HEAD, every command and exit code, focused test count, all CDP checks/snapshots/screenshots, console error count, `provider_requests: 0`, overall PASS/FAIL, and the first failed boundary. A build PASS cannot upgrade a CDP FAIL. Do not claim runtime behavior not demonstrated by the focused tests and echo CDP run.
 
-Create `attempt_summary.json` with the fixed repository/branch/head, repair and
-runner commits, provider/model, `probe_requests: 0`, exact usage/counts, delivery
-files/bytes, runtime verdict, product verdict, first failed boundary, browser
-verdict, and the statement `One live Attempt 12 consumed; no retry authorized.`
-
-Verdict rules:
-
-- `RUNTIME_PASS` requires a paired terminal protocol, honest
-  `turn_done.completed=true`, and no runner/budget/watchdog failure.
-- `PRODUCT_PASS` additionally requires zero integrity findings, fresh passing
-  static and real-browser receipts after the final mutation, independent browser
-  PASS, no console/network/shader errors, local dependencies, and all requested
-  behavior delivered.
-- Otherwise report FAIL and the first concrete boundary. Never upgrade a failed
-  receipt based on narrative.
-
-Scan evidence against exact secret values loaded locally from `.env`; save only
-boolean/count results to `credential-scan.json`, never secret text. Any match is
-FAIL and must be removed from evidence without exposing it.
-
-After every evidence file and screenshot is final, generate recursive SHA-256
-entries for all committed evidence files except `sha256sums.txt` itself.
+Confirm no provider events or credential material appear in evidence. Save only boolean/count results in `credential-scan.json`, never any secret value. Then hash every evidence file except the hash manifest itself:
 
 ```powershell
+Get-ChildItem $evidence -Recurse -File |
+  Where-Object Name -ne 'sha256sums.txt' |
+  Sort-Object FullName |
+  ForEach-Object {
+    $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+    $relative = [IO.Path]::GetRelativePath((Resolve-Path $evidence), $_.FullName).Replace('\','/')
+    "$hash  $relative"
+  } | Set-Content "$evidence\sha256sums.txt" -Encoding ascii
+
 git status --short
 ```
 
-Only `bench-results/test5-12-desktop/` may be added. If source, tests, prompt,
-historical evidence, or unrelated paths changed, preserve and STOP without
-reset/clean.
+Only `bench-results/agent-ui-execution-modes-desktop/` may be new. If source, tests, generated files, lockfiles, or historical evidence changed, preserve everything and STOP without reset/clean.
 
 ```powershell
-git add -f bench-results/test5-12-desktop
-git commit -m "test: record guarded live Attempt 12"
+git add -f bench-results/agent-ui-execution-modes-desktop
+git commit -m "test(ui): validate functional execution modes on desktop"
 git push origin arena/01a03741-pulseairepo
 ```
 
-## Final response and mandatory stop
+Report exact results and evidence commit, then stop. Do not merge PR #9 or delete any branch.
 
-Report exact provider request/response counts, token/cost telemetry, delivery,
-verification receipts, integrity findings, browser result, runtime/product/overall
-verdict, evidence commit, and first failed boundary. Then:
-
-```text
-STOPPED — Attempt 12 authorization consumed; no retry or merge authorized
-```
-
-Do not merge PR #9, delete branches, start Agentic UI work, or run another
-provider request.
+Desktop agent task
