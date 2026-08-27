@@ -106,6 +106,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     for style in (
         ".pulseai-starter-grid", ".pulseai-working-dock", ".pulseai-plan-strip",
         "prefers-reduced-motion", "@media (max-width: 420px)",
+        "container-name: pulseai-manager-editor", "@container pulseai-manager-editor (max-width: 610px)",
         "var(--vscode-focusBorder)", "var(--vscode-sideBar-background)",
     ):
         assert style in css
