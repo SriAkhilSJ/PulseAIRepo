@@ -1,7 +1,7 @@
 # Desktop Agent Verification — Copilot-Hidden Pulse-Only UI
 
 **Date:** 2026-08-27
-**Branch:** `main` (HEAD: `403bce9d`)
+**Branch:** `main` (HEAD: `50f0dc23`)
 **Required implementation ancestor:** `d0843937` (four-mode agent)
 **Required CDP harness ancestor:** `d9cdec27` (mode menu CDP)
 **Open PR:** #9 — do not merge
@@ -261,3 +261,45 @@ branches, or modify source.
 ## After this passes
 
 The next job is a **new session on `main`** to continue the verification pipeline.
+
+---
+
+## Execution Results
+
+**Verified:** 2026-08-27 | **Overall: PASS**
+
+### Source/Build (Step 2)
+- Focused pytest: **65/65 PASS** (exit 0)
+- Protocol generation: **PASS** (exit 0)
+- Desktop syntax: **PASS** (exit 0)
+- Desktop typecheck-client: **PASS** (exit 0)
+- Desktop valid-layers: **PASS** (exit 0)
+- Desktop compile: **PASS** (exit 0)
+- UI build: **PASS** (exit 0)
+
+### CDP Runtime (Step 3) — 10/10 PASS
+| Check | Result |
+|-------|--------|
+| AuxBar: no Chat tab | PASS |
+| Watermark: no "Open Chat" | PASS |
+| Title bar: no Copilot sparkle | PASS |
+| Pulse composer visible | PASS |
+| Mode menu (Agent/Plan/Debug/Ask) | PASS |
+| No Copilot Chat view | PASS |
+| No MCP invoke surface | PASS |
+| Pulse view present | PASS |
+| No renderer errors | PASS |
+| No console errors | PASS |
+
+### Phase 1 Inventory (Step 5)
+- Phase 1 docs: ALL PRESENT
+- Copilot source intact: YES
+- `defaultChatAgent`: PRESENT
+- `chat.disableAIFeatures`: TRUE
+- `chat.titleBar.signIn.enabled`: FALSE
+- `pulseAIHideCopilot.ts`: EXISTS
+
+### Evidence
+- Commit: `50f0dc23`
+- Files: 29 evidence files + 4 source modifications
+- SHA256 verification: `sha256sums.txt`
