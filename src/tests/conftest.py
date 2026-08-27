@@ -38,3 +38,31 @@ collect_ignore = [
     "test_replan_recovery.py",
     "test_replanner_manual.py",
 ]
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _stop_chunk_index_watchers():
+    """Test hygiene: never let a chunk-index file-watcher daemon outlive a test.
+
+    The production layer builder ``build_relevant_chunks_layer`` opens indexes
+    via ``get_index(workspace)`` whose default ``watch=True`` starts a
+    background ``chunk-index-watcher`` thread. In production one watcher per
+    workspace is correct and long-lived, but a stray live watcher leaks across
+    test files and trips ``test_empty_index_search_never_spawns_unbounded_thread``
+    (which enumerates live threads). Stop every watcher cached by get_index()
+    after each test. Production code is unaffected (this fixture only runs
+    under pytest; tests construct watch=False anyway).
+    """
+    yield
+    try:
+        from src.context.chunk_index import _INDEX_CACHE
+    except Exception:
+        return
+    for idx in list(_INDEX_CACHE.values()):
+        try:
+            idx.stop_watcher()
+        except Exception:
+            pass
