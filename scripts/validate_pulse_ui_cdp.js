@@ -160,11 +160,12 @@ async function main() {
     assert(composer?.visible && composer?.enabled, 'Agent composer is visible and enabled');
     assert(header?.visible && managerButton?.visible, 'Agent header and Manager button are visible');
     assert(shell && shell.scrollWidth <= shell.clientWidth + 1, 'Agent shell has no horizontal overflow');
-    await screenshot('01-agent-ready.png');
+    if (!managerOnly) { await screenshot('01-agent-ready.png'); }
 
     // At the normal auxiliary-bar width the <=420px responsive rules should be active.
     assert(shell.width <= 420, 'Agent narrow responsive width is active');
-    await screenshot('02-agent-narrow.png');
+    if (!managerOnly) { await screenshot('02-agent-narrow.png'); }
+    else { report.checks.Screenshots = 'SKIPPED — already captured by immutable CDP R2 evidence'; }
 
     if (!managerOnly) {
       await evaluate(`document.querySelector('textarea.pulseai-composer-input').focus()`);
@@ -192,7 +193,7 @@ async function main() {
     const managerMain = await snapshot('manager_main', '.pulseai-manager-main');
     assert(manager?.visible && managerMain?.visible, 'Pulse Manager opens as a visible editor surface');
     assert(manager.scrollWidth <= manager.clientWidth + 1, 'Pulse Manager has no horizontal overflow');
-    await screenshot('04-manager-wide.png');
+    if (!managerOnly) { await screenshot('04-manager-wide.png'); }
 
     // The Manager is already constrained by Explorer and the auxiliary Agent view.
     // Validate its container query against that real editor width; Electron's page
@@ -212,7 +213,7 @@ async function main() {
     report.snapshots.manager_responsive = responsive;
     assert(responsive?.containerWidth > 0 && responsive.containerWidth <= 880, 'Pulse Manager is rendered inside its responsive container range');
     assert(responsive?.inspectorDisplay === 'none' && responsive.mainWidth > 0, 'Pulse Manager responsive inspector behavior is active');
-    await screenshot('05-manager-responsive.png');
+    if (!managerOnly) { await screenshot('05-manager-responsive.png'); }
 
     const protocolErrors = cdp.events.filter(event => event.method === 'Runtime.exceptionThrown' ||
       (event.method === 'Log.entryAdded' && event.params?.entry?.level === 'error'));
