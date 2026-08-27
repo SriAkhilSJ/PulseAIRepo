@@ -7,6 +7,7 @@ const path = require('node:path');
 
 const port = Number(process.env.PULSEAI_CDP_PORT || '9222');
 const evidenceDir = path.resolve(process.argv[2] || 'bench-results/agent-ui-cdp-desktop');
+const managerOnly = process.argv.includes('--manager-only');
 const prompt = 'Pulse Agent UI provider-free CDP smoke';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -81,7 +82,8 @@ async function main() {
     started_at: new Date().toISOString(),
     cdp_port: port,
     provider_requests: 0,
-    prompt,
+    mode: managerOnly ? 'manager-only' : 'full',
+    prompt: managerOnly ? null : prompt,
     checks: {},
     snapshots: {},
     console_errors: [],
@@ -164,21 +166,25 @@ async function main() {
     assert(shell.width <= 420, 'Agent narrow responsive width is active');
     await screenshot('02-agent-narrow.png');
 
-    await evaluate(`document.querySelector('textarea.pulseai-composer-input').focus()`);
-    await cdp.call('Input.insertText', { text: prompt });
-    await cdp.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
-    await cdp.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    if (!managerOnly) {
+      await evaluate(`document.querySelector('textarea.pulseai-composer-input').focus()`);
+      await cdp.call('Input.insertText', { text: prompt });
+      await cdp.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+      await cdp.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
 
-    await waitFor('completed echo turn', `(() => {
-      const answer = document.querySelector('.pulseai-assistant-copy')?.textContent || '';
-      const receipt = document.querySelector('.pulseai-turn-receipt')?.textContent || '';
-      return answer.includes(${JSON.stringify(prompt)}) && receipt.includes('Run completed');
-    })()`, 45_000);
-    const transcript = await snapshot('completed_transcript', '.pulseai-transcript-lane');
-    const answer = await snapshot('assistant_echo', '.pulseai-assistant-copy');
-    assert(answer?.text?.includes(prompt), 'Assistant response contains exact echo text');
-    assert(transcript?.text?.includes('Run completed'), 'Completed transcript contains completion receipt');
-    await screenshot('03-agent-echo-completed.png');
+      await waitFor('completed echo turn', `(() => {
+        const answer = document.querySelector('.pulseai-assistant-copy')?.textContent || '';
+        const receipt = document.querySelector('.pulseai-turn-receipt')?.textContent || '';
+        return answer.includes(${JSON.stringify(prompt)}) && receipt.includes('Run completed');
+      })()`, 45_000);
+      const transcript = await snapshot('completed_transcript', '.pulseai-transcript-lane');
+      const answer = await snapshot('assistant_echo', '.pulseai-assistant-copy');
+      assert(answer?.text?.includes(prompt), 'Assistant response contains exact echo text');
+      assert(transcript?.text?.includes('Run completed'), 'Completed transcript contains completion receipt');
+      await screenshot('03-agent-echo-completed.png');
+    } else {
+      report.checks['Echo turn'] = 'SKIPPED — manager-only continuation makes no turn';
+    }
 
     await evaluate(`document.querySelector('.pulseai-agent-header-actions .pulseai-icon-button').click()`);
     await waitFor('Pulse Manager editor', `Boolean(document.querySelector('.pulseai-manager-shell'))`, 20_000);
@@ -188,28 +194,25 @@ async function main() {
     assert(manager.scrollWidth <= manager.clientWidth + 1, 'Pulse Manager has no horizontal overflow');
     await screenshot('04-manager-wide.png');
 
-    // Exercise the Manager's responsive breakpoint through the actual Electron window.
-    try {
-      const windowInfo = await cdp.call('Browser.getWindowForTarget', { targetId: target.id });
-      report.original_window_bounds = windowInfo.bounds;
-      if (windowInfo.bounds?.windowState && windowInfo.bounds.windowState !== 'normal') {
-        await cdp.call('Browser.setWindowBounds', { windowId: windowInfo.windowId, bounds: { windowState: 'normal' } });
-        await delay(500);
-      }
-      await cdp.call('Browser.setWindowBounds', { windowId: windowInfo.windowId, bounds: { width: 760, height: 800 } });
-      await delay(800);
-      const responsive = await evaluate(`(() => {
-        const inspector = document.querySelector('.pulseai-manager-inspector');
-        const main = document.querySelector('.pulseai-manager-main');
-        return { inspectorDisplay: inspector ? getComputedStyle(inspector).display : null, mainWidth: main?.getBoundingClientRect().width || 0 };
-      })()`);
-      report.snapshots.manager_responsive = responsive;
-      assert(responsive?.inspectorDisplay === 'none' && responsive.mainWidth > 0, 'Pulse Manager responsive inspector behavior is active');
-      await screenshot('05-manager-responsive.png');
-    } catch (error) {
-      report.checks['Pulse Manager responsive inspector behavior is active'] = `FAIL: ${error.message}`;
-      throw error;
-    }
+    // The Manager is already constrained by Explorer and the auxiliary Agent view.
+    // Validate its container query against that real editor width; Electron's page
+    // target does not expose the optional Browser.getWindowForTarget method.
+    const responsive = await evaluate(`(() => {
+      const shell = document.querySelector('.pulseai-manager-shell');
+      const inspector = document.querySelector('.pulseai-manager-inspector');
+      const sidebar = document.querySelector('.pulseai-manager-sidebar');
+      const main = document.querySelector('.pulseai-manager-main');
+      return {
+        containerWidth: shell?.getBoundingClientRect().width || 0,
+        inspectorDisplay: inspector ? getComputedStyle(inspector).display : null,
+        sidebarDisplay: sidebar ? getComputedStyle(sidebar).display : null,
+        mainWidth: main?.getBoundingClientRect().width || 0,
+      };
+    })()`);
+    report.snapshots.manager_responsive = responsive;
+    assert(responsive?.containerWidth > 0 && responsive.containerWidth <= 880, 'Pulse Manager is rendered inside its responsive container range');
+    assert(responsive?.inspectorDisplay === 'none' && responsive.mainWidth > 0, 'Pulse Manager responsive inspector behavior is active');
+    await screenshot('05-manager-responsive.png');
 
     const protocolErrors = cdp.events.filter(event => event.method === 'Runtime.exceptionThrown' ||
       (event.method === 'Log.entryAdded' && event.params?.entry?.level === 'error'));
