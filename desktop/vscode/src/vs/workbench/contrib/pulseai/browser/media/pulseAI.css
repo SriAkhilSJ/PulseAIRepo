@@ -574,10 +574,14 @@
 .pulseai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
 
 /* Pulse Manager occupies an editor tab, leaving source editors and the global menu intact. */
-.pulseai-manager-editor { display: block; }
+.pulseai-manager-editor {
+	display: block;
+	container-name: pulseai-manager-editor;
+	container-type: inline-size;
+}
 .pulseai-manager-shell {
 	display: grid;
-	grid-template-columns: minmax(200px, 18%) minmax(420px, 1fr) minmax(240px, 22%);
+	grid-template-columns: minmax(160px, 18%) minmax(0, 1fr) minmax(200px, 22%);
 	height: 100%;
 	min-width: 0;
 	background: var(--vscode-editor-background);
@@ -675,13 +679,25 @@
 .pulseai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: 10px; }
 .pulseai-usage-grid strong { color: var(--vscode-foreground); font-weight: 500; }
 
+/* Viewport queries are a fallback; container queries are authoritative because
+ * editor width also changes when Explorer and the auxiliary Agent view are open. */
 @media (max-width: 880px) {
-	.pulseai-manager-shell { grid-template-columns: minmax(190px, 25%) minmax(380px, 1fr); }
+	.pulseai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
 	.pulseai-manager-inspector { display: none; }
 }
 
 @media (max-width: 610px) {
-	.pulseai-manager-shell { grid-template-columns: 1fr; }
+	.pulseai-manager-shell { grid-template-columns: minmax(0, 1fr); }
+	.pulseai-manager-sidebar { display: none; }
+}
+
+@container pulseai-manager-editor (max-width: 880px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
+	.pulseai-manager-inspector { display: none; }
+}
+
+@container pulseai-manager-editor (max-width: 610px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(0, 1fr); }
 	.pulseai-manager-sidebar { display: none; }
 }
 
