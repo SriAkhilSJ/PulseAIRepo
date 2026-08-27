@@ -25,4 +25,4 @@ This increment studies KiloCode at commit `99c621ee78b23c4538bd112bd8235d4722ca5
 
 ## Validation boundary
 
-The original Agent/Manager layout passed provider-free compile and CDP runtime validation through evidence `43cf8296`. Execution-mode changes require a fresh provider-free protocol/build/CDP validation; no provider call is needed or authorized.
+The original Agent/Manager layout passed provider-free compile and CDP runtime validation through evidence `43cf8296`. The four execution modes subsequently passed provider-free validation at `1a6451bc`: 65/65 focused tests, clean desktop typecheck/layer/compile checks, and 16/16 raw-CDP checks with zero provider requests.
