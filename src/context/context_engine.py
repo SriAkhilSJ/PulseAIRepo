@@ -351,6 +351,47 @@ class ContextEngine:
         self._legacy_feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
         self._load_feedback()
 
+    def reconfigure_model(self, model: str, probe_window: bool = True) -> None:
+        """Point THIS engine at a different model without replacing it.
+
+        The per-session registry (chat_graph.get_context_engine) hands every
+        node for a thread_id the SAME ContextEngine so the layer cache, the
+        _last_layers_sent snapshot, feedback history and learned weights stay
+        one object. A node may explicitly select a different model mid-session
+        (the config carries a pinned model); the engine must follow it without
+        losing that identity. Only model-derived state changes — the caches,
+        feedback and weights are session-scoped, not model-scoped.
+        """
+        new_model = model or CONTEXT_MODEL
+        # Same lock that guards build_ai_messages / record_feedback: a model
+        # repoint mutates self.model + the budget fields that a concurrent
+        # turn reads under _api_lock, so it must be atomic w.r.t. that build.
+        # RLock: safe even if a caller already holds it (no nested-lock path
+        # today, but the registry's _ENGINES_LOCK is a separate lock and this
+        # never calls back into the registry, so no deadlock).
+        with self._api_lock:
+            if new_model == self.model:
+                return
+            self.model = new_model
+            from src.config.settings import PROVIDER_SAFE_LIMIT
+            from src.context.model_budgets import (
+                resolve_context_window,
+                usable_window_budget,
+            )
+            window, source = resolve_context_window(
+                self.model, allow_network=probe_window
+            )
+            self.context_window = window
+            self.context_window_source = source
+            usable = usable_window_budget(window)
+            cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
+            self.max_tokens = max(min(usable, cap), 4_096)
+            self.context_budget = int(self.max_tokens * 0.4)
+            self.history_budget = self.max_tokens - self.context_budget
+            print(
+                f"[ContextEngine] repointed session engine to model {self.model!r}; "
+                f"token budget {self.max_tokens:,} (source: {source})."
+            )
 
     # =========================================================
     # MAIN METHOD: Build messages for the AI node
@@ -374,10 +415,14 @@ class ContextEngine:
         "steps_completed", "failed_steps",
         "recovery_mode", "recovery_attempts", "recovery_command",
         "replan_count", "prior_attempts",
-        # The progress layer now summarizes recent execution outcomes. Keep it
-        # in the differential key or request 2 can reuse a pre-tool layer and
-        # hide the paired rejection/result from the model context.
-        "execution_trace",
+        # NOTE: "execution_trace" is deliberately NOT hashed. It is appended
+        # on every tool action (chat_graph per-turn noise), and NO layer
+        # builder reads it for content — `_progress_layer` renders only
+        # steps_completed / failed_steps (both hashed above), which already
+        # mark real progress. Hashing execution_trace busted the differential
+        # cache on pure trace churn (D26 regression: object identity lost on
+        # every turn). Do not re-add it; the AST drift-guard only flags keys
+        # that builders actually read, and none do.
         # P1: session identity used to route degraded receipts; stable per
         # session, so hashing it never busts the differential cache.
         "thread_id",
@@ -792,9 +837,12 @@ class ContextEngine:
         }
         if autonomous and not state.get("plan"):
             autonomous_skip.add("plan")
+        # Gate the progress layer on exactly what `_progress_layer` renders
+        # (steps_completed / failed_steps). execution_trace is per-turn noise
+        # that no layer reads; gating on it would couple a skip decision to
+        # un-hashed churn without changing the layer's content.
         if autonomous and not (
             state.get("steps_completed") or state.get("failed_steps")
-            or state.get("execution_trace")
         ):
             autonomous_skip.add("progress")
         if autonomous:

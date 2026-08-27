@@ -3036,11 +3036,21 @@ def get_context_engine(
         if isinstance(config_or_key, str)
         else _session_key_from_config(config_or_key)
     )
-    requested_model = LLM_MODEL
+    # Only a model the caller EXPLICITLY pins (a present, non-empty "model"
+    # in a config dict) is allowed to change a session's engine. A raw key
+    # string (tests / tools / nodes that carry only thread_id) and a config
+    # with no "model" express NO model choice — they must reuse whatever
+    # engine the session already holds instead of silently rebuilding it
+    # against the process-default LLM_MODEL. (The old code defaulted every
+    # implicit call to LLM_MODEL, so a node passing the full config
+    # {"thread_id": t, "model": <session model>} created engine A, then a
+    # caller passing bare key "t" rebuilt engine B — two engines for one
+    # thread_id, splitting the layer cache / feedback history / weights.)
+    explicit_model: "str | None" = None
     if isinstance(config_or_key, dict):
-        requested_model = str(
-            config_or_key.get("configurable", {}).get("model") or LLM_MODEL
-        )
+        pinned = config_or_key.get("configurable", {}).get("model")
+        if pinned:
+            explicit_model = str(pinned)
     if key == "default":
         # Sessions with no thread_id all collapse into one shared engine —
         # the SAFE degradation (isolation loss, never correctness loss, thanks
@@ -3057,12 +3067,19 @@ def get_context_engine(
     with _ENGINES_LOCK:
         engine = _ENGINES.get(key)
         # Context budgeting/tokenization must follow the model that will
-        # actually receive this session's requests, not the process-global
-        # default captured at import. Recreate only when a caller explicitly
-        # changes models for the same thread.
-        if engine is not None and str(getattr(engine, "model", "")) != requested_model:
-            _ENGINES.pop(key, None)
-            engine = None
+        # actually receive this session's requests. When THIS call explicitly
+        # pins a different model than the one the session engine was built for,
+        # re-point THAT engine in place (model + budget) — never evict it. The
+        # engine is session identity (layer cache, _last_layers_sent snapshot,
+        # feedback history, learned weights); a model switch must not split a
+        # thread into two engines. Implicit calls (raw key / no "model") never
+        # touch the model — they express no preference.
+        if (
+            engine is not None
+            and explicit_model is not None
+            and explicit_model != str(getattr(engine, "model", ""))
+        ):
+            engine.reconfigure_model(explicit_model)
         if engine is None:
             # D21: >8000-char tool outputs may be summarized by the
             # AUXILIARY model (janitor prices) when explicitly enabled;
@@ -3074,8 +3091,12 @@ def get_context_engine(
                     summarizer_llm = get_auxiliary_llm()
                 except Exception:
                     summarizer_llm = None
+            # First engine for the thread: an explicit pin wins, otherwise
+            # fall back to the process default. Once built, implicit callers
+            # reuse it (guarded above); only a later, differing explicit pin
+            # rebuilds.
             engine = ContextEngine(
-                model=requested_model,
+                model=explicit_model or LLM_MODEL,
                 llm=summarizer_llm,
                 memory_manager=memory_manager,
                 thread_id=None if key == "default" else key,

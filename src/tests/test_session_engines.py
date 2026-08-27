@@ -47,6 +47,55 @@ class TestRegistry:
         assert chat_graph.get_context_engine(None) is chat_graph.get_context_engine("default")
         assert chat_graph.get_context_engine({}) is chat_graph.get_context_engine("default")
 
+    def test_implicit_call_after_explicit_pin_keeps_one_engine(self):
+        # The exact fork that produced two engines for one thread_id: a node
+        # passes the full config (pinned model), then a caller/tool passes only
+        # the bare thread_id string. The implicit call must NOT rebuild against
+        # the process-default model — it returns the SAME engine.
+        chat_graph._ENGINES.clear()
+        key = "implicit-after-explicit"
+        eng = chat_graph.get_context_engine({
+            "configurable": {"thread_id": key, "provider": "groq", "model": "gpt-4o-mini"}
+        })
+        again = chat_graph.get_context_engine(key)          # bare string, no model
+        no_model_cfg = chat_graph.get_context_engine({     # dict, no "model" key
+            "configurable": {"thread_id": key}
+        })
+        assert again is eng, "bare-key lookup forked a second engine for the session"
+        assert no_model_cfg is eng, "model-less config forked a second engine for the session"
+        assert len(chat_graph._ENGINES) == 1
+
+    def test_explicit_model_switch_repoints_same_engine(self):
+        # An explicit, DIFFERENT model follows the session by re-pointing the
+        # one engine in place (model + budget) — never evicting it. Session
+        # state (layer cache / feedback history / weights) must survive.
+        chat_graph._ENGINES.clear()
+        key = "explicit-switch"
+        eng = chat_graph.get_context_engine({
+            "configurable": {"thread_id": key, "model": "gpt-4o-mini"}
+        })
+        marker = object()
+        eng._layer_cache["probe"] = marker  # session-scoped state
+        old_budget = eng.max_tokens
+
+        switched = chat_graph.get_context_engine({
+            "configurable": {"thread_id": key, "model": "gpt-4o"}
+        })
+        assert switched is eng, "explicit model switch replaced the session engine"
+        assert switched.model == "gpt-4o"
+        # ...and model-derived budget state was refreshed, not left stale.
+        assert switched.context_window is not None
+        assert switched.max_tokens >= 4_096
+        # session-scoped state survives the repoint (same object):
+        assert switched._layer_cache.get("probe") is marker
+        # re-pinning the SAME model is a no-op that keeps the object too.
+        assert chat_graph.get_context_engine({
+            "configurable": {"thread_id": key, "model": "gpt-4o"}
+        }) is eng
+        assert len(chat_graph._ENGINES) == 1
+        # The budget genuinely tracks the model (guards a no-op repoint).
+        assert old_budget >= 4_096
+
     def test_lru_eviction(self, monkeypatch):
         # Start from a clean registry: prior tests populated it, and eviction
         # order is relative to ALL resident keys.
@@ -165,6 +214,29 @@ class TestNodeWiring:
     def test_engines_carry_api_locks(self):
         eng = chat_graph.get_context_engine("lock-check")
         assert hasattr(eng, "_api_lock"), "engine lost its mutation guard"
+
+    def test_reconfigure_model_refreshes_budget_and_is_idempotent(self):
+        from src.context.context_engine import ContextEngine
+        # Explicit max_tokens -> engine stays fully offline (no provider probe).
+        eng = ContextEngine(max_tokens=8_000, model="gpt-4o-mini",
+                            llm=None, memory_manager=None, probe_window=False)
+        eng._api_lock.acquire()  # simulate a turn holding the mutation guard
+        try:
+            # reconfigure must respect the SAME reentrant lock (RLock), so it
+            # does not deadlock while a build is in flight on this thread.
+            eng.reconfigure_model("gpt-4o", probe_window=False)
+        finally:
+            eng._api_lock.release()
+        assert eng.model == "gpt-4o"
+        # Re-pointing to the same model is a no-op (budget untouched).
+        before = (eng.max_tokens, eng.context_budget, eng.history_budget)
+        eng.reconfigure_model("gpt-4o", probe_window=False)
+        assert (eng.max_tokens, eng.context_budget, eng.history_budget) == before
+        # reconfigure with falsy model falls back to the default, never None.
+        eng.reconfigure_model("", probe_window=False)
+        assert eng.model
+        # Session-scoped state survives a repoint.
+        assert hasattr(eng, "_layer_cache") and hasattr(eng, "_feedback_history")
 
 
 # =====================================================================
