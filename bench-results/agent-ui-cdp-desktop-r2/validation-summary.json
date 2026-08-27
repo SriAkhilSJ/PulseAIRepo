@@ -1,0 +1,33 @@
+{
+  "source_commit": "401e4c523405cf81948686397260513f4e63698c",
+  "required_repair_ancestor": "927d8eb4",
+  "required_harness_ancestor": "f61a6ca2",
+  "provider_requests": 0,
+  "attempt12_classification": "runtime/product FAIL (immutable; not rerun)",
+  "r1_classification": "FAIL (immutable; openManager missing)",
+  "r2_classification": "source/build PASS; interactive smoke NOT RUN",
+  "cdp_r1_classification": "FAIL (immutable; Manager overflow)",
+  "compile_exit": 0,
+  "cdp_exit": 1,
+  "cdp_overall": "FAIL",
+  "cdp_failure": "Browser.getWindowForTarget CDP method not available (protocol limitation)",
+  "checks": {
+    "agent_composer_visible_enabled": "PASS",
+    "agent_header_manager_button_visible": "PASS",
+    "agent_shell_no_overflow": "PASS",
+    "agent_narrow_responsive": "PASS",
+    "assistant_echo_exact_text": "PASS",
+    "completed_transcript_receipt": "PASS",
+    "manager_opens_visible": "PASS",
+    "manager_no_overflow": "PASS",
+    "manager_responsive_inspector": "FAIL (CDP protocol limitation)",
+    "no_renderer_exceptions": "PASS",
+    "no_console_errors": "PASS"
+  },
+  "manager_overflow_fix": "PASS (scrollWidth 636 <= clientWidth 636, was 860 > 588)",
+  "screenshots_captured": 4,
+  "screenshots_expected": 5,
+  "screenshots": ["01-agent-ready.png", "02-agent-narrow.png", "03-agent-echo-completed.png", "04-manager-wide.png"],
+  "renderer_console_errors": 0,
+  "overall": "FAIL"
+}
