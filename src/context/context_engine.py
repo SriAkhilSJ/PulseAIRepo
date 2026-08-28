@@ -679,17 +679,14 @@ class ContextEngine:
             name for name in ("repo_map", "relevant_chunks", "conventions")
             if self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
         ]
-        # Phase 3: only allocate the shared scan pool when walkers exist.
-        # CHAT/short messages never need file-walking layers, so skip the
-        # ContextBudget construction and its teardown entirely.
-        if walkers:
-            self._active_pool = ContextBudget()
-            self._active_pool.collect_receipts = True
-            if self.thread_id:
-                from src.runtime.turn_control import turn_controls
-                self._active_pool.extra_stop = lambda: turn_controls.cancelled(self.thread_id)
-        else:
-            self._active_pool = None
+        self._active_pool = ContextBudget()
+        # P1-fix: the engine build emits ONE aggregate degraded receipt; the
+        # walkers record their component summaries instead of competing
+        # top-level emissions (all slices share this flag via shared state).
+        self._active_pool.collect_receipts = True
+        if self.thread_id:
+            from src.runtime.turn_control import turn_controls
+            self._active_pool.extra_stop = lambda: turn_controls.cancelled(self.thread_id)
         self._active_budget = None
         # P1: route degraded-scan receipts to THIS session. Graph state does
         # not carry thread_id (it lives in config), so the engine's own id
@@ -797,10 +794,7 @@ class ContextEngine:
         walkers = walkers or []
         n_walkers = max(1, len(walkers))
         layers = []
-        # Phase 3: pre-filter builders by relevance — skip constructing
-        # entries for layers that will be skipped anyway. For CHAT tasks
-        # this reduces 17 builders to 3 (task, quality, tone).
-        _all_builders = {
+        builders = {
             "repo_map": self._repo_map_layer,
             "relevant_chunks": self._relevant_chunks_layer,
             "git_context": self._git_context_layer,
@@ -819,10 +813,6 @@ class ContextEngine:
             "memory_validation": self._memory_validation_layer,
             "reflections": self._reflection_layer,
             "skills": self._skills_layer,
-        }
-        builders = {
-            name: fn for name, fn in _all_builders.items()
-            if self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
         }
 
         # Compute the state hash ONCE for the whole build. (Previously this
@@ -873,6 +863,10 @@ class ContextEngine:
             # presentation policy out of its headless prompt.
             if autonomous and name in autonomous_skip:
                 continue
+            relevance_map = self.LAYER_RELEVANCE.get(name, {})
+            score = relevance_map.get(task_type, 0.0)
+            if score < 0.15:
+                continue  # Skip low-value layers entirely
 
             # Differential check: reuse cached layer if state deps haven't
             # changed. VOLATILE layers (git_context) describe the world
@@ -888,7 +882,7 @@ class ContextEngine:
             # pool (cap // n_walkers), so three walkers cannot each consume a
             # fresh full allowance. Non-walking layers share the pool but
             # never scan, so they never touch it.
-            if name in walkers and self._active_pool is not None:
+            if name in walkers:
                 self._active_budget = self._active_pool.share(n_walkers)
             else:
                 self._active_budget = None
