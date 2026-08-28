@@ -3206,20 +3206,6 @@ class AgentTurnResult(str):
         return value
 
 
-_TRIVIAL_RE = re.compile(
-    r"^(hi|hey|hello|ok|okay|yes|no|thanks|thank you|bye|sup|yo|heya|howdy"
-    r"|good\s*(morning|afternoon|evening|night)"
-    r"|what'?s\s*up|what\s*are\s*you|who\s*are\s*you"
-    r"|help|ping|pong|[.!?]+)$",
-    re.IGNORECASE,
-)
-
-
-def _is_trivial(message: str) -> bool:
-    """True for greetings, acknowledgments, and other zero-work messages."""
-    return bool(_TRIVIAL_RE.match(message.strip()))
-
-
 def stream_agent(
     message: str,
     thread_id: str = "default",
@@ -3233,36 +3219,13 @@ def stream_agent(
     turn_id: str | None = None,
     initial_plan: list[dict[str, Any]] | None = None,
 ) -> str:
-    # --- trivial-message fast path: skip context engine entirely ----------
-    if _is_trivial(message) and initial_plan is None:
-        from src.runtime.turn_control import turn_controls, set_active_session
-        turn_controls.begin(thread_id)
-        set_active_session(thread_id)
-        event_bus.emit("session.status", {"status": "busy", "thread_id": thread_id})
-        try:
-            llm = get_llm(provider=provider, model=model)
-            resp = llm.invoke([
-                SystemMessage(content=(
-                    "You are Pulse, a concise AI assistant. "
-                    "Reply in one short sentence. No tools, no code, no explanation."
-                )),
-                HumanMessage(content=message),
-            ])
-            return resp.content
-        finally:
-            event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
-            turn_controls.end(thread_id)
-
     from src.context.convention_learner import ConventionLearner
     # P1-fix: warm the conventions cache WITHOUT re-scanning every turn.
     # scan_workspace() rebuilds unconditionally; get_conventions_text()
     # scans only when the disk state is empty or the workspace changed
     # (the engine's convention layer reuses the same disk state, so one
     # bounded scan per workspace-change serves both).
-    # Phase 2: skip warm-up for short messages — conventions are irrelevant
-    # for quick questions and the scan is the most expensive pre-graph step.
-    if len(message.strip()) > 20:
-        ConventionLearner().get_conventions_text(workspace)
+    ConventionLearner().get_conventions_text(workspace)
     from src.runtime.turn_control import turn_controls, set_active_session
     turn_controls.begin(thread_id)
     set_active_session(thread_id)
