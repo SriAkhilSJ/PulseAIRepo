@@ -17,6 +17,17 @@ export interface PulseAIToolView {
 	readonly arguments?: unknown;
 	readonly result?: unknown;
 	readonly duration?: string;
+}
+
+export interface PulseAISubAgentView {
+	readonly id: string;
+	readonly state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+	readonly goal?: string;
+	readonly mode?: string;
+	readonly progress?: string;
+	readonly result?: unknown;
+	readonly duration?: string;
+	readonly parentSessionId?: string;
 }	export interface PulseAIRenderModel {
 		readonly engineState: string;
 		readonly workspaceLabel: string;
@@ -34,6 +45,7 @@ export interface PulseAIToolView {
 	readonly assistantText: string;
 	readonly reasoning?: string;
 	readonly tools: readonly PulseAIToolView[];
+	readonly subAgents: readonly PulseAISubAgentView[];
 	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown };
 	readonly plan: readonly string[];
 	readonly verification?: string;
@@ -80,28 +92,6 @@ function icon(name: string): HTMLElement {
 	const node = element('span', `codicon codicon-${name}`);
 	node.setAttribute('aria-hidden', 'true');
 	return node;
-}
-
-function brandMark(): SVGSVGElement {
-	const namespace = 'http://www.w3.org/2000/svg';
-	const svg = document.createElementNS(namespace, 'svg');
-	svg.classList.add('pulseai-brand-mark');
-	svg.setAttribute('viewBox', '0 0 32 32');
-	svg.setAttribute('aria-hidden', 'true');
-	const shell = document.createElementNS(namespace, 'rect');
-	shell.setAttribute('x', '1');
-	shell.setAttribute('y', '1');
-	shell.setAttribute('width', '30');
-	shell.setAttribute('height', '30');
-	shell.setAttribute('rx', '8');
-	const pulse = document.createElementNS(namespace, 'path');
-	pulse.setAttribute('d', 'M5 17h5l2.5-7 4.2 13 3.1-9 2.1 3H27');
-	const node = document.createElementNS(namespace, 'circle');
-	node.setAttribute('cx', '27');
-	node.setAttribute('cy', '17');
-	node.setAttribute('r', '1.7');
-	svg.append(shell, pulse, node);
-	return svg;
 }
 
 function button(label: string, className: string, action: () => void, iconName?: string): HTMLButtonElement {
@@ -240,11 +230,6 @@ function engineStatus(model: PulseAIRenderModel): HTMLElement {
 	return element('span', `pulseai-engine-status is-${tone}`, element('span', 'pulseai-status-dot'), state === 'ready' ? 'Pulse ready' : `Engine ${state}`);
 }
 
-function sessionTitle(model: PulseAIRenderModel): string {
-	const value = model.userMessage?.trim() || 'New Pulse session';
-	return value.length > 64 ? `${value.slice(0, 61)}...` : value;
-}
-
 function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggle: (open: boolean) => void): HTMLElement | undefined {
 	if (!model.plan.length) { return undefined; }
 	const details = element('details', 'pulseai-plan-strip') as HTMLDetailsElement;
@@ -277,24 +262,6 @@ function workingDock(model: PulseAIRenderModel): HTMLElement | undefined {
 	);
 }
 
-function emptyState(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement {
-	const suggestions = element('div', 'pulseai-starter-grid');
-	const blocked = model.noWorkspace || model.workspaceSelectionRequired;
-	for (const [label, prompt, iconName] of [
-		['Understand code', 'Explain the active file and its important dependencies.', 'symbol-method'],
-		['Fix diagnostics', 'Inspect current diagnostics and fix the relevant errors.', 'lightbulb'],
-		['Review changes', 'Review the current workspace changes and identify risks.', 'diff'],
-	] as const) {
-		const starter = button(label, 'pulseai-starter-card', () => host.submitPrompt(prompt), iconName);
-		starter.disabled = blocked;
-		suggestions.append(starter);
-	}
-	const guidance = blocked
-		? model.noWorkspace ? model.noWorkspaceHint : 'Select a workspace folder before starting a session.'
-		: 'Choose a mode, add the context that matters, and describe your goal.';
-	return element('div', 'pulseai-empty', brandMark(), element('h3', undefined, blocked ? 'Open a project to begin' : 'What can Pulse help with?'), element('p', undefined, guidance), suggestions);
-}
-
 function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): HTMLElement {
 	const scroll = element('div', 'pulseai-transcript-scroll');
 	const lane = element('div', 'pulseai-transcript-lane');
@@ -314,13 +281,30 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		for (const tool of model.tools) { tools.append(toolRow(tool, host, openTools)); }
 		lane.append(tools);
 	}
+	if (model.subAgents.length) {
+		const subAgents = element('section', 'pulseai-subagent-list');
+		subAgents.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'pulseai-section-count', String(model.subAgents.length))));
+		for (const subAgent of model.subAgents) {
+			const state = subAgent.state;
+			const row = element('div', `pulseai-subagent-row is-${state}`,
+				element('span', 'pulseai-mini-spinner', undefined),
+				element('span', 'pulseai-subagent-goal', subAgent.goal ?? 'Sub-agent task'),
+				element('span', `pulseai-subagent-state is-${state}`, state),
+			);
+			if (subAgent.duration) {
+				row.append(element('span', 'pulseai-subagent-duration', subAgent.duration));
+			}
+			if (subAgent.result) {
+				row.append(element('div', 'pulseai-subagent-result', element('pre', 'pulseai-tool-pre', JSON.stringify(subAgent.result, null, 2).slice(0, 500))));
+			}
+			subAgents.append(row);
+		}
+		lane.append(subAgents);
+	}
 	if (model.turnOutcome === 'completed' || model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
 		const label = model.turnOutcome === 'completed' ? 'Run completed' : model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
 		const iconName = model.turnOutcome === 'completed' ? 'pass-filled' : model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
-	}
-	if (!model.userMessage && !model.assistantText && !model.tools.length) {
-		lane.append(emptyState(model, host));
 	}
 	if (model.error) {
 		const setup = model.engineSetupError;
@@ -389,11 +373,9 @@ function modePicker(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLEle
 function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: boolean): HTMLElement {
 	const input = element('textarea', 'pulseai-composer-input') as HTMLTextAreaElement;
 	input.rows = manager ? 2 : 3;
-	input.placeholder = manager ? 'Steer this agent or add context...' : 'Steer Pulse or add context...';
+	input.placeholder = manager ? 'Steer this agent or add context...' : 'Plan, @ for context, / for commands';
 	input.value = model.draft;
 	input.addEventListener('input', () => host.setDraft(input.value));
-	// No project folder → blocked; multi-root without an explicit choice →
-	// blocked until the user selects one of the workspace folders.
 	const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired;
 	if (inputBlocked) { input.disabled = true; }
 	const submit = () => {
@@ -406,42 +388,16 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 		if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
 	});
 
-	// The execution mode is a real host/runtime setting; @ inserts context and
-	// the icon-only send button becomes Stop while a run is active.
-	const pill = element('button', 'pulseai-composer-pill') as HTMLButtonElement;
-	pill.type = 'button';
-	pill.setAttribute('aria-label', 'Insert @ context reference');
-	pill.append(element('span', 'pulseai-at-sign', '@'), document.createTextNode(' Context'));
-	pill.addEventListener('click', () => { input.value += '@'; host.setDraft(input.value); input.focus(); });
-
-	const left = element('div', 'pulseai-composer-left', modePicker(model, host), pill);
-	if (model.workspaceChoices.length > 1) {
-		const workspaceSelect = element('select', 'pulseai-composer-select') as HTMLSelectElement;
-		workspaceSelect.setAttribute('aria-label', 'Workspace folder');
-		const choiceOption = element('option', undefined, model.workspaceSelectionRequired ? 'Select a folder' : model.workspaceLabel);
-		choiceOption.value = '';
-		choiceOption.disabled = true;
-		choiceOption.selected = true;
-		workspaceSelect.append(choiceOption);
-		for (const choice of model.workspaceChoices) {
-			const option = element('option', undefined, choice.label);
-			option.value = choice.uri;
-			workspaceSelect.append(option);
-		}
-		workspaceSelect.addEventListener('change', () => host.selectWorkspace(workspaceSelect.value));
-		left.append(workspaceSelect);
-	}
-
 	const running = model.running;
 	const send = element('button', running ? 'pulseai-send-button pulseai-send-stop' : 'pulseai-send-button') as HTMLButtonElement;
 	send.type = 'button';
 	send.setAttribute('aria-label', running ? 'Stop' : 'Send');
-	send.append(icon(running ? 'debug-pause' : 'send'));
+	send.append(icon(running ? 'debug-pause' : 'arrow-up'));
 	send.addEventListener('click', running ? host.cancel : submit);
 	if (running && model.cancelRequested) { send.disabled = true; }
 	if (inputBlocked) { send.disabled = true; }
 
-	const toolbar = element('div', 'pulseai-composer-toolbar', left, send);
+	const toolbar = element('div', 'pulseai-composer-toolbar', modePicker(model, host), send);
 	const hint = element('div', 'pulseai-composer-hint',
 		model.noWorkspace
 			? element('span', undefined, model.noWorkspaceHint)
@@ -459,14 +415,9 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 
 function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): void {
 	const shell = element('div', 'pulseai-agent-shell');
-	const heading = element('div', 'pulseai-agent-heading', brandMark(), element('div', 'pulseai-session-copy',
-		element('span', 'pulseai-eyebrow', 'Current session'),
-		element('h2', undefined, sessionTitle(model)),
-		element('span', 'pulseai-session-subline', icon('folder'), model.workspaceLabel),
-	));
-	const header = element('header', 'pulseai-agent-header',
-		heading,
-		element('div', 'pulseai-agent-header-actions', engineStatus(model), button('Manager', 'pulseai-icon-button', host.openManager, 'window')),
+	const header = element('div', 'pulseai-agent-header',
+		element('span', 'pulseai-agent-header-title', 'Pulse Agent'),
+		button('Manager', 'pulseai-agent-manager-button', () => host.openManager(), 'organization'),
 	);
 	shell.append(header);
 	const plan = planStrip(model, planOpen, setPlanOpen);

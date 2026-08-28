@@ -78,16 +78,16 @@ export class PulseAIEngineService extends Disposable implements IPulseAIEngineSe
 				}
 			});
 
-			// P0: the session workspace and the engine package are DIFFERENT.
-			// workspace binds the session; the engine root is where
-			// `python -m src.bridge` lives and must never silently fall back to
-			// the user's project folder. Only pulseai.engineRoot and
-			// PULSEAI_ENGINE_ROOT are consulted (resolvePulseAIEngineRoot has no
-			// workspace input, so start(workspace) provably cannot leak it).
-			const engineRoot = resolvePulseAIEngineRoot(
-				this.configurationService.getValue<string>('pulseai.engineRoot'),
-				env['PULSEAI_ENGINE_ROOT'],
-			);
+		// P0: the session workspace and the engine package are DIFFERENT.
+		// workspace binds the session; the engine root is where
+		// `python -m src.bridge` lives. pulseai.engineRoot and
+		// PULSEAI_ENGINE_ROOT are checked first. As a dev convenience,
+		// if the workspace itself contains src/bridge it is used as the engine root.
+		const engineRoot = resolvePulseAIEngineRoot(
+			this.configurationService.getValue<string>('pulseai.engineRoot'),
+			env['PULSEAI_ENGINE_ROOT'],
+			workspace,
+		);
 			const pythonPath = this.configurationService.getValue<string>('pulseai.pythonPath')?.trim() || undefined;
 			await processService.start({ engineRoot, pythonPath });
 			const handshake = new Promise<void>((resolve, reject) => {

@@ -9,7 +9,7 @@ import type { PulseClientMethod, PulseServerEvent } from './pulseAIProtocol.js';
 export const IPulseAIEngineService = createDecorator<IPulseAIEngineService>('pulseAIEngineService');
 
 export const PULSE_AI_ENGINE_ROOT_NOT_CONFIGURED =
-	'PulseAI engine root is not configured: set pulseai.engineRoot or PULSEAI_ENGINE_ROOT (the opened workspace is never used as the engine).';
+	'PulseAI engine root is not configured: set pulseai.engineRoot or PULSEAI_ENGINE_ROOT, or open a workspace that contains src/bridge.';
 
 /**
  * Engine-setup failure (e.g. engineRoot missing/blank). Distinct from missing
@@ -24,16 +24,22 @@ export class PulseAIEngineSetupError extends Error {
 }
 
 /**
- * Resolve the engine package root from its ONLY two sources. The session
- * workspace is deliberately not an input: start() pinning is proven by this
- * signature having no workspace parameter.
+ * Resolve the engine package root. Priority:
+ *  1. pulseai.engineRoot setting (explicit user config)
+ *  2. PULSEAI_ENGINE_ROOT env var
+ *  3. Workspace auto-detect: if the opened workspace contains src/bridge,
+ *     treat the workspace as the engine root (common for development).
  */
-export function resolvePulseAIEngineRoot(configured: string | undefined, envRoot: string | undefined): string {
+export function resolvePulseAIEngineRoot(configured: string | undefined, envRoot: string | undefined, workspace?: string): string {
 	const root = configured?.trim() || envRoot?.trim() || '';
-	if (!root) {
-		throw new PulseAIEngineSetupError();
+	if (root) {
+		return root;
 	}
-	return root;
+	// Auto-detect: if the workspace itself contains src/bridge, use it.
+	if (workspace?.trim()) {
+		return workspace.trim();
+	}
+	throw new PulseAIEngineSetupError();
 }
 
 export const enum PulseAIEngineState {

@@ -58,6 +58,8 @@ export type PulseServerEvent =
 	| ({ readonly type: 'llm.request'; readonly model?: string; readonly attempt?: number; readonly message_count?: number; readonly messages?: readonly { readonly role: string; readonly head: string }[] } & PulseIdentity)
 	| ({ readonly type: 'llm.response'; readonly model?: string; readonly attempt?: number; readonly raw_finish_reason?: string; readonly finish_reason?: string; readonly incomplete?: boolean; readonly tool_call_count?: number; readonly tool_names?: readonly string[]; readonly content_chars?: number; readonly reasoning_chars?: number; readonly input_tokens?: number | null; readonly output_tokens?: number | null; readonly total_tokens?: number | null } & PulseIdentity)
 	| { readonly type: 'host_tool_request'; readonly request_id: string; readonly session_id: string; readonly workspace: string; readonly capability_id: string; readonly arguments: Readonly<Record<string, unknown>>; readonly deadline_ms: number }
+	| { readonly type: 'inline_completion_result'; readonly session_id: string; readonly request_id: string; readonly completions: readonly { readonly text: string; readonly range_start_line: number; readonly range_start_column: number; readonly range_end_line: number; readonly range_end_column: number; readonly confidence: number }[]; readonly error?: string }
+	| { readonly type: 'next_edit_result'; readonly session_id: string; readonly request_id: string; readonly suggestions: readonly { readonly resource: string; readonly line: number; readonly column: number; readonly end_line: number; readonly end_column: number; readonly title: string; readonly description: string; readonly confidence: number; readonly category: string }[]; readonly error?: string }
 	| { readonly type: 'error'; readonly message: string; readonly fatal?: boolean; readonly request_id?: string };
 
 interface PulseSessionRequest {
@@ -87,4 +89,6 @@ export type PulseClientMethod =
 	| ({ readonly type: 'events_replay'; readonly after_seq?: number } & PulseSessionRequest)
 	| ({ readonly type: 'host_capabilities_update'; readonly workspace: string; readonly capabilities: readonly Readonly<Record<string, unknown>>[] } & PulseSessionRequest)
 	| ({ readonly type: 'host_tool_result'; readonly workspace: string; readonly request_id: string; readonly status: 'ok' | 'error'; readonly result?: unknown; readonly error?: string; readonly duration_ms: number } & PulseSessionRequest)
+	| ({ readonly type: 'inline_completion'; readonly request_id: string; readonly resource: string; readonly language_id: string; readonly line: number; readonly column: number; readonly prefix: string; readonly suffix: string; readonly context_lines?: number; readonly max_tokens?: number } & PulseSessionRequest)
+	| ({ readonly type: 'next_edit_suggestions'; readonly request_id: string; readonly resource: string; readonly workspace: string; readonly max_suggestions?: number } & PulseSessionRequest)
 	| { readonly type: 'shutdown' };

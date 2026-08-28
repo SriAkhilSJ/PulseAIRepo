@@ -190,7 +190,9 @@ registerAction2(class extends Action2 {
 			title: localize2('pulseAI.openManager', 'Open Pulse Manager'),
 			f1: true,
 			icon: Codicon.organization,
-			menu: [{ id: PULSE_AI_MENU_ID, group: '1_session', order: 2 }],
+			menu: [
+				{ id: PULSE_AI_MENU_ID, group: '1_session', order: 2 },
+			],
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

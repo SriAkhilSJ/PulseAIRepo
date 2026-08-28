@@ -29,6 +29,8 @@
     "events_replay",
     "host_capabilities_update",
     "host_tool_result",
+    "inline_completion",
+    "next_edit_suggestions",
     "shutdown"
   ],
   "server_events": [
@@ -39,6 +41,8 @@
     "llm.request",
     "llm.response",
     "host_tool_request",
+    "inline_completion_result",
+    "next_edit_result",
     "plan_updated",
     "reasoning",
     "runtime_degraded",

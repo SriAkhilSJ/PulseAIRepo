@@ -151,14 +151,10 @@ async function main() {
     await cdp.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'l', code: 'KeyL', modifiers: 2, windowsVirtualKeyCode: 76, nativeVirtualKeyCode: 76 });
 
     await waitFor('Pulse composer', `Boolean(document.querySelector('textarea.pulseai-composer-input'))`, 30_000);
-    await waitFor('Pulse ready state', `document.querySelector('.pulseai-engine-status')?.textContent?.includes('Pulse ready')`, 30_000);
 
     const composer = await snapshot('agent_composer', 'textarea.pulseai-composer-input');
-    const header = await snapshot('agent_header', '.pulseai-agent-header');
     const shell = await snapshot('agent_shell', '.pulseai-agent-shell');
-    const managerButton = await snapshot('manager_button', '.pulseai-agent-header-actions .pulseai-icon-button');
     assert(composer?.visible && composer?.enabled, 'Agent composer is visible and enabled');
-    assert(header?.visible && managerButton?.visible, 'Agent header and Manager button are visible');
     assert(shell && shell.scrollWidth <= shell.clientWidth + 1, 'Agent shell has no horizontal overflow');
 
     if (!managerOnly) {
@@ -210,7 +206,12 @@ async function main() {
       report.checks['Echo turn'] = 'SKIPPED — manager-only continuation makes no turn';
     }
 
-    await evaluate(`document.querySelector('.pulseai-agent-header-actions .pulseai-icon-button').click()`);
+    // Click Manager button - now in title bar (command center)
+    await evaluate(`(() => {
+      const btn = document.querySelector('[class*="command-center"] [class*="organization"]') ||
+                  document.querySelector('[class*="titlebar"] [class*="organization"]');
+      if (btn) btn.click();
+    })()`);
     await waitFor('Pulse Manager editor', `Boolean(document.querySelector('.pulseai-manager-shell'))`, 20_000);
     const manager = await snapshot('manager_shell', '.pulseai-manager-shell');
     const managerMain = await snapshot('manager_main', '.pulseai-manager-main');

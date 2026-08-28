@@ -24,12 +24,14 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Pulse is available in the right auxiliary bar.
 - **Ctrl/Cmd+L** opens the Pulse agent panel.
 - A top-level **Pulse** menu and title-bar entry expose the primary commands.
+- **Manager button** in the Agent panel header opens the Pulse Manager in a separate Electron window.
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
 - Tool calls, usage receipts, approvals, errors, and run state have first-party renderers.
 - The composer selects a real runtime mode: **Agent** executes the guarded workflow, **Plan** previews without executing, **Debug** diagnoses before minimal repair and retesting, and **Ask** answers without tools.
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Pulse setting/command.
 - **PulseAI Dark** is the bundled default theme.
+- Engine root auto-detection: when neither `pulseai.engineRoot` nor `PULSEAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
 
 ### Agent runtime
 

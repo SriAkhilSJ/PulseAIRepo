@@ -7,6 +7,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
+import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { PulseAICommandId } from '../common/pulseAI.js';
 import { IPulseAIEngineService, PulseAIEngineSetupError, PulseAIEngineState } from '../common/pulseAIEngineService.js';
 import type { PulseClientMethod, PulseExecutionMode, PulseServerEvent } from '../common/pulseAIProtocol.js';
@@ -20,6 +21,7 @@ import {
 	PulseAIRenderMount,
 	PulseAIToolState,
 	PulseAIToolView,
+	PulseAISubAgentView,
 } from './pulseAIRenderer.js';
 
 function valueRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -73,6 +75,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private assistantText = '';
 	private reasoning: string | undefined;
 	private approval: PulseAIRenderModel['approval'];
+	private subAgents = new Map<string, PulseAISubAgentView>();
 	private plan: readonly string[] = [];
 	private verification: string | undefined;
 	private telemetry: PulseAIRenderModel['telemetry'] = {};
@@ -122,7 +125,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		selectWorkspace: uri => this.selectWorkspace(uri),
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
 		openEngineSettings: () => { void this.commandService.executeCommand(PulseAICommandId.OpenSettings); },
-		openManager: () => { void this.commandService.executeCommand(PulseAICommandId.OpenManager); },
+		openManager: () => { this.openManagerWindow(); },
 	};
 
 	constructor(
@@ -131,6 +134,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IAuxiliaryWindowService private readonly auxiliaryWindowService: IAuxiliaryWindowService,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {
@@ -250,6 +254,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			assistantText: this.assistantText,
 			reasoning: this.reasoning,
 			tools: [...this.tools.values()],
+			subAgents: [...this.subAgents.values()],
 			approval: this.approval,
 			plan: this.plan,
 			verification: this.verification,
@@ -308,6 +313,25 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.render();
 		});
 		return this.startPromise;
+	}
+
+	private async openManagerWindow(): Promise<void> {
+		const auxiliaryWindow = await this.auxiliaryWindowService.open({
+			bounds: { x: 200, y: 100, width: 1100, height: 750 },
+		});
+		const container = auxiliaryWindow.container;
+		auxiliaryWindow.window.document.title = 'Pulse Manager';
+
+		const root = document.createElement('div');
+		root.className = 'pulseai-render-root pulseai-manager-editor';
+		root.dataset.surface = 'manager';
+		root.style.width = '100%';
+		root.style.height = '100%';
+		container.appendChild(root);
+
+		const mount = mountPulseAIRenderer(root, 'manager', this.host);
+		mount.update(this.model);
+		this._register(toDisposable(() => mount.dispose()));
 	}
 
 	private publishHostCapabilities(sessionId = this.sessionId): void {
@@ -425,6 +449,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.assistantText = '';
 		this.reasoning = undefined;
 		this.tools.clear();
+		this.subAgents.clear();
 		this.approval = undefined;
 		this.plan = [];
 		this.verification = undefined;
@@ -502,6 +527,23 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			const existing = this.tools.get(frame.tool_id);
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
 			this.approval = { toolId: frame.tool_id, name: frame.name, diff: frame.diff };
+		} else if (frame.type === 'subagent_updated') {
+			const subagent_id = frame.subagent_id;
+			const existing = this.subAgents.get(subagent_id) ?? { id: subagent_id, state: 'pending' as const };
+			const state = (frame as any).state ?? existing.state;
+			const duration = (frame as any).duration;
+			const result = (frame as any).result;
+			this.subAgents.set(subagent_id, {
+				...existing,
+				id: subagent_id,
+				state: state as PulseAISubAgentView['state'],
+				goal: (frame as any).goal ?? existing.goal,
+				mode: (frame as any).mode ?? existing.mode,
+				progress: (frame as any).progress ?? existing.progress,
+				result: result ?? existing.result,
+				duration: duration ?? existing.duration,
+				parentSessionId: (frame as any).parent_session_id ?? existing.parentSessionId,
+			});
 		} else if (frame.type === 'verification_updated') {
 			this.verification = frame.status;
 		} else if (frame.type === 'telemetry') {

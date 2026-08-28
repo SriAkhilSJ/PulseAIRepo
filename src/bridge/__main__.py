@@ -576,6 +576,10 @@ class BridgeServer:
             )
             events = self._project_stored_events(stored)
             self.emit({"type": "events_replay", "session_id": sid, "events": events})
+        elif kind == "inline_completion":
+            self._handle_inline_completion(sid, frame)
+        elif kind == "next_edit_suggestions":
+            self._handle_next_edit_suggestions(sid, frame)
         if workspace:
             # Workspace routing evidence (P0 contract + PBR-002): every
             # workspace-bearing frame asserts the exact root this session is
@@ -588,6 +592,95 @@ class BridgeServer:
                 "workspace": workspace, "hops": workspace, "engine_root": workspace,
             })
         return True
+
+    def _handle_inline_completion(self, sid: str, frame: dict) -> None:
+        """Handle inline completion request from the editor."""
+        try:
+            from src.tools.inline_completions import get_inline_completion_provider, CompletionRequest
+            provider = get_inline_completion_provider()
+            if not provider.enabled:
+                self.emit({
+                    "type": "inline_completion_result", "session_id": sid,
+                    "request_id": frame.get("request_id", ""),
+                    "completions": [],
+                })
+                return
+
+            request = CompletionRequest(
+                resource=str(frame.get("resource", "")),
+                language_id=str(frame.get("language_id", "")),
+                line=int(frame.get("line", 0)),
+                column=int(frame.get("column", 0)),
+                prefix=str(frame.get("prefix", "")),
+                suffix=str(frame.get("suffix", "")),
+                context_lines=int(frame.get("context_lines", 30)),
+                max_tokens=int(frame.get("max_tokens", 128)),
+            )
+            items = provider.compute_completions(request)
+            self.emit({
+                "type": "inline_completion_result", "session_id": sid,
+                "request_id": frame.get("request_id", ""),
+                "completions": [
+                    {
+                        "text": item.text,
+                        "range_start_line": item.range_start_line,
+                        "range_start_column": item.range_start_column,
+                        "range_end_line": item.range_end_line,
+                        "range_end_column": getattr(item, "end_column", item.range_start_column + len(item.text)),
+                        "confidence": item.confidence,
+                    }
+                    for item in items
+                ],
+            })
+        except Exception as exc:
+            self.emit({
+                "type": "inline_completion_result", "session_id": sid,
+                "request_id": frame.get("request_id", ""),
+                "completions": [],
+                "error": str(exc),
+            })
+
+    def _handle_next_edit_suggestions(self, sid: str, frame: dict) -> None:
+        """Handle next edit suggestions request from the editor."""
+        try:
+            from src.tools.next_edit_suggestions import get_next_edit_predictor
+            predictor = get_next_edit_predictor()
+            if not predictor.enabled:
+                self.emit({
+                    "type": "next_edit_result", "session_id": sid,
+                    "request_id": frame.get("request_id", ""),
+                    "suggestions": [],
+                })
+                return
+
+            workspace = str(frame.get("workspace", ""))
+            max_suggestions = int(frame.get("max_suggestions", 5))
+            suggestions = predictor.predict_next_edits(workspace, max_suggestions)
+            self.emit({
+                "type": "next_edit_result", "session_id": sid,
+                "request_id": frame.get("request_id", ""),
+                "suggestions": [
+                    {
+                        "resource": s.resource,
+                        "line": s.line,
+                        "column": s.column,
+                        "end_line": s.end_line,
+                        "end_column": s.end_column,
+                        "title": s.title,
+                        "description": s.description,
+                        "confidence": s.confidence,
+                        "category": s.category,
+                    }
+                    for s in suggestions
+                ],
+            })
+        except Exception as exc:
+            self.emit({
+                "type": "next_edit_result", "session_id": sid,
+                "request_id": frame.get("request_id", ""),
+                "suggestions": [],
+                "error": str(exc),
+            })
 
     def run(self) -> int:
         while not self._shutdown.is_set():

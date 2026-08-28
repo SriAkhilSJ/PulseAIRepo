@@ -35,6 +35,8 @@ export const PULSE_AI_CLIENT_METHODS = [
 	'events_replay',
 	'host_capabilities_update',
 	'host_tool_result',
+	'inline_completion',
+	'next_edit_suggestions',
 	'shutdown',
 ] as const;
 export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
@@ -47,6 +49,8 @@ export const PULSE_AI_SERVER_EVENTS = [
 	'llm.request',
 	'llm.response',
 	'host_tool_request',
+	'inline_completion_result',
+	'next_edit_result',
 	'plan_updated',
 	'reasoning',
 	'runtime_degraded',

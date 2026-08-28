@@ -14,7 +14,9 @@ CLIENT_METHODS = frozenset({
     "session_list", "session_fork", "prompt", "cancel", "steer", "queue", "safety_reply",
     "checkpoint_list", "checkpoint_restore",
     "subagent_launch", "subagent_status", "subagent_cancel", "subagent_result",
-    "events_replay", "host_capabilities_update", "host_tool_result", "shutdown",
+    "events_replay", "host_capabilities_update", "host_tool_result",
+    "inline_completion", "next_edit_suggestions",
+    "shutdown",
 })
 SERVER_EVENTS = frozenset({
     "hello", "session_info", "token", "reasoning", "plan_updated",
@@ -22,9 +24,8 @@ SERVER_EVENTS = frozenset({
     "verification_updated", "subagent_updated", "telemetry",
     "turn_started", "turn_done", "turn_failed", "checkpoint_event",
     "runtime_degraded", "events_replay", "error",
-    # Observability frames (PBR-002/012 evidence): the exact workspace a
-    # session is bound to, and one frame per real provider request attempt.
     "workspace.bound", "llm.request", "llm.response", "host_tool_request",
+    "inline_completion_result", "next_edit_result",
 })
 
 
