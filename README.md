@@ -244,3 +244,140 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 - Add regression coverage for bug fixes.
 - Keep credentials, build outputs, benchmark runs, and large generated artifacts out of Git.
 - Prefer fixing regressions in existing behavior over expanding scope without an approved roadmap change.
+
+---
+
+## Technical Assessment & Strategic Roadmap
+
+**Perspective:** Software AI Engineer with expertise in DevOps, Agentic AI, TypeScript, and Desktop Application Building
+**Date:** 2026-08-27
+
+### Current Architecture Strengths
+
+PulseAI has built a genuinely competitive foundation that outperforms many OSS alternatives:
+
+1. **16-Layer Context Engine** — Task-aware context assembly with 60/30/10 relevance scoring (task-type prior / semantic similarity / recency), embedding deduplication at cosine > 0.88, hierarchical budget fitting, and differential caching. This is meaningfully better than "stuff everything in" OSS scaffolding.
+
+2. **Chunked Code Index** — AST extraction → sqlite-vec KNN + FTS5 BM25 → RRF position fusion. This is the Cursor-gap closer that the architecture review identified, and it's been shipped with background indexing and atomic incremental sync.
+
+3. **Session-Scoped Engines** — Per-thread-id engine registry with LRU eviction, per-engine API locks, and global feedback learning. Solved the critical singleton mutation bug that leaked state across sessions.
+
+4. **Provider-Adaptive Budgets** — Dynamic context-window discovery with live provider probing, memoized resolution, and engine-proxy lockstep. The `PROVIDER_SAFE_LIMIT=0` auto-mode unlocks paid-tier scaling.
+
+5. **Safety Architecture** — Workspace path validation, destructive operation approval gates, session cancellation checks, shadow checkpoints, and completion gates. The guard is a checkpoint, not a sandbox — correct design for an agent that needs to actually execute code.
+
+6. **Reliability Benchmarking** — Scenario contracts, drivers, grading, and report generation with CDP-controlled IDE runs. Provider-free validation (183/183 focused tests, 65/65 pytest, 16/16 CDP) proves the runtime works without external dependencies.
+
+### Critical Technical Gaps (Priority-Ordered)
+
+#### 🔴 P1: Provider Strategy — The Latency/Cost Crisis
+
+**Root cause:** The agent loop runs on FreeLLM, a rotating pool of free models with no prompt caching.
+
+**Measured impact:**
+- 25–56 seconds per agent step vs. 0.5–1.1s API round-trip
+- 73% of prompt tokens are static overhead re-sent every call
+- Weak parallel tool-calling (1 tool per turn after initial batch)
+- 4 consecutive failed runs on the flagship chat-app task
+
+**The math:** Free models cost more in aggregate (more calls, more tokens, failed re-runs) than a real provider with prompt caching. DeepSeek V3 with disk cache: 15k static prefix cached after call 1, subsequent calls at ~$0.07/M instead of $0.27/M.
+
+**Recommendation:** Move agent loop to DeepSeek V3 or Claude Sonnet. Keep FreeLLM for auxiliary paths (summarization, self-curation). This single change fixes latency, cost, and batching.
+
+#### 🟠 P2: Verification for Real — Runtime Proof, Not Typecheck
+
+**Root cause:** `tsc --noEmit` passes while the app returns HTTP 500.
+
+**Impact:** A slow-but-correct IDE can compete. An IDE that ships broken apps that *look* finished cannot.
+
+**Recommendation:**
+- UI tasks must prove real browser render (non-empty snapshot) before finalize
+- Wire Puppeteer MCP suite as mandatory for UI tasks
+- Keep `typecheck_workspace` for non-UI tasks
+- Many failures will disappear with a stronger model (P1)
+
+#### 🟠 P3: Architecture Debt — The God-File Problem
+
+**Root cause:** `chat_graph.py` is 2,901 lines — a monolithic file handling the entire agentic loop.
+
+**Impact:** The 148 KB / 54-section architecture review document is a symptom of patching faster than simplifying.
+
+**Recommendation:**
+- Freeze new features
+- Split `chat_graph.py` into `nodes/` modules
+- Pick one task ("build & verify a Next.js chat app, fast and correct") and converge until green, measured, and under budget
+- Then expand
+
+#### 🟡 P4: Desktop Fork Timing
+
+**Root cause:** Forking Code OSS is the right end-state (Cursor did it), but doing it now is the classic startup sequencing mistake.
+
+**Impact:** The 15k-file `desktop/` fork already blew up the repo-map builder (O(n²) bug causing 600s hangs).
+
+**Recommendation:**
+- **P0 (now):** Engine moat — chunked code index, hybrid retrieval, fix bugs #1–4
+- **P1 (2-4 wks):** Harness quality — pytest + CI, eval harness, unified-diff apply
+- **P2 (3-4 wks):** VSCode extension against stock VSCode (90% of API value, 10% of fork cost)
+- **P3 (when proven):** Fork Code OSS when extension API limits are the actual blocker
+
+#### 🟡 P5: Multi-Language Code Index
+
+**Root cause:** Current chunk index is Python-only (stdlib AST). Multi-language requires tree-sitter grammars.
+
+**Impact:** The agent can only index Python files natively.
+
+**Recommendation:** Add tree-sitter grammars for JavaScript/TypeScript (already in deps), Go, Rust, Java. Ship as incremental expansion, not a blocker.
+
+#### 🟡 P6: CI/CD Pipeline
+
+**Root cause:** Tests exist (130+ passing) but aren't CI-gated.
+
+**Impact:** No automated regression detection on PRs.
+
+**Recommendation:** Add GitHub Actions workflow:
+- Run pytest on PR
+- Run typecheck-client, valid-layers-check, compile for desktop
+- Run UI build and test:ui
+- Gate merge on all checks passing
+
+### DevOps Recommendations
+
+1. **Containerization:** Dockerize the Python runtime for consistent dev/prod environments
+2. **Monitoring:** Add OpenTelemetry tracing for agent steps (latency, token usage, cache hit rates)
+3. **Feature Flags:** Toggle provider strategies, verification gates, and experimental features without redeployment
+4. **Secrets Management:** Move from `.env` files to HashiCorp Vault or cloud KMS for production
+5. **Infrastructure as Code:** Terraform/Pulumi for cloud deployment (when ready)
+
+### Agentic AI Insights
+
+1. **Prompt Caching is Non-Negotiable:** The 73% static overhead re-sent every call is the single biggest cost/latency driver. Any provider without caching is a non-starter for production.
+
+2. **Parallel Tool Execution Needs Enforcement:** Don't depend on the model to batch. The plan-then-execute pattern (emit all independent writes as one forced assistant turn) is more reliable than hoping the model cooperates.
+
+3. **Verification Must Be Runtime, Not Static:** Type checking catches syntax, not semantics. Browser render verification, API response validation, and integration tests are mandatory for UI/UX tasks.
+
+4. **Session Isolation is Critical:** The singleton mutation bug (leaking state across sessions) would be catastrophic in production. The per-thread-id engine registry is correct architecture.
+
+5. **Cost Transparency is a Feature:** The cost router (cheap/standard/premium tiers) and token tracking are genuine differentiators. Expose this to users — they'll pay for visibility.
+
+### TypeScript/Desktop Application Perspective
+
+1. **VSCode Extension First:** Package PulseAI as an extension against stock VSCode before forking. Webview chat (reuse dashboard.html), file-change feed → index refresh, diagnostics → context.
+
+2. **Protocol Versioning:** The versioned newline-delimited JSON bridge is solid. Keep it. The generated TypeScript mirror ensures type safety across the boundary.
+
+3. **Theme System:** PulseAI Dark as default is good. Ensure theme tokens are design-system aligned for future customization.
+
+4. **Performance:** Electron apps are memory-hungry. Profile the desktop host process and utility process separately. Consider process-per-workspace for isolation.
+
+### Next Milestone Recommendation
+
+**Converge on one task:** "Build and verify a Next.js chat app, fast and correct."
+
+- Switch to DeepSeek V3 with prompt caching (P1)
+- Wire Puppeteer verification for UI tasks (P2)
+- Measure: latency per step, cache hit rate, cost per task, success rate
+- Get it green, measured, and under budget
+- Then expand scope
+
+The bones are good. The brain is the problem. Fix the provider strategy and the rest of this stack finally gets to show what it can do.
