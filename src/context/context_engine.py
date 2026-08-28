@@ -43,6 +43,7 @@ from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
+from src.context.base import ContextEngineBase
 from src.context.embedding_cache import get_embedding_cache
 from src.config.settings import CONTEXT_MODEL
 
@@ -190,12 +191,14 @@ def _get_shared_classifier(allow_embedding_compute: bool = False) -> "TaskClassi
     return _SHARED_CLASSIFIER
 
 
-class ContextEngine:
+class ContextEngine(ContextEngineBase):
     """
     The Context Engine class.
 
     Engines are session-scoped (one per conversation thread, via the
-    chat_graph registry) and live for that conversation.
+    chat_graph registry) and live for that conversation. Implements the
+    full Hermes ContextEngine ABC contract while delivering PulseAI's
+    adaptive 16-layer context preparation and lean compaction.
     """
 
     def __init__(
@@ -304,6 +307,22 @@ class ContextEngine:
         # constructor stays I/O-free.
         self._compactor = None
 
+        # Hermes ContextEngine contract attributes
+        self._name: str = "pulse"
+        self.threshold_percent = 0.50
+        self.context_length = getattr(self, "context_window", None) or self.max_tokens
+        self.threshold_tokens = int(self.context_length * self.threshold_percent)
+        self.last_prompt_tokens = 0
+        self.last_completion_tokens = 0
+        self.last_total_tokens = 0
+        self.compression_count = 0
+        self.protect_first_n = 3
+        self.protect_last_n = 6
+        self.emit_automatic_compaction_status = True
+        self.last_cache_read_tokens = 0
+        self.last_cache_write_tokens = 0
+        self.last_reasoning_tokens = 0
+
         # P1: this engine's session id. The degraded-scan receipts must carry
         # it (not "unknown") or the session-scoped bridge forwarder drops them.
         self.thread_id: str | None = thread_id or None
@@ -388,6 +407,8 @@ class ContextEngine:
             self.max_tokens = max(min(usable, cap), 4_096)
             self.context_budget = int(self.max_tokens * 0.4)
             self.history_budget = self.max_tokens - self.context_budget
+            self.context_length = self.context_window or self.max_tokens
+            self.threshold_tokens = int(self.context_length * self.threshold_percent)
             print(
                 f"[ContextEngine] repointed session engine to model {self.model!r}; "
                 f"token budget {self.max_tokens:,} (source: {source})."
@@ -639,6 +660,16 @@ class ContextEngine:
         final_messages = [system_message] + self._position_volatile_tail(
             context_messages, trimmed_history
         )
+
+        # 9b. Context Selection Hook (Hermes select_context contract: request-only context routing)
+        selected = self.select_context(
+            final_messages,
+            conversation_messages=raw_history,
+            incoming_message=state.get("latest_instruction") or state.get("current_task"),
+            budget_tokens=self.max_tokens,
+        )
+        if isinstance(selected, list) and selected:
+            final_messages = selected
 
         # 10. Cache for next turn
         self._last_state_hash = current_hash
@@ -1990,3 +2021,250 @@ class ContextEngine:
             SystemMessage(content=self._planner_prompt(planner_prompt)),
             HumanMessage(content=content),
         ]
+
+    # =========================================================
+    # HERMES CONTEXT ENGINE PROTOCOL & LIFECYCLE (HERMES PARITY)
+    # =========================================================
+
+    @property
+    def name(self) -> str:
+        """Short identifier for this context engine."""
+        return getattr(self, "_name", "pulse")
+
+    def update_from_response(self, usage: dict[str, Any]) -> None:
+        """Update tracked token usage from an API response (Hermes-compatible).
+
+        Called after every LLM call with a normalized usage dict. Standard keys
+        are prompt_tokens, completion_tokens, and total_tokens, plus optional
+        canonical buckets (input_tokens, output_tokens, cache_read_tokens,
+        cache_write_tokens, reasoning_tokens).
+        """
+        if not isinstance(usage, dict):
+            return
+        prompt_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+        completion_tokens = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        total_tokens = usage.get("total_tokens") or (prompt_tokens + completion_tokens)
+
+        self.last_prompt_tokens = int(prompt_tokens)
+        self.last_completion_tokens = int(completion_tokens)
+        self.last_total_tokens = int(total_tokens)
+
+        self.last_cache_read_tokens = int(
+            usage.get("cache_read_tokens")
+            or usage.get("cache_creation_input_tokens")
+            or 0
+        )
+        self.last_cache_write_tokens = int(usage.get("cache_write_tokens") or 0)
+        self.last_reasoning_tokens = int(usage.get("reasoning_tokens") or 0)
+
+    def should_compress(self, prompt_tokens: Optional[int] = None) -> bool:
+        """Check if compaction should fire this turn."""
+        tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
+        thresh = self.threshold_tokens or int(self.max_tokens * self.threshold_percent)
+        return tokens >= thresh
+
+    def should_compress_info(
+        self, prompt_tokens: Optional[int] = None
+    ) -> tuple[bool, Optional[str]]:
+        """Return (should_compress, reason)."""
+        should = self.should_compress(prompt_tokens)
+        if should:
+            tokens = prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
+            thresh = self.threshold_tokens or int(self.max_tokens * self.threshold_percent)
+            return True, f"Tokens ({tokens}) reached threshold ({thresh})"
+        return False, None
+
+    def compress(
+        self,
+        messages: list[Any],
+        current_tokens: Optional[int] = None,
+        focus_topic: Optional[str] = None,
+        force: bool = False,
+        memory_context: str = "",
+    ) -> list[Any]:
+        """Compact conversation history (Hermes ContextEngine contract)."""
+        budget = self.history_budget
+        if current_tokens is not None and current_tokens <= budget and not force:
+            return messages
+        compacted = self._compact_history(messages, budget)
+        self.compression_count += 1
+        return compacted
+
+    def prune_tool_results_only(
+        self,
+        messages: list[Any],
+        current_tokens: Optional[int] = None,
+    ) -> tuple[list[Any], int]:
+        """Deterministically trim old tool results without an LLM call."""
+        if not self._compactor:
+            from src.context.compaction import HistoryCompactor
+            from src.llm.factory import get_auxiliary_llm
+
+            self._compactor = HistoryCompactor(
+                model=self.model,
+                aux_llm_getter=get_auxiliary_llm,
+                session_id=self.thread_id or "",
+            )
+        return self._compactor.prune_tool_results_only(messages)
+
+    def select_context(
+        self,
+        request_messages: list[Any],
+        *,
+        conversation_messages: Optional[list[Any]] = None,
+        incoming_message: Optional[Any] = None,
+        budget_tokens: int = 0,
+    ) -> Optional[list[Any]]:
+        """Optionally choose/replace context for THIS request (Hermes contract).
+
+        Request-only: persisted conversation history is NEVER mutated.
+        Default returns None (no-op; keeps default request messages).
+        """
+        return None
+
+    def on_turn_complete(
+        self,
+        messages: list[Any],
+        usage: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
+        """Observe a finished user turn (Hermes observation hook)."""
+        if usage:
+            self.update_from_response(usage)
+
+    def should_compress_preflight(self, messages: list[Any]) -> bool:
+        """Rough check before API dispatch (dual threshold hygiene net)."""
+        if not messages or len(messages) < (self.protect_first_n + self.protect_last_n):
+            return False
+        rough_tokens = count_tokens(messages, self.model)
+        # 85% hygiene threshold
+        return rough_tokens >= int(self.max_tokens * 0.85)
+
+    def should_defer_preflight_to_real_usage(self, rough_tokens: int) -> bool:
+        """Return True when preflight should trust recent real usage."""
+        return False
+
+    def has_content_to_compress(self, messages: list[Any]) -> bool:
+        """Quick check: are there turns outside the protected head and tail?"""
+        return len(messages) > (self.protect_first_n + self.protect_last_n)
+
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return engine tools exposed directly to the agent."""
+        return [
+            {
+                "name": "context_search",
+                "description": (
+                    "Search the agent's compacted context memory, summaries, "
+                    "and technical anchor index for past files, commands, decisions, and errors."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query or keywords to locate in compacted context history",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "context_status",
+                "description": (
+                    "Get real-time diagnostics of the context engine: token occupancy, "
+                    "context window, threshold, and compaction telemetry."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        ]
+
+    def handle_tool_call(
+        self, name: str, args: dict[str, Any], **kwargs: Any
+    ) -> str:
+        """Handle execution of context engine tools."""
+        if name == "context_search":
+            query = str(args.get("query", "")).lower().strip()
+            results = []
+            if self._compactor and self._compactor.summary:
+                summary = self._compactor.summary
+                if query in summary.lower():
+                    results.append(f"Compacted Summary: {summary}")
+                if self._compactor.anchor_index and query in self._compactor.anchor_index.lower():
+                    results.append(f"Technical Anchors: {self._compactor.anchor_index}")
+            if self.memory_manager:
+                try:
+                    memories = self.memory_manager.retrieve_relevant(query, k=3)
+                    for m in memories:
+                        results.append(f"Retrieved Memory: {m}")
+                except Exception:
+                    pass
+            if not results:
+                return json.dumps({
+                    "status": "not_found",
+                    "message": f"No matches found for {query!r} in compacted context.",
+                })
+            return json.dumps({"status": "found", "matches": results})
+
+        elif name == "context_status":
+            return json.dumps(self.get_status())
+
+        return json.dumps({"error": f"Unknown context engine tool: {name}"})
+
+    def get_status(self) -> dict[str, Any]:
+        """Return status dict for telemetry, display, and logging."""
+        last_prompt = max(0, self.last_prompt_tokens)
+        win = self.context_window or self.max_tokens
+        usage_pct = min(100.0, (last_prompt / win) * 100.0) if win > 0 else 0.0
+        return {
+            "name": self.name,
+            "model": self.model,
+            "context_window": win,
+            "max_tokens": self.max_tokens,
+            "last_prompt_tokens": last_prompt,
+            "last_completion_tokens": max(0, self.last_completion_tokens),
+            "last_total_tokens": max(0, self.last_total_tokens),
+            "threshold_tokens": self.threshold_tokens or int(self.max_tokens * self.threshold_percent),
+            "usage_percent": round(usage_pct, 1),
+            "compression_count": self.compression_count,
+            "compaction_stats": self.compaction_stats(),
+            "cache_audit_stats": self.cache_audit_stats(),
+        }
+
+    def on_session_start(self, session_id: str, **kwargs: Any) -> None:
+        """Called when a session begins."""
+        self.thread_id = session_id
+
+    def on_session_end(self, session_id: str, messages: list[Any]) -> None:
+        """Called at session boundaries."""
+        pass
+
+    def on_session_reset(self) -> None:
+        """Reset per-session token tracking and compaction state."""
+        self.last_prompt_tokens = 0
+        self.last_completion_tokens = 0
+        self.last_total_tokens = 0
+        self.compression_count = 0
+        self._last_state_hash = None
+        self._layer_cache.clear()
+        self._last_layers_sent.clear()
+        if self._compactor:
+            self._compactor._summary = ""
+
+    def update_model(
+        self,
+        model: str,
+        context_length: int,
+        base_url: str = "",
+        api_key: str = "",
+        provider: str = "",
+        api_mode: str = "",
+    ) -> None:
+        """Model switch handler (Hermes ContextEngine contract)."""
+        self.reconfigure_model(model)
+        if context_length > 0:
+            self.context_window = context_length
+            self.context_length = context_length
+            self.threshold_tokens = int(context_length * self.threshold_percent)

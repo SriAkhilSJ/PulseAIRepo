@@ -905,6 +905,12 @@ def ai_node(
         [call_usage],
     )
 
+    # Update Context Engine token tracking (Hermes ContextEngine contract)
+    try:
+        get_context_engine(config).update_from_response(call_usage)
+    except Exception:
+        pass
+
     # Every provider iteration counts. Hermes refunds execute_code-only turns,
     # but it also runs a much larger default parent budget and a separate tool
     # guardrail controller. Copying only the refund into Pulse's 20-call paid
@@ -975,6 +981,10 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         )
     try:
         engine = get_context_engine(config)
+        engine.on_turn_complete(
+            messages=state.get("messages", []),
+            usage=state.get("turn_token_usage"),
+        )
         if state.get("failed_steps") or unverified:
             engine.record_feedback(success=False, task=current_task)
         else:
@@ -3092,10 +3102,12 @@ def get_context_engine(
                 except Exception:
                     summarizer_llm = None
             # First engine for the thread: an explicit pin wins, otherwise
-            # fall back to the process default. Once built, implicit callers
-            # reuse it (guarded above); only a later, differing explicit pin
-            # rebuilds.
-            engine = ContextEngine(
+            # fall back to the process default. Pluggable registry allows
+            # alternative context engines via PULSEAI_CONTEXT_ENGINE.
+            engine_name = os.environ.get("PULSEAI_CONTEXT_ENGINE", "pulse").strip().lower()
+            from src.context.registry import create_context_engine
+            engine = create_context_engine(
+                name=engine_name,
                 model=explicit_model or LLM_MODEL,
                 llm=summarizer_llm,
                 memory_manager=memory_manager,
