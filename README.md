@@ -247,137 +247,50 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 
 ---
 
-## Technical Assessment & Strategic Roadmap
+## Technical Architecture (current)
 
-**Perspective:** Software AI Engineer with expertise in DevOps, Agentic AI, TypeScript, and Desktop Application Building
+**Perspective:** Software AI Engineer — DevOps, Agentic AI, TypeScript, Desktop Applications
 **Date:** 2026-08-27
 
-### Current Architecture Strengths
+### What's built and verified
 
-PulseAI has built a genuinely competitive foundation that outperforms many OSS alternatives:
+The engine has shipped 437+ green tests across 40+ D-rounds. These are not plans — they are running code:
 
-1. **16-Layer Context Engine** — Task-aware context assembly with 60/30/10 relevance scoring (task-type prior / semantic similarity / recency), embedding deduplication at cosine > 0.88, hierarchical budget fitting, and differential caching. This is meaningfully better than "stuff everything in" OSS scaffolding.
+| Subsystem | Module | What it does |
+|---|---|---|
+| **Chunk Index** | `src/context/chunk_index.py` | AST extraction (Python + tree-sitter for JS/TS/Go/Rust/Java) → sqlite-vec KNN + FTS5 BM25 → RRF fusion → D13 feature re-rank. Per-workspace DB, WAL mode, background watcher with polling fallback, bounded scan with file-count/byte/elapsed budgets. |
+| **Context Engine** | `src/context/context_engine.py` | 16-layer task-aware assembly, shared TaskClassifier (regex-only on turn path), per-instance LAYER_RELEVANCE (deep-copied), differential cache with VOLATILE_LAYERS set, session-scoped engines via per-thread-id registry with LRU cap (128) and per-engine API lock. |
+| **Model Budgets** | `src/context/model_budgets.py` | Dynamic context-window discovery: env override → on-disk cache (7-day TTL) → static table → live provider probe (2.5s timeout) → stale cache → conservative default. `PROVIDER_SAFE_LIMIT=0` auto mode: engine budget = proxy guard = discovered window − margin. |
+| **Git Context** | `src/context/git_context.py` | Read-only git subprocesses under one aggregate 1s deadline. Branch, status, recent commits, staged/unstaged diffs. Windows taskkill-tree termination. Returns `None` outside repos. Marked VOLATILE (rebuilt every turn). |
+| **Session Index** | `src/context/session_index.py` | FTS5 over past conversations (LangGraph checkpoints). Watermark-based incremental sync. Source demotion for sub-agents. Compaction summary skip at ingest. |
+| **Import Edges** | `chunk_index._edges_for` | File→file import graph for detective mode. Python via stdlib-ast full dotted-path resolver; JS/TS, Go, Rust, Java via lang_extractors. Edge rows live/die in same transactions as chunk rows. |
+| **LLM Factory** | `src/llm/factory.py` | Multi-provider (Groq, OpenAI, Gemini, NVIDIA, custom endpoints). Auxiliary model routing (janitor/management-class calls at cheap rates). Turn control, cancellation, abort state with async task cancellation. |
+| **File Tools** | `src/tools/file_tools.py` | read/list/write/search/edit with workspace path resolution, leading-slash normalization, search guards (skip dirs, 2MB file cap, 2k file budget, 500-result cap), verification ledger integration. |
+| **UI Verification** | `src/tools/ui_verification.py` | Typecheck → start server → readiness poll → browser navigate → snapshot (non-empty check) → selector verification (video autoplay/muted/loop/playsInline/readyState) → screenshot quality. Single-receipt deterministic pipeline. |
+| **Scaffold Tools** | `src/tools/scaffold_tools.py` | Next.js + TypeScript + Tailwind scaffolding with `_provided/` preservation, layout normalization, legacy peer deps, shadow checkpoints, repo map invalidation. |
+| **Safety** | `src/context/safety_guard.py` | Workspace path validation, destructive operation approval gates, `$()`/backtick escalation to approval, session cancellation checks. |
+| **Verification** | `src/context/verification_evidence.py` | Completion gates distinguishing successful/failed/stale/skipped/unavailable evidence. Edited-file invalidation. |
+| **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 20+ client methods, 16 server events. Host tool requests, safety requests, sub-agent lifecycle, telemetry, workspace binding. |
+| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/pulseai/` | Copilot-hidden Pulse-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. |
+| **UI Lab** | `ui/` | SolidJS renderer with Agent UI, Agent Manager, Tool Gallery. Deterministic replay data. Desktop-syntax check bridge. |
 
-2. **Chunked Code Index** — AST extraction → sqlite-vec KNN + FTS5 BM25 → RRF position fusion. This is the Cursor-gap closer that the architecture review identified, and it's been shipped with background indexing and atomic incremental sync.
+### Test coverage
 
-3. **Session-Scoped Engines** — Per-thread-id engine registry with LRU eviction, per-engine API locks, and global feedback learning. Solved the critical singleton mutation bug that leaked state across sessions.
+- **198 Python source files**, **93 test files** in `src/tests/`
+- Provider-free validation: 183/183 focused + 65/65 pytest + 16/16 CDP
+- Desktop compile, typecheck-client, valid-layers, syntax: all green
+- Protocol generation check: green
+- UI build + test:ui: green
 
-4. **Provider-Adaptive Budgets** — Dynamic context-window discovery with live provider probing, memoized resolution, and engine-proxy lockstep. The `PROVIDER_SAFE_LIMIT=0` auto-mode unlocks paid-tier scaling.
+### What the P2 roadmap covers next
 
-5. **Safety Architecture** — Workspace path validation, destructive operation approval gates, session cancellation checks, shadow checkpoints, and completion gates. The guard is a checkpoint, not a sandbox — correct design for an agent that needs to actually execute code.
+The engine is completed work. The fork never edits its logic. The [P2 roadmap](docs/P2-roadmap.md) is locked and additive:
 
-6. **Reliability Benchmarking** — Scenario contracts, drivers, grading, and report generation with CDP-controlled IDE runs. Provider-free validation (183/183 focused tests, 65/65 pytest, 16/16 CDP) proves the runtime works without external dependencies.
+- **Phase 0:** Fork rebranding, bridge v2 wiring, skeleton contribution
+- **M1:** Chat round-trip through the real engine (cards, auto-restart)
+- **M2:** Safety UX (native diff approval, question dock)
+- **M3:** Telemetry (budget bar, cache-hit display, usage card)
+- **M4:** Time machine (checkpoint timeline, one-click restore)
+- **M5:** Shipping (electron-builder packaging, engine bundling, update channel)
 
-### Critical Technical Gaps (Priority-Ordered)
-
-#### 🔴 P1: Provider Strategy — The Latency/Cost Crisis
-
-**Root cause:** The agent loop runs on FreeLLM, a rotating pool of free models with no prompt caching.
-
-**Measured impact:**
-- 25–56 seconds per agent step vs. 0.5–1.1s API round-trip
-- 73% of prompt tokens are static overhead re-sent every call
-- Weak parallel tool-calling (1 tool per turn after initial batch)
-- 4 consecutive failed runs on the flagship chat-app task
-
-**The math:** Free models cost more in aggregate (more calls, more tokens, failed re-runs) than a real provider with prompt caching. DeepSeek V3 with disk cache: 15k static prefix cached after call 1, subsequent calls at ~$0.07/M instead of $0.27/M.
-
-**Recommendation:** Move agent loop to DeepSeek V3 or Claude Sonnet. Keep FreeLLM for auxiliary paths (summarization, self-curation). This single change fixes latency, cost, and batching.
-
-#### 🟠 P2: Verification for Real — Runtime Proof, Not Typecheck
-
-**Root cause:** `tsc --noEmit` passes while the app returns HTTP 500.
-
-**Impact:** A slow-but-correct IDE can compete. An IDE that ships broken apps that *look* finished cannot.
-
-**Recommendation:**
-- UI tasks must prove real browser render (non-empty snapshot) before finalize
-- Wire Puppeteer MCP suite as mandatory for UI tasks
-- Keep `typecheck_workspace` for non-UI tasks
-- Many failures will disappear with a stronger model (P1)
-
-#### 🟠 P3: Architecture Debt — The God-File Problem
-
-**Root cause:** `chat_graph.py` is 2,901 lines — a monolithic file handling the entire agentic loop.
-
-**Impact:** The 148 KB / 54-section architecture review document is a symptom of patching faster than simplifying.
-
-**Recommendation:**
-- Freeze new features
-- Split `chat_graph.py` into `nodes/` modules
-- Pick one task ("build & verify a Next.js chat app, fast and correct") and converge until green, measured, and under budget
-- Then expand
-
-#### 🟡 P4: Desktop Fork Timing
-
-**Root cause:** Forking Code OSS is the right end-state (Cursor did it), but doing it now is the classic startup sequencing mistake.
-
-**Impact:** The 15k-file `desktop/` fork already blew up the repo-map builder (O(n²) bug causing 600s hangs).
-
-**Recommendation:**
-- **P0 (now):** Engine moat — chunked code index, hybrid retrieval, fix bugs #1–4
-- **P1 (2-4 wks):** Harness quality — pytest + CI, eval harness, unified-diff apply
-- **P2 (3-4 wks):** VSCode extension against stock VSCode (90% of API value, 10% of fork cost)
-- **P3 (when proven):** Fork Code OSS when extension API limits are the actual blocker
-
-#### 🟡 P5: Multi-Language Code Index
-
-**Root cause:** Current chunk index is Python-only (stdlib AST). Multi-language requires tree-sitter grammars.
-
-**Impact:** The agent can only index Python files natively.
-
-**Recommendation:** Add tree-sitter grammars for JavaScript/TypeScript (already in deps), Go, Rust, Java. Ship as incremental expansion, not a blocker.
-
-#### 🟡 P6: CI/CD Pipeline
-
-**Root cause:** Tests exist (130+ passing) but aren't CI-gated.
-
-**Impact:** No automated regression detection on PRs.
-
-**Recommendation:** Add GitHub Actions workflow:
-- Run pytest on PR
-- Run typecheck-client, valid-layers-check, compile for desktop
-- Run UI build and test:ui
-- Gate merge on all checks passing
-
-### DevOps Recommendations
-
-1. **Containerization:** Dockerize the Python runtime for consistent dev/prod environments
-2. **Monitoring:** Add OpenTelemetry tracing for agent steps (latency, token usage, cache hit rates)
-3. **Feature Flags:** Toggle provider strategies, verification gates, and experimental features without redeployment
-4. **Secrets Management:** Move from `.env` files to HashiCorp Vault or cloud KMS for production
-5. **Infrastructure as Code:** Terraform/Pulumi for cloud deployment (when ready)
-
-### Agentic AI Insights
-
-1. **Prompt Caching is Non-Negotiable:** The 73% static overhead re-sent every call is the single biggest cost/latency driver. Any provider without caching is a non-starter for production.
-
-2. **Parallel Tool Execution Needs Enforcement:** Don't depend on the model to batch. The plan-then-execute pattern (emit all independent writes as one forced assistant turn) is more reliable than hoping the model cooperates.
-
-3. **Verification Must Be Runtime, Not Static:** Type checking catches syntax, not semantics. Browser render verification, API response validation, and integration tests are mandatory for UI/UX tasks.
-
-4. **Session Isolation is Critical:** The singleton mutation bug (leaking state across sessions) would be catastrophic in production. The per-thread-id engine registry is correct architecture.
-
-5. **Cost Transparency is a Feature:** The cost router (cheap/standard/premium tiers) and token tracking are genuine differentiators. Expose this to users — they'll pay for visibility.
-
-### TypeScript/Desktop Application Perspective
-
-1. **VSCode Extension First:** Package PulseAI as an extension against stock VSCode before forking. Webview chat (reuse dashboard.html), file-change feed → index refresh, diagnostics → context.
-
-2. **Protocol Versioning:** The versioned newline-delimited JSON bridge is solid. Keep it. The generated TypeScript mirror ensures type safety across the boundary.
-
-3. **Theme System:** PulseAI Dark as default is good. Ensure theme tokens are design-system aligned for future customization.
-
-4. **Performance:** Electron apps are memory-hungry. Profile the desktop host process and utility process separately. Consider process-per-workspace for isolation.
-
-### Next Milestone Recommendation
-
-**Converge on one task:** "Build and verify a Next.js chat app, fast and correct."
-
-- Switch to DeepSeek V3 with prompt caching (P1)
-- Wire Puppeteer verification for UI tasks (P2)
-- Measure: latency per step, cache hit rate, cost per task, success rate
-- Get it green, measured, and under budget
-- Then expand scope
-
-The bones are good. The brain is the problem. Fix the provider strategy and the rest of this stack finally gets to show what it can do.
+The [CTO audit](CTO_AUDIT_PulseAI.md) and [architecture review](ARCHITECTURE_REVIEW.md) document historical decisions; most recommendations have been implemented across the D-rounds. Verify dates before treating recommendations as current.
