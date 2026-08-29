@@ -1,0 +1,93 @@
+[
+  {
+    "id": "root",
+    "component": "Card",
+    "props": {
+      "child": "col"
+    }
+  },
+  {
+    "id": "col",
+    "component": "Column",
+    "props": {
+      "children": ["header", "description", "meta", "footer"]
+    }
+  },
+  {
+    "id": "header",
+    "component": "Row",
+    "props": {
+      "children": ["title", "status"]
+    }
+  },
+  {
+    "id": "title",
+    "component": "Text",
+    "props": {
+      "text": { "path": "/title" },
+      "variant": "h3"
+    }
+  },
+  {
+    "id": "status",
+    "component": "Text",
+    "props": {
+      "text": { "path": "/status" },
+      "variant": "caption"
+    }
+  },
+  {
+    "id": "description",
+    "component": "Text",
+    "props": {
+      "text": { "path": "/description" },
+      "variant": "body"
+    }
+  },
+  {
+    "id": "meta",
+    "component": "Row",
+    "props": {
+      "children": ["priority", "assignee"]
+    }
+  },
+  {
+    "id": "priority",
+    "component": "Text",
+    "props": {
+      "text": { "path": "/priority" },
+      "variant": "caption"
+    }
+  },
+  {
+    "id": "assignee",
+    "component": "Text",
+    "props": {
+      "text": { "path": "/assignee" },
+      "variant": "caption"
+    }
+  },
+  {
+    "id": "footer",
+    "component": "Row",
+    "props": {
+      "children": ["action"]
+    }
+  },
+  {
+    "id": "action",
+    "component": "Button",
+    "props": {
+      "child": "actionLabel",
+      "variant": "primary",
+      "action": { "event": { "name": "pulse_task_action", "context": { "taskId": { "path": "/taskId" } } } }
+    }
+  },
+  {
+    "id": "actionLabel",
+    "component": "Text",
+    "props": {
+      "text": "Open in editor"
+    }
+  }
+]

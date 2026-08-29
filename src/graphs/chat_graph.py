@@ -37,6 +37,35 @@ from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
 
+# --- CopilotKit A2UI fixed-schema wiring (Pulse domain) ---
+from pathlib import Path as _A2UIPath
+try:
+    # pyrefly: ignore [missing-import]
+    from copilotkit import a2ui
+except Exception:  # fallback for offline validation without copilotkit
+    class _A2UIFallback:  # type: ignore
+        def load_schema(self, p):  # noqa: ANN001
+            import json
+            return json.load(open(p, encoding="utf-8"))
+        def create_surface(self, sid, catalog_id=None):  # noqa: ANN001
+            return {"version": "v0.9", "createSurface": {"surfaceId": sid, "catalogId": catalog_id}}
+        def update_components(self, sid, comps):  # noqa: ANN001
+            return {"version": "v0.9", "updateComponents": {"surfaceId": sid, "components": comps}}
+        def update_data_model(self, sid, data, path="/"):  # noqa: ANN001
+            return {"version": "v0.9", "updateDataModel": {"surfaceId": sid, "path": path, "value": data}}
+        def render(self, operations):  # noqa: ANN001
+            import json as _j
+            return _j.dumps({"a2ui_operations": operations})
+    a2ui = _A2UIFallback()  # type: ignore
+
+CATALOG_ID = "copilotkit://pulse-task-catalog"
+SURFACE_ID = "pulse-task"
+_SCHEMAS_DIR = _A2UIPath(__file__).parent.parent / "a2ui_schemas"
+try:
+    PULSE_TASK_SCHEMA = a2ui.load_schema(_SCHEMAS_DIR / "pulse_task_schema.json")
+except Exception:
+    PULSE_TASK_SCHEMA = []
+
 
 def _drop_tool_pairs(messages: list) -> list:
     """Strip tool-call/result pairs from a message list so it is a valid
@@ -312,12 +341,61 @@ def delegate_to_subagent_batch(
     return "\n".join(parts)
 
 
+class PulseTask(TypedDict):
+    """Shape the LLM should fill for display_pulse_task — steers JSON schema."""
+
+    title: str
+    description: str
+    status: str
+    priority: str
+    assignee: str
+    taskId: str
+
+
+@tool
+def display_pulse_task(
+    title: str,
+    description: str,
+    status: str,
+    priority: str,
+    assignee: str,
+    taskId: str,
+) -> str:
+    """Show a Pulse task card for the given work item.
+
+    Use concise title and description, status like "In progress", priority like "high",
+    assignee like "Pulse Agent", taskId like "pulse-123".
+
+    After this tool returns, the task card is already rendered via the A2UI surface —
+    the JSON returned is the surface descriptor, NOT a status code. Do NOT call again
+    for the same task. Reply with one short confirmation sentence and stop.
+    """
+    return a2ui.render(
+        operations=[
+            a2ui.create_surface(SURFACE_ID, catalog_id=CATALOG_ID),
+            a2ui.update_components(SURFACE_ID, PULSE_TASK_SCHEMA),
+            a2ui.update_data_model(
+                SURFACE_ID,
+                {
+                    "title": title,
+                    "description": description,
+                    "status": status,
+                    "priority": priority,
+                    "assignee": assignee,
+                    "taskId": taskId,
+                },
+            ),
+        ],
+    )
+
+
 tools = [
     think,
     verify,
     ask_user,
     delegate_to_subagent,
     delegate_to_subagent_batch,
+    display_pulse_task,
 
 
     # File tools
@@ -479,6 +557,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             "run_terminal", "typecheck_workspace",
             "web_search", "web_fetch",
             "verify_ui_workspace", "verify_ui_routes",
+            "display_pulse_task",
         }
         names = [name for name in names if name in autonomous_tools]
     # A verifier with no project cannot produce evidence. Hiding it is stronger
@@ -721,6 +800,34 @@ def ai_node(
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
             + phase_guidance,
         )
+
+    # --- CopilotKit app context (agent-app-context) + refusal guard ---
+    _copilotkit_ctx = state.get("copilotkit") if isinstance(state.get("copilotkit"), dict) else {}
+    _ctx_items = _copilotkit_ctx.get("context") if isinstance(_copilotkit_ctx.get("context"), list) else []
+    _pulse_ctx = None
+    for _item in _ctx_items:
+        if isinstance(_item, dict) and _item.get("description") == "Pulse workspace context":
+            _pulse_ctx = _item.get("value")
+            break
+    if _pulse_ctx is not None:
+        _insert_system_prefix(
+            messages,
+            "=== PULSE WORKSPACE CONTEXT (shared via useAgentContext) ===\n"
+            + str(_pulse_ctx)[:4000]
+            + "\n\nUse this context to answer. If the user asks about an entity not in this context, refuse and name what is missing instead of inventing.",
+        )
+    else:
+        _insert_system_prefix(
+            messages,
+            "=== PULSE CONTEXT MISSING ===\n"
+            "No Pulse workspace context was shared via useAgentContext. If the user asks about files, tasks, or workspace entities, you must refuse to answer about entities the shared context does not carry, and name what is missing instead of inventing plausible entities. Ask the frontend to share context.",
+        )
+    # Guard unattended side effects: remind model to use ask_user for destructive actions
+    _insert_system_prefix(
+        messages,
+        "=== SAFETY GUARD ===\n"
+        "Unattended side effects (file overwrites, deletions, dangerous shell commands) are guarded by SafetyGuard/ask_user. For any destructive or irreversible change, call ask_user to confirm before proceeding.",
+    )
 
     # State the actual shell contract before the model guesses. The terminal
     # tool uses shell=True, which is cmd.exe on the founder's Windows runtime;
@@ -1295,10 +1402,11 @@ def task_manager_node(
     state: AgentState,
     config: RunnableConfig,
 ):
-    configurable = config["configurable"]
+    configurable = config.get("configurable", {}) or {}
 
-    provider = configurable["provider"]
-    model = configurable["model"]
+    from src.config.settings import LLM_PROVIDER as _DF_PROVIDER, LLM_MODEL as _DF_MODEL
+    provider = configurable.get("provider") or _DF_PROVIDER
+    model = configurable.get("model") or _DF_MODEL
 
     current_task = state.get("current_task", "")
     latest_instruction = state["latest_instruction"]

@@ -727,6 +727,14 @@ class RetryLLMProxy:
 
     @staticmethod
     def _is_retryable(error: Exception) -> bool:
+        try:
+            from src.llm.error_classifier import classify_api_error, FailoverReason
+            c = classify_api_error(error)
+            if c.reason in (FailoverReason.auth, FailoverReason.auth_permanent, FailoverReason.billing): return False
+            if c.reason in (FailoverReason.context_overflow,): return False
+            return c.retryable
+        except Exception:
+            pass
         text = str(error).lower()
         return (
             "rate limit" in text
@@ -735,8 +743,6 @@ class RetryLLMProxy:
             or "temporarily unavailable" in text
             or "connection error" in text
             or "connecterror" in text
-            # OmniRouter returns 503 when an auto-combo backend is unavailable
-            # or the request is oversized; retrying (after trimming) may succeed.
             or "503" in text
             or "combo retry limit" in text
             # Some custom auto routers may briefly route to a backend model

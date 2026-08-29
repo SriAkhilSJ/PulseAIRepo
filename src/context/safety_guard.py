@@ -79,14 +79,24 @@ class SafetyGuard:
         return True, ""
 
     def _resolve_path(self, path: str) -> Path:
-        """Resolve a path relative to workspace."""
+        """Resolve with realpath — symlink aware."""
+        import os as _os
         p = Path(path)
-        if p.is_absolute():
-            return p
-        return self.workspace / p
+        raw = p if p.is_absolute() else self.workspace / p
+        try:
+            return Path(_os.path.realpath(str(raw)))
+        except Exception:
+            return raw.resolve()
 
     def _is_critical_path(self, path: str) -> bool:
-        """Check if path points to a critical/sensitive file."""
+        """Realpath + file_safety read-block check (defense-in-depth)."""
+        try:
+            from src.context.file_safety import get_read_block_error
+            resolved = str(self._resolve_path(path))
+            if get_read_block_error(resolved):
+                return True
+        except Exception:
+            pass
         path_lower = str(path).lower()
         return any(critical in path_lower for critical in self.CRITICAL_PATHS)
 

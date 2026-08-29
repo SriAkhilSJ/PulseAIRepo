@@ -8,26 +8,28 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 
 | Area | Path | Purpose |
 |---|---|---|
-| Desktop IDE | `desktop/vscode/` | Vendored Code OSS fork with PulseAI branding and the first-party Pulse workbench contribution |
-| Pulse contribution | `desktop/vscode/src/vs/workbench/contrib/pulseai/` | Agent panel, manager, tool rendering, workbench host, and desktop sidecar integration |
-| Agent runtime | `src/` | LangGraph workflow, tools, context engine, safety gates, provider routing, persistence, and verification |
+| Desktop IDE | `desktop/vscode/` | Vendored Code OSS fork with PulseAI branding and the first-party Pulse workbench contribution (AuxiliaryBar fixed right, single agent) |
+| Pulse contribution | `desktop/vscode/src/vs/workbench/contrib/pulseai/` | Agent panel, manager, tool rendering, workbench host, desktop sidecar, and CopilotKit webview host |
+| Agent runtime | `src/` | LangGraph workflow, tools, context engine ABC, safety gates, provider routing, persistence, and verification |
 | Desktop bridge | `src/bridge/` | Versioned newline-delimited JSON protocol over stdio |
-| UI Lab | `ui/` | Browser-testable SolidJS renderer and deterministic demo host; development tooling, not a separate product |
+| Pulse Webview | `pulse-webview/` | CopilotKit React SPA (Vite) — fixed right-side AG-UI chat with generative cards, bridged via CopilotRuntime `8200` → FastAPI `8123` |
 | Reliability benchmark | `benchmarks/` | Scenario contracts, drivers, grading, and report generation |
-| Tests | `src/tests/` and `ui/tests/` | Runtime, bridge, desktop-boundary, branding, and UI regression coverage |
+| Tests | `src/tests/` and `pulse-webview/` | Runtime, bridge, desktop-boundary, branding, and webview e2e |
 | Design and engineering docs | `docs/` | Current architecture, roadmap, benchmark, and design decisions |
+| CopilotKit | `.copilotkit/project.json` | Managed Intelligence project `pulseai` `3084` (`sri-s-organisation`) |
 
 ## Current product behavior
 
 ### PulseAI IDE
 
-- Pulse is available in the right auxiliary bar.
+- Pulse is available in the right auxiliary bar **fixed, not movable, single agent** (`ViewContainerLocation.AuxiliaryBar`, `canMoveView:false`).
 - **Ctrl/Cmd+L** opens the Pulse agent panel.
 - A top-level **Pulse** menu and title-bar entry expose the primary commands.
 - **Manager button** in the Agent panel header opens the Pulse Manager in a separate Electron window.
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
-- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers.
+- CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `pulse_task_schema.json` generative cards via `CopilotKitProvider agent="pulse_agent"`.
+- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`pulseAIRenderer.ts` + `a2ui/renderers.tsx`).
 - The composer selects a real runtime mode: **Agent** executes the guarded workflow, **Plan** previews without executing, **Debug** diagnoses before minimal repair and retesting, and **Ask** answers without tools.
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Pulse setting/command.
 - **PulseAI Dark** is the bundled default theme.
@@ -58,10 +60,11 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 - Python **3.11 or newer** (`.python-version` currently pins 3.14 for uv-managed development)
 - [uv](https://docs.astral.sh/uv/) recommended
 
-### UI Lab
+### Pulse Webview
 
-- Node.js compatible with Vite 7
-- npm
+- Node.js 24.18.0 (see `desktop/.nvmrc`)
+- npm 12.x
+- Vite 7 + `@copilotkit/react-core@1.69.3`
 
 ### Desktop IDE
 
@@ -122,28 +125,40 @@ Protocol definitions live in:
 
 Do not hand-edit the generated TypeScript protocol mirror.
 
-## Run the UI Lab
+## Run the Pulse Webview (CopilotKit)
+
+The former `ui/` SolidJS lab has been removed and replaced by `pulse-webview/` — a Vite React SPA that hosts `CopilotChat` as a fixed right-side webview in the desktop fork, bridged through CopilotKit Intelligence.
 
 ```bash
-cd ui
+# Terminal 1 — Copilot Intelligence runtime (8200)
+npx --yes tsx pulse-webview/server.ts
+# Terminal 2 — Python AG-UI agent (8123)
+uv run python -m src.server
+# Terminal 3 — Vite webview (5173)
+cd pulse-webview
 npm ci
 npm run dev
+# open http://localhost:5173 → CopilotChat + PulseCard
 ```
-
-The lab provides Agent UI, Agent Manager, and a development-only Tool Gallery. It uses deterministic replay data and does not replace the desktop integration.
 
 Useful checks:
 
 ```bash
-npm run build
-npm run check:desktop-syntax
-npm run test:ui
+# typecheck both hosts
+npm run typecheck-client --prefix desktop/vscode
+npx tsc --noEmit --project pulse-webview/tsconfig.json
+# bridge + context
+uv run python -m pytest src/tests/test_bridge.py src/tests/test_bridge_protocol_v2.py src/tests/test_bounded_scan.py -q
+curl http://localhost:8200/api/copilotkit/info
+curl http://localhost:8123/health
+# browser e2e (requires 8200+8123+5173 running)
+npx playwright test pulse-webview/e2e-verify.spec.ts
 ```
 
 Playwright browser binaries may need to be installed once:
 
 ```bash
-npx playwright install
+npx playwright install chromium
 ```
 
 ## Build the desktop IDE
@@ -224,8 +239,9 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 ## Documentation map
 
 - [`desktop/README.md`](desktop/README.md) — canonical fork and build invariants
-- [`ui/README.md`](ui/README.md) — UI Lab workflow and renderer boundaries
+- [`pulse-webview/README.md`](pulse-webview/README.md) — CopilotKit webview host and AG-UI wiring
 - [`docs/P2-roadmap.md`](docs/P2-roadmap.md) — product milestones and approved amendments
+- [`docs/RENOVATION_2026-08-29.md`](docs/RENOVATION_2026-08-29.md) — context-engine / security / CopilotKit renovation log + verification
 - [`docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md`](docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md) — first-party workbench architecture
 - [`docs/DESIGN/FORK_REBRANDING.md`](docs/DESIGN/FORK_REBRANDING.md) — branding and discoverability decisions
 - [`docs/HARNESS_STATUS.md`](docs/HARNESS_STATUS.md) — benchmark harness status

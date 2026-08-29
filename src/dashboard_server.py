@@ -178,9 +178,21 @@ def chat():
             except Exception as e:
                 import traceback
                 traceback.print_exc()
+                # Structured error surface + redaction (Hermes parity)
+                try:
+                    from src.dashboard.error_surface import build_error_surface_from_exception
+                    surface = build_error_surface_from_exception(e, provider=LLM_PROVIDER, model=LLM_MODEL)
+                except Exception:
+                    surface = {"layer": "runtime", "code": type(e).__name__, "retryable": False, "provider": LLM_PROVIDER, "model": LLM_MODEL}
+                try:
+                    from src.utils.redact import redact_sensitive_text
+                    err_text = redact_sensitive_text(str(e), force=True)
+                except Exception:
+                    err_text = str(e)
                 event_bus.emit("message.agent.error", {
-                    "error": str(e),
+                    "error": err_text,
                     "thread_id": thread_id,
+                    "surface": surface,
                 })
 
     thread = threading.Thread(target=run_agent, daemon=True)

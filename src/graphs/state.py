@@ -18,6 +18,13 @@ from pydantic import BaseModel, Field, AliasChoices
 from langchain_core.messages import BaseMessage
 # pyrefly: ignore [missing-import]
 from langgraph.graph.message import add_messages
+try:
+    # pyrefly: ignore [missing-import]
+    from copilotkit import CopilotKitState  # extends MessagesState + copilotkit context
+except Exception:  # graceful fallback when copilotkit not installed in offline validation
+    class CopilotKitState(TypedDict, total=False):  # type: ignore[no-redef]
+        messages: Annotated[list[BaseMessage], add_messages]
+        copilotkit: dict[str, Any]  # type: ignore[valid-type]
 
 
 # ==========================================
@@ -54,7 +61,7 @@ class TaskDecision(BaseModel):
 ExecutionMode = Literal["agent", "plan", "debug", "ask"]
 
 
-class AgentState(TypedDict, total=False):
+class AgentState(CopilotKitState, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
 
     execution_mode: ExecutionMode

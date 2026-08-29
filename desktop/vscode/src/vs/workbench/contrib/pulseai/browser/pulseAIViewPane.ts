@@ -53,6 +53,15 @@ export class PulseAIViewPane extends ViewPane {
 		root.setAttribute('role', 'region');
 		root.setAttribute('aria-label', 'Pulse Agent');
 		this._register(this.pulseAIRendererService.mount(root, 'agent'));
+		// React SPA embedded as FIXED right-side webview (CopilotKit + LangGraph)
+		// Single Pulse Agent via AuxiliaryBar canMoveView:false (contribution.ts)
+		const webview = DOM.append(this.pulseBody, DOM.$('iframe.pulseai-copilot-webview'));
+		webview.setAttribute('title', 'Pulse CopilotKit');
+		webview.setAttribute('src', 'http://localhost:5173');
+		webview.style.width = '100%';
+		webview.style.height = '50%';
+		webview.style.border = 'none';
+		webview.style.display = 'block';
 	}
 
 	protected override layoutBody(height: number, width: number): void {
