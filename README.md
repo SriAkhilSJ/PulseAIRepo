@@ -12,7 +12,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 | Pulse contribution | `desktop/vscode/src/vs/workbench/contrib/pulseai/` | Agent panel, manager, tool rendering, workbench host, desktop sidecar, and CopilotKit webview host |
 | Agent runtime | `src/` | LangGraph workflow, tools, context engine ABC, safety gates, provider routing, persistence, and verification |
 | Desktop bridge | `src/bridge/` | Versioned newline-delimited JSON protocol over stdio |
-| Pulse Webview | `pulse-webview/` | CopilotKit React SPA (Vite) — fixed right-side AG-UI chat with generative cards, bridged via CopilotRuntime `8200` → FastAPI `8123` |
+| Pulse Webview | `pulse-webview/` | CopilotKit React SPA (Vite) — fixed right-side AG-UI chat with generative cards. Vite `5173` → CopilotRuntime `8200` → FastAPI AG-UI agent `8123` |
 | Reliability benchmark | `benchmarks/` | Scenario contracts, drivers, grading, and report generation |
 | Tests | `src/tests/` and `pulse-webview/` | Runtime, bridge, desktop-boundary, branding, and webview e2e |
 | Design and engineering docs | `docs/` | Current architecture, roadmap, benchmark, and design decisions |
@@ -28,7 +28,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - **Manager button** in the Agent panel header opens the Pulse Manager in a separate Electron window.
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
-- CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `pulse_task_schema.json` generative cards via `CopilotKitProvider agent="pulse_agent"`.
+- CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `pulse_task_schema.json` generative cards, bound with `CopilotChat agentId="pulse_agent"`. Card schemas use the **flat A2UI v0.9** wire format (`{ id, component, ...props }`) — a `props`-nested wrapper renders an empty card.
 - Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`pulseAIRenderer.ts` + `a2ui/renderers.tsx`).
 - The composer selects a real runtime mode: **Agent** executes the guarded workflow, **Plan** previews without executing, **Debug** diagnoses before minimal repair and retesting, and **Ask** answers without tools.
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Pulse setting/command.
@@ -127,19 +127,25 @@ Do not hand-edit the generated TypeScript protocol mirror.
 
 ## Run the Pulse Webview (CopilotKit)
 
-The former `ui/` SolidJS lab has been removed and replaced by `pulse-webview/` — a Vite React SPA that hosts `CopilotChat` as a fixed right-side webview in the desktop fork, bridged through CopilotKit Intelligence.
+The former `ui/` SolidJS lab has been removed and replaced by `pulse-webview/` — a Vite React SPA that hosts `CopilotChat` as a fixed right-side webview in the desktop fork.
+
+The runtime talks to the Python agent over **AG-UI** using an `HttpAgent`. CopilotKit Intelligence
+is **optional**: it is enabled only when `INTELLIGENCE_API_KEY` is set. Without it the runtime runs
+in `sse` mode and talks to the agent directly, so no CopilotKit Cloud account is required.
 
 ```bash
-# Terminal 1 — Copilot Intelligence runtime (8200)
-npx --yes tsx pulse-webview/server.ts
-# Terminal 2 — Python AG-UI agent (8123)
-uv run python -m src.server
+# Terminal 1 — Python AG-UI agent (8123)
+uv run python -m uvicorn src.server:app --host 0.0.0.0 --port 8123
+# Terminal 2 — Copilot Runtime (8200)
+cd pulse-webview && npm run runtime
 # Terminal 3 — Vite webview (5173)
-cd pulse-webview
-npm ci
-npm run dev
-# open http://localhost:5173 → CopilotChat + PulseCard
+cd pulse-webview && npm ci && npm run dev
+# open http://localhost:5173 → CopilotChat + Pulse task card
 ```
+
+The webview calls a **relative** runtime URL (`/api/copilotkit`) which Vite proxies to `:8200`, so the
+app works from any origin (LAN, container, tunnel). Override the upstream with
+`COPILOT_RUNTIME_ORIGIN`, or the runtime port with `COPILOT_RUNTIME_PORT`.
 
 Useful checks:
 
@@ -149,6 +155,8 @@ npm run typecheck-client --prefix desktop/vscode
 npx tsc --noEmit --project pulse-webview/tsconfig.json
 # bridge + context
 uv run python -m pytest src/tests/test_bridge.py src/tests/test_bridge_protocol_v2.py src/tests/test_bounded_scan.py -q
+# webview DOM tests (provider-free: no API key, no tokens spent)
+cd pulse-webview && npm test
 curl http://localhost:8200/api/copilotkit/info
 curl http://localhost:8123/health
 # browser e2e (requires 8200+8123+5173 running)
@@ -252,6 +260,8 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 - [`docs/ATTEMPT11_COMPLETION_REPAIR.md`](docs/ATTEMPT11_COMPLETION_REPAIR.md) — deterministic completion verdict, event pairing, terminal encoding, and metadata follow-up
 - [`docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md`](docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md) — independent classification of the 142/145 Windows result and follow-up
 - [`docs/TEST4_PASS_FORENSIC.md`](docs/TEST4_PASS_FORENSIC.md) — why Test 4's repaired product passed while its autonomous run remained partial
+- [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) — CopilotKit/Pulse agent render verification: defects found, root causes, and evidence
+- [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — start here for a new agent: current state, what was done, what is still open
 - [`CTO_AUDIT_PulseAI.md`](CTO_AUDIT_PulseAI.md) and [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) — historical audits; verify dates before treating recommendations as current
 
 ## Development rules
