@@ -55,7 +55,10 @@ export class PulseAIWorkerProcessService extends Disposable implements IPulseAIW
 
 		this.stopping = false;
 		this._onDidChangeState.fire({ state: 'starting' });
-		const python = options.pythonPath || process.env['PULSEAI_PYTHON_PATH'] || (process.platform === 'win32' ? 'python' : 'python3');
+		const venvPython = process.platform === 'win32'
+			? join(options.engineRoot, '.venv', 'Scripts', 'python.exe')
+			: join(options.engineRoot, '.venv', 'bin', 'python');
+		const python = options.pythonPath || process.env['PULSEAI_PYTHON_PATH'] || (existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3'));
 		const child = spawn(python, ['-m', 'src.bridge'], {
 			cwd: options.engineRoot,
 			env: { ...process.env, PYTHONUNBUFFERED: '1' },

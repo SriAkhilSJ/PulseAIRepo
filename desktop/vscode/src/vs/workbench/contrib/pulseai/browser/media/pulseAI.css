@@ -286,6 +286,63 @@
 }
 @keyframes pulseai-spin { to { transform: rotate(360deg); } }
 
+/* ---- Text Shimmer (Kilo pattern: title breathes during pending state) ---- */
+.pulseai-shimmer {
+	position: relative;
+	display: inline-block;
+	overflow: hidden;
+}
+.pulseai-shimmer::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--pulseai-running) 18%, transparent) 50%, transparent 100%);
+	transform: translateX(-100%);
+	animation: pulseai-shimmer-slide 1.8s ease-in-out infinite;
+}
+.pulseai-shimmer.is-idle::after { animation: none; opacity: 0; }
+@keyframes pulseai-shimmer-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* ---- Breathing Edge (Kilo pattern: gradient pulse at streaming text bottom) ---- */
+.pulseai-breathing-edge {
+	position: relative;
+}
+.pulseai-breathing-edge::after {
+	content: '';
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 20px;
+	background: linear-gradient(to bottom, transparent, var(--vscode-sideBar-background));
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 100ms ease;
+}
+.pulseai-breathing-edge.is-streaming::after {
+	opacity: 0.6;
+	animation: pulseai-edge-breathe 1.2s ease-in-out infinite;
+}
+@keyframes pulseai-edge-breathe {
+	0%, 100% { opacity: 0.4; }
+	50% { opacity: 0.8; }
+}
+
+/* ---- Tool fields (Kilo Fields pattern, black/blue only) ---- */
+.pulseai-tool-fields { display: grid; gap: 4px; padding-top: 6px; }
+.pulseai-tool-field-row { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 8px; font-size: 10px; }
+.pulseai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; }
+.pulseai-tool-field-val { color: var(--vscode-foreground); font-family: var(--vscode-editor-font-family); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-search-results { display: grid; gap: 4px; margin-top: 6px; }
+.pulseai-search-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: 10px; }
+.pulseai-tool-checks { display: grid; gap: 6px; padding: 6px 0; }
+.pulseai-tool-checks > div { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--vscode-descriptionForeground); }
+.pulseai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: 9px; text-transform: uppercase; }
+.pulseai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: 10px; }
+.pulseai-child-tool-list { display: grid; gap: 4px; margin-top: 6px; }
+.pulseai-child-tool-list > div { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--vscode-descriptionForeground); }
+.pulseai-code-preview, .pulseai-diff-preview { font-size: 11px; line-height: 1.4; }
+
 .pulseai-tool-body {
 	padding: 0 7px 8px 34px;
 	border-top: 1px solid color-mix(in srgb, var(--vscode-panel-border) 65%, transparent);

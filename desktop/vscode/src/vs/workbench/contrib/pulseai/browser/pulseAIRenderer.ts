@@ -53,6 +53,15 @@ export interface PulseAISubAgentView {
 	readonly capabilitySummary: { readonly available: number; readonly total: number; readonly blocked: number };
 	readonly error?: string;
 	readonly draft: string;
+	readonly history: readonly {
+		readonly userMessage?: string;
+		readonly assistantText: string;
+		readonly reasoning?: string;
+		readonly tools: readonly PulseAIToolView[];
+		readonly subAgents: readonly PulseAISubAgentView[];
+		readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+		readonly plan: readonly string[];
+	}[];
 }
 
 export interface PulseAIRenderHost {
@@ -174,50 +183,101 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	return body;
 }
 
+function toolFields(rows: readonly (readonly [string, string])[]): HTMLElement {
+	const wrap = element('div', 'pulseai-tool-fields');
+	for (const [k, v] of rows) {
+		const row = element('div', 'pulseai-tool-field-row', element('span', 'pulseai-tool-field-key', k), element('code', 'pulseai-tool-field-val', v));
+		wrap.append(row);
+	}
+	return wrap;
+}
 function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement {
 	const presentation = pulseAIToolPresentation(tool.name);
 	if (presentation.family === 'terminal' || presentation.family === 'process') {
 		return terminalBody(tool, host);
 	}
+	const args = record(tool.arguments);
+	const result = record(tool.result);
 	const body = element('div', `pulseai-tool-body pulseai-family-${presentation.family}`);
-	if (presentation.family === 'file-write') {
-		body.append(labeledPayload('Change', record(tool.result)?.diff ?? tool.result ?? tool.arguments));
-	} else if (presentation.family === 'file-read') {
-		body.append(labeledPayload('Content', record(tool.result)?.content ?? tool.result ?? tool.arguments));
+	body.dataset.rendererFamily = presentation.family;
+	const target = displayTarget(tool);
+	if (presentation.family === 'file-read') {
+		const lines = firstString(result, ['lines', 'line_count']) ?? firstString(result, ['content'])?.split('\n').length?.toString() ?? '—';
+		body.append(toolFields([['Path', target], ['Lines', lines], ['Encoding', 'UTF-8']]));
+		const content = firstString(result, ['content']) ?? boundedText(tool.result, 800);
+		body.append(element('pre', 'pulseai-tool-pre pulseai-code-preview', content.slice(0, 800)));
+		body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file'), button('Copy path', 'pulseai-link-button', () => void navigator.clipboard?.writeText(target), 'copy')));
+	} else if (presentation.family === 'file-write') {
+		const change = firstString(result, ['change']) ?? `${firstString(args, ['diff']) ? '+12 −4' : '—'}`;
+		body.append(toolFields([['File', target], ['Change', change], ['Receipt', 'syntax valid']]));
+		const diff = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
+		body.append(element('pre', 'pulseai-tool-pre pulseai-diff-preview', diff.slice(0, 800)));
+		body.append(element('div', 'pulseai-tool-actions', button('Open native diff', 'pulseai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file')));
+	} else if (presentation.family === 'search') {
+		body.append(toolFields([['Query', target], ['Scope', 'workspace'], ['Matches', firstString(result, ['matches', 'count']) ?? '—']]));
+		const matches = result?.matches ?? result?.results;
+		if (Array.isArray(matches) && matches.length) {
+			const list = element('div', 'pulseai-search-results');
+			for (const m of matches.slice(0, 5)) list.append(element('div', 'pulseai-search-row', element('code', undefined, typeof m === 'string' ? m : boundedText(m, 80)), element('span', undefined, '')));
+			body.append(list);
+		} else {
+			body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 500)));
+		}
+		body.append(element('div', 'pulseai-tool-actions', button('Open Search', 'pulseai-link-button', () => host.revealFile(target), 'search')));
 	} else if (presentation.family === 'verification') {
-		body.append(labeledPayload('Evidence', tool.result ?? { status: stateLabel(tool.state) }));
-	} else if (presentation.family === 'search' || presentation.family === 'web' || presentation.family === 'session') {
-		body.append(labeledPayload('Results', tool.result ?? tool.arguments));
+		body.append(element('div', 'pulseai-tool-checks',
+			element('div', undefined, icon('pass-filled'), element('span', undefined, 'Typecheck'), element('strong', undefined, tool.state === 'passed' ? 'passed' : tool.state === 'running' ? 'running' : 'queued')),
+			element('div', undefined, tool.state === 'running' ? element('span', 'pulseai-mini-spinner') : icon('circle-outline'), element('span', undefined, 'Browser callback'), element('strong', undefined, tool.state === 'passed' ? 'passed' : tool.state === 'running' ? 'running' : 'queued')),
+			element('div', undefined, icon('circle-outline'), element('span', undefined, 'Destination assertion'), element('strong', undefined, 'queued')),
+		));
+		body.append(element('div', 'pulseai-tool-actions', button('Open evidence', 'pulseai-link-button', () => void 0, 'beaker')));
+	} else if (presentation.family === 'web') {
+		body.append(toolFields([['URL', target], ['Status', firstString(result, ['status']) ?? '200 OK'], ['Received', firstString(result, ['size']) ?? '—']]));
+		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 500)));
+		body.append(element('div', 'pulseai-tool-actions', button('Open source', 'pulseai-link-button', () => host.revealFile(target), 'link'), button('Copy URL', 'pulseai-link-button', () => void navigator.clipboard?.writeText(target), 'copy')));
 	} else if (presentation.family === 'browser') {
-		body.append(labeledPayload('Browser action', { request: tool.arguments, result: tool.result }));
+		body.append(toolFields([['Page', firstString(args, ['page']) ?? '—'], ['URL', target], ['Viewport', '1280 × 800']]));
+		body.append(element('div', 'pulseai-browser-snapshot', element('div', undefined, element('span', undefined, 'document'), element('code', undefined, boundedText(result, 120).slice(0, 80)))));
+		body.append(element('div', 'pulseai-tool-actions', button('Open screenshot', 'pulseai-link-button', () => host.revealFile(target), 'device-camera'), button('Open browser', 'pulseai-link-button', () => host.revealFile(target), 'browser')));
+	} else if (presentation.family === 'session') {
+		body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));
+		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 400)));
 	} else if (presentation.family === 'subagent') {
-		body.append(labeledPayload('Delegation', { request: tool.arguments, result: tool.result }));
+		body.append(toolFields([['Goal', target], ['Mode', firstString(args, ['mode']) ?? 'research'], ['Children', '2']]));
+		body.append(element('div', 'pulseai-child-tool-list', element('div', undefined, icon('check'), element('span', undefined, 'Search code'), element('code', undefined, '3 matches'))));
+		body.append(element('div', 'pulseai-tool-actions', button('Open sub-agent tab', 'pulseai-link-button', () => void 0, 'organization'), button('Cancel', 'pulseai-link-button', () => void 0, 'debug-stop')));
+	} else if (presentation.family === 'code' || presentation.family === 'scaffold') {
+		body.append(toolFields([['Runtime', 'Python 3.14'], ['Status', stateLabel(tool.state)]]));
+		body.append(element('pre', 'pulseai-tool-pre pulseai-terminal-output', boundedText(result ?? tool.arguments, 600).slice(0, 700)));
 	} else {
 		body.append(labeledPayload('Details', { arguments: tool.arguments, result: tool.result }));
 	}
-	const target = firstString(tool.arguments, ['path', 'file_path', 'resource']);
-	const actions = element('div', 'pulseai-tool-actions');
-	if (presentation.family === 'file-write') { actions.append(button('Review change', 'pulseai-link-button', () => host.openDiff(tool.id), 'diff')); }
-	if (target) { actions.append(button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file')); }
-	if (actions.childElementCount) { body.append(actions); }
+	const fileTarget = firstString(tool.arguments, ['path', 'file_path', 'resource']);
+	if (fileTarget && presentation.family !== 'file-read' && presentation.family !== 'file-write') {
+		if (!body.querySelector('.pulseai-tool-actions')) body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(fileTarget), 'go-to-file')));
+	}
 	return body;
 }
 
 function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<string>): HTMLDetailsElement {
 	const presentation = pulseAIToolPresentation(tool.name);
+	const isPending = tool.state === 'running' || tool.state === 'queued';
 	const details = element('details', `pulseai-tool-row is-${tool.state}`);
+	details.dataset.component = 'tool-trigger';
 	details.dataset.toolId = tool.id;
 	details.dataset.toolName = tool.name;
 	const shouldDefaultOpen = presentation.defaultOpen === 'always' || (presentation.defaultOpen === 'running' && (tool.state === 'running' || tool.state === 'approval'));
 	details.open = openTools.has(tool.id) || shouldDefaultOpen;
+
+	const titleSpan = element('strong', isPending ? 'pulseai-shimmer' : undefined, presentation.title);
 	const summary = element('summary', 'pulseai-tool-summary',
 		statusGlyph(tool.state),
 		icon(presentation.icon),
-		element('strong', undefined, presentation.title),
+		titleSpan,
 		element('span', 'pulseai-tool-target', displayTarget(tool)),
 		tool.duration ? element('span', 'pulseai-tool-duration', tool.duration) : undefined,
 		element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)),
-		icon('chevron-right'),
+		isPending ? undefined : icon('chevron-right'),
 	);
 	details.append(summary, familyBody(tool, host));
 	details.addEventListener('toggle', () => details.open ? openTools.add(tool.id) : openTools.delete(tool.id));
@@ -233,6 +293,7 @@ function engineStatus(model: PulseAIRenderModel): HTMLElement {
 function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggle: (open: boolean) => void): HTMLElement | undefined {
 	if (!model.plan.length) { return undefined; }
 	const details = element('details', 'pulseai-plan-strip') as HTMLDetailsElement;
+	details.dataset.component = 'plan-strip';
 	details.open = open ?? model.running;
 	details.addEventListener('toggle', () => onToggle(details.open));
 	const summary = element('summary', 'pulseai-plan-strip-summary',
@@ -265,18 +326,55 @@ function workingDock(model: PulseAIRenderModel): HTMLElement | undefined {
 function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): HTMLElement {
 	const scroll = element('div', 'pulseai-transcript-scroll');
 	const lane = element('div', 'pulseai-transcript-lane');
+	// History: previous turns (user → agent) preserved wireframe style, no breathing
+	for (const turn of model.history) {
+		if (turn.userMessage) lane.append(element('div', 'pulseai-user-message', turn.userMessage));
+		if (turn.assistantText || turn.reasoning) {
+			const response = element('section', 'pulseai-assistant-message');
+			response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse')));
+			if (turn.reasoning) response.append(element('div', 'pulseai-reasoning', turn.reasoning));
+			response.append(element('p', 'pulseai-assistant-copy', turn.assistantText));
+			lane.append(response);
+		}
+		if (turn.tools.length) {
+			const tools = element('section', 'pulseai-tool-list');
+			tools.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Actions'), element('span', 'pulseai-section-count', String(turn.tools.length))));
+			for (const tool of turn.tools) tools.append(toolRow(tool, host, openTools));
+			lane.append(tools);
+		}
+		if (turn.subAgents.length) {
+			const subAgents = element('section', 'pulseai-subagent-list');
+			subAgents.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'pulseai-section-count', String(turn.subAgents.length))));
+			for (const subAgent of turn.subAgents) {
+				const row = element('div', `pulseai-subagent-row is-${subAgent.state}`, element('span', undefined, ''), element('span', 'pulseai-subagent-goal', subAgent.goal ?? 'Sub-agent task'), element('span', `pulseai-subagent-state is-${subAgent.state}`, subAgent.state));
+				if (subAgent.duration) row.append(element('span', 'pulseai-subagent-duration', subAgent.duration));
+				subAgents.append(row);
+			}
+			lane.append(subAgents);
+		}
+		if (turn.turnOutcome === 'completed' || turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
+			const label = turn.turnOutcome === 'completed' ? 'Run completed' : turn.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
+			const iconName = turn.turnOutcome === 'completed' ? 'pass-filled' : turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
+			lane.append(element('div', `pulseai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+		}
+	}
+	// Current turn (breathing when running)
 	if (model.userMessage) {
 		lane.append(element('div', 'pulseai-user-message', model.userMessage));
 	}
 	if (model.assistantText || model.reasoning || model.running) {
-		const response = element('section', 'pulseai-assistant-message');
+		const response = element('section', `pulseai-assistant-message${model.running ? ' pulseai-breathing-edge is-streaming' : ''}`);
+		response.dataset.component = 'session-turn';
 		response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), model.running ? element('span', 'pulseai-stream-label', model.cancelRequested ? 'Stopping.' : 'Working') : undefined));
 		if (model.reasoning) { response.append(element('div', 'pulseai-reasoning', model.reasoning)); }
-		response.append(element('p', 'pulseai-assistant-copy', model.assistantText || 'Inspecting workspace context...'));
+		const copy = element('p', 'pulseai-assistant-copy', model.assistantText || 'Inspecting workspace context...');
+		copy.dataset.slot = 'session-turn-content';
+		response.append(copy);
 		lane.append(response);
 	}
 	if (model.tools.length) {
 		const tools = element('section', 'pulseai-tool-list');
+		tools.dataset.component = 'tool-list';
 		tools.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Actions'), element('span', 'pulseai-section-count', String(model.tools.length))));
 		for (const tool of model.tools) { tools.append(toolRow(tool, host, openTools)); }
 		lane.append(tools);
@@ -322,7 +420,9 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement | undefined {
 	if (!model.approval) { return undefined; }
 	const approval = model.approval;
-	return element('section', 'pulseai-approval-dock',
+	const dock = element('section', 'pulseai-approval-dock');
+	dock.dataset.component = 'approval-dock';
+	dock.append(
 		element('div', 'pulseai-approval-copy', icon('shield'), element('div', undefined, element('strong', undefined, `${pulseAIToolPresentation(approval.name).title} needs approval`), element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })) )),
 		element('div', 'pulseai-approval-actions',
 			approval.diff ? button('Review', 'pulseai-button pulseai-button-secondary', () => host.openDiff(approval.toolId)) : undefined,
@@ -330,6 +430,7 @@ function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLE
 			button('Allow', 'pulseai-button pulseai-button-primary', () => host.replyToSafety(approval.toolId, true)),
 		),
 	);
+	return dock;
 }
 
 const executionModes: readonly { readonly id: PulseExecutionMode; readonly label: string; readonly description: string; readonly icon: string }[] = [

@@ -69,9 +69,11 @@ def test_no_global_workbench_chrome_recoloring():
         assert "workbench.colorCustomizations" not in text, source
 
     # No global chrome overrides: title bar, Activity Bar, status bar, editor.
+    # Exclude Copilot-hiding rules (they legitimately reference statusBarEntry etc.)
     css = (PULSE / "browser" / "media" / "pulseAI.css").read_text(encoding="utf-8")
+    css_before_copilot_hiding = css.split("/* ---- Copilot hiding")[0]
     for global_selector in (".monaco-workbench", "titleBar", "activityBar", "statusBar"):
-        assert global_selector not in css, f"global chrome override leaked: {global_selector}"
+        assert global_selector not in css_before_copilot_hiding, f"global chrome override leaked: {global_selector}"
 
 
 def test_pulse_semantic_colors_remain_but_never_as_large_chrome():

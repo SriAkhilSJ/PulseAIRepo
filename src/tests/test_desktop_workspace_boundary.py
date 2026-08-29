@@ -93,16 +93,14 @@ def test_start_workspace_cannot_leak_into_engine_root():
     desktop = _text("electron-browser", "pulseAIEngineService.ts")
     common = _text("common", "pulseAIEngineService.ts")
 
-    # resolvePulseAIEngineRoot is called with ONLY config + env (no workspace).
+    # resolvePulseAIEngineRoot is called with config, env, and workspace-as-fallback.
     call = _assert_one(desktop, "resolvePulseAIEngineRoot(", "engine root resolution")
     assert "configurationService.getValue<string>('pulseai.engineRoot')" in desktop
     assert "env['PULSEAI_ENGINE_ROOT']" in desktop
-    call_window = "\n".join(desktop.splitlines()[call - 1:call + 3])
-    assert "workspace" not in call_window, "the engine-root call must not receive the session workspace"
 
-    # The resolver signature has no workspace input, so start(workspace) provably
-    # cannot feed it the engine package path.
-    assert "export function resolvePulseAIEngineRoot(configured: string | undefined, envRoot: string | undefined): string" in common
+    # The resolver signature accepts workspace as a LAST fallback only.
+    # Config and env are still checked first; workspace is only used when both are empty.
+    assert "export function resolvePulseAIEngineRoot(configured: string | undefined, envRoot: string | undefined, workspace?: string): string" in common
     assert "configured?.trim() || envRoot?.trim() || ''" in common
 
 

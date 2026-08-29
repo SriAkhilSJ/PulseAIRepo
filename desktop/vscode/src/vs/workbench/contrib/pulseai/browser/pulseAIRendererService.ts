@@ -81,6 +81,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private telemetry: PulseAIRenderModel['telemetry'] = {};
 	private error: string | undefined;
 	private engineSetupError = false;
+	private history: PulseAIRenderModel['history'] = [];
 
 	/**
 	 * Explicit multi-root selection (P0): never silently pick folders[0].
@@ -222,6 +223,11 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.userMessage = undefined;
 			this.assistantText = '';
 			this.pendingPrompt = undefined;
+			this.tools.clear();
+			this.subAgents.clear();
+			this.history = [];
+			this.plan = [];
+			this.verification = undefined;
 		}
 		this.render();
 	}
@@ -262,6 +268,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			capabilitySummary: this.capabilitySummary,
 			error: this.error,
 			draft: this.draft,
+			history: this.history,
 		};
 	}
 
@@ -445,6 +452,18 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	}
 
 	private startTurn(text: string): void {
+		// Preserve previous turn in history before clearing (user → agent → user → agent)
+		if (this.userMessage || this.assistantText || this.tools.size > 0) {
+			this.history = [...this.history, {
+				userMessage: this.userMessage,
+				assistantText: this.assistantText,
+				reasoning: this.reasoning,
+				tools: [...this.tools.values()],
+				subAgents: [...this.subAgents.values()],
+				turnOutcome: this.turnOutcome,
+				plan: this.plan,
+			}].slice(-20); // keep last 20 turns
+		}
 		this.userMessage = text;
 		this.assistantText = '';
 		this.reasoning = undefined;
