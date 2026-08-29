@@ -27,8 +27,10 @@ export default function App() {
   if (!mounted) return null;
   return (
     <CopilotKitProvider
-      runtimeUrl="http://localhost:8200/api/copilotkit"
-      agent="pulse_agent"
+      // Relative URL: the Vite dev server (and any reverse proxy) forwards
+      // /api/copilotkit to the Copilot Runtime on :8200. Hard-coding
+      // http://localhost:8200 breaks every non-localhost origin.
+      runtimeUrl="/api/copilotkit"
       useSingleEndpoint={false}
       a2ui={{ catalog }}
     >
@@ -38,7 +40,7 @@ export default function App() {
           PulseAI — Pulse Agent
         </header>
         <div style={{ flex: 1 }}>
-          <CopilotChat agent="pulse_agent" />
+          <CopilotChat agentId="pulse_agent" />
         </div>
       </div>
     </CopilotKitProvider>

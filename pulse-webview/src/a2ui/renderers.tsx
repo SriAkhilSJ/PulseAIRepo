@@ -32,7 +32,14 @@ export const renderers: CatalogRenderers<Definitions> = {
     <span className="text-xs text-neutral-500">@{s(props.name)}</span>
   ),
   Button: ({ props, children }) => (
-    <button className="w-full rounded bg-blue-600 px-4 py-2 text-white text-sm">
+    // The A2UI generic binder converts an `action`-shaped prop into a callable
+    // that dispatches the event back to the agent. Wiring it to onClick is what
+    // makes the card interactive; without it the button is inert.
+    <button
+      className="w-full rounded bg-blue-600 px-4 py-2 text-white text-sm"
+      data-testid="pulse-task-action"
+      onClick={typeof props.action === "function" ? props.action : undefined}
+    >
       {props.child ? children(props.child) : null}
     </button>
   ),

@@ -1,0 +1,131 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "pulse-task",
+      "catalogId": "copilotkit://pulse-task-catalog"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "pulse-task",
+      "components": [
+        {
+          "id": "root",
+          "component": "Card",
+          "child": "col"
+        },
+        {
+          "id": "col",
+          "component": "Column",
+          "children": [
+            "header",
+            "description",
+            "meta",
+            "footer"
+          ]
+        },
+        {
+          "id": "header",
+          "component": "Row",
+          "children": [
+            "title",
+            "status"
+          ]
+        },
+        {
+          "id": "title",
+          "component": "Text",
+          "text": {
+            "path": "/title"
+          },
+          "variant": "h3"
+        },
+        {
+          "id": "status",
+          "component": "Text",
+          "text": {
+            "path": "/status"
+          },
+          "variant": "caption"
+        },
+        {
+          "id": "description",
+          "component": "Text",
+          "text": {
+            "path": "/description"
+          },
+          "variant": "body"
+        },
+        {
+          "id": "meta",
+          "component": "Row",
+          "children": [
+            "priority",
+            "assignee"
+          ]
+        },
+        {
+          "id": "priority",
+          "component": "Text",
+          "text": {
+            "path": "/priority"
+          },
+          "variant": "caption"
+        },
+        {
+          "id": "assignee",
+          "component": "Text",
+          "text": {
+            "path": "/assignee"
+          },
+          "variant": "caption"
+        },
+        {
+          "id": "footer",
+          "component": "Row",
+          "children": [
+            "action"
+          ]
+        },
+        {
+          "id": "action",
+          "component": "Button",
+          "child": "actionLabel",
+          "variant": "primary",
+          "action": {
+            "event": {
+              "name": "pulse_task_action",
+              "context": {
+                "taskId": {
+                  "path": "/taskId"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "actionLabel",
+          "component": "Text",
+          "text": "Open in editor"
+        }
+      ]
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateDataModel": {
+      "surfaceId": "pulse-task",
+      "path": "/",
+      "value": {
+        "title": "Fix bridge protocol",
+        "description": "Repair the stdio bridge handshake",
+        "status": "In progress",
+        "priority": "high",
+        "assignee": "Pulse Agent",
+        "taskId": "pulse-123"
+      }
+    }
+  }
+]

@@ -714,8 +714,8 @@ def ai_node(
             "iteration_used": int(state.get("iteration_used", 0)),
         }
 
-    base_provider = configurable["provider"]
-    base_model = configurable["model"]
+    base_provider = _cfg(configurable, "provider", LLM_PROVIDER)
+    base_model = _cfg(configurable, "model", LLM_MODEL)
 
     # Cost-aware routing: try to use a cheaper/better model for this task
     task_for_routing = state.get("current_task", "")
@@ -1398,6 +1398,45 @@ def _quick_task_decision(
     return None
 
 
+def _cfg(configurable: dict, key: str, default=None):
+    """Read a graph-configurable value with a fallback.
+
+    The CLI/bridge entrypoints populate ``config.configurable`` with
+    ``provider``, ``model``, ``workspace`` and friends. The AG-UI endpoint
+    (``src/server.py``) is driven by a frontend and carries only LangGraph's
+    own keys, so hard indexing raises ``KeyError`` there. Every read of a
+    non-required configurable goes through this helper so both entrypoints
+    behave identically.
+    """
+    value = (configurable or {}).get(key)
+    return default if value is None else value
+
+
+def _latest_instruction_from_messages(messages: list) -> str:
+    """Derive the current instruction from the trailing HumanMessage.
+
+    The CLI and bridge entrypoints set ``latest_instruction`` explicitly when
+    they invoke the graph. The AG-UI endpoint (``src/server.py``) is driven by
+    a frontend that sends only ``messages``, so the field is absent there and
+    ``task_manager_node`` must derive it instead of raising KeyError.
+    """
+    for message in reversed(list(messages or ())):
+        if getattr(message, "type", None) == "human":
+            content = getattr(message, "content", "")
+            if isinstance(content, list):
+                # Multimodal content blocks: keep the text parts only.
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            parts.append(str(block.get("text", "")))
+                    else:
+                        parts.append(str(block))
+                content = " ".join(parts)
+            return (content or "").strip()
+    return ""
+
+
 def task_manager_node(
     state: AgentState,
     config: RunnableConfig,
@@ -1409,7 +1448,11 @@ def task_manager_node(
     model = configurable.get("model") or _DF_MODEL
 
     current_task = state.get("current_task", "")
-    latest_instruction = state["latest_instruction"]
+    # AG-UI entrypoints supply only `messages`; derive the instruction instead
+    # of KeyError-ing (the CLI/bridge still set it explicitly).
+    latest_instruction = state.get("latest_instruction") or _latest_instruction_from_messages(
+        state.get("messages") or []
+    )
 
     if (
         is_plan_cancellation(latest_instruction)
@@ -1982,8 +2025,8 @@ def planner_node(
     current_task = state.get("current_task", "")
     plan_created = state.get("plan_created", False)
 
-    provider = configurable["provider"]
-    model = configurable["model"]
+    provider = _cfg(configurable, "provider", LLM_PROVIDER)
+    model = _cfg(configurable, "model", LLM_MODEL)
 
     # Keep the existing plan for the active task.
     if plan_created:
@@ -2200,8 +2243,8 @@ def plan_reviser_node(
         task=state.get("plan_goal", state.get("current_task", "")),
         plan=current_plan,
         revision=state.get("latest_instruction", ""),
-        provider=configurable["provider"],
-        model=configurable["model"],
+        provider=_cfg(configurable, "provider", LLM_PROVIDER),
+        model=_cfg(configurable, "model", LLM_MODEL),
         usage_list=usages,
     )
 
@@ -2284,8 +2327,8 @@ def replanner_node(
         task=current_task,
         plan=old_plan,
         failed_steps=failed_steps,
-        provider=configurable["provider"],
-        model=configurable["model"],
+        provider=_cfg(configurable, "provider", LLM_PROVIDER),
+        model=_cfg(configurable, "model", LLM_MODEL),
         prior_attempts=state.get("prior_attempts", []),  # NEW: Pass learning memory
         usage_list=usages,
     )
