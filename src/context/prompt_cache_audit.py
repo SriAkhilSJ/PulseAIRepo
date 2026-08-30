@@ -167,6 +167,13 @@ class CachePrefixAudit:
         except OSError:
             pass  # forensics must never break a turn
 
+    def hit_rate(self) -> float | None:
+        comparable = [t for t in self._turns if t["stable_ratio"] is not None]
+        if not comparable:
+            return None
+        hits = sum(1 for t in comparable if t["breaker"] == "identical" or str(t["breaker"]).startswith("history:"))
+        return round(hits / len(comparable), 4)
+
     def stats(self) -> dict:
         comparable = [t for t in self._turns if t["stable_ratio"] is not None]
         histogram: dict[str, int] = {}
@@ -181,12 +188,15 @@ class CachePrefixAudit:
         verdict = (
             round(reached_history / len(comparable), 3) if comparable else None
         )
+        hit_rate = round(reached_history / len(comparable), 4) if comparable else None
         return {
             "turns": len(self._turns),
             "comparable_turns": len(comparable),
             "mean_stable_ratio": round(sum(ratios) / len(ratios), 4) if ratios else None,
             "min_stable_ratio": min(ratios) if ratios else None,
             "prefix_reached_history_pct": verdict,
+            "hit_rate": hit_rate,
+            "cache_hit_rate": hit_rate,
             "breaker_histogram": dict(sorted(histogram.items(), key=lambda kv: -kv[1])),
             "recent": self._turns[-10:],
         }

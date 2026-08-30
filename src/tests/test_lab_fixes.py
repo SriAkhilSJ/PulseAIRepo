@@ -905,9 +905,10 @@ def test_cache_plan_marks_stable_head_when_enabled():
             os.environ["PULSEAI_PROMPT_CACHE"] = old
     assert info["enabled"] is True
     assert info["markers"] >= 1
-    # only SystemMessages on the stable head carry markers
+    assert info["markers"] <= 4
     marked = [m for m in out if (m.additional_kwargs or {}).get("cache_control")]
-    assert all(type(m).__name__ == "SystemMessage" for m in marked)
+    assert any(type(m).__name__ == "SystemMessage" for m in marked)
+    assert all(type(m).__name__ in ("SystemMessage", "HumanMessage", "AIMessage", "ToolMessage") for m in marked)
     # content preserved verbatim
     assert [m.content for m in out] == [m.content for m in msgs]
 

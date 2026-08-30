@@ -299,6 +299,7 @@ class ContextEngine:
         # (see prompt_cache_audit.py). Records how much of each assembled
         # request is byte-identical to the previous turn's.
         self._cache_audit = None
+        self._prompt_cache_scope: str | None = None
 
         # D22 per-session history compactor (compaction.py); lazy so the
         # constructor stays I/O-free.
@@ -650,13 +651,36 @@ class ContextEngine:
             self._cache_audit = CachePrefixAudit()
         self._cache_audit.record(final_messages)
 
+        # 12. P2: resolve rotation-stable prompt-cache scope (prompt_cache_scope.py)
+        try:
+            from src.context.prompt_cache_scope import resolve_prompt_cache_scope_safe
+            scope = resolve_prompt_cache_scope_safe(self)
+            if scope:
+                self._prompt_cache_scope = scope
+            elif self.thread_id:
+                self._prompt_cache_scope = self.thread_id
+        except Exception:
+            pass
+
         return final_messages
+
+    def prompt_cache_scope(self) -> str | None:
+        if self._prompt_cache_scope:
+            return self._prompt_cache_scope
+        try:
+            from src.context.prompt_cache_scope import resolve_prompt_cache_scope_safe
+            return resolve_prompt_cache_scope_safe(self)
+        except Exception:
+            return self.thread_id
 
     def cache_audit_stats(self) -> dict:
         """D19: prompt-cache prefix-stability report for this session."""
         if self._cache_audit is None:
-            return {"turns": 0}
-        return self._cache_audit.stats()
+            return {"turns": 0, "hit_rate": None, "cache_hit_rate": None}
+        stats = self._cache_audit.stats()
+        if self._prompt_cache_scope:
+            stats["prompt_cache_scope"] = self._prompt_cache_scope
+        return stats
 
     def _build_context_layers(self, state: dict[str, Any], task_type: TaskType) -> list[SystemMessage]:
         """Build organized layers, but skip irrelevant ones for this task type.
@@ -1812,10 +1836,26 @@ class ContextEngine:
             from src.context.compaction import HistoryCompactor
             from src.llm.factory import get_auxiliary_llm
 
+            _ctx_len = getattr(self, "context_window", None)
+            if _ctx_len is None:
+                try:
+                    from src.context.model_budgets import resolve_context_window
+                    _ctx_len, _ = resolve_context_window(self.model, allow_network=False)
+                except Exception:
+                    _ctx_len = None
             self._compactor = HistoryCompactor(
                 model=self.model,
                 aux_llm_getter=get_auxiliary_llm,  # D21's janitor client
+                session_id=(self.thread_id or self._active_thread_id or ""),
+                context_length=_ctx_len,
             )
+        else:
+            try:
+                tid = self.thread_id or self._active_thread_id or ""
+                if tid:
+                    self._compactor._session_id = tid
+            except Exception:
+                pass
 
         from src.context.smart_compressor import SmartCompressor
         compressor = SmartCompressor(
