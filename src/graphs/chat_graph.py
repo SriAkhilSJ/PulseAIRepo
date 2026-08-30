@@ -1003,6 +1003,19 @@ def ai_node(
     # TRACK TOKEN USAGE
     # =========================================================
     call_usage = TokenTracker.record_call(messages, result, call_model)
+
+    # P3 (Hermes parity): feed the provider's ACTUAL usage back into the
+    # session context engine. The engine owns the compaction decision from
+    # real numbers (75% of the real window); Pulse's own counting is
+    # heuristic for unlisted models, so the provider's figure is the ground
+    # truth. Only the MAIN-agent call feeds the engine — the task_manager
+    # classifier request is a small planner call, not window pressure.
+    # Best-effort telemetry: never break the turn.
+    try:
+        get_context_engine(config).update_from_response(call_usage.to_dict())
+    except Exception:
+        pass
+
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
         [call_usage],

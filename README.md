@@ -41,7 +41,10 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Session-scoped cancellation, steering, queues, checkpointing, and provider retries.
 - Workspace-safe file and terminal tools with approval and mutation controls.
 - Verification gates for changed code, including syntax, type-check, test, UI evidence, and unresolved local dependency/source-reference checks.
-- Task-aware bounded context assembly, repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
+- Task-aware bounded context assembly (16 layers, the pluggable Hermes-parity `ContextEngine` ABC), repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
+- Usage-driven compaction: the engine owns the compaction decision from the provider's ACTUAL token usage (75% of the real window), tightens the history budget toward the lean tail while pressure persists, and re-arms after relaxation.
+- Prompt-cache prefix audit with **cache-break detection** (a regression of the stable prefix — >5% and >~2000 tokens below the session peak — is a latched `runtime.cache_break` receipt naming the offending layer) and a unified `get_status()` telemetry surface.
+- Memory layers sanitize untrusted content (secret redaction + 6k cap) before it reaches the prompt.
 - Lazy persistent memory with local embedding cache only by default; graph import never downloads a model.
 - Parallel tool execution with conflict detection and deterministic fallback.
 - Lazy, workspace-pinned access to read-only native Code OSS intelligence: editor context, dirty text, diagnostics, symbols, definitions, references, search, SCM, and trust. Mutation/extension/MCP host invocation remains gated for later phases.
@@ -287,7 +290,7 @@ The engine has shipped 437+ green tests across 40+ D-rounds. These are not plans
 | Subsystem | Module | What it does |
 |---|---|---|
 | **Chunk Index** | `src/context/chunk_index.py` | AST extraction (Python + tree-sitter for JS/TS/Go/Rust/Java) → sqlite-vec KNN + FTS5 BM25 → RRF fusion → D13 feature re-rank. Per-workspace DB, WAL mode, background watcher with polling fallback, bounded scan with file-count/byte/elapsed budgets. |
-| **Context Engine** | `src/context/context_engine.py` | 16-layer task-aware assembly, shared TaskClassifier (regex-only on turn path), per-instance LAYER_RELEVANCE (deep-copied), differential cache with VOLATILE_LAYERS set, session-scoped engines via per-thread-id registry with LRU cap (128) and per-engine API lock. |
+| **Context Engine** | `src/context/context_engine.py` | 16-layer task-aware assembly (implements the pluggable Hermes-parity `ContextEngine` ABC from `src/context/engine.py`), shared TaskClassifier (regex-only on turn path), per-instance LAYER_RELEVANCE (deep-copied), differential cache with VOLATILE_LAYERS set, session-scoped engines via per-thread-id registry with LRU cap (128) and per-engine API lock. P3: actual-usage-driven compaction (75% threshold of the real window, lean-tail tightening, anti-thrash re-arm), cache-break detection with latched `runtime.cache_break` receipts, sanitized memory layers, unified `get_status()`. |
 | **Model Budgets** | `src/context/model_budgets.py` | Dynamic context-window discovery: env override → on-disk cache (7-day TTL) → static table → live provider probe (2.5s timeout) → stale cache → conservative default. `PROVIDER_SAFE_LIMIT=0` auto mode: engine budget = proxy guard = discovered window − margin. |
 | **Git Context** | `src/context/git_context.py` | Read-only git subprocesses under one aggregate 1s deadline. Branch, status, recent commits, staged/unstaged diffs. Windows taskkill-tree termination. Returns `None` outside repos. Marked VOLATILE (rebuilt every turn). |
 | **Session Index** | `src/context/session_index.py` | FTS5 over past conversations (LangGraph checkpoints). Watermark-based incremental sync. Source demotion for sub-agents. Compaction summary skip at ingest. |

@@ -28,7 +28,7 @@ import threading
 import time
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import (
     BaseMessage,
@@ -39,6 +39,8 @@ from langchain_core.messages import (
 )
 
 from src.context.bounded_scan import ContextBudget
+from src.context.engine import ContextEngine as BaseContextEngine
+from src.context.engine import sanitize_memory_context
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
@@ -190,12 +192,22 @@ def _get_shared_classifier(allow_embedding_compute: bool = False) -> "TaskClassi
     return _SHARED_CLASSIFIER
 
 
-class ContextEngine:
+class ContextEngine(BaseContextEngine):
     """
     The Context Engine class.
 
     Engines are session-scoped (one per conversation thread, via the
     chat_graph registry) and live for that conversation.
+
+    P3 (Hermes/OpenClaude alignment): implements the pluggable
+    ContextEngine(ABC) from src/context/engine.py — the Hermes-parity
+    token-state contract (update_from_response, should_compress,
+    compress, get_status, on_turn_complete, on_session_reset). Before P3
+    the ABC was ported but dead code; the engine now OWNS the compaction
+    decision from the provider's ACTUAL usage instead of only static
+    budget trims (Hermes: threshold_percent=0.75 of the real window), and
+    surfaces one unified telemetry status (Hermes get_status + OpenClaude
+    cacheStatsTracker).
     """
 
     def __init__(
@@ -248,26 +260,15 @@ class ContextEngine:
             window, source = resolve_context_window(
                 self.model, allow_network=probe_window
             )
-            self.context_window = window
-            self.context_window_source = source
+            self._apply_window(window, source)
             usable = usable_window_budget(window)
-            if PROVIDER_SAFE_LIMIT > 0:
-                cap = PROVIDER_SAFE_LIMIT
-                hint = (
-                    f" — set PROVIDER_SAFE_LIMIT=0 to unlock {usable:,}"
-                    if usable > PROVIDER_SAFE_LIMIT else ""
+            if PROVIDER_SAFE_LIMIT > 0 and usable > PROVIDER_SAFE_LIMIT:
+                print(
+                    f"[ContextEngine] — set PROVIDER_SAFE_LIMIT=0 to unlock "
+                    f"{usable:,}"
                 )
-            else:
-                # AUTO: trust the discovered window; RetryLLMProxy resolves
-                # the same number, so engine and guard stay in lockstep.
-                cap = usable
-                hint = " (auto: trusting discovered window)"
-            self.max_tokens = max(min(usable, cap), 4_096)
-            print(
-                f"[ContextEngine] context window {window:,} for {self.model!r} "
-                f"(source: {source}); token budget {self.max_tokens:,} "
-                f"(provider cap {cap:,}){hint}"
-            )
+            elif PROVIDER_SAFE_LIMIT <= 0:
+                print("[ContextEngine] (auto: trusting discovered window)")
 
         # We reserve some tokens for "context" (the stuff we build)
         # and leave the rest for "history" (past conversation).
@@ -352,6 +353,51 @@ class ContextEngine:
         self._legacy_feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
         self._load_feedback()
 
+        # P3 (Hermes parity): usage-pressure flag. The engine tightens the
+        # history budget ONCE when the provider's ACTUAL last prompt crossed
+        # the 75% threshold; it re-arms only after usage relaxes below 60%
+        # of the window (anti-thrash — a genuinely full window gets one
+        # decisive compaction, not one per graph lap).
+        self._usage_pressure_active = False
+        # P3 (OpenClaude promptCacheBreakDetection parity): the
+        # "stable prefix regressed" receipt is latched once per session,
+        # same contract as the by-design bounding receipt.
+        self._cache_break_receipt_emitted = False
+
+    # =========================================================
+    # WINDOW / BUDGET APPLICATION (shared by init, reconfigure, update_model)
+    # =========================================================
+
+    def _apply_window(self, window: int, source: str) -> None:
+        """Apply a resolved context window to the engine budget fields.
+
+        The single place where context_window -> (context_window_source,
+        max_tokens, context_budget, history_budget, threshold_tokens)
+        flows. __init__, reconfigure_model and the ABC update_model all go
+        through here so the three entry points cannot drift apart.
+        """
+        from src.config.settings import PROVIDER_SAFE_LIMIT
+        from src.context.model_budgets import usable_window_budget
+
+        self.context_window = int(window) if window else None
+        self.context_window_source = source
+        if self.context_window:
+            usable = usable_window_budget(self.context_window)
+            # AUTO: trust the discovered window; RetryLLMProxy resolves the
+            # same number, so engine and guard stay in lockstep.
+            cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
+            self.max_tokens = max(min(usable, cap), 4_096)
+            self.context_budget = int(self.max_tokens * 0.4)
+            self.history_budget = self.max_tokens - self.context_budget
+            # Hermes threshold: the engine owns the compaction decision at
+            # 75% of the REAL window (not the trimmed budget).
+            self.threshold_tokens = int(self.context_window * self.threshold_percent)
+            print(
+                f"[ContextEngine] context window {self.context_window:,} for "
+                f"{self.model!r} (source: {source}); token budget "
+                f"{self.max_tokens:,} (provider cap {cap:,})"
+            )
+
     def reconfigure_model(self, model: str, probe_window: bool = True) -> None:
         """Point THIS engine at a different model without replacing it.
 
@@ -374,25 +420,328 @@ class ContextEngine:
             if new_model == self.model:
                 return
             self.model = new_model
-            from src.config.settings import PROVIDER_SAFE_LIMIT
-            from src.context.model_budgets import (
-                resolve_context_window,
-                usable_window_budget,
-            )
+            from src.context.model_budgets import resolve_context_window
             window, source = resolve_context_window(
                 self.model, allow_network=probe_window
             )
-            self.context_window = window
-            self.context_window_source = source
-            usable = usable_window_budget(window)
-            cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
-            self.max_tokens = max(min(usable, cap), 4_096)
-            self.context_budget = int(self.max_tokens * 0.4)
-            self.history_budget = self.max_tokens - self.context_budget
+            self._apply_window(window, source)
             print(
                 f"[ContextEngine] repointed session engine to model {self.model!r}; "
                 f"token budget {self.max_tokens:,} (source: {source})."
             )
+
+    # =========================================================
+    # P3 — Hermes/OpenClaude parity: actual-usage-driven engine
+    # =========================================================
+    #
+    # Hermes's ContextEngine owns the compaction decision from the
+    # provider's ACTUAL usage (threshold_percent=0.75 of the real window);
+    # OpenClaude adds cache-break detection (a REGRESSION in the stable
+    # prefix, >5% and >2000 tokens, is an event — not a silent cost) and a
+    # unified status surface. Pulse's turn path counts tokens with a
+    # heuristic fallback for unlisted models (tiktoken cl100k proxy,
+    # measured for sarvam), so the provider's usage number is the ground
+    # truth. ai_node feeds it in via update_from_response() after every
+    # main-agent call.
+
+    @property
+    def name(self) -> str:
+        return "layered"
+
+    def update_from_response(self, usage: Dict[str, Any]) -> None:
+        """Record the provider's ACTUAL token usage for the last response.
+
+        Canonical buckets (Hermes update_from_response): input/prompt,
+        completion, total. The numbers drive should_compress() and the
+        per-build usage pressure — the engine never guesses its own window
+        pressure from estimates alone.
+        """
+        if not usage:
+            return
+        with self._api_lock:
+            prompt = int(usage.get("prompt_tokens") or 0)
+            completion = int(usage.get("completion_tokens") or 0)
+            total = int(usage.get("total_tokens") or 0) or (prompt + completion)
+        if prompt > 0:
+            self.last_prompt_tokens = prompt
+        if completion > 0:
+            self.last_completion_tokens = completion
+        if total > 0:
+            self.last_total_tokens = total
+        if self.context_window:
+            self.threshold_tokens = int(
+                self.context_window * self.threshold_percent
+            )
+            # Anti-thrash re-arm: when the provider says usage has relaxed
+            # to <=60% of the window, the pressure episode is over — the
+            # next build returns to the normal per-task history ratio.
+            if prompt > 0 and prompt <= int(self.context_window * 0.60):
+                self._usage_pressure_active = False
+
+    def should_compress(self, prompt_tokens: int = None) -> bool:
+        """True when ACTUAL prompt usage is at/above the 75% threshold of
+        the real window (Hermes semantics). No usage yet -> False (nothing
+        to decide)."""
+        tokens = int(
+            prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
+        )
+        if tokens <= 0 or not self.context_window:
+            return False
+        return tokens >= int(self.context_window * self.threshold_percent)
+
+    def should_compress_info(
+        self, prompt_tokens: int = None
+    ) -> tuple[bool, str | None]:
+        if not self.should_compress(prompt_tokens):
+            return False, None
+        tokens = int(
+            prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
+        )
+        return True, (
+            f"actual prompt {tokens:,} tokens >= "
+            f"{int(self.threshold_percent * 100)}% threshold "
+            f"({self.threshold_tokens:,}) of the {int(self.context_window):,} window"
+        )
+
+    def compress(
+        self,
+        messages: List[Dict[str, Any]],
+        current_tokens: Optional[int] = None,
+        focus_topic: Optional[str] = None,
+        force: bool = False,
+        memory_context: str = "",
+    ) -> list:
+        """Hermes-parity entry: compact a message list toward a
+        compressible fraction of the window.
+
+        Accepts LangChain BaseMessage objects OR plain dicts (the Hermes
+        wire protocol) and returns the same shape. Head and tail are
+        protected, AI(tool_calls)/ToolMessage pairs are never split, and
+        the lean tail keeps the newest tool rounds verbatim. Reuses the
+        SAME per-session HistoryCompactor as the per-turn path, so
+        anti-thrash state (ineffective streak, summary, suppression) is
+        shared.
+        """
+        with self._api_lock:
+            if messages and isinstance(messages[0], dict):
+                msgs = self._wire_dicts_to_messages(list(messages))
+                as_dicts = True
+            else:
+                msgs = list(messages)
+                as_dicts = False
+            if not msgs:
+                return []
+            self._ensure_compactor()
+            window = self.context_window or self.max_tokens
+            target = max(int(window * 0.5), 1_024)
+            if current_tokens and int(current_tokens) > 0:
+                target = min(target, max(int(int(current_tokens) * 0.75), 1_024))
+            from src.context.smart_compressor import SmartCompressor
+            compressor = SmartCompressor(
+                model=self.model,
+                allow_embedding_compute=self._allow_embedding_compute,
+            )
+            result = self._compactor.compact(
+                msgs,
+                target,
+                summarize_tools=self._summarize_tool_messages,
+                structural_compress=lambda h, b: compressor.compress(
+                    h,
+                    budget=b,
+                    token_counter=lambda m, model: count_tokens(m, model),
+                    task=self._current_task or "",
+                ),
+                fallback_trim=lambda h, b: trim_messages_to_budget(h, b, self.model),
+            )
+            self.compression_count += 1
+            if as_dicts:
+                return [
+                    m.model_dump() if hasattr(m, "model_dump") else dict(m)
+                    for m in result
+                ]
+            return result
+
+    @staticmethod
+    def _wire_dicts_to_messages(dicts: List[Dict[str, Any]]) -> list:
+        """Convert Hermes/OpenAI wire dicts ({role,type} + content) to
+        LangChain messages. Deliberately local: langchain's
+        messages_from_dict speaks the CHECKPOINT serialization format
+        ({type, data}), not the wire format — the two must not be
+        conflated."""
+        role_map = {
+            "human": HumanMessage, "user": HumanMessage,
+            "ai": AIMessage, "assistant": AIMessage,
+            "system": SystemMessage,
+        }
+        out: list = []
+        for d in dicts:
+            role = str(d.get("type") or d.get("role") or "human").lower()
+            content = d.get("content", "")
+            if role == "tool":
+                out.append(ToolMessage(
+                    content=content,
+                    tool_call_id=str(d.get("tool_call_id") or d.get("id") or ""),
+                    name=str(d.get("name") or "tool"),
+                ))
+            else:
+                cls = role_map.get(role, HumanMessage)
+                msg = cls(content=content)
+                if role in ("ai", "assistant") and d.get("tool_calls"):
+                    try:
+                        msg.tool_calls = [
+                            (
+                                tc if isinstance(tc, dict)
+                                else tc.model_dump()
+                            )
+                            for tc in d["tool_calls"]
+                        ]
+                    except Exception:
+                        pass
+                out.append(msg)
+        return out
+
+    def _ensure_compactor(self):
+        """Lazily create (once per session) the HistoryCompactor shared by
+        the per-turn path AND the ABC compress() entry."""
+        if self._compactor is None:
+            from src.context.compaction import HistoryCompactor
+            from src.llm.factory import get_auxiliary_llm
+
+            _ctx_len = getattr(self, "context_window", None)
+            if _ctx_len is None:
+                try:
+                    from src.context.model_budgets import resolve_context_window
+                    _ctx_len, _ = resolve_context_window(
+                        self.model, allow_network=False
+                    )
+                except Exception:
+                    _ctx_len = None
+            self._compactor = HistoryCompactor(
+                model=self.model,
+                aux_llm_getter=get_auxiliary_llm,  # D21's janitor client
+                session_id=(self.thread_id or self._active_thread_id or ""),
+                context_length=_ctx_len,
+            )
+        else:
+            try:
+                tid = self.thread_id or self._active_thread_id or ""
+                if tid:
+                    self._compactor._session_id = tid
+            except Exception:
+                pass
+        return self._compactor
+
+    def _apply_usage_pressure(self, history_budget: int) -> int:
+        """Hermes threshold_percent, applied at build time.
+
+        When the provider's ACTUAL last prompt crossed 75% of the real
+        window, tighten THIS build's history budget toward the lean-tail
+        floor. One tightening per pressure episode (anti-thrash): the flag
+        re-arms only after usage has relaxed to <=60% of the window.
+        """
+        window = int(self.context_window or 0)
+        if window <= 0 or self.last_prompt_tokens <= 0:
+            return history_budget
+        if self.last_prompt_tokens < int(window * self.threshold_percent):
+            if self.last_prompt_tokens <= int(window * 0.60):
+                self._usage_pressure_active = False
+            return history_budget
+        from src.context.compaction import lean_tail_tokens_for_window
+        floor = lean_tail_tokens_for_window(window)
+        # The tightening PERSISTS for the whole episode — reverting to the
+        # base budget mid-episode would resend the oversized history and
+        # re-enter the same window overflow. The flag (not the value) is
+        # what "fires once": the counter and receipt logic bump once.
+        tightened = min(history_budget, max(int(history_budget * 0.5), floor))
+        if not self._usage_pressure_active:
+            self._usage_pressure_active = True
+            self.compression_count += 1
+            print(
+                f"[ContextEngine] usage pressure: actual prompt "
+                f"{self.last_prompt_tokens:,} >= "
+                f"{int(self.threshold_percent * 100)}% of {window:,} window — "
+                f"history budget {history_budget:,} -> {tightened:,} "
+                f"(lean-tail floor {floor:,})"
+            )
+        return tightened
+
+    def _emit_cache_break_receipt(self, rec: dict) -> None:
+        """OpenClaude promptCacheBreakDetection parity: the stable prefix
+        REGRESSED (not just started small) — that is an event. Latched once
+        per session (the WHY lives in the audit record; the receipt is the
+        flag)."""
+        try:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("runtime.cache_break", {
+                "thread_id": self.thread_id or "unknown",
+                "turn": rec.get("turn"),
+                "breaker": rec.get("breaker"),
+                "break_msg_idx": rec.get("break_msg_idx"),
+                "dropped_chars": rec.get("cache_break_dropped_chars", 0),
+                "stable_ratio": rec.get("stable_ratio"),
+            })
+        except Exception:
+            pass  # telemetry must never break a turn
+
+    def update_model(
+        self,
+        model: str,
+        context_length: int,
+        base_url: str = "",
+        api_key: str = "",
+        provider: str = "",
+        api_mode: str = "",
+    ) -> None:
+        """ABC entry: re-point the engine at a model. An explicit
+        context_length (bridge model registry) is trusted verbatim;
+        otherwise the normal discovery chain resolves it."""
+        new_model = model or self.model
+        if context_length and int(context_length) > 0:
+            with self._api_lock:
+                self.model = new_model
+                self._apply_window(int(context_length), "update-model")
+        else:
+            self.reconfigure_model(new_model)
+
+    def on_turn_complete(
+        self,
+        messages: list,
+        usage: Dict[str, Any] = None,
+        **kwargs: Any,
+    ) -> None:
+        """ABC hook: end-of-turn ingestion. Folds caller-supplied usage
+        into the same actual-usage state as update_from_response."""
+        if usage:
+            self.update_from_response(usage)
+
+    def on_session_reset(self) -> None:
+        super().on_session_reset()
+        self._usage_pressure_active = False
+        self._cache_break_receipt_emitted = False
+
+    def get_status(self) -> Dict[str, Any]:
+        """Unified telemetry surface (Hermes get_status + OpenClaude cache
+        stats + Pulse compaction counters) — one call for bridge,
+        dashboard and diagnostics."""
+        base = super().get_status()
+        window = int(self.context_window or 0)
+        base.update({
+            "name": self.name,
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "context_window": window,
+            "context_window_source": self.context_window_source,
+            "threshold_percent": self.threshold_percent,
+            "usage_percent": (
+                min(100.0, self.last_prompt_tokens / window * 100)
+                if window and self.last_prompt_tokens > 0 else 0.0
+            ),
+            "usage_pressure_active": self._usage_pressure_active,
+            "volatile_tail": bool(self._volatile_tail),
+            "compaction": self.compaction_stats(),
+            "prompt_cache": self.cache_audit_stats(),
+        })
+        return base
 
     # =========================================================
     # MAIN METHOD: Build messages for the AI node
@@ -617,8 +966,11 @@ class ContextEngine:
         # 5. Deduplicate
         scored = self._deduplicate_layers(scored)
 
-        # 6. Dynamic budget
+        # 6. Dynamic budget (+ P3 usage pressure: the provider's ACTUAL
+        # last-prompt usage can force a tighter history budget than the
+        # static per-task ratio — Hermes threshold semantics).
         context_budget, history_budget = self._allocate_budget(task_type)
+        history_budget = self._apply_usage_pressure(history_budget)
 
         # 7. Hierarchical assembly: fit highest-relevance layers first
         context_messages = self._assemble_hierarchical(scored, context_budget)
@@ -645,11 +997,18 @@ class ContextEngine:
         self._last_state_hash = current_hash
 
         # 11. D19 audit: measure prompt-cache prefix stability turn-over-turn
-        # (one prefix compare; cheap enough to be always on).
+        # (one prefix compare; cheap enough to be always on). P3: a
+        # REGRESSION of the stable prefix (OpenClaude
+        # promptCacheBreakDetection: >5% and >~2000 tokens below the
+        # session peak) is a first-class event — latched receipt so the
+        # bridge/dashboard can surface "cache prefix broke at <owner>".
         if self._cache_audit is None:
             from src.context.prompt_cache_audit import CachePrefixAudit
             self._cache_audit = CachePrefixAudit()
-        self._cache_audit.record(final_messages)
+        audit_rec = self._cache_audit.record(final_messages)
+        if audit_rec.get("cache_break") and not self._cache_break_receipt_emitted:
+            self._cache_break_receipt_emitted = True
+            self._emit_cache_break_receipt(audit_rec)
 
         # 12. P2: resolve rotation-stable prompt-cache scope (prompt_cache_scope.py)
         try:
@@ -1229,7 +1588,9 @@ class ContextEngine:
         lines = ["=== LESSONS FROM PAST TASKS ==="]
         lines.append("Based on previous work, keep these in mind:\n")
         for lesson in lessons:
-            lines.append(f"- {lesson}")
+            # P3: memory content is untrusted data — redact + cap before it
+            # reaches the prompt (Hermes sanitize_memory_context parity).
+            lines.append(f"- {sanitize_memory_context(str(lesson))}")
         lines.append("\nApply these lessons to avoid repeating past mistakes.")
         return SystemMessage(content="\n".join(lines))
 
@@ -1305,8 +1666,13 @@ class ContextEngine:
         )
 
         for mem in stale:
-            warning = mem.get("stale_warning", "Potentially outdated")
-            task_preview = mem.get("task", mem.get("text", "Unknown task"))[:100]
+            # P3: same untrusted-data rule as the other memory layers.
+            warning = sanitize_memory_context(
+                str(mem.get("stale_warning", "Potentially outdated"))
+            )
+            task_preview = sanitize_memory_context(
+                str(mem.get("task", mem.get("text", "Unknown task")))
+            )[:100]
             lines.append(f"- **{task_preview}...**")
             lines.append(f"  ⚠️ {warning}")
 
@@ -1565,7 +1931,10 @@ class ContextEngine:
 
         for i, memory in enumerate(memories, 1):
             lines.append(f"--- Memory {i} ---")
-            lines.append(memory["text"])
+            # P3: memory content is untrusted data (it may have come from a
+            # previous run on a different / adversarial workspace). Redact
+            # secrets and cap length before it reaches the prompt.
+            lines.append(sanitize_memory_context(str(memory["text"])))
             lines.append("")
 
         return SystemMessage(content="\n".join(lines))
@@ -1667,7 +2036,9 @@ class ContextEngine:
         lines = ["=== RELEVANT PAST TOOL OUTPUTS ===", "Previous tool results that may help:\n"]
         for mem in tool_memories:
             tool_name = mem.get("tool", "unknown")
-            summary = mem.get("summary", "")[:180]
+            # P3: past tool outputs are untrusted data — redact before
+            # replay, then cap for context economy.
+            summary = sanitize_memory_context(str(mem.get("summary", "")))[:180]
             lines.append(f"- {tool_name}: {summary}")
         return SystemMessage(content="\n".join(lines))
 
@@ -1832,30 +2203,7 @@ class ContextEngine:
             compacted = compact_file_mutation_arguments(history)
             return self._trim_history(self._summarize_tool_messages(compacted), budget)
 
-        if self._compactor is None:
-            from src.context.compaction import HistoryCompactor
-            from src.llm.factory import get_auxiliary_llm
-
-            _ctx_len = getattr(self, "context_window", None)
-            if _ctx_len is None:
-                try:
-                    from src.context.model_budgets import resolve_context_window
-                    _ctx_len, _ = resolve_context_window(self.model, allow_network=False)
-                except Exception:
-                    _ctx_len = None
-            self._compactor = HistoryCompactor(
-                model=self.model,
-                aux_llm_getter=get_auxiliary_llm,  # D21's janitor client
-                session_id=(self.thread_id or self._active_thread_id or ""),
-                context_length=_ctx_len,
-            )
-        else:
-            try:
-                tid = self.thread_id or self._active_thread_id or ""
-                if tid:
-                    self._compactor._session_id = tid
-            except Exception:
-                pass
+        self._ensure_compactor()
 
         from src.context.smart_compressor import SmartCompressor
         compressor = SmartCompressor(
