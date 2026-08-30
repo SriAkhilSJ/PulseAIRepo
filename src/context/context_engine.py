@@ -42,6 +42,7 @@ from src.context.bounded_scan import ContextBudget
 from src.context.engine import ContextEngine as BaseContextEngine
 from src.context.engine import sanitize_memory_context
 from src.context.token_budget import count_tokens, trim_messages_to_budget
+from src.context.usage_pressure import UsagePressure
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
@@ -210,6 +211,46 @@ class ContextEngine(BaseContextEngine):
     cacheStatsTracker).
     """
 
+    # P6: the Hermes token-state contract (ABC attributes) is owned by the
+    # extracted UsagePressure tracker; these delegating properties keep the
+    # documented attribute surface (and the ABC's on_session_reset writes)
+    # unchanged while making the tracker the single source of truth.
+    @property
+    def last_prompt_tokens(self) -> int:
+        return self._pressure.last_prompt_tokens
+
+    @last_prompt_tokens.setter
+    def last_prompt_tokens(self, value: int) -> None:
+        self._pressure.last_prompt_tokens = int(value or 0)
+
+    @property
+    def last_completion_tokens(self) -> int:
+        return self._pressure.last_completion_tokens
+
+    @last_completion_tokens.setter
+    def last_completion_tokens(self, value: int) -> None:
+        self._pressure.last_completion_tokens = int(value or 0)
+
+    @property
+    def last_total_tokens(self) -> int:
+        return self._pressure.last_total_tokens
+
+    @last_total_tokens.setter
+    def last_total_tokens(self, value: int) -> None:
+        self._pressure.last_total_tokens = int(value or 0)
+
+    @property
+    def threshold_tokens(self) -> int:
+        return self._pressure.threshold_tokens
+
+    @threshold_tokens.setter
+    def threshold_tokens(self, value: int) -> None:
+        self._pressure.threshold_tokens = int(value or 0)
+
+    @property
+    def _usage_pressure_active(self) -> bool:
+        return self._pressure.active
+
     def __init__(
         self,
         max_tokens: int | None = None,
@@ -241,6 +282,18 @@ class ContextEngine(BaseContextEngine):
                     restores legacy).
         """
         self.model = model or CONTEXT_MODEL
+
+        # P3 (Hermes parity): usage-pressure episode state — the engine
+        # tightens the history budget ONCE when the provider's ACTUAL last
+        # prompt crossed the 75% threshold; it re-arms only after usage
+        # relaxes below 60% of the window (anti-thrash — a genuinely full
+        # window gets one decisive compaction, not one per graph lap).
+        # P6: extracted to src/context/usage_pressure.py; this object is the
+        # single source of truth for the token-state contract + episode
+        # latch (the attribute surface is preserved by the delegating
+        # properties above). MUST be created before any _apply_window call:
+        # the delegating threshold_tokens setter reads it.
+        self._pressure = UsagePressure(self.threshold_percent)
 
         if volatile_tail is None:
             import os as _os
@@ -353,12 +406,6 @@ class ContextEngine(BaseContextEngine):
         self._legacy_feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
         self._load_feedback()
 
-        # P3 (Hermes parity): usage-pressure flag. The engine tightens the
-        # history budget ONCE when the provider's ACTUAL last prompt crossed
-        # the 75% threshold; it re-arms only after usage relaxes below 60%
-        # of the window (anti-thrash — a genuinely full window gets one
-        # decisive compaction, not one per graph lap).
-        self._usage_pressure_active = False
         # P3 (OpenClaude promptCacheBreakDetection parity): the
         # "stable prefix regressed" receipt is latched once per session,
         # same contract as the by-design bounding receipt.
@@ -459,24 +506,7 @@ class ContextEngine(BaseContextEngine):
         if not usage:
             return
         with self._api_lock:
-            prompt = int(usage.get("prompt_tokens") or 0)
-            completion = int(usage.get("completion_tokens") or 0)
-            total = int(usage.get("total_tokens") or 0) or (prompt + completion)
-        if prompt > 0:
-            self.last_prompt_tokens = prompt
-        if completion > 0:
-            self.last_completion_tokens = completion
-        if total > 0:
-            self.last_total_tokens = total
-        if self.context_window:
-            self.threshold_tokens = int(
-                self.context_window * self.threshold_percent
-            )
-            # Anti-thrash re-arm: when the provider says usage has relaxed
-            # to <=60% of the window, the pressure episode is over — the
-            # next build returns to the normal per-task history ratio.
-            if prompt > 0 and prompt <= int(self.context_window * 0.60):
-                self._usage_pressure_active = False
+            self._pressure.update(usage, self.context_window)
 
     def should_compress(self, prompt_tokens: int = None) -> bool:
         """True when ACTUAL prompt usage is at/above the 75% threshold of
@@ -485,9 +515,7 @@ class ContextEngine(BaseContextEngine):
         tokens = int(
             prompt_tokens if prompt_tokens is not None else self.last_prompt_tokens
         )
-        if tokens <= 0 or not self.context_window:
-            return False
-        return tokens >= int(self.context_window * self.threshold_percent)
+        return self._pressure.at_threshold(tokens, self.context_window)
 
     def should_compress_info(
         self, prompt_tokens: int = None
@@ -638,23 +666,18 @@ class ContextEngine(BaseContextEngine):
         window, tighten THIS build's history budget toward the lean-tail
         floor. One tightening per pressure episode (anti-thrash): the flag
         re-arms only after usage has relaxed to <=60% of the window.
+
+        P6: the decision lives in ``usage_pressure.UsagePressure``; the
+        engine keeps the side effects (counter, log) as the ONLY owner of
+        them — the tightening itself persists for the whole episode, so
+        reverting to the base budget mid-episode would resend the oversized
+        history into the same overflow.
         """
-        window = int(self.context_window or 0)
-        if window <= 0 or self.last_prompt_tokens <= 0:
-            return history_budget
-        if self.last_prompt_tokens < int(window * self.threshold_percent):
-            if self.last_prompt_tokens <= int(window * 0.60):
-                self._usage_pressure_active = False
-            return history_budget
-        from src.context.compaction import lean_tail_tokens_for_window
-        floor = lean_tail_tokens_for_window(window)
-        # The tightening PERSISTS for the whole episode — reverting to the
-        # base budget mid-episode would resend the oversized history and
-        # re-enter the same window overflow. The flag (not the value) is
-        # what "fires once": the counter and receipt logic bump once.
-        tightened = min(history_budget, max(int(history_budget * 0.5), floor))
-        if not self._usage_pressure_active:
-            self._usage_pressure_active = True
+        tightened, fired, floor = self._pressure.tighten(
+            history_budget, self.context_window
+        )
+        if fired:
+            window = int(self.context_window or 0)
             self.compression_count += 1
             print(
                 f"[ContextEngine] usage pressure: actual prompt "
@@ -716,7 +739,7 @@ class ContextEngine(BaseContextEngine):
 
     def on_session_reset(self) -> None:
         super().on_session_reset()
-        self._usage_pressure_active = False
+        self._pressure.reset()
         self._cache_break_receipt_emitted = False
 
     def get_status(self) -> Dict[str, Any]:
@@ -732,11 +755,8 @@ class ContextEngine(BaseContextEngine):
             "context_window": window,
             "context_window_source": self.context_window_source,
             "threshold_percent": self.threshold_percent,
-            "usage_percent": (
-                min(100.0, self.last_prompt_tokens / window * 100)
-                if window and self.last_prompt_tokens > 0 else 0.0
-            ),
-            "usage_pressure_active": self._usage_pressure_active,
+            "usage_percent": self._pressure.usage_percent(window),
+            "usage_pressure_active": self._pressure.active,
             "volatile_tail": bool(self._volatile_tail),
             "compaction": self.compaction_stats(),
             "prompt_cache": self.cache_audit_stats(),

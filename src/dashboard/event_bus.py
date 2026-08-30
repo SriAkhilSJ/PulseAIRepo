@@ -30,13 +30,18 @@ class EventBus:
         q: queue.Queue = queue.Queue(maxsize=200)
         wanted = str(thread_id) if thread_id else None
         with self._lock:
-            for evt in self._history:
-                if wanted is not None and self._session_of(evt) != wanted:
-                    continue
-                try:
-                    q.put_nowait(evt)
-                except queue.Full:
-                    break
+            if wanted is None:
+                replay = list(self._history)
+            else:
+                replay = [e for e in self._history if self._session_of(e) == wanted]
+            # P6: replay the NEWEST events that fit the queue. The previous
+            # head-first loop broke on queue-full, so a late subscriber to a
+            # busy session replayed the OLDEST retained events and missed
+            # the most recent ones — a reconnected dashboard lost the latest
+            # state. The tail slice is always <= maxsize items into an empty
+            # queue, so put_nowait cannot raise here.
+            for evt in replay[-q.maxsize:]:
+                q.put_nowait(evt)
             self._queues.append((q, wanted))
         return q
 
