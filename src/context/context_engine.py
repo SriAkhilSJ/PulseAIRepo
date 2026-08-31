@@ -43,6 +43,7 @@ from src.context.engine import sanitize_memory_context
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.task_types import TaskType  # P9: re-exported for existing imports
 from src.context import layer_policy  # P9: scoring/dedup/placement/compression/budget
+from src.context import ambiguity, plan_messages  # P10: detector + planner builders
 from src.context.usage_pressure import UsagePressure
 from src.context.feedback_memory import (
     FEEDBACK_COMPACT_AT,
@@ -1647,68 +1648,17 @@ class ContextEngine(BaseContextEngine):
         return self._detect_ambiguity_advanced(task)
 
     def _detect_ambiguity_advanced(self, task: str) -> Optional[SystemMessage]:
-        ambiguous = [
-            "fix it", "make it better", "improve", "update", "refactor",
-            "optimize", "clean up", "debug", "solve", "handle this",
-        ]
-        specific = [
-            "file", "function", "class", "method", "module",
-            "create", "add", "delete", "rename", "move",
-            "test", "bug", "error", "line", "import", "path",
-        ]
-
-        if not self._allow_embedding_compute:
-            # Deadline-bound turns use the deterministic heuristic — the
-            # advanced path encodes the task, which must never happen during
-            # context preparation.
-            return self._detect_ambiguity_fallback(task)
-
-        try:
-            from src.llm.factory import get_embedder
-            embedder = get_embedder()
-            # D2: 26 of these 27 strings are module constants — re-encoding
-            # them every single turn was the purest waste in the engine.
-            vecs = get_embedding_cache().encode(embedder, [task] + ambiguous + specific)
-            task_emb = vecs[0]
-            amb_embs = vecs[1 : 1 + len(ambiguous)]
-            spec_embs = vecs[1 + len(ambiguous) :]
-
-            amb_sim = max(sum(a * b for a, b in zip(task_emb, e)) for e in amb_embs)
-            spec_sim = max(sum(a * b for a, b in zip(task_emb, e)) for e in spec_embs)
-
-            if amb_sim > 0.55 and spec_sim < 0.50:
-                return SystemMessage(content=(
-                    "=== AMBIGUITY ALERT ===\n"
-                    "The current task appears vague or underspecified.\n\n"
-                    "Before acting, the agent should consider:\n"
-                    "- Which specific file, function, or module needs attention?\n"
-                    "- What does 'better' or 'fixed' mean in this context?\n"
-                    "- Are there tests, examples, or docs that clarify the goal?\n\n"
-                    "If the task remains unclear after checking available context, "
-                    "use ask_user() to get clarification rather than making assumptions."
-                ))
-            return None
-        except Exception:
-            # Fallback to original heuristic if embedder fails
-            return self._detect_ambiguity_fallback(task)
+        """P10: the embedding-gated advanced detector lives in
+        ambiguity.detect_ambiguity_advanced; the engine feeds it the LIVE
+        offline-policy flag so deadline-bound turns never encode."""
+        return ambiguity.detect_ambiguity_advanced(
+            task, self._allow_embedding_compute
+        )
 
     def _detect_ambiguity_fallback(self, task: str) -> Optional[SystemMessage]:
-        vague = ["fix it", "make it better", "improve", "update", "refactor",
-                 "optimize", "clean up", "debug", "solve", "handle this",
-                 "do it", "change it", "check it", "look at it"]
-        specific = ["file", "function", "class", "method", "module",
-                    "create", "add ", "delete", "rename", "move ",
-                    "test", "bug", "error", "line ", "import ",
-                    "path", "directory", "folder", "install"]
-        has_vague = any(v in task.lower() for v in vague)
-        has_specific = any(s in task.lower() for s in specific)
-        if has_vague and not has_specific:
-            return SystemMessage(content=(
-                "=== AMBIGUITY ALERT ===\n"
-                "The current task appears vague or underspecified. "
-                "Consider clarifying before acting."
-            ))
-        return None
+        """P10: ambiguity.detect_ambiguity_fallback (deterministic
+        vague/specific keyword heuristic)."""
+        return ambiguity.detect_ambiguity_fallback(task)
 
     def _tool_memory_layer(self, state: dict[str, Any]) -> Optional[SystemMessage]:
         """
@@ -1823,25 +1773,12 @@ class ContextEngine(BaseContextEngine):
 
     @staticmethod
     def _planner_prompt(planner_prompt: str) -> str:
-        """Add strict output rules so reasoning models return parseable plans."""
-        return (
-            planner_prompt
-            + "\n\nReturn ONLY the final plan as a numbered list."
-            + "\nStart every line with a number like `1.`."
-            + "\nDo not include analysis, reasoning, headings, examples, markdown, commentary, or duplicate steps."
-            + "\nDo not include unrelated filler steps."
-            + "\nKeep the plan concise: usually 3-8 steps."
-        )
+        """P10: plan_messages.wrap_planner_prompt."""
+        return plan_messages.wrap_planner_prompt(planner_prompt)
 
     def build_planner_messages(self, task: str, planner_prompt: str) -> list[BaseMessage]:
-        """
-        Build messages for the planner node.
-        This is simpler — just the prompt + the task.
-        """
-        return [
-            SystemMessage(content=self._planner_prompt(planner_prompt)),
-            HumanMessage(content=task),
-        ]
+        """P10: plan_messages.build_planner_messages (planner node)."""
+        return plan_messages.build_planner_messages(task, planner_prompt)
 
     def build_replanner_messages(
         self,
@@ -1851,52 +1788,10 @@ class ContextEngine(BaseContextEngine):
         planner_prompt: str,
         prior_attempts: list[dict] | None = None,
     ) -> list[BaseMessage]:
-        """
-        Build messages for the replanner node.
-        This includes the original task, completed work, failures,
-        and lessons from past attempts.
-        """
-        completed = [
-            step["description"]
-            for step in plan
-            if step.get("status") == "completed"
-        ]
-
-        remaining = [
-            step["description"]
-            for step in plan
-            if step.get("status") != "completed"
-        ]
-
-        lines = [
-            f"Original task:\n{task}\n",
-            "Already completed:",
-        ]
-        for step in completed:
-            lines.append(f"  - {step}")
-
-        lines.append("\nRemaining or blocked work:")
-        for step in remaining:
-            lines.append(f"  - {step}")
-
-        lines.append("\nFailures:")
-        for failure in failed_steps[-3:]:
-            lines.append(f"  - {failure}")
-
-        # Add lessons from past attempts
-        if prior_attempts:
-            lines.append("\n=== LESSONS FROM PAST ATTEMPTS ===")
-            for attempt in prior_attempts[-2:]:
-                lines.append(f"  - {attempt.get('lesson', 'No lesson recorded')}")
-
-        lines.append("\nCreate a revised plan for ONLY the remaining work.")
-        lines.append("Do not repeat completed work.")
-        lines.append("Learn from past failures and choose a different approach.")
-
-        return [
-            SystemMessage(content=self._planner_prompt(planner_prompt)),
-            HumanMessage(content="\n".join(lines)),
-        ]
+        """P10: plan_messages.build_replanner_messages (replanner node)."""
+        return plan_messages.build_replanner_messages(
+            task, plan, failed_steps, planner_prompt, prior_attempts
+        )
 
     def build_reviser_messages(
         self,
@@ -1905,23 +1800,7 @@ class ContextEngine(BaseContextEngine):
         revision: str,
         planner_prompt: str,
     ) -> list[BaseMessage]:
-        """Build messages for the plan reviser node."""
-        plan_text = "\n".join(
-            f"{step.get('id', i)}. {step.get('description', '')}"
-            for i, step in enumerate(plan, start=1)
+        """P10: plan_messages.build_reviser_messages (plan reviser node)."""
+        return plan_messages.build_reviser_messages(
+            task, plan, revision, planner_prompt
         )
-
-        content = (
-            f"Original task:\n{task}\n\n"
-            f"Current plan:\n{plan_text}\n\n"
-            f"User requested this plan change:\n{revision}\n\n"
-            "Revise the current plan according to the user's request.\n"
-            "Preserve steps that do not need to change.\n"
-            "Return the complete revised plan.\n"
-            "Do not execute anything."
-        )
-
-        return [
-            SystemMessage(content=self._planner_prompt(planner_prompt)),
-            HumanMessage(content=content),
-        ]
