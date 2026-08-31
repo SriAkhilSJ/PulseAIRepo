@@ -140,7 +140,19 @@ class SmartCompressor:
                     in answered_call_ids
                 ]
                 if kept_calls:
-                    first_pass.append(m)
+                    if len(kept_calls) == len(m.tool_calls):
+                        first_pass.append(m)
+                    else:
+                        # P6: materialize the FILTERED call list. Appending
+                        # the original message kept unanswered tool_calls,
+                        # which OpenAI/Anthropic-compatible APIs reject
+                        # ("each tool_call must be answered") — a pre-trimmed
+                        # mid-turn history could 400 the next request.
+                        first_pass.append(AIMessage(
+                            content=m.content,
+                            tool_calls=kept_calls,
+                            id=getattr(m, "id", None),
+                        ))
                 elif m.content:
                     # AI text without its tool exchange is still valid prose
                     first_pass.append(

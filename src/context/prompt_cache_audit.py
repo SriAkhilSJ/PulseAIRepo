@@ -38,6 +38,17 @@ _DEFAULT_JSONL = os.path.join(
 )
 _jsonl_lock = threading.Lock()
 
+# P3 — OpenClaude promptCacheBreakDetection parity. A "cache break" is a
+# REGRESSION of the stable prefix, not merely a small prefix: tail growth
+# (the normal case) shrinks the stable RATIO but never the stable SIZE.
+# So the break test is on the absolute stable size: it must drop by more
+# than MIN_BREAK_RATIO of the peak request AND by more than ~2000 tokens
+# (MIN_BREAK_CHARS, at this repo's chars/4 accounting). Below that floor a
+# reordering is noise; above it, the provider cache genuinely lost prefix
+# bytes and the cost multiplier is back.
+MIN_BREAK_RATIO = 0.05
+MIN_BREAK_CHARS = 2_000 * 4
+
 
 def _flatten(content: Any) -> str:
     if isinstance(content, str):
@@ -110,6 +121,10 @@ class CachePrefixAudit:
         self._turns: list[dict] = []
         self._prev_text: str | None = None
         self._prev_owners: list[str] = []
+        # P3: session peak of the stable prefix (absolute chars), used by
+        # the cache-break regression test.
+        self._peak_stable_chars = 0
+        self._peak_total_chars = 0
         env = os.environ.get("PULSEAI_CACHE_AUDIT_JSONL", "")
         self._jsonl_path = jsonl_path or (
             _DEFAULT_JSONL if env.strip() == "1" else (env.strip() or None)
@@ -140,6 +155,23 @@ class CachePrefixAudit:
                         break
                 else:
                     breaker = owners[-1] if owners else "unknown"
+            # P3 cache-break regression test (OpenClaude parity): did the
+            # stable prefix SHRINK vs the session peak by more than the
+            # noise floor? Peak tracks the best (largest) stable prefix we
+            # have ever held, so tail growth can never fire this.
+            cache_break = False
+            peak_drop_chars = 0
+            if self._peak_stable_chars > 0 and stable < self._peak_stable_chars:
+                peak_drop_chars = self._peak_stable_chars - stable
+                if (
+                    peak_drop_chars >= MIN_BREAK_CHARS
+                    and peak_drop_chars
+                    >= int(MIN_BREAK_RATIO * max(self._peak_total_chars, 1))
+                ):
+                    cache_break = True
+            if stable > self._peak_stable_chars:
+                self._peak_stable_chars = stable
+                self._peak_total_chars = len(text)
             rec = {
                 "turn": len(self._turns) + 1,
                 "total_chars": len(text),
@@ -147,6 +179,8 @@ class CachePrefixAudit:
                 "stable_ratio": round(stable / max(len(text), 1), 4),
                 "breaker": breaker,
                 "break_msg_idx": break_idx,
+                "cache_break": cache_break,
+                "cache_break_dropped_chars": peak_drop_chars if cache_break else 0,
             }
 
         self._turns.append(rec)
@@ -189,6 +223,7 @@ class CachePrefixAudit:
             round(reached_history / len(comparable), 3) if comparable else None
         )
         hit_rate = round(reached_history / len(comparable), 4) if comparable else None
+        breaks = [t for t in self._turns if t.get("cache_break")]
         return {
             "turns": len(self._turns),
             "comparable_turns": len(comparable),
@@ -197,6 +232,10 @@ class CachePrefixAudit:
             "prefix_reached_history_pct": verdict,
             "hit_rate": hit_rate,
             "cache_hit_rate": hit_rate,
+            # P3 (OpenClaude parity): regressions of the stable prefix are
+            # events, counted and surfaced with their breaker + index.
+            "cache_breaks": len(breaks),
+            "last_cache_break": breaks[-1] if breaks else None,
             "breaker_histogram": dict(sorted(histogram.items(), key=lambda kv: -kv[1])),
             "recent": self._turns[-10:],
         }
