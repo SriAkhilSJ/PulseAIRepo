@@ -1,0 +1,24 @@
+# Frontend verification — provider-free (no runtime URL contacted, no CopilotKit cloud)
+
+$ cd pulse-webview && npx tsc -b
+exit=0
+
+$ cd pulse-webview && npm test
+ Test Files  2 passed (2)
+      Tests  48 passed (48)
+   Start at  06:42:32
+   Duration  7.55s (transform 1.24s, setup 28ms, collect 3.87s, tests 2.42s, environment 769ms, prepare 138ms)
+
+
+$ cd pulse-webview && npx vite build
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+$ css smoke: ported classes present in the built stylesheet
+pulse-tool-ticker__reel=dist/assets/index-BIEEpTkm.css:1
+pulse-scaffold-label=dist/assets/index-BIEEpTkm.css:1
+pulse-diff-line--add=dist/assets/index-BIEEpTkm.css:1
+pulse-approval__run=dist/assets/index-BIEEpTkm.css:1
+pulse-stable-text__cell=dist/assets/index-BIEEpTkm.css:1

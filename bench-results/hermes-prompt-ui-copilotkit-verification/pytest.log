@@ -1,0 +1,26 @@
+# Provider-free verification log — Hermes prompt engine + Agent UI port into Pulse
+# date: 2026-08-31T06:38:10Z  host: linux sandbox, no provider key present
+
+$ python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q
+
+src/tests/test_hermes_prompt_parity.py ................................. [ 49%]
+........................                                                 [ 85%]
+src/tests/test_hermes_prompt_session_cache.py ..........                 [100%]
+
+============================== 67 passed in 1.75s ==============================
+
+$ python3 -m pytest src/tests -q   (full backend suite; 6 pre-existing failures on the pristine base too)
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.11/pathlib.py:1045: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/user/PulseAIRepo/ui/src/runtime/toolCatalog.ts'
+=========================== short test summary info ============================
+FAILED src/tests/test_autonomous_runtime_contract.py::test_ai_node_builds_expected_first_sarvam_request_without_provider_call
+FAILED src/tests/test_desktop_renderer_architecture.py::test_renderer_boundary_is_browser_safe_and_text_only
+FAILED src/tests/test_desktop_renderer_architecture.py::test_native_and_lab_catalogs_cover_the_same_36_tools
+FAILED src/tests/test_desktop_renderer_architecture.py::test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native
+FAILED src/tests/test_ui_tool_catalog.py::test_ui_catalog_covers_every_runtime_tool_name
+FAILED src/tests/test_ui_tool_catalog.py::test_terminal_family_has_real_pulse_process_tools
+============ 6 failed, 1200 passed, 3 skipped in 242.64s (0:04:02) =============

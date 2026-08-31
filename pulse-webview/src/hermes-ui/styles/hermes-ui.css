@@ -1,0 +1,1463 @@
+/* Ported transcript styles for the Pulse webview.
+ *
+ * Upstream ships these as Tailwind utilities inside each component. This tier has
+ * no Tailwind (the webview is React + plain CSS), so the SAME numbers live here
+ * as one stylesheet, keyed to the same data-* attributes the ported components
+ * emit. Two consequences worth naming: the fork can retheme the embed by setting
+ * the --pulse-* variables on the iframe host, and every measurement below is a
+ * constant the components were ported against (7.5rem collapse, 120px ticker row,
+ * 1ch cells), not a new design decision.
+ */
+
+.pulse-thread {
+  --pulse-conversation-line-height: 1.5;
+  --pulse-conversation-font-size: 0.8125rem;
+  --pulse-tool-font-size: 0.75rem;
+  --pulse-row-gap: 0.125rem;
+  --pulse-scaffold-text: var(--pulse-text-secondary, #6b6b6b);
+  --pulse-scaffold-meta: var(--pulse-text-tertiary, #8a8a8a);
+  --pulse-text-primary: var(--cpk-color-zinc-900, #1a1a1a);
+  --pulse-text-secondary: #4a4a4a;
+  --pulse-text-tertiary: #7a7a7a;
+  --pulse-stroke-tertiary: #e2e2e2;
+  --pulse-surface: #ffffff;
+  --pulse-surface-muted: #f6f6f6;
+  --pulse-accent: #0b6bcb;
+  --pulse-destructive: #b3261e;
+  --pulse-diff-add-bg: #eaffea;
+  --pulse-diff-add-border: #1a7f37;
+  --pulse-diff-remove-bg: #ffecef;
+  --pulse-diff-remove-border: #cf222e;
+  --pulse-ticker-line-height: 1.35rem;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  font-size: var(--pulse-conversation-font-size);
+  line-height: var(--pulse-conversation-line-height);
+  color: var(--pulse-text-primary);
+  background: var(--pulse-surface);
+}
+
+:root:has(> body.pulse-dark) .pulse-thread,
+.pulse-thread.pulse-theme-dark {
+  --pulse-text-primary: #eaeaea;
+  --pulse-text-secondary: #c2c2c2;
+  --pulse-text-tertiary: #9d9d9d;
+  --pulse-scaffold-text: #a6a6a6;
+  --pulse-scaffold-meta: #7e7e7e;
+  --pulse-stroke-tertiary: #3a3a3a;
+  --pulse-surface: #1e1e1e;
+  --pulse-surface-muted: #252526;
+  --pulse-diff-add-bg: #14321f;
+  --pulse-diff-remove-bg: #3a1d20;
+}
+
+.pulse-thread__scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  padding: 0.75rem 0.875rem 1.25rem;
+  /* The scroller is the single scroll owner; the browser must not anchor it
+   * while a turn above the viewport is being paged in. */
+  overflow-anchor: none;
+}
+
+.pulse-thread__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pulse-thread__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* The live tail is never virtualized, so a turn is only skipped once its layout
+ * has settled at its final size (see liveTailStart). */
+.pulse-thread__group--virtualized {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+.pulse-thread__show-earlier {
+  align-self: center;
+  margin-bottom: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--pulse-scaffold-text);
+  background: transparent;
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.pulse-thread__show-earlier:hover {
+  color: var(--pulse-text-primary);
+}
+
+/* ------------------------------------------------------------------ messages */
+
+.pulse-user-message {
+  display: flex;
+  justify-content: flex-end;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.125rem 0;
+  background: linear-gradient(var(--pulse-surface) 70%, transparent);
+}
+
+.pulse-user-message__text {
+  margin: 0;
+  max-width: 86%;
+  padding: 0.375rem 0.625rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 0.625rem;
+  background: var(--pulse-surface-muted);
+  color: var(--pulse-text-primary);
+}
+
+.pulse-system-message {
+  align-self: center;
+  max-width: min(86%, 44rem);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  line-height: 1.25rem;
+  color: var(--pulse-scaffold-text);
+  text-align: center;
+}
+
+.pulse-assistant-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.pulse-assistant-message__text {
+  color: var(--pulse-text-primary);
+}
+
+.pulse-assistant-message__failure {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--pulse-destructive);
+  border-left: 2px solid var(--pulse-destructive);
+  background: color-mix(in srgb, var(--pulse-destructive) 6%, transparent);
+}
+
+/* --------------------------------------------------------------- scaffolding */
+
+/* The resting fade lives on the BLOCK, not the row: a surface that skips the
+ * mark reads a shade brighter than its neighbours. */
+[data-conversation-scaffold] {
+  opacity: 0.72;
+  transition: opacity 120ms ease;
+}
+
+[data-conversation-scaffold]:hover,
+[data-conversation-scaffold]:focus-within {
+  opacity: 1;
+}
+
+.pulse-scaffold-label {
+  font-size: var(--pulse-tool-font-size);
+  line-height: var(--pulse-conversation-line-height);
+  color: var(--pulse-scaffold-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-scaffold-meta {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--pulse-scaffold-meta);
+}
+
+.pulse-scaffold-glyph {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.pulse-scaffold-line {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.pulse-scaffold-status {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  line-height: var(--pulse-conversation-line-height);
+  color: var(--pulse-scaffold-text);
+}
+
+.pulse-scaffold-hint {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-scaffold-pulse {
+  display: inline-block;
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+  border-radius: 2px;
+  background: currentColor;
+  animation: pulse-opacity 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-opacity {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.pulse-shimmer {
+  background: linear-gradient(90deg, var(--pulse-scaffold-text) 0%, var(--pulse-text-primary) 45%, var(--pulse-scaffold-text) 90%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pulse-shimmer 2.4s linear infinite;
+}
+
+@keyframes pulse-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A row of 1ch cells: characters can't shift the layout as they change. */
+.pulse-stable-text {
+  display: inline-flex;
+}
+
+.pulse-stable-text__cell {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  white-space: pre;
+}
+
+/* ------------------------------------------------------------ disclosure row */
+
+.pulse-disclosure-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  border-radius: 0.3125rem;
+}
+
+.pulse-disclosure-row__title {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.125rem 0.25rem;
+  margin: 0;
+  font: inherit;
+  text-align: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.pulse-disclosure-row__title:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pulse-text-tertiary) 12%, transparent);
+}
+
+.pulse-disclosure-row__title--static {
+  cursor: default;
+}
+
+.pulse-disclosure-row__stack {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+/* No leading chevron; a caret appears to the RIGHT on hover and stays when open. */
+.pulse-disclosure-row__caret {
+  flex-shrink: 0;
+  opacity: 0;
+  font-size: 0.625rem;
+  transition: opacity 100ms ease, transform 120ms ease;
+}
+
+.pulse-disclosure-row:hover .pulse-disclosure-row__caret,
+.pulse-disclosure-row__title:focus-visible .pulse-disclosure-row__caret,
+.pulse-disclosure-row__caret[data-open='true'] {
+  opacity: 0.8;
+}
+
+.pulse-disclosure-row__caret[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+.pulse-disclosure-row__action,
+.pulse-disclosure-row__trailing {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  padding-right: 0.25rem;
+}
+
+/* ------------------------------------------------------------- status row */
+
+.pulse-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.5rem;
+  min-width: 0;
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+}
+
+.pulse-status-row--activatable {
+  cursor: pointer;
+}
+
+.pulse-status-row--activatable:hover {
+  background: color-mix(in srgb, var(--pulse-text-tertiary) 10%, transparent);
+}
+
+.pulse-status-row__leading {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.pulse-status-row__body {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.pulse-status-row__trailing {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.pulse-status-row__trailing--reveal {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.pulse-status-row:hover .pulse-status-row__trailing--reveal,
+.pulse-status-row:focus-within .pulse-status-row__trailing--reveal {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ------------------------------------------------------- expandable block */
+
+.pulse-expandable {
+  position: relative;
+  min-width: 0;
+}
+
+.pulse-expandable__scroll {
+  max-height: 7.5rem; /* 121px — the collapsed budget the toggle only appears above */
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.pulse-expandable__scroll--expanded {
+  max-height: none;
+}
+
+.pulse-expandable__fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  height: 2.25rem;
+  /* A pure overflow cue: it spans the bottom edge but must not eat clicks or
+   * the wheel, so only the pinned toggle is interactive. */
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--pulse-surface));
+}
+
+.pulse-expandable__toggle {
+  pointer-events: auto;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0 0.25rem;
+  font-size: 0.625rem;
+  line-height: 1rem;
+  color: var(--pulse-text-tertiary);
+  background: var(--pulse-surface);
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+/* -------------------------------------------------------- terminal + ticker */
+
+.pulse-terminal {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.375rem 0.5rem;
+  font-family: var(--pulse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  white-space: pre;
+  color: var(--pulse-text-secondary);
+  background: var(--pulse-surface-muted);
+  border-radius: 0.25rem;
+}
+
+.pulse-tool-ticker {
+  height: var(--pulse-ticker-line-height);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.pulse-tool-ticker__reel {
+  display: flex;
+  flex-direction: column;
+  /* One line per new row: the reel slides up by the row index. */
+  transform: translateY(calc(var(--pulse-ticker-index, 0) * var(--pulse-ticker-line-height) * -1));
+  transition: transform 160ms ease;
+}
+
+.pulse-tool-ticker__row {
+  height: var(--pulse-ticker-line-height);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------- tool rows */
+
+.pulse-tool-group {
+  display: grid;
+  gap: var(--pulse-row-gap);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.pulse-tool-run {
+  display: grid;
+  gap: var(--pulse-row-gap);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.pulse-tool-run__rows {
+  display: grid;
+  gap: var(--pulse-row-gap);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pulse-tool-run-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-tool-block {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--pulse-tool-font-size);
+  color: var(--pulse-text-tertiary);
+  border-radius: 0.3125rem;
+}
+
+.pulse-tool-block--open {
+  border: 1px solid var(--pulse-stroke-tertiary);
+  background: var(--pulse-surface);
+}
+
+.pulse-tool-block__head--open {
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--pulse-stroke-tertiary);
+}
+
+.pulse-tool-block--open .pulse-disclosure-row__title {
+  padding-left: 0;
+}
+
+.pulse-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.pulse-tool-glyph-wrap {
+  display: grid;
+  place-items: center;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+.pulse-tool-glyph {
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--pulse-text-tertiary);
+}
+
+.pulse-tool-glyph--running {
+  animation: pulse-spin 1.8s linear infinite;
+}
+
+.pulse-tool-glyph--error {
+  color: var(--pulse-destructive);
+  font-weight: 700;
+}
+
+.pulse-tool-glyph--warning {
+  color: #b26a00;
+}
+
+@keyframes pulse-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pulse-tool-title--pending {
+  color: var(--pulse-scaffold-meta);
+}
+
+.pulse-tool-title--error {
+  color: var(--pulse-destructive);
+}
+
+.pulse-tool-title--warning {
+  color: #8a5a00;
+}
+
+.pulse-tool-title--legendary {
+  color: #7a4fb3;
+}
+
+.pulse-tool-dismiss {
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--pulse-text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.pulse-disclosure-row:hover .pulse-tool-dismiss,
+.pulse-tool-dismiss:focus-visible {
+  opacity: 0.8;
+}
+
+.pulse-tool-dismiss:hover {
+  opacity: 1;
+  color: var(--pulse-text-primary);
+}
+
+.pulse-tool-body {
+  position: relative;
+  display: grid;
+  gap: 0.375rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0.375rem;
+}
+
+.pulse-tool-copy {
+  position: absolute;
+  top: 0.375rem;
+  right: 1rem;
+  z-index: 1;
+  height: 1.125rem;
+  padding: 0 0.25rem;
+  font-size: 0.625rem;
+  color: var(--pulse-text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  opacity: 0.05;
+  transition: opacity 100ms ease;
+}
+
+.pulse-tool-block:hover .pulse-tool-copy,
+.pulse-tool-copy:focus-visible {
+  opacity: 1;
+}
+
+.pulse-tool-section-label {
+  margin: 0 0 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pulse-text-tertiary);
+}
+
+.pulse-tool-section-surface {
+  max-height: 5rem;
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.375rem 0.5rem;
+  color: var(--pulse-text-secondary);
+  background: transparent;
+}
+
+.pulse-tool-section-pre {
+  margin: 0;
+  font-family: var(--pulse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.pulse-tool-section-payload {
+  font-size: 0.65rem;
+}
+
+.pulse-tool-section {
+  max-width: 100%;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--pulse-text-secondary);
+}
+
+.pulse-tool-detail--code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pulse-tool-detail--prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
+.pulse-tool-error {
+  color: var(--pulse-destructive);
+  max-width: 100%;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.pulse-tool-error__summary {
+  margin: 0;
+  font-weight: 500;
+}
+
+.pulse-tool-error__body {
+  margin: 0;
+  max-height: 14rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--pulse-destructive) 90%, var(--pulse-text-secondary));
+}
+
+.pulse-tool-stream {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.pulse-tool-stream--second {
+  margin-top: 0.375rem;
+}
+
+.pulse-tool-stream__out,
+.pulse-tool-stream__err {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pulse-tool-stream__err {
+  color: var(--pulse-text-tertiary);
+}
+
+.pulse-tool-payload {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.pulse-tool-payload__toggle {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  font-size: 0.625rem;
+  color: var(--pulse-text-tertiary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.pulse-tool-payload__caret {
+  transition: transform 120ms ease;
+}
+
+.pulse-tool-payload__caret--open {
+  transform: rotate(180deg);
+}
+
+.pulse-terminal-transcript {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  font-family: var(--pulse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.25rem;
+  background: var(--pulse-surface-muted);
+}
+
+.pulse-terminal-transcript__command {
+  min-width: 0;
+  flex: 1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--pulse-text-secondary);
+}
+
+.pulse-terminal-transcript__prompt {
+  user-select: none;
+  color: var(--pulse-accent);
+}
+
+.pulse-terminal-transcript__exit {
+  flex-shrink: 0;
+  padding: 0 0.25rem;
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  border-radius: 0.1875rem;
+  background: color-mix(in srgb, var(--pulse-text-tertiary) 14%, transparent);
+}
+
+.pulse-terminal-transcript__exit--ok {
+  color: #1a7f37;
+}
+
+.pulse-terminal-transcript__exit--fail {
+  color: #b26a00;
+}
+
+.pulse-tool-image {
+  max-width: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.25rem;
+}
+
+.pulse-tool-image__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+.pulse-tool-preview-link {
+  justify-self: start;
+  font-size: 0.6875rem;
+  color: var(--pulse-accent);
+  text-decoration: none;
+}
+
+.pulse-tool-preview-link:hover {
+  text-decoration: underline;
+}
+
+.pulse-search-hits {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pulse-search-hits a {
+  display: grid;
+  gap: 0.125rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.pulse-search-hits__title {
+  font-weight: 500;
+  color: var(--pulse-text-primary);
+}
+
+.pulse-search-hits__snippet {
+  color: var(--pulse-text-secondary);
+}
+
+.pulse-search-hits__url {
+  font-size: 0.625rem;
+  color: var(--pulse-text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.pulse-tool-search-query {
+  display: flex;
+  gap: 0.375rem;
+  margin: 0 0 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pulse-tool-search-query__label {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--pulse-text-tertiary);
+}
+
+/* --------------------------------------------------------------------- diffs */
+
+.pulse-diff-box {
+  margin: 0 -0.375rem -0.375rem;
+  max-height: 12rem;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  /* Reaching the box's edges hands the wheel back to the page; a trackpad's
+   * sideways overscroll must not fire browser navigation. */
+  overscroll-behavior-y: contain;
+  font-family: var(--pulse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--pulse-text-secondary);
+}
+
+.pulse-diff-box--flush {
+  margin: 0;
+}
+
+.pulse-diff-line {
+  display: block;
+  min-width: max-content;
+  white-space: pre;
+  border-left: 2px solid transparent;
+  padding: 1px 0.625rem;
+}
+
+.pulse-diff-line--numbered {
+  white-space: pre;
+}
+
+.pulse-diff-line__no {
+  display: inline-block;
+  width: 3ch;
+  margin-right: 0.5rem;
+  text-align: right;
+  color: var(--pulse-text-tertiary);
+  user-select: none;
+}
+
+.pulse-diff-line--add {
+  border-left-color: var(--pulse-diff-add-border);
+  background: var(--pulse-diff-add-bg);
+  color: #0f5323;
+}
+
+.pulse-diff-line--remove {
+  border-left-color: var(--pulse-diff-remove-border);
+  background: var(--pulse-diff-remove-bg);
+  color: #82071e;
+}
+
+.pulse-diff-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-family: var(--pulse-font-mono, ui-monospace, monospace);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pulse-diff-count__add {
+  color: #0f8a3d;
+}
+
+.pulse-diff-count__remove {
+  color: #c50000;
+}
+
+/* ------------------------------------------------------------------ approval */
+
+.pulse-approval {
+  margin: 0.125rem 0 0 1.25rem;
+  min-width: 0;
+}
+
+.pulse-approval__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.pulse-approval__warning {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  color: #8a5a00;
+}
+
+.pulse-approval__run,
+.pulse-approval__session,
+.pulse-approval__deny,
+.pulse-approval__expand {
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.pulse-approval__run {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #ffffff;
+  background: var(--pulse-accent);
+}
+
+.pulse-approval__session {
+  color: var(--pulse-accent);
+  border-color: color-mix(in srgb, var(--pulse-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--pulse-accent) 10%, transparent);
+}
+
+.pulse-approval__deny,
+.pulse-approval__expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 400;
+  color: var(--pulse-text-tertiary);
+  background: transparent;
+}
+
+.pulse-approval__deny:hover,
+.pulse-approval__expand:hover {
+  color: var(--pulse-text-primary);
+}
+
+.pulse-approval__run:disabled,
+.pulse-approval__session:disabled,
+.pulse-approval__deny:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pulse-approval__key {
+  font-size: 0.625rem;
+  opacity: 0.6;
+}
+
+.pulse-approval__caret {
+  transition: transform 120ms ease;
+  font-size: 0.625rem;
+}
+
+.pulse-approval__caret--open {
+  transform: rotate(180deg);
+}
+
+.pulse-approval__command,
+.pulse-approval__diff {
+  margin: 0.375rem 0 0;
+  max-height: 10rem;
+  overflow: auto;
+  padding: 0.375rem 0.625rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--pulse-font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--pulse-text-primary);
+  background: var(--pulse-surface-muted);
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.375rem;
+}
+
+/* ----------------------------------------------------------- changed files */
+
+.pulse-changed-files {
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  font-size: var(--pulse-tool-font-size);
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.5rem;
+  background: var(--pulse-surface);
+}
+
+.pulse-changed-files__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pulse-changed-files__count {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pulse-text-primary);
+}
+
+.pulse-changed-files__review {
+  flex-shrink: 0;
+  padding: 0;
+  font-size: inherit;
+  color: var(--pulse-text-tertiary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.pulse-changed-files__review:hover {
+  color: var(--pulse-text-primary);
+}
+
+.pulse-changed-files__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  margin: 0.25rem -0.375rem 0;
+  padding: 0 0.375rem;
+  max-height: 9.375rem; /* ~5 rows */
+  overflow: auto;
+  list-style: none;
+}
+
+.pulse-changed-files__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.375rem;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.pulse-changed-files__row:hover {
+  background: color-mix(in srgb, var(--pulse-text-tertiary) 10%, transparent);
+}
+
+.pulse-changed-files__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pulse-text-secondary);
+}
+
+.pulse-changed-files__more {
+  margin: 0.25rem 0 0;
+  font-size: 0.625rem;
+  color: var(--pulse-text-tertiary);
+}
+
+/* ------------------------------------------------------------- run status */
+
+.pulse-run-status {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--pulse-scaffold-text);
+  border-left: 2px solid var(--pulse-stroke-tertiary);
+}
+
+.pulse-run-status__plan {
+  display: grid;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.pulse-run-status__step {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.pulse-run-status__step::before {
+  content: '';
+  width: 0.375rem;
+  height: 0.375rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--pulse-text-tertiary);
+}
+
+.pulse-run-status__step--done::before {
+  background: #1a7f37;
+}
+
+.pulse-run-status__step--running::before {
+  background: var(--pulse-accent);
+  animation: pulse-opacity 1.6s ease-in-out infinite;
+}
+
+.pulse-run-status__step--failed::before {
+  background: var(--pulse-destructive);
+}
+
+.pulse-run-status__step--skipped {
+  opacity: 0.55;
+}
+
+.pulse-run-status__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.pulse-run-status__check {
+  padding: 0 0.3125rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.625rem;
+  color: var(--pulse-text-tertiary);
+}
+
+.pulse-run-status__check--passed {
+  color: #0f5323;
+  border-color: color-mix(in srgb, #1a7f37 40%, transparent);
+}
+
+.pulse-run-status__check--failed {
+  color: var(--pulse-destructive);
+  border-color: color-mix(in srgb, var(--pulse-destructive) 40%, transparent);
+}
+
+.pulse-run-status__degraded {
+  margin: 0;
+  color: #8a5a00;
+}
+
+/* ------------------------------------------------------------------- rail */
+
+.pulse-timeline {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.125rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem;
+}
+
+.pulse-timeline__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pulse-text-tertiary) 55%, transparent);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.pulse-timeline__dot:hover,
+.pulse-timeline__dot[aria-current='true'] {
+  background: var(--pulse-accent);
+  transform: scale(1.6);
+}
+
+/* A dot is 6px; the preview is the accessible name, not painted text. */
+.pulse-timeline__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* ---------------------------------------------------------------- empty state */
+
+.pulse-empty-state {
+  display: grid;
+  gap: 0.375rem;
+  place-content: center;
+  justify-items: center;
+  min-height: 8rem;
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--pulse-text-tertiary);
+}
+
+.pulse-empty-state__title {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--pulse-text-secondary);
+}
+
+.pulse-empty-state__body {
+  max-width: 34rem;
+  font-size: 0.75rem;
+}
+
+/* ---------------------------------------------------------------- markdown */
+
+.pulse-md {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.pulse-md__p,
+.pulse-md__heading,
+.pulse-md__list {
+  margin: 0;
+}
+
+.pulse-md__heading {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.pulse-md__list {
+  padding-left: 1.125rem;
+  display: grid;
+  gap: 0.125rem;
+}
+
+.pulse-md__p,
+.pulse-md__list li {
+  overflow-wrap: anywhere;
+}
+
+.pulse-md__link {
+  color: var(--pulse-accent);
+  text-decoration: none;
+}
+
+.pulse-md__link:hover {
+  text-decoration: underline;
+}
+
+.pulse-md__code {
+  padding: 0.0625rem 0.25rem;
+  font-family: var(--pulse-font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+  background: var(--pulse-surface-muted);
+  border-radius: 0.25rem;
+}
+
+.pulse-md__pre-wrap {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.3125rem;
+  background: var(--pulse-surface-muted);
+}
+
+.pulse-md__pre-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.1875rem 0.375rem;
+  font-size: 0.625rem;
+  color: var(--pulse-text-tertiary);
+  border-bottom: 1px solid var(--pulse-stroke-tertiary);
+}
+
+.pulse-md__lang {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.pulse-md__copy {
+  margin-left: auto;
+  padding: 0 0.25rem;
+  font-size: 0.625rem;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.pulse-md__copy:hover {
+  opacity: 1;
+}
+
+.pulse-md__pre {
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  font-family: var(--pulse-font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.pulse-fade-text {
+  animation: pulse-fade-in 160ms ease-out;
+}
+
+@keyframes pulse-fade-in {
+  from {
+    opacity: 0.2;
+    filter: blur(1px);
+  }
+
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-shimmer,
+  .pulse-scaffold-pulse,
+  .pulse-tool-glyph--running,
+  .pulse-fade-text,
+  .pulse-run-status__step--running::before {
+    animation: none;
+  }
+
+  .pulse-tool-ticker__reel,
+  .pulse-disclosure-row__caret,
+  .pulse-expandable__fade {
+    transition: none;
+  }
+}
+
+.pulse-composer {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0.625rem;
+  border-top: 1px solid var(--pulse-stroke-tertiary);
+  background: var(--pulse-surface);
+}
+
+.pulse-composer__input {
+  width: 100%;
+  resize: none;
+  padding: 0.375rem 0.5rem;
+  font: inherit;
+  color: var(--pulse-text-primary);
+  background: var(--pulse-surface-muted);
+  border: 1px solid var(--pulse-stroke-tertiary);
+  border-radius: 0.375rem;
+}
+
+.pulse-composer__input:focus-visible {
+  outline: 1px solid var(--pulse-accent);
+}
+
+.pulse-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  justify-content: flex-end;
+}
+
+.pulse-composer__send,
+.pulse-composer__stop {
+  height: 1.625rem;
+  padding: 0 0.625rem;
+  font-size: 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.pulse-composer__send {
+  color: #fff;
+  background: var(--pulse-accent);
+}
+
+.pulse-composer__send--idle {
+  opacity: 0.5;
+}
+
+.pulse-composer__stop {
+  color: var(--pulse-destructive);
+  border-color: color-mix(in srgb, var(--pulse-destructive) 35%, transparent);
+  background: transparent;
+}

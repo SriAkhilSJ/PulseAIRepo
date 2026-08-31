@@ -32,6 +32,53 @@ def _cache_enabled(provider: str | None = None, model: str | None = None) -> boo
         return allow in ("1", "true", "yes", "on")
     return False
 
+#: Routes whose OpenAI→Anthropic translation copies content parts verbatim
+#: (LiteLLM et al. — and any generic ``custom`` OpenAI-compatible endpoint,
+#: which is Pulse's Sarvam/NVIDIA path). A part-level marker on a role:tool
+#: message lands at ``tool_result.content[0].cache_control``, which the
+#: Anthropic Messages schema forbids: a non-retryable HTTP 400 that kills the
+#: whole turn (upstream #89886). On those routes tool messages must not carry
+#: part-level markers at all, and the breakpoint reallocates to the nearest
+#: eligible message instead.
+_LITELLM_MARKERS = ("litellm", "proxy", "localhost", "127.0.0.1", "v1")
+
+
+def is_litellm_route(provider: str, base_url: str | None) -> bool:
+    provider = (provider or "").strip().lower()
+    if provider in {"litellm", "custom", "openai-compatible", "nvidia", "sarvam"}:
+        return True
+    lowered = (base_url or "").lower()
+    return any(token in lowered for token in ("litellm", ":4000"))
+
+
+def envelope_tool_part_cache_markers_supported(provider: str | None, base_url: str | None) -> bool:
+    """Whether part-level markers on ``role: tool`` are honored on this route."""
+    return not is_litellm_route((provider or "").strip().lower(), base_url or "")
+
+
+def _count_cache_markers(messages: List[Any], tools: List[Dict[str, Any]] | None = None) -> int:
+    """Wire-visible markers in a planned request — computed on demand, not per turn."""
+    count = 0
+    for msg in messages:
+        if isinstance(msg, dict):
+            if "cache_control" in msg:
+                count += 1
+            content = msg.get("content")
+            if isinstance(content, list):
+                count += sum(1 for part in content if isinstance(part, dict) and "cache_control" in part)
+        else:
+            kw = getattr(msg, "additional_kwargs", None) or {}
+            if kw.get("cache_control"):
+                count += 1
+            content = getattr(msg, "content", None)
+            if isinstance(content, list):
+                count += sum(1 for part in content if isinstance(part, dict) and "cache_control" in part)
+    for tool in tools or []:
+        if isinstance(tool, dict) and "cache_control" in tool:
+            count += 1
+    return count
+
+
 def _build_marker(ttl: str) -> Dict[str, str]:
     marker: Dict[str, str] = {"type": "ephemeral"}
     if ttl == "1h":
@@ -150,7 +197,9 @@ def _apply_system_cache_markers_msg(message: Any, cache_marker: dict, static_sys
         return 0
     return 1
 
-def _apply_cache_marker_dict(msg: dict, cache_marker: dict, native_anthropic: bool = False) -> None:
+def _apply_cache_marker_dict(msg: dict, cache_marker: dict, native_anthropic: bool = False, tool_part_markers: bool = True) -> None:
+    if msg.get("role") == "tool" and not native_anthropic and not tool_part_markers:
+        return  # LiteLLM-shaped route: a part marker becomes a 400 (#89886)
     role = msg.get("role", "")
     content = msg.get("content")
     if role == "tool" and native_anthropic:
@@ -176,7 +225,9 @@ def _apply_cache_marker_dict(msg: dict, cache_marker: dict, native_anthropic: bo
         if isinstance(last, dict):
             last["cache_control"] = dict(cache_marker)
 
-def _can_carry_marker_dict(msg: dict, native_anthropic: bool) -> bool:
+def _can_carry_marker_dict(msg: dict, native_anthropic: bool, tool_part_markers: bool = True) -> bool:
+    if msg.get("role") == "tool" and not native_anthropic and not tool_part_markers:
+        return False
     if native_anthropic:
         return True
     content = msg.get("content")
@@ -300,7 +351,16 @@ def strip_cache_control(messages: list) -> tuple[list, int]:
         return out, stripped
     return messages, stripped
 
-def build_prompt_cache_plan(messages: list, provider: str | None = None, model: str | None = None, *, static_system_prefix: str | None = None, tools: List[Dict[str, Any]] | None = None, cache_ttl: str | None = "5m", native_anthropic: bool = False, direct_native_tool_cache: bool = False) -> tuple[list, dict[str, Any]]:
+def build_prompt_cache_plan(messages: list, provider: str | None = None, model: str | None = None, *, static_system_prefix: str | None = None, tools: List[Dict[str, Any]] | None = None, cache_ttl: str | None = "5m", native_anthropic: bool = False, direct_native_tool_cache: bool = False, base_url: str | None = None, tool_part_markers: bool | None = None) -> tuple[list, dict[str, Any]]:
+    """Place the 4 cache breakpoints on this request.
+
+    ``tool_part_markers=None`` derives the flag from the route
+    (:func:`envelope_tool_part_cache_markers_supported`); pass it explicitly to
+    override. Markers never exceed 4 and never land on a carrier the provider
+    ignores.
+    """
+    if tool_part_markers is None:
+        tool_part_markers = envelope_tool_part_cache_markers_supported(provider, base_url)
     if not isinstance(messages, list) or not messages:
         return messages, {"enabled": False, "markers": 0, "reason": "empty"}
     if not _cache_enabled(provider, model):
@@ -316,19 +376,19 @@ def build_prompt_cache_plan(messages: list, provider: str | None = None, model: 
             if msgs and isinstance(msgs[0], dict) and msgs[0].get("role") == "system":
                 breakpoints_used = _apply_system_cache_markers_dict(msgs[0], marker, static_system_prefix, native_anthropic=native_anthropic)
             remaining = 4 - breakpoints_used
-            non_sys = [i for i in range(len(msgs)) if msgs[i].get("role") != "system" and _can_carry_marker_dict(msgs[i], native_anthropic)]
+            non_sys = [i for i in range(len(msgs)) if msgs[i].get("role") != "system" and _can_carry_marker_dict(msgs[i], native_anthropic, tool_part_markers)]
             for idx in non_sys[-remaining:]:
-                _apply_cache_marker_dict(msgs[idx], marker, native_anthropic=native_anthropic)
-            mcount = sum(1 for m in msgs if "cache_control" in m) + sum(1 for m in msgs if isinstance(m.get("content"), list) for p in m["content"] if isinstance(p, dict) and "cache_control" in p) + sum(1 for t in planned_tools if "cache_control" in t)
-            return msgs, {"enabled": True, "markers": mcount, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools}
+                _apply_cache_marker_dict(msgs[idx], marker, native_anthropic=native_anthropic, tool_part_markers=tool_part_markers)
+            mcount = _count_cache_markers(msgs, planned_tools)
+            return msgs, {"enabled": True, "markers": mcount, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools, "tool_part_markers": tool_part_markers}
         else:
             if msgs and isinstance(msgs[0], dict) and msgs[0].get("role") == "system":
                 _apply_system_cache_markers_dict(msgs[0], marker, static_system_prefix, native_anthropic=True, mark_suffix=False, fallback_to_whole=False)
             planned_tools[-1]["cache_control"] = dict(marker)
             for ep in _completed_transaction_endpoint_indexes_dict(msgs, native_anthropic=True)[-2:]:
                 _apply_cache_marker_dict(msgs[ep], marker, native_anthropic=True)
-            mcount = sum(1 for m in msgs if "cache_control" in m) + sum(1 for m in msgs if isinstance(m.get("content"), list) for p in m["content"] if isinstance(p, dict) and "cache_control" in p) + sum(1 for t in planned_tools if "cache_control" in t)
-            return msgs, {"enabled": True, "markers": mcount, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools}
+            mcount = _count_cache_markers(msgs, planned_tools)
+            return msgs, {"enabled": True, "markers": mcount, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools, "tool_part_markers": tool_part_markers}
     ttl = effective_cache_ttl(cache_ttl or "5m", model=model or "", provider=provider or "")
     marker = _build_marker(ttl)
     stripped_msgs, _ = strip_cache_control(list(messages))
@@ -383,3 +443,36 @@ def build_prompt_cache_plan(messages: list, provider: str | None = None, model: 
     if marked == 0:
         return messages, {"enabled": True, "markers": 0, "reason": "no_carryable", "hit_rate_hint": None}
     return msgs, {"enabled": True, "markers": marked, "reason": "applied", "hit_rate_hint": None}
+
+
+class PromptCachePlan:
+    """Request-local message and tool sections with their cache markers.
+
+    Upstream-parity container: the planner returns a plan object whose
+    ``marker_count`` is computed lazily, so the per-request hot path never
+    walks every message part and tool schema just to log a number tests use.
+    """
+
+    __slots__ = ("messages", "tools", "info")
+
+    def __init__(self, messages: List[Any], tools: List[Dict[str, Any]] | None, info: Dict[str, Any]) -> None:
+        self.messages = messages
+        self.tools = tools or []
+        self.info = info
+
+    @property
+    def marker_count(self) -> int:
+        return _count_cache_markers(self.messages, self.tools)
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.info.get("enabled"))
+
+    def as_tuple(self) -> tuple[list, dict]:
+        return self.messages, self.info
+
+
+def build_prompt_cache_plan_object(messages: list, provider: str | None = None, model: str | None = None, **kwargs) -> PromptCachePlan:
+    """Same plan, returned as a :class:`PromptCachePlan`."""
+    msgs, info = build_prompt_cache_plan(messages, provider, model, **kwargs)
+    return PromptCachePlan(msgs, info.get("tools"), info)

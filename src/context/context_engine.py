@@ -628,6 +628,7 @@ class ContextEngine(BaseContextEngine):
                 fallback_trim=lambda h, b: trim_messages_to_budget(h, b, self.model),
             )
             self.compression_count += 1
+            self._invalidate_stable_prefix("compaction")
             if as_dicts:
                 return [
                     m.model_dump() if hasattr(m, "model_dump") else dict(m)
@@ -770,6 +771,27 @@ class ContextEngine(BaseContextEngine):
         super().on_session_reset()
         self._pressure.reset()
         self._cache_break_receipt_emitted = False
+        # Law 1 has two sides: reuse the prefix for the whole session, and drop
+        # it the moment the session stops being the same conversation. A reset
+        # that left the cached prefix behind would replay the previous
+        # session's identity, skills index and memory snapshot.
+        self._invalidate_stable_prefix("session_reset")
+
+    def _invalidate_stable_prefix(self, reason: str) -> None:
+        """Rebuild the 3-tier system prompt on the next turn (compaction/reset)."""
+        thread_id = str(getattr(self, "thread_id", "") or "")
+        if not thread_id:
+            return
+        try:  # pyrefly: ignore [missing-import]
+            from src.prompts.hermes.session import invalidate_session
+
+            if invalidate_session(thread_id):
+                self._stable_prefix_invalidations = int(
+                    getattr(self, "_stable_prefix_invalidations", 0)
+                ) + 1
+                print(f"[ContextEngine] stable system prefix invalidated ({reason}) for {thread_id}")
+        except Exception as exc:
+            print(f"[ContextEngine] stable-prefix invalidation skipped ({reason}): {exc}")
 
     def get_status(self) -> Dict[str, Any]:
         """Unified telemetry surface (Hermes get_status + OpenClaude cache
@@ -789,7 +811,21 @@ class ContextEngine(BaseContextEngine):
             "volatile_tail": bool(self._volatile_tail),
             "compaction": self.compaction_stats(),
             "prompt_cache": self.cache_audit_stats(),
+            "stable_prefix_invalidations": int(getattr(self, "_stable_prefix_invalidations", 0)),
         })
+        try:  # pyrefly: ignore [missing-import]
+            from src.prompts.hermes.session import session_stats
+
+            stats = session_stats({"configurable": {"thread_id": self.thread_id}})
+            if stats.get("cached"):
+                base["system_prompt"] = {
+                    "stable_chars": stats.get("stable_chars"),
+                    "context_chars": stats.get("context_chars"),
+                    "volatile_chars": stats.get("volatile_chars"),
+                    "tools_bound": stats.get("tools_bound"),
+                }
+        except Exception:
+            pass
         return base
 
     # =========================================================

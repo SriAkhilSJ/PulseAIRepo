@@ -678,6 +678,26 @@ system_message = SystemMessage(content=system_persona())
 autonomous_system_message = SystemMessage(content=system_persona(autonomous=True))
 
 
+def _session_system_message(config: RunnableConfig, state: dict, *, autonomous: bool):
+    """The session-cached 3-tier prefix, or the legacy persona when unavailable.
+
+    Hermes builds the system prompt ONCE per session and reuses it every turn;
+    only compaction rebuilds it (that is what keeps the provider's prompt cache
+    warm, and therefore what keeps cost and latency down). Pulse's equivalent
+    lives in ``src/prompts/hermes/session.py``, keyed by ``thread_id``.
+
+    Fallback is deliberate and total: if the engine cannot build a prefix for
+    any reason, this returns the pre-port persona object untouched, so prompt
+    engineering can never take a live turn down with it.
+    """
+    from src.prompts.hermes.session import system_prompt_for_session
+
+    text = system_prompt_for_session(config, state, autonomous=autonomous)
+    if not text:
+        return autonomous_system_message if autonomous else system_message
+    return SystemMessage(content=text)
+
+
 def _is_autonomous_workspace(config: RunnableConfig) -> bool:
     """True for the non-interactive desktop/benchmark workspace surface."""
     return str(config.get("configurable", {}).get("approval_policy", "")).strip().lower() == "workspace_session"
@@ -769,10 +789,10 @@ def ai_node(
     context_state["_autonomous_workspace"] = _is_autonomous_workspace(config)
     messages = get_context_engine(config).build_ai_messages(
         state=context_state,
-        system_message=(
-            autonomous_system_message
-            if context_state["_autonomous_workspace"]
-            else system_message
+        system_message=_session_system_message(
+            config,
+            context_state,
+            autonomous=bool(context_state["_autonomous_workspace"]),
         ),
     )
     if execution_mode == "ask":
