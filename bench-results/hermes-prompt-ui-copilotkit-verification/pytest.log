@@ -1,16 +1,19 @@
-# Provider-free verification log — Hermes prompt engine + Agent UI port into Pulse
-# date: 2026-08-31T06:47:24Z  host: linux sandbox, no provider key present
-
-$ python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q
-
-src/tests/test_hermes_prompt_parity.py ................................. [ 47%]
-..........................                                               [ 85%]
+=== provider-free verification run (2026-08-31 UTC, refresh after help-guidance + dump-script tests) ===
+=== python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q ===
 src/tests/test_hermes_prompt_session_cache.py ..........                 [100%]
 
-============================== 69 passed in 4.47s ==============================
+============================== 70 passed in 5.31s ==============================
 
-$ python3 -m pytest src/tests -q   (full backend suite; the 6 failures are pre-existing on the pristine base)
+=== python3 -m pytest src/tests -q (full backend suite, 248.35s) ===
+/usr/lib/python3.11/pathlib.py:1045: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/user/PulseAIRepo/ui/src/runtime/toolCatalog.ts'
+=========================== short test summary info ============================
+FAILED src/tests/test_autonomous_runtime_contract.py::test_ai_node_builds_expected_first_sarvam_request_without_provider_call
+FAILED src/tests/test_desktop_renderer_architecture.py::test_renderer_boundary_is_browser_safe_and_text_only
+FAILED src/tests/test_desktop_renderer_architecture.py::test_native_and_lab_catalogs_cover_the_same_36_tools
 FAILED src/tests/test_desktop_renderer_architecture.py::test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native
 FAILED src/tests/test_ui_tool_catalog.py::test_ui_catalog_covers_every_runtime_tool_name
 FAILED src/tests/test_ui_tool_catalog.py::test_terminal_family_has_real_pulse_process_tools
-============ 6 failed, 1202 passed, 3 skipped in 261.10s (0:04:21) =============
+============ 6 failed, 1203 passed, 3 skipped in 248.35s (0:04:08) =============

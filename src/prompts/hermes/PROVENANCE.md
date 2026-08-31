@@ -55,7 +55,7 @@ suites mirror:
 
 | Upstream test | Lines | Mirrored into |
 |---|---|---|
-| `tests/agent/test_prompt_builder.py` | 1022 | `src/tests/test_hermes_prompt_parity.py` (598 L, 59 tests) |
+| `tests/agent/test_prompt_builder.py` | 1022 | `src/tests/test_hermes_prompt_parity.py` (640 L, 60 tests) |
 | `tests/agent/test_system_prompt.py` | 721 | `src/tests/test_hermes_prompt_parity.py` |
 | `tests/agent/test_prompt_caching.py` | 884 | `src/tests/test_hermes_prompt_session_cache.py` (178 L, 10 tests) |
 | `tests/agent/test_prompt_cache_boundary.py` | 382 | `src/tests/test_hermes_prompt_session_cache.py` |
@@ -353,11 +353,12 @@ edit was needed for this round.
 
 ```bash
 python3 -m pytest src/tests/test_hermes_prompt_parity.py \
-                  src/tests/test_hermes_prompt_session_cache.py -q   # 67 passed
-python3 -m pytest src/tests -q                                        # 1200 passed, 6 pre-existing failures
+                  src/tests/test_hermes_prompt_session_cache.py -q   # 70 passed
+python3 -m pytest src/tests -q                                        # 1203 passed, 6 pre-existing failures
 cd pulse-webview && npm test                                          # 48 passed
 cd pulse-webview && npx tsc -b                                        # exit 0
 cd pulse-webview && npx vite build                                    # ok
+python3 scripts/dump_pulse_prompt.py --workspace . --out /tmp/tiers.json  # the live prompt bytes, 0 tokens
 ```
 
 Evidence transcripts for the run behind this commit:
@@ -365,5 +366,9 @@ Evidence transcripts for the run behind this commit:
 (`pytest.log`, `webview.log`, `hashes.txt`), narrative in
 `HERMES_PROMPT_UI_PORT_VERIFICATION.md`.
 
-The live end-to-end run with a real provider key is the human's step — deliberately
-not taken here, so nothing in this directory depends on a metered call.
+The live end-to-end run with a real provider key is deliberately not taken here, so
+nothing in this directory depends on a metered call. It is specified instead — budget,
+gates, per-assertion expectations and the evidence manifest — in
+`DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md`, which runs on top of the same
+`scripts/dump_pulse_prompt.py` (zero-credit prompt bytes) and
+`scripts/run_bridge_turn.py` (which owns the credit circuit-breaker).

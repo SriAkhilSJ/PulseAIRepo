@@ -596,3 +596,45 @@ def test_help_guidance_variant_follows_the_skills_index(tmp_path):
     )
     assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS in no_index["stable"]
     assert guidance.PULSE_AGENT_HELP_GUIDANCE not in no_index["stable"]
+
+
+def test_dump_pulse_prompt_script_is_the_live_zero_credit_probe(tmp_path):
+    """The desktop agent's Phase 2.0 command is pinned, not improvised.
+
+    ``scripts/dump_pulse_prompt.py`` is what a verification round runs to read the real
+    prompt bytes for a workspace without paying for a turn, so it has to keep working:
+    same tiers, same brand gate, and a marker that lands in the CONTEXT tier only.
+    """
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "PULSE.md").write_text("PULSE_FIXTURE_MARKER_alpha\n", encoding="utf-8")
+    prompt_file = tmp_path / "1.txt"
+    prompt_file.write_text("List the files here.\n", encoding="utf-8")
+    out = tmp_path / "dump.json"
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts" / "dump_pulse_prompt.py"),
+            "--workspace", str(ws),
+            "--prompt-file", str(prompt_file),
+            "--surface", "ide",
+            "--out", str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO),
+        env={**os.environ, "PYTHONPATH": str(REPO)},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "BRAND_HITS: none" in proc.stdout
+    assert "Platform: ide" in proc.stdout
+
+    tiers = json.loads(out.read_text(encoding="utf-8"))
+    assert list(tiers) == ["stable", "context", "volatile"]
+    assert tiers["stable"].startswith("You are Pulse Agent.")
+    assert tiers["context"].count("PULSE_FIXTURE_MARKER_alpha") == 1
+    assert "PULSE_FIXTURE_MARKER_alpha" not in tiers["stable"]
+    assert "PULSE_FIXTURE_MARKER_alpha" not in tiers["volatile"]
+    # The script's gate is the same rule the suite enforces in-process.
+    assert not re.search(r"(?i)\bhermes\b|nous", "\n\n".join(tiers.values()))

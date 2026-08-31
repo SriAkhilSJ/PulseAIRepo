@@ -18,7 +18,7 @@ done I will verify all at once live using API key."*
 - The prompt engine is a pinned copy of upstream's prompt text — 34 constants
   lifted verbatim into a corpus with per-file sha256s, loaded through Pulse's own
   gating, and emitted only after two documented maps (tool rename, brand rewrite).
-  `69/69` port tests pass; the full backend suite is `1202 passed` with exactly
+  `70/70` port tests pass (60 parity + 10 session-cache); the full backend suite is `1203 passed` with exactly
   the **6 pre-existing** failures that also fail on the pristine base.
 - The Agent UI is ported into `pulse-webview/src/hermes-ui/` (42 files, 7 217
   lines) — tool runs, one-line ticker, expandable diffs, file-edit cards,
@@ -139,7 +139,9 @@ is the next round's work.
 1. **No live provider run.** Streaming through a real model (token cadence, cache
    hit rates, Sarvam/NVIDIA endpoint behavior) is deliberately left to the key
    run. This suite proves the prompt bytes, the gating, the cache plan and the DOM;
-   it cannot prove a provider accepts the request.
+   it cannot prove a provider accepts the request. The key run is written up for the
+   desktop agent in `DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md` (90-credit ceiling,
+   per-phase request caps, `expect:` lines to answer to).
 2. **Pulse's Copilot path does not emit approvals today.** The approval strip is
    correct against the bridge contract and harmless otherwise, but it will not
    appear in the CopilotKit tier unless the runtime starts forwarding the request.
@@ -160,6 +162,9 @@ python3 -m pytest src/tests/test_hermes_prompt_parity.py \
                   src/tests/test_hermes_prompt_session_cache.py -q
 python3 -m pytest src/tests -q
 cd pulse-webview && npm install && npm test && npx tsc -b && npx vite build
+
+# The exact prompt bytes for any workspace, with no provider call:
+python3 scripts/dump_pulse_prompt.py --workspace /tmp/pws --out /tmp/dump.json
 ```
 
 Raw transcripts of the run behind this commit:

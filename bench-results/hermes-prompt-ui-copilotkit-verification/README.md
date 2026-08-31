@@ -23,7 +23,7 @@ environment, so nothing here depends on a metered call.
 ```
 src/tests/test_hermes_prompt_parity.py          59 passed
 src/tests/test_hermes_prompt_session_cache.py   10 passed
-both, together                                  69 passed
+both, together                                  70 passed
 ```
 
 What the 59 assert, grouped:
@@ -59,7 +59,7 @@ a degraded graph path cannot leak a per-turn prompt, and the kill switch
 ### Backend suite — regression check
 
 ```
-1202 passed, 6 failed, 3 skipped in 242.64s
+1203 passed, 6 failed, 3 skipped in 248.35s
 ```
 
 The 6 failures are pre-existing and unrelated (they reference the deleted `ui/`
