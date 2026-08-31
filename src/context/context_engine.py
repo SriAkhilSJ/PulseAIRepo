@@ -49,6 +49,7 @@ from src.context.feedback_memory import (
     FeedbackMemory,
     make_profile,
 )
+from src.context.history_shaper import HistoryShaper
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
@@ -394,9 +395,21 @@ class ContextEngine(BaseContextEngine):
         self._cache_audit = None
         self._prompt_cache_scope: str | None = None
 
-        # D22 per-session history compactor (compaction.py); lazy so the
-        # constructor stays I/O-free.
-        self._compactor = None
+        # D22 per-session history compactor (compaction.py) + the whole
+        # history-shaping pipeline — P8: extracted to
+        # src/context/history_shaper.py (ONE HistoryCompactor shared by the
+        # per-turn path and the ABC compress() entry: one anti-thrash state
+        # per session). Getters, not values: the engine's model/task/session
+        # identity mutate mid-life (update_model, per-build routing), and a
+        # shaper that captured them by value would go stale.
+        self._shaper = HistoryShaper(
+            model=lambda: self.model,
+            allow_embedding_compute=lambda: self._allow_embedding_compute,
+            summarizer=self.summarizer,
+            current_task=lambda: self._current_task or "",
+            session_id=lambda: self.thread_id or self._active_thread_id or "",
+            context_window=lambda: getattr(self, "context_window", None),
+        )
 
         # P1: this engine's session id. The degraded-scan receipts must carry
         # it (not "unknown") or the session-scoped bridge forwarder drops them.
@@ -666,36 +679,19 @@ class ContextEngine(BaseContextEngine):
                 out.append(msg)
         return out
 
+    # P8: the history-shaping pipeline (summarize/compact/trim/telemetry)
+    # lives in history_shaper.HistoryShaper; the engine keeps the documented
+    # method names — tests monkeypatch _trim_history on the instance and
+    # read _compactor (e.g. the kill-switch and one-anti-thrash-state
+    # contracts).
+    @property
+    def _compactor(self):
+        return self._shaper.compactor
+
     def _ensure_compactor(self):
         """Lazily create (once per session) the HistoryCompactor shared by
         the per-turn path AND the ABC compress() entry."""
-        if self._compactor is None:
-            from src.context.compaction import HistoryCompactor
-            from src.llm.factory import get_auxiliary_llm
-
-            _ctx_len = getattr(self, "context_window", None)
-            if _ctx_len is None:
-                try:
-                    from src.context.model_budgets import resolve_context_window
-                    _ctx_len, _ = resolve_context_window(
-                        self.model, allow_network=False
-                    )
-                except Exception:
-                    _ctx_len = None
-            self._compactor = HistoryCompactor(
-                model=self.model,
-                aux_llm_getter=get_auxiliary_llm,  # D21's janitor client
-                session_id=(self.thread_id or self._active_thread_id or ""),
-                context_length=_ctx_len,
-            )
-        else:
-            try:
-                tid = self.thread_id or self._active_thread_id or ""
-                if tid:
-                    self._compactor._session_id = tid
-            except Exception:
-                pass
-        return self._compactor
+        return self._shaper.ensure_compactor()
 
     def _apply_usage_pressure(self, history_budget: int) -> int:
         """Hermes threshold_percent, applied at build time.
@@ -2132,24 +2128,9 @@ class ContextEngine(BaseContextEngine):
         self,
         messages: list[BaseMessage],
     ) -> list[BaseMessage]:
-        """
-        Run every ToolMessage through the SmartSummarizer.
-
-        If a tool output is long, replace it with a short summary.
-        If it's short, leave it alone.
-        """
-        result = []
-
-        for message in messages:
-            if isinstance(message, ToolMessage):
-                # This might return the same message (if short) or a compressed one
-                summarized = self.summarizer.summarize_message(message)
-                result.append(summarized)
-            else:
-                # Not a tool message — leave it alone
-                result.append(message)
-
-        return result
+        """Run every ToolMessage through the SmartSummarizer (long outputs
+        become short summaries; short ones pass through untouched)."""
+        return self._shaper.summarize_tool_messages(messages)
 
     def _compact_history(
         self,
@@ -2159,72 +2140,24 @@ class ContextEngine(BaseContextEngine):
         """D22 hermes pack (compaction.py): prune-first with protected
         head/tail, structural dropping only if still over budget, dropped
         turns folded into an iterative AUX-model summary with anti-thrash.
-        PULSEAI_COMPACTION=off restores the legacy structural pipeline; landed
-        mutation omission has its own diagnostic kill switch."""
-        import os as _os
-
-        if _os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
-            # Even the structural-compaction kill switch must not replay every
-            # landed write payload until the run-level token budget is gone.
-            from src.context.compaction import compact_file_mutation_arguments
-            compacted = compact_file_mutation_arguments(history)
-            return self._trim_history(self._summarize_tool_messages(compacted), budget)
-
-        self._ensure_compactor()
-
-        from src.context.smart_compressor import SmartCompressor
-        compressor = SmartCompressor(
-            model=self.model,
-            allow_embedding_compute=self._allow_embedding_compute,
-        )
-        return self._compactor.compact(
-            history,
-            budget,
-            summarize_tools=self._summarize_tool_messages,
-            structural_compress=lambda h, b: compressor.compress(
-                h,
-                budget=b,
-                token_counter=lambda msgs, model: count_tokens(msgs, model),
-                task=self._current_task or "",
-            ),
-            fallback_trim=lambda h, b: trim_messages_to_budget(h, b, self.model),
+        PULSEAI_COMPACTION=off restores the legacy structural pipeline;
+        landed mutation omission has its own diagnostic kill switch."""
+        return self._shaper.compact(
+            history, budget, kill_switch_trim=self._trim_history
         )
 
     def compaction_stats(self) -> dict:
         """D22 telemetry: prune/compaction counters for this session."""
-        if self._compactor is None:
-            return {"prunes": 0, "structural_compactions": 0, "llm_summary_calls": 0,
-                    "llm_suppressed": 0, "ineffective_streak": 0, "summary_chars": 0,
-                    "placeholders": 0, "placeholder_chars_reclaimed": 0}
-        stats = dict(self._compactor.stats)
-        stats["summary_chars"] = len(self._compactor.summary)
-        stats["llm_suppressed_active"] = self._compactor.llm_suppressed
-        return stats
+        return self._shaper.stats()
 
     def _trim_history(
         self,
         history: list[BaseMessage],
         budget: int,
     ) -> list[BaseMessage]:
-        if not history:
-            return []
-
-        from src.context.smart_compressor import SmartCompressor
-        compressor = SmartCompressor(
-            model=self.model,
-            allow_embedding_compute=self._allow_embedding_compute,
-        )
-        compressed = compressor.compress(
-            history,
-            budget=budget,
-            token_counter=lambda msgs, model: count_tokens(msgs, model),
-            task=self._current_task or "",
-        )
-
-        if count_tokens(compressed, self.model) > budget:
-            return trim_messages_to_budget(history, budget, self.model)
-
-        return compressed
+        """Budget-fit trim with the P4 pairing guard (P8: the pipeline
+        itself lives in history_shaper.HistoryShaper)."""
+        return self._shaper.trim(history, budget)
 
     # =========================================================
     # HELPER METHODS
