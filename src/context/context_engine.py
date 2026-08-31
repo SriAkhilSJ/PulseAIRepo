@@ -43,6 +43,12 @@ from src.context.engine import ContextEngine as BaseContextEngine
 from src.context.engine import sanitize_memory_context
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.usage_pressure import UsagePressure
+from src.context.feedback_memory import (
+    FEEDBACK_COMPACT_AT,
+    FEEDBACK_COMPACT_TO,
+    FeedbackMemory,
+    make_profile,
+)
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
@@ -251,6 +257,39 @@ class ContextEngine(BaseContextEngine):
     def _usage_pressure_active(self) -> bool:
         return self._pressure.active
 
+    # P7: the feedback-learning loop (JSONL store + learned layer weights)
+    # is owned by the extracted FeedbackMemory; these delegating properties
+    # preserve the documented surface — tests re-point _feedback_path and
+    # reset _feedback_history AFTER construction, so the module reads both
+    # live instead of caching them at load time. The compaction bounds live
+    # in feedback_memory (single source of truth); the aliases keep the
+    # documented class-attribute surface.
+    _FEEDBACK_COMPACT_AT = FEEDBACK_COMPACT_AT
+    _FEEDBACK_COMPACT_TO = FEEDBACK_COMPACT_TO
+    @property
+    def _feedback_history(self) -> list:
+        return self._feedback.history
+
+    @_feedback_history.setter
+    def _feedback_history(self, value: list) -> None:
+        self._feedback.history = list(value)
+
+    @property
+    def _feedback_path(self) -> str:
+        return self._feedback.path
+
+    @_feedback_path.setter
+    def _feedback_path(self, value: str) -> None:
+        self._feedback.path = value
+
+    @property
+    def _legacy_feedback_path(self) -> str:
+        return self._feedback.legacy_path
+
+    @_legacy_feedback_path.setter
+    def _legacy_feedback_path(self, value: str) -> None:
+        self._feedback.legacy_path = value
+
     def __init__(
         self,
         max_tokens: int | None = None,
@@ -373,7 +412,8 @@ class ContextEngine(BaseContextEngine):
         self._by_design_receipt_emitted = False
         self._active_thread_id: str | None = None
 
-        # Per-instance copy: _apply_learned_weights() mutates these weights,
+        # Per-instance copy: the feedback learning nudge (FeedbackMemory
+        # .apply_learned_weights) mutates these weights,
         # and the class-level dict would otherwise leak learned drift across
         # ALL engine instances in the process (dashboard sessions, threads).
         import copy
@@ -396,15 +436,13 @@ class ContextEngine(BaseContextEngine):
         self._api_lock = threading.RLock()
 
         # Feedback loop for learning layer weights.
-        # Append-only JSONL store: session-scoped engines (D1) made the old
-        # full-file rewrite a real data-loss race — proven: two engines
-        # interleaved records and one session's row vanished (last writer
-        # wins). One line per record, O_APPEND at the OS level; readers skip
-        # debris lines defensively.
-        self._feedback_history: list[dict] = []
-        self._feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.jsonl")
-        self._legacy_feedback_path = os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
-        self._load_feedback()
+        # P7: extracted to src/context/feedback_memory.py — append-only
+        # JSONL store (session-scoped engines + dashboard/CLI processes
+        # never overwrite each other's rows), legacy migration, tail
+        # compaction, learned-weight nudges. All best-effort: learning
+        # data must never block boot or the graph.
+        self._feedback = FeedbackMemory()
+        self._feedback.load()
 
         # P3 (OpenClaude promptCacheBreakDetection parity): the
         # "stable prefix regressed" receipt is latched once per session,
@@ -2068,114 +2106,23 @@ class ContextEngine(BaseContextEngine):
             self._record_feedback(success, task)
 
     def _record_feedback(self, success: bool, task: Optional[str] = None) -> None:
-        """Call after task completion to learn which layers worked."""
-        # Build profile of what was sent this turn
-        profile = {
-            "timestamp": time.time(),
-            "task": task or "",
-            "success": success,
+        """Call after task completion to learn which layers worked.
+
+        P7: the store/learning/append pipeline lives in
+        ``feedback_memory.FeedbackMemory``; the engine supplies the
+        attribution snapshot (layers ACTUALLY sent in the final build) and
+        the weight dict the layer builders read.
+        """
+        profile = make_profile(
+            success,
+            task,
             # Attribute to the layers actually sent in the final build.
             # The cache fallback only fires if a task fails before ANY build
             # this session (e.g. planner crash on turn 1) — known-low value,
             # kept so the feedback row is never empty.
-            "layers_used": self._last_layers_sent or list(self._layer_cache.keys()),
-        }
-        self._feedback_history.append(profile)
-        if len(self._feedback_history) > 300:
-            self._feedback_history = self._feedback_history[-150:]
-        self._apply_learned_weights()
-        self._append_feedback(profile)
-
-    def _load_feedback(self) -> None:
-        # One-time migration from the legacy full-rewrite JSON array store.
-        if not os.path.exists(self._feedback_path) and os.path.exists(self._legacy_feedback_path):
-            try:
-                with open(self._legacy_feedback_path, "r", encoding="utf-8") as f:
-                    legacy = json.load(f)
-                if isinstance(legacy, list):
-                    os.makedirs(os.path.dirname(self._feedback_path), exist_ok=True)
-                    with open(self._feedback_path, "w", encoding="utf-8") as f:
-                        for record in legacy:
-                            f.write(json.dumps(record) + "\n")
-                    os.replace(self._legacy_feedback_path, self._legacy_feedback_path + ".bak")
-            except Exception:
-                pass  # learning data must never block boot
-
-        if os.path.exists(self._feedback_path):
-            history = []
-            try:
-                with open(self._feedback_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            record = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue  # debris from a cross-process interleave: skip, keep the rest
-                        if isinstance(record, dict):
-                            history.append(record)
-            except Exception:
-                return
-            self._feedback_history = history
-            self._compact_feedback_if_needed()
-
-    # Compaction bounds boot-time load cost; rotation keeps the tail (most
-    # recent = most informative for the learned weights).
-    _FEEDBACK_COMPACT_AT = 2000
-    _FEEDBACK_COMPACT_TO = 1000
-
-    def _compact_feedback_if_needed(self) -> None:
-        if len(self._feedback_history) <= self._FEEDBACK_COMPACT_AT:
-            return
-        self._feedback_history = self._feedback_history[-self._FEEDBACK_COMPACT_TO:]
-        try:
-            tmp = f"{self._feedback_path}.{os.getpid()}.tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                for record in self._feedback_history:
-                    f.write(json.dumps(record) + "\n")
-            os.replace(tmp, self._feedback_path)  # atomic on POSIX + Windows
-        except Exception:
-            pass  # worst case: file stays long; never block boot
-
-    def _append_feedback(self, profile: dict) -> None:
-        """Append ONE record line. O_APPEND means concurrent session engines
-        (and the dashboard + CLI processes) never overwrite each other's
-        rows — unlike the retired full-file rewrite."""
-        try:
-            os.makedirs(os.path.dirname(self._feedback_path), exist_ok=True)
-            with open(self._feedback_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(profile) + "\n")
-        except Exception:
-            pass  # feedback is best-effort; never block the graph
-
-    def _apply_learned_weights(self) -> None:
-        """Adjust LAYER_RELEVANCE based on historical success/failure."""
-        if len(self._feedback_history) < 10:
-            return
-
-        from collections import defaultdict
-        layer_stats: dict[str, dict] = defaultdict(lambda: {"success": 0, "failure": 0})
-
-        for record in self._feedback_history:
-            if record.get("success") is None:
-                continue
-            for layer_name in record.get("layers_used", []):
-                key = "success" if record["success"] else "failure"
-                layer_stats[layer_name][key] += 1
-
-        for layer_name, stats in layer_stats.items():
-            total = stats["success"] + stats["failure"]
-            if total < 5:
-                continue
-            success_rate = stats["success"] / total
-            # Boost layers with >70% success, demote <40%
-            for task_type in TaskType:
-                current = self.LAYER_RELEVANCE.get(layer_name, {}).get(task_type, 0.5)
-                if success_rate > 0.70:
-                    self.LAYER_RELEVANCE[layer_name][task_type] = min(1.0, current * 1.03)
-                elif success_rate < 0.40:
-                    self.LAYER_RELEVANCE[layer_name][task_type] = max(0.0, current * 0.97)
+            self._last_layers_sent or list(self._layer_cache.keys()),
+        )
+        self._feedback.record(profile, self.LAYER_RELEVANCE, TaskType)
 
     # =========================================================
     # HISTORY TRIMMING
