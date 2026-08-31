@@ -536,3 +536,63 @@ def test_learn_prompt_defaults_to_this_conversation():
     from src.prompts.hermes.plan_learn import build_learn_prompt
 
     assert "the workflow we just went through in this conversation" in build_learn_prompt("   ")
+
+
+# =========================================================================
+# Help-guidance slot: which variant, and both are upstream text
+# =========================================================================
+
+
+def test_both_help_guidance_variants_are_upstream_bytes():
+    """The product-pointer block is upstream's, in both its shapes.
+
+    The rewrite must be exactly the branding map: if someone hand-edits the
+    pointer text (a docs URL, a skill name) this fails.
+    """
+    pairs = (
+        ("HERMES_AGENT_HELP_GUIDANCE", "PULSE_AGENT_HELP_GUIDANCE"),
+        ("HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS", "PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS"),
+    )
+    for upstream_name, local_name in pairs:
+        raw = CONSTANTS["prompt_builder"][upstream_name]
+        localized = getattr(guidance, local_name)
+
+        assert localized == guidance.localize(raw)
+        # A guard on the guard: the localized text must actually differ, so an
+        # accidentally empty BRAND_MAP could not pass this test by identity.
+        assert localized != raw
+
+
+def test_help_guidance_variant_follows_the_skills_index(tmp_path):
+    """Upstream resolves the variant AFTER the index is built, and so do we.
+
+    The skills pointer may only be advertised when the session can both honour it
+    (`skill_view` bound) and back it (the skill is in the rendered index).
+    """
+    skills = tmp_path / "skills"
+    (skills / "pulseai").mkdir(parents=True)
+    (skills / "pulseai" / "SKILL.md").write_text(
+        "---\nname: pulseai\ndescription: Pulse agent operations\n---\nUse the skills index.\n",
+        encoding="utf-8",
+    )
+    with_skill_view = set(_view().valid_tool_names) | {"skill_view"}
+
+    both = _parts(
+        _view(valid_tool_names=with_skill_view, skills_enabled=True, home=tmp_path, skills_dir=skills)
+    )
+    assert guidance.PULSE_AGENT_HELP_GUIDANCE in both["stable"]
+    assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS not in both["stable"]
+
+    # Index present but the skill tool unbound -> pointing at it would be a lie.
+    no_tool = _parts(_view(skills_enabled=True, home=tmp_path, skills_dir=skills))
+    assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS in no_tool["stable"]
+    assert guidance.PULSE_AGENT_HELP_GUIDANCE not in no_tool["stable"]
+
+    # Tool bound, empty index -> same honest fallback.
+    empty = tmp_path / "empty-skills"
+    empty.mkdir()
+    no_index = _parts(
+        _view(valid_tool_names=with_skill_view, skills_enabled=True, home=tmp_path, skills_dir=empty)
+    )
+    assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS in no_index["stable"]
+    assert guidance.PULSE_AGENT_HELP_GUIDANCE not in no_index["stable"]

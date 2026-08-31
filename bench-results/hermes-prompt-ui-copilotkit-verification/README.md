@@ -21,12 +21,12 @@ environment, so nothing here depends on a metered call.
 ### Prompt engine — `src/prompts/hermes/` (9 modules, 2 683 lines of module code)
 
 ```
-src/tests/test_hermes_prompt_parity.py          57 passed
+src/tests/test_hermes_prompt_parity.py          59 passed
 src/tests/test_hermes_prompt_session_cache.py   10 passed
-both, together                                  67 passed in 1.93s
+both, together                                  69 passed
 ```
 
-What the 57 assert, grouped:
+What the 59 assert, grouped:
 
 - **fidelity** — 12 guidance/steer blocks (memory, user profile, session search,
   skills, task completion, parallel calls, tool-use enforcement, OpenAI/Google
@@ -59,12 +59,12 @@ a degraded graph path cannot leak a per-turn prompt, and the kill switch
 ### Backend suite — regression check
 
 ```
-1200 passed, 6 failed, 3 skipped in 242.64s
+1202 passed, 6 failed, 3 skipped in 242.64s
 ```
 
 The 6 failures are pre-existing and unrelated (they reference the deleted `ui/`
 tree, plus one Sarvam-request test that fails identically on the pristine base —
-verified earlier by `git stash`). The port added 67 tests and removed zero passes.
+verified earlier by `git stash`). The port added 69 tests and removed zero passes.
 
 ### Agent UI — `pulse-webview/src/hermes-ui/` (42 files, 7 217 lines incl. stylesheet)
 

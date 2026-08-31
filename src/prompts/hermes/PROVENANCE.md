@@ -55,7 +55,7 @@ suites mirror:
 
 | Upstream test | Lines | Mirrored into |
 |---|---|---|
-| `tests/agent/test_prompt_builder.py` | 1022 | `src/tests/test_hermes_prompt_parity.py` (538 L, 57 tests) |
+| `tests/agent/test_prompt_builder.py` | 1022 | `src/tests/test_hermes_prompt_parity.py` (598 L, 59 tests) |
 | `tests/agent/test_system_prompt.py` | 721 | `src/tests/test_hermes_prompt_parity.py` |
 | `tests/agent/test_prompt_caching.py` | 884 | `src/tests/test_hermes_prompt_session_cache.py` (178 L, 10 tests) |
 | `tests/agent/test_prompt_cache_boundary.py` | 382 | `src/tests/test_hermes_prompt_session_cache.py` |
@@ -87,9 +87,12 @@ assert pulse_text == guidance.localize(corpus_constant_bytes)
 
 12 guidance/steer blocks are asserted this way (`VERBATIM_PAIRS`), the identity
 block by a self-name-swap diff (`test_identity_differs_only_in_the_self_name_sentence`),
-and the memory/user-profile pair additionally by `build_memory_guidance`'s composition (both
-calls reproduce upstream's constants byte-for-byte); which help-guidance variant is
-chosen after the skills index is pinned by the gating tests. In all
+the memory/user-profile pair additionally by `build_memory_guidance`'s composition
+(both calls reproduce upstream's constants byte-for-byte), and both help-guidance
+variants by `test_both_help_guidance_variants_are_upstream_bytes` — which also
+asserts the localized text *differs* from upstream, so an emptied `BRAND_MAP`
+could not pass by identity. Which variant a session gets is
+`test_help_guidance_variant_follows_the_skills_index`. In all
 cases: Pulse's emitted block is byte-equal to upstream's *after* exactly the two
 documented maps and nothing else.
 

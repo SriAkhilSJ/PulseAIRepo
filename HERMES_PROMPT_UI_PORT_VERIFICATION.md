@@ -18,7 +18,7 @@ done I will verify all at once live using API key."*
 - The prompt engine is a pinned copy of upstream's prompt text — 34 constants
   lifted verbatim into a corpus with per-file sha256s, loaded through Pulse's own
   gating, and emitted only after two documented maps (tool rename, brand rewrite).
-  `67/67` port tests pass; the full backend suite is `1200 passed` with exactly
+  `69/69` port tests pass; the full backend suite is `1202 passed` with exactly
   the **6 pre-existing** failures that also fail on the pristine base.
 - The Agent UI is ported into `pulse-webview/src/hermes-ui/` (42 files, 7 217
   lines) — tool runs, one-line ticker, expandable diffs, file-edit cards,

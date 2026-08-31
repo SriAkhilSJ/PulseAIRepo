@@ -6,6 +6,9 @@ commit date: 2026-08-30T22:20:18-07:00
 78fcb5f923c91ff31695942217070dda874ae8e5be3eac5aba6c581516bb9378    103  agent/plan_prompt.py
 1fc4b6fc166caf098aa63c8f01fc71f4d4ed496cf8dd4dcd961e2a2e7713aa80   2471  agent/prompt_builder.py
 
+## upstream UI sources at the pin (line counts, for the port's table)
+  7041 total
+
 ## ported prompt engine (Pulse)
 e35e2956974975e764cf0e5b456c56a55c7dff91ca77e916720577c2d077f772  src/prompts/hermes/__init__.py
 5a10a97b45700c93c5258950dafabe815b6f62e758277e7bab7923c13e53818d  src/prompts/hermes/context_files.py
@@ -17,8 +20,9 @@ e1f35a4c40b17a62adbb6fbe474e76dac04b5e6ff585c3655aa6c4d08aa8ba98  src/prompts/he
 f36c38f97e198e8a880f5b9e24b2b70cdae1dfed7d2033d3410ca1b1c0e73137  src/prompts/hermes/system_prompt.py
 8692b6a856da9c52e1c83a67d1b4ed65e27bd7e4c7697e1a7e47dc30b74c5f30  src/prompts/hermes/view.py
 e794d7e85ac4d1edc336aa32c8916ef3ca7ab06bda8cafb0a568f27809d9028a  src/prompts/hermes/upstream_corpus.json
+66a001af894e8dd0589b6a5b6f59217a49f62bf4794950dba922a02af1450748  src/prompts/hermes/PROVENANCE.md
 48a8cfccefe55769d9f4e0f12ad66c97fdb349b1be323077038d5264567cba4b  scripts/port_hermes_prompts.py
-8b35f60016c4606bb5887872eaad1a35352329241ff76d3ed8d8301b0f082cfb  src/tests/test_hermes_prompt_parity.py
+7002eaaa8bf35ce65b02e17e48afee0e952735cd9fb2eadcc36dbd879e5ad80b  src/tests/test_hermes_prompt_parity.py
 9ecaf9eac1d7b58204636a00b6dbad43c8aa64059051459995746a1d8787dbe2  src/tests/test_hermes_prompt_session_cache.py
 
 ## ported Agent UI (Pulse)
@@ -37,7 +41,7 @@ e3cf1732a811d5700394f1881e3761a30f5978ff00e537bbec7f998216298373  hermes-ui/comp
 f967bf4731882c7fd69ed0de1f5ac9dfc399215291438cc6464d6fbc65db29fd  hermes-ui/components/status-line.tsx
 2752fbf0ed397d3deabf708cd80624e5925247c6245b540c856fa44ca72bf528  hermes-ui/components/status-row.tsx
 5ad3c79eae01f87b2aa77f282513a64a2e55cdba82a96d4c7556873d1287d4f7  hermes-ui/components/terminal-output.tsx
-09d2f8d040e1b3fa0617a47027446c254fb4b40de960fad7582f12400f47f88a  hermes-ui/components/thread.tsx
+66d1c96c860be6ce0967aa90dc52ed937d98d7f8acee290309540515ad940c08  hermes-ui/components/thread.tsx
 139a5b790135f81a03706fbebf15492613e1d26257feddfeaf169b8dc2451c16  hermes-ui/components/tool-card.tsx
 fe6764ab4e52603a7deb555bd126783b56a9eabe7d14364b9e54c8df1f73756e  hermes-ui/components/tool-run.tsx
 9a75300e1da31aa1052cb52c0a48ca626fefc5c1456e6e7dd6b341d992f21b9f  hermes-ui/components/transcript-window.tsx
@@ -65,3 +69,4 @@ fe71e96eded9ea5cfc9b4ec02ceb144bee61c8f689102cde347959a310a59dfe  hermes-ui/puls
 a612214d4818404b6c7eba14001516175230199f8f22df92676ca89dd7202c38  hermes-ui/pulse/use-pulse-thread.ts
 e0a482cf1d13de857042441f0becaafc1eb1540bd188a825fde60b3f359e1b7b  hermes-ui/styles/hermes-ui.css
 65292a707d9287afd14d89d9e465ec2d8e88e141b0628e02793181db8e175e69  __tests__/hermes-ui-thread.test.tsx
+8d182f388be72c761d8f4486a0ad93ee31e5ae5b13d8bbf15cde47d4f2b18f48  App.tsx
