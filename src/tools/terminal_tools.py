@@ -20,6 +20,11 @@ from langchain_core.tools import tool
 # learns the environment, not just the error.
 _IS_WINDOWS = platform.system() == "Windows"
 
+#: How long a cancelled foreground command may take to flush before we answer
+#: anyway. Long enough for a well-behaved child to exit, short enough that a
+#: grandchild holding the pipes cannot stall the turn.
+_CANCEL_DRAIN_TIMEOUT_S = 2.0
+
 # A command is treated as POSIX-dialect when it reaches a POSIX-only verb or
 # a /tmp (or Unix-style) path. Words are split on whitespace and shell
 # metachars so `mkdir -p` inside quotes is still caught, but a legit Windows
@@ -441,15 +446,34 @@ def run_terminal(
                 break
             except subprocess.TimeoutExpired:
                 if turn_controls.cancelled(session_id):
+                    # TREE kill on both platforms: the same disease the timeout
+                    # branch below already cures. process.terminate() stops only
+                    # the shell wrapper on Windows, so the real child survives and
+                    # keeps holding the stdout/stderr handles; the unguarded
+                    # communicate() that followed then raised TimeoutExpired out of
+                    # the loop and into the outer handler, which answered a
+                    # cancellation with the TIMEOUT text (live round on a Windows
+                    # host: the foreground-cancel contract never held there).
                     try:
                         if _IS_WINDOWS:
-                            process.terminate()
+                            from src.context.git_context import _taskkill_tree
+                            if not _taskkill_tree(process.pid):
+                                process.kill()
                         else:
                             import signal
                             os.killpg(process.pid, signal.SIGTERM)
                     except Exception:
-                        process.kill()
-                    stdout, stderr = process.communicate(timeout=5)
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
+                    try:
+                        # Bounded and never fatal. Orphaned grandchildren can keep
+                        # the pipes open for their own lifetime, and a truthful
+                        # "cancelled" beats whatever partial output we drop.
+                        stdout, stderr = process.communicate(timeout=_CANCEL_DRAIN_TIMEOUT_S)
+                    except Exception:
+                        stdout, stderr = "", ""
                     return (
                         "⛔ Terminal command cancelled by the user before completion. "
                         f"Command: {command}"

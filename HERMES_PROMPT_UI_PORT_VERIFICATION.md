@@ -18,8 +18,11 @@ done I will verify all at once live using API key."*
 - The prompt engine is a pinned copy of upstream's prompt text — 34 constants
   lifted verbatim into a corpus with per-file sha256s, loaded through Pulse's own
   gating, and emitted only after two documented maps (tool rename, brand rewrite).
-  `70/70` port tests pass (60 parity + 10 session-cache); the full backend suite is `1203 passed` with exactly
-  the **6 pre-existing** failures that also fail on the pristine base.
+  `70/70` port tests pass (60 parity + 10 session-cache); the full backend suite is `1204 passed` on a fully provisioned venv
+  with exactly the **6 pre-existing** failures that also fail on the pristine base. (Sandbox caveat, so nobody
+  misreads a log: the run captured here after the venv was rebuilt reads `1169 passed / 25 failed / 6 skipped`
+  — 19 of those are missing `tree-sitter`/`PIL` deps and fail identically at `86eaaae2`, verified by
+  worktree. Same rule as above, applied to myself.)
 - The Agent UI is ported into `pulse-webview/src/hermes-ui/` (42 files, 7 217
   lines) — tool runs, one-line ticker, expandable diffs, file-edit cards,
   approval strip, plan/verification ledger, timeline rail, DOM render budget —
@@ -28,6 +31,16 @@ done I will verify all at once live using API key."*
   `npx tsc -b` exits 0, `vite build` succeeds, and the ported classes are present
   in the built stylesheet.
 - **Branding:** nothing the model or the user can see names the upstream vendor.
+- **Live-round finding (Windows host, `c558e5c7`):** the agent's Phase 1 saw 11 failures, 5 more than my
+  Linux baseline. Baseline-at-`86eaaae2` says all 5 predate the port — 4× `TestFeedbackStore` because the
+  `fb_home` fixture moved `HOME` only (Windows resolves `~` from `USERPROFILE`, so the tests read and
+  appended the real profile's global feedback history), and the foreground-cancel test because `run_terminal`'s
+  **cancel** branch still had the pipe-holding-grandchild bug its timeout branch had already cured. Both fixed
+  here: the fixture pins every home variable, and the cancel branch now tree-kills with a bounded,
+  non-fatal drain. `test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes` reproduces the Windows
+  shape on Linux (5.4s + timeout text on the old code, 0.9s + cancel text on the new). The lesson for the
+  brief: an allow-list of known failures is host-specific, so Phase 1 now diffs the failure SET against the
+  pre-port commit on the same machine instead of trusting my count.
   Enforced by tests on both sides — a leak guard over every emitted prompt string,
   and a rendered-`textContent` guard plus a source scan over the UI port.
 

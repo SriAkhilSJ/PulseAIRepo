@@ -23,7 +23,7 @@ environment, so nothing here depends on a metered call.
 ```
 src/tests/test_hermes_prompt_parity.py          59 passed
 src/tests/test_hermes_prompt_session_cache.py   10 passed
-both, together                                  70 passed
+both, together                                  70 passed (0 skipped; needs $HERMES_REF for the corpus-hash test)
 ```
 
 What the 59 assert, grouped:
@@ -110,3 +110,27 @@ cd pulse-webview && npm install && npm test && npx tsc -b && npx vite build
 Narrative write-up: `../../HERMES_PROMPT_UI_PORT_VERIFICATION.md`.
 Provenance, symbol maps, allowed transforms, deviations, NOT-PORTED list:
 `../../src/prompts/hermes/PROVENANCE.md`.
+
+## Post-review host findings (same evidence dir, later commits)
+
+The Windows live round (`c558e5c7`) opened Phase 1 with 11 failures where this sandbox showed 6. Baseline at
+the pre-port commit `86eaaae2` on that machine showed the same 11, so the port was not implicated — but two
+of the host-shaped problems were worth fixing rather than allowing:
+
+- `fb_home` in `src/tests/test_session_engines.py` moved `HOME` only. Windows resolves `~` from
+  `USERPROFILE` (then `HOMEDRIVE`+HOMEPATH), so 4 `TestFeedbackStore` tests read *and appended* the real
+  user profile's global feedback history. The fixture now pins every home variable, so `~` means `tmp_path`
+  on every host.
+- `run_terminal`'s **cancel** branch killed only the shell wrapper and then read the pipes unguarded, so a
+  surviving grandchild holding stdout/stderr turned a cancellation into the timeout message. Its timeout
+  branch had already been cured of exactly this; the cancel branch now tree-kills and drains bounded
+  (`_CANCEL_DRAIN_TIMEOUT_S`) and non-fatally.
+
+`src/tests/test_hermes_runtime_values.py::test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes`
+emulates the Windows shape anywhere: 5.40s + timeout text before the fix, 0.88s + cancel text after.
+
+**Gate consequence:** a hard-coded "known failures" list is host-specific. Phase 1 of
+`DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md` now diffs the failure SET against `86eaaae2` on the verifying
+machine (read-only `git worktree`, never a stash). Applying that rule to this sandbox after it lost its venv:
+`1169 passed / 25 failed / 6 skipped`, of which **19 fail identically at `86eaaae2`** (missing tree-sitter
+grammars + PIL) — verified by worktree here, and recorded rather than quietly divided out.

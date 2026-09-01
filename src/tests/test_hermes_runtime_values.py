@@ -155,3 +155,45 @@ def test_runtime_factory_creates_isolated_stores(tmp_path):
     assert len(a.journal.list_events("s")) == 1
     assert b.journal.list_events("s") == []
     a.close(); b.close()
+
+
+def test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes(monkeypatch, tmp_path):
+    """The Windows cancel path, emulated on any host (live round found it dead).
+
+    Cancelling a foreground `run_terminal` must answer "cancelled by the user" —
+    not fall through to the timeout text. The bug was shape, not platform: the
+    kill only reached the shell wrapper, the real child survived holding
+    stdout/stderr, and the unguarded `communicate()` afterwards blocked, raised
+    out of the poll loop, and let the outer handler reply with the TIMEOUT
+    message. Here the tree kill is made to "succeed" while nothing dies, which
+    is exactly Windows.
+    """
+    import os, shlex, sys, threading, time
+    from src.runtime.turn_control import turn_controls
+    from src.tools import terminal_tools
+
+    monkeypatch.setattr(terminal_tools.os, "killpg", lambda *a, **k: None)
+    # Keep the test quick; the shipped value is what the fix protects.
+    monkeypatch.setattr(terminal_tools, "_CANCEL_DRAIN_TIMEOUT_S", 0.5)
+
+    session = "cancel-drain-test"
+    turn_controls.begin(session)
+    timer = threading.Timer(0.1, lambda: turn_controls.cancel(session))
+    timer.start()
+    started = time.monotonic()
+    try:
+        # The surviving child must outlive the drain window, or the pipes close
+        # on their own and the blocked read never happens.
+        sleeper = shlex.join([sys.executable, "-c", "import time; time.sleep(10)"])
+        result = terminal_tools.run_terminal.invoke(
+            {"command": f"{sleeper} & sleep 10"},   # shell wrapper + grandchild, like Windows
+            config={"configurable": {"thread_id": session, "workspace": str(tmp_path)}},
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        timer.cancel()
+        turn_controls.end(session)
+
+    assert "cancelled by the user" in result, result
+    assert "timed out" not in result, "a cancellation must never be answered with the timeout text"
+    assert elapsed < 5.0, f"blocked on a pipe held by a surviving child: {elapsed:.1f}s"

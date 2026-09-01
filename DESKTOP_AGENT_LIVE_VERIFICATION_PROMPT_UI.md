@@ -62,6 +62,9 @@ foreach ($need in 'scripts\dump_pulse_prompt.py','src\tests\test_hermes_prompt_p
 }
 .venv\Scripts\python.exe -m pytest src\tests\test_hermes_prompt_parity.py -q -k dump_pulse_prompt
 if ($LASTEXITCODE -ne 0) { throw 'prompt dumper is not pinned/green — STOP' }
+.venv\Scripts\python.exe -m pytest src\tests\test_hermes_runtime_values.py -q -k "grandchild or cancel" `
+  2>&1 | Tee-Object "$evidence\gate-cancel-fix.log"
+if ($LASTEXITCODE -ne 0) { throw 'foreground-cancel fix missing — pull again, then STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
 $envBackup = Join-Path $env:TEMP 'pulseai-env-backup\.env'   # never back up inside the repo
 if (Test-Path '.env') { New-Item -ItemType Directory -Force -Path (Split-Path $envBackup) | Out-Null; Copy-Item '.env' $envBackup -Force }
@@ -109,12 +112,62 @@ cd pulse-webview; npm test 2>&1 | Tee-Object "$repo\$evidence\webview-test.log";
   npx vite build 2>&1 | Tee-Object "$repo\$evidence\webview-build.log"; cd $repo
 ```
 
-expect: `70 passed` from the two Hermes suites (60 parity + 10 session-cache). Any fewer = **STOP, report,
-spend 0 credits.**
-expect: full suite ends `1203 passed, 6 failed, 3 skipped`. The 6 are the pre-existing set
-(`test_ai_node_builds_expected_first_sarvam_request_without_provider_call`, 3×
-`test_desktop_renderer_architecture.py`, 2× `test_ui_tool_catalog.py`). **A 7th distinct failure = STOP.**
+expect: `70 passed` from the two Hermes suites (60 parity + 10 session-cache), **0 skipped**. Any fewer =
+**STOP, report, spend 0 credits.**
+One skip is legitimate and host-shaped, not a failure: `test_corpus_hash_matches_a_pinned_checkout` skips
+when no Hermes checkout is reachable. That test is the anti-drift guarantee for the whole port (corpus
+sha256 vs upstream bytes at the pin), so satisfy it rather than accept the skip — 0 credits, one network
+fetch, and the pin is a public repo:
+
+```powershell
+$ref = Join-Path $env:USERPROFILE '.hermes-ref'
+git init $ref; git -C $ref remote add origin https://github.com/NousResearch/hermes-agent.git
+git -C $ref fetch --depth 1 origin a9c783f21995723c812dcb2f8ae58bc6a4323e2f
+git -C $ref checkout FETCH_HEAD
+$env:HERMES_REF = $ref     # the test reads HERMES_REF, else /home/user/.hermes-ref
+```
+
+expect after it: `60 passed` for the parity file alone, **no skip line**, i.e. the corpus still matches
+upstream at `a9c783f2`. If GitHub is unreachable from your box, record `SKIPPED(no upstream checkout)` for
+that one test in findings.md and continue — do not treat it as a port failure.
+
+**The full-suite gate is a SET DELTA, not a count.** A fixed allow-list of "the 6 known failures" was my
+first cut and it was wrong: it was written from a Linux sandbox, and on a Windows host the base suite already
+fails 11 (see `bench-results/prompt-ui-live-diag/` at `c558e5c7`). So baseline **on your machine**, then diff:
+
+```powershell
+.venv\Scripts\python.exe -m pytest src\tests -q --tb=no -rf 2>&1 | Tee-Object "$evidence\pytest-full.log"
+Select-String -Path "$evidence\pytest-full.log" -Pattern '^FAILED ' |
+  ForEach-Object { ($_.Line -split '\s+')[1] } | Sort-Object | Unique | Set-Content "$evidence\ported-failures.txt" -Encoding utf8
+
+git worktree add "$repo\..\pulseai-base" 86eaaae2 --detach          # PRE-PORT, read-only, no stash
+Push-Location "$repo\..\pulseai-base"
+& (Join-Path $repo '.venv\Scripts\python.exe') -m pytest src\tests -q --tb=no -rf 2>&1 |
+  Tee-Object "$evidence\base-failures-raw.log"
+Pop-Location
+git worktree remove "$repo\..\pulseai-base"
+Select-String -Path "$evidence\base-failures-raw.log" -Pattern '^FAILED ' |
+  ForEach-Object { ($_.Line -split '\s+')[1] } | Sort-Object | Unique | Set-Content "$evidence\base-failures.txt" -Encoding utf8
+
+$regressions = Compare-Object (Get-Content "$evidence\base-failures.txt") (Get-Content "$evidence\ported-failures.txt") |
+  Where-Object { $_.SideIndicator -eq '=>' }
+if ($regressions) { throw "Port-caused failures — STOP and report: $($regressions.InputObject -join ', ')" }
+```
+
+expect: `$regressions` is empty — every failure on the ported tree also fails at `86eaaae2` on the same
+machine. A **new** id in `ported-failures.txt` = real regression, STOP. An id that *disappears* is a bonus,
+note it and continue. **Never `git stash`/`git checkout` to get the baseline** — 60+ uncommitted files is how
+work gets lost; the worktree is read-only and disposable.
+expect: on Windows the base run lists 11 ids (the 6 cross-platform ones + 4× `TestFeedbackStore::*` +
+`test_foreground_terminal_observes_session_cancel`) and the ported tree should list **6** — the fixture and
+the cancel drain are fixed on this branch, so if the 5 are still red you are on an older commit: `git pull`.
 expect: webview `48 passed`, `tsc -b` exit code 0, `vite build` succeeds.
+
+Two host notes so nobody chases ghosts: (1) before the fixture fix, `TestFeedbackStore` tests ran against the
+**real** user profile on Windows, so `~\.pulseai\context_feedback.jsonl` may hold hundreds of test-written
+records — deleting that one file is fine, deleting anything else in your profile is not. (2) `.env` and the
+`PULSEAI_*` vars were already proven irrelevant to these failures (clean-env run failed identically), so do
+not waste time stripping them again.
 
 ## Phase 2 — Live prompt engine (target: 4 turns / ≤ 20 requests)
 

@@ -254,8 +254,20 @@ from src.context.context_engine import (
 
 @pytest.fixture
 def fb_home(tmp_path, monkeypatch):
-    """Engines derive their feedback path from ~ — point ~ at tmp."""
+    """Engines derive their feedback path from ~ — point ~ at tmp, on EVERY host.
+
+    HOME alone is not enough: Windows resolves ~ from USERPROFILE (then
+    HOMEDRIVE+HOMEPATH) and only falls back to HOME, so pinning HOME left the
+    store pointed at the real profile. Every run then read that machine's whole
+    accumulated global history (live round on a Windows host: 380+ records)
+    instead of its own seeded lines — and appended more to it on the way out.
+    Clearing the two Windows components makes ~ resolve to tmp_path there, and
+    is a no-op on POSIX where HOME already wins.
+    """
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("HOMEPATH", raising=False)
+    monkeypatch.delenv("HOMEDRIVE", raising=False)
     return tmp_path
 
 

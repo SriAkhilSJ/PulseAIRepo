@@ -1,19 +1,18 @@
-=== provider-free verification run (2026-08-31 UTC, refresh after help-guidance + dump-script tests) ===
-=== python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q ===
+=== provider-free verification run (2026-08-31 UTC, after the Windows-host fixes) ===
+=== HERMES_REF=/home/user/.hermes-ref @ a9c783f2 (pin re-fetched after this sandbox lost its home dir) ===
+=== python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q -rs ===
+...........................                                              [ 85%]
 src/tests/test_hermes_prompt_session_cache.py ..........                 [100%]
+============================== 70 passed in 1.92s ==============================
 
-============================== 70 passed in 5.31s ==============================
+=== python3 -m pytest src/tests/test_hermes_runtime_values.py src/tests/test_session_engines.py -q ===
+src/tests/test_session_engines.py ...................                    [100%]
+============================= 31 passed in 52.81s ==============================
 
-=== python3 -m pytest src/tests -q (full backend suite, 248.35s) ===
-/usr/lib/python3.11/pathlib.py:1045: in open
-    return io.open(self, mode, buffering, encoding, errors, newline)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E   FileNotFoundError: [Errno 2] No such file or directory: '/home/user/PulseAIRepo/ui/src/runtime/toolCatalog.ts'
-=========================== short test summary info ============================
-FAILED src/tests/test_autonomous_runtime_contract.py::test_ai_node_builds_expected_first_sarvam_request_without_provider_call
-FAILED src/tests/test_desktop_renderer_architecture.py::test_renderer_boundary_is_browser_safe_and_text_only
-FAILED src/tests/test_desktop_renderer_architecture.py::test_native_and_lab_catalogs_cover_the_same_36_tools
-FAILED src/tests/test_desktop_renderer_architecture.py::test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native
+=== full suite, this sandbox AFTER the venv was rebuilt (caveat, not a regression) ===
+=== 19 of the 25 failures (16 test_lang_extractors + 2 test_lab_fixes + 1 test_efficiency_receipts) are
+=== missing deps (tree-sitter grammars, PIL) and fail IDENTICALLY at the pre-port commit 86eaaae2,
+=== verified here with a read-only worktree: '19 failed, 72 passed'. A provisioned host reads 1204/6/3. ===
 FAILED src/tests/test_ui_tool_catalog.py::test_ui_catalog_covers_every_runtime_tool_name
 FAILED src/tests/test_ui_tool_catalog.py::test_terminal_family_has_real_pulse_process_tools
-============ 6 failed, 1203 passed, 3 skipped in 248.35s (0:04:08) =============
+============ 25 failed, 1169 passed, 6 skipped in 247.45s (0:04:07) ============
