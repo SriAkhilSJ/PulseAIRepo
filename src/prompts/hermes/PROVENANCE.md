@@ -55,7 +55,7 @@ suites mirror:
 
 | Upstream test | Lines | Mirrored into |
 |---|---|---|
-| `tests/agent/test_prompt_builder.py` | 1022 | `src/tests/test_hermes_prompt_parity.py` (640 L, 60 tests) |
+| `tests/agent/test_prompt_builder.py` | 1022 | `src/tests/test_hermes_prompt_parity.py` (685 L, 61 tests) |
 | `tests/agent/test_system_prompt.py` | 721 | `src/tests/test_hermes_prompt_parity.py` |
 | `tests/agent/test_prompt_caching.py` | 884 | `src/tests/test_hermes_prompt_session_cache.py` (178 L, 10 tests) |
 | `tests/agent/test_prompt_cache_boundary.py` | 382 | `src/tests/test_hermes_prompt_session_cache.py` |
@@ -353,7 +353,7 @@ edit was needed for this round.
 
 ```bash
 python3 -m pytest src/tests/test_hermes_prompt_parity.py \
-                  src/tests/test_hermes_prompt_session_cache.py -q   # 70 passed
+                  src/tests/test_hermes_prompt_session_cache.py -q   # 71 passed
 python3 -m pytest src/tests -q                                        # 1203 passed, 6 pre-existing failures
 cd pulse-webview && npm test                                          # 48 passed
 cd pulse-webview && npx tsc -b                                        # exit 0

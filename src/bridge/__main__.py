@@ -13,6 +13,10 @@ import sys
 import threading
 import uuid
 
+#: How long a turn may wait for the event forwarder to drain before the
+#: terminal frame goes out anyway (see _flush_events).
+_EVENT_FLUSH_TIMEOUT_S = 5.0
+
 from src.bridge.protocol import (
     CLIENT_METHODS, EXECUTION_MODES, ProtocolError, check_client_hello, decode_line,
     encode, error_frame, hello,
@@ -250,6 +254,24 @@ class BridgeServer:
                 # every provider/tool event before emitting its terminal frame.
                 q.task_done()
 
+    @staticmethod
+    def _flush_events(q: queue.Queue, timeout: float) -> int:
+        """Wait for the forwarder to drain, bounded — returns events left stranded.
+
+        `Queue.join()` has no timeout, so it can only ever be correct if every
+        consumer releases its slot (see EventBus._release). That is the right fix,
+        and it is still not the right *shape* here: a terminal frame must never be
+        gated on an unbounded wait, because the failure mode is not a lost event,
+        it is a client that never learns the turn ended.
+        """
+        import time
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while time.monotonic() < deadline:
+            if not getattr(q, "unfinished_tasks", 0):
+                return 0
+            time.sleep(0.02)
+        return max(int(getattr(q, "unfinished_tasks", 0) or 0), 0)
+
     def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent") -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
 
@@ -348,7 +370,15 @@ class BridgeServer:
                 # finalization cannot strand the last tool.result behind
                 # turn_done or drop it when the forwarder stops.
                 if q is not None:
-                    q.join()
+                    stranded = self._flush_events(q, _EVENT_FLUSH_TIMEOUT_S)
+                    if stranded:
+                        # Better a degraded note than a swallowed terminal frame:
+                        # without turn_done a headless client waits for its whole
+                        # watchdog while the engine has already finished.
+                        self.emit({
+                            "type": "runtime_degraded", **identity.event_fields(),
+                            "reason": f"event queue flush incomplete: {stranded} event(s) undrained",
+                        })
                 task_completed = bool(getattr(result, "completed", True))
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),

@@ -18,7 +18,7 @@ done I will verify all at once live using API key."*
 - The prompt engine is a pinned copy of upstream's prompt text — 34 constants
   lifted verbatim into a corpus with per-file sha256s, loaded through Pulse's own
   gating, and emitted only after two documented maps (tool rename, brand rewrite).
-  `70/70` port tests pass (60 parity + 10 session-cache); the full backend suite is `1204 passed` on a fully provisioned venv
+  `71/71` port tests pass (61 parity + 10 session-cache); the full backend suite is `1205 passed` on a fully provisioned venv
   with exactly the **6 pre-existing** failures that also fail on the pristine base. (Sandbox caveat, so nobody
   misreads a log: the run captured here after the venv was rebuilt reads `1169 passed / 25 failed / 6 skipped`
   — 19 of those are missing `tree-sitter`/`PIL` deps and fail identically at `86eaaae2`, verified by

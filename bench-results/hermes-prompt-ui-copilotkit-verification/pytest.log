@@ -1,18 +1,17 @@
-=== provider-free verification run (2026-08-31 UTC, after the Windows-host fixes) ===
-=== HERMES_REF=/home/user/.hermes-ref @ a9c783f2 (pin re-fetched after this sandbox lost its home dir) ===
+=== provider-free verification run (2026-08-31 UTC, after the bridge + cache-plan round) ===
+=== HERMES_REF=/home/user/.hermes-ref @ a9c783f2 (pin re-fetched; this sandbox lost its home dir twice) ===
 === python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q -rs ===
-...........................                                              [ 85%]
 src/tests/test_hermes_prompt_session_cache.py ..........                 [100%]
-============================== 70 passed in 1.92s ==============================
+============================== 71 passed in 1.91s ==============================
 
-=== python3 -m pytest src/tests/test_hermes_runtime_values.py src/tests/test_session_engines.py -q ===
-src/tests/test_session_engines.py ...................                    [100%]
-============================= 31 passed in 52.81s ==============================
+=== bridge + queue accounting + prompt suites together: python3 -m pytest src/tests/test_bridge_transport.py src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py src/tests/test_session_engines.py src/tests/test_hermes_runtime_values.py -q ===
+src/tests/test_hermes_runtime_values.py ............                     [100%]
+============================= 117 passed in 42.85s =============================
 
-=== full suite, this sandbox AFTER the venv was rebuilt (caveat, not a regression) ===
-=== 19 of the 25 failures (16 test_lang_extractors + 2 test_lab_fixes + 1 test_efficiency_receipts) are
-=== missing deps (tree-sitter grammars, PIL) and fail IDENTICALLY at the pre-port commit 86eaaae2,
-=== verified here with a read-only worktree: '19 failed, 72 passed'. A provisioned host reads 1204/6/3. ===
-FAILED src/tests/test_ui_tool_catalog.py::test_ui_catalog_covers_every_runtime_tool_name
-FAILED src/tests/test_ui_tool_catalog.py::test_terminal_family_has_real_pulse_process_tools
-============ 25 failed, 1169 passed, 6 skipped in 247.45s (0:04:07) ============
+=== cache-plan gate, 0 credits: PULSEAI_PROMPT_CACHE=1 PULSEAI_PROMPT_CACHE_CUSTOM=1 python3 scripts/dump_cache_plan.py --base-url https://api.sarvam.ai/v1 --model sarvam-105b ===
+{"derived_from_route": true, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "no-tool turn", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": null, "wire_markers": 2}
+{"derived_from_route": true, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "tool round-trip", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": null, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "no-tool turn", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": false, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "tool round-trip", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": false, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "no-tool turn", "stats_markers": 3, "stats_tool_part_markers": true, "tool_part_markers_arg": true, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "tool round-trip", "stats_markers": 3, "stats_tool_part_markers": true, "tool_part_markers_arg": true, "wire_markers": 2}

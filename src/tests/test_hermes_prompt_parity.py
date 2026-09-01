@@ -638,3 +638,47 @@ def test_dump_pulse_prompt_script_is_the_live_zero_credit_probe(tmp_path):
     assert "PULSE_FIXTURE_MARKER_alpha" not in tiers["volatile"]
     # The script's gate is the same rule the suite enforces in-process.
     assert not re.search(r"(?i)\bhermes\b|nous", "\n\n".join(tiers.values()))
+
+
+def test_cache_plan_route_gate_is_derived_and_dumpable(tmp_path):
+    """`scripts/dump_cache_plan.py` is the live round's Phase 2.4 gate: pin it.
+
+    The gate is a *derivation* — `tool_part_markers=None` must resolve from the route, off for a
+    LiteLLM-shaped `custom` base URL and on for plain OpenAI. Asserting the flip (not a wire marker
+    count, which is 2 for both shapes either way) is what keeps #89886 from regressing quietly.
+    """
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "dump_cache_plan.py"),
+         "--base-url", "https://api.sarvam.ai/v1", "--model", "sarvam-105b"],
+        capture_output=True, text=True, cwd=str(REPO),
+        env={**os.environ, "PYTHONPATH": str(REPO),
+             "PULSEAI_PROMPT_CACHE": "1", "PULSEAI_PROMPT_CACHE_CUSTOM": "1"},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    derived = [json.loads(l) for l in proc.stdout.splitlines() if l.strip().startswith("{")]
+    derived = [d for d in derived if d["derived_from_route"]]
+    assert len(derived) == 2, "expected one derived row per request shape"
+    assert {d["stats_tool_part_markers"] for d in derived} == {False}
+    assert {d["stats_markers"] for d in derived} == {3}
+    assert {d["wire_markers"] for d in derived} == {2}
+
+    openai = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "dump_cache_plan.py"),
+         "--provider", "openai", "--model", "gpt-4o"],
+        capture_output=True, text=True, cwd=str(REPO),
+        env={**os.environ, "PYTHONPATH": str(REPO), "PULSEAI_PROMPT_CACHE": "1"},
+    )
+    rows = [d for d in (json.loads(l) for l in openai.stdout.splitlines() if l.strip().startswith("{"))
+            if d["derived_from_route"]]
+    assert {d["stats_tool_part_markers"] for d in rows} == {True}, "openai must ALLOW tool-part markers"
+
+    # Without the opt-in there is no plan at all — the shape the brief cites.
+    off = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "dump_cache_plan.py"), "--provider", "openai", "--model", "gpt-4o"],
+        capture_output=True, text=True, cwd=str(REPO),
+        env={k: v for k, v in os.environ.items() if not k.startswith("PULSEAI_")},
+    )
+    first = json.loads(off.stdout.splitlines()[0])
+    assert (first["enabled"], first["reason"], first["stats_markers"]) == (False, "opt-in", 0)

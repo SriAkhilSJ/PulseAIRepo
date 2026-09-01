@@ -73,6 +73,23 @@ class EventBus:
                 self._queues = [(q, sid) for q, sid in self._queues if q not in dead]
         return event
 
+    @staticmethod
+    def _release(q: queue.Queue) -> None:
+        """Pair one removal with one task_done, tolerating an over-release.
+
+        Queue.join() counts PUTS, not deliveries: anything that takes an item out
+        of a subscriber queue has to release its join slot, or the counter stays
+        above zero forever. A live round hung exactly this way — an engine turn
+        completed, `turn_done` was never emitted, and the bridge sat in `join()`
+        waiting on a slot that had already been consumed. task_done() raises
+        ValueError on an over-release; swallowing that is far cheaper than the
+        hang, and no consumer here pairs its own gets with task_done twice.
+        """
+        try:
+            q.task_done()
+        except ValueError:
+            pass
+
     def clear(self, thread_id: str | None = None) -> None:
         wanted = str(thread_id) if thread_id else None
         with self._lock:
@@ -83,17 +100,22 @@ class EventBus:
             for q, sid in self._queues:
                 if wanted is not None and sid not in (None, wanted):
                     continue
-                kept = []
-                try:
-                    while True:
+                kept: list[dict] = []
+                while True:
+                    try:
                         evt = q.get_nowait()
-                        if wanted is not None and self._session_of(evt) != wanted:
-                            kept.append(evt)
-                except queue.Empty:
-                    pass
+                    except queue.Empty:
+                        break
+                    # Every removal releases a join slot; the re-queue below starts
+                    # a fresh cycle, so the counter stays honest either way.
+                    self._release(q)
+                    if wanted is not None and self._session_of(evt) != wanted:
+                        kept.append(evt)
                 for evt in kept:
-                    try: q.put_nowait(evt)
-                    except queue.Full: break
+                    try:
+                        q.put_nowait(evt)
+                    except queue.Full:
+                        break
 
 
 class ApprovalQueue:

@@ -112,7 +112,7 @@ cd pulse-webview; npm test 2>&1 | Tee-Object "$repo\$evidence\webview-test.log";
   npx vite build 2>&1 | Tee-Object "$repo\$evidence\webview-build.log"; cd $repo
 ```
 
-expect: `70 passed` from the two Hermes suites (60 parity + 10 session-cache), **0 skipped**. Any fewer =
+expect: `71 passed` from the two Hermes suites (61 parity + 10 session-cache), **0 skipped**. Any fewer =
 **STOP, report, spend 0 credits.**
 One skip is legitimate and host-shaped, not a failure: `test_corpus_hash_matches_a_pinned_checkout` skips
 when no Hermes checkout is reachable. That test is the anti-drift guarantee for the whole port (corpus
@@ -127,7 +127,7 @@ git -C $ref checkout FETCH_HEAD
 $env:HERMES_REF = $ref     # the test reads HERMES_REF, else /home/user/.hermes-ref
 ```
 
-expect after it: `60 passed` for the parity file alone, **no skip line**, i.e. the corpus still matches
+expect after it: `61 passed` for the parity file alone, **no skip line**, i.e. the corpus still matches
 upstream at `a9c783f2`. If GitHub is unreachable from your box, record `SKIPPED(no upstream checkout)` for
 that one test in findings.md and continue — do not treat it as a port failure.
 
@@ -223,16 +223,46 @@ across turns 1–3, and no duplicate `llm.request` carrying a fresh system block
 must still run (one extra turn, `--max-llm-calls 2`) and return the legacy single-string prompt with no
 error — the kill switch works in both directions.
 
-**2.3 Context-file caps and truncation** — grow `PULSE.md` to ~40 KB (one local command, 0 credits), then
-one turn.
+**2.3 Context-file caps and truncation** — **grow `PULSE.md` to ~40 KB first** (one local command, 0 credits),
+verify the byte count before spending the turn (`(Get-Item PULSE.md).Length` must print ~40000, and a 79-byte
+file does NOT trigger truncation — last round this was skipped for exactly that reason), then one turn.
 expect: the prompt carries `kept 70+20 of <N> chars` style truncation text with `<N>` ≈ 4× the byte count,
 head 70% / tail 20% retained, and a `drain_truncation_warnings` line surfaces in the turn's warnings.
 expect: engine does not error and does not re-read the file per turn.
 
-**2.4 Prompt-cache plan** — `PULSEAI_PROMPT_CACHE=1` for this phase only (record that you set it).
-expect: `prompt_cache_plan` reports markers for the stable+context tiers; on a `custom` base URL
-`tool_part_markers` is **False** and exactly **2** marker sets are applied (route gate). If you see **3**,
-the gate is broken → STOP and report.
+**2.4 Prompt-cache plan — this is a 0-credit check, not a live turn.** My first expect line here was wrong
+and cost you a PARTIAL: `markers=1` / `tool_part_markers=None` was you reading the *LangChain-side* metadata
+on a tool-less turn, while the plan function reports different numbers. Assert against `build_prompt_cache_plan`
+directly, both flag states on and off, and compare the **relations** below (`c99342df` findings, Phase 2.4):
+
+```powershell
+$env:PULSEAI_PROMPT_CACHE='1'; $env:PULSEAI_PROMPT_CACHE_CUSTOM='1'
+.venv\Scripts\python.exe scripts\dump_cache_plan.py --base-url $env:CUSTOM_BASE_URL --model $env:LLM_MODEL |
+  Out-File -Encoding utf8 "$evidence\cache-plan.txt"; Get-Content "$evidence\cache-plan.txt"
+Remove-Item Env:PULSEAI_PROMPT_CACHE, Env:PULSEAI_PROMPT_CACHE_CUSTOM
+```
+
+expect (measured at `7a6f79b3`, derived path — `tool_part_markers_arg: null`, which is what the engine uses):
+on `custom` + your `CUSTOM_BASE_URL`, `stats_tool_part_markers` is **False** on both shapes; on
+`--provider openai` (no base URL) it is **True**. That flip IS the route gate, and it is the assertion that
+matters. `stats_markers` is 3 and `wire_markers` is 2 on both routes for these two shapes — do NOT expect a
+wire-count difference between them; the suppressed marker is part-level inside the tool message, which these
+counters do not separate. A custom route reporting `stats_tool_part_markers: true` means the gate is not
+applied (the LiteLLM-shaped #89886 bug) → STOP and report.
+
+expect: `stats.enabled is True` only with both env flags set; without them the plan must read
+`{'enabled': False, 'reason': 'opt-in', 'stats_markers': 0, 'wire_markers': 0}` (measured) — an
+`enabled: False` on a live turn means your cache spend is
+NOT being preserved, which is worth a finding even though it is not a gate failure.
+
+**2.5 Bridge terminal frame (new — this is what blocked you last round, now fixed).** `turn_done` used to be
+gated on an unbounded `Queue.join()`, and `EventBus.clear()` removed queued events without releasing their join
+slots, so a healthy engine could finish with the client waiting forever. Pull `>= ` the fix commit; then:
+set `$env:PULSEAI_BRIDGE_DIAGNOSTICS='1'` for the live turns (the bridge dumps all thread tracebacks after 60s
+— if anything still strands, that dump is what identifies the producer, and it costs nothing) and
+expect every `run_bridge_turn.py` invocation to exit 0 on `turn_done`, with no `runtime_degraded`
+`event queue flush incomplete` frame. If that degraded frame appears, capture it plus the faulthandler dump
+and report the stranded count — do not retry the turn.
 
 ## Phase 3 — Live context engine (target: 4 turns / ≤ 12 requests)
 

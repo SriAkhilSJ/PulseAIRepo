@@ -492,3 +492,105 @@ def test_diagnostics_watchdog_env_does_not_break_bridge(tmp_path):
         assert frames[-1]["completed"] is True
     finally:
         _stop_bridge(proc)
+
+
+# ------------------------------- event-queue accounting (the live-round turn_done hang)
+
+def _join_bounded(q, seconds: float = 2.0) -> bool:
+    """True if q.join() completed. Bounded so a regression FAILS instead of wedging CI."""
+    worker = threading.Thread(target=q.join, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    return not worker.is_alive()
+
+
+def test_event_bus_clear_releases_join_slots():
+    """`clear()` may not strand a join() — that is what ate the terminal frame.
+
+    Queue.join() counts PUTS, not deliveries. A drain that removes items without
+    releasing their slot leaves the counter above zero forever, and _run_turn's
+    pre-terminal flush then blocks with a healthy, finished engine: the live
+    round's "engine delivers responses, turn_done never arrives", exactly.
+    """
+    from src.dashboard.event_bus import EventBus
+
+    bus = EventBus()
+    q = bus.subscribe(thread_id=None)
+    for i in range(3):
+        bus.emit("llm.request", {"session_id": "s", "i": i})
+    assert q.qsize() == 3 and q.unfinished_tasks == 3
+    bus.clear()
+    assert q.qsize() == 0
+    assert q.unfinished_tasks == 0, "clear() removed events without releasing their join slots"
+    assert _join_bounded(q), "q.join() hung on a queue clear() had already emptied"
+    bus.unsubscribe(q)
+
+
+def test_event_bus_clear_for_one_session_preserves_the_others():
+    """The filtered path re-queues foreign events; those must keep their own slots."""
+    from src.dashboard.event_bus import EventBus
+
+    bus = EventBus()
+    q = bus.subscribe(thread_id=None)
+    bus.emit("tool.result", {"session_id": "s1", "ok": True})
+    bus.emit("tool.result", {"session_id": "s2", "ok": True})
+
+    bus.clear("s1")
+
+    assert q.qsize() == 1 and q.unfinished_tasks == 1
+    assert q.get_nowait()["payload"]["session_id"] == "s2"
+    q.task_done()
+    assert _join_bounded(q)
+    bus.unsubscribe(q)
+
+
+def test_turn_done_survives_a_undrained_event_queue(monkeypatch, tmp_path):
+    """The pre-terminal flush is bounded, so no leak can swallow turn_done again.
+
+    Forwarder disabled => anything published during the turn stays undrained.
+    Old shape: q.join() waits forever, client hangs to its watchdog. New shape:
+    the strand is reported as runtime_degraded and turn_done still goes out.
+    """
+    import src.bridge.__main__ as bridge_mod
+    from src.dashboard.event_bus import event_bus
+
+    monkeypatch.delenv("PULSEAI_BRIDGE_RUNNER", raising=False)
+    monkeypatch.setattr(bridge_mod, "_EVENT_FLUSH_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(BridgeServer, "_forward_events", lambda self, *a, **k: None)
+
+    import src.graphs.chat_graph as chat_graph
+
+    original = chat_graph.stream_agent
+
+    def fake_stream_agent(*args, **kwargs):
+        event_bus.emit("llm.response", {"session_id": "s-strand", "ok": True})
+        return {"content": "stub-ok", "role": "assistant"}
+
+    chat_graph.stream_agent = fake_stream_agent
+    try:
+        emitted: list[dict] = []
+        server = object.__new__(BridgeServer)
+        server.emit = emitted.append
+        server._shutdown = threading.Event()
+        server._run_turn("s-strand", "hi", str(tmp_path), "debug")
+    finally:
+        chat_graph.stream_agent = original
+        event_bus.clear()
+
+    types = [f["type"] for f in emitted]
+    assert types[-1] == "turn_done", f"terminal frame swallowed by an undrained queue: {types}"
+    assert "runtime_degraded" in types, f"the strand must be reported, not hidden: {types}"
+    degraded = next(f for f in emitted if f["type"] == "runtime_degraded")
+    assert "undrained" in degraded["reason"]
+
+
+def test_flush_events_reports_exact_strand_count():
+    from src.bridge.__main__ import _EVENT_FLUSH_TIMEOUT_S, BridgeServer as _BS
+
+    q = queue.Queue()
+    q.put("a"); q.put("b")
+    assert _BS._flush_events(q, 0.2) == 2          # nothing drains it -> bounded, counted
+    q.task_done(); q.task_done()
+    t0 = time.monotonic()
+    assert _BS._flush_events(q, _EVENT_FLUSH_TIMEOUT_S) == 0
+    assert time.monotonic() - t0 < 0.2              # returns at once when clean

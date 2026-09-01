@@ -134,3 +134,36 @@ emulates the Windows shape anywhere: 5.40s + timeout text before the fix, 0.88s 
 machine (read-only `git worktree`, never a stash). Applying that rule to this sandbox after it lost its venv:
 `1169 passed / 25 failed / 6 skipped`, of which **19 fail identically at `86eaaae2`** (missing tree-sitter
 grammars + PIL) — verified by worktree here, and recorded rather than quietly divided out.
+
+## Second live-round findings (from `c99342df`), and what changed here
+
+Phase 2's prompt-engine checks all PASSed on the real Windows host with the real key: tiers `stable 5074 /
+context 184 / volatile 148` chars, marker once in the context tier, `BRAND_HITS: none`, `Platform: ide`, and
+**identical stable bytes across two independent dumps** — the session-scoped prefix claim, observed on a live
+engine rather than asserted from a fixture.
+
+Two things that round reported as PARTIAL were my brief's fault, not the port's:
+
+- **Phase 2.4 cache plan.** They read `markers=1, tool_part_markers=None` off the LangChain-side metadata for a
+  tool-less turn and were told to expect `2 / False` from the *plan* function. Different objects, different
+  numbers. `scripts/dump_cache_plan.py` now prints both counters per shape per route with `tool_part_markers`
+  left to derive, and the gate is the **flip** (`custom`+base URL → `False`, plain `openai` → `True`), not a
+  wire-count difference — measured `stats_markers=3 / wire_markers=2` on *both* routes for those shapes, so
+  expecting 3-vs-2 would have been another invented number. Pinned by
+  `test_cache_plan_route_gate_is_derived_and_dumpable` (parity suite is 61 tests, suites total 71).
+- **Bridge hang.** Their `q.join()` hang was real and is a product bug, not a prompt one: `EventBus.clear()`
+  drained subscriber queues with `get_nowait()` and there was **no `task_done` accounting anywhere in that
+  module**, so every removed event left `Queue.join()` waiting on a slot that would never come — and
+  `_run_turn` emitted `turn_done` *after* that unbounded join. Fixed at both layers: `EventBus._release`
+  pairs every removal, and `_flush_events(q, _EVENT_FLUSH_TIMEOUT_S)` makes the flush bounded so no future leak
+  can swallow a terminal frame again (it reports `runtime_degraded: event queue flush incomplete: N` instead).
+  Caveat, stated plainly: `clear()` is the only unpaired removal I could find in-tree, and it is called from
+  dashboard preflight/mock_agent — not obviously from a standalone `python -m src.bridge`, so I have not proven
+  that this is the exact producer their host hit. What is proven: the accounting bug exists (a 60 s hang
+  reproduced here, then instant `join()` after the fix), and a stranded queue can no longer eat `turn_done`.
+  `PULSEAI_BRIDGE_DIAGNOSTICS=1` is now prescribed for live turns, so if any strand remains the 60 s
+  faulthandler dump names the producer for free.
+
+Pre-fix control note, so nobody over-reads the tests: on the unpatched tree
+`test_turn_done_survives_a_undrained_event_queue` fails *fast* (it asserts on a constant the old module does
+not define), not by hanging; the hang evidence is the two `clear()` accounting tests plus my direct repro.
