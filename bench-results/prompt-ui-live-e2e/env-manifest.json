@@ -1,0 +1,11 @@
+{
+  "CUSTOM_API_KEY": "set",
+  "CUSTOM_BASE_URL": "set",
+  "LLM_PROVIDER": "custom",
+  "LLM_MODEL": "sarvam-105b-conversations",
+  "AUX_LLM_MODEL": "sarvam-105b-conversations",
+  "PULSEAI_ENGINE_ROOT": "set",
+  "PULSEAI_PYTHON_PATH": "set",
+  "PROVIDER_SAFE_LIMIT": "6000 (default)",
+  "EMBEDDING_PROVIDER": "local (default)"
+}

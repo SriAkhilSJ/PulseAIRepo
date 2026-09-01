@@ -1,0 +1,8 @@
+﻿HEAD=679061f02b15942f936285c12a0914e42c816c56
+git-branch=arena/01a0564d-pulseairepo
+python=Python 3.14.4 (main, Apr  7 2026, 20:48:46) [MSC v.1944 64 bit (AMD64)]
+
+os=5.1.26100.9168 / Microsoft Windows NT 10.0.26200.0
+fs=NTFS
+crlf=core.autocrlf=true
+parity============== 30/1212 tests collected (1182 deselected) in 9.48s ==============
