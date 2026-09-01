@@ -226,7 +226,10 @@ error — the kill switch works in both directions.
 **2.3 Context-file caps and truncation** — **grow `PULSE.md` to ~40 KB first** (one local command, 0 credits),
 verify the byte count before spending the turn (`(Get-Item PULSE.md).Length` must print ~40000, and a 79-byte
 file does NOT trigger truncation — last round this was skipped for exactly that reason), then one turn.
-expect: the prompt carries `kept 70+20 of <N> chars` style truncation text with `<N>` ≈ 4× the byte count,
+expect: the prompt carries `kept 70+20 of <N> chars` style truncation text, and say in findings.md which
+tokeniser path was active — their `bridge_stderr.log` showed `[tokenizer] unavailable
+(encoding_for_model('sarvam-105b-conversations')) … degrading to ~chars/4 heuristic`, so `<N>` is
+bytes/4-ish rather than exact and that is expected, not a bug (quote the warning line).
 head 70% / tail 20% retained, and a `drain_truncation_warnings` line surfaces in the turn's warnings.
 expect: engine does not error and does not re-read the file per turn.
 
