@@ -301,11 +301,16 @@ class TestFeedbackStore:
     def test_debris_lines_are_skipped_not_fatal(self, fb_home):
         # Cross-process interleave can tear a line; readers must keep the rest.
         _fb_path(fb_home).parent.mkdir(parents=True, exist_ok=True)
-        _fb_path(fb_home).write_text(
-            '{"task": "ok", "success": true}\n'
-            '{"task": "torn-half — NOT JSON\n'
-            '{"task": "ok2", "success": false}\n'
-        )
+        # Written byte-explicit, and ASCII-only: Path.write_text() with no encoding uses the
+        # host locale (cp1252 on Windows) while the store READS utf-8 strict, so a single
+        # em-dash in this fixture made the whole file undecodable on Windows and this test
+        # failed there while passing everywhere else. Same trap as the .ps1 without a BOM.
+        with open(_fb_path(fb_home), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(
+                '{"task": "ok", "success": true}\n'
+                '{"task": "torn-half -- NOT JSON\n'
+                '{"task": "ok2", "success": false}\n'
+            )
         eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)
         assert [r["task"] for r in eng._feedback_history] == ["ok", "ok2"]
 

@@ -230,7 +230,19 @@ test.
 
 ---
 
-## 6. NOT ported — and why
+### Deviation — `/plan` and `/learn` are prompt-layer only, by pin, not by wiring
+
+`plan_learn.py` ports `build_plan_prompt`, `plan_target_path` and `build_learn_prompt` verbatim-with-maps, and
+the parity suite pins their text and naming. **Nothing in Pulse's runtime calls them**: the bridge takes
+`frame["mode"]` (`src/bridge/__main__.py:508`), validates it against
+`EXECUTION_MODES = {"agent","plan","debug","ask"}` (`protocol.py:10`), and hands it to `stream_agent` as
+`execution_mode`, which `chat_graph` branches on for `ask` (`:798`) and `debug` (`:808`) only. So `plan` is
+accepted and inert, and a `/plan` prefix in turn text is just text. A live round that "tests /plan" through
+the bridge is testing the model's manners, not this port — say so instead of scoring it.
+Wiring `mode:"plan"` to `build_plan_prompt` (and a learn path to `build_learn_prompt`) is a product change to
+`chat_graph`, deliberately not made here.
+
+
 
 Deliberate absences, so nobody "helpfully" re-adds them later:
 

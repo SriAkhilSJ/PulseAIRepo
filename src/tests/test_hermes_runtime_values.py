@@ -1,6 +1,8 @@
 """Behavior contracts for the Hermes-derived runtime invariants."""
 from __future__ import annotations
 
+import contextlib
+import pathlib
 import queue
 import sqlite3
 import threading
@@ -197,3 +199,83 @@ def test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes(monkeypatch
     assert "cancelled by the user" in result, result
     assert "timed out" not in result, "a cancellation must never be answered with the timeout text"
     assert elapsed < 5.0, f"blocked on a pipe held by a surviving child: {elapsed:.1f}s"
+
+
+@contextlib.contextmanager
+def _stdin_is_an_open_pipe(fd: int = 0):
+    """Point fd 0 at a pipe nobody writes to — the bridge's exact shape."""
+    import os
+    read_fd, write_fd = os.pipe()
+    saved = os.dup(fd)
+    os.dup2(read_fd, fd)
+    os.close(read_fd)
+    try:
+        yield
+    finally:
+        os.dup2(saved, fd)
+        os.close(saved)
+        os.close(write_fd)
+
+
+def test_terminal_children_never_inherit_the_parents_stdin(tmp_path, monkeypatch):
+    """A tool child must not be able to read (or block on) our own stdin.
+
+    Under the bridge, fd 0 is the client's JSON-RPC pipe. Inheriting it is doubly
+    wrong: an interactive child eats protocol frames, and on Windows the inherited
+    write end leaves cmd.exe waiting for an EOF that never comes — the live round's
+    hang, which no amount of pipe-reading cleverness could fix because the child was
+    never going to exit.
+    """
+    import os, shlex, sys, time
+
+    monkeypatch.setenv("PULSEAI_TERMINAL_TIMEOUT", "5")
+    from src.tools import terminal_tools
+
+    command = shlex.join([sys.executable, "-c", "import sys; sys.stdin.read(); print('saw-eof')"])
+    with contextlib.redirect_stderr(None):
+        started = time.monotonic()
+        with _stdin_is_an_open_pipe():
+            result = terminal_tools.run_terminal.invoke(
+                {"command": command},
+                config={"configurable": {"thread_id": "stdin-isolation", "workspace": str(tmp_path)}},
+            )
+        elapsed = time.monotonic() - started
+
+    assert "saw-eof" in result, f"child did not get an immediate EOF on stdin: {result!r}"
+    assert "timed out" not in result, f"stdin inheritance resurrected the hang after {elapsed:.1f}s"
+
+
+def test_foreground_popen_passes_devnull_stdin(monkeypatch, tmp_path):
+    """White-box pin: BOTH spawn sites set it, not just the foreground one."""
+    from src.tools import terminal_tools
+
+    captured: list[dict] = []
+
+    class _Fake:
+        pid = 4242
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            return "ok", ""
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        captured.append(kwargs)
+        return _Fake()
+
+    monkeypatch.setattr(terminal_tools.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(terminal_tools, "checkpoint_before_mutation", lambda *a, **k: None, raising=False)
+    terminal_tools.run_terminal.invoke(
+        {"command": "echo hi"},
+        config={"configurable": {"thread_id": "kwargs-pin", "workspace": str(tmp_path)}},
+    )
+    assert captured, "run_terminal never reached Popen"
+    assert captured[0].get("stdin") is terminal_tools.subprocess.DEVNULL
+
+    src = pathlib.Path(terminal_tools.__file__).read_text(encoding="utf-8")
+    assert src.count("stdin=subprocess.DEVNULL") >= 2, "start_terminal must not inherit stdin either"

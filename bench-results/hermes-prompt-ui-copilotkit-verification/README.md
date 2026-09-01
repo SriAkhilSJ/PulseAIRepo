@@ -167,3 +167,47 @@ Two things that round reported as PARTIAL were my brief's fault, not the port's:
 Pre-fix control note, so nobody over-reads the tests: on the unpatched tree
 `test_turn_done_survives_a_undrained_event_queue` fails *fast* (it asserts on a constant the old module does
 not define), not by hanging; the hang evidence is the two `clear()` accounting tests plus my direct repro.
+
+## Third live-round findings: their controls beat my theory
+
+They ran the three controls I asked for and the answer is not the one I predicted.
+
+- **The `run_terminal` hang was neither cmd.exe's grandchildren nor CPython 3.14.** `PULSEAI_CHECKPOINTS=off`,
+  `PULSEAI_PARALLEL_TOOLS=off` and both-off all still hung, which killed my concurrent-`CreateProcess`
+  handle-inheritance hypothesis cleanly. Their process chain (`bridge -> cmd.exe -> python ->
+  Python311\python.exe`, all four alive at 25 s) named the real cause: both `Popen` sites in
+  `src/tools/terminal_tools.py` set `stdout`/`stderr` and **never set `stdin`**, so the child inherits fd 0 —
+  and under the bridge, fd 0 is the client's JSON-RPC pipe. Nothing to do with checkpoints (which already pass
+  `stdin=DEVNULL`) or with parallel tools.
+  Fix: `stdin=subprocess.DEVNULL` at **both** sites (foreground *and* `start_terminal`, where it is worse than
+  a hang — an interactive persistent session inherits the ability to read the client's protocol frames).
+  Pinned twice: `test_terminal_children_never_inherit_the_parents_stdin` dup2's an open, never-written pipe onto
+  fd 0 and demands the child see an immediate EOF; on the unfixed code it fails with
+  `stdin inheritance resurrected the hang after 5.0s` — their symptom, reproduced on Linux in five seconds.
+  Plus `test_foreground_popen_passes_devnull_stdin`, a white-box pin on both call sites.
+- **Their `test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes` failure was my previous fix being
+  incomplete, not host flake**: that test drives `run_terminal`, so it hit the same stdin hang.
+- **Two of their three Phase 3 FAILs were my brief inventing interfaces.** `/plan` and `/learn` are not parsed
+  at the bridge: `__main__.py:508` reads `frame["mode"]` against `EXECUTION_MODES = {agent, plan, debug, ask}`
+  (`protocol.py:10`), and `chat_graph` branches on `ask` (`:798`) and `debug` (`:808`) only — while
+  `build_plan_prompt` / `build_learn_prompt` have **no runtime caller** at all (exported at
+  `src/prompts/hermes/__init__.py:23`, consumed only by tests). This port is prompt-layer, and the brief now
+  says so instead of inviting a false FAIL; wiring it is a `chat_graph` change, deliberately not made here.
+  `safety_guard.check_tool_call` inspects **only** `write_file`/`edit_file`/`run_terminal`/`start_terminal`
+  (`:49,:67,:73`) and never the prompt text, so "read `.env`, expect BLOCKED" was my fabrication and their
+  `search_code` "bypass" is by design. The `copy_file` asymmetry (approval-gated, not guard-gated) is recorded
+  as an owner finding, not patched.
+- **One repo-wide trap, from their two encoding complaints**: locale-encoded writes.
+  `TestFeedbackStore::test_debris_lines_are_skipped_not_fatal` embedded an em-dash written through
+  `Path.write_text()` (cp1252 on Windows) against a store that reads `encoding="utf-8"` strict — undecodable
+  *only on Windows*, which is why 3 of the 4 FeedbackStore tests went green and this one stayed red. Same class
+  as their Phase 5 blocker: `scripts/run_paid_pbr002_guarded.ps1` would not parse for an em-dash with no BOM
+  under PS 5.1. Fixtures now write byte-explicit UTF-8 with `newline="\n"`; the `.ps1` carries a BOM.
+- Their `Timed out waiting for Pulse Manager editor` was my gate contradicting itself (do not rebuild `.build`,
+  yet run a validator that needs a current build). The brief allows exactly one `npm run compile` on that
+  symptom, with a note in findings.md.
+
+Totals: **71 passed / 0 skipped** for the two port suites with the pin at `a9c783f2`, and **119 passed**
+across bridge + prompt + runtime + session suites with the same pin present. Without a reachable Hermes
+checkout, `test_corpus_hash_matches_a_pinned_checkout` skips and those reads become 70/1 and 118/1 — which is
+why the brief now names that test explicitly instead of demanding a bare count.

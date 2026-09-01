@@ -198,6 +198,13 @@ def start_terminal(
     popen_kwargs = dict(
         cwd=workspace,
         shell=True,
+        # stdin=DEVNULL, never inherited: under the bridge, fd 0 is the client's
+        # JSON-RPC pipe. A child that inherits it can read the parent's protocol
+        # frames — stealing turns and desynchronizing the stream — and on Windows
+        # the inherited write end also keeps cmd.exe's own stdin read blocked, so
+        # even `python hello.py` never returns. (live round: 4-process chain
+        # bridge->cmd->python->python alive at 25s, every child waiting on stdin.)
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -427,9 +434,9 @@ def run_terminal(
 
     try:
         popen_kwargs = dict(
-            cwd=workspace, shell=True, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, encoding="utf-8",
-            errors="replace", env=env,
+            cwd=workspace, shell=True, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace", env=env,
         )
         if _IS_WINDOWS:
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

@@ -1,4 +1,4 @@
-# run_paid_pbr002_guarded.ps1 — first paid benchmark row, with a watchdog.
+﻿# run_paid_pbr002_guarded.ps1 — first paid benchmark row, with a watchdog.
 #
 # What it does (in order):
 #   0. Preflight: python venv + .env key present, tiny PBR-002 fixture built.
