@@ -1,0 +1,23 @@
+﻿usage: run_bridge_turn.py [-h] --workspace WORKSPACE --prompt-file PROMPT_FILE
+                          [--run-id RUN_ID] [--timeout-s TIMEOUT_S]
+                          [--max-llm-calls MAX_LLM_CALLS]
+                          [--max-input-tokens MAX_INPUT_TOKENS]
+                          [--max-no-delivery-calls MAX_NO_DELIVERY_CALLS]
+                          [--results-root RESULTS_ROOT]
+
+options:
+  -h, --help            show this help message and exit
+  --workspace WORKSPACE
+  --prompt-file PROMPT_FILE
+  --run-id RUN_ID
+  --timeout-s TIMEOUT_S
+  --max-llm-calls MAX_LLM_CALLS
+                        credit circuit-breaker: cancel the turn at this many
+                        provider calls
+  --max-input-tokens MAX_INPUT_TOKENS
+                        credit circuit-breaker: cancel when cumulative input
+                        tokens pass this
+  --max-no-delivery-calls MAX_NO_DELIVERY_CALLS
+                        cancel a paid build that still has no workspace file
+                        at this many LLM requests
+  --results-root RESULTS_ROOT

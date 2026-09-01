@@ -1,0 +1,1 @@
+﻿List files. Answer in at most 120 words. Prefer one tool call over exploration.

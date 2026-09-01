@@ -1,0 +1,1 @@
+﻿What is the content of hello.py? Answer in at most 120 words. Prefer one tool call over exploration.

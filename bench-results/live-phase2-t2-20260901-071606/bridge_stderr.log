@@ -1,0 +1,6 @@
+[ContextEngine] context window 32,768 for 'sarvam-105b-conversations' (source: static-table); token budget 6,000 (provider cap 6,000)
+[ContextEngine] — set PROVIDER_SAFE_LIMIT=0 to unlock 28,672
+[tokenizer] unavailable (encoding_for_model('sarvam-105b-conversations')): KeyError: 'Could not automatically map sarvam-105b-conversations to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.' — degrading to ~chars/4 heuristic token counts (imprecise, never fatal). Install/populate the tiktoken cache (one online run) for exact counts.
+
+🔧  read_file {'path': 'hello.py'}
+  ✅ Read file: hello.py

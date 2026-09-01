@@ -1,0 +1,11 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 60 items / 59 deselected / 1 selected
+
+src\tests\test_hermes_prompt_parity.py .                                 [100%]
+
+====================== 1 passed, 59 deselected in 0.47s =======================

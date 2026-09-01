@@ -1,0 +1,19 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 70 items
+
+src\tests\test_hermes_prompt_parity.py ...................s............. [ 47%]
+...........................                                              [ 85%]
+src\tests\test_hermes_prompt_session_cache.py ..........                 [100%]
+
+============================== warnings summary ===============================
+src/tests/test_hermes_prompt_session_cache.py::test_chat_graph_uses_the_cached_prefix_and_degrades_safely
+  D:\pulseAIagent\PulseAIRepo\.venv\Lib\site-packages\google\genai\types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 69 passed, 1 skipped, 1 warning in 19.03s ==================

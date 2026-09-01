@@ -1,3 +1,7 @@
 phase,requests,prompt_tokens,completion_tokens,running_total
 probe,1,8,1,0.1
 phase1,0,0,0,0.1
+phase2_dump,0,0,0,0.1
+phase2_t1,2,3035,39,0.5
+phase2_t2,2,3000,40,0.9
+phase2_t3,2,3000,40,1.3

@@ -1,0 +1,124 @@
+﻿node.exe : npm notice run pulse-webview@0.0.0 test
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Administrator\AppData\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run pulse-webview@0.0.0 test:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/pulseAIagent/PulseAIRepo/pulse-webview[39m
+
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/index.js" points to 
+missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/catalog/function_invoker.js" points to 
+missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/catalog/types.js" points 
+to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/errors.js" points to 
+missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/common/events.js" points 
+to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/processing/message-processor.js" 
+points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/state/surface-model.js" 
+points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/state/data-model.js" 
+points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/reactivity/signals.js" 
+points to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/state/surface-components-model.js" 
+points to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/schema/client-to-server.js" points to 
+missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/state/surface-group-model.js" points 
+to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/state/component-model.js" points to 
+missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/rendering/component-context.js" points 
+to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/rendering/data-context.js" points to 
+missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/rendering/generic-binder.js" points to 
+missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/schema/index.js" points 
+to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/schema/common-types.js" 
+points to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/schema/server-to-client.js" points to 
+missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/schema/client-capabilities.js" points 
+to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/basic_catalog/index.js" 
+points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/basic_catalog/expressions
+/expression_parser.js" points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/basic_catalog/functions/b
+asic_functions.js" points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/basic_catalog/functions/b
+asic_functions_api.js" points to missing source files
+Sourcemap for "D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/basic_catalog/components/
+basic_components.js" points to missing source files
+Sourcemap for 
+"D:/pulseAIagent/PulseAIRepo/pulse-webview/node_modules/@a2ui/web_core/src/v0_9/basic_catalog/styles/default.js" 
+points to missing source files
+[90mstdout[2m | src/__tests__/pulse-agent-render.test.tsx[2m > [22m[2mPulse agent task card renders in the DOM[2m > [22m[2mpaints the full card from the exact operations the Python agent emits
+[22m[39m[rendered card] "Fix bridge protocolIn progressRepair the stdio bridge handshakehighPulse AgentOpen in editor"
+
+[90mstdout[2m | src/__tests__/pulse-agent-render.test.tsx[2m > [22m[2mPulse agent task card renders in the DOM[2m > [22m[2mdispatches the pulse_task_action event when clicked
+[22m[39m[dispatched] [[{"userAction":{"name":"pulse_task_action","surfaceId":"pulse-task","sourceComponentId":"action","context":{"taskId":"pulse-123"},"timestamp":"2026-09-01T13:47:26.576Z"}}]]
+
+[90mstderr[2m | src/__tests__/pulse-agent-render.test.tsx[2m > [22m[2mpulse-webview App shell[2m > 
+[22m[2mmounts and paints the branded header
+[22m[39mLit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
+
+[90mstderr[2m | src/__tests__/pulse-agent-render.test.tsx[2m > [22m[2mpulse-webview App shell[2m > 
+[22m[2mpaints a chat composer the user can type into
+[22m[39mFailed to load runtime info (/api/copilotkit/info): fetch failed
+
+[90mstderr[2m | src/__tests__/pulse-agent-render.test.tsx[2m > [22m[2mpulse-webview App shell[2m > 
+[22m[2mpaints a chat composer the user can type into
+[22m[39mFailed to load runtime info (/api/copilotkit/info): fetch failed
+[CopilotKit] Error (runtime_info_fetch_failed): [TypeError: fetch failed] {
+  [cause]: Error: connect ECONNREFUSED 127.0.0.1:8200
+  [90m    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)[39m {
+    errno: [33m-4078[39m,
+    code: [32m'ECONNREFUSED'[39m,
+    syscall: [32m'connect'[39m,
+    address: [32m'127.0.0.1'[39m,
+    port: [33m8200[39m
+  }
+} { runtimeUrl: [32m'/api/copilotkit'[39m }
+
+[90mstderr[2m | src/__tests__/pulse-agent-render.test.tsx[2m > [22m[2mpulse-webview App shell[2m > 
+[22m[2mpaints a chat composer the user can type into
+[22m[39mAgent pulse_agent not found
+
+ [32mΓ£ô[39m src/__tests__/pulse-agent-render.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 3775[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m pulse-webview App shell[2m > [22mmounts and paints the branded header [33m 3437[2mms[22m[39m
+[90mstderr[2m | src/__tests__/hermes-ui-thread.test.tsx
+[22m[39mLit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
+
+ [32mΓ£ô[39m src/__tests__/hermes-ui-thread.test.tsx [2m([22m[2m39 tests[22m[2m)[22m[33m 796[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m48 passed[39m[22m[90m (48)[39m
+[2m   Start at [22m 06:47:19
+[2m   Duration [22m 13.42s[2m (transform 2.91s, setup 112ms, collect 16.08s, tests 4.57s, environment 2.52s, prepare 369ms)[22m
+
+npm notice
+npm notice New patch version of npm available! 12.0.1 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice

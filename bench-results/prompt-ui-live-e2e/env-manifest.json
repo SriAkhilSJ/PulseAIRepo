@@ -3,9 +3,12 @@
   "CUSTOM_BASE_URL": "set",
   "LLM_PROVIDER": "custom",
   "LLM_MODEL": "sarvam-105b-conversations",
-  "AUX_LLM_MODEL": "sarvam-105b-conversations",
+  "AUX_LLM_MODEL": "sarvam-105b",
   "PULSEAI_ENGINE_ROOT": "set",
   "PULSEAI_PYTHON_PATH": "set",
   "PROVIDER_SAFE_LIMIT": "6000 (default)",
-  "EMBEDDING_PROVIDER": "local (default)"
+  "EMBEDDING_PROVIDER": "local (default)",
+  "HERMES_REF": "D:\\hermes\\hermes-agent",
+  "PULSEAI_PROMPT_CACHE": "1",
+  "PULSEAI_PROMPT_CACHE_CUSTOM": "1"
 }

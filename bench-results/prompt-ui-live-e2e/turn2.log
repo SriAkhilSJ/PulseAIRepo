@@ -1,0 +1,14 @@
+﻿[07:16:06] hello x1
+[07:16:06] session_info x1
+[07:16:06] workspace.bound x1
+[07:16:17] workspace.bound x2
+[07:16:17] turn_started x1
+[07:16:17] reasoning x1
+[07:16:18] llm.request x1 | calls=1/5 tokensIn~0/12000
+[07:16:20] llm.response x1
+[07:16:20] tool_call_start x1
+[07:16:20] tool_call_end x1
+[07:16:20] llm.request x2 | calls=2/5 tokensIn~0/12000
+[07:16:25] llm.response x2
+[07:16:25] token x1
+OUTCOME: timeout completed=None llm.calls=2 -> bench-results\live-phase2-t2-20260901-071606

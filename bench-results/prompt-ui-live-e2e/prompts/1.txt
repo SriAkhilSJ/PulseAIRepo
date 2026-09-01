@@ -1,0 +1,1 @@
+﻿What files are in this workspace? Name the project instructions file if there is one. Answer in at most 120 words. Prefer one tool call over exploration.

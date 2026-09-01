@@ -1,0 +1,8 @@
+﻿[07:27:03] hello x1
+[07:27:03] session_info x1
+[07:27:03] workspace.bound x1
+[07:27:03] workspace.bound x2
+[07:27:03] turn_started x1
+[07:27:03] token x1
+[07:27:03] turn_done x1
+OUTCOME: turn_done completed=True llm.calls=0 -> bench-results\live-phase2-echo-20260901-072703

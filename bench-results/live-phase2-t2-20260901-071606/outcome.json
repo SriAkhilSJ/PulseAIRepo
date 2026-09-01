@@ -1,0 +1,26 @@
+{
+  "run_id": "live-phase2-t2-20260901-071606",
+  "session_id": "t5-231f7f1cdb",
+  "workspace": "C:\\scratch\\pws",
+  "result": "timeout",
+  "frame_counts": {
+    "hello": 1,
+    "session_info": 1,
+    "workspace.bound": 2,
+    "turn_started": 1,
+    "reasoning": 1,
+    "llm.request": 2,
+    "llm.response": 2,
+    "tool_call_start": 1,
+    "tool_call_end": 1,
+    "token": 1
+  },
+  "llm_request_frames": 2,
+  "tokens_in_last_telemetry": 0,
+  "budget_stop": false,
+  "no_delivery_stop": false,
+  "operator_cancelled": false,
+  "safety_requests": 0,
+  "safety_approved": 0,
+  "safety_denied": 0
+}
