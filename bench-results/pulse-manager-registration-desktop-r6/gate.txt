@@ -1,0 +1,1 @@
+reached: D; result: FAIL; first failure: Gate D CDP -- Electron launch: no folder open in workbench, Pulse composer disabled; doc's arg list format is wrong for this Electron version; gate C compile PASS, gate A green since r2
