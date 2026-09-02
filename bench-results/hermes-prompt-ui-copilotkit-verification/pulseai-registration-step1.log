@@ -26,3 +26,20 @@ $ python3 -m pytest src/tests/test_pulse_session_registration_parity.py -q
 
 Not proven here: no yarn install, no bundle, no paint — type + behaviour only.
 Owner-side gate: yarn && yarn compile, then node scripts/validate_pulse_ui_cdp.js (waits for .pulseai-manager-shell).
+
+## Re-executed after a sandbox rebuild (same commit tree, 2026-09-02, later in the session)
+
+The sandbox was rebuilt mid-session and its git pointer rolled back to `86eaaae2` while the pushed work
+was intact; the checkout was reset to `f7815e473` and the gates re-run from a clean venv. Same numbers:
+
+```
+$ tsc -p src/tsconfig.pulseai-check.json --noEmit                 # strict, scoped
+Pulse errors: 0     total error lines: 364 (missing @types, environmental)     pulseai files in program: 26
+$ .venv/bin/python -m pytest <7 desktop/branding/overlay/boundary files> -q
+38 passed, 22 skipped, 1 xfailed          # 22 skips = lanes needing esbuild, at that moment
+$ npm install --no-save esbuild && pytest test_pulse_session_registration_parity.py test_hermes_activity_parity.py -q
+15 passed, 1 skipped                      # the 8 projection tests execute in node again
+```
+
+The 1 skip is `test_hermes_activity_parity.py` needing the pinned `~/.hermes-ref` checkout, which a rebuilt
+container does not carry. Still unproven here: build, paint, and anything on Windows.

@@ -158,3 +158,6 @@ dfea5f21c92b9f4d4ba01740ac5eb8bdddf3c0f62aeddbaa4f10f0c690e86b4b    184  desktop
 b1d7f19d3d16fcf728423cb6e02335e6515a3eb9c1aad8592accf6caf8d1b034   1061  desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseAI.css
 f6521bd06cd8ae72b6c7f4cecc8a63adbe899df1db8942eb0fe06b5a7dbedbb3    305  src/tests/test_pulse_session_registration_parity.py
 3bf6f39e11b2249f553564588f381543e1763f11a3372ca277907148ca4c1f0b     28  bench-results/hermes-prompt-ui-copilotkit-verification/pulseai-registration-step1.log
+
+## re-execution note (2026-09-02) — sha256 of the log that now carries it
+7cd6f69ee4c1f9e99a7d6f4917ed45ac14851388396ddce8d58fa3ffb424e5f9     45  hermes-prompt-ui-copilotkit-verification/pulseai-registration-step1.log
