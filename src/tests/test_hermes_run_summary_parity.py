@@ -32,7 +32,8 @@ def _bundle(source: Path, workdir: Path) -> Path:
     proc = subprocess.run(
         [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL, timeout=120,
     )
     if proc.returncode != 0:
         pytest.fail(f"esbuild could not bundle {source.name}: {proc.stderr.strip()[:400]}")
@@ -153,7 +154,8 @@ def test_grouping_and_clauses_agree_between_surfaces(tmp_path):
     )
     proc = subprocess.run(
         ["node", str(runner), str(cases)],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL, timeout=120,
     )
     assert proc.returncode == 0, f"runner failed: {proc.stderr.strip()[:600]}"
     results = json.loads(proc.stdout)
@@ -182,7 +184,7 @@ def test_a_card_breaks_a_run_and_a_run_is_keyed_by_its_first_call(tmp_path):
         encoding="utf-8",
     )
     proc = subprocess.run(
-        ["node", str(probe)], capture_output=True, text=True,
+        ["node", str(probe)], capture_output=True, text=True, encoding="utf-8", errors="replace",
         stdin=subprocess.DEVNULL, timeout=60,
     )
     assert proc.returncode == 0, proc.stderr[:400]

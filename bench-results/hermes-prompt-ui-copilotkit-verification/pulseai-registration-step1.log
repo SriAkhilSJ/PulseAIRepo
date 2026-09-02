@@ -68,3 +68,27 @@ $ .venv/bin/python -m pytest ...parity.py test_hermes_activity_parity.py test_de
 $ tsc -p src/tsconfig.pulseai-check.json --noEmit | grep -c '^vs/workbench/contrib/pulseai'
 Pulse errors: 0
 ```
+
+## Windows host, round 3: the parity lane decoded node's UTF-8 as cp1252 (mine, not his)
+
+His evidence commit `76a5e77a`: gate B again red, this time **4** tests, and the loader fix had already
+taken effect -- the failures were value mismatches, not `WinError 193`. Root cause was still mine:
+`subprocess.run(..., text=True)` decodes with the ambient locale, which on a Windows console is cp1252,
+so the ellipsis in `Working…` arrived as mojibake and the honest comparison failed. The projection was
+innocent in both rounds.
+
+Fix in all three node-executing parity files: an explicit `_node_json()` that captures **bytes** and
+decodes UTF-8 itself, plus `encoding="utf-8", errors="replace"` on the loader probes so even a failure
+message cannot crash on undecodable bytes. Verified against his exact combination -- esbuild shimmed
+non-executable (forcing the tsc route) *and* a hostile locale:
+
+```
+$ env LC_ALL=C PYTHONUTF8=0 PYTHONIOENCODING=ascii pytest test_pulse_session_registration_parity.py -q
+8 passed          # tsc loader, ascii locale
+$ pytest <the 7 desktop/branding/parity lanes> -q
+57 passed, 3 skipped, 1 xfailed
+```
+
+Reproduced first, so the diagnosis is not a guess: the old `text=True` pattern under `LC_ALL=C` raises
+`UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2`, and under cp1252 it decodes *successfully
+into wrong characters* -- which is why his run showed failures rather than a crash.

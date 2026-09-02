@@ -62,6 +62,22 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _node_json(command: list[str], cwd: Path, timeout: int = 180) -> object:
+    """Run node and decode its output as UTF-8 *explicitly*.
+
+    `text=True` decodes with the ambient locale, and a Windows console is cp1252 -- so every
+    non-ASCII character in a result (the ellipsis in 'Working…', the minus sign in '+4 −1') arrives as
+    mojibake and an honest comparison fails. Reported from the owner's laptop at gate B: 4 parity
+    tests red, the projection itself innocent. Never let a subprocess inherit the console's opinion
+    about bytes.
+    """
+    proc = subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL,
+                          timeout=timeout, cwd=str(cwd))
+    if proc.returncode != 0:
+        pytest.fail(f"runner failed: {proc.stderr.decode('utf-8', 'replace').strip()[:900]}")
+    return json.loads(proc.stdout.decode("utf-8"))
+
+
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -70,8 +86,8 @@ def _esbuild_usable() -> bool:
     if not ESBUILD.exists():
         return False
     try:
-        probe = subprocess.run([str(ESBUILD), "--version"], capture_output=True, text=True,
-                               stdin=subprocess.DEVNULL, timeout=60)
+        probe = subprocess.run([str(ESBUILD), "--version"], capture_output=True, text=True, encoding="utf-8",
+                                     errors="replace", stdin=subprocess.DEVNULL, timeout=60)
     except OSError:
         return False          # e.g. WinError 193: the shim is a POSIX script, not an executable
     return probe.returncode == 0
@@ -87,7 +103,8 @@ def _transpile(source: Path, workdir: Path) -> Path:
         ["node", str(tsc), str(source), "--rootDir", str(SRC), "--outDir", str(out_dir),
          "--target", "es2022", "--module", "esnext", "--moduleResolution", "bundler",
          "--skipLibCheck"],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=600,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL, timeout=600,
     )
     # tsc reports type errors in the files it transpiles (base/ has none of the repo's @types here)
     # and still emits; the emitted file is the contract, so the exit code is not consulted.
@@ -107,7 +124,8 @@ def _load(source: Path, workdir: Path) -> str:
         proc = subprocess.run(
             [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
              "--log-level=warning", "--platform=node"],
-            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=180,
         )
         if proc.returncode == 0 and out.exists():
             return f"./{out.name}"
@@ -221,13 +239,7 @@ def _exec(fixtures: dict, tmp_path: Path) -> dict:
     script.write_text(RUNNER % spec, encoding="utf-8")
     cases = tmp_path / "fixtures.json"
     cases.write_text(json.dumps(fixtures), encoding="utf-8")
-    proc = subprocess.run(
-        ["node", str(script), str(cases)],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180, cwd=str(tmp_path),
-    )
-    if proc.returncode != 0:
-        pytest.fail(f"runner failed: {proc.stderr.strip()[:900]}")
-    return json.loads(proc.stdout)
+    return _node_json(["node", str(script), str(cases)], tmp_path)
 
 
 def test_lifecycle_names_are_the_forks_vocabulary(tmp_path):

@@ -40,12 +40,29 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _node_json(command: list[str], cwd: Path, timeout: int = 180) -> object:
+    """Run node and decode its output as UTF-8 *explicitly*.
+
+    `text=True` decodes with the ambient locale, and a Windows console is cp1252 -- so every
+    non-ASCII character in a result (the ellipsis in 'Working…', the minus sign in '+4 −1') arrives as
+    mojibake and an honest comparison fails. Reported from the owner's laptop at gate B: 4 parity
+    tests red, the projection itself innocent. Never let a subprocess inherit the console's opinion
+    about bytes.
+    """
+    proc = subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL,
+                          timeout=timeout, cwd=str(cwd))
+    if proc.returncode != 0:
+        pytest.fail(f"runner failed: {proc.stderr.decode('utf-8', 'replace').strip()[:900]}")
+    return json.loads(proc.stdout.decode("utf-8"))
+
+
 def _bundle(source: Path, workdir: Path) -> Path:
     out = workdir / f"{source.stem}.mjs"
     proc = subprocess.run(
         [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL, timeout=180,
     )
     if proc.returncode != 0:
         pytest.fail(f"esbuild could not bundle {source.name}: {proc.stderr.strip()[:500]}")
@@ -55,13 +72,7 @@ def _bundle(source: Path, workdir: Path) -> Path:
 def _run(node_script: Path, workdir: Path, payload: object) -> object:
     cases = workdir / "fixtures.json"
     cases.write_text(json.dumps(payload), encoding="utf-8")
-    proc = subprocess.run(
-        ["node", str(node_script), str(cases)],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180, cwd=str(workdir),
-    )
-    if proc.returncode != 0:
-        pytest.fail(f"runner failed: {proc.stderr.strip()[:900]}")
-    return json.loads(proc.stdout)
+    return _node_json(["node", str(node_script), str(cases)], workdir)
 
 
 # Same fixture list feeds BOTH surfaces: text lengths, part counts and settled-call counts are the
