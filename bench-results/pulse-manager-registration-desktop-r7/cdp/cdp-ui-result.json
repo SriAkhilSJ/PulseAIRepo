@@ -1,0 +1,47 @@
+{
+  "started_at": "2026-09-02T11:06:31.165Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "mode": "manager-only",
+  "prompt": null,
+  "checks": {},
+  "snapshots": {
+    "agent_composer": {
+      "selector": "textarea.pulseai-composer-input",
+      "x": 913.3333740234375,
+      "y": 493.2083435058594,
+      "width": 277.66668701171875,
+      "height": 66.59375,
+      "visible": true,
+      "enabled": false,
+      "text": "",
+      "clientWidth": 278,
+      "scrollWidth": 278
+    },
+    "agent_shell": {
+      "selector": ".pulseai-agent-shell",
+      "x": 902.6666870117188,
+      "y": 70,
+      "width": 299,
+      "height": 557.6666870117188,
+      "visible": true,
+      "enabled": true,
+      "text": "Pulse AgentManagerAgentAgentBuild, change, and verifyPlanDesign before executionDebugDiagnose, fix, and retestAskExplain without using toolsOpen a folder to start a Pulse session.Open Folder",
+      "clientWidth": 299,
+      "scrollWidth": 299
+    }
+  },
+  "console_errors": [],
+  "screenshots": [],
+  "overall": "FAIL",
+  "target": {
+    "id": "1FADCB32A455CEBE385F95829229881A",
+    "title": "PulseAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "failure": {
+    "message": "Agent composer is visible and enabled",
+    "stack": "Error: Agent composer is visible and enabled\n    at assert (D:\\pulseAIagent\\PulseAIRepo\\scripts\\validate_pulse_ui_cdp.js:134:27)\n    at main (D:\\pulseAIagent\\PulseAIRepo\\scripts\\validate_pulse_ui_cdp.js:157:5)"
+  },
+  "finished_at": "2026-09-02T11:06:31.305Z"
+}

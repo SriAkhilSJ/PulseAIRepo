@@ -1,0 +1,1 @@
+reached: D; result: FAIL; first failure: Gate D CDP -- Electron treats workspace path as app-to-load; verify_pulse_manager_registration.mjs hits same wall at line 66; gate C compile PASS, gate A green since r2; session-rows.json: rows=0 composerDisabled=true

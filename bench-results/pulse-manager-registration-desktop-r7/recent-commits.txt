@@ -1,0 +1,10 @@
+384b5fef cdp: a launcher that knows the flag syntax, so gate D stops depending on memory
+973a4080 evidence(desktop): manager session registration -- FAIL at gate D CDP launch
+f4301805 registration: import IAgentSession from the model, and stop letting a grep decide gate A
+e454525c evidence(desktop): manager session registration -- FAIL at gate D compile
+8b3df2e6 tests: prove the .bin pin can fail, and record round 4 honestly
+7f2cb010 tests: resolve an esbuild that executes, in every lane that needs one
+eadf5634 evidence(desktop): manager session registration ??? FAIL at gate B
+0e550487 tests: pin that no parity lane asks the console how to read UTF-8
+52134bff tests: stop letting the console's codepage decide whether parity passes on Windows
+76a5e77a evidence(desktop): manager session registration ??? FAIL at gate B
