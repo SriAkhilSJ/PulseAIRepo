@@ -245,21 +245,24 @@ def test_no_cap_stated_means_no_cap_assumed(monkeypatch):
     assert mb.probe_endpoint_limits("m") == (131_072, None)
 
 
-def test_a_stated_cap_replaces_the_heuristic_margin_exactly():
-    """On the owner's window this is 44,236 tokens of context given back, not a rounding note."""
+def test_a_stated_reply_cap_never_touches_the_window_math():
+    """The correction to a correction.
+
+    An earlier test here asserted `usable == window - max_output`, i.e. it ENCODED the conflation
+    upstream names as a bug (context_length is the TOTAL window; max_tokens is only what the reply may
+    use). This test exists so the mistake cannot come back through the "safety margin" door: whatever the
+    model can emit, the input budget is unchanged, because the provider enforces the sum.
+    """
 
     window = 1_048_576
-    assert mb.usable_window_budget(window) == 996_148          # 5% heuristic withheld 52,428
-    assert mb.usable_window_budget(window, 8_192) == window - 8_192
+    heuristic = window - max(mb.SAFETY_MARGIN, int(window * 0.05))
+    assert mb.usable_window_budget(window) == heuristic
+    with pytest.raises(TypeError):
+        mb.usable_window_budget(window, 512_000)
 
 
-def test_an_absurd_claim_cannot_starve_the_context():
-    # A provider claiming 600k of output on a 128k window gets honoured up to a quarter of the window.
-    assert mb.usable_window_budget(128_000, 600_000) == 128_000 - 32_000
-
-
-def test_a_small_window_is_never_left_worse_than_the_floor():
-    assert mb.usable_window_budget(8_192, 8_192) == mb._MIN_USABLE
+def test_a_small_window_still_floors_at_min_usable():
+    assert mb.usable_window_budget(8_192) == mb._MIN_USABLE
 
 
 def test_the_alias_pair_comes_from_the_entry_that_was_chosen(monkeypatch):
@@ -288,8 +291,9 @@ def test_resolve_budget_reports_the_pair_and_the_number_everyone_spends(tmp_path
     monkeypatch.setattr(mb, "_write_cache", _REAL_WRITE_CACHE)
     _catalog(monkeypatch, {"id": "m", "max_model_len": 131_072, "max_completion_tokens": 32_768})
     limits = mb.resolve_budget("m", provider="custom", endpoint_probe=True)
+    # The pair IS reported -- that is the point of fetching it -- and the budget is NOT derived from it.
     assert (limits.window, limits.max_output, limits.source) == (131_072, 32_768, "custom-api")
-    assert limits.usable == 131_072 - 32_768
+    assert limits.usable == 131_072 - max(mb.SAFETY_MARGIN, int(131_072 * 0.05))
 
 
 def test_a_legacy_cache_entry_without_a_cap_falls_back_rather_than_reserving_zero(monkeypatch):
@@ -300,7 +304,7 @@ def test_a_legacy_cache_entry_without_a_cap_falls_back_rather_than_reserving_zer
     monkeypatch.setenv("LLM_PROVIDER", "custom")
     window, cap, fresh = mb._cache_limits_get(key)
     assert (window, cap, fresh) == (65_536, None, True)
-    assert mb.usable_window_budget(window, cap) == 65_536 - max(mb.SAFETY_MARGIN, int(65_536 * 0.05))
+    assert mb.usable_window_budget(window) == 65_536 - max(mb.SAFETY_MARGIN, int(65_536 * 0.05))
 
 
 def mb_time() -> float:

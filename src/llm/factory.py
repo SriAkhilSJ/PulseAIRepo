@@ -585,7 +585,12 @@ class RetryLLMProxy:
                     self._raise_if_cancelled(error)
                     last_error = error
 
-                    if not self._is_retryable(error) or attempt == self._max_attempts - 1:
+                    # A context rejection is TWO different problems, and upstream separates them because
+                    # the remedies differ: an output-cap rejection means the prompt fits and asks for too
+                    # much reply, which one retry with the provider's own allowance fixes. A prompt-too-long
+                    # rejection means the opposite -- resend nothing, compress instead -- so it stays
+                    # non-retryable and the window is only ever changed by a number the provider printed.
+                    if not (self._note_context_error(error) or self._is_retryable(error)) or attempt == self._max_attempts - 1:
                         raise
 
                     # Wait on the shared abort event instead of time.sleep().
@@ -654,15 +659,14 @@ class RetryLLMProxy:
             with self._limit_lock:
                 if self._auto_limit is None:
                     from src.context.model_budgets import (
-                        max_output_for,
                         resolve_context_window,
                         usable_window_budget,
                     )
-                    # The engine reads the identical pair (window from the ladder, cap from the cache
-                    # entry the ladder wrote), so a stated cap cannot shrink engine context while this
-                    # guard still assumes the heuristic margin -- the agreement the AUTO mode promises.
+                    # Identical formula, identical input as the engine's -- one number each side, and
+                    # deliberately not the reply cap: that belongs to the send path, not to how much
+                    # prompt fits.
                     window, _source = resolve_context_window(self.model)
-                    self._auto_limit = usable_window_budget(window, max_output_for(self.model))
+                    self._auto_limit = usable_window_budget(window)
         return self._auto_limit
 
     def _trim_to_limit(self, messages: list, limit: int) -> list:
@@ -754,6 +758,19 @@ class RetryLLMProxy:
             # a different backend for the same configured model id.
             or "unsupported model" in text
         )
+
+    def _note_context_error(self, error: Exception) -> bool:
+        """Ask the provider's own words what to do; True when a resend is the fix.
+
+        All the reasoning -- telling an output-cap rejection from a prompt-too-long one, when to adopt a
+        reported limit, and refusing to guess a window -- lives in src/llm/context_errors.py beside the
+        parsers, where it can be read and tested as one flow.
+        """
+        try:
+            from src.llm.context_errors import handle_context_error
+        except Exception:
+            return False
+        return handle_context_error(self.model, str(error))
 
     @staticmethod
     def _retry_delay(error: Exception, attempt: int) -> float:

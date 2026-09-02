@@ -455,3 +455,47 @@ evidence: 79 passed across the five touched python test files (10 new tests: 3 k
   Diagnostic proven over 4 paths against a local fake endpoint + clean HOME: cold (custom-api, cap 8,192, usable 1,040,384), warm (cache + age note), --fresh
   ("cleared cached entry ... asking live now"), endpoint-down with cache intact.
 not claimed: no paid provider turn; nothing seen rendering in his window; max_output is NOT in the receipt payload (a key there touches the benchmark contract).
+
+== 2026-09-02 12:05  ask 26: output tokens were hardcoded to 8k; upstream flow read end to end ==
+Trigger: owner asked "did u hardcode the output tokens to 8k??" and required reading the whole Hermes flow
+before editing, not a fragment. Both accusations landed.
+
+Findings, in the order they mattered:
+1. `a8e7dc64` (my previous commit) subtracted the provider's max_output from the CONTEXT WINDOW. Upstream
+   names that bug in tests/test_ctx_halving_fix.py: "max_tokens = OUTPUT token cap (a single response).
+   context_length = TOTAL context window. These are different and the old code conflated them."
+   Reverted: `usable_window_budget(window)` is one-arg again, `margin_for` and
+   _MAX_OUTPUT_RESERVATION_FRACTION are deleted, and the engine/factory go back to window-only math.
+2. `src/graphs/chat_graph.py` had `max_tokens=max(512, min(delivery_cap, 8192))` at BOTH forced-delivery
+   binds (predates this session; introduced at 86eaaae2). That bare 8,192 is the owner's hardcoded ceiling.
+   Replaced by src/llm/output_budget.py:requested_output_cap(), which clamps the user's request by the
+   provider's STATED cap and invents no ceiling when the endpoint states none. Floor 512 kept.
+3. Upstream's recovery split, now ported in src/llm/context_errors.py: an output-cap rejection resends
+   ONCE with the allowance parsed out of the provider's own message (read-and-clear store, so it cannot
+   leak into the next turn); a prompt-too-long rejection is NOT resendable and changes the window only
+   when the provider printed a concrete number -- guessed tier step-downs (1M -> 256K -> ...) are refused.
+   RetryLLMProxy previously treated every context_overflow as non-retryable, so a recoverable rejection
+   hard-failed the turn; it now delegates one boolean.
+4. Bug this commit found in its own new code: apply_reported_limit wrote the cache under
+   f"{provider or ''}:{model}" while every reader keys off settings.LLM_PROVIDER, so the correction landed
+   on an orphan key nothing read. Fixed with a single cache_key_for() used by writer and reader; it also
+   carries the stated cap forward, because _write_cache replaces the whole entry.
+5. Correction to what I told the owner last commit: "usable 786,432, +44,236 gained" was measured against
+   MY fake endpoint's 8,192 cap, not his endpoint's 512,000. His real numbers under the reverted rule are
+   window 1,048,576 / reply cap 512,000 / usable 996,148 / context_budget 398,459.
+
+Evidence: bench-results/prompt-ui-live-e2e/output-budget-flow.log (end-to-end against an endpoint publishing
+the owner's numbers: 1,048,576 + 512,000 -- shows usable 996,148, the before/after on 32,000 (was clamped to
+8,192) and 600,000 (now 512,000), and the three error-message outcomes including no-orphan-key).
+Tests: src/tests/test_context_error_flow.py, 20 tests. Mutation-checked -- pre-fix key line and
+2-arg usable_window_budget both make it fail; restored state passes.
+Suites touched (98 passed): context_error_flow, model_endpoint_metadata, background_window_warmup,
+endpoint_probe_resilience, scan_budget_receipt_reason, model_budgets. Three of my own earlier tests were
+rewritten because they asserted the conflation policy -- a test that pins a wrong rule is not protection.
+Wide lane, identical command vs HEAD (stash A/B): 96 failed / 844 passed / 33 skipped / 43 collection errors
+now, vs 97 failed / 842 passed at HEAD. New failures: none. Note for the record: the "15 pre-existing
+failures" I quoted earlier came from a narrower command; on the full lane with --continue-on-collection-errors
+the sandbox baseline is 97 failed + 43 collection errors, all missing-optional-dependency (langgraph,
+langchain_google_genai, sqlite-vec, tree-sitter). No source change can make that lane green here.
+Not verified in this sandbox, by design: anything needing the real app. Acceptance stays what it always was
+on his Windows box -- probe --fresh output, then the engine-restart and kill-engine screenshots, then Gate A.

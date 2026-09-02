@@ -348,7 +348,7 @@ class ContextEngine(BaseContextEngine):
             window, source = resolve_context_window(self.model, allow_network=probe_window)
             from src.context.model_budgets import max_output_for
             self._apply_window(window, source, max_output_for(self.model))
-            usable = usable_window_budget(window, max_output_for(self.model))
+            usable = usable_window_budget(window)
             if PROVIDER_SAFE_LIMIT > 0 and usable > PROVIDER_SAFE_LIMIT:
                 print(
                     f"[ContextEngine] — set PROVIDER_SAFE_LIMIT=0 to unlock "
@@ -567,11 +567,12 @@ class ContextEngine(BaseContextEngine):
 
         self.context_window = int(window) if window else None
         self.context_window_source = source
-        # None means the provider stated no reply cap, and the heuristic margin applies. It is NOT zero:
-        # reserving nothing is how an oversized payload gets sent, so an unknown cap must stay unknown.
+        # Recorded, never subtracted: this is what the model says it can emit, and the send path clamps
+        # its request to it (src/llm/output_budget.py). The context budget is NOT reduced by it -- that
+        # conflation is upstream's named bug.
         self.max_output_tokens: int | None = int(max_output) if max_output else None
         if self.context_window:
-            usable = usable_window_budget(self.context_window, self.max_output_tokens)
+            usable = usable_window_budget(self.context_window)
             # AUTO: trust the discovered window; RetryLLMProxy resolves the
             # same number, so engine and guard stay in lockstep.
             cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT

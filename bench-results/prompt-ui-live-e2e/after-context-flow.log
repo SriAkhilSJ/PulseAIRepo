@@ -1,0 +1,1699 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.12.1
+collected 1066 items / 25 errors / 75 deselected / 1 skipped / 991 selected
+
+src/tests/test_ambiguity.py ....FFF.                                     [  0%]
+src/tests/test_background_window_warmup.py ..                            [  1%]
+src/tests/test_benchmark_contract.py ...[model_budgets] 127.0.0.1:20128 refused or failed to connect; skipping it for 30s (a dead host must not be charged to every probe)
+[ContextEngine] endpoint gave no window on retry either -- budgets stay on the fallback. Run scripts/model_capabilities_probe.py for the verdict (timeout vs no field).
+..........                       [  2%]
+src/tests/test_benchmark_evaluator.py .................................. [  5%]
+....                                                                     [  6%]
+src/tests/test_benchmark_fixtures.py .................................   [  9%]
+src/tests/test_benchmark_harness.py .......................              [ 11%]
+src/tests/test_benchmark_harness_cdp.py .......                          [ 12%]
+src/tests/test_benchmark_runner.py ..................                    [ 14%]
+src/tests/test_bounded_scan.py ...........................               [ 17%]
+src/tests/test_bridge.py ....................                            [ 19%]
+src/tests/test_bridge_protocol_v2.py ........                            [ 19%]
+src/tests/test_bridge_runtime_protocol.py ...                            [ 20%]
+src/tests/test_bridge_transport.py ....F....F....                        [ 21%]
+src/tests/test_bridge_workspace_routing.py ...........                   [ 22%]
+src/tests/test_cache_preservation.py .........                           [ 23%]
+src/tests/test_cancellation_gates.py FFFFFF..FFFFFFFFFFFFF.....FFFF      [ 26%]
+src/tests/test_chunk_index.py ........F......sssss......                 [ 29%]
+src/tests/test_compaction.py ............F                               [ 30%]
+src/tests/test_context_budget.py .........................s...........FF [ 34%]
+.....                                                                    [ 35%]
+src/tests/test_context_engine_parity.py ..........FFFF...F..             [ 37%]
+src/tests/test_context_error_flow.py ....................                [ 39%]
+src/tests/test_desktop_contrib_overlay.py ......                         [ 39%]
+src/tests/test_desktop_renderer_architecture.py ...s....F..x             [ 40%]
+src/tests/test_desktop_sidecar_architecture.py .......                   [ 41%]
+src/tests/test_desktop_workspace_boundary.py .........s                  [ 42%]
+src/tests/test_detective_mode.py .........s                              [ 43%]
+src/tests/test_edit_file.py ..........                                   [ 44%]
+src/tests/test_embedding_cache.py FFFFF.....                             [ 45%]
+src/tests/test_endpoint_probe_resilience.py .......                      [ 46%]
+src/tests/test_engine_smoke.py FF.FF.......                              [ 47%]
+src/tests/test_event_safety.py .....................                     [ 49%]
+src/tests/test_feedback_memory.py ..............                         [ 51%]
+src/tests/test_file_state.py ..........                                  [ 52%]
+src/tests/test_git_context.py ...............s...                        [ 53%]
+src/tests/test_hermes_activity_parity.py ss.s..ss.                       [ 54%]
+src/tests/test_hermes_planning_parity.py ....sssss.                      [ 55%]
+src/tests/test_hermes_prompt_parity.py ...................s............. [ 59%]
+............................                                             [ 62%]
+src/tests/test_hermes_prompt_session_cache.py ......s...                 [ 63%]
+src/tests/test_hermes_run_summary_parity.py .ss.                         [ 63%]
+src/tests/test_hermes_runtime_values.py ..............                   [ 64%]
+src/tests/test_history_shaper.py ....F.FFFF                              [ 65%]
+src/tests/test_host_capability_broker.py .....                           [ 66%]
+src/tests/test_lang_extractors.py FFFFF.F.FFFFFFFFF....F.                [ 68%]
+src/tests/test_layer_policy.py ................                          [ 70%]
+src/tests/test_loop_guards.py ..FFF                                      [ 70%]
+src/tests/test_model_budgets.py ..........................               [ 73%]
+src/tests/test_model_endpoint_metadata.py .............................. [ 76%]
+........                                                                 [ 77%]
+src/tests/test_no_import_time_agent_turns.py ..                          [ 77%]
+src/tests/test_plan_constraint_validator.py FFFF                         [ 77%]
+src/tests/test_plan_messages.py ..........                               [ 78%]
+src/tests/test_plan_step_projection.py ..                                [ 79%]
+src/tests/test_planner_phatic_gate.py ..................                 [ 80%]
+src/tests/test_prompt_cache_audit.py .......F.                           [ 81%]
+src/tests/test_provider_preflight.py ...                                 [ 82%]
+src/tests/test_pulse_session_registration_parity.py sssss.s.....         [ 83%]
+src/tests/test_pulseai_branding.py .............                         [ 84%]
+src/tests/test_repo_map.py ...........                                   [ 85%]
+src/tests/test_review12.py ...FFFF.....F                                 [ 87%]
+src/tests/test_review_autopsy_fixes.py .....F........                    [ 88%]
+src/tests/test_run_bridge_turn.py ..                                     [ 88%]
+src/tests/test_safety_guard_consent.py ..................                [ 90%]
+src/tests/test_scaffold_layout_normalization.py .                        [ 90%]
+src/tests/test_scaffold_tools.py ..                                      [ 90%]
+src/tests/test_scan_budget_receipt_reason.py .....                       [ 91%]
+src/tests/test_self_curation.py ..........                               [ 92%]
+src/tests/test_session_search.py EEEEEEEEEEEEEEE..F                      [ 94%]
+src/tests/test_shadow_checkpoints.py .............                       [ 95%]
+src/tests/test_skill_lifecycle.py ........                               [ 96%]
+src/tests/test_smart_compressor.py .....                                 [ 96%]
+src/tests/test_sub_agent_batch.py FFFFFF                                 [ 97%]
+src/tests/test_subagent_lifecycle_service.py ...                         [ 97%]
+src/tests/test_test5_guarded_script.py .....                             [ 98%]
+src/tests/test_ui_tool_catalog.py ss                                     [ 98%]
+src/tests/test_vector_memory.py EEEFF                                    [ 98%]
+src/tests/test_volatile_tail.py FFFFF                                    [ 99%]
+src/tests/test_workbench_capabilities.py ......                          [100%]
+
+==================================== ERRORS ====================================
+______ ERROR collecting src/tests/test_attempt11_completion_integrity.py _______
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_attempt11_completion_integrity.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_attempt11_completion_integrity.py:6: in <module>
+    from src.graphs.chat_graph import AgentTurnResult, finalize_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____ ERROR collecting src/tests/test_attempt11_product_delivery_boundary.py ____
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_attempt11_product_delivery_boundary.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_attempt11_product_delivery_boundary.py:9: in <module>
+    from src.graphs import budget
+src/graphs/budget.py:14: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+________ ERROR collecting src/tests/test_autonomous_runtime_contract.py ________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_autonomous_runtime_contract.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_autonomous_runtime_contract.py:7: in <module>
+    from src.llm.factory import build_request_snapshot
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________ ERROR collecting src/tests/test_aux_model_routing.py _____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_aux_model_routing.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_aux_model_routing.py:21: in <module>
+    from src.llm import factory
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+______________ ERROR collecting src/tests/test_degraded_memory.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_degraded_memory.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_degraded_memory.py:11: in <module>
+    import src.graphs.chat_graph as cg
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____________ ERROR collecting src/tests/test_efficiency_receipts.py ____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_efficiency_receipts.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_efficiency_receipts.py:5: in <module>
+    from src.agents.planner import (
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+______________ ERROR collecting src/tests/test_execution_modes.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_execution_modes.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_execution_modes.py:6: in <module>
+    from src.graphs.chat_graph import after_planner, after_task_manager
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________ ERROR collecting src/tests/test_execution_phases.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_execution_phases.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_execution_phases.py:2: in <module>
+    from src.agents.planner import required_tool_receipts
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________ ERROR collecting src/tests/test_iteration_budget.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_iteration_budget.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_iteration_budget.py:12: in <module>
+    import src.graphs.chat_graph as cg
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+___________ ERROR collecting src/tests/test_output_limit_recovery.py ___________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_output_limit_recovery.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_output_limit_recovery.py:5: in <module>
+    from src.graphs.gates import finish_gate_node, should_continue
+src/graphs/gates.py:24: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+______________ ERROR collecting src/tests/test_parallel_tools.py _______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_parallel_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_parallel_tools.py:23: in <module>
+    from langgraph.graph import END, START, MessagesState, StateGraph
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________ ERROR collecting src/tests/test_progress_helpers.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_progress_helpers.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_progress_helpers.py:12: in <module>
+    import src.graphs.progress_helpers as ph
+src/graphs/progress_helpers.py:41: in <module>
+    from src.agents.planner import should_replan, update_plan_from_tool
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_______________ ERROR collecting src/tests/test_prompt_guard.py ________________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_prompt_guard.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_prompt_guard.py:21: in <module>
+    import src.graphs.chat_graph as chat_graph
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____________________ ERROR collecting src/tests/test_ptc.py ____________________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_ptc.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_ptc.py:22: in <module>
+    from src.tools import code_exec_tool
+src/tools/code_exec_tool.py:85: in <module>
+    from src.tools.web_tools import web_search, web_fetch
+src/tools/web_tools.py:16: in <module>
+    from ddgs import DDGS
+E   ModuleNotFoundError: No module named 'ddgs'
+_____________ ERROR collecting src/tests/test_request_sanitizer.py _____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_request_sanitizer.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_request_sanitizer.py:12: in <module>
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+________________ ERROR collecting src/tests/test_retry_proxy.py ________________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_retry_proxy.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_retry_proxy.py:12: in <module>
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+________ ERROR collecting src/tests/test_retry_proxy_stream_cleanup.py _________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_retry_proxy_stream_cleanup.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_retry_proxy_stream_cleanup.py:4: in <module>
+    from src.llm.factory import RetryLLMProxy, provider_response_info
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________ ERROR collecting src/tests/test_review12_reverify.py _____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_review12_reverify.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_review12_reverify.py:24: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+___________ ERROR collecting src/tests/test_scope_artifact_gates.py ____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_scope_artifact_gates.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_scope_artifact_gates.py:4: in <module>
+    from src.graphs.gates import (
+src/graphs/gates.py:24: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+______________ ERROR collecting src/tests/test_session_engines.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_session_engines.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_session_engines.py:17: in <module>
+    from src.graphs import chat_graph
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________ ERROR collecting src/tests/test_subagent_autodeny.py _____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_subagent_autodeny.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_subagent_autodeny.py:24: in <module>
+    from langgraph.graph import END, START, MessagesState, StateGraph
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________ ERROR collecting src/tests/test_subagent_hygiene.py ______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_subagent_hygiene.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_subagent_hygiene.py:14: in <module>
+    from langgraph.graph import END, START, MessagesState, StateGraph
+E   ModuleNotFoundError: No module named 'langgraph'
+___________ ERROR collecting src/tests/test_task_classifier_skip.py ____________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_task_classifier_skip.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_task_classifier_skip.py:15: in <module>
+    import src.graphs.chat_graph as cg
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+______________ ERROR collecting src/tests/test_tool_crash_net.py _______________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_tool_crash_net.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_tool_crash_net.py:17: in <module>
+    from langgraph.graph import END, START, MessagesState, StateGraph
+E   ModuleNotFoundError: No module named 'langgraph'
+_________________ ERROR collecting src/tests/test_web_tools.py _________________
+ImportError while importing test module '/home/user/PulseAIRepo/src/tests/test_web_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_web_tools.py:13: in <module>
+    from src.tools.web_tools import _strip_html, web_fetch
+src/tools/web_tools.py:16: in <module>
+    from ddgs import DDGS
+E   ModuleNotFoundError: No module named 'ddgs'
+_________________ ERROR at setup of test_discovery_card_shape __________________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+________ ERROR at setup of test_current_thread_excluded_from_discovery _________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_______ ERROR at setup of test_subagent_demoted_when_interactive_matches _______
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__________ ERROR at setup of test_subagent_shown_only_when_only_match __________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+___________ ERROR at setup of test_compaction_payloads_never_indexed ___________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_________ ERROR at setup of test_system_and_tool_messages_not_indexed __________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__________ ERROR at setup of test_list_content_messages_are_flattened __________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+________ ERROR at setup of test_query_wins_over_session_args_precedence ________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________ ERROR at setup of test_scroll_windows_and_page_hints _____________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________ ERROR at setup of test_scroll_bad_anchor_is_friendly _____________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_________ ERROR at setup of test_browse_recent_first_current_excluded __________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_____________________ ERROR at setup of test_overview_mode _____________________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____________ ERROR at setup of test_long_messages_capped_in_scroll _____________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_________ ERROR at setup of test_incremental_sync_sees_new_checkpoint __________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__________ ERROR at setup of test_watermark_makes_unchanged_sync_free __________
+src/tests/test_session_search.py:50: in index
+    _seed_checkpoint_db(ckpt, {
+src/tests/test_session_search.py:21: in _seed_checkpoint_db
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+________ ERROR at setup of test_knn_matches_legacy_scan_on_small_store _________
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:95: in annotated_getattr
+    obj = getattr(obj, name)
+          ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_vector_memory.py:48: in mem
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: FakeEmbedder())
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:89: in resolve
+    found = annotated_getattr(found, part, used)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:97: in annotated_getattr
+    raise AttributeError(
+E   AttributeError: 'module' object at src.llm.factory has no attribute 'factory'
+_________ ERROR at setup of test_recall_beyond_500_row_window_is_fixed _________
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:95: in annotated_getattr
+    obj = getattr(obj, name)
+          ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_vector_memory.py:48: in mem
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: FakeEmbedder())
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:89: in resolve
+    found = annotated_getattr(found, part, used)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:97: in annotated_getattr
+    raise AttributeError(
+E   AttributeError: 'module' object at src.llm.factory has no attribute 'factory'
+_________ ERROR at setup of test_vec_index_stays_in_sync_across_writes _________
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:95: in annotated_getattr
+    obj = getattr(obj, name)
+          ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_vector_memory.py:48: in mem
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: FakeEmbedder())
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:89: in resolve
+    found = annotated_getattr(found, part, used)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:97: in annotated_getattr
+    raise AttributeError(
+E   AttributeError: 'module' object at src.llm.factory has no attribute 'factory'
+=================================== FAILURES ===================================
+____________ test_advanced_disabled_never_encodes_and_uses_fallback ____________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_ambiguity.py:64: in test_advanced_disabled_never_encodes_and_uses_fallback
+    monkeypatch.setattr("src.llm.factory.get_embedder", _boom)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+__________________ test_advanced_embedder_failure_falls_back ___________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_ambiguity.py:75: in test_advanced_embedder_failure_falls_back
+    monkeypatch.setattr("src.llm.factory.get_embedder", _boom)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+_____________________ test_engine_advanced_feeds_live_flag _____________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_ambiguity.py:95: in test_engine_advanced_feeds_live_flag
+    monkeypatch.setattr("src.llm.factory.get_embedder", _record)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+__________ test_real_turn_forwards_headless_workspace_approval_policy __________
+src/tests/test_bridge_transport.py:295: in test_real_turn_forwards_headless_workspace_approval_policy
+    import src.graphs.chat_graph as chat_graph
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____________ test_watchdog_is_cancelled_after_successful_real_turn _____________
+src/tests/test_bridge_transport.py:453: in test_watchdog_is_cancelled_after_successful_real_turn
+    import src.graphs.chat_graph as chat_graph
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_ TestCancellationGates.test_c1_cancel_during_ai_node_llm_blocks_tool_execution _
+src/tests/test_cancellation_gates.py:176: in test_c1_cancel_during_ai_node_llm_blocks_tool_execution
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_ TestCancellationGates.test_c2_cancel_during_task_manager_returns_cancelled_status _
+src/tests/test_cancellation_gates.py:226: in test_c2_cancel_during_task_manager_returns_cancelled_status
+    from src.graphs.chat_graph import task_manager_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__ TestCancellationGates.test_c3_response_released_after_cancel_is_discarded ___
+src/tests/test_cancellation_gates.py:254: in test_c3_response_released_after_cancel_is_discarded
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+______ TestCancellationGates.test_c4_zero_model_invocations_after_cancel _______
+src/tests/test_cancellation_gates.py:307: in test_c4_zero_model_invocations_after_cancel
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__ TestCancellationGates.test_c5_result_is_cancelled_not_failed_or_completed ___
+src/tests/test_cancellation_gates.py:343: in test_c5_result_is_cancelled_not_failed_or_completed
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____ TestCancellationGates.test_c6_safetoolnode_denies_all_calls_on_cancel _____
+src/tests/test_cancellation_gates.py:380: in test_c6_safetoolnode_denies_all_calls_on_cancel
+    from src.graphs.chat_graph import SafeToolNode, tools
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+____ TestCancellationGates.test_c9_proxy_does_not_retry_after_cancellation _____
+src/tests/test_cancellation_gates.py:472: in test_c9_proxy_does_not_retry_after_cancellation
+    from src.llm.factory import RetryLLMProxy, TurnCancelledError
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+___ TestCancellationGates.test_c10_abort_closes_transport_and_is_idempotent ____
+src/tests/test_cancellation_gates.py:524: in test_c10_abort_closes_transport_and_is_idempotent
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_ TestCancellationGates.test_c11_cancelled_ai_node_skips_base_provider_failover _
+src/tests/test_cancellation_gates.py:569: in test_c11_cancelled_ai_node_skips_base_provider_failover
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__ TestCancellationIntegration.test_cancel_before_graph_run_completes_cleanly __
+src/tests/test_cancellation_gates.py:629: in test_cancel_before_graph_run_completes_cleanly
+    from src.graphs.chat_graph import task_manager_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+_ TestCancellationIntegration.test_should_continue_routes_to_finalize_on_cancelled _
+src/tests/test_cancellation_gates.py:648: in test_should_continue_routes_to_finalize_on_cancelled
+    from src.graphs.gates import should_continue
+src/graphs/gates.py:24: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+____ TestSessionIsolation.test_concurrent_sessions_a_cancelled_b_completes _____
+src/tests/test_cancellation_gates.py:675: in test_concurrent_sessions_a_cancelled_b_completes
+    from src.llm.factory import RetryLLMProxy, TurnCancelledError
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________ TestFinallyCleanup.test_cleanup_after_normal_success _____________
+src/tests/test_cancellation_gates.py:809: in test_cleanup_after_normal_success
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+___________ TestFinallyCleanup.test_cleanup_after_provider_exception ___________
+src/tests/test_cancellation_gates.py:834: in test_cleanup_after_provider_exception
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+______________ TestFinallyCleanup.test_cleanup_after_cancellation ______________
+src/tests/test_cancellation_gates.py:885: in test_cleanup_after_cancellation
+    from src.graphs.chat_graph import ai_node
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__________ TestFinallyCleanup.test_cleanup_after_retryable_exception ___________
+src/tests/test_cancellation_gates.py:911: in test_cleanup_after_retryable_exception
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________ TestFinallyCleanup.test_cleanup_through_bind_wrapper _____________
+src/tests/test_cancellation_gates.py:965: in test_cleanup_through_bind_wrapper
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+______ TestFinallyCleanup.test_cleanup_through_bind_tools_and_structured _______
+src/tests/test_cancellation_gates.py:995: in test_cleanup_through_bind_tools_and_structured
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+__________ TestFinallyCleanup.test_repeated_cancel_abort_is_harmless ___________
+src/tests/test_cancellation_gates.py:1030: in test_repeated_cancel_abort_is_harmless
+    from src.llm.factory import RetryLLMProxy
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_ TestRequestOwnedAbort.test_bound_request_cancel_closes_root_once_and_cleans_registry _
+src/tests/test_cancellation_gates.py:1229: in test_bound_request_cancel_closes_root_once_and_cleans_registry
+    from src.llm.factory import RetryLLMProxy, TurnCancelledError
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_ TestRequestOwnedAbort.test_cancel_interrupts_retry_backoff_without_second_request _
+src/tests/test_cancellation_gates.py:1268: in test_cancel_interrupts_retry_backoff_without_second_request
+    from src.llm.factory import RetryLLMProxy, TurnCancelledError
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_ TestRequestOwnedAbort.test_async_provider_task_is_cancelled_request_specifically _
+src/tests/test_cancellation_gates.py:1312: in test_async_provider_task_is_cancelled_request_specifically
+    from src.llm.factory import RetryLLMProxy, TurnCancelledError
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+________ TestRequestOwnedAbort.test_auxiliary_clients_are_request_owned ________
+src/tests/test_cancellation_gates.py:1361: in test_auxiliary_clients_are_request_owned
+    from src.llm import factory
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+__________________ test_layer_builder_and_engine_integration ___________________
+src/tests/test_chunk_index.py:283: in test_layer_builder_and_engine_integration
+    eng.build_ai_messages(state, SystemMessage(content="SYS"))
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+----------------------------- Captured stdout call -----------------------------
+[tokenizer] unavailable (encoding_for_model('qwen/qwen3.6-27b')): KeyError: 'Could not automatically map qwen/qwen3.6-27b to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.' — degrading to ~chars/4 heuristic token counts (imprecise, never fatal). Install/populate the tiktoken cache (one online run) for exact counts.
+_________________ test_engine_request_only_state_never_mutated _________________
+src/tests/test_compaction.py:252: in test_engine_request_only_state_never_mutated
+    out = eng._compact_history(list(msgs), budget=200)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_________ test_index_construction_and_bounded_work_never_load_embedder _________
+src/tests/test_context_budget.py:1160: in test_index_construction_and_bounded_work_never_load_embedder
+    with patch("src.llm.factory.get_embedder", side_effect=_boom):
+/usr/lib/python3.11/unittest/mock.py:1421: in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+/usr/lib/python3.11/pkgutil.py:715: in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+___________________ test_full_engine_turn_is_inference_free ____________________
+src/tests/test_context_budget.py:1204: in test_full_engine_turn_is_inference_free
+    with patch("src.context.chunk_index.get_index", return_value=idx), \
+/usr/lib/python3.11/unittest/mock.py:1421: in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+/usr/lib/python3.11/pkgutil.py:715: in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+___________________ test_usage_pressure_survives_full_build ____________________
+src/tests/test_context_engine_parity.py:260: in test_usage_pressure_survives_full_build
+    out_free = eng.build_ai_messages(state_free, SystemMessage(content="SYS"))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+----------------------------- Captured stdout call -----------------------------
+[ContextEngine] context window 131,072 for 'qwen/qwen3.6-27b' (source: test); token budget 124,519 (provider cap 124,519)
+____________________ test_compress_never_splits_tool_pairs _____________________
+src/tests/test_context_engine_parity.py:287: in test_compress_never_splits_tool_pairs
+    result = eng.compress(history, current_tokens=before)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:709: in compress
+    self._ensure_compactor()
+src/context/context_engine.py:791: in _ensure_compactor
+    return self._shaper.ensure_compactor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+----------------------------- Captured stdout call -----------------------------
+[ContextEngine] context window 32,768 for 'qwen/qwen3.6-27b' (source: test); token budget 28,672 (provider cap 28,672)
+__________________ test_compress_protects_the_newest_exchange __________________
+src/tests/test_context_engine_parity.py:298: in test_compress_protects_the_newest_exchange
+    result = eng.compress(history, current_tokens=10**6)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:709: in compress
+    self._ensure_compactor()
+src/context/context_engine.py:791: in _ensure_compactor
+    return self._shaper.ensure_compactor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+----------------------------- Captured stdout call -----------------------------
+[ContextEngine] context window 32,768 for 'qwen/qwen3.6-27b' (source: test); token budget 28,672 (provider cap 28,672)
+____________________ test_compress_dict_protocol_roundtrip _____________________
+src/tests/test_context_engine_parity.py:313: in test_compress_dict_protocol_roundtrip
+    result = eng.compress(dicts)
+             ^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:709: in compress
+    self._ensure_compactor()
+src/context/context_engine.py:791: in _ensure_compactor
+    return self._shaper.ensure_compactor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+----------------------------- Captured stdout call -----------------------------
+[ContextEngine] context window 32,768 for 'qwen/qwen3.6-27b' (source: test); token budget 28,672 (provider cap 28,672)
+__________________ test_engine_emits_cache_break_receipt_once __________________
+src/tests/test_context_engine_parity.py:396: in test_engine_emits_cache_break_receipt_once
+    _build("PERSONA-" + "A" * 30_000)
+src/tests/test_context_engine_parity.py:385: in _build
+    return eng.build_ai_messages(state, SystemMessage(content=persona))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+----------------------------- Captured stdout call -----------------------------
+[ContextEngine] context window 32,768 for 'qwen/qwen3.6-27b' (source: test); token budget 28,672 (provider cap 28,672)
+___________ test_copilot_webview_host_is_a_setting_and_fails_loudly ____________
+src/tests/test_desktop_renderer_architecture.py:171: in test_copilot_webview_host_is_a_setting_and_fails_loudly
+    assert "const DEFAULT_COPILOT_WEBVIEW_URL = 'http://localhost:5173'" in view
+E   assert "const DEFAULT_COPILOT_WEBVIEW_URL = 'http://localhost:5173'" in '/*---------------------------------------------------------------------------------------------\n * Native first-part...rn;\n\t\t}\n\t\tthis.pulseBody.style.width = `${width}px`;\n\t\tthis.pulseBody.style.height = `${height}px`;\n\t}\n}\n'
+_____________________ test_warm_turn_reencodes_zero_layers _____________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_embedding_cache.py:99: in test_warm_turn_reencodes_zero_layers
+    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path, allow_embedding=True)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_embedding_cache.py:85: in _engine_and_cache
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: fake)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+_____________________ test_scoring_identical_cold_vs_warm ______________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_embedding_cache.py:111: in test_scoring_identical_cold_vs_warm
+    eng, _, _ = _engine_and_cache(monkeypatch, tmp_path)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_embedding_cache.py:85: in _engine_and_cache
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: fake)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+_____________________ test_dedup_rides_on_scoring_vectors ______________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_embedding_cache.py:121: in test_dedup_rides_on_scoring_vectors
+    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path, allow_embedding=True)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_embedding_cache.py:85: in _engine_and_cache
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: fake)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+____________________ test_ambiguity_constants_encoded_once _____________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_embedding_cache.py:135: in test_ambiguity_constants_encoded_once
+    eng, fake, _ = _engine_and_cache(monkeypatch, tmp_path, allow_embedding=True)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/tests/test_embedding_cache.py:85: in _engine_and_cache
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: fake)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+_________________________ test_classifier_query_cached _________________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_embedding_cache.py:151: in test_classifier_query_cached
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: fake)
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+_________________ test_build_ai_messages_snapshots_layers_sent _________________
+src/tests/test_engine_smoke.py:36: in test_build_ai_messages_snapshots_layers_sent
+    out = eng.build_ai_messages(_state(), SystemMessage(content="SYS"))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_________________ test_task_classifier_is_reused_across_builds _________________
+src/tests/test_engine_smoke.py:45: in test_task_classifier_is_reused_across_builds
+    eng.build_ai_messages(_state(), SystemMessage(content="SYS"))
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________ test_record_feedback_attributes_layers_actually_sent _____________
+src/tests/test_engine_smoke.py:64: in test_record_feedback_attributes_layers_actually_sent
+    eng.build_ai_messages(_state(), SystemMessage(content="SYS"))
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+__________________ test_every_built_layer_infers_a_known_name __________________
+src/tests/test_engine_smoke.py:77: in test_every_built_layer_infers_a_known_name
+    eng.build_ai_messages(_state(), SystemMessage(content="SYS"))
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+______ TestPipeline.test_stats_carry_the_compactor_counters_after_compact ______
+src/tests/test_history_shaper.py:86: in test_stats_carry_the_compactor_counters_after_compact
+    shaper.compact(_history(), budget=10_000)
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+__________ TestCompactorSharing.test_two_compacts_share_one_compactor __________
+src/tests/test_history_shaper.py:107: in test_two_compacts_share_one_compactor
+    shaper.compact(_history(), budget=10_000)
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+____ TestCompactorSharing.test_session_identity_is_rerouted_on_every_ensure ____
+src/tests/test_history_shaper.py:125: in test_session_identity_is_rerouted_on_every_ensure
+    shaper.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+__________ TestCompactorSharing.test_model_is_read_live_not_captured ___________
+src/tests/test_history_shaper.py:148: in test_model_is_read_live_not_captured
+    shaper.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_______ TestEngineDelegation.test_engine_methods_delegate_to_one_shaper ________
+src/tests/test_history_shaper.py:164: in test_engine_methods_delegate_to_one_shaper
+    eng._ensure_compactor()
+src/context/context_engine.py:791: in _ensure_compactor
+    return self._shaper.ensure_compactor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+____________________ test_js_functions_classes_and_ignores _____________________
+src/tests/test_lang_extractors.py:73: in test_js_functions_classes_and_ignores
+    assert by["login"]["symbol_type"] == "function"
+           ^^^^^^^^^^^
+E   KeyError: 'login'
+_____________________ test_ts_types_ignored_functions_kept _____________________
+src/tests/test_lang_extractors.py:87: in test_ts_types_ignored_functions_kept
+    assert "fetchUser" in by
+E   AssertionError: assert 'fetchUser' in {}
+_________________________ test_tsx_component_and_hook __________________________
+src/tests/test_lang_extractors.py:98: in test_tsx_component_and_hook
+    assert "App" in by and "useData" in by
+E   AssertionError: assert ('App' in {})
+_______________________ test_jsdoc_above_export_attaches _______________________
+src/tests/test_lang_extractors.py:105: in test_jsdoc_above_export_attaches
+    assert by["login"]["docstring"] == "/** Creates a session for the user. */"
+           ^^^^^^^^^^^
+E   KeyError: 'login'
+_______________________ test_broken_source_never_crashes _______________________
+src/tests/test_lang_extractors.py:116: in test_broken_source_never_crashes
+    assert chunks and chunks[0]["symbol_type"] == "module"
+E   assert ([])
+________________________ test_schema_parity_with_python ________________________
+src/tests/test_lang_extractors.py:131: in test_schema_parity_with_python
+    js_keys = set(extract_source_chunks(js, tmp_path)[0].keys())
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   IndexError: list index out of range
+__________________ test_index_mixed_workspace_search_and_sync __________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_lang_extractors.py:166: in test_index_mixed_workspace_search_and_sync
+    monkeypatch.setattr(
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.llm.factory: No module named 'langchain_google_genai'
+________________ test_edited_file_reembeds_only_changed_chunks _________________
+src/tests/test_lang_extractors.py:243: in test_edited_file_reembeds_only_changed_chunks
+    assert first == 4
+E   assert 0 == 4
+_______________________ test_go_functions_methods_struct _______________________
+src/tests/test_lang_extractors.py:300: in test_go_functions_methods_struct
+    assert by["Login"]["symbol_type"] == "function"
+           ^^^^^^^^^^^
+E   KeyError: 'Login'
+________________________ test_rust_fn_struct_impl_trait ________________________
+src/tests/test_lang_extractors.py:311: in test_rust_fn_struct_impl_trait
+    assert by["login"]["symbol_type"] == "function"
+           ^^^^^^^^^^^
+E   KeyError: 'login'
+______________________ test_java_class_interface_javadoc _______________________
+src/tests/test_lang_extractors.py:323: in test_java_class_interface_javadoc
+    assert by["UserService"]["docstring"] == "/** User service. */"
+           ^^^^^^^^^^^^^^^^^
+E   KeyError: 'UserService'
+_________________ test_new_languages_tolerant_of_broken_source _________________
+src/tests/test_lang_extractors.py:335: in test_new_languages_tolerant_of_broken_source
+    assert chunks and chunks[0]["symbol_type"] == "module"
+E   assert ([])
+______________________ test_source_extensions_cover_d5_2 _______________________
+src/tests/test_lang_extractors.py:340: in test_source_extensions_cover_d5_2
+    assert {".py", ".js", ".ts", ".tsx", ".go", ".rs", ".java"} <= exts
+E   AssertionError: assert {'.go', '.jav...', '.ts', ...} <= frozenset({'.py'})
+E     
+E     Extra items in the left set:
+E     '.java'
+E     '.tsx'
+E     '.ts'
+E     '.js'
+E     '.go'
+E     '.rs'
+_________________________ test_index_e2e_go_rust_java __________________________
+src/tests/test_lang_extractors.py:352: in test_index_e2e_go_rust_java
+    assert any(r.symbol_name == "Login" and r.file_path == "main.go"
+E   assert False
+E    +  where False = any(<generator object test_index_e2e_go_rust_java.<locals>.<genexpr> at 0x7fc0d2dd1a40>)
+_________________ test_iter_source_files_yields_all_supported __________________
+src/tests/test_lang_extractors.py:383: in test_iter_source_files_yields_all_supported
+    assert {"a.py", "b.js", "c.tsx"} <= found
+E   AssertionError: assert {'a.py', 'b.js', 'c.tsx'} <= {'a.py'}
+E     
+E     Extra items in the left set:
+E     'c.tsx'
+E     'b.js'
+________________________ test_d15_edges_flow_into_index ________________________
+src/tests/test_lang_extractors.py:515: in test_d15_edges_flow_into_index
+    assert (str(Path("app.ts")), str(Path("helper.ts"))) in rows
+E   AssertionError: assert ('app.ts', 'helper.ts') in {('core.py', 'util.py')}
+__________________ test_router_ends_turn_after_no_tool_limit ___________________
+src/tests/test_loop_guards.py:42: in test_router_ends_turn_after_no_tool_limit
+    from src.graphs.gates import should_continue
+src/graphs/gates.py:24: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+_______________ test_router_keeps_bounded_nudges_below_the_limit _______________
+src/tests/test_loop_guards.py:54: in test_router_keeps_bounded_nudges_below_the_limit
+    from src.graphs.gates import should_continue
+src/graphs/gates.py:24: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+_______________ test_router_finalizes_repetition_dominated_reply _______________
+src/tests/test_loop_guards.py:64: in test_router_finalizes_repetition_dominated_reply
+    from src.graphs.gates import should_continue
+src/graphs/gates.py:24: in <module>
+    from src.graphs.state import AgentState
+src/graphs/state.py:20: in <module>
+    from langgraph.graph.message import add_messages
+E   ModuleNotFoundError: No module named 'langgraph'
+______________________ test_validator_returns_empty_on_ok ______________________
+src/tests/test_plan_constraint_validator.py:24: in test_validator_returns_empty_on_ok
+    import src.agents.planner as p
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_____________________ test_validator_quotes_contradiction ______________________
+src/tests/test_plan_constraint_validator.py:36: in test_validator_quotes_contradiction
+    import src.agents.planner as p
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+_________ test_validator_handles_real_task_plan_steps_and_tracks_usage _________
+src/tests/test_plan_constraint_validator.py:49: in test_validator_handles_real_task_plan_steps_and_tracks_usage
+    import src.agents.planner as p
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+______________________ test_validator_failure_is_advisory ______________________
+src/tests/test_plan_constraint_validator.py:67: in test_validator_failure_is_advisory
+    import src.agents.planner as p
+src/agents/planner.py:5: in <module>
+    from src.llm.factory import get_llm
+src/llm/factory.py:8: in <module>
+    from langchain_google_genai import ChatGoogleGenerativeAI
+E   ModuleNotFoundError: No module named 'langchain_google_genai'
+________________ test_engine_audits_and_git_context_emits_last _________________
+src/tests/test_prompt_cache_audit.py:132: in test_engine_audits_and_git_context_emits_last
+    first = engine.build_ai_messages(_state(ws, msgs), persona)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+___________ TestLLMTimeouts.test_openai_family_gets_request_timeout ____________
+src/tests/test_review12.py:68: in test_openai_family_gets_request_timeout
+    monkeypatch.setattr(factory, "ChatOpenAI", _Rec)
+E   AttributeError: <module 'src.llm.factory'> has no attribute 'ChatOpenAI'
+________________ TestLLMTimeouts.test_groq_gets_request_timeout ________________
+src/tests/test_review12.py:80: in test_groq_gets_request_timeout
+    monkeypatch.setattr(factory, "ChatGroq", _Rec)
+E   AttributeError: <module 'src.llm.factory'> has no attribute 'ChatGroq'
+___________________ TestLLMTimeouts.test_gemini_gets_timeout ___________________
+src/tests/test_review12.py:92: in test_gemini_gets_timeout
+    monkeypatch.setattr(factory, "ChatGoogleGenerativeAI", _Rec)
+E   AttributeError: <module 'src.llm.factory'> has no attribute 'ChatGoogleGenerativeAI'
+____________________ test_add_tool_removed_from_agent_tools ____________________
+src/tests/test_review12.py:99: in test_add_tool_removed_from_agent_tools
+    from src.graphs import chat_graph
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__________ TestSubAgentDepthCap.test_sub_agent_cannot_spawn_sub_agent __________
+src/tests/test_review12.py:157: in test_sub_agent_cannot_spawn_sub_agent
+    from src.graphs import chat_graph
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+__________ test_d26_token_and_trace_churn_no_longer_busts_layer_cache __________
+src/tests/test_review_autopsy_fixes.py:144: in test_d26_token_and_trace_churn_no_longer_busts_layer_cache
+    eng.build_ai_messages(_state(
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+______ test_registry_exposes_required_capabilities_without_freezing_count ______
+src/tests/test_session_search.py:231: in test_registry_exposes_required_capabilities_without_freezing_count
+    from src.graphs.chat_graph import tools
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+______________ test_single_task_batch_uses_legacy_sequential_path ______________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_sub_agent_batch.py:47: in test_single_task_batch_uses_legacy_sequential_path
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.graphs.chat_graph: No module named 'langgraph'
+__________________ test_batch_runs_concurrently_wall_time_pin __________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_sub_agent_batch.py:63: in test_batch_runs_concurrently_wall_time_pin
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.graphs.chat_graph: No module named 'langgraph'
+_________________ test_batch_results_come_back_in_input_order __________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_sub_agent_batch.py:83: in test_batch_results_come_back_in_input_order
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.graphs.chat_graph: No module named 'langgraph'
+_________________ test_one_child_crash_does_not_sink_the_batch _________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_sub_agent_batch.py:98: in test_one_child_crash_does_not_sink_the_batch
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.graphs.chat_graph: No module named 'langgraph'
+__________________ test_batch_empty_and_legacy_registry_bound __________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_sub_agent_batch.py:114: in test_batch_empty_and_legacy_registry_bound
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.graphs.chat_graph: No module named 'langgraph'
+________________ test_concurrent_children_cannot_clobber_files _________________
+/usr/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/graphs/chat_graph.py:25: in <module>
+    from langgraph.checkpoint.sqlite import SqliteSaver
+E   ModuleNotFoundError: No module named 'langgraph'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_sub_agent_batch.py:137: in test_concurrent_children_cannot_clobber_files
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:88: in resolve
+    raise ImportError(f"import error in {used}: {ex}") from ex
+E   ImportError: import error in src.graphs.chat_graph: No module named 'langgraph'
+_______________ test_fallback_without_sqlite_vec_is_byte_legacy ________________
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:95: in annotated_getattr
+    obj = getattr(obj, name)
+          ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_vector_memory.py:142: in test_fallback_without_sqlite_vec_is_byte_legacy
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: FakeEmbedder())
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:89: in resolve
+    found = annotated_getattr(found, part, used)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:97: in annotated_getattr
+    raise AttributeError(
+E   AttributeError: 'module' object at src.llm.factory has no attribute 'factory'
+________________ test_preexisting_db_backfills_index_on_upgrade ________________
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:95: in annotated_getattr
+    obj = getattr(obj, name)
+          ^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'src.llm' has no attribute 'factory'
+
+The above exception was the direct cause of the following exception:
+src/tests/test_vector_memory.py:155: in test_preexisting_db_backfills_index_on_upgrade
+    monkeypatch.setattr("src.llm.factory.get_embedder", lambda: FakeEmbedder())
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:107: in derive_importpath
+    target = resolve(module)
+             ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:89: in resolve
+    found = annotated_getattr(found, part, used)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/_pytest/monkeypatch.py:97: in annotated_getattr
+    raise AttributeError(
+E   AttributeError: 'module' object at src.llm.factory has no attribute 'factory'
+________________ test_d23_order_git_after_history_and_preamble _________________
+src/tests/test_volatile_tail.py:89: in test_d23_order_git_after_history_and_preamble
+    out = eng.build_ai_messages(_state(ws, msgs), SystemMessage(content="P"))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+___________________ test_d23_legacy_layout_via_flag_and_env ____________________
+src/tests/test_volatile_tail.py:105: in test_d23_legacy_layout_via_flag_and_env
+    out = eng.build_ai_messages(_state(ws, msgs), SystemMessage(content="P"))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+_______________________ test_d23_no_volatile_no_preamble _______________________
+src/tests/test_volatile_tail.py:128: in test_d23_no_volatile_no_preamble
+    out = eng.build_ai_messages({
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+__________ test_d23_quality_gate_identical_selection_between_layouts ___________
+src/tests/test_volatile_tail.py:148: in test_d23_quality_gate_identical_selection_between_layouts
+    out_new = _engine(ws, True).build_ai_messages(st, SystemMessage(content="P"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+_________________ test_d23_measured_cache_stability_post_edit __________________
+src/tests/test_volatile_tail.py:176: in test_d23_measured_cache_stability_post_edit
+    out = eng.build_ai_messages(_state(ws, msgs), SystemMessage(content="P"))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1001: in build_ai_messages
+    return self._build_ai_messages(state, system_message)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1054: in _build_ai_messages
+    trimmed_history = self._compact_history(raw_history, history_budget)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/context/context_engine.py:1908: in _compact_history
+    return self._shaper.compact(
+src/context/history_shaper.py:156: in compact
+    self.ensure_compactor()
+src/context/history_shaper.py:86: in ensure_compactor
+    from src.llm.factory import get_auxiliary_llm
+E   ImportError: cannot import name 'get_auxiliary_llm' from 'src.llm.factory' (unknown location)
+=============================== warnings summary ===============================
+src/tests/test_benchmark_harness_cdp.py::test_cdp_connect_and_observe_dom
+src/tests/test_benchmark_harness_cdp.py::test_cdp_prefer_workspace_target
+src/tests/test_benchmark_harness_cdp.py::test_pbr001_cdp_end_to_end_passes_against_mock
+src/tests/test_benchmark_harness_cdp.py::test_pbr003_cdp_mock_end_to_end
+src/tests/test_benchmark_harness_cdp.py::test_cdp_launch_command_spawns_and_connects
+  /home/user/PulseAIRepo/benchmarks/pulse_reliability_v1/harness/drivers/cdp.py:154: DeprecationWarning: connect() must be used as a context manager: with connect(...) as websocket: ...; alternatively, use websocket = connect(..., legacy=True) to connect directly
+    self._ws.send(json.dumps({"id": request_id, "method": method, "params": params or {}}))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED src/tests/test_ambiguity.py::test_advanced_disabled_never_encodes_and_uses_fallback
+FAILED src/tests/test_ambiguity.py::test_advanced_embedder_failure_falls_back
+FAILED src/tests/test_ambiguity.py::test_engine_advanced_feeds_live_flag - Im...
+FAILED src/tests/test_bridge_transport.py::test_real_turn_forwards_headless_workspace_approval_policy
+FAILED src/tests/test_bridge_transport.py::test_watchdog_is_cancelled_after_successful_real_turn
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c1_cancel_during_ai_node_llm_blocks_tool_execution
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c2_cancel_during_task_manager_returns_cancelled_status
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c3_response_released_after_cancel_is_discarded
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c4_zero_model_invocations_after_cancel
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c5_result_is_cancelled_not_failed_or_completed
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c6_safetoolnode_denies_all_calls_on_cancel
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c9_proxy_does_not_retry_after_cancellation
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c10_abort_closes_transport_and_is_idempotent
+FAILED src/tests/test_cancellation_gates.py::TestCancellationGates::test_c11_cancelled_ai_node_skips_base_provider_failover
+FAILED src/tests/test_cancellation_gates.py::TestCancellationIntegration::test_cancel_before_graph_run_completes_cleanly
+FAILED src/tests/test_cancellation_gates.py::TestCancellationIntegration::test_should_continue_routes_to_finalize_on_cancelled
+FAILED src/tests/test_cancellation_gates.py::TestSessionIsolation::test_concurrent_sessions_a_cancelled_b_completes
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_cleanup_after_normal_success
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_cleanup_after_provider_exception
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_cleanup_after_cancellation
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_cleanup_after_retryable_exception
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_cleanup_through_bind_wrapper
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_cleanup_through_bind_tools_and_structured
+FAILED src/tests/test_cancellation_gates.py::TestFinallyCleanup::test_repeated_cancel_abort_is_harmless
+FAILED src/tests/test_cancellation_gates.py::TestRequestOwnedAbort::test_bound_request_cancel_closes_root_once_and_cleans_registry
+FAILED src/tests/test_cancellation_gates.py::TestRequestOwnedAbort::test_cancel_interrupts_retry_backoff_without_second_request
+FAILED src/tests/test_cancellation_gates.py::TestRequestOwnedAbort::test_async_provider_task_is_cancelled_request_specifically
+FAILED src/tests/test_cancellation_gates.py::TestRequestOwnedAbort::test_auxiliary_clients_are_request_owned
+FAILED src/tests/test_chunk_index.py::test_layer_builder_and_engine_integration
+FAILED src/tests/test_compaction.py::test_engine_request_only_state_never_mutated
+FAILED src/tests/test_context_budget.py::test_index_construction_and_bounded_work_never_load_embedder
+FAILED src/tests/test_context_budget.py::test_full_engine_turn_is_inference_free
+FAILED src/tests/test_context_engine_parity.py::test_usage_pressure_survives_full_build
+FAILED src/tests/test_context_engine_parity.py::test_compress_never_splits_tool_pairs
+FAILED src/tests/test_context_engine_parity.py::test_compress_protects_the_newest_exchange
+FAILED src/tests/test_context_engine_parity.py::test_compress_dict_protocol_roundtrip
+FAILED src/tests/test_context_engine_parity.py::test_engine_emits_cache_break_receipt_once
+FAILED src/tests/test_desktop_renderer_architecture.py::test_copilot_webview_host_is_a_setting_and_fails_loudly
+FAILED src/tests/test_embedding_cache.py::test_warm_turn_reencodes_zero_layers
+FAILED src/tests/test_embedding_cache.py::test_scoring_identical_cold_vs_warm
+FAILED src/tests/test_embedding_cache.py::test_dedup_rides_on_scoring_vectors
+FAILED src/tests/test_embedding_cache.py::test_ambiguity_constants_encoded_once
+FAILED src/tests/test_embedding_cache.py::test_classifier_query_cached - Impo...
+FAILED src/tests/test_engine_smoke.py::test_build_ai_messages_snapshots_layers_sent
+FAILED src/tests/test_engine_smoke.py::test_task_classifier_is_reused_across_builds
+FAILED src/tests/test_engine_smoke.py::test_record_feedback_attributes_layers_actually_sent
+FAILED src/tests/test_engine_smoke.py::test_every_built_layer_infers_a_known_name
+FAILED src/tests/test_history_shaper.py::TestPipeline::test_stats_carry_the_compactor_counters_after_compact
+FAILED src/tests/test_history_shaper.py::TestCompactorSharing::test_two_compacts_share_one_compactor
+FAILED src/tests/test_history_shaper.py::TestCompactorSharing::test_session_identity_is_rerouted_on_every_ensure
+FAILED src/tests/test_history_shaper.py::TestCompactorSharing::test_model_is_read_live_not_captured
+FAILED src/tests/test_history_shaper.py::TestEngineDelegation::test_engine_methods_delegate_to_one_shaper
+FAILED src/tests/test_lang_extractors.py::test_js_functions_classes_and_ignores
+FAILED src/tests/test_lang_extractors.py::test_ts_types_ignored_functions_kept
+FAILED src/tests/test_lang_extractors.py::test_tsx_component_and_hook - Asser...
+FAILED src/tests/test_lang_extractors.py::test_jsdoc_above_export_attaches - ...
+FAILED src/tests/test_lang_extractors.py::test_broken_source_never_crashes - ...
+FAILED src/tests/test_lang_extractors.py::test_schema_parity_with_python - In...
+FAILED src/tests/test_lang_extractors.py::test_index_mixed_workspace_search_and_sync
+FAILED src/tests/test_lang_extractors.py::test_edited_file_reembeds_only_changed_chunks
+FAILED src/tests/test_lang_extractors.py::test_go_functions_methods_struct - ...
+FAILED src/tests/test_lang_extractors.py::test_rust_fn_struct_impl_trait - Ke...
+FAILED src/tests/test_lang_extractors.py::test_java_class_interface_javadoc
+FAILED src/tests/test_lang_extractors.py::test_new_languages_tolerant_of_broken_source
+FAILED src/tests/test_lang_extractors.py::test_source_extensions_cover_d5_2
+FAILED src/tests/test_lang_extractors.py::test_index_e2e_go_rust_java - asser...
+FAILED src/tests/test_lang_extractors.py::test_iter_source_files_yields_all_supported
+FAILED src/tests/test_lang_extractors.py::test_d15_edges_flow_into_index - As...
+FAILED src/tests/test_loop_guards.py::test_router_ends_turn_after_no_tool_limit
+FAILED src/tests/test_loop_guards.py::test_router_keeps_bounded_nudges_below_the_limit
+FAILED src/tests/test_loop_guards.py::test_router_finalizes_repetition_dominated_reply
+FAILED src/tests/test_plan_constraint_validator.py::test_validator_returns_empty_on_ok
+FAILED src/tests/test_plan_constraint_validator.py::test_validator_quotes_contradiction
+FAILED src/tests/test_plan_constraint_validator.py::test_validator_handles_real_task_plan_steps_and_tracks_usage
+FAILED src/tests/test_plan_constraint_validator.py::test_validator_failure_is_advisory
+FAILED src/tests/test_prompt_cache_audit.py::test_engine_audits_and_git_context_emits_last
+FAILED src/tests/test_review12.py::TestLLMTimeouts::test_openai_family_gets_request_timeout
+FAILED src/tests/test_review12.py::TestLLMTimeouts::test_groq_gets_request_timeout
+FAILED src/tests/test_review12.py::TestLLMTimeouts::test_gemini_gets_timeout
+FAILED src/tests/test_review12.py::test_add_tool_removed_from_agent_tools - M...
+FAILED src/tests/test_review12.py::TestSubAgentDepthCap::test_sub_agent_cannot_spawn_sub_agent
+FAILED src/tests/test_review_autopsy_fixes.py::test_d26_token_and_trace_churn_no_longer_busts_layer_cache
+FAILED src/tests/test_session_search.py::test_registry_exposes_required_capabilities_without_freezing_count
+FAILED src/tests/test_sub_agent_batch.py::test_single_task_batch_uses_legacy_sequential_path
+FAILED src/tests/test_sub_agent_batch.py::test_batch_runs_concurrently_wall_time_pin
+FAILED src/tests/test_sub_agent_batch.py::test_batch_results_come_back_in_input_order
+FAILED src/tests/test_sub_agent_batch.py::test_one_child_crash_does_not_sink_the_batch
+FAILED src/tests/test_sub_agent_batch.py::test_batch_empty_and_legacy_registry_bound
+FAILED src/tests/test_sub_agent_batch.py::test_concurrent_children_cannot_clobber_files
+FAILED src/tests/test_vector_memory.py::test_fallback_without_sqlite_vec_is_byte_legacy
+FAILED src/tests/test_vector_memory.py::test_preexisting_db_backfills_index_on_upgrade
+FAILED src/tests/test_volatile_tail.py::test_d23_order_git_after_history_and_preamble
+FAILED src/tests/test_volatile_tail.py::test_d23_legacy_layout_via_flag_and_env
+FAILED src/tests/test_volatile_tail.py::test_d23_no_volatile_no_preamble - Im...
+FAILED src/tests/test_volatile_tail.py::test_d23_quality_gate_identical_selection_between_layouts
+FAILED src/tests/test_volatile_tail.py::test_d23_measured_cache_stability_post_edit
+ERROR src/tests/test_attempt11_completion_integrity.py
+ERROR src/tests/test_attempt11_product_delivery_boundary.py
+ERROR src/tests/test_autonomous_runtime_contract.py
+ERROR src/tests/test_aux_model_routing.py
+ERROR src/tests/test_degraded_memory.py
+ERROR src/tests/test_efficiency_receipts.py
+ERROR src/tests/test_execution_modes.py
+ERROR src/tests/test_execution_phases.py
+ERROR src/tests/test_iteration_budget.py
+ERROR src/tests/test_output_limit_recovery.py
+ERROR src/tests/test_parallel_tools.py
+ERROR src/tests/test_progress_helpers.py
+ERROR src/tests/test_prompt_guard.py
+ERROR src/tests/test_ptc.py
+ERROR src/tests/test_request_sanitizer.py
+ERROR src/tests/test_retry_proxy.py
+ERROR src/tests/test_retry_proxy_stream_cleanup.py
+ERROR src/tests/test_review12_reverify.py
+ERROR src/tests/test_scope_artifact_gates.py
+ERROR src/tests/test_session_engines.py
+ERROR src/tests/test_subagent_autodeny.py
+ERROR src/tests/test_subagent_hygiene.py
+ERROR src/tests/test_task_classifier_skip.py
+ERROR src/tests/test_tool_crash_net.py
+ERROR src/tests/test_web_tools.py
+ERROR src/tests/test_session_search.py::test_discovery_card_shape - ModuleNot...
+ERROR src/tests/test_session_search.py::test_current_thread_excluded_from_discovery
+ERROR src/tests/test_session_search.py::test_subagent_demoted_when_interactive_matches
+ERROR src/tests/test_session_search.py::test_subagent_shown_only_when_only_match
+ERROR src/tests/test_session_search.py::test_compaction_payloads_never_indexed
+ERROR src/tests/test_session_search.py::test_system_and_tool_messages_not_indexed
+ERROR src/tests/test_session_search.py::test_list_content_messages_are_flattened
+ERROR src/tests/test_session_search.py::test_query_wins_over_session_args_precedence
+ERROR src/tests/test_session_search.py::test_scroll_windows_and_page_hints - ...
+ERROR src/tests/test_session_search.py::test_scroll_bad_anchor_is_friendly - ...
+ERROR src/tests/test_session_search.py::test_browse_recent_first_current_excluded
+ERROR src/tests/test_session_search.py::test_overview_mode - ModuleNotFoundEr...
+ERROR src/tests/test_session_search.py::test_long_messages_capped_in_scroll
+ERROR src/tests/test_session_search.py::test_incremental_sync_sees_new_checkpoint
+ERROR src/tests/test_session_search.py::test_watermark_makes_unchanged_sync_free
+ERROR src/tests/test_vector_memory.py::test_knn_matches_legacy_scan_on_small_store
+ERROR src/tests/test_vector_memory.py::test_recall_beyond_500_row_window_is_fixed
+ERROR src/tests/test_vector_memory.py::test_vec_index_stays_in_sync_across_writes
+= 96 failed, 844 passed, 33 skipped, 75 deselected, 1 xfailed, 5 warnings, 43 errors in 120.12s (0:02:00) =

@@ -32,9 +32,11 @@ def test_warm_up_applies_a_late_endpoint_answer_without_blocking_init(monkeypatc
     assert engine.context_window == 1_048_576, engine.context_window
     assert engine.context_window_source == "custom-api", engine.context_window_source
     assert engine.max_tokens > 100_000, engine.max_tokens
-    # 1,048,576 - margin(8,192) rather than the 5% heuristic: the provider's number, used exactly.
+    # Recorded for the send path, NOT subtracted from the budget: a model that can emit 8,192 still has
+    # all 1,048,576 tokens of window to be filled. Both facts are asserted because conflating them is the
+    # bug upstream fixed and we briefly re-shipped.
     assert engine.max_output_tokens == 8_192, engine.max_output_tokens
-    assert engine.max_tokens == 1_048_576 - 8_192, f"{engine.max_tokens:,} != {1_048_576 - 8_192:,}"
+    assert engine.max_tokens == 1_048_576 - max(4_096, int(1_048_576 * 0.05)), f"{engine.max_tokens:,}"
 
 
 def test_warm_up_defers_when_a_build_is_in_flight(monkeypatch):

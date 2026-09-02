@@ -138,21 +138,7 @@ def usable_budget(model_name: str | None) -> int:
     return max(model_window(model_name) - SAFETY_MARGIN, _MIN_USABLE)
 
 
-def margin_for(window: int, max_output: int | None = None) -> int:
-    """What we withhold from a window for the reply and for token-count divergence.
-
-    With a stated cap we withhold that cap -- the provider's own number beats our estimate -- clamped
-    between SAFETY_MARGIN and a quarter of the window so a generous claim cannot starve the context.
-    Without one, the pre-existing heuristic applies unchanged, so nothing that works today moves.
-    """
-    heuristic = max(SAFETY_MARGIN, int(window * 0.05))
-    if not max_output or window <= 0:
-        return heuristic
-    ceiling = max(SAFETY_MARGIN, int(window * _MAX_OUTPUT_RESERVATION_FRACTION))
-    return max(SAFETY_MARGIN, min(int(max_output), ceiling))
-
-
-def usable_window_budget(window: int, max_output: int | None = None) -> int:
+def usable_window_budget(window: int) -> int:
     """The single budget formula shared by ContextEngine AND RetryLLMProxy
     (they must agree to the token).
 
@@ -160,10 +146,22 @@ def usable_window_budget(window: int, max_output: int | None = None) -> int:
     tokenizer divergence for models tiktoken doesn't natively know — our
     counting elsewhere is cl100k-based, and approximations scale with
     window size. 5% headroom price for never shipping an oversized payload.
+
+    It deliberately does NOT take the model's max-output value. The previous
+    revision of this function subtracted the provider's stated reply cap (clamped
+    to 25% of the window) and that was the conflation upstream names and fixed --
+    tests/test_ctx_halving_fix.py: "max_tokens = OUTPUT token cap (a single
+    response). context_length = TOTAL context window (input + output combined).
+    These are different and the old code conflated them; the fix keeps them
+    separate." On the owner's endpoint the error was not cosmetic: a 512,000 reply
+    allowance turned 1,048,576 usable into 786,432, i.e. we threw away 262,144
+    tokens of context because of a number that describes how much the model WRITES,
+    not how much we may SEND. The cap is fetched for the send path and the error
+    recovery in src/llm/output_budget.py, where it belongs.
     """
     if window <= 0:
         return _MIN_USABLE
-    margin = margin_for(window, max_output)
+    margin = max(SAFETY_MARGIN, int(window * 0.05))
     return max(window - margin, _MIN_USABLE)
 
 
@@ -450,27 +448,14 @@ _CONTEXT_LENGTH_KEYS = (
     "ctx_size",
 )
 
-# The next rung, deliberately not taken here: Hermes also reads the OUTPUT cap off
-# the same object (max_completion_tokens / max_output_tokens / max_tokens) instead of
-# a flat reserve, where ours is SAFETY_MARGIN. Threading it through would change
-# resolve_context_window's return shape for every caller and the budget tests, so it
-# waits for a pass where those can move together -- an unused constant would only make
-# it look done.
-
-
-# Hermes reads the OUTPUT cap off the same catalog object (agent/model_metadata.py @ 8cab422):
-# "max_completion_tokens", "max_output_tokens", "max_tokens". It matters because the margin we
-# subtract from a window is a reservation for the reply: guessing it costs context on big windows
-# (5% of 1,048,576 is 52,428 tokens withheld from a model that only ever emits 8,192) and can
-# under-reserve on small ones. One shared function below means the engine and the pre-send guard
-# cannot disagree about it -- the invariant the usable-window docstring has always claimed.
+# The reply cap, fetched from the same catalog object (upstream reads these three names).
+# It sizes what we may ASK the model to emit, and what an "output cap too large" error tells
+# us to retry with. It is NOT a tax on the context window -- see usable_window_budget for why
+# a previous revision of this file thought otherwise, and src/llm/output_budget.py for the use.
+# (The 8,192 that appeared in earlier notes here came from a local fake endpoint I wrote to
+# exercise the parser, not from any provider. Expectations must come from the endpoint, which is
+# the whole instruction.)
 _MAX_COMPLETION_KEYS = ("max_completion_tokens", "max_output_tokens", "max_tokens")
-
-# A provider may claim it can emit 600k tokens on a 128k window; honouring that literally would
-# starve the context we came here to build. Reserving a quarter of the window is the most we will
-# give up, and the floor keeps the old heuristic from ever getting worse than it was.
-_MAX_OUTPUT_RESERVATION_FRACTION = 0.25
-
 
 def _max_output_from(entry: dict) -> int | None:
     for key in _MAX_COMPLETION_KEYS:
@@ -745,7 +730,35 @@ def resolve_budget(
     else:
         window, source = resolve_context_window(model_name, provider, allow_network)
     cap = max_output_for(model_name, provider)
-    return BudgetLimits(window, cap, usable_window_budget(window, cap), source)
+    return BudgetLimits(window, cap, usable_window_budget(window), source)
+
+
+def cache_key_for(model_name: str | None, provider: str | None = None) -> str:
+    """The one rule for naming a model's cache entry: `"{effective provider}:{normalized id}"`.
+
+    Every reader and writer of the cache has to agree on this string or a value is written where nobody
+    looks. That is not hypothetical: the endpoint probe keys by the provider it was handed (`custom:`),
+    the engine keys by `settings.LLM_PROVIDER`, and a writer that defaulted a missing provider to `""`
+    produced a third key, `:model`, sitting unread beside the other two -- a fix that fixes nothing.
+
+    So: no provider given means settings decides, exactly as `resolve_context_window` does it. And if that
+    key has no entry while the model DOES have one under a different provider spelling, we update the
+    existing entry rather than orphaning it -- one model, one truth.
+    """
+    raw = (model_name or "").strip().lower()
+    named = provider
+    if not named:
+        try:
+            from src.config.settings import LLM_PROVIDER
+            named = LLM_PROVIDER
+        except Exception:
+            named = os.getenv("LLM_PROVIDER", "")
+    key = f"{_effective_provider(named or '')}:{raw}"
+    data = _read_cache()
+    if key in data:
+        return key
+    matches = [k for k in data if k.endswith(f":{raw}")]
+    return matches[0] if len(matches) == 1 else key
 
 
 def max_output_for(model_name: str | None, provider: str | None = None) -> int | None:
@@ -755,16 +768,7 @@ def max_output_for(model_name: str | None, provider: str | None = None) -> int |
     avoid, and a cap that arrived on the background thread is already in the cache entry beside the
     window -- which is exactly the case this exists for.
     """
-    raw = (model_name or "").strip().lower()
-    if provider is None:
-        try:
-            from src.config.settings import LLM_PROVIDER
-            provider = LLM_PROVIDER
-        except Exception:
-            provider = os.getenv("LLM_PROVIDER", "")
-    norm = provider or ""
-    key = f"{_effective_provider(norm)}:{raw}"
-    entry = _cache_limits_get(key)
+    entry = _cache_limits_get(cache_key_for(model_name, provider))
     return entry[1] if entry else None
 
 

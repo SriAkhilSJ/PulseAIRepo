@@ -897,15 +897,20 @@ def ai_node(
     call_model = model
     call_llm = llm_with_tools
     if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
-        try:
-            delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
-        except (TypeError, ValueError):
-            delivery_cap = 4096
+        # The reply ceiling is the model's own number, clamped by what the last rejection said still
+        # fits -- not a constant written into this file. What used to sit here was
+        # `max_tokens=max(512, min(delivery_cap, 8192))`, which throttled every delivery to 8,192 on an
+        # endpoint reporting 512,000, and did so invisibly: no receipt, no setting, no way to tell that
+        # the number came from anywhere other than the provider.
         bind_generation = getattr(llm_with_tools, "bind", None)
         if callable(bind_generation):
-            call_llm = bind_generation(
-                max_tokens=max(512, min(delivery_cap, 8192))
-            )
+            from src.llm.output_budget import requested_output_cap, take_available_output
+
+            allowed = requested_output_cap(model)
+            _room = take_available_output(model)
+            if _room:
+                allowed = max(512, min(allowed, _room))
+            call_llm = bind_generation(max_tokens=allowed)
     if budget_exhausted:
         call_llm = llm  # unhidden tools: the model cannot make more calls
         if not grace_done:
@@ -955,15 +960,20 @@ def ai_node(
         call_model = model
         call_llm = llm_with_tools
         if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
-            try:
-                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
-            except (TypeError, ValueError):
-                delivery_cap = 4096
+            # The reply ceiling is the model's own number, clamped by what the last rejection said still
+            # fits -- not a constant written into this file. What used to sit here was
+            # `max_tokens=max(512, min(delivery_cap, 8192))`, which throttled every delivery to 8,192 on an
+            # endpoint reporting 512,000, and did so invisibly: no receipt, no setting, no way to tell that
+            # the number came from anywhere other than the provider.
             bind_generation = getattr(llm_with_tools, "bind", None)
             if callable(bind_generation):
-                call_llm = bind_generation(
-                    max_tokens=max(512, min(delivery_cap, 8192))
-                )
+                from src.llm.output_budget import requested_output_cap, take_available_output
+
+                allowed = requested_output_cap(model)
+                _room = take_available_output(model)
+                if _room:
+                    allowed = max(512, min(allowed, _room))
+                call_llm = bind_generation(max_tokens=allowed)
         if budget_exhausted:
             call_llm = llm
         try:
