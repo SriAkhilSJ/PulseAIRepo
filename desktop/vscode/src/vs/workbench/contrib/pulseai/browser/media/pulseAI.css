@@ -912,3 +912,60 @@
 .pulseai-starter-prompt:hover { border-color: var(--vscode-focusBorder); }
 .pulseai-starter-prompt > .codicon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
 @media (max-width: 420px) { .pulseai-empty-state { padding: 12px 8px 8px; } }
+
+/* --- activity runs in the right panel: one summary line per run of activity, cards
+   for anything that draws its own surface (mirrors the CopilotKit webview) --- */
+.pulseai-tool-run {
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 5px;
+	margin: 0 0 4px;
+	overflow: hidden;
+}
+.pulseai-tool-run-summary {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 5px 8px;
+	cursor: pointer;
+	list-style: none;
+	font-size: 11.5px;
+	color: var(--vscode-descriptionForeground);
+}
+.pulseai-tool-run-summary::-webkit-details-marker { display: none; }
+.pulseai-tool-run-summary:hover { background: var(--vscode-list-hoverBackground); }
+.pulseai-tool-run.is-live .pulseai-tool-run-summary { color: var(--vscode-foreground); }
+.pulseai-tool-run-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-tool-run-count {
+	margin-left: auto;
+	flex-shrink: 0;
+	padding: 0 5px;
+	border-radius: 8px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: 10px;
+}
+.pulseai-tool-run-body { border-top: 1px solid var(--vscode-widget-border, transparent); padding: 4px 6px 6px; }
+.pulseai-tool-run-body .pulseai-tool-row { border: 0; padding-left: 0; }
+@media (max-width: 420px) { .pulseai-tool-run-summary { font-size: 11px; } }
+
+/* --- one surface at a time in a narrow auxiliary bar --- */
+.pulseai-view-tabs { display: flex; gap: 4px; padding: 4px 6px 0; flex-shrink: 0; }
+.pulseai-view-tabs.is-hidden { display: none; }
+.pulseai-view-tab {
+	flex: 0 1 auto;
+	padding: 3px 9px;
+	font-size: 11px;
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-bottom: 0;
+	border-radius: 4px 4px 0 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+}
+.pulseai-view-tab.is-active {
+	color: var(--vscode-foreground);
+	background: var(--vscode-sideBar-background);
+	border-color: var(--vscode-focusBorder);
+}
+.pulseai-view-tab:disabled { opacity: .5; cursor: default; }
+.pulseai-view > .pulseai-render-root { min-height: 0; }

@@ -111,3 +111,15 @@ a0931e6baf2602428024ac5dfd4fd0e2ffa3f40117ed30f3acef00f2c014d959  desktop/.../br
 e0f4588fb308f6c45ba4dbe5c9a54518f0f913f195ca29b8222853f183345810  desktop/.../browser/pulseAI.contribution.ts
 ea278b552c39558aa29f1a2d5855ec1939a798dcc5c5a8ae678d7a3cfa05fcc4  desktop/.../browser/media/pulseAI.css
 18014e249c6887fa58bdf7cf4382712ff2c1cf8a6092829d5862f02ead640190  src/tests/test_desktop_renderer_architecture.py
+
+## fork right-panel work (this commit, 2026-09-02)
+2bfdbd44454530b2ef012aa8ffcf776c43e434510934a9931876980d9cbcbbc9    174L  desktop/.../browser/pulseAIRunSummary.ts (new)
+bd18bed90cfbe7cd6d8f47d18f33be092a03b8869097717198b3be402828807e    753L  desktop/.../browser/pulseAIRenderer.ts
+c9c651441e0afd538762bd2e540e7945c4e37626920193814797c368b6e17d64    182L  desktop/.../browser/pulseAIViewPane.ts
+e26f709493377ef5ab934601356536c7f541644ef82643a26763107b5f9228de    971L  desktop/.../browser/media/pulseAI.css
+9b3581bd4e38b9c3e64d74901a2d7260728242c720b2e19acada866cfee7102f    203L  src/tests/test_hermes_run_summary_parity.py (new)
+a4e4c24f6f95ab37478459b8f788cc221633bfab23160021a0a843258c440181    249L  src/tests/test_desktop_renderer_architecture.py
+43138cbd362085449c4b45dc783db751c53c5330665230885df0cd587677f257     72L  src/tests/test_ui_tool_catalog.py
+084724739dce51f582549a34e26c037f853ed72ba860d4c948c4ab87d582e91b    190L  DESKTOP_PERMISSION_HANDLING_QUALITY.md
+a6d1756555aaf911eb8a32467f2cfba895bd8c30025be12233a29f2c096b0daf    158L  webview source of truth: pulse-webview/src/hermes-ui/model/run-summary.ts
+931916cc1a9991817121d6f29d781567e3c12259aa1f1d3b44a45788fcbd5e67  (log)  bench-results/.../pytest.log — includes the 2026-09-02 section

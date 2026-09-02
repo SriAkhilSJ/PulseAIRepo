@@ -5,6 +5,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 TOOLSETS = ROOT / "src" / "tools" / "toolsets.py"
 BROWSER = ROOT / "src" / "tools" / "browser_mcp.py"
@@ -42,8 +44,18 @@ def _browser_tool_names() -> set[str]:
     return names
 
 
+def _catalog_text() -> str:
+    # `ui/` is a tree this repo does not track (see the sibling pin in
+    # test_desktop_renderer_architecture.py): a fresh clone has no lab catalog to compare
+    # against. Skip with the reason instead of erroring, and keep asserting whenever the
+    # tree is present -- which is the normal state on a real dev machine.
+    if not CATALOG.exists():
+        pytest.skip(f"lab tool catalog not present at {CATALOG.relative_to(ROOT)}")
+    return CATALOG.read_text(encoding="utf-8")
+
+
 def _catalog_names() -> set[str]:
-    text = CATALOG.read_text(encoding="utf-8")
+    text = _catalog_text()
     return set(re.findall(r"^\s{2}([a-z][a-z0-9_]*): tool\(", text, re.M))
 
 
@@ -54,7 +66,7 @@ def test_ui_catalog_covers_every_runtime_tool_name():
 
 
 def test_terminal_family_has_real_pulse_process_tools():
-    text = CATALOG.read_text(encoding="utf-8")
+    text = _catalog_text()
     assert 'run_terminal: tool("Terminal", "terminal"' in text
     assert 'start_terminal: tool("Start process", "process"' in text
     assert 'read_terminal_output: tool("Read process output", "process"' in text

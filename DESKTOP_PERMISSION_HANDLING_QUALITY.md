@@ -94,9 +94,12 @@ The fork's chip is wired properly: `modePicker` → `setMode` (`pulseAIRendererS
    carries `.pulseai-manager-shell` — the selector `scripts/validate_pulse_ui_cdp.js:218-239` waits
    for. So a Phase-4 run that reaches Manager through the *button* times out on a UI that is
    genuinely on screen. Pick popup-or-tab and route one through the other
-   (`executeCommand(PulseAICommandId.OpenManager)`); the pin
-   `test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native` is left **red on purpose**
-   until that choice is made, with the reason inlined. *(Disclosure: I first read the command as a
+   (`executeCommand(PulseAICommandId.OpenManager)`). Owner directive for this round was
+   *"don't touch manager UI / for / now"*, so no route was chosen here; the assertion now lives in
+   `test_manager_opens_through_one_path_pending_owner_decision`, marked `xfail(strict=True)` with
+   this paragraph as its reason. Strict means the lane stays green while the decision is open, and
+   turns red the moment someone fixes it without un-marking it — so it cannot be settled silently
+   in either direction. *(Disclosure: I first read the command as a
    no-op because my `sed` window ended at line 200 — `openEditor` is on `:201`. It works.)*
 2. **Reads are not consent-gated.** `read_file` / `search_code` of an ignored secret rely on
    `file_safety.get_read_block_error`, not on this rule; `copy_file`'s read side is now checked only
@@ -110,6 +113,61 @@ The fork's chip is wired properly: `modePicker` → `setMode` (`pulseAIRendererS
    `cdn.playwright.dev`), so: no screenshot, no painted pixel, and **the fork TS is not
    typechecked** — only transpile-clean (`tsc.transpileModule` over all three edited files). The
    first `yarn && yarn compile` on the laptop is the real gate for those files.
+
+## Agent UI inside the fork: the right panel
+
+The Agent surface in the fork is a `ViewPane` registered in the **Auxiliary Bar**
+(`pulseAI.contribution.ts`: `ViewContainerLocation.AuxiliaryBar`,
+`mergeViewWithContainerWhenSingleView: true`, `canMoveView: false`), painted by the shared native
+renderer — `transcript()` in `pulseAIRenderer.ts`, not the React webview. That transcript was the
+last real parity gap: it appended **one row per tool call**, flat under a static `Actions`
+heading. Hermes and the ported webview never do that — consecutive same-category calls coalesce
+into a **run** carrying a present-tense clause, and only decision-shaped tools stay cards.
+
+Fork changes, all under `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/`:
+
+- **`pulseAIRunSummary.ts` (new)** — DOM-free port of `pulse-webview/src/hermes-ui/model/run-summary.ts`:
+  same `CATEGORY_ORDER` (`edit, explore, run, delegate, other`), same category nouns/verbs, same
+  card and silent-tool sets, same `splitRunGroups` (a card breaks a run, order preserved), and the
+  same clause rule inside `summarizeToolRun`: a category holding one call names that call
+  (`Edited safety_guard.py`), anything else counts (`explored 3 files`), and a *settled* command run
+  counts even at one call — a command line only earns its space while it is the thing you are
+  waiting on. The fork passes its own target extractor as `targetOf` (`displayTarget`, which reads
+  per-family payloads) where the webview uses `toolTarget`; the rule, not the payload reader, is
+  what is shared.
+- **`pulseAIRenderer.ts`** — both transcript branches go through `toolSection(tools, host, openTools, live)`:
+  a run renders as one `<details>` whose summary *is* the clause (`Explored 3 files`,
+  `Edited safety_guard.py`, `Running tests`), keyed by the **first** call's id
+  (`dataset.runKey = key`) so re-renders don't yank an open panel shut under the reader, auto-open
+  while the run is live, and keeping every existing `toolRow` inside as the disclosure body. This
+  folds single-call runs too — deliberately, because that is what the webview does; the disclosure
+  is what you skip past, the clause is what you read. The `Actions` heading and its total count
+  stay on the section, which is what the layout pin reads.
+- **Targets are clamped** (`compactTarget`, 48 chars + ellipsis, whitespace collapsed) because the
+  panel is ~380px wide; the clamp is display-only — the row behind it still carries the whole
+  command. This mirrors the webview's `compactPreview` / `timelinePreview`.
+- **`pulseAIViewPane.ts`** — the pane stops stacking two full agent surfaces at 50/50. Tabs
+  (`Agent` / `CopilotKit`) switch which one is visible; both stay mounted, so switching costs no
+  remount and the native view's scroll position survives. With `pulseai.copilotWebview.enabled:
+  false` the strip is hidden and the native view owns the entire pane — which is also the
+  unreachable-webview state, so a dead dev server can no longer eat half the panel.
+- **`media/pulseAI.css`** — `.pulseai-tool-run*` and `.pulseai-view-tab*`; theme tokens only, no
+  colour literals, and a 420px tweak that keeps the clause on one line in a narrow bar.
+
+**Proof.** `src/tests/test_hermes_run_summary_parity.py` bundles *both* modules with the webview's
+own esbuild and executes them side by side in node on eight tool sequences, asserting identical
+group kinds, keys, summaries and verbs — with the fork fed a real target extractor, so the
+targeted clauses themselves are compared, not just the counts. Plus a probe that a card genuinely
+breaks a run, and one that the fork renderer actually calls the rule. Result: `4 passed`. Webview suite unchanged:
+`npx vitest run` → `48 passed`. Pin lane `test_desktop_renderer_architecture.py` →
+`11 passed, 1 xfailed, 1 skipped`.
+
+**Not claimed.** No `yarn compile` here (`desktop/vscode/node_modules` is empty) and no
+screenshot — the two edited TS files plus the new module are transpile-clean and *un-compiled*, so
+your first fork build is the gate. `ui/src` is not part of the clone, so the two
+`test_ui_tool_catalog.py` pins fail with `FileNotFoundError` exactly as they did before this
+round; I left them alone rather than weaken them. The `SKIPPED` pin needs the absent local lab
+catalog, and the `XFAIL` is the Manager decision above.
 
 ## Runbook for the laptop
 

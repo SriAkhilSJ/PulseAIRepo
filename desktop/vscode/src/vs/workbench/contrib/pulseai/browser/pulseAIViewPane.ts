@@ -27,6 +27,8 @@ function paragraph(text: string): HTMLParagraphElement {
 }
 
 export class PulseAIViewPane extends ViewPane {
+	private copilotSlot: HTMLElement | undefined;
+	private copilotWebview: HTMLIFrameElement | undefined;
 	private pulseBody: HTMLElement | undefined;
 
 	constructor(
@@ -59,12 +61,41 @@ export class PulseAIViewPane extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		this.pulseBody = DOM.append(container, DOM.$('.pulseai-view'));
+		this.pulseBody.style.display = 'flex';
+		this.pulseBody.style.flexDirection = 'column';
+		this.pulseBody.style.minHeight = '0';
 		const root = DOM.append(this.pulseBody, DOM.$('.pulseai-render-root'));
+		root.style.flex = '1 1 auto';
+		root.style.minHeight = '0';
+		// In a 380px-wide auxiliary bar, stacking two full agent surfaces at 50% each
+		// gives you half a transcript and half a scrollbox. The pane now shows one at a
+		// time; both stay mounted, so switching costs no remount and the native view's
+		// scroll position survives the trip.
+		const tabs = DOM.append(this.pulseBody, DOM.$('.pulseai-view-tabs'));
+		const nativeTab = DOM.append(tabs, DOM.$('button.pulseai-view-tab')) as HTMLButtonElement;
+		nativeTab.type = 'button';
+		nativeTab.textContent = 'Agent';
+		const copilotTab = DOM.append(tabs, DOM.$('button.pulseai-view-tab')) as HTMLButtonElement;
+		copilotTab.type = 'button';
+		copilotTab.textContent = 'CopilotKit';
+		copilotTab.disabled = this.copilotWebview === undefined;
+		const show = (surface: 'native' | 'copilot') => {
+			root.style.display = surface === 'native' ? '' : 'none';
+			if (this.copilotSlot) { this.copilotSlot.style.display = surface === 'copilot' ? '' : 'none'; }
+			nativeTab.classList.toggle('is-active', surface === 'native');
+			copilotTab.classList.toggle('is-active', surface === 'copilot');
+			nativeTab.setAttribute('aria-current', String(surface === 'native'));
+			copilotTab.setAttribute('aria-current', String(surface === 'copilot'));
+			tabs.classList.toggle('is-hidden', this.copilotWebview === undefined);
+		};
+		this._register(addDisposableListener(nativeTab, 'click', () => show('native')));
+		this._register(addDisposableListener(copilotTab, 'click', () => show('copilot')));
 		root.dataset.surface = 'agent';
 		root.setAttribute('role', 'region');
 		root.setAttribute('aria-label', 'Pulse Agent');
 		this._register(this.pulseAIRendererService.mount(root, 'agent'));
 		this.renderCopilotWebview(this.pulseBody);
+		show('native');
 	}
 
 	/**
@@ -81,13 +112,14 @@ export class PulseAIViewPane extends ViewPane {
 	private renderCopilotWebview(parent: HTMLElement): void {
 		const cfg = this.pulseConfigurationService;
 		if (cfg.getValue<boolean>('pulseai.copilotWebview.enabled') === false) {
-			return; // native renderer already fills the pane; nothing to un-shrink
+			return; // no tab, no iframe: the native Agent view owns the whole pane
 		}
 		const url = (cfg.getValue<string>('pulseai.copilotWebview.url') || DEFAULT_COPILOT_WEBVIEW_URL).trim();
 		const share = Math.min(85, Math.max(10, Number(cfg.getValue<number>('pulseai.copilotWebview.height')) || 50));
 
 		const slot = DOM.append(parent, DOM.$('.pulseai-copilot-slot'));
-		slot.style.height = `${share}%`;
+		this.copilotSlot = slot;
+		slot.style.flex = `1 1 ${share}%`;
 		slot.style.minHeight = '120px';
 		slot.style.display = 'flex';
 		slot.style.flexDirection = 'column';
@@ -100,6 +132,7 @@ export class PulseAIViewPane extends ViewPane {
 		frame.style.border = 'none';
 		frame.style.display = 'block';
 		frame.setAttribute('src', url);
+		this.copilotWebview = frame;
 
 		// A refused or hanging connection fires no event an extension may read (by
 		// design), so "nothing loaded within N ms" is the only honest signal here. The

@@ -406,3 +406,36 @@ wrong mid-investigation:
   TS files are transpile-clean (`ts.transpileModule`) but **not typechecked**, and there is no browser
   binary here, so no pixel was painted by me. `48/48` vitest, `134 passed / 1 skipped / 1 deliberate
   failure` on the python side, and `5/5` on `ui_stack_smoke` against the live stack are the evidence.
+
+## Right panel inside the fork: activity runs (2026-09-02)
+
+The Auxiliary-bar Agent view used to list one row per tool call. It now folds consecutive
+same-category calls into a run with a present-tense clause, using a DOM-free port of the
+webview's own model, and the pane switches between the two agent surfaces instead of stacking
+them at 50/50.
+
+```
+src/tests/test_hermes_run_summary_parity.py                4 passed   (both surfaces bundled, run in node)
+src/tests/test_desktop_renderer_architecture.py           11 passed, 1 xfailed, 1 skipped
+src/tests/test_ui_tool_catalog.py                          1 passed, 1 skipped   (was: 2 errors)
+the whole desktop/permission lane                          87 passed, 2 skipped, 1 xfailed
+pulse-webview: npx vitest run                             48 passed  (no webview file changed)
+```
+
+The parity test is the interesting one: it does not compare text or fixtures, it **executes**
+`pulseAIRunSummary.ts` and `pulse-webview/src/hermes-ui/model/run-summary.ts` side by side on
+eight tool sequences and requires identical group kinds, keys, summaries and verbs — so the two
+surfaces cannot drift into saying different things about the same run. Its 8th sequence and the
+card-splitting probe check the rule's two non-obvious behaviours (a card breaks a run; a run is
+keyed by its first call, not its position).
+
+Full-suite run in this session: `20 failed, 1206 passed, 8 skipped, 1 xfailed` in 215s. All 20
+are in the indexer/vision lanes (`test_lang_extractors.py`, `test_lab_fixes.py`,
+`test_efficiency_receipts.py`, one `test_autonomous_runtime_contract.py` request-shape test) and
+read no file this round touched — the sandbox is missing optional deps (`PIL`, per-language
+extractors), which is what those assertions need. Nothing in the desktop, prompt, safety, or
+bridge lanes regressed. Verbatim tail in `pytest.log`.
+
+Un-verified, deliberately: this fork tree has no `desktop/vscode/node_modules`, so there is no
+`yarn compile` and no paint. The three edited TS files are parse- and transpile-clean; the first
+build in your fork is the gate.

@@ -7,6 +7,7 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { PulseExecutionMode } from '../common/pulseAIProtocol.js';
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
+import { compactTarget, splitRunGroups, summarizeToolRun } from './pulseAIRunSummary.js';
 
 export type PulseAIToolState = 'queued' | 'running' | 'passed' | 'approval' | 'failed';
 
@@ -293,6 +294,54 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 	return details;
 }
 
+/**
+ * Cards and runs, in order -- the same split the CopilotKit webview renders.
+ *
+ * A run of consecutive activity calls folds into one summary line, identified by its
+ * FIRST tool call id (never by position, or a live stream would re-key the row every
+ * time a call lands) and disclosed under the same key so opening one survives a
+ * re-render. Anything that draws its own surface -- a file edit's diff, a question --
+ * stays a card in place. `live` comes from the caller: a settled turn whose last call
+ * never got a result must still read as finished, not as work in progress.
+ */
+function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean): HTMLElement {
+	const section = element('section', 'pulseai-tool-list');
+	section.dataset.component = 'tool-list';
+	section.append(element('div', 'pulseai-section-heading',
+		element('span', undefined, 'Actions'),
+		element('span', 'pulseai-section-count', String(tools.length)),
+	));
+
+	for (const group of splitRunGroups(tools)) {
+		if (group.kind === 'card') {
+			section.append(toolRow(group.tool, host, openTools));
+			continue;
+		}
+		const runTools = group.tools;
+		const key = runTools[0]?.id ?? `run-${group.start}`;
+		const runLive = live && runTools.some(tool => tool.state === 'running' || tool.state === 'queued');
+		const details = element('details', `pulseai-tool-run${runLive ? ' is-live' : ''}`) as HTMLDetailsElement;
+		details.dataset.component = 'tool-run';
+		details.dataset.runKey = key;
+		details.open = runLive || openTools.has(key);
+		details.addEventListener('toggle', () => {
+			if (details.open) { openTools.add(key); } else { openTools.delete(key); }
+		});
+		const summary = element('summary', 'pulseai-tool-run-summary',
+			runLive ? element('span', 'pulseai-mini-spinner') : icon('tools'),
+			element('span', 'pulseai-tool-run-text', summarizeToolRun(runTools, runLive, tool => compactTarget(displayTarget(tool)) ?? tool.name)),
+			element('span', 'pulseai-tool-run-count', String(runTools.length)),
+		);
+		details.append(summary);
+		const body = element('div', 'pulseai-tool-run-body');
+		for (const tool of runTools) { body.append(toolRow(tool, host, openTools)); }
+		details.append(body);
+		section.append(details);
+	}
+	return section;
+}
+
+
 function engineStatus(model: PulseAIRenderModel): HTMLElement {
 	const state = model.engineState;
 	const tone = state === 'ready' ? 'ready' : state === 'starting' ? 'running' : state === 'crashed' || state === 'degraded' ? 'failed' : 'idle';
@@ -346,10 +395,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			lane.append(response);
 		}
 		if (turn.tools.length) {
-			const tools = element('section', 'pulseai-tool-list');
-			tools.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Actions'), element('span', 'pulseai-section-count', String(turn.tools.length))));
-			for (const tool of turn.tools) tools.append(toolRow(tool, host, openTools));
-			lane.append(tools);
+			lane.append(toolSection(turn.tools, host, openTools, false));
 		}
 		if (turn.subAgents.length) {
 			const subAgents = element('section', 'pulseai-subagent-list');
@@ -382,11 +428,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		lane.append(response);
 	}
 	if (model.tools.length) {
-		const tools = element('section', 'pulseai-tool-list');
-		tools.dataset.component = 'tool-list';
-		tools.append(element('div', 'pulseai-section-heading', element('span', undefined, 'Actions'), element('span', 'pulseai-section-count', String(model.tools.length))));
-		for (const tool of model.tools) { tools.append(toolRow(tool, host, openTools)); }
-		lane.append(tools);
+		lane.append(toolSection(model.tools, host, openTools, model.running));
 	}
 	if (model.subAgents.length) {
 		const subAgents = element('section', 'pulseai-subagent-list');

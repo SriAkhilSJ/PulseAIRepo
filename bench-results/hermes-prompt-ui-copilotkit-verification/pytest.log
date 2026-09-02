@@ -19,3 +19,46 @@ src/tests/test_no_import_time_agent_turns.py ..                          [ 99%]
 src/tests/test_agent_status_checkpoint.py s                              [100%]
 
 ======================= 205 passed, 1 skipped in 47.17s ========================
+
+==================================================================
+2026-09-02 (UTC) — right-panel activity runs, fork side
+==================================================================
+
+$ python3 -m pytest src/tests/test_hermes_run_summary_parity.py -q   (esbuild bundle + node)
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.12.1
+collected 4 items
+
+src/tests/test_hermes_run_summary_parity.py ....                         [100%]
+
+============================== 4 passed in 0.14s ===============================
+
+$ python3 -m pytest src/tests -q  (full backend + fork-pin suite, verbatim tail)
+src/tests/test_lang_extractors.py:515: in test_d15_edges_flow_into_index
+    assert (str(Path("app.ts")), str(Path("helper.ts"))) in rows
+E   AssertionError: assert ('app.ts', 'helper.ts') in {('core.py', 'util.py')}
+=========================== short test summary info ============================
+FAILED src/tests/test_autonomous_runtime_contract.py::test_ai_node_builds_expected_first_sarvam_request_without_provider_call
+FAILED src/tests/test_efficiency_receipts.py::test_visual_quality_rejects_uniform_and_accepts_structured
+FAILED src/tests/test_lab_fixes.py::test_syntax_receipt_tsx_missing_arrow - a...
+FAILED src/tests/test_lab_fixes.py::test_syntax_receipt_tsx_jsx_concat_attribute
+FAILED src/tests/test_lang_extractors.py::test_js_functions_classes_and_ignores
+FAILED src/tests/test_lang_extractors.py::test_ts_types_ignored_functions_kept
+FAILED src/tests/test_lang_extractors.py::test_tsx_component_and_hook - Asser...
+FAILED src/tests/test_lang_extractors.py::test_jsdoc_above_export_attaches - ...
+FAILED src/tests/test_lang_extractors.py::test_broken_source_never_crashes - ...
+FAILED src/tests/test_lang_extractors.py::test_schema_parity_with_python - In...
+FAILED src/tests/test_lang_extractors.py::test_index_mixed_workspace_search_and_sync
+FAILED src/tests/test_lang_extractors.py::test_edited_file_reembeds_only_changed_chunks
+FAILED src/tests/test_lang_extractors.py::test_go_functions_methods_struct - ...
+FAILED src/tests/test_lang_extractors.py::test_rust_fn_struct_impl_trait - Ke...
+FAILED src/tests/test_lang_extractors.py::test_java_class_interface_javadoc
+FAILED src/tests/test_lang_extractors.py::test_new_languages_tolerant_of_broken_source
+FAILED src/tests/test_lang_extractors.py::test_source_extensions_cover_d5_2
+FAILED src/tests/test_lang_extractors.py::test_index_e2e_go_rust_java - asser...
+FAILED src/tests/test_lang_extractors.py::test_iter_source_files_yields_all_supported
+FAILED src/tests/test_lang_extractors.py::test_d15_edges_flow_into_index - As...
+====== 20 failed, 1206 passed, 8 skipped, 1 xfailed in 214.97s (0:03:34) =======
