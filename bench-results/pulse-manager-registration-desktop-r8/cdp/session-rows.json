@@ -1,0 +1,23 @@
+{
+  "captured_at": "2026-09-02T11:23:46.231Z",
+  "cdp_target": {
+    "title": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench.html",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench.html"
+  },
+  "harness_exit": 1,
+  "rows": {
+    "found": false,
+    "managerShell": false,
+    "composerDisabled": false,
+    "rows": 0,
+    "classes": [],
+    "state": [],
+    "detail": [],
+    "label": [],
+    "empty": false,
+    "active": [],
+    "footer": null,
+    "agentColumnInManager": false,
+    "inventedFileCounts": 0
+  }
+}

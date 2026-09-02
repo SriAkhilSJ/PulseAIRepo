@@ -1,0 +1,8 @@
+D:\pulseAIagent\PulseAIRepo\desktop\vscode\.build\electron\PulseAI.exe
+D:\pulseAIagent\PulseAIRepo\desktop\vscode
+--remote-debugging-port=9222
+--user-data-dir=C:\Users\ADMINI~1\AppData\Local\Temp\pulse-cdp-profile
+--disable-workspace-trust
+--disable-extensions
+--no-sandbox
+--folder-uri=file:///C:/Users/ADMINI~1/AppData/Local/Temp/pulse-cdp-ws-jDKbLR
