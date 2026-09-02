@@ -265,5 +265,8 @@ step projection crash. Three changes, in Hermes' shape:
   model's own list would be erased on the next step.
 
 Executed, not asserted by prose: 9 tests in `test_hermes_planning_parity.py` import the real graph module
-(installed the provider/langchain set into a fresh venv for exactly this) and run the node. Lanes: 45
-passed, 2 skipped. The claim that `hi` is now one turn is provable only on his host -- that is the test.
+(installed langgraph plus the provider SDK set into a fresh venv for exactly this) and run the node -- 9 passed.
+Across the five related lanes the measured result is **37 passed, 8 skipped**, not the 45/2 first written here: the
+8 skips are `pulse-webview/node_modules` missing after this sandbox rebuilt, so the esbuild/tsc-backed lanes
+could not run. Recorded as a host gap, not a pass; his round-5 `npm run compile` is what covers the build.
+The claim that `hi` is now one turn is provable only on his host -- that is the test.
