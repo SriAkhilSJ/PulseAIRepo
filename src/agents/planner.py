@@ -81,6 +81,50 @@ _DIRECT_QUESTION_PATTERNS = (
 )
 
 
+# Phatic turns: greetings, acknowledgements, thanks. Measured why this exists: the
+# owner sent "hi" to the desktop agent and it spent 42 seconds at the provider --
+# one PLAN/DIRECT classifier call, one plan-generation call -- before the turn that
+# crashed in the planner. Nothing in _DIRECT_QUESTION_PATTERNS matched, because the
+# list is built from request verbs, and a greeting has none: the gate could only
+# recognise a question, not the absence of a request. A message that is entirely
+# social must answer socially, without spending any classifier call at all.
+_PHATIC_WORDS = frozenset(
+    "hi hey hello yo hiya howdy hiya thanks thank thx ty ok okay kk cool nice great "
+    "good bad wow sweet perfect awesome sure yes no yeah yup nope yep sorry welcome "
+    "morning afternoon evening bye gtg gm gn".split()
+)
+_PHATIC_FILLER = frozenset("there you are friend man buddy all it's it just so and".split())
+
+
+def _looks_like_phatic_turn(task: str) -> bool:
+    """True when the whole message is social and asks for nothing.
+
+    Deliberately conservative in both directions: every token must be known-phatic
+    (so "hi, run the tests" is not phatic), and repeated letters are folded so the
+    human spellings ("hiii", "okkk") count. A miss here only means the classifier
+    runs, which is the old behaviour; a false hit would skip planning on a real
+    request, so the rule is a whitelist, never a length heuristic.
+    """
+    tokens = [
+        token
+        for token in re.findall(r"[a-z]+", str(task).lower())
+        if token not in _PHATIC_FILLER
+    ]
+    if not tokens or len(tokens) > 4:
+        return False
+    def _matches(token: str) -> bool:
+        if token in _PHATIC_WORDS:
+            return True
+        # Drawn-out spellings ("hiii", "okkk", "nooo") collapse their whole trailing
+        # run, not one letter at a time -- "okkk" is "ok", and a single fold left it
+        # "okk" and the gate missed it.
+        stem = token
+        while len(stem) >= 2 and stem[-1] == stem[-2]:
+            stem = stem[:-1]
+        return stem in _PHATIC_WORDS
+    return all(_matches(token) for token in tokens)
+
+
 def _looks_like_direct_question(task: str) -> bool:
     """Obvious one-step question that must never enter the plan loop —
     and must not even spend the PLAN/DIRECT classifier call."""
@@ -111,6 +155,11 @@ def should_create_plan(
     # the classifier call (founder-pbr004-1: "Summarize the workspace." got
     # a wrong PLAN verdict and cost 20 full-context laps).
     if _looks_like_direct_question(task):
+        return False
+
+    # Social turns are not requests at all: answer them without asking a model
+    # whether they need steps (measured: "hi" cost 42s and two provider calls).
+    if _looks_like_phatic_turn(task):
         return False
 
     llm = get_llm(

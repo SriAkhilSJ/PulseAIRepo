@@ -215,3 +215,29 @@ failure is the same crash, not the removed fallback: with the turn surviving, re
 Also on record: this sandbox reset its branch pointer to the base commit mid-round, so a fix commit landed on
 `86eaaae2` without the ten commits above it. The push was rejected as non-fast-forward, which is the only
 reason that did not become a mess; the work was re-applied on `18c9647f` instead of rebased blindly.
+
+## Modes, from the fork's own wiring: why `hi` planned, and what Hermes does instead
+
+`src/bridge/protocol.py:10` -> `EXECUTION_MODES = {agent, plan, debug, ask}`, default `agent`
+(`src/bridge/__main__.py:275,512`), which is what the composer's `Agent` dropdown selects.
+
+* `ask` -- `after_task_manager` returns `"ai"` immediately (`chat_graph.py:2160`), and every phase-guidance,
+  delivery and tool branch is skipped on `execution_mode == "ask"` (`:799,818,871,896`). No planner, no
+  classifier call. A greeting costs one turn.
+* `plan` -- planner runs, `after_planner` routes to `plan_preview` (`:2207`): plan shown, nothing executed.
+* `agent` -- planner runs, then `after_planner` -> `ai` executes. Planning is therefore ON for every
+  interactive turn unless `should_create_plan` declines.
+* `debug` -- same shape with debug phase handling (`:809`).
+
+The fork already knows the cost: `chat_graph.py:2075-2078` says Pulse "previously spent multiple provider
+calls classifying, generating, and validating a plan before the action loop, unlike Hermes' direct headless
+conversation loop", and exempts that -- but only for autonomous workspace runs, so an interactive `hi` in
+Agent mode still paid for the classifier plus a plan, then crashed in the projection (previous section).
+`should_create_plan` had exactly one free bypass, a list of request verbs, and a greeting has no verb: the
+gate could recognise a question but not the absence of a request.
+
+Fix keeps mode semantics and adds a zero-call social bypass (`_looks_like_phatic_turn`): every token must be
+known-phatic, drawn-out spellings collapse their whole trailing run ("okkk" -> "ok"), and it is a whitelist
+rather than a length heuristic because a false skip would drop planning on real work. Executed with
+`get_llm` sabotaged, so a phatic turn that reaches the model factory fails the test; verified in both
+directions by deleting the gate (13 failures) and restoring it (18 pass). Lane: 20 passed.
