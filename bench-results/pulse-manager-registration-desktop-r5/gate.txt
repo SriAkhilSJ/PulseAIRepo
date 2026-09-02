@@ -1,0 +1,1 @@
+reached: D; result: FAIL; first failure: Gate D compile -- TS2459 in pulseAISessionController.ts:28 (IAgentSession not exported from agentSessionsOpener.js); gate A green since r2, gate B host-proof at r4
