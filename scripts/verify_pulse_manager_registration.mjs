@@ -16,6 +16,8 @@
  *   node scripts/verify_pulse_manager_registration.mjs <evidenceDir> --no-launch      # attach to a running IDE
  *   node scripts/verify_pulse_manager_registration.mjs <evidenceDir> --dry-run       # print argv, run nothing
  *
+ *   --folder-uri  carry the workspace as --folder-uri=file:///... instead of a trailing positional
+ *
  * Env: PULSEAI_CDP_PORT (9222) · PULSE_IDE (path to the built exe) · PULSE_WORKSPACE (folder to open)
  *      PULSE_PROFILE (user-data-dir) · PULSE_LAUNCH_TIMEOUT_MS (90000)
  */
@@ -31,7 +33,10 @@ const port = Number(process.env.PULSEAI_CDP_PORT || '9222');
 const flags = new Set(process.argv.slice(3));
 const noLaunch = flags.has('--no-launch');
 const dryRun = flags.has('--dry-run');
+const useFolderUri = flags.has('--folder-uri');
 const launchTimeoutMs = Number(process.env.PULSE_LAUNCH_TIMEOUT_MS || '90000');
+
+function __filename_or_self() { return fileURLToPath(import.meta.url); }
 
 function idePath() {
   if (process.env.PULSE_IDE) return path.resolve(process.env.PULSE_IDE);
@@ -54,18 +59,39 @@ function profilePath() {
     : path.join(os.tmpdir(), 'pulse-cdp-profile');
 }
 
+function appDirArg(ide) {
+  /*
+   * `.build/electron/PulseAI.exe` is bare Electron with the fork's `product.json` next to it, so it
+   * needs to be TOLD which app to load. That is what `desktop/vscode/scripts/code.bat:48` does:
+   *     %CODE% . %DISABLE_TEST_EXTENSION% %*
+   * The `.` is the app directory, and it is the FIRST positional. A build that has already copied the
+   * app into `resources/app` is self-locating and must NOT be given it -- there the first positional
+   * would be read as a folder instead. Decided from disk, not remembered.
+   */
+  const packaged = fs.existsSync(path.join(path.dirname(ide), 'resources', 'app', 'package.json'));
+  return packaged ? null : path.resolve(path.dirname(ide), '..', '..');   // -> desktop/vscode
+}
+
 function launchArgv(ide, workspace, profile) {
-  // `=` form for every value-bearing flag: a space-separated value is a separate argv entry, and
-  // Chromium treats the next entry as a new positional argument.
+  // `=` form for every value-bearing flag: a space-separated value is a separate argv entry, which
+  // Chromium then treats as a new positional -- the mistake that opened a folder as "the app to load".
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
     `--disable-workspace-trust`,
     '--disable-extensions',     // the fork ships Copilot as an extension: off means provably off
     '--no-sandbox',             // irrelevant on Windows, keeps a Linux run possible
-    workspace,                  // the folder to open, positional, exactly once
   ];
-  return [ide, ...args];
+  if (useFolderUri) args.push(`--folder-uri=${fileUri(workspace)}`);
+  const app = appDirArg(ide);
+  // Order is code.bat's: the app directory first, flags next, then the folder as a trailing positional
+  // -- unless --folder-uri carries it, in which case a second positional would only confuse the parser.
+  return [ide, ...(app ? [app] : []), ...args, ...(useFolderUri ? [] : [workspace])];
+}
+
+function fileUri(localPath) {
+  const posix = localPath.replace(/\\/g, '/');
+  return posix.startsWith('/') ? `file://${posix}` : `file:///${posix}`;
 }
 
 async function waitForEndpoint(deadlineMs) {
@@ -169,6 +195,23 @@ async function main() {
       + ` open one (Ctrl+K Ctrl+O -> ${workspace}) and re-run with --no-launch.`);
     if (child) child.kill();
     return 3;
+  }
+
+  const preflight = await evaluate(target.webSocketDebuggerUrl, `(() => ({
+    composer: !!document.querySelector('.pulseai-composer-input'),
+    composerDisabled: !!document.querySelector('.pulseai-composer-input[disabled]'),
+    noWorkspace: /Open a folder to start a Pulse session/.test(document.body.innerText || ''),
+    folders: (document.querySelectorAll('.pulseai-workspace-choices .pulseai-button, .pulseai-workspace-choice')?.length ?? 0),
+  }))()`).catch(error => ({ error: String(error?.message || error) }));
+  fs.writeFileSync(path.join(evidenceDir, 'preflight.json'), JSON.stringify(preflight, null, 2) + '\n', 'utf8');
+  console.log('preflight: ' + JSON.stringify(preflight));
+  if (preflight.composerDisabled || preflight.noWorkspace) {
+    console.error(`The workbench came up with NO folder open, so Pulse's composer is disabled and every check
+downstream would report the UI as broken. It is an argv problem, not a product one. Try the flag form:
+    node ${path.relative(REPO, __filename_or_self())} ${evidenceDir} --no-launch --folder-uri
+(Or open ${workspace} by hand with Ctrl+K Ctrl+O, then re-run with --no-launch.)`);
+    if (child) child.kill();
+    return 5;
   }
 
   const harness = spawnSync(process.execPath, [path.join(REPO, 'scripts', 'validate_pulse_ui_cdp.js'), evidenceDir, '--manager-only'],

@@ -160,3 +160,22 @@ Two pins added, one of them after its own bug: the first version asserted the br
 the docs and failed on the sentence that *explains* the bug. It now scans only ```powershell blocks --
 every `--user-data-dir` inside a command must be followed by `=`. A pin that matches prose will match
 tomorrow's prose. Lane: 12 passed, including the in-lane scoped typecheck on the restored tree.
+
+## Windows host, round 7 (`de47fc5f`): the positional was the app, not the folder -- per code.bat
+
+`session-rows.json` came back `rows: 0, composerDisabled: true`, which means the script's own half worked:
+it built the process, waited for the CDP page target, attached over WebSocket and evaluated the row query.
+The zero is a true reading of an empty workbench, not a harness fault. His diagnosis was right: this
+`.build/electron/PulseAI.exe` is bare Electron, and `desktop/vscode/scripts/code.bat:48` is
+`%CODE% . %DISABLE_TEST_EXTENSION% %*` -- the first positional is the app directory. Passing only a folder
+made Electron `require` it: `Cannot find module 'D:\...\playground'`.
+
+Fix, derived from the repo rather than guessed: the script now passes `desktop\vscode` first when
+`.build/electron/resources/app/package.json` is absent (dev build) and omits it when present (packaged
+build), then flags, then the folder as the trailing positional; `--folder-uri` carries the folder as a flag
+instead, which removes positional ordering from the question entirely. A preflight over CDP now runs *before*
+the harness and writes `preflight.json`; if the composer is disabled it exits 5 printing the `--folder-uri`
+retry and the hand-open alternative, so "no folder" can never again be reported as a broken UI.
+
+Pinned: the app-dir-first shape, the disk check for packaged-vs-dev, and the preflight, with the lane green
+at 12 passed (including the in-lane scoped typecheck) and both argv forms verified by `--dry-run` here.

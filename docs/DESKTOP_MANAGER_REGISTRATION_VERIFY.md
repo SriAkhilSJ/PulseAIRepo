@@ -106,7 +106,15 @@ Get-Content bench-results\pulse-manager-registration-desktop-r2\cdp\cdp-ui-resul
 Chromium flags take their value with `=`, not as the next argument: `'--user-data-dir','D:\path'` leaves
 the flag valueless and turns the path into a positional, which this build reads as "what to load" rather
 than "the folder to open" -- that is what killed the round-5 attempt, and it is why the script exists.
-(Manual form, if you must: `-ArgumentList '--remote-debugging-port=9222','--user-data-dir=D:\pulseAIagent\pulse-profile','--disable-workspace-trust','--disable-extensions','D:\pulseAIagent\playground'`.)
+(Manual form, if you must -- and note the app directory FIRST, which is what `desktop\vscode\scripts\code.bat:48`
+does as `%CODE% . %*`; a dev build is bare Electron and reads its first positional as the app to load, so a
+lone folder path comes back as `Cannot find module`):
+```powershell
+Start-Process -FilePath ".\desktop\vscode\.build\electron\PulseAI.exe" `
+  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\pulseAIagent\pulse-profile','--disable-workspace-trust','--disable-extensions','D:\pulseAIagent\playground'
+```
+If that still yields no folder, pass the folder as `--folder-uri=file:///D:/pulseAIagent/playground` instead of
+a trailing positional -- `scripts\verify_pulse_manager_registration.mjs --folder-uri` does exactly that.)
 
 (`--user-data-dir` on a fresh profile is what makes `window.commandCenter: true` and
 `window.titleBarStyle: "custom"` matter again — set those two in that profile's `settings.json`

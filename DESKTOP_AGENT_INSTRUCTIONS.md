@@ -131,7 +131,12 @@ open" (that mistake ended round 5, and the workbench looked broken when only the
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo
-node scripts\verify_pulse_manager_registration.mjs "bench-results\pulse-manager-registration-desktop-r4\cdp"
+node scripts\verify_pulse_manager_registration.mjs "bench-results\pulse-manager-registration-desktop-r8\cdp"
+# A dev build of this fork is bare Electron, so the script passes the app directory (desktop\vscode) as the
+# FIRST positional exactly as scripts\code.bat does, then the flags, then the folder. If the workbench still
+# comes up with no folder, re-run with --folder-uri (same dir, --no-launch) and read preflight.json.
+# The script writes preflight.json before the harness runs, so "no folder open" is reported as itself --
+# with the next command to run -- instead of surfacing as a UI failure twelve seconds later.
 ```
 
 Then follow Follow `docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md` §C and §D verbatim: `npm install` (only if

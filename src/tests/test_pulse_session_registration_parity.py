@@ -320,6 +320,11 @@ def test_the_cdp_launcher_encodes_the_flag_syntax_nobody_remembered():
     assert "'--user-data-dir'," not in script, "a space-separated flag value is the round-5 bug"
     assert "PULSE_WORKSPACE" in script and "mkdtempSync" in script, "no folder open means a disabled composer"
     assert "validate_pulse_ui_cdp.js" in script, "the harness must be delegated to, not reimplemented"
+    # A dev build of this fork is bare Electron: the FIRST positional is the app to load, which is why
+    # a lone workspace argument came back as `Cannot find module`. code.bat encodes it as `%CODE% . ...`.
+    assert "resources', 'app', 'package.json" in script, "the packaged-vs-dev decision must be read from disk"
+    assert "[ide, ...(app ? [app] : []), ...args" in script, "the app directory must precede the flags"
+    assert "preflight.json" in script, "no-folder state must be diagnosed, not left to the harness"
     for doc in ("docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md", "DESKTOP_AGENT_INSTRUCTIONS.md"):
         text = (ROOT / doc).read_text(encoding="utf-8")
         assert "verify_pulse_manager_registration.mjs" in text, f"{doc} does not point at the script"
