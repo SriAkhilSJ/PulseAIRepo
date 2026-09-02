@@ -199,6 +199,16 @@ Prompts live in `$evidence\prompts\N.txt`. Run each through `run_bridge_turn.py`
 `--max-llm-calls 5 --max-input-tokens 12000 --timeout-s 240`, one **unique** `--run-id` per turn (never
 reuse ids — durable checkpoint pollution).
 
+**1.5 What "the Agent UI" is, so the visual check has a target.** `pulse-webview/src/App.tsx` opens on
+`surface = "agent"` — the ported Hermes transcript (`PulseAgentThread` + `PulseComposer`) — with stock
+`CopilotChat` behind the header toggle for A/B, and both share one tool renderer (`usePulseToolRenderer`) so
+they cannot disagree about a tool call. What makes it read as the Hermes surface: file edits as cards vs activity
+collapsed into a run keyed by the *first* `toolCallId`; the live call narrated in the present tense (`read_file`
+says "Exploring", not "Reading"); diffs clamped for paint but whole for copy; the plan/verification ledger
+closing a turn; a designed empty state instead of a blank pane. Each is pinned by name in
+`src/__tests__/hermes-ui-thread.test.tsx`, so "missing in the window, green in vitest" is a host difference worth
+a finding rather than a guess.
+
 **2.0 Byte capture, 0 credits (do this first — it is the cheapest way to prove prompt content).** Dump the
 exact prompt tiers for the scratch workspace with `scripts\dump_pulse_prompt.py`, which is pinned by
 `test_dump_pulse_prompt_script_is_the_live_zero_credit_probe` in the parity suite (so it cannot rot):
@@ -350,15 +360,36 @@ my work, not yours, and it is out of scope for a verification round.
 
 ## Phase 4 — Live Agent UI in the desktop fork (target: 3 turns / ≤ 10 requests)
 
+**4.0 — Browser-free first** (`scripts/ui_stack_smoke.mjs`: no key, no browser, 0 credits). The webview tests
+prove the transcript paints from a fixture; the CDP validator proves it paints in a real window; neither proves
+the three hops *between* them are up. The smoke walks them the way a request travels — engine → runtime →
+browser-facing proxy → stylesheet → entry module:
+
+```powershell
+node scripts\ui_stack_smoke.mjs 2>&1 | Tee-Object "$evidence\ui-stack-smoke.log"
+```
+expect: `5/5 hops healthy`. Engine streamed `RUN_STARTED` + `MESSAGES_SNAPSHOT` + `RUN_FINISHED` with no
+`RUN_ERROR`; the runtime advertises `pulse_agent`; the same contract answers through the proxy; `hermes-ui.css`
+is really served; `index.html` + `main.tsx` compile. Non-zero exit prints a `fix:` line naming the dead hop. **A
+failing hop means the editor shows a blank or unstyled pane for a stack reason, not a UI regression** — say
+which, with that log. Last round's blocked Phase 4 was this class of failure, and no check you had would have
+told you so before you paid for turns.
+
 Launch exactly like prior rounds, with the **real** runner: leave `PULSEAI_BRIDGE_RUNNER` unset. `echo` is
 the zero-credit test seam in `src\bridge\__main__.py:275` (it honours `cancel`, which is why prior rounds
 could prove layout with 0 provider requests); the real lane is `stream_agent` at `:495`. If a phase log shows
 `echo` behaviour while you are paying for turns, STOP — you are being billed for a fixture.
 
+`window.commandCenter` is not cosmetic: `scripts/validate_pulse_ui_cdp.js` opens Pulse Manager by clicking the
+title-bar / command-center entry (`:209`, `:215`) and then waits 20 s for `.pulseai-manager-shell` (`:218-239`).
+Under the default native title bar that opener does not exist, the wait expires, and the phase reads as a UI
+failure when it is a launch-config one — which is what happened last round. If you cannot enable it, drive
+`pulseai.openManager` from the command palette and record which route you took.
+
 ```powershell
 $profile = Join-Path $env:TEMP 'pulseai-prompt-ui-live-profile'
 New-Item -ItemType Directory -Force -Path (Join-Path $profile 'User') | Out-Null
-'{"security.workspace.trust.enabled":false,"window.restoreWindows":"none","workbench.startupEditor":"none"}' |
+'{"security.workspace.trust.enabled":false,"window.restoreWindows":"none","workbench.startupEditor":"none","window.commandCenter":true,"window.titleBarStyle":"custom"}' |
   Set-Content (Join-Path $profile 'User\settings.json') -Encoding utf8
 $env:PULSEAI_ENGINE_ROOT=$repo; $env:PULSEAI_PYTHON_PATH=Join-Path $repo '.venv\Scripts\python.exe'
 $env:PULSEAI_CDP_PORT='9222'
