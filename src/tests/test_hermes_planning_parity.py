@@ -148,3 +148,22 @@ def test_a_plan_the_model_wrote_survives_the_next_planner_pass():
     out = graph.planner_node(state, _CONFIG)
 
     assert out == {}, f"a bare no-plan return would erase the model's list: {out!r}"
+
+
+def test_plan_mode_mirrors_the_saved_plan_into_the_inspector():
+    """A plan nobody can see is not a deliverable.
+
+    Upstream keeps PLAN MODE invisible in the CLI (the turn reports a tool count and the user opens the
+    markdown). The desktop panel has a real PLAN section fed by graph state, so the prompt has to hand it
+    the steps -- without touching the frozen corpus text, which the prompt-parity lane compares
+    byte-for-byte against `upstream_corpus.json`.
+    """
+
+    from src.prompts.hermes.plan_learn import build_plan_prompt
+
+    prompt = build_plan_prompt("Add retry to the bridge")
+    assert "Surface contract" in prompt
+    assert "`plan_update`" in prompt, "the plan must be mirrored into the state the UI reads"
+    assert "After saving the plan file" in prompt, "file first, then mirror -- not two competing lists"
+    assert prompt.startswith("[/plan — plan mode]"), "the upstream-shaped head stays intact"
+    assert ".hermes" not in prompt, "local paths only; corpus text is adapted, not edited"

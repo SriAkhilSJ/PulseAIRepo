@@ -107,7 +107,25 @@ def build_plan_prompt(task: str = "", *, target_path: Optional[str] = None) -> s
         + task_block
         + "\n"
         + guidance.PLAN_CRAFT
+        # Pulse-specific surface contract, appended after the frozen corpus text for the same reason the
+        # `.hermes/plans` -> `.pulseai/plans` swap is: upstream's rules are compared byte-for-byte against
+        # `upstream_corpus.json`, and this is our UI, not theirs. In the CLI a plan is invisible until you
+        # open the file (the turn shows a tool count and nothing else). The desktop panel has a PLAN
+        # inspector that reads the graph's plan state, so a plan that lives only in a file paints `0
+        # steps` -- an artifact the user cannot see is a worse plan. Mirror it once, after writing.
+        + PLAN_SURFACE_CONTRACT
     )
+
+
+PLAN_SURFACE_CONTRACT = (
+    "\n"
+    "## Surface contract\n\n"
+    "After saving the plan file, call `plan_update` once with the SAME steps as\n"
+    '`{"description": "...", "status": "pending"}` objects, in order, so the desktop\n'
+    "plan inspector shows what you wrote. Write the file first, then mirror it; do not\n"
+    "call `plan_update` before the file exists, and do not maintain two lists — the file\n"
+    "is the plan, the list is its display.\n"
+)
 
 
 _LEARN_INTRO = (

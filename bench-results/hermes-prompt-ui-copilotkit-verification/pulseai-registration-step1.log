@@ -270,3 +270,16 @@ Across the five related lanes the measured result is **37 passed, 8 skipped**, n
 8 skips are `pulse-webview/node_modules` missing after this sandbox rebuilt, so the esbuild/tsc-backed lanes
 could not run. Recorded as a host gap, not a pass; his round-5 `npm run compile` is what covers the build.
 The claim that `hi` is now one turn is provable only on his host -- that is the test.
+
+## Plan mode painted `0 steps` in the panel -- less visible than the CLI, and now fixed
+
+The owner asked whether plan mode shows anything in the desktop UI. It did not: `planner_node` returns
+`"plan": []` for the prompt path, and the panel's Plan section reads `${model.plan.length} steps`, so a
+`/plan` turn painted `0 STEPS` with a single `write_file` row as its only evidence. Hermes' CLI behaves the
+same way (a number, then you open the file) and that is fine there; in a window with a plan inspector, an
+artifact nobody can see is a worse plan.
+
+Fix is a Pulse-specific `PLAN_SURFACE_CONTRACT` appended *after* the frozen corpus text -- the same local
+adaptation as the `.hermes/plans` -> `.pulseai/plans` swap -- telling the agent to write the file first,
+then mirror the same steps through `plan_update` once, and not to keep two lists. `PLAN_MODE_RULES` stays
+byte-identical to `upstream_corpus.json`: both prompt-parity lanes pass unchanged (70 passed, 1 skipped).
