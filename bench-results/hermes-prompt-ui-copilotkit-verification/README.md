@@ -366,3 +366,43 @@ looked like a broken app; it was my own launcher. Long-lived servers redirect to
 (`npm run dev > vite.log 2>&1`) and you grep the file. `Tee-Object` in the PowerShell blocks above is fine
 because it streams, but `| Select-Object -Last 30` is the same bug as `tail` — never wrap a server in it.
 
+## Desktop-side permission handling, and what the fork's own pins were hiding
+
+Asked whether this works on the laptop and not only in the sandbox, I read the fork contrib
+(`desktop/vscode/src/vs/workbench/contrib/pulseai/`) instead of inferring from the webview, and the
+written assessment is `DESKTOP_PERMISSION_HANDLING_QUALITY.md`. Highlights, including where I was
+wrong mid-investigation:
+
+- **`always_allow` was plumbed end to end and unreachable from the UI.** Protocol carries it,
+  `src/bridge/__main__.py:552` honours it, `event_bus.py:145,152` stores it — and `approvalDock`
+  sent only `true`/`false`. Every ordinary write re-prompted for the session because no control
+  existed to grant it. Now: `Allow once` / `Allow for session` / `Deny`, token-derived green/red,
+  icons, and a `title` per button.
+- **Two numbers in the file-write card were invented**: a `+12 −4` fallback and an always-present
+  `Receipt: syntax valid`. Replaced by counted stats (`diffStats`) and an omitted row. Diff preview
+  went from one `<pre>` (no per-line colour possible) to per-line nodes tinted with the editor's own
+  `diffEditor` tokens, clamped for paint with an explicit "N more lines" row.
+- **`pulseAIViewPane.ts` hardcoded `src='http://localhost:5173'` at `height:50%`.** That is the
+  answer to "works in sandbox, blank on my laptop": any packaged build, remote/WSL window, taken
+  port, or unstarted dev server shows an empty frame while the native view still gives up half the
+  pane. Now `pulseai.copilotWebview.enabled/.url/.height` (declared in `pulseAI.contribution.ts`) plus
+  an in-pane unreachable notice with the fix and a Reload, with the watchdog cancelled on dispose.
+- **`test_desktop_renderer_architecture.py` was red at base on three pins.** `Review change` and
+  `function emptyState` were genuinely missing from the code (the native Agent view had *no* empty
+  state) — both now implemented, and the pin's `ui/src` catalog comparison **skips with a stated
+  reason** because that tree is not tracked in this repo, so it could never have compared anything.
+  One assertion is left deliberately red as an owner decision (next bullet), with the reason inlined.
+- **Manager exists twice.** The in-pane `Manager` button opens an **auxiliary window** with its own
+  hand-built root (`pulseai-manager-editor`); the `pulseai.openManager` command opens the registered
+  `PulseAIManagerEditor`, which is what carries `.pulseai-manager-shell` — the selector
+  `validate_pulse_ui_cdp.js:218-239` waits for. A button-routed Phase 4 therefore times out on a UI
+  that is really on screen. Popup-vs-tab is your call; I did not silently pick it.
+- **A wrong claim, corrected in public:** I asserted the command was a no-op (created
+  `PulseAIManagerInput`, never opened it). It isn't — `openEditor` is on `:201` and my `sed` window
+  ended at 200. Same for `/plan`: it is *not* inert (`after_task_manager → planner`,
+  `after_planner → plan_preview`); what is missing is only the ported `build_plan_prompt` *text*, which
+  has no runtime caller. Both corrections are recorded here rather than quietly dropped.
+- **Verification limit, stated:** the fork has no `node_modules` in this checkout, so the three edited
+  TS files are transpile-clean (`ts.transpileModule`) but **not typechecked**, and there is no browser
+  binary here, so no pixel was painted by me. `48/48` vitest, `134 passed / 1 skipped / 1 deliberate
+  failure` on the python side, and `5/5` on `ui_stack_smoke` against the live stack are the evidence.

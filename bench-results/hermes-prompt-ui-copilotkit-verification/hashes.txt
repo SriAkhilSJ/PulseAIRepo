@@ -103,3 +103,11 @@ both prompt suites + runtime values + session engines + the two collection-safet
 Desktop UI stack: engine :8123 -> runtime :8200 -> vite :5173, stub provider on :8765 (0 credits).
 ui_stack_smoke 5/5 after restarting vite without a `| tail` pipe (that pipe blocks the server on write -- the
 one launcher bug worth knowing), negatives 2/5 and 4/5, vitest 48/48 with the stack up.
+
+## fork-side permission work (this commit)
+3c3f926ef6c5982802a7d426ae3141501c2bc6a842e4f40a6ac7d47aa14306f8  DESKTOP_PERMISSION_HANDLING_QUALITY.md
+a0931e6baf2602428024ac5dfd4fd0e2ffa3f40117ed30f3acef00f2c014d959  desktop/.../browser/pulseAIViewPane.ts
+740cbcb8935b966cba3e20c4085fa5cab4b7fbf9186587d0b1cdba7195f01ede  desktop/.../browser/pulseAIRenderer.ts
+e0f4588fb308f6c45ba4dbe5c9a54518f0f913f195ca29b8222853f183345810  desktop/.../browser/pulseAI.contribution.ts
+ea278b552c39558aa29f1a2d5855ec1939a798dcc5c5a8ae678d7a3cfa05fcc4  desktop/.../browser/media/pulseAI.css
+18014e249c6887fa58bdf7cf4382712ff2c1cf8a6092829d5862f02ead640190  src/tests/test_desktop_renderer_architecture.py
