@@ -208,10 +208,19 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		body.append(element('pre', 'pulseai-tool-pre pulseai-code-preview', content.slice(0, 800)));
 		body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file'), button('Copy path', 'pulseai-link-button', () => void navigator.clipboard?.writeText(target), 'copy')));
 	} else if (presentation.family === 'file-write') {
-		const change = firstString(result, ['change']) ?? `${firstString(args, ['diff']) ? '+12 −4' : '—'}`;
-		body.append(toolFields([['File', target], ['Change', change], ['Receipt', 'syntax valid']]));
 		const diff = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
-		body.append(element('pre', 'pulseai-tool-pre pulseai-diff-preview', diff.slice(0, 800)));
+		// Counted from the diff that is actually here. The fallback here used to be a
+		// literal invented line count (twelve added, four removed) printed whenever the
+		// engine sent no `change` field -- a number the user could not tell apart from
+		// a measurement. Absent data now renders as absent.
+		const stats = diffStats(diff);
+		const rows: [string, string][] = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
+		// 'syntax valid' was a second always-true row; only surface a receipt the
+		// tool actually reported.
+		const receipt = firstString(result, ['receipt', 'syntax']);
+		if (receipt) { rows.push(['Receipt', receipt]); }
+		body.append(toolFields(rows));
+		body.append(diffPreview(diff));
 		body.append(element('div', 'pulseai-tool-actions', button('Open native diff', 'pulseai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file')));
 	} else if (presentation.family === 'search') {
 		body.append(toolFields([['Query', target], ['Scope', 'workspace'], ['Matches', firstString(result, ['matches', 'count']) ?? '—']]));
@@ -417,6 +426,34 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	return scroll;
 }
 
+const STARTER_PROMPTS: readonly string[] = [
+	'Review this workspace and tell me what it does',
+	'Find where the safety approval flow lives and explain it',
+	'Run the project tests and fix the first failure',
+];
+
+/**
+ * Shown only when there is genuinely nothing to render and nothing is broken: engine
+ * up, workspace chosen, no turn yet. Setup and workspace-selection states have their
+ * own surfaces, and a starter grid layered over them reads as a bug.
+ */
+function emptyState(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement | undefined {
+	if (model.running || model.history.length || model.userMessage || model.assistantText || model.tools.length) { return undefined; }
+	if (model.engineSetupError || model.noWorkspace || model.workspaceSelectionRequired) { return undefined; }
+	const wrap = element('section', 'pulseai-empty-state');
+	wrap.dataset.component = 'empty-state';
+	wrap.append(
+		element('div', 'pulseai-section-heading', element('span', undefined, 'Pulse Agent')),
+		element('p', 'pulseai-empty-copy', 'Ask for a change, or start from one of these. Every file write is consent-checked: git can undo it, so it just runs; git cannot, so it asks.'),
+	);
+	const grid = element('div', 'pulseai-starter-grid');
+	for (const prompt of STARTER_PROMPTS) {
+		grid.append(button(prompt, 'pulseai-starter-prompt', () => host.submitPrompt(prompt), 'arrow-right'));
+	}
+	wrap.append(grid);
+	return wrap;
+}
+
 function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement | undefined {
 	if (!model.approval) { return undefined; }
 	const approval = model.approval;
@@ -425,12 +462,69 @@ function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLE
 	dock.append(
 		element('div', 'pulseai-approval-copy', icon('shield'), element('div', undefined, element('strong', undefined, `${pulseAIToolPresentation(approval.name).title} needs approval`), element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })) )),
 		element('div', 'pulseai-approval-actions',
-			approval.diff ? button('Review', 'pulseai-button pulseai-button-secondary', () => host.openDiff(approval.toolId)) : undefined,
-			button('Deny', 'pulseai-button pulseai-button-secondary', () => host.replyToSafety(approval.toolId, false)),
-			button('Allow', 'pulseai-button pulseai-button-primary', () => host.replyToSafety(approval.toolId, true)),
+			approval.diff ? button('Review change', 'pulseai-button pulseai-button-secondary', () => host.openDiff(approval.toolId), 'diff') : undefined,
+			hinted(button('Deny', 'pulseai-button pulseai-button-secondary pulseai-button-deny', () => host.replyToSafety(approval.toolId, false), 'close'),
+				'Deny this call. The next write is asked about again.'),
+			// The client protocol has carried `always_allow` since the start and the
+			// bridge honours it (src/bridge/__main__.py:552 -> EventBus.resolveApproval),
+			// but no control ever sent it: every ordinary write re-prompted for the rest
+			// of the session, so the grant existed and was unreachable from the UI.
+			hinted(button('Allow for session', 'pulseai-button pulseai-button-secondary pulseai-button-allow-session', () => host.replyToSafety(approval.toolId, true, true), 'pass-filled'),
+				'Allow, and stop asking for ordinary workspace writes in this session. Secret paths and git-ignored files are still asked every time.'),
+			hinted(button('Allow once', 'pulseai-button pulseai-button-primary pulseai-button-allow', () => host.replyToSafety(approval.toolId, true), 'check'),
+				'Allow this call only.'),
 		),
 	);
 	return dock;
+}
+
+/** A `title` hint for buttons built through `button()`, which has no options bag. */
+function hinted<T extends HTMLElement>(control: T, hint: string): T {
+	control.title = hint;
+	return control;
+}
+
+export interface PulseAIDiffStats {
+	readonly added: number;
+	removed: number;
+}
+
+/**
+ * Line counts for a unified diff, counted -- not assumed. Returns undefined when the
+ * payload carries no +/- body at all, so callers can show '—' instead of a number.
+ */
+export function diffStats(diff: string | undefined): PulseAIDiffStats | undefined {
+	if (!diff) { return undefined; }
+	let added = 0;
+	let removed = 0;
+	for (const line of diff.split('\n')) {
+		if (line.startsWith('+++') || line.startsWith('---')) { continue; }
+		if (line.startsWith('+')) { added++; }
+		else if (line.startsWith('-')) { removed++; }
+	}
+	return added || removed ? { added, removed } : undefined;
+}
+
+/** Lines are clamped for *paint*, never for correctness -- the count says what is hidden. */
+const DIFF_PREVIEW_LINE_LIMIT = 40;
+
+function diffPreview(diff: string): HTMLElement {
+	const wrap = element('pre', 'pulseai-tool-pre pulseai-diff-preview');
+	const lines = (diff || '').split('\n');
+	for (const line of lines.slice(0, DIFF_PREVIEW_LINE_LIMIT)) {
+		wrap.append(element('div', `pulseai-diff-line ${diffLineClass(line)}`, line.length ? line : ' '));
+	}
+	if (lines.length > DIFF_PREVIEW_LINE_LIMIT) {
+		wrap.append(element('div', 'pulseai-diff-line is-truncated', `… ${lines.length - DIFF_PREVIEW_LINE_LIMIT} more line(s) — 'Open native diff' shows all of it`));
+	}
+	return wrap;
+}
+
+function diffLineClass(line: string): string {
+	if (line.startsWith('@@') || line.startsWith('+++') || line.startsWith('---')) { return 'is-meta'; }
+	if (line.startsWith('+')) { return 'is-added'; }
+	if (line.startsWith('-')) { return 'is-removed'; }
+	return 'is-context';
 }
 
 const executionModes: readonly { readonly id: PulseExecutionMode; readonly label: string; readonly description: string; readonly icon: string }[] = [
@@ -523,7 +617,11 @@ function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAI
 	shell.append(header);
 	const plan = planStrip(model, planOpen, setPlanOpen);
 	if (plan) { shell.append(plan); }
-	shell.append(transcript(model, host, openTools));
+	// An empty transcript is a designed surface, not a blank div -- the same rule the
+	// ported webview follows (`hermes-ui/components/empty-state.tsx`). Exactly one of
+	// the two is mounted, so a first-run pane never shows an empty lane under a grid.
+	const empty = emptyState(model, host);
+	if (empty) { shell.append(empty); } else { shell.append(transcript(model, host, openTools)); }
 	const working = workingDock(model);
 	if (working) { shell.append(working); }
 	const approval = approvalDock(model, host);

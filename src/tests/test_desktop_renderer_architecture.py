@@ -4,9 +4,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
-UI = ROOT / "ui" / "src"
+UI = ROOT / "ui" / "src"   # not tracked in this repo; see the skip in the catalog pin
 
 
 def _text(*parts: str) -> str:
@@ -69,6 +71,12 @@ def test_web_fallback_and_desktop_override_share_the_engine_contract():
 
 
 def test_native_and_lab_catalogs_cover_the_same_36_tools():
+    if not UI.is_dir():
+        pytest.skip(
+            f"{UI.relative_to(ROOT)} is not present in this checkout: the lab catalog this "
+            "compares against lives in a tree the repo does not track. Skip is honest; a "
+            "silent pass would mean the pin compared nothing."
+        )
     native = _catalog_names(_text("common", "pulseAIToolCatalog.ts"))
     lab = _catalog_names((UI / "runtime" / "toolCatalog.ts").read_text(encoding="utf-8"))
     assert len(native) == 36
@@ -102,6 +110,14 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     ):
         assert behavior in renderer
     assert "openManager(): void" in renderer
+    # KNOWN OPEN DECISION (red at base 86eaaae2, deliberately left red): the in-pane
+    # "Manager" button calls PulseAIRendererService.openManagerWindow(), which builds its
+    # own DOM root (class `pulseai-manager-editor`) inside an auxiliary window, while the
+    # pulseai.openManager command opens the registered PulseAIManagerEditor instead. Two
+    # Manager surfaces, different class names -- and scripts/validate_pulse_ui_cdp.js waits
+    # for `.pulseai-manager-shell`, which only the editor path ever produces. Routing the
+    # button through the command satisfies this assertion and unifies the surfaces; that is
+    # an owner call about popup-vs-tab, not something to silently pick here.
     assert "executeCommand(PulseAICommandId.OpenManager)" in _text("browser", "pulseAIRendererService.ts")
     for style in (
         ".pulseai-starter-grid", ".pulseai-working-dock", ".pulseai-plan-strip",
@@ -132,3 +148,84 @@ def test_execution_mode_picker_is_functional_and_theme_driven():
         assert token in css
     assert "#071118" not in css
     assert "#061115" not in css
+
+
+def test_copilot_webview_host_is_a_setting_and_fails_loudly():
+    """The CopilotKit iframe used to hardcode `http://localhost:5173` at a fixed 50%.
+
+    That is only reachable when someone happens to have `npm run dev` open on that
+    port: a packaged build, a remote window (where `localhost` is the client), a
+    taken port, or just forgetting the dev server all render an empty frame with no
+    explanation -- and the native renderer above it still surrenders half the pane.
+    So: URL/enabled/height are settings, and an unreachable URL says so in the pane.
+    """
+    view = _text("browser", "pulseAIViewPane.ts")
+    contribution = _text("browser", "pulseAI.contribution.ts")
+    for key in ("pulseai.copilotWebview.enabled", "pulseai.copilotWebview.url", "pulseai.copilotWebview.height"):
+        assert key in view, f"{key} must be read by the pane"
+        assert f"'{key}'" in contribution, f"{key} must be declared, not merely read"
+    # The default may exist only as a named constant -- never inline on the element,
+    # which is what made it unconfigurable in the first place.
+    assert "setAttribute('src', 'http://localhost:5173')" not in view
+    assert "const DEFAULT_COPILOT_WEBVIEW_URL = 'http://localhost:5173'" in view
+    assert "frame.setAttribute('src', url)" in view
+    # Off means off: the iframe must not be built at all, so the native renderer
+    # gets the whole pane instead of 50% of it.
+    disabled_guard = view.index("copilotWebview.enabled') === false")
+    assert "return;" in view[disabled_guard:disabled_guard + 200]
+    # And a dead URL is a message, not a blank rectangle.
+    assert "pulseai-copilot-unreachable" in view
+    assert "npm run dev" in view
+    # The load event is the only honest success signal, so the watchdog is cancelled
+    # on dispose rather than left to fire into torn-down DOM.
+    assert "watchdog.cancel()" in view
+
+
+def test_approval_dock_offers_every_scope_the_protocol_carries():
+    """`always_allow` was plumbed end to end and unreachable from the UI.
+
+    `PulseAIRenderHost.replyToSafety(toolId, approved, alwaysAllow?)` ->
+    `safety_reply { always_allow }` -> `src/bridge/__main__.py:552` ->
+    `EventBus.resolve_approval(..., always_allow)`. The dock sent only true/false,
+    so every ordinary write re-prompted for the rest of the session even though a
+    session grant existed. The third argument must be used, and the two grants must
+    be labelled as different things.
+    """
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    assert "host.replyToSafety(approval.toolId, true, true)" in renderer
+    assert "'Allow for session'" in renderer
+    assert "'Allow once'" in renderer
+    assert "'Deny'" in renderer
+    # Every decision carries an icon and a hint: a bare word on a button is how
+    # "Allow" and "Allow always" get clicked by mistake.
+    assert ".pulseai-button-allow" in css and ".pulseai-button-deny" in css
+    assert "control.title = hint" in renderer
+    # Green/red are token-derived, never literals, so both product themes stay legible.
+    assert "--vscode-testing-iconPassed" in css
+    assert "--vscode-testing-iconFailed" in css
+    assert "--vscode-diffEditor-insertedTextBackground" in css
+    assert "--vscode-diffEditor-removedTextBackground" in css
+
+
+def test_file_write_rows_report_counted_values_not_placeholders():
+    """Two rows in the file-write card were invented: `+12 −4` and "syntax valid".
+
+    A number the user cannot distinguish from a real measurement is worse than a
+    blank, because it teaches them to skim the card. Line counts are now counted from
+    the diff that arrived, and the receipt row only appears when the tool reported
+    one.
+    """
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "'+12 −4'" not in renderer
+    assert "['Receipt', 'syntax valid']" not in renderer
+    assert "export function diffStats" in renderer
+    assert "stats ? `+${stats.added} −${stats.removed}`" in renderer
+    # Diff lines are per-line nodes so green/red can exist at all -- the old
+    # single <pre> could only be tinted as one block -- and the clamp is bounded for
+    # paint while saying what it hid.
+    assert "pulseai-diff-line" in renderer
+    assert "is-truncated" in renderer
+    css = _text("browser", "media", "pulseAI.css")
+    assert ".pulseai-diff-line.is-added" in css
+    assert ".pulseai-diff-line.is-removed" in css

@@ -838,3 +838,77 @@
 	cursor: pointer;
 	font-size: 9px;
 }
+
+/* --- permission handling: allow / allow-for-session / deny, colour-coded by
+   meaning, on theme tokens so every product theme stays legible --- */
+.pulseai-button-allow {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.pulseai-button-allow:hover { background: var(--vscode-button-hoverBackground); }
+.pulseai-button-allow > .codicon { color: var(--vscode-testing-iconPassed, #3fb950); }
+.pulseai-button-allow-session > .codicon,
+.pulseai-button-deny > .codicon { color: var(--vscode-testing-iconFailed, #f85149); }
+.pulseai-button-deny {
+	border: 1px solid color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 55%, transparent);
+}
+.pulseai-button-deny:hover {
+	background: color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 16%, transparent);
+}
+.pulseai-button-allow-session:hover {
+	background: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) 14%, transparent);
+}
+
+/* --- diff lines: green/red from the editor's own diff tokens, so the pane and the
+   native diff editor cannot disagree about what an added line looks like --- */
+.pulseai-diff-line { padding: 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pulseai-diff-line.is-added { background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent); }
+.pulseai-diff-line.is-removed { background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent); }
+.pulseai-diff-line.is-meta { color: var(--vscode-descriptionForeground); }
+.pulseai-diff-line.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
+
+/* --- the CopilotKit pane: configurable host + an honest "not answering" state --- */
+.pulseai-copilot-slot { position: relative; }
+.pulseai-copilot-unreachable {
+	position: absolute;
+	inset: auto 8px 8px 8px;
+	display: grid;
+	gap: 6px;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-inputValidation-infoBorder, transparent);
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+	font-size: 11px;
+}
+.pulseai-copilot-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.pulseai-copilot-unreachable .pulseai-button { justify-self: start; }
+
+/* --- designed empty state for the native Agent view (mirrors the ported webview's
+   `empty-state.tsx`, so the two surfaces of one agent cannot look unrelated) --- */
+.pulseai-empty-state {
+	display: grid;
+	gap: 10px;
+	padding: 18px 12px 12px;
+	align-content: center;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+.pulseai-empty-copy { margin: 0; color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.5; }
+.pulseai-starter-grid { display: grid; gap: 6px; }
+.pulseai-starter-prompt {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 7px 9px;
+	text-align: left;
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 5px;
+	background: var(--vscode-list-hoverBackground, transparent);
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	font-size: 12px;
+	width: 100%;
+}
+.pulseai-starter-prompt:hover { border-color: var(--vscode-focusBorder); }
+.pulseai-starter-prompt > .codicon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
+@media (max-width: 420px) { .pulseai-empty-state { padding: 12px 8px 8px; } }

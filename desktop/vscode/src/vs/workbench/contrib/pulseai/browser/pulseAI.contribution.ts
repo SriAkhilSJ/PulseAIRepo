@@ -19,6 +19,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
+import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import {
@@ -253,4 +254,32 @@ registerAction2(class extends Action2 {
 	async run(accessor: ServicesAccessor): Promise<void> {
 		await accessor.get(ICommandService).executeCommand('workbench.action.openSettings', 'pulseai');
 	}
+});
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'pulseai',
+	title: localize2('pulseai.copilotWebview.title', 'PulseAI CopilotKit Webview').value,
+	type: 'object',
+	properties: {
+		'pulseai.copilotWebview.enabled': {
+			type: 'boolean',
+			default: true,
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('pulseai.copilotWebview.enabled.desc', "Show the CopilotKit React surface (pulse-webview) under the native Pulse Agent view. Turn off to give the whole pane to the native renderer."),
+		},
+		'pulseai.copilotWebview.url': {
+			type: 'string',
+			default: 'http://localhost:5173',
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('pulseai.copilotWebview.url.desc', "Where to load the CopilotKit webview from: a dev server (npm run dev in pulse-webview) or any URL serving the built app. Use this when the editor is remote (WSL/SSH), when 5173 is taken, or when you serve a build yourself."),
+		},
+		'pulseai.copilotWebview.height': {
+			type: 'number',
+			default: 50,
+			minimum: 10,
+			maximum: 85,
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('pulseai.copilotWebview.height.desc', "Share of the Pulse view given to the CopilotKit webview, in percent. The native Agent renderer keeps the rest."),
+		},
+	},
 });
