@@ -70,7 +70,7 @@ def test_the_endpoint_is_asked_before_the_static_table(monkeypatch):
 
     monkeypatch.setattr(settings, "CUSTOM_BASE_URL", "http://127.0.0.1:8000/v1", raising=False)
     _catalog(monkeypatch, {"id": "gpt-4", "max_model_len": 128_000})
-    window, source = mb.resolve_context_window("gpt-4", provider="custom")
+    window, source = mb.resolve_context_window("gpt-4", provider="custom", endpoint_probe=True)
     assert (window, source) == (128_000, "custom-api")
 
 
@@ -84,7 +84,7 @@ def test_no_base_url_means_no_probe_and_the_old_default_still_applies(monkeypatc
 
     monkeypatch.setattr(settings, "CUSTOM_BASE_URL", None, raising=False)
     monkeypatch.delenv("CUSTOM_BASE_URL", raising=False)
-    window, source = mb.resolve_context_window("brand-new-model-xyz", provider="custom")
+    window, source = mb.resolve_context_window("brand-new-model-xyz", provider="custom", endpoint_probe=True)
     assert source == "default"
     assert window == mb.MODEL_WINDOWS["default"]
 
@@ -104,7 +104,7 @@ def test_the_explicit_override_still_wins_over_the_endpoint(monkeypatch):
     monkeypatch.setattr(settings, "CUSTOM_BASE_URL", "http://127.0.0.1:8000/v1", raising=False)
     monkeypatch.setenv("LLM_CONTEXT_WINDOW", "200000")
     _catalog(monkeypatch, {"id": "m", "max_model_len": 32_000})
-    window, source = mb.resolve_context_window("m", provider="custom")
+    window, source = mb.resolve_context_window("m", provider="custom", endpoint_probe=True)
     assert (window, source) == (200_000, "env-override")
 
 
@@ -113,7 +113,7 @@ def test_the_url_tolerates_a_base_that_already_carries_v1(monkeypatch):
 
     seen: list[str] = []
 
-    def fake_get(url, headers=None):
+    def fake_get(url, headers=None, timeout=None):
         seen.append(url)
         return {"data": [{"id": "m", "max_model_len": 16_384}]}
 
@@ -154,3 +154,68 @@ def test_the_shipped_default_is_auto_not_a_flat_pin():
         env={**__import__("os").environ, "PROVIDER_SAFE_LIMIT": "6000"},
     )
     assert pinned.stdout.strip() == "6000", pinned
+
+
+# ---------------------------------------------------------------------------
+# The blocking-path decision, tested rather than asserted in a comment.
+#
+# Bumping the timeout alone was the tempting fix and the wrong one: 12s on a
+# router turns "ask the provider" into "freeze app startup and every pre-send
+# guard check". So the endpoint rung is off by default and reached from the
+# engine's warm-up thread. These three tests pin that shape.
+# ---------------------------------------------------------------------------
+
+def test_the_default_resolution_never_touches_the_endpoint(monkeypatch):
+    import src.config.settings as settings
+
+    calls: list[str] = []
+    monkeypatch.setattr(settings, "CUSTOM_BASE_URL", "http://127.0.0.1:8000/v1", raising=False)
+    monkeypatch.setattr(mb, "_endpoint_catalog", lambda base: calls.append(base) or [])
+    mb.resolve_context_window("some-unknown-model-abc", provider="custom")
+    assert calls == [], "the blocking path must not ask the user's server anything"
+
+
+def test_the_endpoint_gets_a_longer_budget_than_the_public_catalogs():
+    """2.5s is right for a CDN-backed catalog and wrong for a 1,572-model localhost router."""
+
+    assert mb._PROBE_TIMEOUT_S == 2.5
+    assert mb._ENDPOINT_TIMEOUT_S > 5.0, "measured owner catalog: 5.1s -- anything under that is a false negative"
+
+
+def test_the_catalog_uses_the_longer_budget(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        seen["timeout"] = timeout
+        return {"data": [{"id": "m", "max_model_len": 4_096}]}
+
+    monkeypatch.setattr(mb, "_http_get_json", fake_get)
+    assert mb._endpoint_catalog("http://host:8000/v1")
+    assert seen["timeout"] == mb._ENDPOINT_TIMEOUT_S, seen
+
+
+def test_a_router_alias_resolves_to_the_smallest_window_it_could_be_handed(monkeypatch):
+    """`auto` is a chooser, not a model. Owning that fact beats asking the user to pin an id.
+
+    The owner's endpoint publishes `auto/best-chat` at 1,048,576 and would have matched nothing under
+    `LLM_MODEL=auto`. Taking the MAX of an alias's candidates would be a lie the moment the router picks
+    a small model, so the answer is the MIN: a budget every candidate can honour.
+    """
+
+    _catalog(
+        monkeypatch,
+        {"id": "auto/best-chat", "context_length": 1_048_576},
+        {"id": "auto/fast", "context_length": 131_072},
+        {"id": "unrelated/model", "context_length": 4_096},
+    )
+    assert mb._probe_custom_endpoint("auto") == 131_072
+
+
+def test_an_alias_with_one_candidate_is_that_candidate(monkeypatch):
+    _catalog(monkeypatch, {"id": "auto/best-chat", "context_length": 1_048_576})
+    assert mb._probe_custom_endpoint("auto") == 1_048_576
+
+
+def test_a_prefix_that_matches_nothing_still_refuses_to_guess(monkeypatch):
+    _catalog(monkeypatch, {"id": "other/thing", "context_length": 1_048_576})
+    assert mb._probe_custom_endpoint("auto") is None

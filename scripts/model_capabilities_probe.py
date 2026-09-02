@@ -111,7 +111,10 @@ def main() -> int:
         except OSError as exc:  # a read-only profile is not this script's problem to fix
             print(f"\ncould not clear the cache ({exc}); the cached value may still be reported")
 
-    resolved, source = resolve_context_window(model, provider=provider, allow_network=True)
+    # endpoint_probe=True: this script exists to wait for the truth, unlike every production caller.
+    resolved, source = resolve_context_window(
+        model, provider=provider, allow_network=True, endpoint_probe=True
+    )
     usable = usable_window_budget(resolved)
     safe_limit = int(getattr(settings, "PROVIDER_SAFE_LIMIT", 0) or 0)
     cap = usable if safe_limit <= 0 else min(usable, safe_limit)

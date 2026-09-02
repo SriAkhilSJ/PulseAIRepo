@@ -367,3 +367,20 @@ tests: src/tests/test_scan_budget_receipt_reason.py rewritten to the true mechan
 still true from earlier this turn: the endpoint probe + PROVIDER_SAFE_LIMIT AUTO change stands on its own merits -- it is what makes the
   token budgets follow the provider instead of a guess. It is NOT what removes the scan-budget line. If the owner wants THAT bound to
   scale (or stop appearing on a greeting), the knob is ContextBudget's quotas at context_engine.py:1031, not the model window.
+
+## turn 2026-09-04 08:35 +0530  ::  owner's probe readout -> timeout was a blocking-path defect, not a provider gap
+owner measurement (his box, after c4c11d9b): base http://localhost:20128/v1, key present, /v1/models answers 200 via Invoke-WebRequest but took 5.1s / 503KB / 1,572 models
+  vs our _PROBE_TIMEOUT_S 2.5 -> httpx.ReadTimeout -> empty catalog -> reported 'publishes no window'. Endpoint DOES publish: auto/best-chat context_length 1,048,576.
+  he primed the 7d cache and set LLM_MODEL=auto/best-chat (exact-id workaround), and asked: bump the timeout?
+decision: bumping the number alone is WRONG. resolve_context_window sits on three blocking paths (engine init :349, model switch :597, RetryLLMProxy pre-send guard via _safe_limit);
+  probe_window defaults True, so a 12s budget would convert 'ask the provider' into 'freeze startup and every send'. Hermes does not block either -- background fetch at agent_init.py:863.
+landed: _ENDPOINT_TIMEOUT_S=12.0 for the user's own catalog (public ones stay 2.5); _PROBES drops 'custom'; resolve_context_window gains endpoint_probe=False gating the endpoint rung;
+  ContextEngine._start_endpoint_retry/_endpoint_retry_worker fetch on a daemon thread, write the cache, and apply only when _init_complete and no _active_pool (else 'cached, applied at the
+  next build'); model-switch path triggers the same warm-up; the diagnostic script passes endpoint_probe=True because only a diagnostic is allowed to wait.
+also landed (the config-knob part): 'auto' never matched 'auto/best-chat', so HIS .env edit was the workaround for OUR gap. _probe_custom_endpoint now resolves router aliases -- if the
+  configured id is a prefix of listed ids, take the SMALLEST published window among them (max would be a lie when the router picks the small model; min holds for all of them).
+  Consequence, stated so it is not mistaken for a new limitation: naming LLM_MODEL still earns a bigger budget legitimately, because only he knows which candidate the router will pick.
+tests: test_background_window_warmup.py 2 passed (init <0.35s while the probe sleeps 0.4s -- the timing assertion IS the fix; late answer -> context_window 1,048,576 source custom-api;
+  mid-build -> must not mutate budgets). test_model_endpoint_metadata.py 28 passed (+3 alias tests, +1 'default makes ZERO endpoint calls', +_ENDPOINT_TIMEOUT_S>5). 35 passed across
+  the three files. Injection: min->max fails exactly 1. Regression: same wide filter with changes stashed and the new file out -> comm -13 before/after FAILED = EMPTY.
+for him to observe after pulling: revert LLM_MODEL to auto if he wants the alias path proven; expect '[model_budgets] auto is a router alias...' then budgets at the smallest auto/* candidate's window.

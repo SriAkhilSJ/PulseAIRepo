@@ -172,6 +172,13 @@ def usable_window_budget(window: int) -> int:
 # degrades to the next rung, never to a crash.
 
 _PROBE_TIMEOUT_S = 2.5
+# A self-hosted router's catalog is not a small API call. Measured on the owner's box, localhost:20128
+# answered /v1/models in 5.1s with 503 KB and 1,572 models; at the 2.5s public-catalog timeout the read
+# was cut off, the catalog came back empty, and the engine reported that the endpoint "published no
+# window" -- a conclusion that was really about our patience, not about his provider. Ask longer where
+# the answer is a whole registry; keep the short budget for the big public catalogs, which are fast and
+# whose slowness means the internet is down rather than that a model list is big.
+_ENDPOINT_TIMEOUT_S = 12.0
 _CACHE_TTL_S = 7 * 24 * 3600
 
 
@@ -212,11 +219,14 @@ def _cache_get(key: str) -> tuple[int, bool] | None:
     return window, (time.time() - ts) < _CACHE_TTL_S
 
 
-def _http_get_json(url: str, headers: dict | None = None) -> dict | None:
-    """GET JSON with a hard timeout. Any failure -> None (callers degrade)."""
+def _http_get_json(url: str, headers: dict | None = None, timeout: float | None = None) -> dict | None:
+    """GET JSON with a hard timeout. Any failure -> None (callers degrade).
+
+    `timeout` is per call because one budget does not fit every catalog; None keeps the short default.
+    """
     try:
         import httpx
-        resp = httpx.get(url, headers=headers or {}, timeout=_PROBE_TIMEOUT_S)
+        resp = httpx.get(url, headers=headers or {}, timeout=timeout or _PROBE_TIMEOUT_S)
         if resp.status_code == 200:
             return resp.json()
     except Exception:
@@ -320,7 +330,7 @@ def _endpoint_catalog(base_url: str) -> list[dict]:
         return []
     candidates = [f"{base}/models"] if base.endswith("/v1") else [f"{base}/v1/models", f"{base}/models"]
     for url in candidates:
-        data = _http_get_json(url, _endpoint_auth_headers())
+        data = _http_get_json(url, _endpoint_auth_headers(), timeout=_ENDPOINT_TIMEOUT_S)
         if isinstance(data, dict):
             entries = data.get("data") or data.get("models") or []
             if isinstance(entries, list):
@@ -346,11 +356,34 @@ def _probe_custom_endpoint(model_name: str) -> int | None:
     except Exception:
         base_url = os.getenv("CUSTOM_BASE_URL", "")
     wanted = (model_name or "").strip()
-    for entry in _endpoint_catalog(base_url):
+    entries = _endpoint_catalog(base_url)
+    for entry in entries:
         if _model_id_matches(wanted, str(entry.get("id") or entry.get("name") or "")):
             window = _window_from_metadata(entry)
             if window:
                 return window
+
+    # Router aliases: `auto` names no model, it names a CHOOSER, and the catalog lists its options as
+    # `auto/best-chat`, `auto/fast`, ... Exact matching alone left the owner's real setup -- which DOES
+    # publish context_length -- resolving to nothing, and the workaround offered back to him was to
+    # hardcode LLM_MODEL. That is the thing this file exists to avoid. The safe reading of an alias is
+    # the smallest window among its candidates: the router may hand us any of them, so promising more
+    # than the weakest would reintroduce the HTTP 400 this module was written against.
+    prefix = wanted.lower().rstrip("/") + "/"
+    candidates = [
+        _window_from_metadata(e)
+        for e in entries
+        if str(e.get("id") or e.get("name") or "").strip().lower().startswith(prefix)
+    ]
+    usable_candidates = [w for w in candidates if w]
+    if usable_candidates:
+        chosen = min(usable_candidates)
+        print(
+            f"[model_budgets] {wanted!r} is a router alias, not a model id: {len(usable_candidates)}"
+            f" candidate(s) published, smallest window {chosen:,} taken so the budget holds for"
+            " whichever one the router picks"
+        )
+        return chosen
     return None
 
 
@@ -403,8 +436,12 @@ def _probe_openrouter(model_name: str) -> int | None:
     return None
 
 
+# NOTE: `custom` is deliberately NOT listed here. Its catalog is the user's own server and can be
+# slow (measured: 1,572 models, 503 KB, 5.1s), and every caller of resolve_context_window sits on a
+# path somebody is waiting on -- engine construction, history shaping, the pre-send guard. So the
+# slow ask has its own rung below and is driven from the engine's background warm-up thread; the
+# three public catalogs above answer in well under a second and stay synchronous.
 _PROBES = {
-    "custom": _probe_custom_endpoint,
     "groq": _probe_groq,
     "gemini": _probe_gemini,
     "google": _probe_gemini,
@@ -440,11 +477,19 @@ def resolve_context_window(
     model_name: str | None,
     provider: str | None = None,
     allow_network: bool = True,
+    endpoint_probe: bool = False,
 ) -> tuple[int, str]:
     """Resolve the context window dynamically. Returns (window, source).
 
     `source` says which rung of the chain answered — "env-override",
-    "cache", "static-table", "<provider>-api", "cache-stale", or "default".
+    "cache", "custom-api", "static-table", "<provider>-api", "cache-stale", or "default".
+
+    `endpoint_probe` defaults to False on purpose. Asking the user's own server for its whole model
+    registry costs seconds on a router, and the callers here are all blocking paths: engine init,
+    history shaping, and RetryLLMProxy's pre-send guard. A bigger timeout in those places is only a
+    longer freeze -- which is how a healthy localhost endpoint came to be reported as one that
+    "publishes no window". The slow ask belongs to the engine's background warm-up, which writes the
+    cache for the next build. A caller that is explicitly a diagnostic passes True.
     """
     raw = (model_name or "").strip().lower()
     if provider is None:
@@ -472,7 +517,7 @@ def resolve_context_window(
     # 2b) A custom endpoint is authoritative about what it serves, so it is asked BEFORE the
     # table -- Hermes puts "active endpoint metadata" above the hardcoded defaults for this reason
     # (a vLLM exposing the id "gpt-4" may well serve 128k, and a table of cloud windows cannot know).
-    if allow_network and provider == "custom":
+    if allow_network and endpoint_probe and provider == "custom":
         endpoint_window = _probe_custom_endpoint(raw)
         if endpoint_window:
             _write_cache(cache_key, endpoint_window)

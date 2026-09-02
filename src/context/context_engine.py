@@ -357,6 +357,12 @@ class ContextEngine(BaseContextEngine):
                 )
             elif PROVIDER_SAFE_LIMIT <= 0:
                 print("[ContextEngine] (auto: trusting discovered window)")
+            if source == "default" and probe_window:
+                # "The endpoint answered nothing inside 12s" and "the endpoint publishes no window" are
+                # different facts and the second one is the only one that justifies a permanent guess.
+                # So retry it where a slow catalog costs nothing: off the startup path, like Hermes'
+                # background fetch_model_metadata at agent_init.py:863.
+                self._start_endpoint_retry()
 
         # We reserve some tokens for "context" (the stuff we build)
         # and leave the rest for "history" (past conversation).
@@ -457,9 +463,82 @@ class ContextEngine(BaseContextEngine):
         # same contract as the by-design bounding receipt.
         self._cache_break_receipt_emitted = False
 
+        # Set only here, at the end of construction: the background metadata probe reads this
+        # before touching budget fields, and must not interleave with __init__'s own derived values.
+        self._init_complete = True
+
     # =========================================================
     # WINDOW / BUDGET APPLICATION (shared by init, reconfigure, update_model)
     # =========================================================
+
+
+    def _start_endpoint_retry(self) -> None:
+        """Re-ask a slow endpoint for its window, in the background, once.
+
+        Blocking startup on a provider's model registry is not an option (that is how a 5-second catalog
+        becomes a 5-second app launch), and silently keeping the fallback is worse: it is what made a
+        healthy endpoint look like an unsupported one. So the answer is fetched on a daemon thread and
+        applied when it is safe -- after __init__ and between builds -- otherwise it is only cached, and
+        the next build picks it up from the cache without waiting for anything.
+        """
+        import threading
+
+        self._meta_thread: threading.Thread | None = None
+        try:
+            from src.config.settings import CUSTOM_BASE_URL
+        except Exception:
+            CUSTOM_BASE_URL = None
+        if not (CUSTOM_BASE_URL or os.getenv("CUSTOM_BASE_URL")):
+            return  # no endpoint to ask; the fallback is the honest answer here, not a timeout
+
+        self._meta_thread = threading.Thread(
+            target=self._endpoint_retry_worker,
+            args=(self.model,),
+            daemon=True,
+            name="pulse-model-metadata",
+        )
+        self._meta_thread.start()
+
+    def _endpoint_retry_worker(self, model: str) -> None:
+        try:
+            from src.context.model_budgets import (
+                _effective_provider,
+                _probe_custom_endpoint,
+                _write_cache,
+            )
+
+            window = _probe_custom_endpoint(model or "")
+        except Exception as exc:  # a background thread must never surface as a mystery crash
+            print(f"[ContextEngine] background window probe failed: {exc}")
+            return
+        if not window:
+            print(
+                "[ContextEngine] endpoint gave no window on retry either -- budgets stay on the fallback. "
+                "Run scripts/model_capabilities_probe.py for the verdict (timeout vs no field)."
+            )
+            return
+
+        provider = ""
+        try:
+            from src.config.settings import LLM_PROVIDER
+            provider = _effective_provider(LLM_PROVIDER or "")
+        except Exception:
+            pass
+        if provider:
+            _write_cache(f"{provider}:{(model or '').strip().lower()}", window)
+
+        # Wait briefly for construction to finish; never race a build in flight.
+        import time as _time
+        for _ in range(60):
+            if getattr(self, "_init_complete", False) and getattr(self, "_active_pool", None) is None:
+                break
+            _time.sleep(0.05)
+        if getattr(self, "_init_complete", False) and getattr(self, "_active_pool", None) is None:
+            with self._api_lock:
+                self._apply_window(window, "custom-api")
+            print(f"[ContextEngine] endpoint reported {window:,} tokens (background); budgets re-applied")
+        else:
+            print(f"[ContextEngine] endpoint reported {window:,} tokens; cached, applied at the next build")
 
     def _apply_window(self, window: int, source: str) -> None:
         """Apply a resolved context window to the engine budget fields.
@@ -518,6 +597,10 @@ class ContextEngine(BaseContextEngine):
                 self.model, allow_network=probe_window
             )
             self._apply_window(window, source)
+            if source == "default" and probe_window:
+                # A model switch is exactly when a wrong window matters most, and the endpoint is the
+                # only authority on it -- but not worth freezing the switch for, so ask in the background.
+                self._start_endpoint_retry()
             print(
                 f"[ContextEngine] repointed session engine to model {self.model!r}; "
                 f"token budget {self.max_tokens:,} (source: {source})."
