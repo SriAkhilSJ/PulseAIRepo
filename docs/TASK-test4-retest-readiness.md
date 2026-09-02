@@ -101,7 +101,7 @@ PULSEAI_LLM_STREAMING=1
 PULSEAI_LLM_TIMEOUT=90
 PULSEAI_DISABLE_LONG_TERM_MEMORY=1
 SUMMARIZER_LLM=
-PROVIDER_SAFE_LIMIT=6000
+PROVIDER_SAFE_LIMIT=0   # AUTO: budget = the window the endpoint reports (was 6000, which pinned it regardless)
 ```
 
 ## Retest targets
