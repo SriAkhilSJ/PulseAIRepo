@@ -96,3 +96,7 @@ bench-archive*/
 
 # Agent scratch: web image-search artifacts
 image-search/
+
+# Built CopilotKit SPA, copied in by `npm run build` in pulse-webview (postbuild).
+desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/
+desktop/vscode/out/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/

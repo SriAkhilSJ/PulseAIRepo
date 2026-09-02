@@ -283,3 +283,28 @@ Fix is a Pulse-specific `PLAN_SURFACE_CONTRACT` appended *after* the frozen corp
 adaptation as the `.hermes/plans` -> `.pulseai/plans` swap -- telling the agent to write the file first,
 then mirror the same steps through `plan_update` once, and not to keep two lists. `PLAN_MODE_RULES` stays
 byte-identical to `upstream_corpus.json`: both prompt-parity lanes pass unchanged (70 passed, 1 skipped).
+
+## Planning parity verified on Windows (gate 5 PASS, `8bbcc3cf`), and the CopilotKit tab stops needing a server
+
+His run: `reached: 5; result: PASS; first failure: none`, `tools.txt` = `plan_update bound: True | tools: 38`
+(the same 38 this side measures), and the three planning lanes at **30 passed, 1 warning** -- zero failures,
+zero skips, so no host gap on the phatic gate, the step projection or the graph node. The `UTF-16LE`
+encoding of `Tee-Object` output was decoded to read the summary line; ASCII-grepping that log finds
+nothing, which is worth remembering when reading his artifacts.
+
+Then the CSP item from his console, which was ours: `renderCopilotWebview` iframed a raw
+`http://localhost:5173` into the workbench document, whose `frame-src 'self' vscode-webview:` refuses any
+http origin before the dev server is asked. The fork's own vendored Copilot extension has zero `<iframe>`
+uses and shows every web UI through a webview -- but a webview is not required here: `'self'` already
+covers files under the app root. So the SPA is now *built into the app*: `npm run build` in `pulse-webview`
+emits with a relative `base`, a `postbuild` step copies `dist/` into
+`.../contrib/pulseai/browser/media/pulseai-spa/` (and into `out/` when it exists), and
+`pulseai.copilotWebview.url` defaults to `local`, loading it via `FileAccess.asFileUri`. No domain, no
+port, no proxy, and the same code path works in a packaged build or a remote window. The per-mode notice
+now tells a local-mode user to build rather than to start a server; the ignore rules keep the artifact out
+of git.
+
+Checked here: the scoped strict typecheck passes on his tip with these edits (`1 passed`), the copy script
+lands a probe bundle with its relative asset paths intact and `git status` stays silent on it, and
+`vite.config.ts` is syntax-clean under tsc. What only his machine can settle: the tab actually painting
+after one build.

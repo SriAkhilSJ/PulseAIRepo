@@ -14,11 +14,22 @@ import { IContextKeyService } from '../../../../platform/contextkey/common/conte
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { FileAccess } from '../../../../base/common/network.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IPulseAIRendererService } from '../common/pulseAIRendererService.js';
 
-const DEFAULT_COPILOT_WEBVIEW_URL = 'http://localhost:5173';
+/**
+ * Where the built CopilotKit SPA lands inside the app. `npm run build` in `pulse-webview`
+ * writes it here (see its `postbuild`), and the fork's own copy step carries it into `out/`.
+ *
+ * Loading it from the workbench's OWN origin is the whole point: the workbench document's CSP is
+ * `frame-src 'self' vscode-webview:`, so a `http://localhost:5173` iframe is refused before the dev
+ * server is ever asked -- no domain, no port, no proxy needed, and a packaged build or a remote
+ * editor window behaves the same because the files travel with the app.
+ */
+const LOCAL_SPA_RESOURCE = 'vs/workbench/contrib/pulseai/browser/media/pulseai-spa/index.html';
+const DEFAULT_COPILOT_WEBVIEW_URL = 'local';
 
 function paragraph(text: string): HTMLParagraphElement {
 	const node = DOM.$<HTMLParagraphElement>('p');
@@ -114,7 +125,12 @@ export class PulseAIViewPane extends ViewPane {
 		if (cfg.getValue<boolean>('pulseai.copilotWebview.enabled') === false) {
 			return; // no tab, no iframe: the native Agent view owns the whole pane
 		}
-		const url = (cfg.getValue<string>('pulseai.copilotWebview.url') || DEFAULT_COPILOT_WEBVIEW_URL).trim();
+		const configured = (cfg.getValue<string>('pulseai.copilotWebview.url') || DEFAULT_COPILOT_WEBVIEW_URL).trim();
+		const isLocal = configured === '' || configured.toLowerCase() === 'local';
+		// `asFileUri` takes the build-time union of app resource paths; ours is a directory the SPA is
+		// copied into after `npm run build`, so it can't be in that union, and every caller below only
+		// ever needs a same-origin file URI.
+		const url = isLocal ? FileAccess.asFileUri(LOCAL_SPA_RESOURCE as never).toString(true) : configured;
 		const share = Math.min(85, Math.max(10, Number(cfg.getValue<number>('pulseai.copilotWebview.height')) || 50));
 
 		const slot = DOM.append(parent, DOM.$('.pulseai-webview-slot'));
@@ -150,19 +166,21 @@ export class PulseAIViewPane extends ViewPane {
 			this._register(toDisposable(() => watchdog.cancel()));
 			void watchdog.then(() => {
 				if (settled || !frame.isConnected) { return; }
-				this.showUnreachable(slot, frame, url, attempt, () => arm());
+				this.showUnreachable(slot, frame, url, attempt, isLocal, () => arm());
 			});
 		};
 		arm();
 	}
 
-	private showUnreachable(slot: HTMLElement, frame: HTMLIFrameElement, url: string, attempt: number, rearm: () => void): void {
+	private showUnreachable(slot: HTMLElement, frame: HTMLIFrameElement, url: string, attempt: number, isLocal: boolean, rearm: () => void): void {
 		if (slot.querySelector('.pulseai-webview-unreachable')) { return; }
 		const notice = DOM.append(slot, DOM.$('.pulseai-webview-unreachable'));
 		notice.append(paragraph(attempt > 1
 			? `Pulse CopilotKit is still not answering at ${url}.`
 			: `Pulse CopilotKit is not answering at ${url}.`));
-		notice.append(paragraph('Start it (`cd pulse-webview && npm run dev`), point `pulseai.copilotWebview.url` at a build you serve yourself, or set `pulseai.copilotWebview.enabled` to false to give the whole pane to the native Agent view.'));
+		notice.append(paragraph(isLocal
+			? 'Nothing is at that path yet: build the SPA once (`cd pulse-webview && npm run build`), which writes it into the app and needs no server. If you would rather not use this surface at all, set `pulseai.copilotWebview.enabled` to false and the native Agent view takes the whole pane.'
+			: `Nothing loaded from ${url}. Note the workbench CSP frames only 'self' and vscode-webview:, so an http(s) URL here is refused before it is asked -- build the SPA and set pulseai.copilotWebview.url to "local", or point it at a build you serve yourself only if you have added that origin to the frame policy.`));
 		const retry = DOM.append(notice, DOM.$('button.pulseai-button.pulseai-button-secondary')) as HTMLButtonElement;
 		retry.type = 'button';
 		retry.textContent = 'Reload';

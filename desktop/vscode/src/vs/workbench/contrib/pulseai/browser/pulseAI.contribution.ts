@@ -275,9 +275,9 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		},
 		'pulseai.copilotWebview.url': {
 			type: 'string',
-			default: 'http://localhost:5173',
+			default: 'local',
 			scope: ConfigurationScope.APPLICATION,
-			description: localize('pulseai.copilotWebview.url.desc', "Where to load the CopilotKit webview from: a dev server (npm run dev in pulse-webview) or any URL serving the built app. Use this when the editor is remote (WSL/SSH), when 5173 is taken, or when you serve a build yourself."),
+			description: localize('pulseai.copilotWebview.url.desc', "What the CopilotKit tab loads. 'local' (default) uses the SPA built into the app by `npm run build` in pulse-webview, which needs no server and works in packaged or remote windows. Any other value is an absolute URL framed as-is -- the workbench CSP allows only 'self' and vscode-webview:, so an http URL will be refused unless you extend the frame policy, and a dev server on :5173 therefore belongs in a browser tab, not here.")
 		},
 		'pulseai.copilotWebview.height': {
 			type: 'number',

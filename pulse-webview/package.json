@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "runtime": "tsx server.ts"
+    "runtime": "tsx server.ts",
+    "postbuild": "node scripts/copy-into-vscode.mjs"
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.57",
