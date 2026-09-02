@@ -320,7 +320,10 @@ def test_no_parity_lane_hardcodes_npm_s_bin_shim():
                  "test_hermes_run_summary_parity.py"):
         text = (here / name).read_text(encoding="utf-8")
         assert "_node_loader" in text, f"{name} still assumes where esbuild lives"
-        assert '".bin" / "esbuild"' not in text, f"{name} hardcodes the shim path again"
+        # Composed, not written out: a self-scanning pin that spells the pattern literally matches its
+        # own assertion and reports the test file as the offender. That is how this line was red once.
+        shim = '".bin" / "es' + 'build"'
+        assert shim not in text, f"{name} hardcodes the shim path again"
     loader = (here / "_node_loader.py").read_text(encoding="utf-8")
     for needed in ("@esbuild/{pkg}/bin/esbuild{exe}", "@esbuild/{pkg}/esbuild{exe}", "--version"):
         assert needed in loader, f"the resolver lost {needed}"

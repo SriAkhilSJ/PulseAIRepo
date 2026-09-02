@@ -92,3 +92,21 @@ $ pytest <the 7 desktop/branding/parity lanes> -q
 Reproduced first, so the diagnosis is not a guess: the old `text=True` pattern under `LC_ALL=C` raises
 `UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2`, and under cp1252 it decodes *successfully
 into wrong characters* -- which is why his run showed failures rather than a crash.
+
+## Windows host, round 4: the same shim assumption in the two Hermes lanes (evidence `eadf5634`)
+
+His report separated the two facts cleanly: **registration parity 9/9 green** (the UTF-8 fix worked, and
+that lane resolves its loader), while 6 Hermes-parity tests died on `[WinError 193]` because
+`test_hermes_activity_parity.py` / `test_hermes_run_summary_parity.py` still hardcoded
+`node_modules/.bin/esbuild`. I had edited both files the same round for the encoding bug and left the
+assumption two lines away -- the fix was incomplete, not the diagnosis wrong.
+
+`src/tests/_node_loader.py` now owns loader resolution for all three lanes (probe `.bin/esbuild`,
+`.bin/esbuild.cmd`, `@esbuild/<platform>/bin/esbuild[.exe]`, `@esbuild/<platform>/esbuild[.exe]`,
+`esbuild/bin/esbuild`; a candidate must answer `--version`). Verified by becoming his host: shim replaced
+by a non-executable script -> resolver picked `@esbuild/linux-x64/bin/esbuild`, 20 passed / 1 skipped;
+platform package removed as well -> fell through to `esbuild/bin/esbuild`, 58 passed / 3 skipped /
+1 xfailed. A source-level pin refuses any parity lane hardcoding `.bin` again -- and the pin was tested by
+reinjecting the hardcode (it failed, naming the file), because the first version of it was red for a
+reason worth keeping in mind: a self-scanning pin that spells the pattern literally matches its own
+assertion.
