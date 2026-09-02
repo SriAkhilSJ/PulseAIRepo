@@ -56,12 +56,17 @@ if ($unexpected) { "Untracked, not on the accepted list: $unexpected" | Tee-Cont
 # so it stops the run and is reported rather than run over.
 $suspicious = $unexpected | Where-Object { $_ -match '^(desktop/vscode/src|src/|pulse-webview/src/)' }
 if ($suspicious) { throw "Untracked source-shaped file present: $suspicious — STOP and report it" }
-git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
+git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding ascii
 git log --oneline -6        | Set-Content "$evidence\recent-commits.txt" -Encoding utf8
 node --version              | Set-Content "$evidence\node-version.txt" -Encoding utf8
 ```
 
 `git pull --ff-only` only if step 1's ancestor check fails; never `--rebase`, never a hard reset.
+
+**Write every evidence file as ASCII** (`Set-Content -Encoding ascii`, and `... | Out-File -Encoding ascii`
+instead of `Tee-Object` for logs). Windows PowerShell's `Tee-Object` defaults to UTF-16, which made round 1's
+`gate-a-tsc.txt` a 60 KB binary blob in the diff — hashed and unreadable. Decoding it by hand confirmed
+`Pulse errors: 0` on your host, but evidence has to be checkable without a decoder.
 
 **Why `-uno` and an allowlist, in one line:** `pulse-webview/live-failure.spec.ts` is scratch from the
 *live* e2e round and is already recorded as accepted-untracked in this repo's own findings
@@ -77,7 +82,7 @@ A round-2 evidence directory is used because the first round's is evidence too, 
 cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
 $tsc = if (Test-Path .\node_modules\.bin\tsc) { '.\node_modules\.bin\tsc' } else { '..\..\pulse-webview\node_modules\.bin\tsc' }
 & $tsc -p src\tsconfig.pulseai-check.json --noEmit 2>&1 |
-  Tee-Object "$PWD\..\..\$evidence\gate-a-tsc.txt" | Out-Null
+  Out-File -Encoding ascii "$PWD\..\..\$evidence\gate-a-tsc.txt"
 $mine = Select-String -Path "$PWD\..\..\$evidence\gate-a-tsc.txt" -Pattern '^vs/workbench/contrib/pulseai'
 "Pulse errors: $($mine.Count)"
 ```
@@ -94,11 +99,15 @@ cd D:\pulseAIagent\PulseAIRepo
   Tee-Object "bench-results\pulse-manager-registration-desktop\gate-b-pytest.txt"
 ```
 
-**PASS = zero failures/errors**, and `test_pulse_session_registration_parity.py` contributing **8 passed**
-(not 8 *skipped* — a skip means `node` or `pulse-webview\node_modules\.bin\esbuild` is missing, which is a
-host gap to report, not a pass). These 8 execute the projection in node; they are the proof that the
-lifecycle mapping, elapsed/attention rules and the `pulseai:` session URI round-trip behave, not just
-that someone wrote the words.
+**PASS = zero failures/errors**, and `test_pulse_session_registration_parity.py` contributing **8 passed**.
+The lane picks its loader at run time — esbuild when `node_modules\.bin\esbuild --version` actually executes,
+otherwise `typescript\bin\tsc`, which is plain JS and needs no native binary — so a `node_modules` tree
+installed on Linux no longer matters. Round 1 died here with `[WinError 193]`; that was the harness, now
+fixed at `1d8b4077`. `8 *skipped*` is still a fail-to-prove (no node at all): report it, do not chase it.
+
+Evidence goes to `bench-results\pulse-manager-registration-desktop-r3` — the r2 directory is the record of
+gate A passing and the harness failing, and evidence is never overwritten. Put one line in r3's `gate.txt`:
+`gate A carried forward from r2/gate-a-tsc.txt (sha256 in r2/sha256sums.txt)`.
 
 ## 4. Gates C and D — build, then the paint
 
