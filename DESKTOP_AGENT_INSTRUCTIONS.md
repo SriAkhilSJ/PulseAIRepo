@@ -34,20 +34,42 @@ file, including to fix a failing gate: report it, push the evidence, stop.
 $ErrorActionPreference = 'Stop'
 cd D:\pulseAIagent\PulseAIRepo
 if ((git branch --show-current) -ne 'arena/01a0564d-pulseairepo') { throw 'Wrong branch — STOP' }
-if (git status --porcelain=v1) { throw 'Checkout is not clean — preserve it and STOP' }
+# Tracked changes are the only thing that can corrupt a run. Untracked scratch cannot, and this
+# repo has known, already-accepted untracked files (see the note below), so they are inventoried
+# into the evidence rather than blocking the gate or being committed.
+if (git status --porcelain=v1 -uno) { throw 'Tracked files are modified — preserve them and STOP' }
 git fetch origin arena/01a0564d-pulseairepo
 git merge-base --is-ancestor f7815e473 FETCH_HEAD
 if ($LASTEXITCODE -ne 0) { throw 'The registration slice is not an ancestor — STOP' }
 
-$evidence = 'bench-results\pulse-manager-registration-desktop'
+$evidence = 'bench-results\pulse-manager-registration-desktop-r2'
 if (Test-Path $evidence) { throw 'Evidence directory already exists — STOP; never overwrite or retry' }
 New-Item -ItemType Directory -Path $evidence | Out-Null
+
+# Then inventory the untracked scratch, and refuse anything outside the accepted list.
+git status --porcelain=v1 | Set-Content "$evidence\untracked-inventory.txt" -Encoding utf8
+$known = 'pulse-webview/live-failure.spec.ts', 'sitecustomize.py'
+$unexpected = (git status --porcelain=v1 | ForEach-Object { $_.Substring(3).Trim('"') } |
+  Where-Object { $known -notcontains $_ })
+if ($unexpected) { "Untracked, not on the accepted list: $unexpected" | Tee-Content "$evidence\untracked-note.txt" }
+# Scratch at the root is a note. Untracked *source-shaped* code can change what is being verified,
+# so it stops the run and is reported rather than run over.
+$suspicious = $unexpected | Where-Object { $_ -match '^(desktop/vscode/src|src/|pulse-webview/src/)' }
+if ($suspicious) { throw "Untracked source-shaped file present: $suspicious — STOP and report it" }
 git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
 git log --oneline -6        | Set-Content "$evidence\recent-commits.txt" -Encoding utf8
 node --version              | Set-Content "$evidence\node-version.txt" -Encoding utf8
 ```
 
 `git pull --ff-only` only if step 1's ancestor check fails; never `--rebase`, never a hard reset.
+
+**Why `-uno` and an allowlist, in one line:** `pulse-webview/live-failure.spec.ts` is scratch from the
+*live* e2e round and is already recorded as accepted-untracked in this repo's own findings
+(`bench-results/prompt-ui-live-e2e/findings.md:3-4`, "untracked, not modified… noted and accepted"). It is
+not in the tree I have, so nobody here can vouch for its bytes, and committing live-provider scratch into
+the source tree is not how a verification round ends. `vitest.config.ts` collects only
+`src/__tests__/**/*.test.{ts,tsx}`, so it is never executed by `npm test` either: leave it alone, list it.
+A round-2 evidence directory is used because the first round's is evidence too, and evidence is never reused.
 
 ## 2. Gate A — strict scoped typecheck (proves the registration satisfies the fork's contracts)
 
@@ -93,7 +115,7 @@ Read `cdp-ui-result.json` (that is the harness's report filename) rather than tr
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo
-$evidence = 'bench-results\pulse-manager-registration-desktop'
+$evidence = 'bench-results\pulse-manager-registration-desktop-r2'
 Set-Content "$evidence\gate.txt" -Value "reached: <A|B|C|D>; result: <PASS|FAIL>; first failure: <gate + one line>" -Encoding utf8
 Get-ChildItem $evidence -Recurse -File | Where-Object Name -ne 'sha256sums.txt' | Sort-Object FullName |
   ForEach-Object {

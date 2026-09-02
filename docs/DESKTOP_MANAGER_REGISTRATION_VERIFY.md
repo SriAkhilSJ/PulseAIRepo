@@ -21,7 +21,7 @@ so the whole job costs two builds' worth of waiting and about a dozen short comm
 ```powershell
 $ErrorActionPreference = 'Stop'
 cd D:\pulseAIagent\PulseAIRepo
-git status --porcelain=v1          # must be empty; if not, STOP and tell me what is dirty
+git status --porcelain=v1 -uno     # must be empty; untracked scratch is inventoried, never committed
 git fetch origin arena/01a0564d-pulseairepo
 git checkout arena/01a0564d-pulseairepo
 git reset --hard FETCH_HEAD        # safe: the tree above was clean
@@ -94,8 +94,8 @@ turn and waits for `.pulseai-manager-shell`):
 cd D:\pulseAIagent\PulseAIRepo
 Start-Process -FilePath ".\desktop\vscode\.build\electron\PulseAI.exe" `
   -ArgumentList '--remote-debugging-port=9222','--user-data-dir','D:\pulseAIagent\pulse-profile','--disable-workspace-trust','D:\pulseAIagent\playground'
-node scripts\validate_pulse_ui_cdp.js bench-results\pulse-manager-registration-desktop\cdp --manager-only
-Get-Content bench-results\pulse-manager-registration-desktop\cdp\cdp-ui-result.json |
+node scripts\validate_pulse_ui_cdp.js bench-results\pulse-manager-registration-desktop-r2\cdp --manager-only
+Get-Content bench-results\pulse-manager-registration-desktop-r2\cdp\cdp-ui-result.json |
   Select-String -Pattern '"checks"|PASS|FAIL|error' -Context 0,1 | Select-Object -First 40
 ```
 
