@@ -105,7 +105,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     renderer = _text("browser", "pulseAIRenderer.ts")
     css = _text("browser", "media", "pulseAI.css")
     for behavior in (
-        "function planStrip", "function workingDock", "function emptyState",
+        "function planStrip", "function createActivityState", "function emptyState", "function thinkingBlock",
         "pulseai-section-heading", "host.submitPrompt(prompt)", "planOpen",
     ):
         assert behavior in renderer
@@ -114,13 +114,14 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     # in its own strict-xfail test at the bottom of this file: the Agent-UI lane must not
     # be blocked by a choice the owner has not made, and the choice cannot be made quietly.
     # Activity runs, not a flat list: both transcript branches fold through the shared rule.
-    assert "toolSection(" in renderer
+    assert "function toolSection" in renderer
+    assert "agentColumn(" in renderer
     assert renderer.count("lane.append(toolSection(") == 2, "both transcript branches group; none stays a flat list"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
         "a settled turn must not narrate in the present tense"
     for style in (
-        ".pulseai-starter-grid", ".pulseai-working-dock", ".pulseai-plan-strip",
+        ".pulseai-starter-grid", ".pulseai-scaffold-status", ".pulseai-plan-strip", ".pulseai-disclosure-row",
         "prefers-reduced-motion", "@media (max-width: 420px)",
         "container-name: pulseai-manager-editor", "@container pulseai-manager-editor (max-width: 610px)",
         "var(--vscode-focusBorder)", "var(--vscode-sideBar-background)",

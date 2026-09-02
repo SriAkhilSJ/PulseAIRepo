@@ -169,6 +169,81 @@ your first fork build is the gate. `ui/src` is not part of the clone, so the two
 round; I left them alone rather than weaken them. The `SKIPPED` pin needs the absent local lab
 catalog, and the `XFAIL` is the Manager decision above.
 
+## Manager's Agent chat box = the Agent UI (this round)
+
+Owner instruction: *"In manager UI / There is Agent chat box right / Make it same like Agent UI in
+the fork... Hermes desktop Agent rendering, breathing, thinking, svgs... All A to Z same."* The
+Manager's chrome (workspace sidebar, tab strip, run inspector) was not part of that ask and is
+untouched; the popup-vs-tab decision stays deferred, still parked in its `xfail(strict=True)` test.
+
+**The gap, exactly.** `renderManager` bolted `transcript(model, …)` into its main column and added
+the composer — no plan strip, no activity row, no empty state, no thinking row. The pane had them,
+so one session read two different ways depending on which surface you were looking at. That is what
+happens when two views assemble the same list by hand.
+
+**The fix is structural, not a copy.** `agentColumn(model, host, openTools, activity, planOpen,
+setPlanOpen)` now builds the chat column once — plan strip → transcript (or the designed empty
+state) → tail activity row → approval dock — and *both* surfaces spread it. A pin asserts the call
+appears exactly twice and that `transcript(model, host, openTools),` no longer appears on its own,
+so a future edit cannot quietly give one surface its own list again.
+
+**Breathing and thinking.** `workingDock` (a spinner, a sentence, an action count) is replaced by
+the ported scaffold row: a 0.75rem square breathing at 1.6s, the named wait under a clipped-gradient
+sweep at 2.4s, and the seconds counted from the moment the turn last *showed* something — not from
+when the row mounted. `pulseAIActivity.ts` is DOM-free and carries `TURN_QUIET_S` (2s),
+`DRAFTING_REVEAL_MS` (200ms, so a tool whose arguments land in three frames never flashes a label),
+`activitySignature`, `toolNarratesWait`, `formatElapsed`, `activityRowMode` and the measured-duration
+registry. Behaviour worth reading, from the executed sample:
+
+```
+turn sent, provider not answering  [aui_response-loading]  0s
+thinking, still quiet              [no row]
+thinking, past 2s of quiet         [aui_turn-activity]  2s   (signature 1:28:0)
+a read is in flight                [no row]
+settled, gap after it              [aui_turn-activity]  2s   (signature 2:11:1)
+shell call in flight               [no row]      <- its own row already narrates the wait
+paused on an approval              [no row]      <- the turn is on you, not working
+stop requested                     [aui_turn-activity]  Stopping safely · 5s
+```
+
+Thinking is now a row rather than a paragraph in the bubble: `brain` glyph, label `Thinking` while it
+is the newest thing produced and `Thought for 12s` after, caret to the right of the label and a
+content-sized hover pill — upstream's `DisclosureRow` affordance. The duration comes from a keyed,
+module-level registry so it survives every repaint and outlives the row that measured it.
+
+**SVGs.** `browser/pulseAIIcons.ts` carries hermes-agent's `TOOL_ICON_PATHS` (13 Phosphor "fill"
+paths, 256×256 viewBox, `currentColor`) copied by script from the pinned checkout, and the renderer's
+`icon()` uses them with upstream's fallback: solid SVG where the table has the name, outline codicon
+font otherwise — because a font glyph has no fillable region, so a filled look cannot be derived from
+it. `common/pulseAIToolCatalog.ts` then adopts the *webview's* glyph keys for all 36 tools (`think`
+→ `brain`, `ask_user` → `question`, `edit_file` → `edit`, `browser_screenshot` → `file-media`,
+`delegate_*` → `rocket`, …), which is what makes the two surfaces pick the same glyph for the same
+call instead of re-guessing it.
+
+**One new signal.** `PulseAIRenderModel.turnStartedAt` (epoch ms, set when a prompt is sent, cleared
+on `turn_done` / `turn_failed` / a workspace switch). Without it the row can only report a
+component's age. `compacting` is on the model and consumed by the row, but fed `undefined`: the
+engine emits no compaction frame, so naming one would be inventing a signal.
+
+**Proof.** `src/tests/test_hermes_activity_parity.py`, 8 tests: the row's maths run side by side
+with the webview's own `turn-activity.ts` / `activity-timer.ts` under node on identical fixtures;
+the reveal delay and compaction label compared as constants; upstream's path data compared
+byte-for-byte against the pinned checkout (`$HERMES_REF`, skipped with a reason if absent); the
+fork's glyph keys compared against the webview's `TOOL_META` including its `browser_*` rule; the
+two-component visibility rule checked as an executed truth table; the measurement registry tested
+for arm → accumulate → close → outlive → re-arm; plus the wiring pins. Desktop + permission lane:
+`95 passed, 4 skipped, 1 xfailed`. Webview untouched: `48 passed`.
+
+**Deviations I chose, so they are not surprises.** The thought row is a native `details` disclosure;
+the webview's `ExpandableBlock` measures overflow with a ResizeObserver and clamps at 121px, which
+the framework-free renderer has no plumbing for — the affordance matches, the clamp does not.
+History turns' thoughts show no duration, because a persisted turn records what the model thought and
+never how long it took; that is upstream's limitation, kept rather than papered over with a
+mount-time estimate. Glyph sizing stays inline (`0.875rem`) like upstream, because the same node has
+to land identically in a summary row, a scaffold line and a card head. And as before: nothing here
+was compiled or painted in this sandbox — `desktop/vscode/node_modules` is empty — so every TS file
+is parse- and transpile-clean, and your first fork build is the gate.
+
 ## Runbook for the laptop
 
 ```powershell

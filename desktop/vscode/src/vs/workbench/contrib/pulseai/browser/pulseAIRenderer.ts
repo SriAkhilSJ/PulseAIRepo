@@ -7,7 +7,14 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { PulseExecutionMode } from '../common/pulseAIProtocol.js';
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
-import { compactTarget, splitRunGroups, summarizeToolRun } from './pulseAIRunSummary.js';
+import { compactTarget, isSilentTool, splitRunGroups, summarizeToolRun, toolPresentVerb } from './pulseAIRunSummary.js';
+import { renderToolIcon } from './pulseAIIcons.js';
+import {
+	activityOrigin, activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName,
+	elapsedFor, measuredDuration,
+	DRAFTING_REVEAL_MS, elapsedSeconds, formatElapsed, statusHintLabel, toolNarratesWait, TURN_QUIET_S,
+	UNNAMED_WAIT_LABEL,
+} from './pulseAIActivity.js';
 
 export type PulseAIToolState = 'queued' | 'running' | 'passed' | 'approval' | 'failed';
 
@@ -29,14 +36,24 @@ export interface PulseAISubAgentView {
 	readonly result?: unknown;
 	readonly duration?: string;
 	readonly parentSessionId?: string;
-}	export interface PulseAIRenderModel {
-		readonly engineState: string;
-		readonly workspaceLabel: string;
-		readonly noWorkspace: boolean;
-		readonly noWorkspaceHint: string;
-		readonly workspaceSelectionRequired: boolean;
-		readonly workspaceChoices: readonly { readonly label: string; readonly uri: string }[];
-		readonly engineSetupError: boolean;
+}
+
+export interface PulseAIRenderModel {
+	readonly engineState: string;
+	readonly workspaceLabel: string;
+	readonly noWorkspace: boolean;
+	readonly noWorkspaceHint: string;
+	readonly workspaceSelectionRequired: boolean;
+	readonly workspaceChoices: readonly { readonly label: string; readonly uri: string }[];
+	readonly engineSetupError: boolean;
+	/**
+	 * When the CURRENT turn started, in epoch ms, or undefined between turns. The tail activity
+	 * row counts from this before anything has streamed and from the last visible progress after
+	 * it, which is the difference between "thinking for 4s" and the age of a component.
+	 */
+	readonly turnStartedAt?: number;
+	/** Context compaction is running. Rare, slow, and it outranks every other hint. */
+	readonly compacting?: boolean;
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
 	readonly running: boolean;
@@ -98,10 +115,13 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
 	return node;
 }
 
+/**
+ * A row glyph. Hermes draws solid SVG for the names `pulseAIIcons.ts` covers and the outline
+ * codicon font for everything else, because a font glyph has no fillable region -- the same
+ * rule, keyed by the same names, so a row here shows the glyph the webview resolves.
+ */
 function icon(name: string): HTMLElement {
-	const node = element('span', `codicon codicon-${name}`);
-	node.setAttribute('aria-hidden', 'true');
-	return node;
+	return renderToolIcon(name);
 }
 
 function button(label: string, className: string, action: () => void, iconName?: string): HTMLButtonElement {
@@ -372,25 +392,147 @@ function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggl
 	return details;
 }
 
-function workingDock(model: PulseAIRenderModel): HTMLElement | undefined {
-	if (!model.running) { return undefined; }
-	return element('section', 'pulseai-working-dock',
-		element('span', 'pulseai-mini-spinner'),
-		element('span', 'pulseai-working-copy', model.cancelRequested ? 'Stopping safely...' : model.reasoning || 'Pulse is working...'),
-		element('span', 'pulseai-working-detail', `${model.tools.length} action${model.tools.length === 1 ? '' : 's'}`),
-	);
+/**
+ * The tail activity row, with the timers it needs to behave.
+ *
+ * It is mount-scoped state, not model data: the row must survive every re-render of a streaming
+ * turn while holding (a) the signature of the last visible progress, so a quiet spell is timed
+ * from the moment the turn LAST showed something rather than from whenever this row mounted, and
+ * (b) the reveal delay, so a tool whose arguments land in three frames never gets to flash a
+ * label down the column. `tick` asks the mount to repaint, which is what advances the seconds.
+ */
+const thoughtKey = (model: PulseAIRenderModel): string => `thought:${model.sessionId ?? 'session'}`;
+
+function createActivityState(tick: () => void) {
+	let lastSignature = '';
+	let quietSince: number | undefined;
+	let verb = '';
+	let revealed = false;
+	let quietTimer: ReturnType<typeof setTimeout> | undefined;
+	let revealTimer: ReturnType<typeof setTimeout> | undefined;
+	let ticker: ReturnType<typeof setInterval> | undefined;
+
+	return {
+		sync(model: PulseAIRenderModel): void {
+			const parts = activityParts(model);
+			// Thinking is "active" while a thought is the newest thing the turn has produced.
+			if (model.running && parts.at(-1)?.type === 'reasoning') { elapsedFor(thoughtKey(model), Date.now()); }
+			else { closeMeasurement(thoughtKey(model), Date.now()); }
+			const signature = activitySignature(parts);
+			if (signature !== lastSignature) {
+				lastSignature = signature;
+				quietSince = undefined;
+				if (quietTimer !== undefined) { clearTimeout(quietTimer); quietTimer = undefined; }
+				if (model.running) {
+					quietTimer = setTimeout(() => { quietSince = Date.now(); tick(); }, TURN_QUIET_S * 1000);
+				}
+			}
+				const name = draftingToolName(model.tools);
+			const next = name && !toolNarratesWait(parts) ? toolPresentVerb(name) : '';
+			if (next !== verb) {
+				verb = next;
+				revealed = false;
+				if (revealTimer !== undefined) { clearTimeout(revealTimer); revealTimer = undefined; }
+				if (verb) { revealTimer = setTimeout(() => { revealed = true; tick(); }, DRAFTING_REVEAL_MS); }
+			}
+			if (model.running && ticker === undefined) { ticker = setInterval(tick, 1000); }
+			if (!model.running && ticker !== undefined) { clearInterval(ticker); ticker = undefined; }
+		},
+		/**
+		 * The row for this model, or nothing at all. Two shapes, one markup: before the tail
+		 * message has produced anything this is the pre-first-token indicator counting from the
+		 * turn's start; after it, it is the gap indicator counting from the last visible
+		 * progress. Same classes either way, so the column reads as one continuous scaffolding
+		 * instead of two competing widgets.
+		 *
+		 * It stays silent when a tool row is already narrating the wait (that row carries its
+		 * own timer, and a second spinner would count the same seconds twice), and while the turn
+		 * is paused on a question the user has not answered -- that is not the agent working.
+		 */
+		row(model: PulseAIRenderModel): HTMLElement | undefined {
+			const parts = activityParts(model);
+			const hint = model.cancelRequested ? 'Stopping safely' : statusHintLabel(model.compacting, verb, revealed);
+			const slot = activityRowMode({
+				parts,
+				working: model.running,
+				awaitingInput: model.approval !== undefined,
+				toolNarrating: toolNarratesWait(parts),
+				hint,
+				quietSince,
+			});
+			if (!slot) { return undefined; }
+			const seconds = elapsedSeconds(Date.now(), activityOrigin({ compacting: model.compacting, turnStartedAt: model.turnStartedAt, quietSince }));
+			const row = element('div', 'pulseai-scaffold-status');
+			row.dataset.conversationScaffold = '';
+			row.dataset.slot = slot;
+			row.setAttribute('aria-label', hint || UNNAMED_WAIT_LABEL);
+			row.setAttribute('aria-live', 'polite');
+			row.setAttribute('role', 'status');
+			const breathe = element('span', 'pulseai-scaffold-pulse');
+			breathe.setAttribute('aria-hidden', 'true');
+			const meta = element('span', 'pulseai-scaffold-meta', element('span', undefined, formatElapsed(seconds)));
+			row.append(breathe, ...(hint ? [element('span', 'pulseai-shimmer pulseai-scaffold-hint', hint)] : []), meta);
+			return row;
+		},
+		/**
+		 * How long the CURRENT turn's thinking ran, once it has stopped running. The measurement
+		 * is armed while the last thing the turn produced is a thought and closed the moment the
+		 * turn moves on, so the number survives every repaint of the row that watched it.
+		 */
+		thoughtSeconds(model: PulseAIRenderModel): number | undefined {
+			return measuredDuration(thoughtKey(model));
+		},
+		dispose(): void {
+			if (quietTimer !== undefined) { clearTimeout(quietTimer); quietTimer = undefined; }
+			if (revealTimer !== undefined) { clearTimeout(revealTimer); revealTimer = undefined; }
+			if (ticker !== undefined) { clearInterval(ticker); ticker = undefined; }
+		},
+	};
 }
 
-function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): HTMLElement {
+
+/**
+ * What the model thought, behind a row -- Hermes' affordance, not a paragraph dumped into the
+ * bubble. `think` receipts arrive as a `brain`-glyphed tool row upstream and streamed reasoning
+ * folds into the same disclosure, so one component covers both. No leading chevron: the caret
+ * sits to the RIGHT of the label and only the label is the hit target, which is why this is a
+ * button-shaped summary over a content-width pill rather than a full-width bar.
+ */
+function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean, seconds?: number): HTMLElement {
+	const key = 'thought';
+	const details = element('details', 'pulseai-thought-row') as HTMLDetailsElement;
+	details.dataset.component = 'disclosure';
+	details.dataset.disclosureKey = key;
+	// Open while the thinking is happening, so you can read it; folded afterwards, so a long
+	// turn does not leave a wall of prose above the answer.
+	details.open = live || openTools.has(key);
+	details.addEventListener('toggle', () => {
+		if (details.open) { openTools.add(key); } else { openTools.delete(key); }
+	});
+	details.append(
+		element('summary', 'pulseai-disclosure-row',
+			element('span', 'pulseai-disclosure-stack',
+				icon('brain'),
+				element('strong', live ? 'pulseai-shimmer' : undefined, live ? 'Thinking' : 'Thought'),
+			),
+			seconds !== undefined ? element('span', 'pulseai-scaffold-meta', formatElapsed(seconds)) : undefined,
+			element('span', 'pulseai-disclosure-caret', '\u25be'),
+		),
+		element('div', 'pulseai-thought-body', element('p', undefined, reasoning)),
+	);
+	return details;
+}
+
+function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, liveThoughtSeconds?: number): HTMLElement {
 	const scroll = element('div', 'pulseai-transcript-scroll');
 	const lane = element('div', 'pulseai-transcript-lane');
 	// History: previous turns (user → agent) preserved wireframe style, no breathing
-	for (const turn of model.history) {
+	for (const [index, turn] of model.history.entries()) {
 		if (turn.userMessage) lane.append(element('div', 'pulseai-user-message', turn.userMessage));
 		if (turn.assistantText || turn.reasoning) {
 			const response = element('section', 'pulseai-assistant-message');
 			response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse')));
-			if (turn.reasoning) response.append(element('div', 'pulseai-reasoning', turn.reasoning));
+			if (turn.reasoning) { response.append(thinkingBlock(turn.reasoning, openTools, false)); }
 			response.append(element('p', 'pulseai-assistant-copy', turn.assistantText));
 			lane.append(response);
 		}
@@ -421,7 +563,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		const response = element('section', `pulseai-assistant-message${model.running ? ' pulseai-breathing-edge is-streaming' : ''}`);
 		response.dataset.component = 'session-turn';
 		response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), model.running ? element('span', 'pulseai-stream-label', model.cancelRequested ? 'Stopping.' : 'Working') : undefined));
-		if (model.reasoning) { response.append(element('div', 'pulseai-reasoning', model.reasoning)); }
+		if (model.reasoning) { response.append(thinkingBlock(model.reasoning, openTools, model.running, liveThoughtSeconds)); }
 		const copy = element('p', 'pulseai-assistant-copy', model.assistantText || 'Inspecting workspace context...');
 		copy.dataset.slot = 'session-turn-content';
 		response.append(copy);
@@ -650,24 +792,45 @@ function composer(model: PulseAIRenderModel, host: PulseAIRenderHost, manager: b
 }
 
 
-function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): void {
+/**
+ * The Agent chat column: plan, transcript, tail activity row, approvals -- in that order, from
+ * one code path.
+ *
+ * Both surfaces used to assemble this list themselves, and only the pane had the plan strip, the
+ * activity row and the empty state. That is how two views of one session drift: the Manager's
+ * chat box kept the transcript and quietly dropped everything that tells you the agent is alive.
+ * Returning nodes instead of a second copy of the layout is the whole point -- the surfaces
+ * cannot disagree now, and the layout pin reads the call sites.
+ */
+interface PulseAIActivitySurface {
+	row(model: PulseAIRenderModel): HTMLElement | undefined;
+	thoughtSeconds(model: PulseAIRenderModel): number | undefined;
+}
+
+function agentColumn(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, activity: PulseAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): HTMLElement[] {
+	const nodes: HTMLElement[] = [];
+	const plan = planStrip(model, planOpen, setPlanOpen);
+	if (plan) { nodes.push(plan); }
+	// An empty transcript is a designed surface, not a blank div -- the same rule the ported
+	// webview follows (`hermes-ui/components/empty-state.tsx`). Exactly one of the two is
+	// mounted, so a first-run view never shows an empty lane under a grid of starters.
+	const empty = emptyState(model, host);
+	nodes.push(empty ?? transcript(model, host, openTools, activity.thoughtSeconds(model)));
+	const working = activity.row(model);
+	if (working) { nodes.push(working); }
+	const approval = approvalDock(model, host);
+	if (approval) { nodes.push(approval); }
+	return nodes;
+}
+
+function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void, activity: PulseAIActivitySurface): void {
 	const shell = element('div', 'pulseai-agent-shell');
 	const header = element('div', 'pulseai-agent-header',
 		element('span', 'pulseai-agent-header-title', 'Pulse Agent'),
 		button('Manager', 'pulseai-agent-manager-button', () => host.openManager(), 'organization'),
 	);
 	shell.append(header);
-	const plan = planStrip(model, planOpen, setPlanOpen);
-	if (plan) { shell.append(plan); }
-	// An empty transcript is a designed surface, not a blank div -- the same rule the
-	// ported webview follows (`hermes-ui/components/empty-state.tsx`). Exactly one of
-	// the two is mounted, so a first-run pane never shows an empty lane under a grid.
-	const empty = emptyState(model, host);
-	if (empty) { shell.append(empty); } else { shell.append(transcript(model, host, openTools)); }
-	const working = workingDock(model);
-	if (working) { shell.append(working); }
-	const approval = approvalDock(model, host);
-	if (approval) { shell.append(approval); }
+	shell.append(...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen));
 	shell.append(composer(model, host, false));
 	root.append(shell);
 }
@@ -690,7 +853,7 @@ function inspector(model: PulseAIRenderModel): HTMLElement {
 	return pane;
 }
 
-function renderManager(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>): void {
+function renderManager(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, activity: PulseAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): void {
 	const shell = element('div', 'pulseai-manager-shell');
 	const sidebar = element('aside', 'pulseai-manager-sidebar',
 		element('header', 'pulseai-manager-pane-head', element('div', undefined, element('span', 'pulseai-eyebrow', 'CONTROL PLANE'), element('h2', undefined, 'Workspaces')), button('', 'pulseai-icon-button', () => undefined, 'add')),
@@ -705,11 +868,9 @@ function renderManager(root: HTMLElement, model: PulseAIRenderModel, host: Pulse
 	main.append(
 		element('header', 'pulseai-manager-titlebar', element('div', undefined, element('div', 'pulseai-manager-breadcrumb', model.workspaceLabel, ' / ', model.sessionId?.slice(0, 12) ?? 'new-session'), element('h1', undefined, model.userMessage || 'Pulse Manager')), engineStatus(model)),
 		element('nav', 'pulseai-manager-tabs', element('button', 'is-active', icon('comment-discussion'), 'Session'), element('button', undefined, icon('terminal'), `Tools ${model.tools.length}`), element('button', undefined, icon('diff'), 'Changes')),
-		transcript(model, host, openTools),
+		...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen),
+		composer(model, host, true),
 	);
-	const approval = approvalDock(model, host);
-	if (approval) { main.append(approval); }
-	main.append(composer(model, host, true));
 	shell.append(sidebar, main, inspector(model));
 	root.append(shell);
 }
@@ -719,9 +880,12 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 	let planOpen: boolean | undefined;
 	let planSession: string | undefined;
 	let disposed = false;
-	return {
-		update(model: PulseAIRenderModel): void {
-			if (disposed) { return; }
+	let lastModel: PulseAIRenderModel | undefined;
+	// The activity row's timers outlive individual renders; a tick repaints from the last model,
+	// which is what makes the seconds move while the engine is quiet.
+	const activity = createActivityState(() => { if (!disposed) { tick(); } });
+	const tick = (): void => { if (!disposed && lastModel) { paint(lastModel); } };
+		const paint = (model: PulseAIRenderModel): void => {
 			if (model.sessionId !== planSession) {
 				planSession = model.sessionId;
 				planOpen = undefined;
@@ -735,8 +899,8 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 			const selectionEnd = activeComposer?.selectionEnd;
 			root.replaceChildren();
 			root.dataset.surface = surface;
-			if (surface === 'agent') { renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }); }
-			else { renderManager(root, model, host, openTools); }
+			if (surface === 'agent') { renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }, activity); }
+			else { renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; }); }
 			const nextScroll = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
 			if (nextScroll) { nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop; }
 			if (activeComposer) {
@@ -744,9 +908,19 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 				input?.focus({ preventScroll: true });
 				if (input && selectionStart !== undefined && selectionEnd !== undefined) { input.setSelectionRange(selectionStart, selectionEnd); }
 			}
+
+		};
+	return {
+		update(model: PulseAIRenderModel): void {
+			if (disposed) { return; }
+			lastModel = model;
+			activity.sync(model);
+			paint(model);
 		},
 		dispose(): void {
 			disposed = true;
+			activity.dispose();
+			lastModel = undefined;
 			root.replaceChildren();
 		},
 	};

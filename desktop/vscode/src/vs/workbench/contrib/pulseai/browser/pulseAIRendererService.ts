@@ -74,6 +74,12 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private userMessage: string | undefined;
 	private assistantText = '';
 	private reasoning: string | undefined;
+	/**
+	 * Epoch ms the current turn began, or undefined between turns. The tail activity row counts
+	 * from here until the transcript shows something, which is why it is a timestamp on the
+	 * model rather than a counter in the renderer: a re-render must not restart the number.
+	 */
+	private turnStartedAt: number | undefined;
 	private approval: PulseAIRenderModel['approval'];
 	private subAgents = new Map<string, PulseAISubAgentView>();
 	private plan: readonly string[] = [];
@@ -220,6 +226,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.running = false;
 			this.cancelRequested = false;
 			this.turnOutcome = 'idle';
+			this.turnStartedAt = undefined;
 			this.userMessage = undefined;
 			this.assistantText = '';
 			this.pendingPrompt = undefined;
@@ -255,6 +262,11 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			mode: this.mode,
 			running: this.running,
 			cancelRequested: this.cancelRequested,
+			turnStartedAt: this.turnStartedAt,
+			// No producer yet: the engine emits no compaction frame, so the row cannot name one it
+			// has not been told about. The field exists so wiring it later is one line here rather
+			// than a renderer change -- and so nothing here pretends a signal exists.
+			compacting: undefined,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
@@ -475,6 +487,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.running = true;
 		this.cancelRequested = false;
 		this.turnOutcome = 'running';
+		this.turnStartedAt = Date.now();
 		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode });
 		this.render();
 	}
@@ -570,11 +583,13 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		} else if (frame.type === 'turn_done') {
 			this.running = false;
 			this.cancelRequested = false;
+			this.turnStartedAt = undefined;
 			this.turnOutcome = frame.completed ? 'completed' : 'cancelled';
 			if (frame.message && !this.assistantText) { this.assistantText = frame.message; }
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
+			this.turnStartedAt = undefined;
 			this.turnOutcome = 'failed';
 			this.error = frame.error;
 		} else if (frame.type === 'runtime_degraded') {

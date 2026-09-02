@@ -439,3 +439,46 @@ bridge lanes regressed. Verbatim tail in `pytest.log`.
 Un-verified, deliberately: this fork tree has no `desktop/vscode/node_modules`, so there is no
 `yarn compile` and no paint. The three edited TS files are parse- and transpile-clean; the first
 build in your fork is the gate.
+
+## Manager's Agent chat box unified with the pane (2026-09-02, later)
+
+Owner ask: the Agent chat box inside the Manager must render like the Agent UI in the fork —
+Hermes desktop's rendering, breathing, thinking, SVGs, A to Z. Manager's chrome was left alone.
+
+| lane | result |
+|---|---|
+| `src/tests/test_hermes_activity_parity.py` (new) | **8 passed** |
+| desktop + permission lane, 10 files | **95 passed, 4 skipped, 1 xfailed** |
+| `pulse-webview: npx vitest run` (no webview file changed) | **48 passed** |
+
+The parity file executes rather than greps wherever behaviour is what matters: the fork's
+`pulseAIActivity.ts` and the webview's `turn-activity.ts` / `activity-timer.ts` are both bundled with
+the webview's esbuild and run under node on identical part fixtures (`activitySignature`,
+`toolNarratesWait`, `formatElapsed`, `TURN_QUIET_S`), and the row's visibility rule is checked as an
+executed truth table covering upstream's two components (pre-first-token indicator always on; gap
+indicator waits for a name or 2s of quiet; suppressed while a tool row narrates or a question is
+open). Two comparisons are literal on purpose — `DRAFTING_REVEAL_MS` / `COMPACTION_LABEL` are
+compile-time constants, and `TOOL_ICON_PATHS` is copied SVG path data, which is either byte-identical
+to hermes-agent's table at `$HERMES_REF` or it is a different icon. The glyph *keys* are compared
+against the webview's `TOOL_META` (including its `browser_*` loop rule), so 36 tools resolve the same
+glyph on both surfaces.
+
+What the row actually says, from the fork module run over eight scenarios (`pytest.log`):
+
+```
+turn sent, provider not answering  [aui_response-loading]  0s
+thinking, still quiet              [no row]
+thinking, past 2s of quiet         [aui_turn-activity]  2s   (signature 1:28:0)
+a read is in flight                [no row]
+settled, gap after it              [aui_turn-activity]  2s   (signature 2:11:1)
+shell call in flight               [no row]
+paused on an approval              [no row]
+stop requested                     [aui_turn-activity]  Stopping safely · 5s
+```
+
+Known gaps, stated not smoothed: the log file is a `-q` tail, not a full verbatim transcript (an
+earlier round's label overclaimed "verbatim"); history thoughts carry no duration because a persisted
+turn never recorded one; `compacting` is plumbed but has no producer in the engine; the thought
+disclosure uses native `details` rather than the webview's measured 121px clamp; and nothing here was
+compiled or painted — `desktop/vscode/node_modules` is empty, so the first `yarn compile` in the
+laptop fork is the gate.

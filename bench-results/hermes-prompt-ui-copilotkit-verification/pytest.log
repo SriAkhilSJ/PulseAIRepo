@@ -62,3 +62,44 @@ FAILED src/tests/test_lang_extractors.py::test_index_e2e_go_rust_java - asser...
 FAILED src/tests/test_lang_extractors.py::test_iter_source_files_yields_all_supported
 FAILED src/tests/test_lang_extractors.py::test_d15_edges_flow_into_index - As...
 ====== 20 failed, 1206 passed, 8 skipped, 1 xfailed in 214.97s (0:03:34) =======
+
+==================================================================
+2026-09-02 (UTC, later) — Manager's Agent chat box unified with the pane
+==================================================================
+
+$ node /tmp/activity-sample.mjs   (fork's pulseAIActivity.ts bundled by esbuild; the
+  row's real decisions on eight scenarios — what the row says, and when it stays quiet)
+turn sent, provider not answering [aui_response-loading]  0s   (signature 0:0:0)
+thinking, still quiet            [no row]
+thinking, past 2s of quiet       [aui_turn-activity]  2s   (signature 1:28:0)
+a read is in flight              [no row]
+settled, gap after it            [aui_turn-activity]  2s   (signature 2:11:1)
+shell call in flight (row already narrates it) [no row]
+paused on an approval            [no row]
+stop requested                   [aui_turn-activity]  Stopping safely · 5s   (signature 2:1:1)
+
+$ python3 -m pytest <desktop + permission lane, 10 files> -q -rs -rxs
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.12.1
+collected 100 items
+
+src/tests/test_hermes_activity_parity.py ........                        [  8%]
+src/tests/test_hermes_run_summary_parity.py ....                         [ 12%]
+src/tests/test_desktop_renderer_architecture.py ...s.......x             [ 24%]
+src/tests/test_desktop_contrib_overlay.py ......                         [ 30%]
+src/tests/test_desktop_workspace_boundary.py .........s                  [ 40%]
+src/tests/test_pulseai_branding.py .............                         [ 53%]
+src/tests/test_workbench_capabilities.py ......                          [ 59%]
+src/tests/test_safety_guard_consent.py ..................                [ 77%]
+src/tests/test_event_safety.py .....................                     [ 98%]
+src/tests/test_ui_tool_catalog.py ss                                     [100%]
+
+=========================== short test summary info ============================
+XFAIL src/tests/test_desktop_renderer_architecture.py::test_manager_opens_through_one_path_pending_owner_decision - DEFERRED BY OWNER (2026-09-02: 'don't touch manager UI / for / now'). The in-pane Manager button reaches PulseAIRendererService via host.openManager() (pulseAIRenderer.ts:657 -> pulseAIRendererService.ts:129), which calls openManagerWindow() (:325) and hand-builds an auxiliary-window root classed `pulseai-manager-editor`; the pulseai.openManager command instead opens the registered PulseAIManagerEditor, whose DOM carries `.pulseai-manager-shell` -- the selector scripts/validate_pulse_ui_cdp.js:218-239 waits for. Un-mark this test when the button is routed through the command; strict=True means fixing it without saying so fails here.
+SKIPPED [1] src/tests/test_desktop_renderer_architecture.py:75: ui/src is not present in this checkout: the lab catalog this compares against lives in a tree the repo does not track. Skip is honest; a silent pass would mean the pin compared nothing.
+SKIPPED [1] src/tests/test_desktop_workspace_boundary.py:221: canonical D:\pulse-ws fixture not present on this machine
+SKIPPED [2] src/tests/test_ui_tool_catalog.py:53: lab tool catalog not present at ui/src/runtime/toolCatalog.ts
+=================== 95 passed, 4 skipped, 1 xfailed in 3.43s ===================

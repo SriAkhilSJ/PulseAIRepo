@@ -286,22 +286,19 @@
 }
 @keyframes pulseai-spin { to { transform: rotate(360deg); } }
 
-/* ---- Text Shimmer (Kilo pattern: title breathes during pending state) ---- */
+/* ---- Pending label sweep (`pulse-shimmer`, hermes-agent thread) ----
+   Hermes sweeps the GLYPHS with a clipped gradient at 2.4s linear; the fork used to slide a
+   translucent bar over the text, which reads as a loading bar rather than a live label. Same
+   technique as the webview stylesheet, on theme tokens instead of literals. */
 .pulseai-shimmer {
-	position: relative;
-	display: inline-block;
-	overflow: hidden;
+	background: linear-gradient(90deg, var(--vscode-descriptionForeground) 0%, var(--vscode-foreground) 45%, var(--vscode-descriptionForeground) 90%);
+	background-size: 300% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: pulseai-sweep 2.4s linear infinite;
 }
-.pulseai-shimmer::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--pulseai-running) 18%, transparent) 50%, transparent 100%);
-	transform: translateX(-100%);
-	animation: pulseai-shimmer-slide 1.8s ease-in-out infinite;
-}
-.pulseai-shimmer.is-idle::after { animation: none; opacity: 0; }
-@keyframes pulseai-shimmer-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes pulseai-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
 /* ---- Breathing Edge (Kilo pattern: gradient pulse at streaming text bottom) ---- */
 .pulseai-breathing-edge {
@@ -419,20 +416,93 @@
 }
 .pulseai-error-row > span:nth-child(2) { min-width: 0; flex: 1; }
 
-.pulseai-working-dock {
-	display: grid;
-	grid-template-columns: 13px minmax(0, 1fr) auto;
+/* ---- Tail activity row: Hermes' scaffold line ----
+   What the agent leaves at the tail of a live turn: a breathing square, the named wait under the
+   sweep, and the seconds it has been waiting. `data-slot` carries upstream's own names
+   (`aui_response-loading` before the tail message produces anything, `aui_turn-activity` after),
+   so a selector written against the webview finds the same thing in the pane. */
+.pulseai-scaffold-status {
+	display: flex;
 	align-items: center;
-	gap: 7px;
-	min-height: 31px;
-	padding: 5px 10px;
-	border-top: 1px solid var(--vscode-panel-border, transparent);
-	background: color-mix(in srgb, var(--vscode-sideBar-background) 94%, var(--pulseai-running));
+	gap: 6px;
+	min-height: 22px;
+	padding: 3px 10px;
+	font-size: 11px;
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
 }
-.pulseai-working-copy { overflow: hidden; color: var(--vscode-foreground); text-overflow: ellipsis; white-space: nowrap; }
-.pulseai-working-detail { white-space: nowrap; }
+.pulseai-scaffold-pulse {
+	display: inline-block;
+	flex-shrink: 0;
+	inline-size: 0.75rem;
+	block-size: 0.75rem;
+	border-radius: 2px;
+	background: currentColor;
+	animation: pulseai-breathe 1.6s ease-in-out infinite;
+}
+@keyframes pulseai-breathe {
+	0%, 100% { opacity: 0.25; }
+	50% { opacity: 1; }
+}
+.pulseai-scaffold-hint { font-weight: 500; }
+.pulseai-scaffold-meta { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- Thinking, behind a row (upstream DisclosureRow affordance) ----
+   No leading chevron and no full-width slab: the hit target is a content-sized pill around the
+   label, and the caret lives to its right -- on hover, and while the row is open. The fork uses a
+   native `details` disclosure rather than the webview's measure-then-clamp ExpandableBlock, since
+   the renderer has no ResizeObserver plumbing; the affordance is the same, the clamp is not. */
+.pulseai-thought-row { display: block; }
+.pulseai-disclosure-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 2px 10px;
+	border: 0;
+	background: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	list-style: none;
+	cursor: pointer;
+}
+.pulseai-disclosure-row::-webkit-details-marker { display: none; }
+.pulseai-disclosure-stack {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 6px;
+	margin-left: -6px;
+	border-radius: 4px;
+	transition: background-color 120ms ease;
+}
+.pulseai-disclosure-row:hover .pulseai-disclosure-stack { background: var(--vscode-list-hoverBackground); }
+.pulseai-disclosure-stack strong { color: var(--vscode-foreground); font-weight: 500; }
+.pulseai-disclosure-caret { opacity: 0; font-size: 9px; transition: opacity 120ms ease; }
+.pulseai-disclosure-row:hover .pulseai-disclosure-caret,
+.pulseai-thought-row[open] .pulseai-disclosure-caret { opacity: 0.75; }
+.pulseai-thought-body { padding: 2px 10px 6px 26px; }
+.pulseai-thought-body p {
+	margin: 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Solid SVG glyphs (pulseAIIcons.ts) sit on the text baseline like the font they replace. */
+.pulseai-tool-summary svg,
+.pulseai-scaffold-status svg,
+.pulseai-disclosure-row svg { flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+	.pulseai-shimmer,
+	.pulseai-scaffold-pulse,
+	.pulseai-breathing-edge.is-streaming::after { animation: none; }
+}
+@media (max-width: 420px) {
+	.pulseai-scaffold-status { padding-inline: 8px; }
+	.pulseai-scaffold-meta { display: none; }
+}
 
 .pulseai-approval-dock {
 	display: flex;

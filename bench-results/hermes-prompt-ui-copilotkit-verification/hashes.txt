@@ -123,3 +123,18 @@ a4e4c24f6f95ab37478459b8f788cc221633bfab23160021a0a843258c440181    249L  src/te
 084724739dce51f582549a34e26c037f853ed72ba860d4c948c4ab87d582e91b    190L  DESKTOP_PERMISSION_HANDLING_QUALITY.md
 a6d1756555aaf911eb8a32467f2cfba895bd8c30025be12233a29f2c096b0daf    158L  webview source of truth: pulse-webview/src/hermes-ui/model/run-summary.ts
 931916cc1a9991817121d6f29d781567e3c12259aa1f1d3b44a45788fcbd5e67  (log)  bench-results/.../pytest.log — includes the 2026-09-02 section
+
+## Manager chat-box unification (this commit, 2026-09-02 later)
+f66600d881cdc9646744a8cfdfa13423f8eb6df71a673c82e876328ce2837f5e     66L  desktop/.../browser/pulseAIIcons.ts (new)
+217c909ee2505148223a211f6bd68a5e2cbc4da86af4cf8e1463b7518e66a1ec    219L  desktop/.../browser/pulseAIActivity.ts (new)
+0edd7f0100593e9a4a4113b906b49e364c3782459a02a12d9e55b295b737d4e6    927L  desktop/.../browser/pulseAIRenderer.ts
+5afff261c8a7f89608e3795238242d33ed97a9f5f27deeb549fd922209f378af   1041L  desktop/.../browser/media/pulseAI.css
+60936e6183933e2e5f098ff6db711b6879c8285af85a2f035f3ad6349ee89f86     87L  desktop/.../common/pulseAIToolCatalog.ts
+034530ffaf79fc67b3ad2cababf94d6b905d5e9ade98bcc0b41335139a7e87fa    672L  desktop/.../browser/pulseAIRendererService.ts
+1b35a0be926f7f451bd26ffff5adc0a410a1209bfed7dd96e70f5e11bb5cedcd    326L  src/tests/test_hermes_activity_parity.py (new)
+150e97f74e6cf44b7888d0b68582f892dcf7f64970d0b0daccccfd0ad688643c    250L  src/tests/test_desktop_renderer_architecture.py
+e9f99f25e6a9940b5f97813c5ca6f8ae09e2882c38af0a985c1220454db3912b    265L  DESKTOP_PERMISSION_HANDLING_QUALITY.md
+a6d1756555aaf911eb8a32467f2cfba895bd8c30025be12233a29f2c096b0daf    158L  unchanged webview source of truth: model/run-summary.ts
+1ec5fb9b09b868822e06f17da6fea6dc4416e4b4a64c9e3085384c9154ac9137     60L  unchanged webview source of truth: model/turn-activity.ts
+f967bf4731882c7fd69ed0de1f5ac9dfc399215291438cc6464d6fbc65db29fd    187L  unchanged webview source of truth: components/status-line.tsx
+6b854e0ba3c46d38a14e10694592da3e9068e34679921d28656175f9517bf672  (log)  pytest.log + this round's section
