@@ -43,3 +43,28 @@ $ npm install --no-save esbuild && pytest test_pulse_session_registration_parity
 
 The 1 skip is `test_hermes_activity_parity.py` needing the pinned `~/.hermes-ref` checkout, which a rebuilt
 container does not carry. Still unproven here: build, paint, and anything on Windows.
+
+## Windows host: gate B failed on the harness, not the code (2026-09-02, laptop round 1)
+
+`gate.txt` from the owner's laptop: `reached: B; result: FAIL; first failure: Gate B — 5 parity tests
+fail with [WinError 193] esbuild not a valid Win32 application (host gap)`. Evidence commit `2b1221a4`.
+Gate A -- the strict scoped typecheck, the only lane that proves the registration satisfies
+`IChatSessionItemController` / `IChatSessionItem` / `ChatSessionStatus` / `sessionOpenerRegistry` --
+**passed on Windows**.
+
+Cause, owned here: `pulse-webview\node_modules\.bin\esbuild` on that machine is a POSIX shim from a
+Linux-installed tree, and my lane only asked whether the file *exists*. The lane now picks its loader at
+run time: esbuild when `esbuild --version` actually executes, otherwise `typescript/bin/tsc`, which is
+plain JS and emits the module's whole import closure as ESM. tsc exits non-zero on the base/ type
+errors this checkout cannot resolve, so success is measured by the file it wrote.
+
+Re-verified in the sandbox by simulating the host (esbuild present, non-executable):
+
+```
+$ .venv/bin/python -m pytest src/tests/test_pulse_session_registration_parity.py -q -s   # esbuild shimmed dead
+8 passed            # tsc route, same fixtures, same assertions
+$ .venv/bin/python -m pytest ...parity.py test_hermes_activity_parity.py test_desktop_renderer_architecture.py test_desktop_contrib_overlay.py -q
+31 passed, 2 skipped, 1 xfailed        # esbuild route restored
+$ tsc -p src/tsconfig.pulseai-check.json --noEmit | grep -c '^vs/workbench/contrib/pulseai'
+Pulse errors: 0
+```

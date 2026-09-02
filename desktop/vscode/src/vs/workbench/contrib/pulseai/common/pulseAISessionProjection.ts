@@ -71,6 +71,12 @@ export interface PulseAISessionItem {
 	readonly archived?: boolean;
 }
 
+/**
+ * The id is percent-encoded into the path and read back out of `URI.path`, never out of
+ * `toString()`: an id containing `/` or `%` would otherwise survive a round trip here and be
+ * re-escaped by `toString()`. Nothing parses the serialised form for a contributed type, and every
+ * per-resource key the workbench stores is built from this same function, so both ends agree.
+ */
 export function pulseSessionUri(sessionId: string): URI {
 	return URI.from({ scheme: PULSE_CHAT_SESSION_TYPE, path: `/${encodeURIComponent(sessionId)}` });
 }

@@ -11,10 +11,15 @@ runs it over fixtures -- rather than grepped:
 * `changes` being absent rather than zero when nothing was counted;
 * the session URI round-tripping to the id the engine named.
 
+The loader is chosen at runtime: esbuild when its binary is native to the host, otherwise
+`typescript/bin/tsc`, which is plain JS and so survives a node_modules tree installed on another
+platform. Both routes feed the SAME fixtures -- a host gap never turns into a pass, and a fallback
+never runs a weaker check.
+
 The rest is structural, because a registration that does not compile is not a registration: the
 pin list at the bottom is exactly the code that would silently unlink us from the fork's list.
 
-A skipped test here is a host gap to report (no node, no esbuild), never a pass.
+A skipped test here is a host gap to report (no node, and no tsc fallback either), never a pass.
 """
 from __future__ import annotations
 
@@ -31,6 +36,13 @@ PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "
 COMMON = PULSE / "common"
 BROWSER = PULSE / "browser"
 ESBUILD = ROOT / "pulse-webview" / "node_modules" / ".bin" / "esbuild"
+SRC = ROOT / "desktop" / "vscode" / "src"
+# tsc is a JS entrypoint, so it runs on any host with node -- including a Windows checkout whose
+# node_modules was installed on Linux, where .bin/esbuild is a POSIX shim that cannot execute.
+TSC_CANDIDATES = (
+    ROOT / "pulse-webview" / "node_modules" / "typescript" / "bin" / "tsc",
+    ROOT / "desktop" / "vscode" / "node_modules" / "typescript" / "bin" / "tsc",
+)
 
 PROJECTION = COMMON / "pulseAISessionProjection.ts"
 STORE = COMMON / "pulseAISessionStore.ts"
@@ -42,9 +54,11 @@ VIEW_PANE = BROWSER / "pulseAIViewPane.ts"
 CSS = BROWSER / "media" / "pulseAI.css"
 CHAT_URI = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "chat" / "common" / "model" / "chatUri.ts"
 
+# node is the hard requirement: the table is EXECUTED, not grepped. Either bundler works -- esbuild
+# when its binary is native to this host, tsc when it is not -- and the lane runs the same fixtures.
 pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None or not ESBUILD.exists(),
-    reason="the mapping table is executed here, so this needs node and pulse-webview's esbuild (npm install)",
+    shutil.which("node") is None,
+    reason="the mapping table is executed in node here; without node this is a host gap to report, never a pass",
 )
 
 
@@ -52,16 +66,56 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _bundle(source: Path, workdir: Path) -> Path:
-    out = workdir / f"{source.stem}.mjs"
+def _esbuild_usable() -> bool:
+    if not ESBUILD.exists():
+        return False
+    try:
+        probe = subprocess.run([str(ESBUILD), "--version"], capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL, timeout=60)
+    except OSError:
+        return False          # e.g. WinError 193: the shim is a POSIX script, not an executable
+    return probe.returncode == 0
+
+
+def _transpile(source: Path, workdir: Path) -> Path:
+    """Fallback that needs no native binary: tsc emits the whole import closure as ESM."""
+    tsc = next((path for path in TSC_CANDIDATES if path.exists()), None)
+    if tsc is None:
+        raise RuntimeError("neither a runnable esbuild nor a typescript package to transpile with (npm install)")
+    out_dir = workdir / "ts-out"
     proc = subprocess.run(
-        [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
-         "--log-level=warning", "--platform=node"],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180,
+        ["node", str(tsc), str(source), "--rootDir", str(SRC), "--outDir", str(out_dir),
+         "--target", "es2022", "--module", "esnext", "--moduleResolution", "bundler",
+         "--skipLibCheck"],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=600,
     )
-    if proc.returncode != 0:
-        pytest.fail(f"esbuild could not bundle {source.name}: {proc.stderr.strip()[:700]}")
-    return out
+    # tsc reports type errors in the files it transpiles (base/ has none of the repo's @types here)
+    # and still emits; the emitted file is the contract, so the exit code is not consulted.
+    emitted = out_dir / source.relative_to(SRC).with_suffix(".js")
+    if not emitted.exists():
+        pytest.fail(f"tsc emitted nothing for {source.name}: {(proc.stdout + proc.stderr).strip()[:600]}")
+    (out_dir / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    return emitted
+
+
+def _load(source: Path, workdir: Path) -> str:
+    """Return an ESM specifier node can import, relative to `workdir`: esbuild's single-file bundle
+    when its binary is native to this host, otherwise tsc's emitted tree -- whose modules sit at
+    their source-relative depth, so the specifier is a path and not a bare filename."""
+    if _esbuild_usable():
+        out = workdir / f"{source.stem}.mjs"
+        proc = subprocess.run(
+            [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+             "--log-level=warning", "--platform=node"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180,
+        )
+        if proc.returncode == 0 and out.exists():
+            return f"./{out.name}"
+        print(f"esbuild unusable ({proc.stderr.strip()[:200]}); falling back to tsc")
+    try:
+        return f"./{_transpile(source, workdir).relative_to(workdir).as_posix()}"
+    except RuntimeError as error:
+        pytest.skip(f"no usable loader on this host: {error}")
 
 
 RUNNER = """
@@ -162,9 +216,9 @@ FACTS = [
 
 
 def _exec(fixtures: dict, tmp_path: Path) -> dict:
-    bundle = _bundle(PROJECTION, tmp_path)
+    spec = _load(PROJECTION, tmp_path)
     script = tmp_path / "projection.mjs"
-    script.write_text(RUNNER % f"./{bundle.name}", encoding="utf-8")
+    script.write_text(RUNNER % spec, encoding="utf-8")
     cases = tmp_path / "fixtures.json"
     cases.write_text(json.dumps(fixtures), encoding="utf-8")
     proc = subprocess.run(
