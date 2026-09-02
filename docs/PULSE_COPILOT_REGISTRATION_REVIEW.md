@@ -194,4 +194,49 @@ attention states that respect the accessibility setting.
 
 ## Registration conclusion
 
-Pulse is already correctly installed as a first-party contribution across the fork's common and desktop entry points. The next strengthening step is not another top-level registration. It is a protocol-safe capability broker that connects the already-registered `IPulseAIWorkbenchService` and Code OSS provider registries to the Python agent.
+Pulse is already correctly installed as a first-party contribution across the fork's common and
+desktop entry points. The next strengthening step is not another top-level registration: it is
+registering a **session type and a controller**, so the manager is fed by the workbench's own
+contract instead of a private list. That step landed; see the section below. A protocol-safe
+capability broker (connecting `IPulseAIWorkbenchService` to the Python agent) stays the step after it.
+
+## Step 1 landed: hand craft → fork craft (one store, two skins)
+
+What changed, and why each piece is the smallest honest version of itself:
+
+| file | role |
+| --- | --- |
+| `common/pulseAISessionProjection.ts` | the whole contract, pure and DOM-free: `PULSE_CHAT_SESSION_TYPE = 'pulseai'`, `pulseSessionUri()`, the lifecycle mapping, the elapsed/attention rules, `pulseSessionRows()`. Testable without a browser, so every branch is executed by `src/tests/test_pulse_session_registration_parity.py` |
+| `common/pulseAISessionStore.ts` | `IPulseAISessionStore`: the only writer keeps a session's `firstSeenAt` across re-renders and fires on a *signature* change, not per paint. Bounded at 64 sessions because the engine has no `session_list` call wired yet |
+| `browser/pulseAISessionController.ts` | the registration: `registerChatSessionItemController('pulseai', this)`, exactly where upstream's own local controller registers (`localAgentSessionsController.ts:45`), plus a `sessionOpenerRegistry` participant so a click on a Pulse row lands on `pulseai.openManager` instead of asking a chat provider to resolve what it does not own |
+| `pulseAIRendererService.ts` | one writer: `noteSession()` runs *before* the mount check (a session nobody painted is still a session the user ran), and opening the manager is what marks it read |
+| `pulseAIRenderer.ts` | `sessionList(model)` renders `model.sessions` — the same rows the workbench list consumes — and the in-flight row's narration is the transcript lane's own `summarizeToolRun(...)` call, so one action cannot read differently in the two surfaces |
+
+Two consequences worth naming rather than discovering later:
+
+* **`chatSessionType` and the URI scheme are the same string.** `getChatSessionType()` returns
+  `resource.scheme` for contributed types, so `pulseai:` *is* the type. A second scheme would be a
+  second identity for one session.
+* **Pulse rows now appear in the workbench's own Agents list.** Registering is what buys the
+  sorting, sections, pin/archive/rename, filter submenu, find, focus and a11y commands, so this
+  comes with it; the list's filter submenu is where a type is hidden. If Pulse should never appear
+  there, deleting one line — the `registerChatSessionItemController` call — is the whole revert.
+
+Deliberate gaps, each pinned so it cannot be mistaken for done:
+
+* `IChatSessionItem.changes` stays **absent**. The fork prints "N files +A −D" from it; Pulse has a
+  per-tool counter (`diffStats`) and no session-level one, and sharing the first is a refactor with
+  its own test, not a field to guess at.
+* Rows other than the open one are **disabled**: steering a session needs `session_resume`, which
+  this build does not call.
+* `setChatSessionItemRead` is **not implemented** on purpose. Implementing it moves read state into
+  this in-memory map and off the host's persisted, per-resource tracking — strictly worse.
+* The fork's list is *added*, not adopted: `openManagerWindow()` and the manager chrome still
+  exist. Retiring them in favour of `AgentSessionsControl` inside the Agent pane is the next step
+  and the popup-vs-tab decision still belongs to the owner (still `xfail(strict=True)`).
+
+Branding is a constraint, so it is a test: no `pulseai-copilot*` class, no `'CopilotKit'` label, no
+`'@copilot'`/`'GitHub Copilot'` chrome in `pulseAIRenderer.ts`, `pulseAIViewPane.ts`, the service,
+the controller, the contribution or the CSS — while the rules that *hide* Copilot's chrome stay.
+The optional webview tab now reads `Webview`; its setting ids (`pulseai.copilotWebview.*`) are
+unchanged on purpose, because renaming a setting id silently discards the user's `settings.json`.

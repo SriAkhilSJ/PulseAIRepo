@@ -1,0 +1,28 @@
+# Pulse manager: fork-craft registration, step 1 — evidence
+
+date: 2026-09-02 (Asia/Calcutta)  host: Arena sandbox (Linux). No desktop/vscode/node_modules, no bundler, no chromium.
+
+```
+$ tsc -p src/tsconfig.pulseai-check.json --noEmit --listFilesOnly
+program files: 2033
+pulseai files: 26
+chat contracts pulled in by the new code:
+  chat/browser/agentSessions/agentSessionsModel.ts
+  chat/browser/agentSessions/agentSessionsOpener.ts
+  chat/common/chatSessionsService.ts
+
+$ tsc -p src/tsconfig.pulseai-check.json --noEmit        # strict, noUnusedLocals, scoped
+errors in vs/workbench/contrib/pulseai/**: 0
+total error lines (rest = missing @types, environmental): 364
+
+$ python3 -m pytest src/tests -q -k "desktop or hermes or pulse"
+
+========== 152 passed, 4 skipped, 1094 deselected, 1 xfailed in 3.74s ==========
+
+$ python3 -m pytest src/tests/test_pulse_session_registration_parity.py -q
+
+============================== 8 passed in 0.23s ===============================
+```
+
+Not proven here: no yarn install, no bundle, no paint — type + behaviour only.
+Owner-side gate: yarn && yarn compile, then node scripts/validate_pulse_ui_cdp.js (waits for .pulseai-manager-shell).

@@ -175,7 +175,7 @@ def test_copilot_webview_host_is_a_setting_and_fails_loudly():
     disabled_guard = view.index("copilotWebview.enabled') === false")
     assert "return;" in view[disabled_guard:disabled_guard + 200]
     # And a dead URL is a message, not a blank rectangle.
-    assert "pulseai-copilot-unreachable" in view
+    assert "pulseai-webview-unreachable" in view
     assert "npm run dev" in view
     # The load event is the only honest success signal, so the watchdog is cancelled
     # on dispose rather than left to fire into torn-down DOM.

@@ -20,7 +20,9 @@ import { IInstantiationService, ServicesAccessor } from '../../../../platform/in
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { IPulseAISessionStore, PulseAISessionStore } from '../common/pulseAISessionStore.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
+import './pulseAISessionController.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import {
 	Extensions as ViewContainerExtensions,
@@ -59,6 +61,10 @@ const PULSE_AI_MENU_ID = new MenuId('MenubarPulseAI');
 registerSingleton(IPulseAIEngineService, PulseAIUnavailableEngineService, InstantiationType.Delayed);
 registerSingleton(IPulseAIWorkbenchService, PulseAIWorkbenchService, InstantiationType.Delayed);
 registerSingleton(IPulseAIRendererService, PulseAIRendererService, InstantiationType.Delayed);
+// The Agent Manager's session list and the workbench's own Agent Sessions list are projections of
+// this store. It is a singleton rather than renderer state so that a session the user ran is
+// remembered even while neither surface is mounted.
+registerSingleton(IPulseAISessionStore, PulseAISessionStore, InstantiationType.Delayed);
 
 // --- Pulse container (right-side auxiliary bar) ---------------------------
 // Lives on the right (secondary) sidebar — same default location as Cursor's

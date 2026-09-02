@@ -937,9 +937,9 @@
 .pulseai-diff-line.is-meta { color: var(--vscode-descriptionForeground); }
 .pulseai-diff-line.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
 
-/* --- the CopilotKit pane: configurable host + an honest "not answering" state --- */
-.pulseai-copilot-slot { position: relative; }
-.pulseai-copilot-unreachable {
+/* --- the optional webview pane: configurable host + an honest "not answering" state --- */
+.pulseai-webview-slot { position: relative; }
+.pulseai-webview-unreachable {
 	position: absolute;
 	inset: auto 8px 8px 8px;
 	display: grid;
@@ -950,8 +950,8 @@
 	box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
 	font-size: 11px;
 }
-.pulseai-copilot-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-.pulseai-copilot-unreachable .pulseai-button { justify-self: start; }
+.pulseai-webview-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.pulseai-webview-unreachable .pulseai-button { justify-self: start; }
 
 /* --- designed empty state for the native Agent view (mirrors the ported webview's
    `empty-state.tsx`, so the two surfaces of one agent cannot look unrelated) --- */
@@ -1039,3 +1039,23 @@
 }
 .pulseai-view-tab:disabled { opacity: .5; cursor: default; }
 .pulseai-view > .pulseai-render-root { min-height: 0; }
+
+/* --- manager session rows: the fork's attention rules, Pulse's skin.
+ * Upstream pulses needs-input on a 2s glyph cycle and a 3s row accent, and goes quiet while the
+ * row is selected/hovered (chat/browser/agentSessions/media/agentsessionsviewer.css:29-40); the
+ * reduced-motion branch keeps a static tint instead of a blink. Same rules, our selectors. */
+.pulseai-status-dot.is-waiting { background: var(--vscode-charts-yellow, #d7ba7d); }
+.pulseai-status-dot.is-failed { background: var(--vscode-errorForeground, #f14c4c); }
+.pulseai-status-dot.is-idle { background: var(--vscode-descriptionForeground); }
+.pulseai-session-detail { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-session-row:disabled, .pulseai-session-row.is-empty { cursor: default; opacity: 1; }
+.pulseai-session-row.is-empty > div > strong { color: var(--vscode-foreground); }
+.pulseai-session-row.is-attention { background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground, #3a3d41) 8%, transparent); }
+.pulseai-session-row.is-needs-input .pulseai-status-dot.is-waiting { animation: pulseai-needs-input 2s ease-in-out infinite; }
+.pulseai-session-row.is-needs-input.is-active .pulseai-status-dot.is-waiting,
+.pulseai-session-row.is-needs-input:hover .pulseai-status-dot.is-waiting { animation: none; }
+@keyframes pulseai-needs-input { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+	.pulseai-session-row.is-needs-input .pulseai-status-dot.is-waiting { animation: none; }
+	.pulseai-session-row.is-needs-input { background: color-mix(in srgb, var(--vscode-list-hoverBackground, #3a3d41) 8%, transparent); }
+}

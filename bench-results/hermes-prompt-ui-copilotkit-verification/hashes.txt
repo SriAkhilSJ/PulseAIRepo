@@ -147,3 +147,14 @@ b91fa8082c4f87aa027ba9a8a37ad65e50b8d70db3495788e44d87ac412f93df    927L  render
 832245cfc66197feae90f60730a147b4433818df94c5d6d192f351382f92ee05    196L  Copilot agent-manager review (new section) — docs/PULSE_COPILOT_REGISTRATION_REVIEW.md
 ef02f8b183bc695ae73ece2fcecb3e31969723495ccb83b280a4adca9748ff46    283L  runbook: the 40-second gate — DESKTOP_PERMISSION_HANDLING_QUALITY.md
 b6ba56016bdd73119eaf91b9ac7f33f4a184182df0b044ccdb31bcdea84fbfec  (log)  pulseai-typecheck.log (new)
+
+## step 1 (2026-09-02): fork-craft registration — sha256 of everything this log covers
+d03c4ea79a9dc6fcbc74d6d2e1b2acc60abd389259bc932b61693616ddfe9d02    215  desktop/vscode/src/vs/workbench/contrib/pulseai/common/pulseAISessionProjection.ts
+14b05cff27b55317243b2219e1f231e2f30dd3f2efb5fefcb3eefb291884a3db     90  desktop/vscode/src/vs/workbench/contrib/pulseai/common/pulseAISessionStore.ts
+dd11614f73631759dfe2d4c65ec31d48f337f3f2c0707787e50b5da8f2ea970d    140  desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAISessionController.ts
+367cacfd3ac36e69c7b5847654f82be0f40c7a10777a27d26a9b817828d91399    981  desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts
+2e58abb5b811adc3b0d0806d36179b059bb053eb47a4691a444639f66ea4846b    718  desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIRendererService.ts
+dfea5f21c92b9f4d4ba01740ac5eb8bdddf3c0f62aeddbaa4f10f0c690e86b4b    184  desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIViewPane.ts
+b1d7f19d3d16fcf728423cb6e02335e6515a3eb9c1aad8592accf6caf8d1b034   1061  desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseAI.css
+f6521bd06cd8ae72b6c7f4cecc8a63adbe899df1db8942eb0fe06b5a7dbedbb3    305  src/tests/test_pulse_session_registration_parity.py
+3bf6f39e11b2249f553564588f381543e1763f11a3372ca277907148ca4c1f0b     28  bench-results/hermes-prompt-ui-copilotkit-verification/pulseai-registration-step1.log

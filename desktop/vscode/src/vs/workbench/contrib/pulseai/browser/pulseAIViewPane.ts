@@ -27,8 +27,8 @@ function paragraph(text: string): HTMLParagraphElement {
 }
 
 export class PulseAIViewPane extends ViewPane {
-	private copilotSlot: HTMLElement | undefined;
-	private copilotWebview: HTMLIFrameElement | undefined;
+	private webviewSlot: HTMLElement | undefined;
+	private webviewFrame: HTMLIFrameElement | undefined;
 	private pulseBody: HTMLElement | undefined;
 
 	constructor(
@@ -75,21 +75,21 @@ export class PulseAIViewPane extends ViewPane {
 		const nativeTab = DOM.append(tabs, DOM.$('button.pulseai-view-tab')) as HTMLButtonElement;
 		nativeTab.type = 'button';
 		nativeTab.textContent = 'Agent';
-		const copilotTab = DOM.append(tabs, DOM.$('button.pulseai-view-tab')) as HTMLButtonElement;
-		copilotTab.type = 'button';
-		copilotTab.textContent = 'CopilotKit';
-		copilotTab.disabled = this.copilotWebview === undefined;
-		const show = (surface: 'native' | 'copilot') => {
+		const webviewTab = DOM.append(tabs, DOM.$('button.pulseai-view-tab')) as HTMLButtonElement;
+		webviewTab.type = 'button';
+		webviewTab.textContent = 'Webview';
+		webviewTab.disabled = this.webviewFrame === undefined;
+		const show = (surface: 'native' | 'webview') => {
 			root.style.display = surface === 'native' ? '' : 'none';
-			if (this.copilotSlot) { this.copilotSlot.style.display = surface === 'copilot' ? '' : 'none'; }
+			if (this.webviewSlot) { this.webviewSlot.style.display = surface === 'webview' ? '' : 'none'; }
 			nativeTab.classList.toggle('is-active', surface === 'native');
-			copilotTab.classList.toggle('is-active', surface === 'copilot');
+			webviewTab.classList.toggle('is-active', surface === 'webview');
 			nativeTab.setAttribute('aria-current', String(surface === 'native'));
-			copilotTab.setAttribute('aria-current', String(surface === 'copilot'));
-			tabs.classList.toggle('is-hidden', this.copilotWebview === undefined);
+			webviewTab.setAttribute('aria-current', String(surface === 'webview'));
+			tabs.classList.toggle('is-hidden', this.webviewFrame === undefined);
 		};
 		this._register(addDisposableListener(nativeTab, 'click', () => show('native')));
-		this._register(addDisposableListener(copilotTab, 'click', () => show('copilot')));
+		this._register(addDisposableListener(webviewTab, 'click', () => show('webview')));
 		root.dataset.surface = 'agent';
 		root.setAttribute('role', 'region');
 		root.setAttribute('aria-label', 'Pulse Agent');
@@ -117,8 +117,8 @@ export class PulseAIViewPane extends ViewPane {
 		const url = (cfg.getValue<string>('pulseai.copilotWebview.url') || DEFAULT_COPILOT_WEBVIEW_URL).trim();
 		const share = Math.min(85, Math.max(10, Number(cfg.getValue<number>('pulseai.copilotWebview.height')) || 50));
 
-		const slot = DOM.append(parent, DOM.$('.pulseai-copilot-slot'));
-		this.copilotSlot = slot;
+		const slot = DOM.append(parent, DOM.$('.pulseai-webview-slot'));
+		this.webviewSlot = slot;
 		slot.style.flex = `1 1 ${share}%`;
 		slot.style.minHeight = '120px';
 		slot.style.display = 'flex';
@@ -126,7 +126,7 @@ export class PulseAIViewPane extends ViewPane {
 
 		// Typed as the frame it is: `showUnreachable` reads `contentWindow`/`src` off it, and a
 		// plain HTMLElement there is a lie the compiler would otherwise let us ship.
-		const frame = DOM.append(slot, DOM.$<HTMLIFrameElement>('iframe.pulseai-copilot-webview'));
+		const frame = DOM.append(slot, DOM.$<HTMLIFrameElement>('iframe.pulseai-webview-webview'));
 		frame.setAttribute('title', 'Pulse CopilotKit');
 		frame.style.width = '100%';
 		frame.style.height = '100%';
@@ -134,7 +134,7 @@ export class PulseAIViewPane extends ViewPane {
 		frame.style.border = 'none';
 		frame.style.display = 'block';
 		frame.setAttribute('src', url);
-		this.copilotWebview = frame;
+		this.webviewFrame = frame;
 
 		// A refused or hanging connection fires no event an extension may read (by
 		// design), so "nothing loaded within N ms" is the only honest signal here. The
@@ -157,8 +157,8 @@ export class PulseAIViewPane extends ViewPane {
 	}
 
 	private showUnreachable(slot: HTMLElement, frame: HTMLIFrameElement, url: string, attempt: number, rearm: () => void): void {
-		if (slot.querySelector('.pulseai-copilot-unreachable')) { return; }
-		const notice = DOM.append(slot, DOM.$('.pulseai-copilot-unreachable'));
+		if (slot.querySelector('.pulseai-webview-unreachable')) { return; }
+		const notice = DOM.append(slot, DOM.$('.pulseai-webview-unreachable'));
 		notice.append(paragraph(attempt > 1
 			? `Pulse CopilotKit is still not answering at ${url}.`
 			: `Pulse CopilotKit is not answering at ${url}.`));

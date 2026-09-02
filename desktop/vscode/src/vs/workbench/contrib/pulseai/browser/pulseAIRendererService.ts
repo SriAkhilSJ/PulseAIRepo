@@ -13,6 +13,8 @@ import { IPulseAIEngineService, PulseAIEngineSetupError, PulseAIEngineState } fr
 import type { PulseClientMethod, PulseExecutionMode, PulseServerEvent } from '../common/pulseAIProtocol.js';
 import { PULSE_AI_WORKBENCH_CAPABILITIES } from '../common/pulseAIWorkbenchCapabilities.js';
 import { IPulseAIRendererService, PulseAISurface } from '../common/pulseAIRendererService.js';
+import { IPulseAISessionStore } from '../common/pulseAISessionStore.js';
+import { pulseSessionLabel, pulseSessionRows, pulseSessionStatusName, type PulseAISessionFacts, type PulseAISessionRow } from '../common/pulseAISessionProjection.js';
 import { IPulseAIWorkbenchService } from '../common/pulseAIWorkbenchService.js';
 import {
 	mountPulseAIRenderer,
@@ -80,6 +82,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	 * model rather than a counter in the renderer: a re-render must not restart the number.
 	 */
 	private turnStartedAt: number | undefined;
+	/** When the last turn stopped, for the row's elapsed clock. Turn end is a frame, not a timer. */
+	private turnEndedAt: number | undefined;
 	private approval: PulseAIRenderModel['approval'];
 	private subAgents = new Map<string, PulseAISubAgentView>();
 	private plan: readonly string[] = [];
@@ -142,6 +146,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IAuxiliaryWindowService private readonly auxiliaryWindowService: IAuxiliaryWindowService,
+		@IPulseAISessionStore private readonly sessionStore: IPulseAISessionStore,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {
@@ -227,6 +232,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.cancelRequested = false;
 			this.turnOutcome = 'idle';
 			this.turnStartedAt = undefined;
+			this.turnEndedAt = undefined;
 			this.userMessage = undefined;
 			this.assistantText = '';
 			this.pendingPrompt = undefined;
@@ -281,10 +287,45 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			error: this.error,
 			draft: this.draft,
 			history: this.history,
+			sessions: this.sessionRows(),
 		};
 	}
 
+	/**
+	 * The session list is a projection of the run, never a copy of it: this reads the store, and
+	 * `noteSession()` is the only writer. Both the manager's own rows and the workbench's Agent
+	 * Sessions list come through here, so the two surfaces cannot disagree about what exists.
+	 */
+	private sessionRows(): readonly PulseAISessionRow[] {
+		const readState = new Map<string, boolean>();
+		for (const facts of this.sessionStore.records()) {
+			const isRead = this.sessionStore.isRead(facts.sessionId);
+			if (isRead !== undefined) { readState.set(facts.sessionId, isRead); }
+		}
+		return pulseSessionRows(this.sessionStore.records(), this.sessionId, Date.now(), readState);
+	}
+
+	/**
+	 * Called before the mount check: a session nobody has painted is still a session the user
+	 * ran. `changes` is left out on purpose until one diff counter is shared with the tool row --
+	 * a count of files nobody measured is worse in a list than an absent field.
+	 */
+	private noteSession(): void {
+		if (!this.sessionId) { return; }
+		const facts: PulseAISessionFacts = {
+			sessionId: this.sessionId,
+			label: pulseSessionLabel(this.userMessage, this.sessionId),
+			workspaceLabel: this.workspaceLabel,
+			statusName: pulseSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined }),
+			firstSeenAt: Date.now(),
+			turnStartedAt: this.turnStartedAt,
+			turnEndedAt: this.turnEndedAt,
+		};
+		this.sessionStore.note(facts);
+	}
+
 	private render(): void {
+		this.noteSession();
 		if (this.mounts.size === 0 || this.renderFrame !== undefined) { return; }
 		this.renderFrame = requestAnimationFrame(() => {
 			this.renderFrame = undefined;
@@ -335,6 +376,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	}
 
 	private async openManagerWindow(): Promise<void> {
+		// Opening the manager IS what "read" means, and it is the only honest clear for the
+		// attention dot: the workbench's own list keeps its persisted tracking instead.
+		if (this.sessionId) { this.sessionStore.markRead(this.sessionId, true); }
 		const auxiliaryWindow = await this.auxiliaryWindowService.open({
 			bounds: { x: 200, y: 100, width: 1100, height: 750 },
 		});
@@ -584,12 +628,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.running = false;
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
+			this.turnEndedAt = Date.now();
 			this.turnOutcome = frame.completed ? 'completed' : 'cancelled';
 			if (frame.message && !this.assistantText) { this.assistantText = frame.message; }
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
+			this.turnEndedAt = Date.now();
 			this.turnOutcome = 'failed';
 			this.error = frame.error;
 		} else if (frame.type === 'runtime_degraded') {

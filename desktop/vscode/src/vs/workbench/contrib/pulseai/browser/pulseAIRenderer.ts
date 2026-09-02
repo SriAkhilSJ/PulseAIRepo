@@ -6,6 +6,7 @@
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { PulseExecutionMode } from '../common/pulseAIProtocol.js';
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
+import type { PulseAISessionRow } from '../common/pulseAISessionProjection.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './pulseAIRunSummary.js';
 import { renderToolIcon } from './pulseAIIcons.js';
@@ -70,6 +71,13 @@ export interface PulseAIRenderModel {
 	readonly telemetry: { readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number };
 	readonly capabilitySummary: { readonly available: number; readonly total: number; readonly blocked: number };
 	readonly error?: string;
+	/**
+	 * The manager's session list: a projection of IPulseAISessionStore, i.e. the same rows the
+	 * workbench's own Agent Sessions list is fed. Absent means "the engine has not named a session
+	 * yet", which the manager paints as a designed empty state; an empty array would be a claim
+	 * that the user has no sessions, which nobody measured.
+	 */
+	readonly sessions?: readonly PulseAISessionRow[];
 	readonly draft: string;
 	readonly history: readonly {
 		readonly userMessage?: string;
@@ -853,16 +861,62 @@ function inspector(model: PulseAIRenderModel): HTMLElement {
 	return pane;
 }
 
+/**
+ * The manager's session rows, drawn from the workbench's own session vocabulary: the lifecycle is
+ * `ChatSessionStatus`'s (via the projection), the elapsed text follows the fork's list rules, and
+ * the line an in-flight session shows is produced by `summarizeToolRun` -- the same call the
+ * transcript lane makes, so one action can never read differently in the two surfaces.
+ *
+ * No row is invented here and none can be renamed: this is a render of `model.sessions`.
+ */
+function sessionList(model: PulseAIRenderModel): HTMLElement {
+	const group = element('div', 'pulseai-workspace-group');
+	group.append(element('div', 'pulseai-workspace-title', icon('chevron-down'), icon('folder'), element('strong', undefined, model.workspaceLabel)));
+	const rows = model.sessions;
+	if (!rows || !rows.length) {
+		group.append(element('div', 'pulseai-session-row is-empty',
+			element('span', 'pulseai-status-dot is-idle'),
+			element('div', undefined, element('strong', undefined, 'No session yet'), element('span', undefined, 'A run appears here the moment the engine names one')),
+		));
+		return group;
+	}
+	const narration = summarizeToolRun(model.tools, model.running, tool => compactTarget(displayTarget(tool)) ?? tool.name);
+	for (const row of rows) {
+		const dot = row.statusName === 'inProgress' ? 'running'
+			: row.statusName === 'needsInput' ? 'waiting'
+				: row.statusName === 'failed' ? 'failed' : 'ready';
+		const detail = row.isActive && narration ? narration
+			: row.statusName === 'needsInput' ? 'Waiting for approval'
+				: row.statusName === 'failed' ? 'Run failed'
+					: row.changes ? `${row.changes.files} file(s) +${row.changes.insertions} −${row.changes.deletions}`
+						: row.statusName === 'completed' ? 'Finished' : row.description;
+		const state = row.elapsedLabel || (row.isActive ? (model.running ? 'Working…' : 'Ready') : '');
+		const classes = ['pulseai-session-row'];
+		if (row.isActive) { classes.push('is-active'); }
+		if (row.statusName === 'needsInput') { classes.push('is-needs-input'); }
+		if (row.needsAttention) { classes.push('is-attention'); }
+		const button = element('button', classes.join(' '),
+			element('span', `pulseai-status-dot is-${dot}`),
+			element('div', undefined, element('strong', undefined, row.label), element('span', 'pulseai-session-detail', detail)),
+			element('span', 'pulseai-session-state', state),
+		) as HTMLButtonElement;
+		// Steering another session needs `session_resume`, which this build does not wire yet, so
+		// the row tells the truth instead of pretending: only the open one is actionable.
+		button.type = 'button';
+		button.disabled = !row.isActive;
+		button.title = row.isActive ? 'Open in this panel' : 'Select it from the engine to steer it';
+		group.append(button);
+	}
+	return group;
+}
+
 function renderManager(root: HTMLElement, model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, activity: PulseAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): void {
 	const shell = element('div', 'pulseai-manager-shell');
 	const sidebar = element('aside', 'pulseai-manager-sidebar',
 		element('header', 'pulseai-manager-pane-head', element('div', undefined, element('span', 'pulseai-eyebrow', 'CONTROL PLANE'), element('h2', undefined, 'Workspaces')), button('', 'pulseai-icon-button', () => undefined, 'add')),
 		element('div', 'pulseai-manager-search', icon('search'), element('span', undefined, 'Find workspace or agent')),
-		element('div', 'pulseai-workspace-group',
-			element('div', 'pulseai-workspace-title', icon('chevron-down'), icon('folder'), element('strong', undefined, model.workspaceLabel)),
-			element('button', 'pulseai-session-row is-active', element('span', `pulseai-status-dot is-${model.running ? 'running' : 'ready'}`), element('div', undefined, element('strong', undefined, model.userMessage || 'New Pulse session'), element('span', undefined, model.sessionId ?? 'Local workspace')), element('span', 'pulseai-session-state', model.running ? 'Working' : 'Ready')),
-		),
-		element('footer', 'pulseai-manager-sidebar-footer', icon('organization'), element('span', undefined, model.sessionId ? '1 active session' : 'No active sessions')),
+		sessionList(model),
+		element('footer', 'pulseai-manager-sidebar-footer', icon('organization'), element('span', undefined, model.sessions?.length ? `${model.sessions.length} session(s) remembered · ${model.running ? '1 running' : 'none running'}` : 'No session yet')),
 	);
 	const main = element('main', 'pulseai-manager-main');
 	main.append(

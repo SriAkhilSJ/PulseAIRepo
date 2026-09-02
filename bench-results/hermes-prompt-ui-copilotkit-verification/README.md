@@ -491,3 +491,13 @@ builds with, pointed only at Pulse's contribution; 0 errors in `vs/workbench/con
 TS2307 61) clustered in `debug`/`terminal`/`notebook`/`editor`. Six shipped defects came out of the
 first run and were fixed in the same commit that added the lane, which is the argument for keeping it:
 it costs 40 s and it catches the class of breakage that eats a 20-minute `yarn compile` cycle.
+
+## pulseai-registration-step1.log
+
+What the Manager's registration step proved *in the sandbox*: the strict scoped typecheck lane
+(`src/tsconfig.pulseai-check.json`) reports 0 errors under `vs/workbench/contrib/pulseai/**` with
+26 Pulse files in the program — including the three chat contracts the new controller pulls in —
+and the python lane reports 152 passed / 4 skipped / 1 xfailed, of which 8 tests execute
+`common/pulseAISessionProjection.ts` in node over fixtures. It does **not** prove a build or a
+paint: there is no `yarn install`, bundler, or chromium here. Those gates are the owner's, and
+they are named at the bottom of the log.
