@@ -1,0 +1,1 @@
+reached: B; result: FAIL; first failure: Gate B ? 6 hermes parity tests fail [WinError 193]: _bundle calls esbuild via .bin/esbuild shell script (not executable on Windows); actual binary at @esbuild/win32-x64/esbuild.exe; registration parity 9/9 green (UTF-8 fix works); gate A carried forward from r3/gate-a-note.txt

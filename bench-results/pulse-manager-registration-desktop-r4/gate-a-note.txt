@@ -1,0 +1,1 @@
+gate A carried forward from r3/gate-a-note.txt (sha256 in r3/sha256sums.txt)
