@@ -12,7 +12,7 @@ Matching is intentionally conservative:
 
 The longest-prefix rule matters: a naive startswith("gpt") style match once
 handed gpt-4-0613 a 128K budget (real window: 8192) — a 16x overshoot that
-providers answer with HTTP 400. Unknown models fall back to 8192 on purpose:
+providers answer with HTTP 400. Unknown models used to fall back to 8192 on purpose:
 undershooting costs context, overshooting costs the whole request.
 
 NOTE: this is the *model* window. The effective engine budget is further
@@ -239,6 +239,121 @@ def _settings_key(name: str) -> str | None:
     return value or os.getenv(name)
 
 
+# ---------------------------------------------------------------------------
+# Endpoint metadata, per Hermes (agent/model_metadata.py:728 @ 5f24f29)
+# ---------------------------------------------------------------------------
+# A provider describes its own limits, but not under one agreed key: an
+# OpenAI-compatible server may say `max_model_len` (vLLM), `n_ctx` (llama.cpp),
+# `context_length` (Groq, OpenRouter), `context_window`, or `max_position_embeddings`
+# (Hugging Face text-generation-inference). Hermes reads all twelve; probing one
+# field name per provider is why `custom` -- Pulse's generic OpenAI-compatible
+# route, and therefore most self-hosted and router endpoints -- had no live path
+# at all and fell to the 8,192 guess. That guess is what bounded the owner's
+# workspace scan on a `hi` turn: window 8,192 -> budget 4,096 -> context budget
+# ~1,638 -> "workspace exceeds scan budget - bounded by design".
+_CONTEXT_LENGTH_KEYS = (
+    "context_length",
+    "context_window",
+    "context_size",
+    "max_context_length",
+    "max_position_embeddings",
+    "max_model_len",
+    "max_input_tokens",
+    "max_sequence_length",
+    "max_seq_len",
+    "n_ctx_train",
+    "n_ctx",
+    "ctx_size",
+)
+
+# The next rung, deliberately not taken here: Hermes also reads the OUTPUT cap off
+# the same object (max_completion_tokens / max_output_tokens / max_tokens) instead of
+# a flat reserve, where ours is SAFETY_MARGIN. Threading it through would change
+# resolve_context_window's return shape for every caller and the budget tests, so it
+# waits for a pass where those can move together -- an unused constant would only make
+# it look done.
+
+
+def _model_id_matches(wanted: str, candidate: str) -> bool:
+    """Match a served model id to the configured name, tolerating routing styles.
+
+    `custom/llama-3.3-70b`, `llama-3.3-70b:free`, and `llama-3.3-70b-20241001` are
+    one model to a provider and must one to us: strip the provider prefix, the
+    `:quant`/`:variant` suffix, and a trailing date -- the same normalisations
+    Hermes applies before comparing ids.
+    """
+    if not candidate:
+        return False
+    left = _normalize(wanted)
+    right = _normalize(candidate)
+    if left == right:
+        return True
+    # Substring only in the specific direction that means "this entry serves that model":
+    # a bare-name id whose tail is the date we dropped, or a prefixed id whose tail is the name.
+    return (right.endswith("/" + left) or left.endswith("/" + right)
+            or _DATE_SUFFIX.sub("", right) == left or _DATE_SUFFIX.sub("", left) == right)
+
+
+def _window_from_metadata(entry: dict) -> int | None:
+    """First positive integer under any of the twelve keys, in Hermes' order."""
+    for key in _CONTEXT_LENGTH_KEYS:
+        value = entry.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and value > 0:
+            return value
+        if isinstance(value, str) and value.strip().isdigit() and int(value) > 0:
+            return int(value)
+    nested = entry.get("meta") or entry.get("metadata") or {}
+    if isinstance(nested, dict):
+        for key in _CONTEXT_LENGTH_KEYS:
+            value = nested.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                return value
+    return None
+
+
+def _endpoint_catalog(base_url: str) -> list[dict]:
+    """`{base}/models`, tolerating whether the configured base already carries /v1."""
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return []
+    candidates = [f"{base}/models"] if base.endswith("/v1") else [f"{base}/v1/models", f"{base}/models"]
+    for url in candidates:
+        data = _http_get_json(url, _endpoint_auth_headers())
+        if isinstance(data, dict):
+            entries = data.get("data") or data.get("models") or []
+            if isinstance(entries, list):
+                return [e for e in entries if isinstance(e, dict)]
+    return []
+
+
+def _endpoint_auth_headers() -> dict:
+    key = _settings_key("CUSTOM_API_KEY")
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def _probe_custom_endpoint(model_name: str) -> int | None:
+    """Ask the endpoint we are about to send the turn to what it serves.
+
+    This is Hermes' ladder step 2 ("active endpoint metadata"), which sits ABOVE the
+    hardcoded defaults: a self-hosted server knows its own `max_model_len` and we
+    should believe it over any table of cloud-model windows.
+    """
+    try:
+        from src.config.settings import CUSTOM_BASE_URL
+        base_url = CUSTOM_BASE_URL or ""
+    except Exception:
+        base_url = os.getenv("CUSTOM_BASE_URL", "")
+    wanted = (model_name or "").strip()
+    for entry in _endpoint_catalog(base_url):
+        if _model_id_matches(wanted, str(entry.get("id") or entry.get("name") or "")):
+            window = _window_from_metadata(entry)
+            if window:
+                return window
+    return None
+
+
 def _probe_groq(model_name: str) -> int | None:
     """Groq's /models objects carry a real `context_window` field."""
     api_key = _settings_key("GROQ_API_KEY")
@@ -289,6 +404,7 @@ def _probe_openrouter(model_name: str) -> int | None:
 
 
 _PROBES = {
+    "custom": _probe_custom_endpoint,
     "groq": _probe_groq,
     "gemini": _probe_gemini,
     "google": _probe_gemini,
@@ -352,6 +468,15 @@ def resolve_context_window(
     cached = _cache_get(cache_key)
     if cached and cached[1]:
         return cached[0], "cache"
+
+    # 2b) A custom endpoint is authoritative about what it serves, so it is asked BEFORE the
+    # table -- Hermes puts "active endpoint metadata" above the hardcoded defaults for this reason
+    # (a vLLM exposing the id "gpt-4" may well serve 128k, and a table of cloud windows cannot know).
+    if allow_network and provider == "custom":
+        endpoint_window = _probe_custom_endpoint(raw)
+        if endpoint_window:
+            _write_cache(cache_key, endpoint_window)
+            return endpoint_window, "custom-api"
 
     # 3) Static table: zero network for models we already know.
     table = _table_lookup(model_name)

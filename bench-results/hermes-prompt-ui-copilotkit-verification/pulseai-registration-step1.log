@@ -308,3 +308,41 @@ Checked here: the scoped strict typecheck passes on his tip with these edits (`1
 lands a probe bundle with its relative asset paths intact and `git status` stays silent on it, and
 `vite.config.ts` is syntax-clean under tsc. What only his machine can settle: the tab actually painting
 after one build.
+
+## turn 2026-09-04 06:52 +0530  ::  provider-driven budget resolution (Hermes parity) + base correction
+BASE INCIDENT, self-caught: my first commit this turn was authored on 86eaaae2 (the session's starting commit), NOT on the tip -- a sandbox reset had
+  rolled the branch back and I had read 'git log -1 -- <file>' -> 66238256 as if it were HEAD. Push rejected (non-fast-forward) is what exposed it.
+  Remedy: diffed my 4 files against 86eaaae2, moved the branch to the real remote tip f3c84c74, re-applied with 'git apply -3' (+12 lines / 0 deletions on
+  context_engine.py, verified no stale-base damage), re-ran every lane against the TIP. Nothing was pushed to any other branch.
+upstream captured by reading the repo, not from memory (NousResearch/hermes-agent @ 5f24f29, agent/model_metadata.py:728 + :3048):
+  12 window keys (context_length, context_window, context_size, max_context_length, max_position_embeddings, max_model_len, max_input_tokens,
+  max_sequence_length, max_seq_len, n_ctx_train, n_ctx, ctx_size); 3 output keys; CONTEXT_PROBE_TIERS 256000/128000/64000/32000/16000/8000;
+  DEFAULT_FALLBACK_CONTEXT 256000 + step-down-on-context-error + warn-once-per-(model,base_url) + fallback never cached; MINIMUM_CONTEXT_LENGTH 64000;
+  ladder step 2 = 'active endpoint metadata (/models for explicit custom endpoints)' sits ABOVE the hardcoded defaults.
+our three gaps, all read on the tip before editing:
+  1. _PROBES had groq/gemini/google/openrouter and NO 'custom' entry -- Pulse's generic OpenAI-compatible route, i.e. self-hosted + router servers. For
+     custom, nothing was ever asked, so an unknown id returned source='default' -> 8,192. Each probe read exactly ONE field name.
+  2. the static table was consulted BEFORE the live probe; upstream puts the endpoint first, because a vLLM publishing 128k under an id our table
+     calls 8,192 is right and the table is a guess about a different deployment.
+  3. PROVIDER_SAFE_LIMIT defaulted to 6000 on top of whatever was resolved -- a flat pin above an auto-derived budget, and settings.py:93-95 already
+     documents 0 = AUTO ('both the ContextEngine budget and the RetryLLMProxy guard resolve the identical number'). factory.py:641-659 _safe_limit() AUTO
+     literally calls resolve_context_window, so the parity chain existed end-to-end and was switched off by one default.
+changes: model_budgets.py += _CONTEXT_LENGTH_KEYS/_window_from_metadata (ints + digit-strings + nested meta/metadata; bools rejected so a stray
+  'max_position_embeddings: true' cannot read as a 1-token window)/_endpoint_catalog (tolerates a base that already carries /v1)/_model_id_matches
+  (provider prefix, :quant, trailing date, both directions)/_probe_custom_endpoint (CUSTOM_BASE_URL + CUSTOM_API_KEY via settings, so .env applies).
+  Registered as _PROBES['custom'] and consulted before the table for custom routes. settings.py: PROVIDER_SAFE_LIMIT default 6000 -> 0 with the reason
+  recorded in place. context_engine.py: _emit_build_receipt keeps its base string byte-identical but names the cause when the window was ASSUMED
+  ('bounded by design' alone could not be told apart from a resolved-budget clip).
+  NOT copied, deliberately: the 256k generous fallback. Upstream can err high only because it steps DOWN on a context-length API error and never caches
+  the fallback; we have no step-down, so the number without the mechanism trades this refusal for provider HTTP 400s -- what our own module comment warns
+  about. Also NOT wired: the endpoint's max-output keys (would change resolve_context_window's return shape for every caller); I first added the constant
+  then removed it unused rather than leave it pretending to be wired.
+tests (mine, executed): src/tests/test_model_endpoint_metadata.py 22 passed (12 parametrised keys, id matching, bool rejection, /v1 tolerance, endpoint
+  beats table, no-base-url -> old default, LLM_CONTEXT_WINDOW still wins, and a SUBPROCESS check that the shipped default is 0 while PROVIDER_SAFE_LIMIT=6000
+  is honoured); src/tests/test_scan_budget_receipt_reason.py 3 passed. Bug-injection: neuter _probe_custom_endpoint -> 14 failed; delete the cause-hint
+  -> 3 failed; restore -> all green. Regression discipline: '-k budget or window or metadata or probe or receipt or settings or context' at the TIP with my
+  changes stashed = 15 failed / 173 passed / 27 errors; WITH them = 15 failed / 173 passed, comm-13 EMPTY -> zero regressions. (All 15 fail for my venv
+  missing langgraph -- verified 'No module named langgraph'. An earlier '5 new failures' reading was my own filter mismatch, corrected by re-running both sides.)
+unproven, said plainly: whether HIS endpoint serves /models and publishes a window under one of the 12 keys -- if it does not, source stays 'default' and only
+  naming LLM_MODEL resolves it; no paid provider turn was run. And whether the webview tab paints for him after pull + npm run build (the framing block in his
+  log is the pre-pull state; f3c84c74 ships the fix, which he has not built yet).

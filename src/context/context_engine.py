@@ -1120,6 +1120,19 @@ class ContextEngine(BaseContextEngine):
             if (pool.truncated or pool.cancelled)
             else "workspace exceeds scan budget — bounded by design"
         )
+        # The bound is honest; the number behind it often is not. When no real model name resolved a
+        # window, the engine runs on its fallback, which shrinks max_tokens and context_budget -- and so
+        # the scan ceiling -- until any ordinary repo "exceeds" it. Measured on the owner's host:
+        # LLM_MODEL=auto on a custom provider, window 8,192, budget 4,096, and a greeting came back
+        # reading like a product limit on a config mistake. The base string stays byte-identical (the
+        # benchmark contract counts this receipt by its reason); the cause rides behind it.
+        if getattr(self, "context_window_source", "") == "default":
+            reason += (
+                f" (window {self.context_window:,} assumed -- the endpoint was asked, or could not be"
+                f" asked, and returned no window for this model id; token budget {self.max_tokens:,}."
+                " Naming LLM_MODEL lets the window come from the endpoint's own metadata;"
+                " LLM_CONTEXT_WINDOW states it directly, and PROVIDER_SAFE_LIMIT caps the budget)"
+            )
         pool.emit_degraded({
             "thread_id": self._active_thread_id or "unknown",
             "reason": reason,

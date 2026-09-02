@@ -94,7 +94,15 @@ LLM_CONTEXT_WINDOW: str | None = os.getenv("LLM_CONTEXT_WINDOW")
 #         Use this on paid/unlimited tiers to unlock the full context window;
 #         both the ContextEngine budget and the RetryLLMProxy guard resolve
 #         the identical number, so they can never disagree.
-PROVIDER_SAFE_LIMIT: int = int(os.getenv("PROVIDER_SAFE_LIMIT", "6000"))
+# Shipped default is AUTO (0), not a pin. It used to be 6000, which meant the budget
+# followed a number nobody asked the provider about: an unresolved window (8,192) times a
+# 6,000 cap left ~1,638 tokens of context, and a `hi` turn was refused for "exceeding scan
+# budget" on an ordinary repo. Hermes asks the provider and trusts the answer --
+# model_budgets now reads the endpoint's own /models metadata -- so the guard and the engine
+# both derive from it (RetryLLMProxy._safe_limit), and pinning 6,000 on top of that would
+# only re-introduce a second guess. A free or metered tier sets PROVIDER_SAFE_LIMIT=6000
+# explicitly; >0 still means exactly what the block above says it means.
+PROVIDER_SAFE_LIMIT: int = int(os.getenv("PROVIDER_SAFE_LIMIT", "0"))
 
 # =========================================================
 # EMBEDDING (for semantic context, dedup, memory, and scoring)
