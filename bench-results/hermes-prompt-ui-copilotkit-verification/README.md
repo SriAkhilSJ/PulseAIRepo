@@ -482,3 +482,12 @@ turn never recorded one; `compacting` is plumbed but has no producer in the engi
 disclosure uses native `details` rather than the webview's measured 121px clamp; and nothing here was
 compiled or painted — `desktop/vscode/node_modules` is empty, so the first `yarn compile` in the
 laptop fork is the gate.
+
+## The typecheck lane (confidence, no build required)
+
+`desktop/vscode/src/tsconfig.pulseai-check.json` + `pulseai-typecheck.log`. The strict flags the fork
+builds with, pointed only at Pulse's contribution; 0 errors in `vs/workbench/contrib/pulseai/**`,
+363 elsewhere in the pulled-in graph, all of them the missing-`@types` signature (TS2503 121,
+TS2307 61) clustered in `debug`/`terminal`/`notebook`/`editor`. Six shipped defects came out of the
+first run and were fixed in the same commit that added the lane, which is the argument for keeping it:
+it costs 40 s and it catches the class of breakage that eats a 20-minute `yarn compile` cycle.

@@ -21,7 +21,7 @@ import { IPulseAIRendererService } from '../common/pulseAIRendererService.js';
 const DEFAULT_COPILOT_WEBVIEW_URL = 'http://localhost:5173';
 
 function paragraph(text: string): HTMLParagraphElement {
-	const node = DOM.$('p');
+	const node = DOM.$<HTMLParagraphElement>('p');
 	node.textContent = text;
 	return node;
 }
@@ -124,7 +124,9 @@ export class PulseAIViewPane extends ViewPane {
 		slot.style.display = 'flex';
 		slot.style.flexDirection = 'column';
 
-		const frame = DOM.append(slot, DOM.$('iframe.pulseai-copilot-webview'));
+		// Typed as the frame it is: `showUnreachable` reads `contentWindow`/`src` off it, and a
+		// plain HTMLElement there is a lie the compiler would otherwise let us ship.
+		const frame = DOM.append(slot, DOM.$<HTMLIFrameElement>('iframe.pulseai-copilot-webview'));
 		frame.setAttribute('title', 'Pulse CopilotKit');
 		frame.style.width = '100%';
 		frame.style.height = '100%';

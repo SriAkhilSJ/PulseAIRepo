@@ -260,6 +260,24 @@ For the fork window itself: `"window.commandCenter": true` and `"window.titleBar
 the test profile's `settings.json` (the CDP opener lives in the custom title bar — its absence, not
 a UI defect, is what blocked the last round), then launch
 `desktop\vscode\scripts\code.bat $repo --user-data-dir=$profile --remote-debugging-port=9222`.
+The 40-second gate, before any full build (no display, no engine, no key, no network):
+
+```
+cd desktop\vscode\src
+node ..\..\..\pulse-webview\node_modules\typescript\bin\tsc -p tsconfig.pulseai-check.json
+```
+
+`tsconfig.pulseai-check.json` is committed: same strict flags as the fork's own
+`src/tsconfig.base.json` (`strict`, `noUnusedLocals`, `noImplicitOverride`, nodenext resolution),
+`noEmit`, scoped to `contrib/pulseai/browser` + `common` plus `src/typings` for the `*.css`
+side-effect imports. `node/` and `electron-browser/` are deliberately out of scope — they need
+`@types/node` and `electron.d.ts`, which only a real install has — so this lane checks the DOM layer
+and the full build still checks everything. It earned its place: the first run found six real defects
+in code this branch had already shipped (a wrong element type on the SVG glyph, two dead locals that
+`noUnusedLocals` rejects, and three `HTMLElement`-vs-specific-element misannotations around the
+webview frame), every one of them invisible to the transpile-only check I had been using. Log:
+`bench-results/hermes-prompt-ui-copilotkit-verification/pulseai-typecheck.log`.
+
 Settings to know: `pulseai.copilotWebview.enabled/.url/.height`,
 `PULSEAI_SAFETY_GITIGNORE=0` (revert the consent rule to its previous behaviour for one run),
 `PULSEAI_ALLOW_LIVE_AGENT_TEST` (never set it: that is the paid-turn gate).

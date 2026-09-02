@@ -7,7 +7,7 @@ import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { PulseExecutionMode } from '../common/pulseAIProtocol.js';
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
-import { compactTarget, isSilentTool, splitRunGroups, summarizeToolRun, toolPresentVerb } from './pulseAIRunSummary.js';
+import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './pulseAIRunSummary.js';
 import { renderToolIcon } from './pulseAIIcons.js';
 import {
 	activityOrigin, activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName,
@@ -527,7 +527,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	const scroll = element('div', 'pulseai-transcript-scroll');
 	const lane = element('div', 'pulseai-transcript-lane');
 	// History: previous turns (user → agent) preserved wireframe style, no breathing
-	for (const [index, turn] of model.history.entries()) {
+	for (const turn of model.history) {
 		if (turn.userMessage) lane.append(element('div', 'pulseai-user-message', turn.userMessage));
 		if (turn.assistantText || turn.reasoning) {
 			const response = element('section', 'pulseai-assistant-message');

@@ -1,0 +1,26 @@
+{
+	/*
+	 * Scoped typecheck for Pulse's own contribution, so the fork's TS can be verified without a
+	 * full `yarn && yarn compile`. Same strict flags as src/tsconfig.base.json (strict,
+	 * noUnusedLocals, noImplicitOverride, noUncheckedIndexedAccess-free), narrowed to
+	 * contrib/pulseai plus the repo's ambient typings.
+	 *
+	 * Coverage: `browser/` and `common/` -- the DOM and protocol layers Pulse ships. `node/` and
+	 * `electron-browser/` are left out because they need @types/node and electron.d.ts from a
+	 * real install; the full build still checks them. Run from desktop/vscode/src:
+	 *
+	 *   node ../../../pulse-webview/node_modules/typescript/bin/tsc -p tsconfig.pulseai-check.json
+	 */
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"skipLibCheck": true,
+		"types": [],
+		"lib": ["ES2024", "ESNext.Disposable", "DOM", "DOM.Iterable"]
+	},
+	"include": [
+		"typings/**/*.d.ts",
+		"vs/workbench/contrib/pulseai/browser/**/*.ts",
+		"vs/workbench/contrib/pulseai/common/**/*.ts"
+	]
+}

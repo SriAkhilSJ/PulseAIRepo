@@ -138,3 +138,12 @@ a6d1756555aaf911eb8a32467f2cfba895bd8c30025be12233a29f2c096b0daf    158L  unchan
 1ec5fb9b09b868822e06f17da6fea6dc4416e4b4a64c9e3085384c9154ac9137     60L  unchanged webview source of truth: model/turn-activity.ts
 f967bf4731882c7fd69ed0de1f5ac9dfc399215291438cc6464d6fbc65db29fd    187L  unchanged webview source of truth: components/status-line.tsx
 6b854e0ba3c46d38a14e10694592da3e9068e34679921d28656175f9517bf672  (log)  pytest.log + this round's section
+
+## Typecheck lane + Copilot agent-manager review (this commit)
+82a14e3d1c1f97fcb23613b2035efc1bc1f90adfff83eca936b4c2b70ffcacc1     26L  typecheck config (new) — desktop/vscode/src/tsconfig.pulseai-check.json
+f366f3e85ee2d09b8e3554a9d743b48b98c9d37c7ee9b40de63f9b67daa00b52     70L  renderer fix: SVG glyph type — desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIIcons.ts
+b91fa8082c4f87aa027ba9a8a37ad65e50b8d70db3495788e44d87ac412f93df    927L  renderer fix: dead locals — desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts
+8dfc572f6480e9bcf77fe98a62b4b4db1fdf6e3a2e780067392d3ac8e7d3e910    184L  view pane fix: frame + paragraph element types — desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIViewPane.ts
+832245cfc66197feae90f60730a147b4433818df94c5d6d192f351382f92ee05    196L  Copilot agent-manager review (new section) — docs/PULSE_COPILOT_REGISTRATION_REVIEW.md
+ef02f8b183bc695ae73ece2fcecb3e31969723495ccb83b280a4adca9748ff46    283L  runbook: the 40-second gate — DESKTOP_PERMISSION_HANDLING_QUALITY.md
+b6ba56016bdd73119eaf91b9ac7f33f4a184182df0b044ccdb31bcdea84fbfec  (log)  pulseai-typecheck.log (new)

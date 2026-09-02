@@ -1,0 +1,79 @@
+# Pulse contribution typecheck - the confidence check, runnable in the sandbox without node_modules
+
+Generated 2026-09-02 05:53 UTC. Repo tip before this commit: ff562511.
+A full fork build is impossible here (desktop/vscode/node_modules is empty), but the workbench's own
+strict compiler flags can still be pointed at Pulse's contribution alone: the sources it imports are
+all in-tree, so only third-party @types are missing, and those surface as errors in *other* people's
+files, never in ours.
+
+    cd desktop/vscode/src
+    node ../../../pulse-webview/node_modules/typescript/bin/tsc -p tsconfig.pulseai-check.json
+
+TypeScript 6.0.3 (resolved from pulse-webview/node_modules, which the repo already installs).
+Config src/tsconfig.pulseai-check.json: extends src/tsconfig.base.json (strict, noUnusedLocals,
+noImplicitOverride, noImplicitReturns, moduleResolution nodenext), noEmit, types:[], include =
+src/typings/**/*.d.ts + contrib/pulseai/{browser,common}. node/ and electron-browser/ are out of scope
+because they need @types/node and electron.d.ts from a real install; the full build still checks them.
+
+## First run: what it caught in code this branch already shipped
+
+Six real defects in browser/, all invisible to a transpile-only check, all fixed in this commit. The TS2882 css-import errors and every TS2591 in
+node/ are config-scope artifacts (src/typings declares *.css; node needs @types/node), so they are
+listed out rather than fixed.
+
+    vs/workbench/contrib/pulseai/browser/pulseAIIcons.ts(65,2): error TS2740: Type 'SVGSVGElement' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 26 more.
+    vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts(10,25): error TS6133: 'isSilentTool' is declared but its value is never read.
+    vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts(530,14): error TS6133: 'index' is declared but its value is never read.
+    vs/workbench/contrib/pulseai/browser/pulseAIViewPane.ts(26,2): error TS2741: Property 'align' is missing in type 'HTMLElement' but required in type 'HTMLParagraphElement'.
+    vs/workbench/contrib/pulseai/browser/pulseAIViewPane.ts(135,3): error TS2740: Type 'HTMLElement' is missing the following properties from type 'HTMLIFrameElement': align, allow, allowFullscreen, contentDocument, and 15 more.
+    vs/workbench/contrib/pulseai/browser/pulseAIViewPane.ts(151,32): error TS2345: Argument of type 'HTMLElement' is not assignable to parameter of type 'HTMLIFrameElement'.
+
+Raw pulseai lines in that run: 26; the 6 above are the ones in this lane.
+
+## After the fixes
+
+    errors in vs/workbench/contrib/pulseai/** : 0
+    errors elsewhere in the pulled-in graph   : 363
+
+Residual errors are environmental and cluster where a bare checkout always breaks:
+     185  vs/workbench/contrib/debug
+      35  vs/workbench/contrib/terminal
+      29  vs/platform/terminal/common
+      21  vs/workbench/contrib/notebook
+      17  vs/editor/browser/gpu
+      11  vs/editor/browser/viewParts
+       6  vs/editor/common/model
+       5  vs/editor/common/services
+ (TS2503 cannot-find-namespace, TS2307 cannot-find-module = missing @types):
+    121 error TS2503
+         71 error TS2339
+         61 error TS2307
+         47 error TS7006
+         45 error TS2304
+
+## Why this is the confidence artifact
+
+Six defects had shipped into this branch's fork code and were caught here in 40 seconds:
+renderToolIcon returning SVGSVGElement where the helper type says HTMLElement; an unused import and
+an unused loop index (hard failures under noUnusedLocals); DOM.$('p') and DOM.$('iframe...') typed as
+HTMLElement where HTMLParagraphElement / HTMLIFrameElement is required, the latter while
+showUnreachable reads contentWindow off it. None are visible to transpileModule; all
+are the kind that turn a first yarn compile into a 20-minute detour. tsc -p tsconfig.pulseai-check.json
+is the short version of that gate - no display, no engine, no provider key, no network.
+
+By code (TS2503 cannot-find-namespace, TS2307 cannot-find-module = missing @types):
+    121 error TS2503
+         71 error TS2339
+         61 error TS2307
+         47 error TS7006
+         45 error TS2304
+
+## Why this is the confidence artifact
+
+Six defects had shipped into this branch's fork code and were caught here in 40 seconds:
+renderToolIcon returning SVGSVGElement where the helper type says HTMLElement; an unused import and
+an unused loop index (hard failures under noUnusedLocals); DOM.$('p') and DOM.$('iframe...') typed as
+HTMLElement where HTMLParagraphElement / HTMLIFrameElement is required, the latter while
+showUnreachable reads contentWindow off it. None are visible to transpileModule; all
+are the kind that turn a first yarn compile into a 20-minute detour. tsc -p tsconfig.pulseai-check.json
+is the short version of that gate - no display, no engine, no provider key, no network.

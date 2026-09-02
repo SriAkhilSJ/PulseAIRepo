@@ -52,14 +52,18 @@ export function renderToolIcon(name: string, size: string = '0.875rem'): HTMLEle
 		node.style.fontSize = size;
 		return node;
 	}
-	const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+	// Every caller drops the glyph into a child position (`element(...)` takes `Node`), and the
+	// codicon fallback is an HTMLElement, so one declared type covers both shapes: the node is an
+	// SVGSVGElement at runtime and is only widened for the return, which is the same idiom
+	// `DOM.$<T>` uses across the workbench.
+	const svg = document.createElementNS(SVG_NS, 'svg') as unknown as HTMLElement;
 	svg.setAttribute('viewBox', TOOL_ICON_VIEWBOX);
 	svg.setAttribute('fill', 'currentColor');
 	svg.setAttribute('aria-hidden', 'true');
 	svg.style.height = size;
 	svg.style.width = size;
 	svg.style.flexShrink = '0';
-	const node = document.createElementNS(SVG_NS, 'path') as SVGPathElement;
+	const node = document.createElementNS(SVG_NS, 'path');
 	node.setAttribute('d', path);
 	svg.appendChild(node);
 	return svg;

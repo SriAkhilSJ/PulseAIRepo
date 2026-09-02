@@ -127,6 +127,70 @@ The first release should expose read-only capabilities only:
 
 Mutation, execution, extension tools, and MCP invocation remain later gates.
 
+## How Copilot's agent manager is built, and what Pulse's Manager should take from it
+
+**Read:** 2026-09-02, same checkout (`desktop/vscode`), provider-free source reading only.
+Everything below is a file:line in this repo, not a recollection.
+
+The thing Pulse's Manager reinvents already exists as a first-party subsystem: the **Agent Sessions**
+manager at `src/vs/workbench/contrib/chat/browser/agentSessions/` (21 files, 7 462 lines). Copilot
+does not own a manager — it plugs into this one through a *session item provider*, and the manager
+supplies the list, the state, the a11y and the open path.
+
+### What is where
+
+| concern | upstream mechanism | file |
+|---|---|---|
+| the list itself | workbench async **tree** view with virtual delegate, identity provider, compression delegate, sorter, keyboard-nav labels, drag-and-drop, sections and show-more/show-less rows | `agentSessionsViewer.ts:222,783,870,957,1107,1599,1629,1636,1697,1720` |
+| state | a service (`IAgentSessionsService`) over a model, with per-session `setRead(true)` fired on open | `agentSessionsService.ts`, `agentSessionsOpener.ts:110` |
+| live status glyph | `AgentSessionStatusIcon`: a **pixel spinner** — `variant: 'grid'` for `InProgress`, `'ring'` for `NeedsInput`, cached per template, disposed through `MutableDisposable` | `agentSessionsViewer.ts:99-140` |
+| motion policy | reduced motion is handled **twice**: the primitive disables its own animation, and the viewer subscribes to `onDidChangeReducedMotion` to re-render rows that are already on screen | `agentSessionsViewer.ts:116-121`, `base/browser/ui/pixelSpinner/pixelSpinner.ts:38` |
+| attention | `needs-input` pulses the glyph (2s) *and* the row's background accent (3s), suppressed while the row is selected/focused/hovered; with reduced motion the pulse becomes a static 8 % warning tint | `media/agentsessionsviewer.css:29-40,166-176,454-470` |
+| opening | one entry point, `openSession(accessor, session, openOptions)`: participants get first refusal, then default = **the Chat view** (`ChatViewPaneTarget`), `sideBySide` → editor group, and if the provider cannot resolve in the panel it **forces an editor** — with `revealIfOpened: true` always | `agentSessionsOpener.ts:84-140` |
+| extensibility | `sessionOpenerRegistry.registerParticipant({ handleOpenSession, handleOpenSessionResource })`; a participant throwing is logged and the default path still runs | `agentSessionsOpener.ts:27-56,64-77` |
+| provider readiness | `activateChatSessionItemProvider(session.providerType)` is awaited *before* attempting to open | `agentSessionsOpener.ts:122` |
+| wording and time | in-progress rows read `Working…`; a duration under 60 s renders as "now", and elapsed is clamped to a whole second floor | `agentSessionsViewer.ts:565,580-585` |
+
+### The four things this settles for Pulse
+
+1. **Popup or tab: neither, as the fork ships it.** There is no auxiliary-window path in upstream's
+   manager. One opener takes a *target* — view pane by default, editor group when asked, editor
+   forcibly when the panel cannot host it, `revealIfOpened` so a second click reveals the first
+   surface instead of stacking a second one. Pulse's open question
+   (`host.openManager()` building an aux window vs the `pulseai.openManager` command opening
+   `PulseAIManagerEditor`) is answered by this shape: keep the command/editor as the surface, give
+   the button the same `openSession`-style call with a target option, and let the editor pane stay
+   the thing `scripts/validate_pulse_ui_cdp.js` waits for. This is a recommendation with a
+   citation, not a change — the decision is still the owner's and the pin is still
+   `xfail(strict=True)`.
+2. **A participant registry, not a fork of the manager.** `ISessionOpenerParticipant` +
+   first-refusal iteration + log-and-continue is ~30 lines and is what keeps several owners of one
+   surface from growing several openers. Pulse's Manager, its editor pane and any future
+   Copilot-handoff should meet at one such registry rather than at duplicated `openEditor` calls.
+3. **`createPixelSpinner` is Pulse's live-status primitive too.** It is already in this checkout
+   (`base/browser/ui/pixelSpinner/pixelSpinner.ts`, `createPixelSpinner(parent, { ariaLabel,
+   variant })`, `currentColor`-driven, self-disabling under reduced motion). Pulse's
+   `pulseai-mini-spinner` CSS duplicates a worse version of it, and the Manager's session row has
+   no `NeedsInput` state at all even though the model has one (`model.approval`). Two changes,
+   each small: the Manager row gets grid-while-running / ring-while-awaiting plus the needs-input
+   pulse, and the thread scaffold keeps Hermes' breathing square — because that is what the webview
+   renders, and the thread and the list are deliberately different surfaces upstream as well.
+4. **Reduced motion is a re-render, not only a media query.** Upstream subscribes to
+   `onDidChangeReducedMotion` because a CSS-only answer leaves already-painted rows animating (or
+   frozen) until something else repaints them. Pulse's `@media (prefers-reduced-motion: reduce)`
+   block is correct for the animation itself and incomplete for the row's *structure* (the spinner
+   is mounted in JS).
+
+### What Pulse should not copy from it
+
+The session *model* is Copilot/GitHub-shaped: `providerType`, GitHub session resources,
+`vscodeChatEditor` URIs, background fetch, syncing. Pulse's sessions are local engine sessions over
+the stdio bridge, and `pulseAIProtocol` already carries `session_id`. Importing the model would
+couple Pulse to Copilot's entitlement and resource conventions — the exact coupling the
+registration conclusion above warns against. What transfers is the *manager's* mechanics: an async
+tree, one opener with a target, a participant registry, a11y-correct status primitives, and
+attention states that respect the accessibility setting.
+
 ## Registration conclusion
 
 Pulse is already correctly installed as a first-party contribution across the fork's common and desktop entry points. The next strengthening step is not another top-level registration. It is a protocol-safe capability broker that connects the already-registered `IPulseAIWorkbenchService` and Code OSS provider registries to the Python agent.
