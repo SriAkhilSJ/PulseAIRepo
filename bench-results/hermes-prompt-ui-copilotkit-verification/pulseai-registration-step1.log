@@ -241,3 +241,29 @@ known-phatic, drawn-out spellings collapse their whole trailing run ("okkk" -> "
 rather than a length heuristic because a false skip would drop planning on real work. Executed with
 `get_llm` sabotaged, so a phatic turn that reaches the model factory fails the test; verified in both
 directions by deleting the gate (13 failures) and restoring it (18 pass). Lane: 20 passed.
+
+## Hermes source read directly (`0cbc6e3`), and the pre-action planner is gone
+
+The owner's correction was right and the upstream proves it: `tools/todo_tool.py:316` is ONE function the
+model calls (`todos=None` reads, a list replaces, `merge` updates by id) with `:15` "Behavioral guidance
+lives entirely in the tool schema description", and `agent/plan_prompt.py` makes PLAN MODE a prompt fed as a
+normal turn -- "There is no engine and no model-tool footprint", deliverable markdown under
+`.hermes/plans/`. Asking is a tool too (`tools/clarify_tool.py`). Capability in the loop, mode as a prompt,
+zero cost when unused.
+
+Pulse had the mirror image and paid for it on `hi`: classifier call, generation call, validation, then the
+step projection crash. Three changes, in Hermes' shape:
+
+* `src/tools/plan_tool.py` -- `plan_update`, bound into the graph's tool list (38 tools), schema description
+  carrying the abstention rules; the state write in `progress_node` lets the model's list replace the plan
+  outright, and `plan_created` is now tracked so the UI and the gates see it.
+* `planner_node` -- returns `_no_plan()` for `agent`/`ask`/`debug` with the factory sabotaged in tests and
+  no call happening; `plan` mode returns Hermes' prompt as a turn and generates nothing. The advisory chain
+  was cut from the node rather than left unreachable, and `after_planner` sends plan mode to the agent
+  instead of previewing an empty list.
+* `"plan"` has no reducer, so a second planner pass now returns `{}` when a plan exists -- otherwise the
+  model's own list would be erased on the next step.
+
+Executed, not asserted by prose: 9 tests in `test_hermes_planning_parity.py` import the real graph module
+(installed the provider/langchain set into a fresh venv for exactly this) and run the node. Lanes: 45
+passed, 2 skipped. The claim that `hi` is now one turn is provable only on his host -- that is the test.

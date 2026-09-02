@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sqlite3
@@ -94,6 +95,7 @@ from src.agents.planner import (
     check_ambiguity,
 )
 from src.models.plan_models import steps_to_dicts
+from src.tools.plan_tool import plan_update
 from src.graphs import progress_helpers as ph
 from src.tools.file_tools import (
     read_file,
@@ -394,6 +396,7 @@ tools = [
     think,
     verify,
     ask_user,
+    plan_update,
     delegate_to_subagent,
     delegate_to_subagent_batch,
     display_pulse_task,
@@ -1751,6 +1754,7 @@ def progress_node(
     messages = state.get("messages", [])
 
     plan = list(state.get("plan", []))
+    plan_created = bool(state.get("plan_created", False))
     steps_completed = list(state.get("steps_completed", []))
     failed_steps = list(state.get("failed_steps", []))
     execution_trace = list(state.get("execution_trace", []))
@@ -1878,7 +1882,24 @@ def progress_node(
                     )
                 )
 
-        if plan:
+        if tool_name == "plan_update":
+            # The model's own list wins outright -- Hermes' todo tool replaces the list rather than
+            # inferring progress from receipts. Parsing is tolerant by construction (steps_to_dicts),
+            # so a bare-text step can never repeat the crash that ate a 42s turn.
+            written = steps_to_dicts(_plan_tool_steps(tool_args))
+            if written:
+                plan = written
+                plan_created = True
+                event_bus.emit(
+                    "plan_updated",
+                    {
+                        "session_id": str(
+                            config.get("configurable", {}).get("thread_id") or "default"
+                        ),
+                        "plan": plan,
+                    },
+                )
+        if plan and tool_name != "plan_update":
             plan = ph.update_plan_from_tool(
                 plan=plan,
                 tool_name=tool_name,
@@ -1913,6 +1934,7 @@ def progress_node(
         "recovery_command": recovery_command,
         "recovery_attempts": recovery_attempts,
         "plan": plan,
+        "plan_created": plan_created,
         "replan_needed": replan_needed,
         "execution_trace": execution_trace,
         "env_failures": env_failures,
@@ -2100,58 +2122,39 @@ def planner_node(
             ),
         }
 
-    try:
-        needs_plan = should_create_plan(
-            task=current_task,
-            provider=provider,
-            model=model,
-            usage_list=usages,
-        )
+    # plan_update writes state["plan"] mid-turn, and "plan" has no reducer: returning _no_plan()
+    # here would replace it with [] and erase the model's own list on the next pass.
+    if state.get("plan"):
+        return {}
 
-        if not needs_plan:
-            return _no_plan()
-
-        # Cost-aware routing for planning
-        routed_provider, routed_model = cost_router.route(current_task)
-
-        try:
-            # create_plan uses the provider/model strings, not the llm object
-            # directly. Pass the routed ones; if they fail, fallback below.
-            task_plan = create_plan(
-                task=current_task,
-                provider=routed_provider,
-                model=routed_model,
-                usage_list=usages,
-            )
-        except Exception:
-            task_plan = create_plan(
-                task=current_task,
-                provider=provider,
-                model=model,
-                usage_list=usages,
-            )
-    except Exception as exc:
-        print(
-            f"[planner] plan generation failed; degrading to no-plan "
-            f"({type(exc).__name__}: {exc})"
-        )
+    # Hermes parity, and the fix for "hi" costing two provider calls: planning is model reasoning
+    # inside the loop, so no mode except an explicit PLAN request pays for it up front. The model
+    # reaches the list through plan_update; the UI reads the same plan state either way.
+    if state.get("execution_mode", "agent") != "plan":
         return _no_plan()
 
-    token_usage = _merge_token_usage(
-        state.get("token_usage", {}),
-        usages,
-    )
-
-    plan = steps_to_dicts(task_plan.steps)
-
-    plan = start_next_plan_step(plan)
+    # PLAN MODE is a prompt, not an engine (agent/plan_prompt.py: "There is no engine and no
+    # model-tool footprint"). Feed the live agent Hermes' ground rules as a normal turn.
+    from src.prompts.hermes.plan_learn import build_plan_prompt
 
     return {
-        "plan": plan,
-        "plan_goal": task_plan.goal,
-        "plan_created": True,
-        "token_usage": token_usage,
+        "plan": [],
+        "plan_goal": current_task,
+        "plan_created": False,
+        "messages": [SystemMessage(content=build_plan_prompt(current_task))],
+        "token_usage": _merge_token_usage(state.get("token_usage", {}), usages),
     }
+
+def _plan_tool_steps(tool_args: dict) -> list:
+    """Steps as the model passed them: a list, or a JSON string it could not be bothered to type."""
+
+    raw = (tool_args or {}).get("steps")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = [line for line in raw.splitlines() if line.strip()]
+    return raw if isinstance(raw, list) else []
 
 
 def after_task_manager(state: AgentState) -> str:
@@ -2205,7 +2208,9 @@ def after_planner(state: AgentState) -> str:
     """Choose whether to execute the plan or only preview it."""
 
     if state.get("execution_mode", "agent") == "plan":
-        return "plan_preview"
+        # The plan-mode prompt above already replaced the advisory chain, so there is no generated
+        # list to preview: the agent writes the plan file and answers. Hermes does the same.
+        return "ai"
 
     return "ai"
 
