@@ -1,0 +1,1 @@
+﻿reached: A; result: FAIL; first failure: Gate 0 — checkout not clean (pulse-webview/live-failure.spec.ts untracked pre-existing)
