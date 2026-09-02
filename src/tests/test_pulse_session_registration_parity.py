@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sys
 import subprocess
 from pathlib import Path
 
@@ -35,7 +36,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
 COMMON = PULSE / "common"
 BROWSER = PULSE / "browser"
-ESBUILD = ROOT / "pulse-webview" / "node_modules" / ".bin" / "esbuild"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_loader import resolve_esbuild  # noqa: E402  (src/tests is not a package; pytest prepends it)
 SRC = ROOT / "desktop" / "vscode" / "src"
 # tsc is a JS entrypoint, so it runs on any host with node -- including a Windows checkout whose
 # node_modules was installed on Linux, where .bin/esbuild is a POSIX shim that cannot execute.
@@ -82,15 +84,11 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _esbuild_usable() -> bool:
-    if not ESBUILD.exists():
-        return False
-    try:
-        probe = subprocess.run([str(ESBUILD), "--version"], capture_output=True, text=True, encoding="utf-8",
-                                     errors="replace", stdin=subprocess.DEVNULL, timeout=60)
-    except OSError:
-        return False          # e.g. WinError 193: the shim is a POSIX script, not an executable
-    return probe.returncode == 0
+def _esbuild() -> Path | None:
+    """An esbuild that executes on THIS host, or None. The .bin shim is only a candidate, not an
+    assumption: a node_modules tree installed on another platform leaves it as a POSIX script, which is
+    what cost the first Windows round (WinError 193)."""
+    return resolve_esbuild(ROOT / "pulse-webview")
 
 
 def _transpile(source: Path, workdir: Path) -> Path:
@@ -119,10 +117,11 @@ def _load(source: Path, workdir: Path) -> str:
     """Return an ESM specifier node can import, relative to `workdir`: esbuild's single-file bundle
     when its binary is native to this host, otherwise tsc's emitted tree -- whose modules sit at
     their source-relative depth, so the specifier is a path and not a bare filename."""
-    if _esbuild_usable():
+    esbuild = _esbuild()
+    if esbuild is not None:
         out = workdir / f"{source.stem}.mjs"
         proc = subprocess.run(
-            [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+            [str(esbuild), str(source), "--bundle", "--format=esm", f"--outfile={out}",
              "--log-level=warning", "--platform=node"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             stdin=subprocess.DEVNULL, timeout=180,
@@ -310,6 +309,22 @@ def test_session_uri_scheme_is_the_session_type(tmp_path):
         assert round_trip in ids, (scheme, round_trip)
     resolver = _text(CHAT_URI)
     assert "return resource.scheme;" in resolver
+
+
+def test_no_parity_lane_hardcodes_npm_s_bin_shim():
+    """Third Windows round, same class of mistake: `.bin/esbuild` is a shell script when node_modules
+    was installed on another platform, so the lanes must resolve an executable and believe the probe.
+    Source-level, so it fires on a host whose own shim works fine."""
+    here = Path(__file__).resolve().parent
+    for name in ("test_pulse_session_registration_parity.py", "test_hermes_activity_parity.py",
+                 "test_hermes_run_summary_parity.py"):
+        text = (here / name).read_text(encoding="utf-8")
+        assert "_node_loader" in text, f"{name} still assumes where esbuild lives"
+        assert '".bin" / "esbuild"' not in text, f"{name} hardcodes the shim path again"
+    loader = (here / "_node_loader.py").read_text(encoding="utf-8")
+    for needed in ("@esbuild/{pkg}/bin/esbuild{exe}", "@esbuild/{pkg}/esbuild{exe}", "--version"):
+        assert needed in loader, f"the resolver lost {needed}"
+    assert "WinError" in loader, "the resolver must say which failure it is defending against"
 
 
 def test_no_lane_asks_the_console_how_to_read_utf8():

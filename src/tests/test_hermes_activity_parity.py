@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import subprocess
 from pathlib import Path
 
@@ -27,7 +28,8 @@ ROOT = Path(__file__).resolve().parents[2]
 BROWSER = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
 COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "common"
 HERMES_UI = ROOT / "pulse-webview" / "src" / "hermes-ui"
-ESBUILD = ROOT / "pulse-webview" / "node_modules" / ".bin" / "esbuild"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_loader import esbuild_or_skip  # noqa: E402  (src/tests is not a package; pytest prepends it)
 
 FORK_ACTIVITY = BROWSER / "pulseAIActivity.ts"
 FORK_ICONS = BROWSER / "pulseAIIcons.ts"
@@ -35,8 +37,8 @@ FORK_RENDERER = BROWSER / "pulseAIRenderer.ts"
 FORK_CATALOG = COMMON / "pulseAIToolCatalog.ts"
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None or not ESBUILD.exists(),
-    reason="the row's maths are executed here, so this needs node and pulse-webview's esbuild (npm install)",
+    shutil.which("node") is None,
+    reason="the row's maths are executed here, so this needs node (and an esbuild that executes)",
 )
 
 
@@ -59,7 +61,7 @@ def _node_json(command: list[str], cwd: Path, timeout: int = 180) -> object:
 def _bundle(source: Path, workdir: Path) -> Path:
     out = workdir / f"{source.stem}.mjs"
     proc = subprocess.run(
-        [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+        [str(esbuild_or_skip(ROOT / "pulse-webview")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         stdin=subprocess.DEVNULL, timeout=180,

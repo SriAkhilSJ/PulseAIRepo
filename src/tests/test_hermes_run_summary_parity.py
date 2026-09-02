@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sys
 import subprocess
 import tempfile
 from pathlib import Path
@@ -19,10 +20,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 FORK_TS = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRunSummary.ts"
 WEB_TS = ROOT / "pulse-webview" / "src" / "hermes-ui" / "model" / "run-summary.ts"
-ESBUILD = ROOT / "pulse-webview" / "node_modules" / ".bin" / "esbuild"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_loader import esbuild_or_skip  # noqa: E402  (src/tests is not a package; pytest prepends it)
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None or not ESBUILD.exists(),
+    shutil.which("node") is None,
     reason="parity is executed, so it needs node and pulse-webview's esbuild (npm install)",
 )
 
@@ -30,7 +32,7 @@ pytestmark = pytest.mark.skipif(
 def _bundle(source: Path, workdir: Path) -> Path:
     out = workdir / f"{source.stem}.mjs"
     proc = subprocess.run(
-        [str(ESBUILD), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+        [str(esbuild_or_skip(ROOT / "pulse-webview")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         stdin=subprocess.DEVNULL, timeout=120,

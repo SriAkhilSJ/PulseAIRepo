@@ -100,10 +100,15 @@ cd D:\pulseAIagent\PulseAIRepo
 ```
 
 **PASS = zero failures/errors**, and `test_pulse_session_registration_parity.py` contributing **8 passed**.
-The lane picks its loader at run time — esbuild when `node_modules\.bin\esbuild --version` actually executes,
-otherwise `typescript\bin\tsc`, which is plain JS and needs no native binary — so a `node_modules` tree
-installed on Linux no longer matters. Round 1 died here with `[WinError 193]`; that was the harness, now
-fixed at `1d8b4077`. `8 *skipped*` is still a fail-to-prove (no node at all): report it, do not chase it.
+Both harness assumptions are gone. `src/tests/_node_loader.py` probes candidates and keeps the first one
+that runs `--version`: `.bin/esbuild`, `.bin/esbuild.cmd`, `@esbuild/<platform>/bin/esbuild.exe`,
+`@esbuild/<platform>/esbuild.exe`, `esbuild/bin/esbuild` — which is where the real binary lives when
+`node_modules` was installed on another platform and `.bin` is a POSIX script. If none of those execute,
+the registration lane falls back to `typescript\bin\tsc` (plain JS, no native binary) and the two Hermes
+lanes skip. Round 1 died on the shim, round 3 on the same shim in the other two files; both shapes are now
+pinned at source level, so a future edit cannot reassume them.
+
+`*skipped*` is a host gap to report, never a pass and never something to chase with a reinstall.
 
 Evidence goes to `bench-results\pulse-manager-registration-desktop-r3` — the r2 directory is the record of
 gate A passing and the harness failing, and evidence is never overwritten. Put one line in r3's `gate.txt`:
