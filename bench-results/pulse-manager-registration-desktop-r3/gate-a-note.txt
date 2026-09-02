@@ -1,0 +1,1 @@
+gate A carried forward from r2/gate-a-tsc.txt (sha256 in r2/sha256sums.txt)

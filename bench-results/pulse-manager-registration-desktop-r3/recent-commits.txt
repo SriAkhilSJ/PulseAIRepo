@@ -1,0 +1,6 @@
+7136a586 instructions: ascii evidence, the r3 directory, and the loader that no longer needs a native esbuild
+1d8b4077 tests: let the parity lane run on a host whose esbuild is a foreign shim
+2b1221a4 evidence(desktop): manager session registration ??? FAIL at gate B
+a4c774e5 instructions: gate 0 was checking the wrong thing
+ce2bd04f evidence(desktop): manager session registration ??? FAIL at gate 0
+2327e280 evidence: re-ran the registration gates after the sandbox rebuilt itself

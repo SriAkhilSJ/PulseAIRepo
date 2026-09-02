@@ -1,0 +1,44 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 20 items
+
+src\tests\test_pulse_session_registration_parity.py .FFFF...             [ 40%]
+src\tests\test_desktop_renderer_architecture.py ...s.......x             [100%]
+
+================================== FAILURES ===================================
+____________________ test_row_label_is_the_users_own_words ____________________
+src\tests\test_pulse_session_registration_parity.py:250: in test_row_label_is_the_users_own_words
+    assert len(out["labels"][3]) == 90 and out["labels"][3].endswith("\u2026")
+E   AssertionError: assert (92 == 90)
+E    +  where 92 = len('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxΓÇª')
+____________ test_elapsed_and_attention_follow_the_lists_own_rules ____________
+src\tests\test_pulse_session_registration_parity.py:266: in test_elapsed_and_attention_follow_the_lists_own_rules
+    assert [row[1] for row in out["elapsed"]] == ["Working\u2026", "Needs input", "now", "now", "now", "10m"]
+E   AssertionError: assert ['WorkingΓÇª'... 'now', '10m'] == ['Workingà', ... 'now', '10m']
+E     
+E     At index 0 diff: 'WorkingΓÇª' != 'Workingà'
+E     Use -v to get more diff
+___________________ test_rows_are_a_projection_of_the_store ___________________
+src\tests\test_pulse_session_registration_parity.py:277: in test_rows_are_a_projection_of_the_store
+    assert rows[1]["state"] == "Working\u2026" and rows[0]["state"] == "now"
+E   AssertionError: assert ('WorkingΓÇª' == 'Workingà'
+E     
+E     - Workingà
+E     ?        ^
+E     + WorkingΓÇª
+E     ?        ^^^)
+_________________ test_session_uri_scheme_is_the_session_type _________________
+src\tests\test_pulse_session_registration_parity.py:298: in test_session_uri_scheme_is_the_session_type
+    assert round_trip in ids, (scheme, round_trip)
+E   AssertionError: ('pulseai', '├╝nicode')
+E   assert '├╝nicode' in ['s-1', 'session/with slash', '100%_odd', 'ⁿnicode']
+=========================== short test summary info ===========================
+FAILED src/tests/test_pulse_session_registration_parity.py::test_row_label_is_the_users_own_words
+FAILED src/tests/test_pulse_session_registration_parity.py::test_elapsed_and_attention_follow_the_lists_own_rules
+FAILED src/tests/test_pulse_session_registration_parity.py::test_rows_are_a_projection_of_the_store
+FAILED src/tests/test_pulse_session_registration_parity.py::test_session_uri_scheme_is_the_session_type
+============= 4 failed, 14 passed, 1 skipped, 1 xfailed in 8.71s ==============

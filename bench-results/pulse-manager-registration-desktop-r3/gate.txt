@@ -1,0 +1,1 @@
+reached: B; result: FAIL; first failure: Gate B ? 4 parity tests fail: node UTF-8 output read as cp1252 by Python subprocess (mojibake); gate A carried forward from r2/gate-a-tsc.txt (sha256 in r2/sha256sums.txt)
