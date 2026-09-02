@@ -207,7 +207,67 @@ They ran the three controls I asked for and the answer is not the one I predicte
   yet run a validator that needs a current build). The brief allows exactly one `npm run compile` on that
   symptom, with a note in findings.md.
 
-Totals: **71 passed / 0 skipped** for the two port suites with the pin at `a9c783f2`, and **119 passed**
-across bridge + prompt + runtime + session suites with the same pin present. Without a reachable Hermes
-checkout, `test_corpus_hash_matches_a_pinned_checkout` skips and those reads become 70/1 and 118/1 — which is
-why the brief now names that test explicitly instead of demanding a bare count.
+## Fourth finding: their "slow collection" was my test suite billing their host
+
+Their full-suite run never finished, and the one file that exceeded the 60 s collection timeout was
+`src/tests/test_agent_status_checkpoint.py` (every other file landed in 32 s or less). It was not a cold
+interpreter and it was not scipy — **that file had no test functions in it at all**. Module scope held
+`from src.graphs.chat_graph import get_agent_status, invoke_agent`, a `generated/` mkdir/unlink, and
+
+    response = invoke_agent(message="Create generated/status_checkpoint_test.py ... Run it and verify the output.",
+                            provider=LLM_PROVIDER, model=LLM_MODEL, workspace=".", execution_mode="agent")
+
+followed by bare `assert`s. pytest runs module scope **during collection**, before `-k`/`-m` filters and
+before any timeout guard, so collecting the suite executed a real multi-step agent turn. Viewed from outside,
+that is indistinguishable from "the machine is slow at imports", which is how it was read — and my brief's
+standing claim that Phase 1 is a "provider-free baseline (0 credits)" was, on a host healthy enough to have a
+working `.env`, simply false. Their run aborted before it billed anything, so the credit ledger is still
+correct; the *claim* was not, and that is mine.
+
+Why I did not see it: on this Linux sandbox the same module failed in 0.34 s with
+`ModuleNotFoundError: No module named 'langgraph.checkpoint.sqlite'`. The hazard only materialises on a machine
+with the full dependency set **and** a configured provider — i.e. exactly the verifier's machine, never the
+author's. Any test that is fast-or-erroring on the author's box is untested for the host that matters.
+
+Fix, in that file (`src/tests/test_agent_status_checkpoint.py`): heavy imports moved inside a real
+`def test_...`; the target moved to `tmp_path` so the checkout stops being a scratch pad; the thread id is now
+unique per run, because a reused id let the *previous* run's checkpoint satisfy `trace_count > 0` on its own;
+the duplicated trailing asserts are gone; and the whole test is gated by
+
+    pytestmark = pytest.mark.skipif(os.environ.get("PULSEAI_ALLOW_LIVE_AGENT_TEST") != "1", reason=...)
+
+A test that spends money is opt-in, always. Collection is now side-effect-free and the file is skipped, not
+failed, when the gate is closed.
+
+**The class of bug was repo-wide, and my attempt to forbid it lit up immediately.** `src/tests/test_no_import_time_agent_turns.py`
+AST-parses every `src/tests/test_*.py` for module-level `invoke_agent`/`stream_agent`/`build_graph`/
+`get_agent_status` calls. First run flagged 12 statements in 6 files, all present at base `86eaaae2`:
+`test_plan_cancel.py` (3 turns + 1 checkpoint read), `test_plan_revision.py` (3), `test_plan_approval.py` (2),
+`test_keep_recovery.py` (1), `test_plan_mode.py` (1), `test_replan_recovery.py` (1) — **11 of them billed
+`invoke_agent`/`stream_agent` turns** (the twelfth, `test_plan_cancel.py:51`, is a provider-free
+`get_agent_status` read). So `pytest src/tests` on a funded host fires ~11 live agent turns at collection,
+*before* any test is selected, any filter applies, or any timeout guard is armed. I did not rewrite six owner-authored tests inside a
+verification round. The pin is a **ratchet** instead: `KNOWN_IMPORT_TIME_TURNS` records those exact 6 files,
+new offenders fail, and a second assertion pins the turn count at 11 / statement count at 12 and requires the
+file set to match, so the debt can only shrink and each conversion must be declared. Both numbers were measured
+with a per-file AST count after the fact — my first two drafts said 11 and then 12 for "live turns", having
+counted a read-only `get_agent_status` as a turn and, before that, read a truncated `head -8`. An unverifiable
+count in an evidence doc is a defect; the count is now derived from the same walk the test uses.
+
+Also theirs-vs-mine: `test_terminal_children_never_inherit_the_parents_stdin` failed on their host for a reason
+that was mine twice over. It built the child's command with `shlex.join`, whose single quotes `cmd.exe` reads
+literally, so the child died on a quoting error before stdin was ever consulted; it now uses
+`subprocess.list2cmdline` on nt and `shlex.join` elsewhere, matching the neighbouring test. And the behavioural
+half is `skipif(os.name == "nt")` for a deeper reason: Windows children inherit the parent's *process handles*,
+not its CRT file descriptors, so `os.dup2` onto fd 0 is invisible to a child there and the hang cannot be
+reproduced on that platform by construction. `test_foreground_popen_passes_devnull_stdin` carries the contract
+cross-platform by reading what both `Popen` sites pass. So the `stdin=DEVNULL` fix itself stands exactly as
+verified on their host, and the single Windows-only excess failure was my test, not the product: **zero
+regressions in the port.**
+
+Totals at this commit, with the pin at `a9c783f2` and `HERMES_REF` reachable: **71 passed / 0 skipped** for the
+two port suites; **121 passed / 1 skipped** across bridge transport + both port suites + runtime values +
+session engines + the collection-safety pins, in 55 s — the one skip is the gated live turn, by design.
+Without a reachable Hermes checkout, `test_corpus_hash_matches_a_pinned_checkout` skips and those read 70/1 and
+120/2, which is why the brief names that test explicitly instead of demanding a bare count. Whole-suite
+`--collect-only` on this host now finishes in under 2 s.

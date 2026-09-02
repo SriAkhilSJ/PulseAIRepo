@@ -101,6 +101,17 @@ expect: `.env` is NEVER committed, echoed into a log, or included in any artifac
 
 ## Phase 1 — Provider-free baseline (0 credits). This is what I already proved; you are proving it holds.
 
+**Read this before you run anything below.** "Provider-free" was an assumption about the suite, and on your
+machine it was false. Six test modules in `src/tests` (pre-existing, not from this port) call
+`invoke_agent`/`stream_agent` at **module scope**, so merely *collecting* them runs 11 real agent turns against
+whatever key your `.env` holds — before `-k`/`-m` applies and before any timeout guard is armed. They also write
+into `generated/`. `src/tests/test_no_import_time_agent_turns.py` is the pin that keeps the pattern from
+growing; those 6 files sit in its `KNOWN_IMPORT_TIME_TURNS` set as owner debt, deliberately not converted
+mid-round. So run the full suite **with those six ignored**, and never set `PULSEAI_ALLOW_LIVE_AGENT_TEST=1` for
+this task — that variable opts *into* a billed turn, and it is the only thing gating the seventh file
+(`test_agent_status_checkpoint.py`, which is what stalled your collection at 60 s and got misread as a slow
+import).
+
 ```powershell
 $evidence = Join-Path $repo 'bench-results\prompt-ui-live-e2e'
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
@@ -109,14 +120,22 @@ $env:PULSEAI_ENGINE_ROOT = $repo
 $env:PULSEAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
 .venv\Scripts\python.exe -m pytest src\tests\test_hermes_prompt_parity.py src\tests\test_hermes_prompt_session_cache.py -q 2>&1 |
   Tee-Object "$evidence\pytest-parity.log"
-.venv\Scripts\python.exe -m pytest src\tests -q 2>&1 | Tee-Object "$evidence\pytest-full.log"
+$live_debt = @(
+  'test_keep_recovery.py','test_plan_approval.py','test_plan_cancel.py',
+  'test_plan_mode.py','test_plan_revision.py','test_replan_recovery.py'
+) | ForEach-Object { "--ignore=src/tests/$_" }
+.venv\Scripts\python.exe -m pytest src\tests -q $live_debt 2>&1 | Tee-Object "$evidence\pytest-full.log"
 cd pulse-webview; npm test 2>&1 | Tee-Object "$repo\$evidence\webview-test.log"; `
   npx tsc -b 2>&1 | Tee-Object "$repo\$evidence\webview-tsc.log"; `
   npx vite build 2>&1 | Tee-Object "$repo\$evidence\webview-build.log"; cd $repo
 ```
 
 expect: `71 passed` from the two Hermes suites (61 parity + 10 session-cache), **0 skipped**. Any fewer =
-**STOP, report, spend 0 credits.**
+**STOP, report, spend 0 credits.** Then the full-suite log: a pass-count is yours to
+report, not to match against my box, and a `1 skipped` naming `PULSEAI_ALLOW_LIVE_AGENT_TEST` is the *correct*
+result — if that test ran, credits were spent and `findings.md` must say so instead of reporting it green. If
+collection stalls again, `pytest --collect-only -q` plus a faulthandler dump names the module: look for
+module-scope work before you blame the interpreter.
 One skip is legitimate and host-shaped, not a failure: `test_corpus_hash_matches_a_pinned_checkout` skips
 when no Hermes checkout is reachable. That test is the anti-drift guarantee for the whole port (corpus
 sha256 vs upstream bytes at the pin), so satisfy it rather than accept the skip — 0 credits, one network

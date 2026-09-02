@@ -1,16 +1,17 @@
-=== provider-free verification run (2026-08-31 UTC, after the stdin-isolation fix) ===
-=== HERMES_REF=/home/user/.hermes-ref @ a9c783f2 (pin re-fetched; this sandbox lost its home dir again) ===
-=== python3 -m pytest src/tests/test_hermes_prompt_parity.py src/tests/test_hermes_prompt_session_cache.py -q -rs ===
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.12.1
+collected 122 items
+
+src/tests/test_no_import_time_agent_turns.py ..                          [  1%]
+src/tests/test_agent_status_checkpoint.py s                              [  2%]
+src/tests/test_hermes_runtime_values.py ..............                   [ 13%]
+src/tests/test_session_engines.py ...................                    [ 29%]
+src/tests/test_bridge_transport.py ...............                       [ 41%]
+src/tests/test_hermes_prompt_parity.py ................................. [ 68%]
+............................                                             [ 91%]
 src/tests/test_hermes_prompt_session_cache.py ..........                 [100%]
-============================== 71 passed in 1.94s ==============================
 
-=== bridge + prompt + runtime + session suites together ===
-src/tests/test_hermes_runtime_values.py ..............                   [100%]
-============================= 119 passed in 38.41s =============================
-
-=== pre-fix control for the stdin pins: src/tools/terminal_tools.py reverted to the tip, verbatim ===
-E   AssertionError: stdin inheritance resurrected the hang after 5.0s
-    assert 'timed out' not in '...run_termi...ing process.'
-E   AssertionError: start_terminal must not inherit stdin either
-    assert 0 >= 2
-======================== 2 failed, 12 deselected in 5.20s =======================
+================== 121 passed, 1 skipped in 64.54s (0:01:04) ===================

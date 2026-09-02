@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import pathlib
 import queue
 import sqlite3
 import threading
 import time
+
+import pytest
 
 from src.context.verification_evidence import VerificationLedger
 from src.dashboard.event_bus import ApprovalQueue, EventBus
@@ -217,6 +220,16 @@ def _stdin_is_an_open_pipe(fd: int = 0):
         os.close(write_fd)
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason=(
+        "the probe redirects POSIX fd 0 and watches what the child inherits; a "
+        "Windows child inherits the parent's *process handles*, not its CRT file "
+        "descriptors, so os.dup2(0) is invisible to it and this hang cannot be "
+        "reproduced here. The white-box pin below carries the contract on every "
+        "platform by reading what both Popen sites actually pass."
+    ),
+)
 def test_terminal_children_never_inherit_the_parents_stdin(tmp_path, monkeypatch):
     """A tool child must not be able to read (or block on) our own stdin.
 
@@ -226,12 +239,19 @@ def test_terminal_children_never_inherit_the_parents_stdin(tmp_path, monkeypatch
     hang, which no amount of pipe-reading cleverness could fix because the child was
     never going to exit.
     """
-    import os, shlex, sys, time
+    import shlex, subprocess, sys, time
 
     monkeypatch.setenv("PULSEAI_TERMINAL_TIMEOUT", "5")
     from src.tools import terminal_tools
 
-    command = shlex.join([sys.executable, "-c", "import sys; sys.stdin.read(); print('saw-eof')"])
+    # Quoting has to match the shell that will parse it: shlex emits POSIX single
+    # quotes that cmd.exe reads as literal characters, so a Windows-built command
+    # fails before stdin is ever involved and the test would fail for the wrong
+    # reason (as it did on the first Windows run of this file).
+    argv = [sys.executable, "-c", "import sys; sys.stdin.read(); print('saw-eof')"]
+    command = (
+        subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    )
     with contextlib.redirect_stderr(None):
         started = time.monotonic()
         with _stdin_is_an_open_pipe():
