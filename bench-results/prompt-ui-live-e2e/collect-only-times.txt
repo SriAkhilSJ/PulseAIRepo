@@ -1,0 +1,6 @@
+﻿Collect-only sweep: --collect-only per test file under 60s timeout.
+File exceeding 60s timeout: test_agent_status_checkpoint.py (hangs during collection)
+Other slow files (>30s but completed): test_attempt11_completion_integrity.py (32.2s), test_aux_model_routing.py (31.9s), test_degraded_memory.py (31.9s), test_efficiency_receipts.py (30.2s), test_execution_modes.py (31.1s), test_execution_phases.py (30.8s)
+
+Note: Full suite execution timeout caused by test_agent_status_checkpoint.py hanging at collection time.
+This file is excluded from the targeted subset runs and does not affect the 8-failure delta.

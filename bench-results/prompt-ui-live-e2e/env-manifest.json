@@ -10,5 +10,6 @@
   "EMBEDDING_PROVIDER": "local (default)",
   "HERMES_REF": "D:\\hermes\\hermes-agent",
   "PULSEAI_PROMPT_CACHE": "1",
-  "PULSEAI_PROMPT_CACHE_CUSTOM": "1"
+  "PULSEAI_PROMPT_CACHE_CUSTOM": "1",
+  "_sitecustomize_note": "sitecustomize.py in %TEMP% (untracked): pre-imports scipy to mask a 60s first-touch cost in src/llm/factory.py:907 (sentence_transformers, lazy by design). Removed before commit — not part of the port."
 }

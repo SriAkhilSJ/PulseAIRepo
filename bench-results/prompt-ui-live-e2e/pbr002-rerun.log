@@ -1,0 +1,35 @@
+﻿[preflight] fixture ready at C:\scratch\pws-pbr002
+[run] PBR-002 bridge lane starting (watchdog: 30s checks, kill on stall)...
+[watchdog] +30s alive pid=2336 idle=30s
+[watchdog] +60s alive pid=2336 idle=13s
+[run] process exited with code 
+
+===== GRADED RESULT =====
+# Pulse Reliability Benchmark - PBR-002
+- **Task:** Route the exact opened workspace through every layer
+- **Checks coverable on this lane:** 3
+
+- **Run:** `founder-pbr002-1-122941`
+- **Pulse commit:** `d25307b750905d37f079cb46aaa5051f2ca9105a`
+- **Outcome:** `passed`
+
+## Checks
+
+| Check | Classification | Summary |
+|---|---|---|
+| workspace-hops | passed | all hops equal fixture root |
+| proof-reaches-boundary | passed | event contains 'workspace_proof.py' |
+| turn-completes | passed | frame order ok |
+
+## Claims
+
+- `unverified` - workspace routed through the stack
+
+## Timing / usage
+
+- startup 1788290987607 ms, first progress 1788291009287 ms, first token 1788291026887 ms, completion 1788291026950 ms
+- model calls 2, tool calls 0, tokens in/out 10593/141
+
+===== run stdout (tail) =====
+task=PBR-002 lane=bridge outcome=passed
+artifacts: bench-results\founder-pbr002-1-122941

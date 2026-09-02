@@ -1,0 +1,32 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1220 items
+
+src\tests\test_ambiguity.py ........                                     [  0%]
+src\tests\test_attempt11_completion_integrity.py .....                   [  1%]
+src\tests\test_attempt11_product_delivery_boundary.py ..........         [  1%]
+src\tests\test_autonomous_runtime_contract.py .....F..                   [  2%]
+src\tests\test_aux_model_routing.py ........                             [  3%]
+src\tests\test_benchmark_contract.py .............                       [  4%]
+src\tests\test_benchmark_evaluator.py .................................. [  7%]
+....                                                                     [  7%]
+src\tests\test_benchmark_fixtures.py .................................   [ 10%]
+src\tests\test_benchmark_harness.py ........................             [ 12%]
+src\tests\test_benchmark_harness_cdp.py .......                          [ 12%]
+src\tests\test_benchmark_runner.py ..................                    [ 14%]
+src\tests\test_bounded_scan.py ...........................               [ 16%]
+src\tests\test_bridge.py ....................                            [ 17%]
+src\tests\test_bridge_protocol_v2.py ........                            [ 18%]
+src\tests\test_bridge_runtime_protocol.py ...                            [ 18%]
+src\tests\test_bridge_transport.py ...............                       [ 20%]
+src\tests\test_bridge_workspace_routing.py ...........                   [ 20%]
+src\tests\test_cache_preservation.py .........                           [ 21%]
+src\tests\test_cancellation_gates.py ..............................      [ 24%]
+src\tests\test_chunk_index.py ..........................                 [ 26%]
+src\tests\test_compaction.py .............                               [ 27%]
+src\tests\test_context_budget.py ....................................... [ 30%]
+.....                                                                    [ 30%]

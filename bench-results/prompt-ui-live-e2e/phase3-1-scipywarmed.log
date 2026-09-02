@@ -1,0 +1,18 @@
+﻿[11:31:29] hello x1
+[11:31:29] session_info x1
+[11:31:29] workspace.bound x1
+[11:31:38] workspace.bound x2
+[11:31:38] turn_started x1
+[11:31:38] reasoning x1
+[11:31:39] llm.request x1 | calls=1/3 tokensIn~0/8000
+[11:31:42] llm.response x1
+[11:31:42] tool_call_start x1
+[11:31:42] llm.request x2 | calls=2/3 tokensIn~0/8000
+[11:31:46] llm.response x2
+[11:31:46] token x1
+[11:31:48] telemetry x1 | calls=2/3 tokensIn~23191/8000
+[BUDGET-STOP] calls=2 tokensIn~23191 ù cancelling the turn to protect credits
+[11:31:48] session_info x2
+[11:31:48] token x2
+[11:31:48] turn_done x1
+OUTCOME: turn_done completed=False llm.calls=2 -> bench-results\post-fix-scipywarmed-20260901-113126

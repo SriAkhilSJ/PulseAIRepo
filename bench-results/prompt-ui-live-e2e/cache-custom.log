@@ -1,0 +1,6 @@
+﻿{"derived_from_route": true, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "no-tool turn", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": null, "wire_markers": 2}
+{"derived_from_route": true, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "tool round-trip", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": null, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "no-tool turn", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": false, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "tool round-trip", "stats_markers": 3, "stats_tool_part_markers": false, "tool_part_markers_arg": false, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "no-tool turn", "stats_markers": 3, "stats_tool_part_markers": true, "tool_part_markers_arg": true, "wire_markers": 2}
+{"derived_from_route": false, "enabled": true, "messages_carrying_marker": 2, "reason": "applied", "shape": "tool round-trip", "stats_markers": 3, "stats_tool_part_markers": true, "tool_part_markers_arg": true, "wire_markers": 2}

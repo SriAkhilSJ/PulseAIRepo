@@ -1,0 +1,11 @@
+﻿python.exe : ERROR: usage: python -m pytest [options] [file_or_dir] [file_or_dir] [...]
+At line:4 char:1
++ & ".venv\Scripts\python.exe" -m pytest src/tests/ -q --tb=line --time ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ERROR: usage: p...e_or_dir] [...]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+python -m pytest: error: unrecognized arguments: --timeout=30
+  inifile: D:\pulseAIagent\PulseAIRepo\pytest.ini
+  rootdir: D:\pulseAIagent\PulseAIRepo
+

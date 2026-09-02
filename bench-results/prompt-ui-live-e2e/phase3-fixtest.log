@@ -1,0 +1,10 @@
+﻿[08:59:08] hello x1
+[08:59:08] session_info x1
+[08:59:08] workspace.bound x1
+[08:59:21] workspace.bound x2
+[08:59:21] turn_started x1
+[08:59:21] reasoning x1
+[08:59:23] llm.request x1 | calls=1/3 tokensIn~0/8000
+[08:59:26] llm.response x1
+[08:59:26] tool_call_start x1
+OUTCOME: timeout completed=None llm.calls=1 -> bench-results\live-phase3-fixtest-20260901-085907

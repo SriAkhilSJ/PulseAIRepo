@@ -1,0 +1,35 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1220 items
+
+src\tests\test_ambiguity.py ........                                     [  0%]
+src\tests\test_attempt11_completion_integrity.py .....                   [  1%]
+src\tests\test_attempt11_product_delivery_boundary.py ..........         [  1%]
+src\tests\test_autonomous_runtime_contract.py .....F
+
+================================== FAILURES ===================================
+___ test_ai_node_builds_expected_first_sarvam_request_without_provider_call ___
+src\tests\test_autonomous_runtime_contract.py:164: in test_ai_node_builds_expected_first_sarvam_request_without_provider_call
+    assert [message.type for message in captured["messages"]] == [
+E   AssertionError: assert ['system', 's...tem', 'human'] == ['system', 's...tem', 'human']
+E     
+E     At index 3 diff: 'system' != 'human'
+E     Left contains 2 more items, first extra item: 'system'
+E     Use -v to get more diff
+---------------------------- Captured stdout call -----------------------------
+[ContextEngine] context window 8,192 for 'sarvam-test' (source: default); token budget 4,096 (provider cap 6,000)
+[tokenizer] unavailable (encoding_for_model('sarvam-test')): KeyError: 'Could not automatically map sarvam-test to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.' ù degrading to ~chars/4 heuristic token counts (imprecise, never fatal). Install/populate the tiktoken cache (one online run) for exact counts.
+============================== warnings summary ===============================
+.venv\Lib\site-packages\google\genai\types.py:42
+  D:\pulseAIagent\PulseAIRepo\.venv\Lib\site-packages\google\genai\types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED src/tests/test_autonomous_runtime_contract.py::test_ai_node_builds_expected_first_sarvam_request_without_provider_call
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+================== 1 failed, 28 passed, 1 warning in 11.55s ===================

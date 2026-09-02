@@ -1,0 +1,1 @@
+﻿Read hello.py and data.txt, then list all files in the workspace. Answer in at most 120 words. Prefer one tool call over exploration.

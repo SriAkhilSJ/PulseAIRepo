@@ -1,0 +1,41 @@
+﻿powershell : At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:45 char:31
+At line:10 char:1
++ powershell -ExecutionPolicy Bypass -File scripts\run_paid_pbr002_guar ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (At D:\pulseAIag....ps1:45 char:31:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
++ if (-not (Test-Path ".env"))  { Write-Host "PREFLIGHT FAIL: .env miss ...
++                               ~
+Missing closing '}' in statement block or type definition.
+At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:45 char:121
++ ... .env missing (put CUSTOM_API_KEY in .env â?" NEVER in README)" -Foreg ...
++                                                                 ~
+Unexpected token ')' in expression or statement.
+At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:48 char:66
++ ... in-Path $Workspace "notes"), (Join-Path $Workspace "data") | Out-Null
++                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Unexpected token 'notes"), (Join-Path $Workspace "data") | Out-Null
+# Exact PBR-002 fixture content (benchmarks/pulse_reliability_v1/fixtures.json).
+# Single-quoted here-strings: literal text, no escaping; LF-normalised below.
+$proofContent = @'
+"""Workspace' in expression or statement.
+At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:101 char:5
++     }
++     ~
+Unexpected token '}' in expression or statement.
+At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:102 char:1
++ }
++ ~
+Unexpected token '}' in expression or statement.
+At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:172 char:62
++ ... o graded artifacts â?" printing stderr tail:" -ForegroundColor Yellow
++                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~
+The string is missing the terminator: ".
+At D:\pulseAIagent\PulseAIRepo\scripts\run_paid_pbr002_guarded.ps1:171 char:8
++ } else {
++        ~
+Missing closing '}' in statement block or type definition.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : MissingEndCurlyBrace
+ 

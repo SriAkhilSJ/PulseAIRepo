@@ -1,0 +1,23 @@
+﻿python.exe : Traceback (most recent call last):
+At line:12 char:1
++ & "$repo\.venv\Scripts\python.exe" -u scripts\run_bridge_turn.py `
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "D:\pulseAIagent\PulseAIRepo\scripts\run_bridge_turn.py", line 350, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "D:\pulseAIagent\PulseAIRepo\scripts\run_bridge_turn.py", line 153, in main
+    prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip()
+             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\pathlib\__init__.py", 
+line 787, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\pathlib\__init__.py", 
+line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 
+'D:\\pulseAIagent\\PulseAIRepo\\bench-results\\prompt-ui-live-e2e\\prompts\\3.2-mutation.txt'

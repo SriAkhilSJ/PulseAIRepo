@@ -1,0 +1,19 @@
+﻿[11:41:59] hello x1
+[11:41:59] session_info x1
+[11:41:59] workspace.bound x1
+[11:42:12] workspace.bound x2
+[11:42:12] turn_started x1
+[11:42:12] reasoning x1
+[11:42:13] llm.request x1 | calls=1/3 tokensIn~0/8000
+[11:42:16] llm.response x1
+[11:42:16] tool_call_start x1
+[11:42:16] llm.request x2 | calls=2/3 tokensIn~0/8000
+[11:42:22] llm.response x2
+[11:42:22] token x1
+[11:42:22] llm.request x3 | calls=3/3 tokensIn~0/8000
+[BUDGET-STOP] calls=3 tokensIn~0 ù cancelling the turn to protect credits
+[11:42:22] session_info x2
+[11:42:22] token x2
+[11:42:22] token x3
+[11:42:22] turn_done x1
+OUTCOME: turn_done completed=False llm.calls=3 -> bench-results\phase3-4-learn-20260901-114155

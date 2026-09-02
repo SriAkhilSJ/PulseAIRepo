@@ -1,0 +1,13 @@
+﻿[11:04:27] hello x1
+[11:04:27] session_info x1
+[11:04:27] workspace.bound x1
+[11:04:40] workspace.bound x2
+[11:04:40] turn_started x1
+[11:04:40] reasoning x1
+[11:04:41] llm.request x1 | calls=1/3 tokensIn~0/8000
+[11:04:47] llm.response x1
+[11:04:47] tool_call_start x1
+[11:04:47] llm.request x2 | calls=2/3 tokensIn~0/8000
+[11:04:52] llm.response x2
+[11:04:52] token x1
+OUTCOME: timeout completed=None llm.calls=2 -> bench-results\post-fix-terminal-20260901-110427

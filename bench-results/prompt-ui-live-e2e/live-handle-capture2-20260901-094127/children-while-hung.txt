@@ -1,0 +1,26 @@
+﻿
+ProcessId ParentProcessId Name        CommandLine                                                                      
+--------- --------------- ----        -----------                                                                      
+     1600            4324 conhost.exe                                                                                  
+    21228           14264 conhost.exe \??\C:\WINDOWS\system32\conhost.exe 0x4                                          
+     1760           14264 python.exe  "D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe" -u scripts\run_bridge_t...
+    15648            1760 python.exe  "C:\Users\Administrator\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-...
+     2984           15648 python.exe  D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m src.bridge               
+    17156            2984 python.exe  "C:\Users\Administrator\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-...
+    20048           17156 cmd.exe     C:\WINDOWS\system32\cmd.exe /c "python hello.py"                                 
+    15352           20048 python.exe  python  hello.py                                                                 
+     9380           15352 python.exe  "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe" he...
+     5128            6688 git.exe                                                                                      
+    13004            5128 conhost.exe                                                                                  
+     5408            6688 git.exe                                                                                      
+    20436            5408 conhost.exe                                                                                  
+     6984            6688 git.exe                                                                                      
+    15184            6984 conhost.exe                                                                                  
+    19976            6688 git.exe                                                                                      
+     8556            5128 git.exe                                                                                      
+    11912           19976 conhost.exe                                                                                  
+    14468            6688 git.exe                                                                                      
+    14736           14468 conhost.exe                                                                                  
+    11564            5408 git.exe                                                                                      
+
+

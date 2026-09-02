@@ -1,0 +1,1 @@
+﻿/plan add a markdown summary of this workspace to reports/plan.md. Answer in at most 120 words. Prefer one tool call over exploration.

@@ -1,0 +1,11 @@
+﻿{
+  "overall": "FAIL",
+  "evidenceDir": "D:\\pulseAIagent\\PulseAIRepo\\bench-results\\prompt-ui-live-e2e",
+  "checks": {
+    "Agent composer is visible and enabled": "PASS",
+    "Agent shell has no horizontal overflow": "PASS",
+    "Agent narrow responsive width is active": "PASS",
+    "Screenshots": "SKIPPED ΓÇö already captured by immutable CDP R2 evidence",
+    "Echo turn": "SKIPPED ΓÇö manager-only continuation makes no turn"
+  }
+}
