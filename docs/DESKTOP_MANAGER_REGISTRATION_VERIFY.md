@@ -92,12 +92,21 @@ turn and waits for `.pulseai-manager-shell`):
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo
-Start-Process -FilePath ".\desktop\vscode\.build\electron\PulseAI.exe" `
-  -ArgumentList '--remote-debugging-port=9222','--user-data-dir','D:\pulseAIagent\pulse-profile','--disable-workspace-trust','D:\pulseAIagent\playground'
-node scripts\validate_pulse_ui_cdp.js bench-results\pulse-manager-registration-desktop-r2\cdp --manager-only
+node scripts\verify_pulse_manager_registration.mjs bench-results\pulse-manager-registration-desktop-r2\cdp
+
+# It builds the argv, waits for the workbench page target, runs the harness above with --manager-only,
+# then writes session-rows.json itself. Nothing to quote, nothing to remember. Add --no-launch to attach
+# to an IDE that is already open, --dry-run to print the argv without spawning, and set
+# PULSE_WORKSPACE to open a real folder (default: a tiny scratch folder, because with no folder open the
+# composer is disabled and every downstream check blames the UI for a launch-flag bug).
 Get-Content bench-results\pulse-manager-registration-desktop-r2\cdp\cdp-ui-result.json |
   Select-String -Pattern '"checks"|PASS|FAIL|error' -Context 0,1 | Select-Object -First 40
 ```
+
+Chromium flags take their value with `=`, not as the next argument: `'--user-data-dir','D:\path'` leaves
+the flag valueless and turns the path into a positional, which this build reads as "what to load" rather
+than "the folder to open" -- that is what killed the round-5 attempt, and it is why the script exists.
+(Manual form, if you must: `-ArgumentList '--remote-debugging-port=9222','--user-data-dir=D:\pulseAIagent\pulse-profile','--disable-workspace-trust','--disable-extensions','D:\pulseAIagent\playground'`.)
 
 (`--user-data-dir` on a fresh profile is what makes `window.commandCenter: true` and
 `window.titleBarStyle: "custom"` matter again — set those two in that profile's `settings.json`

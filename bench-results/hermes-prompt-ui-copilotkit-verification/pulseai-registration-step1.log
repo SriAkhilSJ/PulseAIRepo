@@ -136,3 +136,27 @@ Two changes so this cannot recur:
   python lane is 60 passed / 3 skipped / 1 xfailed, and 11 passed under his host conditions (esbuild shim
   dead, `LC_ALL=C PYTHONUTF8=0`). Correctly-read scoped typecheck on the fixed tree: Pulse errors 0,
   363 environmental.
+
+## Windows host, round 6 (`973a4080`): gate C PASSED -- and the launch bug was mine
+
+`gate.txt`: `reached: D; result: FAIL; first failure: Gate D CDP -- Electron launch: no folder open in
+workbench, Pulse composer disabled; doc's arg list format is wrong for this Electron version`, with
+**gate C compile PASS**. That is the first real-build proof of the registration: `npm run compile` on the
+owner's machine, whole tree, TS2459 gone.
+
+Cause of the D failure, in my doc: I wrote `-ArgumentList '--remote-debugging-port=9222','--user-data-dir',
+'D:\path'`. Chromium flags take values with `=`, so the flag was left valueless and the path became a
+positional -- read as "what to load", not "the folder to open". No folder, disabled composer, and every
+downstream check blaming the UI for a quoting mistake. The operator should not have to know that, so
+`scripts/verify_pulse_manager_registration.mjs` now owns it: it builds correct argv (`--user-data-dir=`,
+`--disable-extensions`, exactly one positional workspace, defaulting to a temp scratch folder so an open
+folder is never optional), waits for the workbench page target, delegates the checks to
+`validate_pulse_ui_cdp.js --manager-only`, then evaluates the row query itself and writes
+`session-rows.json`. `--dry-run` prints the argv, `--no-launch` attaches to a running IDE, and the
+failure paths exit 2/3/4 with the fix in the message. Verified here by dry-run and by both failure paths;
+the launch itself needs Electron, which only his host has.
+
+Two pins added, one of them after its own bug: the first version asserted the broken form was absent from
+the docs and failed on the sentence that *explains* the bug. It now scans only ```powershell blocks --
+every `--user-data-dir` inside a command must be followed by `=`. A pin that matches prose will match
+tomorrow's prose. Lane: 12 passed, including the in-lane scoped typecheck on the restored tree.

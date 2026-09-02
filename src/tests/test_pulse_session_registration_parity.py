@@ -311,6 +311,25 @@ def test_session_uri_scheme_is_the_session_type(tmp_path):
     assert "return resource.scheme;" in resolver
 
 
+def test_the_cdp_launcher_encodes_the_flag_syntax_nobody_remembered():
+    """Round 5 died on `'--user-data-dir','D:\\path'`: Chromium takes flag values with `=`, and a bare
+    path after the flag is a positional -- read as what to load, not what to open. Encoded in a script
+    and pinned here, so the next operator does not have to know it either."""
+    script = (ROOT / "scripts" / "verify_pulse_manager_registration.mjs").read_text(encoding="utf-8")
+    assert "--user-data-dir=${profile}" in script, "the profile flag must use the = form"
+    assert "'--user-data-dir'," not in script, "a space-separated flag value is the round-5 bug"
+    assert "PULSE_WORKSPACE" in script and "mkdtempSync" in script, "no folder open means a disabled composer"
+    assert "validate_pulse_ui_cdp.js" in script, "the harness must be delegated to, not reimplemented"
+    for doc in ("docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md", "DESKTOP_AGENT_INSTRUCTIONS.md"):
+        text = (ROOT / doc).read_text(encoding="utf-8")
+        assert "verify_pulse_manager_registration.mjs" in text, f"{doc} does not point at the script"
+        # Only the commands are pinned, never the prose: this check first failed on the sentence that
+        # *explains* the bug, and a pin that matches narrative will match tomorrow's narrative too.
+        for block in re.findall(r"```powershell\n(.*?)```", text, flags=re.S):
+            for match in re.finditer(r"--user-data-dir(.)", block):
+                assert match.group(1) == "=", f"{doc} documents `--user-data-dir` without its = value"
+
+
 def test_scoped_typecheck_reports_no_errors_in_our_contribution():
     """The lane that used to live only in a PowerShell grep, where it lied for four rounds.
 

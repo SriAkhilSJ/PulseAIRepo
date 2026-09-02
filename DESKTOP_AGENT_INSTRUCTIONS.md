@@ -124,7 +124,17 @@ gate A passing and the harness failing, and evidence is never overwritten. Put o
 
 ## 4. Gates C and D — build, then the paint
 
-Follow `docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md` §C and §D verbatim: `npm install` (only if
+One command covers the launch, the harness and the row extraction -- use it instead of building
+`Start-Process` argument lists by hand, because Chromium flags take their value with `=` and a bare path
+after `--user-data-dir` becomes a positional that the build reads as "what to load", not "the folder to
+open" (that mistake ended round 5, and the workbench looked broken when only the argv was).
+
+```powershell
+cd D:\pulseAIagent\PulseAIRepo
+node scripts\verify_pulse_manager_registration.mjs "bench-results\pulse-manager-registration-desktop-r4\cdp"
+```
+
+Then follow Follow `docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md` §C and §D verbatim: `npm install` (only if
 `desktop\vscode\node_modules` is absent) → `npm run compile` → launch
 `.\desktop\vscode\.build\electron\PulseAI.exe --remote-debugging-port=9222` on a fresh
 `--user-data-dir` → `node scripts\validate_pulse_ui_cdp.js bench-results\pulse-manager-registration-desktop\cdp --manager-only`
