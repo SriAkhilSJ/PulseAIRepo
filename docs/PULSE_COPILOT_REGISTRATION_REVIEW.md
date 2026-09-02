@@ -133,7 +133,8 @@ Mutation, execution, extension tools, and MCP invocation remain later gates.
 Everything below is a file:line in this repo, not a recollection.
 
 The thing Pulse's Manager reinvents already exists as a first-party subsystem: the **Agent Sessions**
-manager at `src/vs/workbench/contrib/chat/browser/agentSessions/` (21 files, 7 462 lines). Copilot
+manager at `src/vs/workbench/contrib/chat/browser/agentSessions/` -- 15 modules and 7 462 lines
+at its top level, 77 files and 34 331 lines with `agentHost/` and `experiments/` counted. Copilot
 does not own a manager — it plugs into this one through a *session item provider*, and the manager
 supplies the list, the state, the a11y and the open path.
 
