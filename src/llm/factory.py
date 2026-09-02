@@ -654,11 +654,15 @@ class RetryLLMProxy:
             with self._limit_lock:
                 if self._auto_limit is None:
                     from src.context.model_budgets import (
+                        max_output_for,
                         resolve_context_window,
                         usable_window_budget,
                     )
+                    # The engine reads the identical pair (window from the ladder, cap from the cache
+                    # entry the ladder wrote), so a stated cap cannot shrink engine context while this
+                    # guard still assumes the heuristic margin -- the agreement the AUTO mode promises.
                     window, _source = resolve_context_window(self.model)
-                    self._auto_limit = usable_window_budget(window)
+                    self._auto_limit = usable_window_budget(window, max_output_for(self.model))
         return self._auto_limit
 
     def _trim_to_limit(self, messages: list, limit: int) -> list:

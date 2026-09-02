@@ -14,9 +14,11 @@ def test_warm_up_applies_a_late_endpoint_answer_without_blocking_init(monkeypatc
 
     def slow_probe(model_name):
         time.sleep(0.4)  # the owner's real endpoint took 5.1s
-        return 1_048_576
+        # The pair, not just the window: the warm-up thread is the only place the slow ask happens, so
+        # it is also the only place a stated reply cap reaches the budget when the cache was cold.
+        return 1_048_576, 8_192
 
-    monkeypatch.setattr(mb, "_probe_custom_endpoint", slow_probe)
+    monkeypatch.setattr(mb, "probe_endpoint_limits", slow_probe)
     monkeypatch.setattr(mb, "resolve_context_window",
                         lambda *a, **k: (mb.MODEL_WINDOWS["default"], "default"))
 
@@ -30,6 +32,9 @@ def test_warm_up_applies_a_late_endpoint_answer_without_blocking_init(monkeypatc
     assert engine.context_window == 1_048_576, engine.context_window
     assert engine.context_window_source == "custom-api", engine.context_window_source
     assert engine.max_tokens > 100_000, engine.max_tokens
+    # 1,048,576 - margin(8,192) rather than the 5% heuristic: the provider's number, used exactly.
+    assert engine.max_output_tokens == 8_192, engine.max_output_tokens
+    assert engine.max_tokens == 1_048_576 - 8_192, f"{engine.max_tokens:,} != {1_048_576 - 8_192:,}"
 
 
 def test_warm_up_defers_when_a_build_is_in_flight(monkeypatch):

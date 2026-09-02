@@ -26,6 +26,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from src.context.model_budgets import _CONTEXT_LENGTH_KEYS, MODEL_WINDOWS  # noqa: E402
 
 
+def mb_max_output(entry: dict) -> int | None:
+    from src.context.model_budgets import _max_output_from
+
+    return _max_output_from(entry)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=None, help="model id to look for (default: settings.LLM_MODEL)")
@@ -89,16 +95,29 @@ def main() -> int:
         found = {k: matched[k] for k in _CONTEXT_LENGTH_KEYS if k in matched}
         print(json.dumps(found or {"(no window key present)": sorted(matched)[:8]}, indent=2)[:900])
         window = _window_from_metadata(matched)
+        cap = mb_max_output(matched)
         print(f"window from metadata: {window:,}" if window else "window from metadata: none -- see keys above")
+        print(
+            f"reply cap from metadata: {cap:,}"
+            if cap
+            else "reply cap from metadata: not stated -- the engine keeps its heuristic margin"
+        )
         if args.json:
             print("\n-- raw entry --")
             print(json.dumps(matched, indent=2)[:2000])
 
     print("\n-- what the engine will use --")
-    from src.context.model_budgets import resolve_context_window, usable_window_budget
+    from src.context.model_budgets import (
+        _cache_path,
+        _effective_provider,
+        _read_cache,
+        max_output_for,
+        resolve_context_window,
+        usable_window_budget,
+    )
 
-    from src.context.model_budgets import _cache_path, _effective_provider, _read_cache
-    cache_key = f"{_effective_provider(provider)}:{(model or '').strip().lower()}"
+    # The 7-day cache is the reason a report can be true-but-stale, so name it and let it be cleared.
+    cache_key = f"{_effective_provider(provider or '')}:{(model or '').strip().lower()}"
     cached = _read_cache().get(cache_key)
     if args.fresh and isinstance(cached, dict):
         data = _read_cache()
@@ -112,14 +131,26 @@ def main() -> int:
             print(f"\ncould not clear the cache ({exc}); the cached value may still be reported")
 
     # endpoint_probe=True: this script exists to wait for the truth, unlike every production caller.
+
+    # Order matters and this script got it wrong once already: the endpoint rung writes window+cap into
+    # the cache entry during resolution, so the cap MUST be read back after that call. Reading it first
+    # printed a value left by some earlier run, which is a worse report than printing nothing.
     resolved, source = resolve_context_window(
         model, provider=provider, allow_network=True, endpoint_probe=True
     )
-    usable = usable_window_budget(resolved)
+    max_output_cap = max_output_for(model, provider)
+    usable = usable_window_budget(resolved, max_output_cap)
     safe_limit = int(getattr(settings, "PROVIDER_SAFE_LIMIT", 0) or 0)
-    cap = usable if safe_limit <= 0 else min(usable, safe_limit)
-    max_tokens = max(min(usable, cap), 4_096)
+    # Distinct names, deliberately: an earlier revision of this block used one `cap` for the reply
+    # reservation and then reassigned it to the provider limit, and the report printed the wrong figure
+    # under a correct label. Two things called "cap" is how that happened.
+    budget_cap = usable if safe_limit <= 0 else min(usable, safe_limit)
+    max_tokens = max(min(usable, budget_cap), 4_096)
     print(f"window   : {resolved:,}  (source: {source})")
+    if max_output_cap:
+        print(f"reply cap: {max_output_cap:,} (withheld as margin, so usable = window - cap)")
+    else:
+        print("reply cap: not stated by the provider -- heuristic margin (max(4,096, 5% of window))")
     print(f"usable   : {usable:,}")
     print(f"max_tokens: {max_tokens:,}   context_budget: {int(0.4 * max_tokens):,}")
     if source == "cache" and isinstance(cached, dict):
@@ -128,9 +159,10 @@ def main() -> int:
               f"\n      ({_cache_path()}). A window cached from a previous endpoint or model swap will keep")
         print("      being trusted for 7 days -- re-run with --fresh to force a live ask before believing it.")
     if source == "default":
-        print(f"\nThis is the assumed-window case: the fallback is {MODEL_WINDOWS['default']:,}, which is what")
-        print("bounded the workspace scan on a greeting. PROVIDER_SAFE_LIMIT is AUTO"
-              if safe_limit <= 0 else f"\nPROVIDER_SAFE_LIMIT={safe_limit:,} is capping the budget -- set it to 0 for AUTO.")
+        print(f"\nAssumed-window case: no rung answered, so the fallback {MODEL_WINDOWS['default']:,} is in")
+        print("use. The walk bound on a large repo is separate from this (it counts entries, not tokens).")
+    if safe_limit > 0:
+        print(f"\nPROVIDER_SAFE_LIMIT={safe_limit:,} is capping the budget on top of the resolved window.")
     return 0
 
 

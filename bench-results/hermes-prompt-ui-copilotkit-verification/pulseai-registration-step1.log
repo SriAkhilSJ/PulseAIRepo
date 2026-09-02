@@ -434,3 +434,24 @@ NOT verified, plainly: there is no TS test lane for this contrib (no pulseai/tes
   (Disposable._register, IDisposable.dispose) -- that is syntax and local typing, not the contract check. Gate A
   (desktop/vscode/src/tsconfig.pulseai-check.json, which does exist in this checkout) is his to run with node_modules
   present, and no rendering has been observed in his window yet.
+
+## turn 2026-09-04 10:10 +0530  ::  the reply cap is now fetched, not guessed (the last item of the original ask)
+owner's ask, verbatim earlier: "It fetches everything from the provider only like model id, context window, context token count, max output token, all are auto fetched".
+Window + token count landed last turns; MAX OUTPUT was still a guess. We withheld max(4,096, 5% of window) -- on his 1,048,576 model that is 52,428 tokens
+thrown away while the endpoint states 8,192 in its own catalog. Hermes reads max_completion_tokens / max_output_tokens / max_tokens from the same object.
+landed: _MAX_COMPLETION_KEYS + _max_output_from (nested meta, digit strings, bools rejected); probe_endpoint_limits -> (window, max_output) from ONE read,
+  with the window-only _probe_custom_endpoint kept as a wrapper so no caller churned; margin_for(window, max_output) clamped to [SAFETY_MARGIN, 25% of window]
+  so an absurd claim cannot starve context, and the OLD heuristic when no cap is stated (floor behaviour unchanged); cache entry stores max_output beside window,
+  a pre-existing entry with no key reads as UNKNOWN -> heuristic, never as zero; max_output_for() is cache-only, deliberately, so the cap never costs a request.
+seam lesson, stated because I broke it first: I re-pointed engine + RetryLLMProxy._safe_limit at a new resolve_budget and two GREEN tests in test_model_budgets.py
+  failed -- they patch resolve_context_window. Both call sites are back to the original call and read the cap beside it; resolve_budget remains a thin wrapper.
+  Measured agreement after that: engine usable == guard limit == 1,040,384.
+diagnostic fixed by RUNNING it (this is why it gets run): the --fresh block had never landed (aborted patch) so the script raised NameError 'cached' -- on the
+  second run, the only run where a stale cache matters; and one variable named cap did double duty as reply-reservation and provider-limit, printing usable under
+  the label "reply cap". Now separated, and the cap is read AFTER the pass that writes it (reading first printed a value from an unrelated earlier run).
+evidence: 79 passed across the five touched python test files (10 new tests: 3 key names parametrised, absent cap, exact arithmetic, 600k absurdity clamp,
+  8,192 floor, alias pairs window WITH its own cap, resolve_budget triple, legacy-entry fallback, real cache round-trip). Wide filter: 201 passed / 15 failed;
+  comm vs the same filter at the tip with changes stashed = EMPTY (those 15 are my venv missing langgraph). Injection: margin ignoring the stated cap -> 4 fail.
+  Diagnostic proven over 4 paths against a local fake endpoint + clean HOME: cold (custom-api, cap 8,192, usable 1,040,384), warm (cache + age note), --fresh
+  ("cleared cached entry ... asking live now"), endpoint-down with cache intact.
+not claimed: no paid provider turn; nothing seen rendering in his window; max_output is NOT in the receipt payload (a key there touches the benchmark contract).

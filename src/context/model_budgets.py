@@ -23,6 +23,7 @@ see ContextEngine.__init__.
 from __future__ import annotations
 
 import json
+from typing import NamedTuple
 import os
 import re
 import time
@@ -137,7 +138,21 @@ def usable_budget(model_name: str | None) -> int:
     return max(model_window(model_name) - SAFETY_MARGIN, _MIN_USABLE)
 
 
-def usable_window_budget(window: int) -> int:
+def margin_for(window: int, max_output: int | None = None) -> int:
+    """What we withhold from a window for the reply and for token-count divergence.
+
+    With a stated cap we withhold that cap -- the provider's own number beats our estimate -- clamped
+    between SAFETY_MARGIN and a quarter of the window so a generous claim cannot starve the context.
+    Without one, the pre-existing heuristic applies unchanged, so nothing that works today moves.
+    """
+    heuristic = max(SAFETY_MARGIN, int(window * 0.05))
+    if not max_output or window <= 0:
+        return heuristic
+    ceiling = max(SAFETY_MARGIN, int(window * _MAX_OUTPUT_RESERVATION_FRACTION))
+    return max(SAFETY_MARGIN, min(int(max_output), ceiling))
+
+
+def usable_window_budget(window: int, max_output: int | None = None) -> int:
     """The single budget formula shared by ContextEngine AND RetryLLMProxy
     (they must agree to the token).
 
@@ -148,7 +163,7 @@ def usable_window_budget(window: int) -> int:
     """
     if window <= 0:
         return _MIN_USABLE
-    margin = max(SAFETY_MARGIN, int(window * 0.05))
+    margin = margin_for(window, max_output)
     return max(window - margin, _MIN_USABLE)
 
 
@@ -308,16 +323,41 @@ def _read_cache() -> dict:
         return {}
 
 
-def _write_cache(key: str, window: int) -> None:
+def _write_cache(key: str, window: int, max_output: int | None = None) -> None:
     """Best-effort cache write; a cache failure must never break resolution."""
     try:
         data = _read_cache()
-        data[key] = {"window": window, "ts": time.time()}
+        entry: dict = {"window": window, "ts": time.time()}
+        if max_output:
+            # Written only when the provider actually stated it: an absent key is the same shape as an
+            # entry cached before this existed, and both must fall back to the heuristic, not to zero.
+            entry["max_output"] = int(max_output)
+        data[key] = entry
         os.makedirs(os.path.dirname(_cache_path()), exist_ok=True)
         with open(_cache_path(), "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception:
         pass
+
+
+def _cache_limits_get(key: str) -> tuple[int, int | None, bool] | None:
+    """(window, max_output, is_fresh) or None.
+
+    Entries written before the reply cap existed simply carry no `max_output` key, and that must read as
+    "unknown" -- falling back to the heuristic margin -- rather than as zero, which would reserve
+    nothing and start sending oversized payloads again.
+    """
+    entry = _read_cache().get(key)
+    if not isinstance(entry, dict):
+        return None
+    window = entry.get("window")
+    ts = entry.get("ts", 0)
+    if not isinstance(window, int) or window <= 0:
+        return None
+    cap = entry.get("max_output")
+    if not isinstance(cap, int) or cap <= 0:
+        cap = None
+    return window, cap, (time.time() - ts) < _CACHE_TTL_S
 
 
 def _cache_get(key: str) -> tuple[int, bool] | None:
@@ -418,6 +458,36 @@ _CONTEXT_LENGTH_KEYS = (
 # it look done.
 
 
+# Hermes reads the OUTPUT cap off the same catalog object (agent/model_metadata.py @ 8cab422):
+# "max_completion_tokens", "max_output_tokens", "max_tokens". It matters because the margin we
+# subtract from a window is a reservation for the reply: guessing it costs context on big windows
+# (5% of 1,048,576 is 52,428 tokens withheld from a model that only ever emits 8,192) and can
+# under-reserve on small ones. One shared function below means the engine and the pre-send guard
+# cannot disagree about it -- the invariant the usable-window docstring has always claimed.
+_MAX_COMPLETION_KEYS = ("max_completion_tokens", "max_output_tokens", "max_tokens")
+
+# A provider may claim it can emit 600k tokens on a 128k window; honouring that literally would
+# starve the context we came here to build. Reserving a quarter of the window is the most we will
+# give up, and the floor keeps the old heuristic from ever getting worse than it was.
+_MAX_OUTPUT_RESERVATION_FRACTION = 0.25
+
+
+def _max_output_from(entry: dict) -> int | None:
+    for key in _MAX_COMPLETION_KEYS:
+        value = entry.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and value > 0:
+            return value
+    nested = entry.get("meta") or entry.get("metadata") or {}
+    if isinstance(nested, dict):
+        for key in _MAX_COMPLETION_KEYS:
+            value = nested.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                return value
+    return None
+
+
 def _model_id_matches(wanted: str, candidate: str) -> bool:
     """Match a served model id to the configured name, tolerating routing styles.
 
@@ -491,12 +561,14 @@ def _endpoint_auth_headers() -> dict:
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
-def _probe_custom_endpoint(model_name: str) -> int | None:
-    """Ask the endpoint we are about to send the turn to what it serves.
+def probe_endpoint_limits(model_name: str) -> tuple[int, int | None] | None:
+    """(window, max_output) from the endpoint's own catalog entry, or None.
 
     This is Hermes' ladder step 2 ("active endpoint metadata"), which sits ABOVE the
-    hardcoded defaults: a self-hosted server knows its own `max_model_len` and we
-    should believe it over any table of cloud-model windows.
+    hardcoded defaults: a self-hosted server knows its own `max_model_len` AND how much
+    it is willing to emit, and both deserve to beat a table of cloud-model windows.
+    Asking once for the pair is also why this function returns it together -- a caller that
+    wanted the reply cap used to need a second HTTP round trip to get it.
     """
     try:
         from src.config.settings import CUSTOM_BASE_URL
@@ -511,7 +583,7 @@ def _probe_custom_endpoint(model_name: str) -> int | None:
         if _model_id_matches(wanted, str(entry.get("id") or entry.get("name") or "")):
             window = _window_from_metadata(entry)
             if window:
-                return window
+                return window, _max_output_from(entry)
 
     # Router aliases: `auto` names no model, it names a CHOOSER, and the catalog lists its options as
     # `auto/best-chat`, `auto/fast`, ... Exact matching alone left the owner's real setup -- which DOES
@@ -528,13 +600,28 @@ def _probe_custom_endpoint(model_name: str) -> int | None:
     usable_candidates = [w for w in candidates if w]
     if usable_candidates:
         chosen = min(usable_candidates)
+        # The reply cap must come from the entry we actually chose, not from the first candidate the
+        # loop happened to see -- an alias whose smallest window belongs to a different model than its
+        # largest output would otherwise pair two models into one budget that neither supports.
+        chosen_entry = next(
+            (e for e in entries
+             if str(e.get("id") or e.get("name") or "").strip().lower().startswith(prefix)
+             and _window_from_metadata(e) == chosen),
+            None,
+        )
         print(
             f"[model_budgets] {wanted!r} is a router alias, not a model id: {len(usable_candidates)}"
             f" candidate(s) published, smallest window {chosen:,} taken so the budget holds for"
             " whichever one the router picks"
         )
-        return chosen
+        return chosen, _max_output_from(chosen_entry) if chosen_entry else None
     return None
+
+
+def _probe_custom_endpoint(model_name: str) -> int | None:
+    """Window only -- the shape callers (and tests) that don't care about the reply cap use."""
+    limits = probe_endpoint_limits(model_name)
+    return limits[0] if limits else None
 
 
 def _probe_groq(model_name: str) -> int | None:
@@ -623,6 +710,64 @@ def _effective_provider(provider: str) -> str:
     return normalized
 
 
+class BudgetLimits(NamedTuple):
+    """What one resolution pass learns about a model, kept together on purpose.
+
+    `window`, the reply cap the provider stated (None when it said nothing), the usable budget after
+    the margin, and which rung answered. The triple exists so no caller can read the window and forget
+    the cap: the engine's context and RetryLLMProxy's pre-send guard are then computed by the same
+    function from the same numbers, which is the agreement this module has always claimed but only
+    enforced by comment.
+    """
+
+    window: int
+    max_output: int | None
+    usable: int
+    source: str
+
+
+def resolve_budget(
+    model_name: str | None,
+    provider: str | None = None,
+    allow_network: bool = True,
+    endpoint_probe: bool = False,
+) -> BudgetLimits:
+    """Resolve window + reply cap + usable budget in one pass. See `_resolve_limits` for the ladder."""
+    # No second request: resolve_context_window is the seam every caller (and every test) patches, and a
+    # cap learned from the endpoint is written to the cache in the same pass that resolves the window, so
+    # reading it back here costs nothing and cannot disagree with the window beside it.
+    # Forwarded the way each caller already calls it: fakes that patch resolve_context_window with a
+    # narrower signature stay valid, which matters more than tidiness here.
+    if endpoint_probe:
+        window, source = resolve_context_window(
+            model_name, provider, allow_network, endpoint_probe=True
+        )
+    else:
+        window, source = resolve_context_window(model_name, provider, allow_network)
+    cap = max_output_for(model_name, provider)
+    return BudgetLimits(window, cap, usable_window_budget(window, cap), source)
+
+
+def max_output_for(model_name: str | None, provider: str | None = None) -> int | None:
+    """The reply cap the endpoint stated for this model, or None.
+
+    Cache-only by design. A second live ask would double the one cost this whole module is trying to
+    avoid, and a cap that arrived on the background thread is already in the cache entry beside the
+    window -- which is exactly the case this exists for.
+    """
+    raw = (model_name or "").strip().lower()
+    if provider is None:
+        try:
+            from src.config.settings import LLM_PROVIDER
+            provider = LLM_PROVIDER
+        except Exception:
+            provider = os.getenv("LLM_PROVIDER", "")
+    norm = provider or ""
+    key = f"{_effective_provider(norm)}:{raw}"
+    entry = _cache_limits_get(key)
+    return entry[1] if entry else None
+
+
 def resolve_context_window(
     model_name: str | None,
     provider: str | None = None,
@@ -654,14 +799,15 @@ def resolve_context_window(
     provider = _effective_provider(provider)
     cache_key = f"{provider}:{raw}"
 
-    # 1) Explicit user override always wins.
+    # 1) Explicit user override always wins. It states a window, not a reply cap, so the margin stays
+    # the heuristic -- overriding one number must not silently invent the other.
     override = os.getenv("LLM_CONTEXT_WINDOW", "").strip()
     if override.isdigit() and int(override) > 0:
         return int(override), "env-override"
 
-    # 2) Fresh cache: we've asked this provider before; trust it.
-    cached = _cache_get(cache_key)
-    if cached and cached[1]:
+    # 2) Fresh cache: we've asked this provider before; trust it, cap included.
+    cached = _cache_limits_get(cache_key)
+    if cached and cached[2]:
         return cached[0], "cache"
 
     # 2b) A custom endpoint is authoritative about what it serves, so it is asked BEFORE the
@@ -672,11 +818,13 @@ def resolve_context_window(
         # never: Hermes caches a failed verdict for 300s against 3600 for a success, because "server
         # starting up, key being fixed" is a transient state, while a per-turn waterfall is a real cost.
         if not _failure_is_fresh(cache_key):
-            endpoint_window = _probe_custom_endpoint(raw)
-            if endpoint_window:
+            limits = probe_endpoint_limits(raw)
+            if limits:
                 _failures.pop(cache_key, None)
-                _write_cache(cache_key, endpoint_window)
-                return endpoint_window, "custom-api"
+                # Both numbers land in ONE entry: the background thread that finds them later, or a
+                # cold start that asks now, leave the same pair for every reader of this cache key.
+                _write_cache(cache_key, limits[0], limits[1])
+                return limits[0], "custom-api"
             _remember_failure(cache_key)
 
     # 3) Static table: zero network for models we already know.
@@ -690,6 +838,8 @@ def resolve_context_window(
         if probe is not None:
             window = probe(raw)
             if window is not None:
+                # Public catalogs here answer with a window only; the reply cap stays unknown, which is
+                # the honest state, not a gap to paper over with a made-up number.
                 _write_cache(cache_key, window)
                 return window, f"{provider}-api"
 

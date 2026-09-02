@@ -19,6 +19,10 @@ import pytest
 
 from src.context import model_budgets as mb
 
+# Captured before the autouse fixture below replaces them: the cache round-trip test has to exercise the
+# real writer, and the fixture that keeps every other test off the disk is exactly what would break it.
+_REAL_WRITE_CACHE = mb._write_cache
+
 
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch):
@@ -224,3 +228,88 @@ def test_an_alias_with_one_candidate_is_that_candidate(monkeypatch):
 def test_a_prefix_that_matches_nothing_still_refuses_to_guess(monkeypatch):
     _catalog(monkeypatch, {"id": "other/thing", "context_length": 1_048_576})
     assert mb._probe_custom_endpoint("auto") is None
+
+
+# ---------------------------------------------------------------------------
+# The reply cap. Hermes reads it from the same catalog object; we subtracted a guess instead.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key", mb._MAX_COMPLETION_KEYS)
+def test_the_reply_cap_is_read_under_each_of_the_three_names(key, monkeypatch):
+    _catalog(monkeypatch, {"id": "m", "max_model_len": 131_072, key: 16_384})
+    assert mb.probe_endpoint_limits("m") == (131_072, 16_384)
+
+
+def test_no_cap_stated_means_no_cap_assumed(monkeypatch):
+    _catalog(monkeypatch, {"id": "m", "max_model_len": 131_072})
+    assert mb.probe_endpoint_limits("m") == (131_072, None)
+
+
+def test_a_stated_cap_replaces_the_heuristic_margin_exactly():
+    """On the owner's window this is 44,236 tokens of context given back, not a rounding note."""
+
+    window = 1_048_576
+    assert mb.usable_window_budget(window) == 996_148          # 5% heuristic withheld 52,428
+    assert mb.usable_window_budget(window, 8_192) == window - 8_192
+
+
+def test_an_absurd_claim_cannot_starve_the_context():
+    # A provider claiming 600k of output on a 128k window gets honoured up to a quarter of the window.
+    assert mb.usable_window_budget(128_000, 600_000) == 128_000 - 32_000
+
+
+def test_a_small_window_is_never_left_worse_than_the_floor():
+    assert mb.usable_window_budget(8_192, 8_192) == mb._MIN_USABLE
+
+
+def test_the_alias_pair_comes_from_the_entry_that_was_chosen(monkeypatch):
+    """Picking the smallest window and the largest cap from two different models would invent a third."""
+
+    _catalog(
+        monkeypatch,
+        {"id": "auto/best-chat", "context_length": 1_048_576, "max_tokens": 16_384},
+        {"id": "auto/fast", "context_length": 131_072, "max_tokens": 4_096},
+    )
+    assert mb.probe_endpoint_limits("auto") == (131_072, 4_096)
+
+
+def test_resolve_budget_reports_the_pair_and_the_number_everyone_spends(tmp_path, monkeypatch):
+    """Needs a REAL cache: the cap reaches consumers through the entry the endpoint rung writes.
+
+    The autouse fixture stubs the writer for every other test here (no disk in a unit test), so this one
+    restores it against a temp file. That is not ceremony -- it is the actual mechanism: one live ask
+    writes window + cap together, and every later reader, including the pre-send guard, gets both from
+    that entry without asking anything again.
+    """
+    import src.config.settings as settings
+
+    monkeypatch.setattr(settings, "CUSTOM_BASE_URL", "http://127.0.0.1:8000/v1", raising=False)
+    monkeypatch.setattr(mb, "_cache_path", lambda: str(tmp_path / "model_windows.json"))
+    monkeypatch.setattr(mb, "_write_cache", _REAL_WRITE_CACHE)
+    _catalog(monkeypatch, {"id": "m", "max_model_len": 131_072, "max_completion_tokens": 32_768})
+    limits = mb.resolve_budget("m", provider="custom", endpoint_probe=True)
+    assert (limits.window, limits.max_output, limits.source) == (131_072, 32_768, "custom-api")
+    assert limits.usable == 131_072 - 32_768
+
+
+def test_a_legacy_cache_entry_without_a_cap_falls_back_rather_than_reserving_zero(monkeypatch):
+    """Entries written before this existed must not read as 'this model emits nothing'."""
+
+    key = "custom:legacy-model"
+    monkeypatch.setattr(mb, "_read_cache", lambda: {key: {"window": 65_536, "ts": mb_time()}})
+    monkeypatch.setenv("LLM_PROVIDER", "custom")
+    window, cap, fresh = mb._cache_limits_get(key)
+    assert (window, cap, fresh) == (65_536, None, True)
+    assert mb.usable_window_budget(window, cap) == 65_536 - max(mb.SAFETY_MARGIN, int(65_536 * 0.05))
+
+
+def mb_time() -> float:
+    import time
+    return time.time()
+
+
+def test_the_cap_survives_a_cache_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(mb, "_cache_path", lambda: str(tmp_path / "model_windows.json"))
+    monkeypatch.setattr(mb, "_write_cache", _REAL_WRITE_CACHE)
+    mb._write_cache("custom:round-trip", 131_072, 8_192)
+    assert mb._cache_limits_get("custom:round-trip") == (131_072, 8_192, True)

@@ -341,15 +341,14 @@ class ContextEngine(BaseContextEngine):
             self.context_window_source = "explicit"
         else:
             from src.config.settings import PROVIDER_SAFE_LIMIT
-            from src.context.model_budgets import (
-                resolve_context_window,
-                usable_window_budget,
-            )
-            window, source = resolve_context_window(
-                self.model, allow_network=probe_window
-            )
-            self._apply_window(window, source)
-            usable = usable_window_budget(window)
+            from src.context.model_budgets import resolve_context_window, usable_window_budget
+            # Same call as before this file learned about reply caps -- the seam callers and tests patch
+            # is resolve_context_window, and re-pointing it at a new function would silently disable
+            # every one of them. The cap is a cache read beside it, not a second request.
+            window, source = resolve_context_window(self.model, allow_network=probe_window)
+            from src.context.model_budgets import max_output_for
+            self._apply_window(window, source, max_output_for(self.model))
+            usable = usable_window_budget(window, max_output_for(self.model))
             if PROVIDER_SAFE_LIMIT > 0 and usable > PROVIDER_SAFE_LIMIT:
                 print(
                     f"[ContextEngine] — set PROVIDER_SAFE_LIMIT=0 to unlock "
@@ -523,7 +522,11 @@ class ContextEngine(BaseContextEngine):
                 # alternative -- re-asking on every construction -- is how a 5s catalog turns into a
                 # 5s-per-turn tax, and it is also what Hermes' short failure TTL exists to prevent.
                 return
-            window = _probe_custom_endpoint(model or "")  # the one place the slow ask is allowed
+            from src.context.model_budgets import probe_endpoint_limits
+
+            limits = probe_endpoint_limits(model or "")  # the one place the slow ask is allowed
+            window = limits[0] if limits else None
+            max_output = limits[1] if limits else None
             if not window:
                 _remember_failure(key)
         except Exception as exc:  # a background thread must never surface as a mystery crash
@@ -536,7 +539,7 @@ class ContextEngine(BaseContextEngine):
             )
             return
 
-        _write_cache(key, window)
+        _write_cache(key, window, max_output)
 
         # Wait briefly for construction to finish; never race a build in flight.
         import time as _time
@@ -546,12 +549,12 @@ class ContextEngine(BaseContextEngine):
             _time.sleep(0.05)
         if getattr(self, "_init_complete", False) and getattr(self, "_active_pool", None) is None:
             with self._api_lock:
-                self._apply_window(window, "custom-api")
+                self._apply_window(window, "custom-api", max_output)
             print(f"[ContextEngine] endpoint reported {window:,} tokens (background); budgets re-applied")
         else:
             print(f"[ContextEngine] endpoint reported {window:,} tokens; cached, applied at the next build")
 
-    def _apply_window(self, window: int, source: str) -> None:
+    def _apply_window(self, window: int, source: str, max_output: int | None = None) -> None:
         """Apply a resolved context window to the engine budget fields.
 
         The single place where context_window -> (context_window_source,
@@ -564,8 +567,11 @@ class ContextEngine(BaseContextEngine):
 
         self.context_window = int(window) if window else None
         self.context_window_source = source
+        # None means the provider stated no reply cap, and the heuristic margin applies. It is NOT zero:
+        # reserving nothing is how an oversized payload gets sent, so an unknown cap must stay unknown.
+        self.max_output_tokens: int | None = int(max_output) if max_output else None
         if self.context_window:
-            usable = usable_window_budget(self.context_window)
+            usable = usable_window_budget(self.context_window, self.max_output_tokens)
             # AUTO: trust the discovered window; RetryLLMProxy resolves the
             # same number, so engine and guard stay in lockstep.
             cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
