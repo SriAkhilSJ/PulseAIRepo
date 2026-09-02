@@ -66,6 +66,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private renderFrame: number | undefined;
 	private restartTimer: ReturnType<typeof setTimeout> | undefined;
 	private restartAttempts = 0;
+	private engineFault: string | undefined;
 	private pendingPrompt: string | undefined;
 	private draft = '';
 	private mode: PulseExecutionMode = 'agent';
@@ -131,6 +132,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		retryEngine: () => {
 			if (this.restartTimer !== undefined) { clearTimeout(this.restartTimer); this.restartTimer = undefined; }
 			this.restartAttempts = 0;
+			// Clear the fault the moment a manual retry starts: leaving it up claims the engine is still
+			// broken while it is being restarted, and the row's own action would look like a no-op.
+			this.engineFault = undefined;
 			void this.ensureEngine();
 		},
 		selectWorkspace: uri => this.selectWorkspace(uri),
@@ -152,7 +156,21 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this._register(this.engineService.onDidChangeState(state => {
 			if (state === PulseAIEngineState.Ready) {
 				this.restartAttempts = 0;
-			} else if (state === PulseAIEngineState.Crashed) {
+				this.engineFault = undefined;
+			} else if (state === PulseAIEngineState.Crashed || state === PulseAIEngineState.Degraded) {
+				// The only trace of a dying sidecar used to be a log line: the process exit is reported by
+				// the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
+				// receives turn_done -- so the panel kept painting a live run that had no engine behind it.
+				// A setup failure already has its own actionable row, so it is not overwritten here.
+				if (!this.engineSetupError) {
+					this.engineFault = state === PulseAIEngineState.Crashed
+						? 'The Pulse engine process stopped while this session was open.'
+						: 'The Pulse engine could not accept the request, so it never reached the model.';
+					if (this.running) {
+						this.running = false;
+						this.turnOutcome = 'failed';
+					}
+				}
 				this.scheduleRestart();
 			}
 			this.render();
@@ -285,6 +303,13 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			telemetry: this.telemetry,
 			capabilitySummary: this.capabilitySummary,
 			error: this.error,
+			engineFault: this.engineFault === undefined ? undefined : {
+				message: this.engineFault,
+				// Same two conditions scheduleRestart checks -- reporting 'retrying' when the backoff had
+				// already given up, or when autoStart is off, would be a promise the code cannot keep.
+				retrying: this.restartAttempts < 3 && this.configurationService.getValue<boolean>('pulseai.autoStart') !== false,
+				attempts: this.restartAttempts,
+			},
 			draft: this.draft,
 			history: this.history,
 			sessions: this.sessionRows(),

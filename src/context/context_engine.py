@@ -499,15 +499,33 @@ class ContextEngine(BaseContextEngine):
         )
         self._meta_thread.start()
 
+    def _provider_name(self) -> str:
+        try:
+            from src.config.settings import LLM_PROVIDER
+            return LLM_PROVIDER or ""
+        except Exception:
+            import os
+            return os.getenv("LLM_PROVIDER", "") or ""
+
     def _endpoint_retry_worker(self, model: str) -> None:
         try:
             from src.context.model_budgets import (
                 _effective_provider,
+                _failure_is_fresh,
                 _probe_custom_endpoint,
+                _remember_failure,
                 _write_cache,
             )
 
-            window = _probe_custom_endpoint(model or "")
+            key = f"{_effective_provider(self._provider_name())}:{(model or '').strip().lower()}"
+            if _failure_is_fresh(key):
+                # A dead or slow endpoint gets retried in minutes, not on every engine build. The
+                # alternative -- re-asking on every construction -- is how a 5s catalog turns into a
+                # 5s-per-turn tax, and it is also what Hermes' short failure TTL exists to prevent.
+                return
+            window = _probe_custom_endpoint(model or "")  # the one place the slow ask is allowed
+            if not window:
+                _remember_failure(key)
         except Exception as exc:  # a background thread must never surface as a mystery crash
             print(f"[ContextEngine] background window probe failed: {exc}")
             return
@@ -518,14 +536,7 @@ class ContextEngine(BaseContextEngine):
             )
             return
 
-        provider = ""
-        try:
-            from src.config.settings import LLM_PROVIDER
-            provider = _effective_provider(LLM_PROVIDER or "")
-        except Exception:
-            pass
-        if provider:
-            _write_cache(f"{provider}:{(model or '').strip().lower()}", window)
+        _write_cache(key, window)
 
         # Wait briefly for construction to finish; never race a build in flight.
         import time as _time

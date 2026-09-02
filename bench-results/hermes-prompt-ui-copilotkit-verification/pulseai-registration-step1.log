@@ -384,3 +384,53 @@ tests: test_background_window_warmup.py 2 passed (init <0.35s while the probe sl
   mid-build -> must not mutate budgets). test_model_endpoint_metadata.py 28 passed (+3 alias tests, +1 'default makes ZERO endpoint calls', +_ENDPOINT_TIMEOUT_S>5). 35 passed across
   the three files. Injection: min->max fails exactly 1. Regression: same wide filter with changes stashed and the new file out -> comm -13 before/after FAILED = EMPTY.
 for him to observe after pulling: revert LLM_MODEL to auto if he wants the alias path proven; expect '[model_budgets] auto is a router alias...' then budgets at the smallest auto/* candidate's window.
+
+## turn 2026-09-04 09:25 +0530  ::  hermes timeout discipline ported + desktop UI engine-fault surface
+owner asked: "check how hermes agent does this work" + "add the error handling desktop UI also by seeing its folder".
+re-cloned upstream (ref MOVED: 5f24f29 -> 8cab422) and read agent/model_metadata.py rather than recalling it. Captured values:
+  timeout=(5,10) tuple, with the upstream rationale verbatim (#46620: a flat number blocks 10s per retry stage through
+  proxies that 403 CONNECT, "ballooning to minutes"; 5s connect / 10s read "fails fast on unreachable hosts").
+  _is_connect_timeout EXCLUDES read timeouts: "those mean the server accepted the connection, which is the opposite of
+  the blackhole this guards" -- a slow answer and a dead host are different facts and only one should stop us asking.
+  _ENDPOINT_BLACKHOLE_TTL_SECONDS = 30.0, keyed host:port via _endpoint_host_key "so every probe path for one server --
+  /v1-suffixed or not, LM Studio root or API root -- shares a single entry". Rationale: a routable-but-dead address
+  blackholes TCP, "a probe waits out its full timeout instead of failing fast", and "the stalls stack into a minute-long
+  hang before the banner renders"; the short-circuit "can only ever fire after a real timeout has already been paid, so
+  it cannot suppress a probe that would have worked."
+  _localhost_to_ipv4: Windows dual-stack "resolves localhost to ::1 first and pays a ~2s IPv6 connect timeout" before
+  IPv4 when the local server listens IPv4-only. HIS endpoint is http://localhost:20128 -- part of the measured 5.1s is
+  that penalty, not his router.
+  failure verdicts cached briefly: _ENDPOINT_PROBE_FAILURE_TTL_SECONDS = 300.0 vs 3600.0 for success, "so a transient
+  failure (server starting up, key being fixed)" recovers in minutes instead of pinning "undetected" for an hour.
+landed in model_budgets.py: _PROBE_CONNECT_TIMEOUT_S 2.5 / _ENDPOINT_CONNECT_TIMEOUT_S 5.0 / _ENDPOINT_TIMEOUT_S 12.0;
+  _http_get_json builds httpx.Timeout(read, connect=min(connect, read)) and routes through _localhost_to_ipv4;
+  _host_key/_is_blackholed/_note_blackhole (in-process, 30s, host:port) recorded ONLY for connect-phase failures, while
+  the read-timeout path prints that the server is alive and is NOT recorded as unreachable; _remember_failure/
+  _failure_is_fresh (300s) gate both the endpoint_probe rung in resolve_context_window and the engine's warm-up thread,
+  and a success clears the failure entry. Nothing became blocking: the slow ask still runs only on the daemon thread.
+landed in the desktop UI (his second ask), following the folder's own idioms -- existing pulseai-error-row, icon(),
+  button(), host.retryEngine -- instead of inventing a widget:
+  (1) Degraded was IGNORED by the state handler even though electron-browser/pulseAIEngineService.ts:113-115 fires it
+      when a bridge frame fails to SEND -- the prompt never reached the model, yet the panel painted a normal run.
+      Crashed and Degraded now both set an engineFault naming which one happened.
+  (2) a fault invalidates the run: running=false, turnOutcome='failed'. The renderer comment at :577 already records the
+      earlier lesson ("a run that died on a provider error still printed confident progress"); a dead sidecar never sends
+      turn_done, so the spinner claimed work indefinitely.
+  (3) exhaustion was silent (scheduleRestart returns at >=3 attempts); the row now says "Retrying automatically (attempt
+      N of 3)" or "Pulse stopped retrying on its own", with retrying computed from the SAME two conditions
+      scheduleRestart checks (attempts < 3 AND autoStart not false) so it cannot promise a restart already given up on.
+  (4) retryEngine clears the fault on click -- leaving it up asserts a broken engine while it restarts and makes its own
+      button look like a no-op. Checked first: retryEngine already resets restartAttempts, so that was NOT a bug and I
+      left it alone.
+  Setup errors keep their own row (guarded, not overwritten) and their Open Settings action.
+evidence: NEW src/tests/test_endpoint_probe_resilience.py 7 passed -- the two budgets are separate numbers reaching
+  httpx; connect timeout blackholes, read timeout does not; blackholing is per host:port (same server different path =
+  shared, different port = different server); localhost probed as 127.0.0.1 while a URL merely mentioning localhost in a
+  query is untouched; a blackholed endpoint issues ZERO network calls; a failure verdict expires after the TTL and then
+  asks again. Injection: disabling the blackhole gate fails exactly 1 test, restored 7 pass. 42 passed across the four
+  touched python files; the wide filter shows the same 15 pre-existing failures (my venv missing langgraph), 0 in my lanes.
+NOT verified, plainly: there is no TS test lane for this contrib (no pulseai/test/ directory exists), so the UI half got
+  tsc --noResolve --strict on the two files, which reported nothing at my lines and only unresolved-import artifacts
+  (Disposable._register, IDisposable.dispose) -- that is syntax and local typing, not the contract check. Gate A
+  (desktop/vscode/src/tsconfig.pulseai-check.json, which does exist in this checkout) is his to run with node_modules
+  present, and no rendering has been observed in his window yet.

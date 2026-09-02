@@ -72,6 +72,14 @@ export interface PulseAIRenderModel {
 	readonly capabilitySummary: { readonly available: number; readonly total: number; readonly blocked: number };
 	readonly error?: string;
 	/**
+	 * The engine itself faulted (process stopped, or a request that never reached the model) as opposed
+	 * to `error`, which is about the turn or the action the user took. Kept separate on purpose: a fault
+	 * here INVALIDATES `running`, because a spinner that keeps turning after the sidecar died is a claim
+	 * about work in progress that no longer exists. `retrying` reflects the same backoff the service uses
+	 * (max 3, exponential), so the row cannot promise an automatic restart that was already given up on.
+	 */
+	readonly engineFault?: { readonly message: string; readonly retrying: boolean; readonly attempts: number };
+	/**
 	 * The manager's session list: a projection of IPulseAISessionStore, i.e. the same rows the
 	 * workbench's own Agent Sessions list is fed. Absent means "the engine has not named a session
 	 * yet", which the manager paints as a designed empty state; an empty array would be a claim
@@ -610,6 +618,16 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		const label = model.turnOutcome === 'completed' ? 'Run completed' : model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
 		const iconName = model.turnOutcome === 'completed' ? 'pass-filled' : model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+	}
+	if (model.engineFault) {
+		const fault = model.engineFault;
+		const followUp = fault.retrying
+			? ` Retrying automatically (attempt ${fault.attempts + 1} of 3).`
+			: ' Pulse stopped retrying on its own.';
+		lane.append(element('div', 'pulseai-error-row is-engine-fault', icon('error'),
+			element('span', undefined, fault.message + followUp),
+			button('Retry engine', 'pulseai-link-button', host.retryEngine),
+		));
 	}
 	if (model.error) {
 		const setup = model.engineSetupError;

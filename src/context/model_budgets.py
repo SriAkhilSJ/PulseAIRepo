@@ -171,7 +171,120 @@ def usable_window_budget(window: int) -> int:
 # Probes are read-only GET requests with a hard timeout; every failure
 # degrades to the next rung, never to a crash.
 
-_PROBE_TIMEOUT_S = 2.5
+# Hermes does not use one number per request, and neither do we now. Captured from
+# agent/model_metadata.py @ 8cab422:
+#   - `timeout=(5, 10)` -- "flat timeout=10 means urllib3 can block 10s per retry stage through
+#     proxies that 403 CONNECT, ballooning to minutes (#46620). 5s connect / 10s read fails fast on
+#     unreachable hosts."
+#   - `_is_connect_timeout`: "Read timeouts are deliberately excluded: those mean the server
+#     accepted the connection, which is the opposite of the blackhole this guards."
+#   - `_ENDPOINT_BLACKHOLE_TTL_SECONDS = 30.0`, keyed host:port: a routable-but-dead address blackholes
+#     TCP so "a probe waits out its full timeout instead of failing fast", and "the stalls stack into a
+#     minute-long hang before the banner renders". Short-circuiting on a recorded observation "adds no
+#     probe for callers or tests to mock, and it can only ever fire after a real timeout has already been
+#     paid, so it cannot suppress a probe that would have worked."
+#   - `_localhost_to_ipv4`: on Windows dual-stack machines `localhost` resolves to `::1` first and
+#     "pays a ~2s IPv6 connect timeout before falling back to IPv4 when the local server only listens on
+#     IPv4". Owner's engine is http://localhost:20128 -- part of his measured 5.1s is that penalty.
+#   - `_ENDPOINT_PROBE_FAILURE_TTL_SECONDS = 300.0` vs 3600 for success: a failed verdict is remembered
+#     only briefly, "so a transient failure (server starting up, key being fixed)" recovers in minutes
+#     instead of pinning "undetected" for an hour.
+_PROBE_CONNECT_TIMEOUT_S = 2.5   # nothing listening? find out fast
+_PROBE_TIMEOUT_S = 2.5          # public catalogs: a slow answer means the internet is down
+_ENDPOINT_TIMEOUT_S = 12.0       # the user's own server may be thinking about a big registry
+_ENDPOINT_CONNECT_TIMEOUT_S = 5.0
+_BLACKHOLE_TTL_S = 30.0
+_FAILURE_TTL_S = 300.0
+
+# In-process only, on purpose: a failure verdict must not survive to the next launch, and a disk entry
+# would be indistinguishable from a real window in the JSON shape the loader reads.
+_failures: dict[str, float] = {}
+_blackholed: dict[str, float] = {}
+
+
+def _host_key(base_url: str) -> str:
+    """host:port for one server, so every probe path shares a verdict (Hermes _endpoint_host_key)."""
+    normalized = (base_url or "").strip().rstrip("/")
+    if not normalized:
+        return ""
+    url = normalized if "://" in normalized else f"http://{normalized}"
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if not parsed.hostname:
+            return ""
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return f"{parsed.hostname.lower()}:{port}"
+    except (ValueError, TypeError):
+        return ""
+
+
+def _now() -> float:
+    import time as _time
+    return _time.monotonic()
+
+
+def _is_blackholed(base_url: str) -> bool:
+    key = _host_key(base_url)
+    if not key:
+        return False
+    seen = _blackholed.get(key)
+    if seen is None:
+        return False
+    if _now() - seen > _BLACKHOLE_TTL_S:
+        _blackholed.pop(key, None)
+        return False
+    return True
+
+
+def _note_blackhole(base_url: str) -> None:
+    key = _host_key(base_url)
+    if key:
+        _blackholed[key] = _now()
+
+
+def _is_connect_timeout(exc: BaseException) -> bool:
+    """Connect-phase only. A read timeout means the server is alive and slow -- the opposite case."""
+    try:
+        import httpx
+        if isinstance(exc, httpx.ConnectTimeout) or isinstance(exc, httpx.ConnectError):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _remember_failure(cache_key: str) -> None:
+    if cache_key:
+        _failures[cache_key] = _now()
+
+
+def _failure_is_fresh(cache_key: str) -> bool:
+    seen = _failures.get(cache_key)
+    if seen is None:
+        return False
+    if _now() - seen > _FAILURE_TTL_S:
+        _failures.pop(cache_key, None)
+        return False
+    return True
+
+
+def _localhost_to_ipv4(url: str) -> str:
+    """Probe 127.0.0.1 instead of `localhost` -- skips the Windows dual-stack IPv6 penalty."""
+    if not url or not isinstance(url, str):
+        return url
+    from urllib.parse import urlparse, urlunparse
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url
+    if (parsed.hostname or "").lower() != "localhost":
+        return url
+    netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+
 # A self-hosted router's catalog is not a small API call. Measured on the owner's box, localhost:20128
 # answered /v1/models in 5.1s with 503 KB and 1,572 models; at the 2.5s public-catalog timeout the read
 # was cut off, the catalog came back empty, and the engine reported that the endpoint "published no
@@ -219,18 +332,39 @@ def _cache_get(key: str) -> tuple[int, bool] | None:
     return window, (time.time() - ts) < _CACHE_TTL_S
 
 
-def _http_get_json(url: str, headers: dict | None = None, timeout: float | None = None) -> dict | None:
-    """GET JSON with a hard timeout. Any failure -> None (callers degrade).
+def _http_get_json(
+    url: str,
+    headers: dict | None = None,
+    timeout: float | None = None,
+    connect_timeout: float | None = None,
+    base_url: str = "",
+) -> dict | None:
+    """GET JSON with a HARD deadline. Any failure -> None (callers degrade, never crash).
 
-    `timeout` is per call because one budget does not fit every catalog; None keeps the short default.
+    Two budgets, not one: `connect_timeout` is how long we wait to learn whether anything is there,
+    `timeout` is how long we let a live server think. Collapsing them is what made a 5.1s catalog look
+    like an endpoint that publishes no window, and letting a dead host charge both is what turns a
+    startup into a minute of stalls. `base_url` is the blackhole key when it differs from `url`.
     """
+    read_timeout = timeout or _PROBE_TIMEOUT_S
+    conn = _PROBE_CONNECT_TIMEOUT_S if connect_timeout is None else connect_timeout
     try:
         import httpx
-        resp = httpx.get(url, headers=headers or {}, timeout=timeout or _PROBE_TIMEOUT_S)
+        resp = httpx.get(
+            _localhost_to_ipv4(url),
+            headers=headers or {},
+            timeout=httpx.Timeout(read_timeout, connect=min(conn, read_timeout)),
+        )
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
-        pass
+    except Exception as exc:
+        if _is_connect_timeout(exc):
+            _note_blackhole(base_url or url)
+            print(f"[model_budgets] {(_host_key(base_url or url) or 'endpoint')} refused or failed to connect; "
+                  f"skipping it for {int(_BLACKHOLE_TTL_S)}s (a dead host must not be charged to every probe)")
+        else:
+            print(f"[model_budgets] {url} read timed out or failed ({type(exc).__name__}) -- the server is "
+                  "alive, so this is NOT recorded as an unreachable endpoint")
     return None
 
 
@@ -328,9 +462,23 @@ def _endpoint_catalog(base_url: str) -> list[dict]:
     base = (base_url or "").strip().rstrip("/")
     if not base:
         return []
-    candidates = [f"{base}/models"] if base.endswith("/v1") else [f"{base}/v1/models", f"{base}/models"]
+    if _is_blackholed(base_url):
+        return []
+    probe_base = _localhost_to_ipv4(base)
+    candidates = [
+        f"{probe_base}/models" if probe_base.endswith("/v1")
+        else f"{probe_base}/v1/models"
+    ]
+    if not probe_base.endswith("/v1"):
+        candidates.append(f"{probe_base}/models")
     for url in candidates:
-        data = _http_get_json(url, _endpoint_auth_headers(), timeout=_ENDPOINT_TIMEOUT_S)
+        data = _http_get_json(
+            url,
+            _endpoint_auth_headers(),
+            timeout=_ENDPOINT_TIMEOUT_S,
+            connect_timeout=_ENDPOINT_CONNECT_TIMEOUT_S,
+            base_url=base_url,
+        )
         if isinstance(data, dict):
             entries = data.get("data") or data.get("models") or []
             if isinstance(entries, list):
@@ -355,6 +503,8 @@ def _probe_custom_endpoint(model_name: str) -> int | None:
         base_url = CUSTOM_BASE_URL or ""
     except Exception:
         base_url = os.getenv("CUSTOM_BASE_URL", "")
+    if _is_blackholed(base_url):
+        return None
     wanted = (model_name or "").strip()
     entries = _endpoint_catalog(base_url)
     for entry in entries:
@@ -518,10 +668,16 @@ def resolve_context_window(
     # table -- Hermes puts "active endpoint metadata" above the hardcoded defaults for this reason
     # (a vLLM exposing the id "gpt-4" may well serve 128k, and a table of cloud windows cannot know).
     if allow_network and endpoint_probe and provider == "custom":
-        endpoint_window = _probe_custom_endpoint(raw)
-        if endpoint_window:
-            _write_cache(cache_key, endpoint_window)
-            return endpoint_window, "custom-api"
+        # A recent "asked and got nothing" is retried within minutes, not on every construction and not
+        # never: Hermes caches a failed verdict for 300s against 3600 for a success, because "server
+        # starting up, key being fixed" is a transient state, while a per-turn waterfall is a real cost.
+        if not _failure_is_fresh(cache_key):
+            endpoint_window = _probe_custom_endpoint(raw)
+            if endpoint_window:
+                _failures.pop(cache_key, None)
+                _write_cache(cache_key, endpoint_window)
+                return endpoint_window, "custom-api"
+            _remember_failure(cache_key)
 
     # 3) Static table: zero network for models we already know.
     table = _table_lookup(model_name)

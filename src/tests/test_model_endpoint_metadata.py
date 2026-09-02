@@ -113,7 +113,7 @@ def test_the_url_tolerates_a_base_that_already_carries_v1(monkeypatch):
 
     seen: list[str] = []
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, headers=None, timeout=None, **kwargs):
         seen.append(url)
         return {"data": [{"id": "m", "max_model_len": 16_384}]}
 
@@ -185,13 +185,18 @@ def test_the_endpoint_gets_a_longer_budget_than_the_public_catalogs():
 def test_the_catalog_uses_the_longer_budget(monkeypatch):
     seen: dict[str, object] = {}
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, headers=None, timeout=None, connect_timeout=None, base_url="", **kwargs):
         seen["timeout"] = timeout
+        seen["connect_timeout"] = connect_timeout
+        seen["base_url"] = base_url
         return {"data": [{"id": "m", "max_model_len": 4_096}]}
 
     monkeypatch.setattr(mb, "_http_get_json", fake_get)
     assert mb._endpoint_catalog("http://host:8000/v1")
     assert seen["timeout"] == mb._ENDPOINT_TIMEOUT_S, seen
+    # the blackhole key is the SERVER, so it must be passed the caller's base_url, not the probe URL
+    assert seen["base_url"] == "http://host:8000/v1", seen
+    assert seen["connect_timeout"] == mb._ENDPOINT_CONNECT_TIMEOUT_S, seen
 
 
 def test_a_router_alias_resolves_to_the_smallest_window_it_could_be_handed(monkeypatch):
