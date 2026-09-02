@@ -271,3 +271,51 @@ session engines + the collection-safety pins, in 55 s — the one skip is the ga
 Without a reachable Hermes checkout, `test_corpus_hash_matches_a_pinned_checkout` skips and those read 70/1 and
 120/2, which is why the brief names that test explicitly instead of demanding a bare count. Whole-suite
 `--collect-only` on this host now finishes in under 2 s.
+
+## Fifth change: the consent rule is now gitignore membership, not a basename list
+
+The owner set the policy: **if git can restore the file, the agent goes alone; if git can't, it asks.** That
+replaced my proposal (patch `_is_critical_path` for create-new + add a `copy_file` branch) — same hole, better
+predicate. Upstream Hermes is the structural model, not the source of the rule:
+`acp_adapter/edit_approval.py::should_auto_approve_edit` gates on the *resolved path* for every mutation tool
+and keeps a sensitive-path veto that outranks even autonomous policies, with an `allow_session=False` class that
+re-asks every time. `SafetyGuard` now mirrors that shape and swaps the hardcoded `SENSITIVE_AUTO_APPROVE_NAMES`
+for the repo's own declaration of privacy.
+
+    ignored by git            -> consent, every time (no session grant accepted)
+    tracked / not-ignored     -> no prompt at all
+    no git able to answer     -> the previous verdict, byte-for-byte
+
+`git check-ignore` is the oracle (nested `.gitignore`, `.git/info/exclude`, `core.excludesFile`, `!` negations —
+everything a hand-rolled matcher gets subtly wrong), and it is deliberately **not** `--no-index`: a
+force-committed file is tracked, so git *can* restore it and the rule answers "go" for the right reason.
+
+What got fixed, concretely:
+
+- **The asymmetry is gone.** `write_file`'s critical-path test used to sit inside `if full_path.exists():` *and*
+  inside the `PULSEAI_AUTO_APPROVE_WRITES` branch, so it fired in neither ordinary case — creating `.env` was
+  free while editing it cost a prompt, i.e. the guard's strength depended on which tool the model picked.
+  `copy_file` was never consulted at all, and `chat_graph.py:2816-2821` auto-approves a mutation when
+  `approval_policy` is `session`/`workspace_session` *and* nothing flagged it — nothing could. Off the bridge
+  there is no approval step either, so `copy_file` had no rail in either direction.
+- **`copy_file` is now checked on both sides**, with side-aware wording: reading `.env` into `notes.txt` says
+  "this moves the secret somewhere git will track", because a model handed a message about *editing* a file it
+  is copying out of cannot route around a warning that mislabels the risk.
+- **The D9 nag is deleted** — tracked `tsconfig.json` overwrites no longer interrupt, without the opt-in flag.
+- **Autonomous eval keeps its freedom** for git-ignored-but-ordinary paths (`out/`, `dist/`, caches: no human is
+  there to answer), while the named-secrets veto never relaxes. `PULSEAI_SAFETY_GITIGNORE=0` returns the whole
+  guard to its previous behaviour; both of those are pinned by name in the new suite.
+
+Measured on the current tree: `src/tests/test_safety_guard_consent.py` **18 passed** (real `git init` fixtures,
+no mocks — a fixture that re-implemented ignore matching would have tested the fixture). Combined with the
+guard's existing contracts — `test_parallel_tools.py` (D11), `test_engine_smoke.py`, `test_ptc.py`,
+`test_benchmark_harness.py`, `test_no_import_time_agent_turns.py` — **112 passed / 1 failed**, and that one
+failure (`test_autonomous_runtime_contract.py::test_ai_node_builds_expected_first_sarvam_request_without_provider_call`,
+a message-ordering assert) reproduces **identically at base `86eaaae2`**, so it is not from this change.
+One correction while I was in there: the brief asserted `copy_file` was approval-gated via
+`APPROVAL_TOOLS` — that symbol does not exist anywhere in `src/`. The real gate is `mutation_names` at
+`src/graphs/chat_graph.py:2812`, so the sentence was rewritten rather than left as a citation of an imaginary
+constant (the same failure mode as naming a guard with three tools instead of four).
+
+Cost of consulting git: **2.91 ms per consent check** (one spawned `git check-ignore`), ~30 ms on a
+10-write turn; the repo root is cached, the ignore state is not, because a turn can create a `.gitignore`.

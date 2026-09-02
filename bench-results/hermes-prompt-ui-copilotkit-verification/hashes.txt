@@ -88,10 +88,13 @@ fd2823e5dc9b51520a0fe1fbbc92b565ddca9ea56e73d5a539e82512eef1ba19  src/prompts/he
 6ccf7d5cf49a40a82af74178f4b4e883b22f8caa76b908b564db6e556c81dc1a  scripts/validate_pulse_ui_cdp.js
 8848c4869fad46242d8070126337daf9dc816ff32cb7779e30abca6f6138094b  HERMES_PROMPT_UI_PORT_VERIFICATION.md
 
-3eaaad4a5e803d02230fcb5ba5bbc09786b9592ee9075916b4408502d2cd4338  DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md
+6580e0ed94454d4e18aa2472c2661869738587cebf2f2ce215e23e7987ca23d2  DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md
 081c5d4d520f35739be2fd275c0cce7d2aeb31d681da1fd85c3ff2bbbd339f88  src/tests/test_agent_status_checkpoint.py
 137b64f13bce9c723507903168dbf56f41cbcc922de34b5c1717f4b2248e01d1  src/tests/test_no_import_time_agent_turns.py
+5a60317f3da857d7d8a9b64bc36b051087738ffb647997e78512f5c2719d4d32  src/context/safety_guard.py
+e7edf5b7a735cef35ad8b0b9a8255fdc30a2fa2607402b7f348b028be143de0b  src/tests/test_safety_guard_consent.py
 parity: 61, session-cache: 10 -> 71/71 with the pin at a9c783f2. Fourth-round local run (7 files: bridge +
 both prompt suites + runtime values + session engines + the two collection-safety pins + the gated live test):
 121 passed / 1 skipped (the skip is PULSEAI_ALLOW_LIVE_AGENT_TEST, by design) in 64s; whole-suite --collect-only
-2.5s. Without a reachable Hermes checkout: 70/1 and 120/2.
+2.5s. Without a reachable Hermes checkout: 70/1 and 120/2. Consent-policy run: 18 passed
+(test_safety_guard_consent) + 112 passed/1 pre-existing base failure across the guard's existing contracts.

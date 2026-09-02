@@ -3,15 +3,19 @@ platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
 rootdir: /home/user/PulseAIRepo
 configfile: pytest.ini
 plugins: anyio-4.14.2, langsmith-0.12.1
-collected 122 items
+collected 206 items
 
-src/tests/test_no_import_time_agent_turns.py ..                          [  1%]
-src/tests/test_agent_status_checkpoint.py s                              [  2%]
-src/tests/test_hermes_runtime_values.py ..............                   [ 13%]
-src/tests/test_session_engines.py ...................                    [ 29%]
-src/tests/test_bridge_transport.py ...............                       [ 41%]
-src/tests/test_hermes_prompt_parity.py ................................. [ 68%]
-............................                                             [ 91%]
-src/tests/test_hermes_prompt_session_cache.py ..........                 [100%]
+src/tests/test_safety_guard_consent.py ..................                [  8%]
+src/tests/test_parallel_tools.py ....................                    [ 18%]
+src/tests/test_engine_smoke.py ............                              [ 24%]
+src/tests/test_ptc.py .............................                      [ 38%]
+src/tests/test_benchmark_harness.py ........................             [ 50%]
+src/tests/test_hermes_runtime_values.py ..............                   [ 56%]
+src/tests/test_bridge_transport.py ...............                       [ 64%]
+src/tests/test_hermes_prompt_parity.py ................................. [ 80%]
+............................                                             [ 93%]
+src/tests/test_hermes_prompt_session_cache.py ..........                 [ 98%]
+src/tests/test_no_import_time_agent_turns.py ..                          [ 99%]
+src/tests/test_agent_status_checkpoint.py s                              [100%]
 
-================== 121 passed, 1 skipped in 64.54s (0:01:04) ===================
+======================= 205 passed, 1 skipped in 47.17s ========================
