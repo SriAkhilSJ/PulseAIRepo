@@ -79,16 +79,24 @@ A round-2 evidence directory is used because the first round's is evidence too, 
 ## 2. Gate A — strict scoped typecheck (proves the registration satisfies the fork's contracts)
 
 ```powershell
-cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
-$tsc = if (Test-Path .\node_modules\.bin\tsc) { '.\node_modules\.bin\tsc' } else { '..\..\pulse-webview\node_modules\.bin\tsc' }
-& $tsc -p src\tsconfig.pulseai-check.json --noEmit 2>&1 |
-  Out-File -Encoding ascii "$PWD\..\..\$evidence\gate-a-tsc.txt"
-$mine = Select-String -Path "$PWD\..\..\$evidence\gate-a-tsc.txt" -Pattern '^vs/workbench/contrib/pulseai'
-"Pulse errors: $($mine.Count)"
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode\src        # this directory, or the paths shift
+$tsc = if (Test-Path ..\node_modules\.bin\tsc) { '..\node_modules\.bin\tsc' } else { '..\..\..\pulse-webview\node_modules\.bin\tsc' }
+& $tsc -p tsconfig.pulseai-check.json --noEmit 2>&1 | Out-File -Encoding ascii "$PWD\..\..\..\$evidence\gate-a-tsc.txt"
+$log = "$PWD\..\..\..\$evidence\gate-a-tsc.txt"
+# Unanchored on purpose, and coverage asserted separately. `^vs/workbench/contrib/pulseai` matched
+# nothing when the command ran from desktop\vscode, because tsc then prints `src/vs/...` -- so for four
+# rounds gate A reported "0" whether the tree was clean or not, and TS2459 in pulseAISessionController.ts
+# walked straight through it to reach npm run compile. A grep that cannot match is not a clean build.
+$mine  = (Select-String -Path $log -Pattern 'contrib/pulseai' | Where-Object Line -match 'error TS').Count
+$total = (Select-String -Path $log -Pattern 'error TS').Count
+$files  = (& $tsc -p tsconfig.pulseai-check.json --noEmit --listFilesOnly 2>$null | Select-String 'contrib/pulseai').Count
+"Pulse errors: $mine   all errors: $total   Pulse files in program: $files"
+if ($files -lt 26) { throw "Gate A has no coverage ($files Pulse files in the program) — STOP, this is not a pass" }
 ```
 
-**PASS = `Pulse errors: 0`.** Errors in other paths are expected (missing `@types` in a partial checkout)
-and are not failures — only lines beginning `vs/workbench/contrib/pulseai` count. Non-zero → skip
+**PASS = `Pulse errors: 0` AND `Pulse files in program >= 26`.** Other errors are expected (missing
+`@types` in a partial checkout) and are not failures. Never judge this lane by a total of zero: an
+empty log means the compiler or the filter failed, and that is a STOP. Non-zero → skip
 everything below, go to step 5.
 
 ## 3. Gate B — the two python lanes that cover this slice

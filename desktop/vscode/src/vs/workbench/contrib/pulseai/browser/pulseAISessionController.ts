@@ -25,7 +25,8 @@ import {
 import { isPulseSessionUri, PULSE_CHAT_SESSION_TYPE, pulseSessionRows, type PulseAISessionStatusName } from '../common/pulseAISessionProjection.js';
 import { IPulseAISessionStore } from '../common/pulseAISessionStore.js';
 import { PulseAICommandId } from '../common/pulseAI.js';
-import { IAgentSession, sessionOpenerRegistry, type ISessionOpenOptions, type ISessionOpenerParticipant } from '../../chat/browser/agentSessions/agentSessionsOpener.js';
+import { sessionOpenerRegistry, type ISessionOpenOptions, type ISessionOpenerParticipant } from '../../chat/browser/agentSessions/agentSessionsOpener.js';
+import type { IAgentSession } from '../../chat/browser/agentSessions/agentSessionsModel.js';
 
 function toChatSessionStatus(statusName: PulseAISessionStatusName | undefined): ChatSessionStatus | undefined {
 	switch (statusName) {

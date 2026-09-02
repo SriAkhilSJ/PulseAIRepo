@@ -110,3 +110,29 @@ platform package removed as well -> fell through to `esbuild/bin/esbuild`, 58 pa
 reinjecting the hardcode (it failed, naming the file), because the first version of it was red for a
 reason worth keeping in mind: a self-scanning pin that spells the pattern literally matches its own
 assertion.
+
+## Windows host, round 5 (`e454525c`): his compile caught what my gate A could not see
+
+`TS2459: Module 'agentSessionsOpener.js' declares 'IAgentSession' locally, but it is not exported` at
+`pulseAISessionController.ts:28`. He named the one-line fix and correctly declined to apply it under the
+stop rules. Applied as his option 1 -- import `IAgentSession` from `agentSessionsModel.js` (where it is
+declared and exported, line 126); option 2 was rejected because it edits chat's file to suit Pulse.
+
+**Gate A is why this reached a build at all, and gate A was broken.** Its instruction was
+`Select-String -Pattern '^vs/workbench/contrib/pulseai'` run from `desktop\vscode`, where tsc prints
+`src/vs/workbench/...`. The anchor could not match, so the count was 0 whatever the tree contained -- on
+his host for four rounds and in three of my own runs, including the "0 Pulse errors" claims in this log.
+Reproduced in one command after the fix: anchored from `desktop/vscode` -> 0, unanchored -> 1, anchored
+from `src` (the directory the tsconfig documents) -> 1.
+
+Two changes so this cannot recur:
+* Gate A now runs from `src`, matches `contrib/pulseai` unanchored, and **asserts coverage separately**
+  (`Pulse files in program >= 26`), because "no output" and "no errors" are different states and only one
+  of them is a pass. An empty log is now a STOP.
+* The lane moved into pytest: `test_scoped_typecheck_reports_no_errors_in_our_contribution` runs the same
+  config through `typescript/bin/tsc`, asserts our files are in the program (including
+  `pulseAISessionController.ts` itself) and that no `contrib/pulseai` line carries an error. Verified in
+  both directions -- re-injecting the bad import makes it fail with the TS2459 text; restored, the whole
+  python lane is 60 passed / 3 skipped / 1 xfailed, and 11 passed under his host conditions (esbuild shim
+  dead, `LC_ALL=C PYTHONUTF8=0`). Correctly-read scoped typecheck on the fixed tree: Pulse errors 0,
+  363 environmental.

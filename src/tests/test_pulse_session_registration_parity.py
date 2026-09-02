@@ -311,6 +311,38 @@ def test_session_uri_scheme_is_the_session_type(tmp_path):
     assert "return resource.scheme;" in resolver
 
 
+def test_scoped_typecheck_reports_no_errors_in_our_contribution():
+    """The lane that used to live only in a PowerShell grep, where it lied for four rounds.
+
+    From `desktop/vscode` the compiler prints `src/vs/...`, so an anchored `^vs/workbench/contrib/pulseai`
+    matches nothing and reports a clean tree whatever the truth -- TS2459 in `pulseAISessionController.ts`
+    got through it to `npm run compile`. Python does the matching here, unanchored, and coverage is
+    asserted as a separate fact: 'no output' and 'no errors' are different states and only one of them is
+    a pass.
+    """
+    if shutil.which("node") is None:
+        pytest.skip("no node on this host -- the typecheck lane cannot run; report it, do not call it clean")
+    tsc = next((path for path in TSC_CANDIDATES if path.exists()), None)
+    if tsc is None:
+        pytest.skip("no typescript package under pulse-webview or desktop/vscode -- run npm install; not a pass")
+    vscode = ROOT / "desktop" / "vscode"
+    listing = subprocess.run(
+        ["node", str(tsc), "-p", str(vscode / "src" / "tsconfig.pulseai-check.json"), "--noEmit", "--listFilesOnly"],
+        capture_output=True, stdin=subprocess.DEVNULL, timeout=900, cwd=str(vscode),
+    )
+    files = [line for line in listing.stdout.decode("utf-8", "replace").splitlines() if "contrib/pulseai" in line]
+    assert len(files) >= 26, f"the lane checks {len(files)} Pulse files; it is not covering the contribution"
+    assert "pulseAISessionController.ts" in "".join(files), "the registration itself is outside the lane"
+
+    check = subprocess.run(
+        ["node", str(tsc), "-p", str(vscode / "src" / "tsconfig.pulseai-check.json"), "--noEmit"],
+        capture_output=True, stdin=subprocess.DEVNULL, timeout=900, cwd=str(vscode),
+    )
+    output = check.stdout.decode("utf-8", "replace")
+    ours = [line for line in output.splitlines() if "contrib/pulseai" in line and "error TS" in line]
+    assert not ours, "\n".join(ours[:12])
+
+
 def test_no_parity_lane_hardcodes_npm_s_bin_shim():
     """Third Windows round, same class of mistake: `.bin/esbuild` is a shell script when node_modules
     was installed on another platform, so the lanes must resolve an executable and believe the probe.
