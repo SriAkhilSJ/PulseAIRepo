@@ -341,10 +341,14 @@ class BridgeServer:
             )
             forwarder.start()
 
-            # Non-sensitive liveness frame before entering the real graph.
+            # Non-sensitive liveness frame before entering the real graph. The text used to name a
+            # workspace step this code had not started and would not necessarily reach -- a 402 from the
+            # provider still printed it, straight above "Run failed". Say only what is unconditionally
+            # true here: the turn was accepted and we are waiting on the model. Everything else in the
+            # transcript comes from real tool events.
             self.emit({
                 "type": "reasoning", **identity.event_fields(),
-                "text": "Preparing workspace context…",
+                "text": "Turn accepted. Waiting on the model…",
             })
             try:
                 # Interactive IDE sessions default to ask. Guarded autonomous

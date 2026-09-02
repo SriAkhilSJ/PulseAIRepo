@@ -337,3 +337,23 @@ def test_thought_duration_survives_the_repaint_that_measured_it(tmp_path):
     assert reopened == 0, "a new thought re-arms rather than inheriting the old count"
     renderer = FORK_RENDERER.read_text(encoding="utf-8")
     assert "activity.thoughtSeconds(model)" in renderer and "liveThoughtSeconds" in renderer
+def test_no_progress_line_is_invented_when_there_is_nothing_to_report():
+    """Both narrating layers used to claim workspace work that had not happened.
+
+    The renderer fell back to a sentence about inspecting the workspace whenever the assistant had no
+    text yet, and the bridge emitted a "preparing context" reasoning frame before the graph ran. On a
+    run that failed at the provider, that produced two confident progress lines above "Run failed" --
+    the exact shape of progress theatre, and the owner spotted it in a screenshot. Progress copy is only
+    allowed to come from a model field or a real event.
+    """
+    root = Path(__file__).resolve().parents[2]
+    inspecting = "Inspecting " + "workspace context"
+    preparing = "Preparing " + "workspace context"
+    renderer = (root / "desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts").read_text(encoding="utf-8")
+    bridge = (root / "src/bridge/__main__.py").read_text(encoding="utf-8")
+    assert inspecting not in renderer, "assistant copy must not be invented when assistantText is empty"
+    assert preparing not in bridge, "the pre-graph liveness frame must not narrate a step that has not run"
+    copy_call = re.search(r"element\('p', 'pulseai-assistant-copy'[^)]*\)", renderer)
+    assert copy_call, "the assistant copy element must still exist -- the fix is to gate it, not delete it"
+    assert "||" not in copy_call.group(0), f"the copy line must render only real text: {copy_call.group(0)}"
+    assert "if (model.assistantText) {" in renderer, "the copy element needs an emptiness guard to survive removal of the fallback"

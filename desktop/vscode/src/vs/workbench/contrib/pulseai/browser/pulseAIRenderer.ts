@@ -572,9 +572,15 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		response.dataset.component = 'session-turn';
 		response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), model.running ? element('span', 'pulseai-stream-label', model.cancelRequested ? 'Stopping.' : 'Working') : undefined));
 		if (model.reasoning) { response.append(thinkingBlock(model.reasoning, openTools, model.running, liveThoughtSeconds)); }
-		const copy = element('p', 'pulseai-assistant-copy', model.assistantText || 'Inspecting workspace context...');
-		copy.dataset.slot = 'session-turn-content';
-		response.append(copy);
+		// No assistant text means there is nothing to narrate. The line used to fall back to a sentence
+		// claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
+		// died on a provider error still printed confident progress. The spinner and the 'Working' label
+		// already say the only true thing: the turn is open.
+		if (model.assistantText) {
+			const copy = element('p', 'pulseai-assistant-copy', model.assistantText);
+			copy.dataset.slot = 'session-turn-content';
+			response.append(copy);
+		}
 		lane.append(response);
 	}
 	if (model.tools.length) {

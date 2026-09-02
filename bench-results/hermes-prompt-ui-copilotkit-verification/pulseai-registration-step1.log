@@ -179,3 +179,20 @@ retry and the hand-open alternative, so "no folder" can never again be reported 
 
 Pinned: the app-dir-first shape, the disk check for packaged-vs-dev, and the preflight, with the lane green
 at 12 passed (including the in-lane scoped typecheck) and both argv forms verified by `--dry-run` here.
+
+## Owner's screenshot, 2026-09-02: the panel is live on Windows -- and two progress lines were theatre
+
+`PULSE AGENT` renders inside the fork panel with the Manager affordance, the Thought disclosure carrying a
+real elapsed count (6s), the 402 surfaced verbatim under `Run failed`. That is the desktop rendering
+acceptance the CDP lane was invented to prove, so CDP is dropped per the owner: the human screenshot is
+stronger evidence than the script.
+
+Two complaints in it, both fixed: `Inspecting workspace context...` was the renderer's fallback for the
+assistant copy when `assistantText` was empty (`pulseAIRenderer.ts:575`), and `Preparing workspace context...`
+was a `reasoning` frame the bridge emitted unconditionally before entering the graph
+(`src/bridge/__main__.py:347`). Neither described anything that had happened -- a turn rejected at the
+provider still printed both, above its own failure. The copy element is now gated on real text (rendering
+nothing when there is nothing to narrate; the spinner and `Working` label carry the truth), and the liveness
+frame says only what is unconditionally true at that point. Pinned in `test_hermes_activity_parity.py`, with
+the literals composed so the test cannot match its own prose -- the third time that trap fired, and the
+second time inside a comment I wrote to explain a fix. Lane: 40 passed, 1 skipped.
