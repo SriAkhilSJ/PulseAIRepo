@@ -1,0 +1,1 @@
+﻿reached: B; result: FAIL; first failure: Gate B — 5 parity tests fail with [WinError 193] esbuild not a valid Win32 application (host gap)

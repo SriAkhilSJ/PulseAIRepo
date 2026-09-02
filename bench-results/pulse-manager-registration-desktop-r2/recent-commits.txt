@@ -1,0 +1,6 @@
+﻿a4c774e5 instructions: gate 0 was checking the wrong thing
+ce2bd04f evidence(desktop): manager session registration ΓÇö FAIL at gate 0
+2327e280 evidence: re-ran the registration gates after the sandbox rebuilt itself
+358d7a20 runbook: desktop instructions for the Manager session registration
+f7815e47 manager: register Pulse as a session provider, not as a second UI
+8ba953eb docs(review): the agentSessions size claim I stated from an unverified ls
