@@ -346,3 +346,24 @@ tests (mine, executed): src/tests/test_model_endpoint_metadata.py 22 passed (12 
 unproven, said plainly: whether HIS endpoint serves /models and publishes a window under one of the 12 keys -- if it does not, source stays 'default' and only
   naming LLM_MODEL resolves it; no paid provider turn was run. And whether the webview tab paints for him after pull + npm run build (the framing block in his
   log is the pre-pull state; f3c84c74 ships the fix, which he has not built yet).
+
+## turn 2026-09-04 07:40 +0530  ::  CORRECTION to my own diagnosis, found while answering 'which layer is the model budget'
+the causal chain I published in 8b438533 is WRONG at its last step, and the receipt text I shipped repeated it. Verified in code:
+  context_engine.py:1064 _workspace_exceeds_budget(workspace, cap) compares DIRECTORY-ENTRY COUNTS (os.walk, seen > cap),
+  and the cap it is handed is pool.max_considered -- the scan ledger's ENTRIES-TO-CONSIDER quota, not a token figure.
+  context_engine.py:1031 constructs ContextBudget() with NO arguments -> max_elapsed 5.0s, max_files 1000, max_bytes 16 MiB,
+  max_file_bytes 1 MiB, max_considered 1000, max_visited 1000 (bounded_scan.py:198-213). Nothing about the model window reaches it.
+  => 'PulseAIRepo exceeds scan budget' is a FILE-COUNT bound tripped by the repo's size (desktop/vscode under it); it would have
+     tripped identically with a 256K window. The window/max_tokens/context_budget figures are real and were genuinely mis-sized,
+     by an unrelated mechanism. Two defects looked like one because I read my own inference into the receipt.
+what changed: _emit_build_receipt now composes independent clauses -- for the by-design case it prints the bound it actually
+  hit ('walk bound: 1,000 entries to consider, 1,000 files, 16 MiB, 5.0s -- a file-count ceiling from ContextBudget defaults,
+  independent of the model window') and only for an unresolved window adds 'separately, the token budget runs on an assumed
+  window of 8,192: max_tokens 4,096, context budget 1,638 ...'. The walk clause is suppressed when truncation/cancellation is the
+  reason (it is not that reason), and no clause is added when nothing was bounded. Base string stays byte-identical (count==1 contract).
+tests: src/tests/test_scan_budget_receipt_reason.py rewritten to the true mechanism -> 5 passed, incl. a test that a truncated build
+  says nothing about scan bounds and one that NO receipt appears when the workspace is not oversized; test_model_endpoint_metadata.py 22
+  passed unchanged (discovery is unaffected). Bug-injection: forcing the walk clause to always append -> 1 failed; restored -> 5 passed.
+still true from earlier this turn: the endpoint probe + PROVIDER_SAFE_LIMIT AUTO change stands on its own merits -- it is what makes the
+  token budgets follow the provider instead of a guess. It is NOT what removes the scan-budget line. If the owner wants THAT bound to
+  scale (or stop appearing on a greeting), the knob is ContextBudget's quotas at context_engine.py:1031, not the model window.

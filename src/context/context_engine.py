@@ -1126,13 +1126,29 @@ class ContextEngine(BaseContextEngine):
         # LLM_MODEL=auto on a custom provider, window 8,192, budget 4,096, and a greeting came back
         # reading like a product limit on a config mistake. The base string stays byte-identical (the
         # benchmark contract counts this receipt by its reason); the cause rides behind it.
-        if getattr(self, "context_window_source", "") == "default":
-            reason += (
-                f" (window {self.context_window:,} assumed -- the endpoint was asked, or could not be"
-                f" asked, and returned no window for this model id; token budget {self.max_tokens:,}."
-                " Naming LLM_MODEL lets the window come from the endpoint's own metadata;"
-                " LLM_CONTEXT_WINDOW states it directly, and PROVIDER_SAFE_LIMIT caps the budget)"
+        # Two bounds are in play here and they are NOT the same one. The scan bound is ContextBudget's
+        # file-count quota (engine:1031 constructs it with no arguments: 1,000 entries to consider,
+        # 1,000 files, 16 MiB, 5s); the model window only sizes the TOKEN budgets. An earlier revision of
+        # this line appended the assumed-window note to whichever reason fired, which read as "the window
+        # caused the scan bound" -- a causal claim the code does not support, and the kind of
+        # confident-looking text that sends the next reader down the wrong path. Each clause now states
+        # its own bound, and the scan clause says out loud that the window is not the reason.
+        extra = []
+        if oversized and not (pool.truncated or pool.cancelled):
+            extra.append(
+                f"walk bound: {pool.max_considered:,} entries to consider, {pool.max_files:,} files,"
+                f" {pool.max_bytes / 1_048_576:.0f} MiB, {pool.max_elapsed:.1f}s -- a file-count ceiling"
+                " from ContextBudget defaults, independent of the model window"
             )
+        if getattr(self, "context_window_source", "") == "default":
+            extra.append(
+                f"separately, the token budget runs on an assumed window of {self.context_window:,}:"
+                f" max_tokens {self.max_tokens:,}, context budget {self.context_budget:,}. Naming LLM_MODEL"
+                " lets the endpoint's own /models metadata resolve it; LLM_CONTEXT_WINDOW states it directly"
+            )
+        if extra:
+            reason += " (" + "; ".join(extra) + ")"
+
         pool.emit_degraded({
             "thread_id": self._active_thread_id or "unknown",
             "reason": reason,
