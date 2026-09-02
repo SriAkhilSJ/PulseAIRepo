@@ -312,6 +312,24 @@ def test_session_uri_scheme_is_the_session_type(tmp_path):
     assert "return resource.scheme;" in resolver
 
 
+def test_no_lane_asks_the_console_how_to_read_utf8():
+    """Both Windows rounds died in this file's harness, once per encoding assumption.
+
+    A `subprocess.run(..., text=True)` with no explicit `encoding` decodes node's UTF-8 through the
+    ambient locale: cp1252 in one report, cp1253 in another (the ellipsis came back as 'ΓÇª'), and a
+    truncation test failed on length 92 vs 90 rather than on behaviour. Pinned at source level so it
+    fails on ANY host, including one whose locale happens to be UTF-8 and would hide it.
+    """
+    offenders = []
+    for path in (Path(__file__), Path(__file__).with_name("test_hermes_activity_parity.py")):
+        text = path.read_text(encoding="utf-8")
+        for call in re.findall(r"subprocess\.run\((?:.|\n)*?\)\n", text):
+            if "text=True" in call and 'encoding="utf-8"' not in call:
+                offenders.append(f"{path.name}: {call.strip().splitlines()[0][:60]}")
+    assert not offenders, offenders
+    assert "def _node_json(" in text, "the parity lanes must decode bytes as UTF-8 explicitly"
+
+
 def test_one_store_two_skins():
     """The manager and the workbench list read the same store; neither keeps a copy."""
     store = _text(STORE)
