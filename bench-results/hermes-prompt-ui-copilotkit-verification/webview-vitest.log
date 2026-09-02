@@ -31,20 +31,20 @@ stdout | src/__tests__/pulse-agent-render.test.tsx > Pulse agent task card rende
 [rendered card] "Fix bridge protocolIn progressRepair the stdio bridge handshakehighPulse AgentOpen in editor"
 
 stdout | src/__tests__/pulse-agent-render.test.tsx > Pulse agent task card renders in the DOM > dispatches the pulse_task_action event when clicked
-[dispatched] [[{"userAction":{"name":"pulse_task_action","surfaceId":"pulse-task","sourceComponentId":"action","context":{"taskId":"pulse-123"},"timestamp":"2026-09-02T04:02:40.790Z"}}]]
+[dispatched] [[{"userAction":{"name":"pulse_task_action","surfaceId":"pulse-task","sourceComponentId":"action","context":{"taskId":"pulse-123"},"timestamp":"2026-09-02T04:04:35.273Z"}}]]
 
 stderr | src/__tests__/pulse-agent-render.test.tsx > pulse-webview App shell > mounts and paints the branded header
 Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
 
- ✓ src/__tests__/pulse-agent-render.test.tsx (9 tests) 2125ms
-   ✓ pulse-webview App shell > mounts and paints the branded header  1984ms
+ ✓ src/__tests__/pulse-agent-render.test.tsx (9 tests) 1734ms
+   ✓ pulse-webview App shell > mounts and paints the branded header  1610ms
 stderr | src/__tests__/hermes-ui-thread.test.tsx
 Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
 
- ✓ src/__tests__/hermes-ui-thread.test.tsx (39 tests) 293ms
+ ✓ src/__tests__/hermes-ui-thread.test.tsx (39 tests) 308ms
 
  Test Files  2 passed (2)
       Tests  48 passed (48)
-   Start at  04:02:38
-   Duration  7.20s (transform 1.34s, setup 43ms, collect 3.49s, tests 2.42s, environment 801ms, prepare 141ms)
+   Start at  04:04:33
+   Duration  6.47s (transform 1.09s, setup 52ms, collect 3.30s, tests 2.04s, environment 661ms, prepare 138ms)
 

@@ -359,3 +359,10 @@ nothing) and `npx playwright install chromium` dies on `cdn.playwright.dev` with
 paint a single pixel or screenshot the window — no `screens/NN-*.png` from me, and I am not going to describe one.
 Everything above is DOM-level (jsdom) plus wire-level (SSE/HTTP). The founder's live preview on :5173 renders it
 for real, and `scripts/validate_pulse_ui_cdp.js` remains the only pixel-exact gate.
+**One trap that cost me a dead preview, so it is written down:** `npm run dev | tail -30` looks harmless and is
+not. `tail` withholds output until EOF, so once the pipe buffer fills (~64 KB of vite's transform logs) the
+dev server blocks on write and stops answering — the port stays listening while `GET /` returns nothing. It
+looked like a broken app; it was my own launcher. Long-lived servers redirect to a file
+(`npm run dev > vite.log 2>&1`) and you grep the file. `Tee-Object` in the PowerShell blocks above is fine
+because it streams, but `| Select-Object -Last 30` is the same bug as `tail` — never wrap a server in it.
+

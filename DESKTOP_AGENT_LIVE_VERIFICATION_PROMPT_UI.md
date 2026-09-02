@@ -386,6 +386,10 @@ Under the default native title bar that opener does not exist, the wait expires,
 failure when it is a launch-config one — which is what happened last round. If you cannot enable it, drive
 `pulseai.openManager` from the command palette and record which route you took.
 
+Never wrap a long-lived server in `| Select-Object -Last N` (or `| tail`): it buffers until EOF, so the
+process blocks on write once the pipe fills and keeps listening while answering nothing. `Tee-Object` is safe;
+`Select-Object -Last` is not. Redirect to a file and grep it instead.
+
 ```powershell
 $profile = Join-Path $env:TEMP 'pulseai-prompt-ui-live-profile'
 New-Item -ItemType Directory -Force -Path (Join-Path $profile 'User') | Out-Null
