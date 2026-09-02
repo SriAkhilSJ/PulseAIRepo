@@ -1,0 +1,19 @@
+
+ui_stack_smoke — engine -> runtime -> webview
+
+PASS    453ms  engine: AG-UI run streams a full turn
+        events: MESSAGES_SNAPSHOT, RAW, RUN_FINISHED, RUN_STARTED, STATE_SNAPSHOT, STEP_FINISHED, STEP_STARTED; reply: ## ✅ Finished: ui_stack_smoke: reply with one word.
+        
+        
+        ### 💡
+PASS      6ms  runtime: /api/copilotkit/info advertises pulse_agent
+        runtime 1.69.3, mode sse, agents: pulse_agent, default
+PASS      7ms  webview proxy: /api/copilotkit forwards to the runtime
+        same info through the browser-facing origin
+PASS      3ms  webview: hermes-ui stylesheet is served
+        32244 bytes of CSS, text/javascript
+PASS      7ms  webview: app shell + entry module served
+        index.html + transformed main.tsx
+
+5/5 hops healthy
+

@@ -319,3 +319,43 @@ constant (the same failure mode as naming a guard with three tools instead of fo
 
 Cost of consulting git: **2.91 ms per consent check** (one spawned `git check-ignore`), ~30 ms on a
 10-write turn; the repo root is cached, the ignore state is not, because a turn can create a `.gitignore`.
+
+## Desktop Agent UI, actually run — engine → runtime → webview
+
+The prompt work kept landing on `pytest`; the UI stayed at "48 jsdom tests + a CDP validator on the founder's
+box". So I brought the real stack up here, in order, and verified every hop over HTTP.
+
+| layer | how | result |
+|---|---|---|
+| engine (AG-UI) | `python -m uvicorn src.server:app --host 0.0.0.0 --port 8123` | up; a full turn streamed `RUN_STARTED → STEP_STARTED/FINISHED ×4 → STATE_SNAPSHOT ×5 → MESSAGES_SNAPSHOT → RUN_FINISHED`, 44 SSE frames, no `RUN_ERROR`, assistant text `## ✅ Finished: …` |
+| provider | `scripts/stub_provider_server.py` on :8765, `LLM_PROVIDER=custom`, `CUSTOM_BASE_URL=http://127.0.0.1:8765/v1`, `AUX_LLM_PROVIDER=custom` | **0 credits, 0 keys** — no `.env` exists in this sandbox, and the stub is the only thing the engine could reach |
+| runtime | `npm run runtime` (:8200) | `/api/copilotkit/info` → `version 1.69.3, mode sse, agents: pulse_agent, default` |
+| webview | `npm run dev` (:5173, already `host: 0.0.0.0`, `allowedHosts: true`, `/api/copilotkit` proxied) | `index.html` + transformed `main.tsx` served; `hermes-ui.css` served (32 244 bytes; `content-type: text/javascript` because vite wraps CSS imports in dev — asserted on rule content, not just 200) |
+| render suite | `npx vitest run` | **48 passed (2 files)** — 39 in `hermes-ui-thread.test.tsx`, 9 in `pulse-agent-render.test.tsx` |
+
+What changed as a result of running it rather than reading it:
+
+- **The vitest run had been silently tolerating a dead stack.** With nothing on :8200 it printed
+  `connect ECONNREFUSED 127.0.0.1:8200` and `Agent pulse_agent not found` to stderr and **still passed 48/48** —
+  correct for fixture tests, but it means a green `npm test` says nothing about integration. With the stack up
+  the same run is 48/48 and that stderr is gone. `ui-stack-smoke.log` and `webview-vitest.log` next to this file
+  are the two states of that same command.
+- **New: `scripts/ui_stack_smoke.mjs`** — browser-free, provider-free, cross-platform (plain `node`, global
+  `fetch`), 5 hops in request order, exit 1 with a `fix:` line. Negative controls run, not assumed: pointing
+  `--web` at a dead port failed exactly the 3 webview hops (2/5), and pointing `--runtime` at the *engine*
+  failed exactly the registration hop (4/5) — the proxy hop stayed green because it has its own target, which is
+  the check proving it is not decoration.
+- **`App.tsx` was read, not assumed.** It opens on `surface = "agent"` (ported `PulseAgentThread` +
+  `PulseComposer`) with stock `CopilotChat` behind the header toggle, both sharing `usePulseToolRenderer` — so
+  the Hermes surface is the default, and a claim that the port "isn't wired into the app" would have been wrong.
+- **The brief's Phase 4 launch block was missing the key that blocked it.** `validate_pulse_ui_cdp.js:209,215`
+  opens Pulse Manager via the command-center / custom title bar, so without `"window.commandCenter": true` +
+  `"window.titleBarStyle": "custom"` in the test profile's `settings.json`, `.pulseai-manager-shell` can never
+  appear and the phase reports a UI failure for a launch-config reason. Both keys are now in the brief's
+  one-liner, with the command-palette route (`pulseai.openManager`) named as the fallback.
+
+**Limit, stated plainly:** this sandbox has **no browser binary** (`which chromium google-chrome firefox` →
+nothing) and `npx playwright install chromium` dies on `cdn.playwright.dev` with `ECONNRESET`, so I could not
+paint a single pixel or screenshot the window — no `screens/NN-*.png` from me, and I am not going to describe one.
+Everything above is DOM-level (jsdom) plus wire-level (SSE/HTTP). The founder's live preview on :5173 renders it
+for real, and `scripts/validate_pulse_ui_cdp.js` remains the only pixel-exact gate.
