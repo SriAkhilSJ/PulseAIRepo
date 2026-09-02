@@ -196,3 +196,22 @@ nothing when there is nothing to narrate; the spinner and `Working` label carry 
 frame says only what is unconditionally true at that point. Pinned in `test_hermes_activity_parity.py`, with
 the literals composed so the test cannot match its own prose -- the third time that trap fired, and the
 second time inside a comment I wrote to explain a fix. Lane: 40 passed, 1 skipped.
+
+## Live key, first real turn: 42s of model time, then a planner crash (fixed)
+
+`hi` on a real provider produced `Thought 42s`, the honest `Turn accepted. Waiting on the model...` line, and
+`Run failed: 'str' object has no attribute 'model_dump'`. Not a UI defect: three sites in
+`src/graphs/chat_graph.py` projected planner steps with `step.model_dump()`, assuming a pydantic model.
+Steps arrive as dicts from checkpointed state and as bare text from a provider that answers with a list of
+strings, and `TaskPlan.steps` can be assigned without validation -- so the assumption belonged to the call
+site, not the schema. `steps_to_dicts` now owns that boundary next to the model: text becomes a real
+`{id, description, status: pending}`, an existing `status` is preserved, and the key
+`start_next_plan_step` indexes unguarded always exists.
+
+Verified here by executing the projection over all three shapes, and both directions of the text pin
+(re-injecting the unsafe call made it fail, restoring made it green). The missing assistant body above the
+failure is the same crash, not the removed fallback: with the turn surviving, real narration has a source.
+
+Also on record: this sandbox reset its branch pointer to the base commit mid-round, so a fix commit landed on
+`86eaaae2` without the ten commits above it. The push was rejected as non-fast-forward, which is the only
+reason that did not become a mess; the work was re-applied on `18c9647f` instead of rebased blindly.

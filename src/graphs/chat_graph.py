@@ -93,6 +93,7 @@ from src.agents.planner import (
     finalize_plan,
     check_ambiguity,
 )
+from src.models.plan_models import steps_to_dicts
 from src.graphs import progress_helpers as ph
 from src.tools.file_tools import (
     read_file,
@@ -2141,10 +2142,7 @@ def planner_node(
         usages,
     )
 
-    plan = [
-        step.model_dump()
-        for step in task_plan.steps
-    ]
+    plan = steps_to_dicts(task_plan.steps)
 
     plan = start_next_plan_step(plan)
 
@@ -2286,10 +2284,7 @@ def plan_reviser_node(
         usages,
     )
 
-    revised_plan = [
-        step.model_dump()
-        for step in revised.steps
-    ]
+    revised_plan = steps_to_dicts(revised.steps)
 
     # Plan is still only a preview.
     # Do NOT start execution yet.
@@ -2378,10 +2373,7 @@ def replanner_node(
         if step.get("status") == "completed"
     ]
 
-    new_steps = [
-        step.model_dump()
-        for step in task_plan.steps
-    ]
+    new_steps = steps_to_dicts(task_plan.steps)
 
     # Give the new steps IDs after the preserved steps.
     next_id = len(completed) + 1
