@@ -618,6 +618,12 @@ class ContextEngine(BaseContextEngine):
                     f"{self.context_budget:,} + history {self.history_budget:,} "
                     f"tokens (source: {input_budget_source()})"
                 )
+                from src.context.repo_map import repo_map_enabled
+                print(
+                    "repo map layer: "
+                    + ("on (PULSEAI_REPO_MAP)" if repo_map_enabled()
+                       else "off (PULSEAI_REPO_MAP=on to enable)"),
+                )
             except Exception:
                 pass  # diagnostics never block boot
 
@@ -1332,6 +1338,12 @@ class ContextEngine(BaseContextEngine):
             name for name in ("repo_map", "relevant_chunks", "conventions")
             if self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
         ]
+        try:
+            from src.context.repo_map import repo_map_enabled
+            if not repo_map_enabled():
+                walkers = [name for name in walkers if name != "repo_map"]
+        except Exception:
+            pass
         self._active_pool = ContextBudget()
         # P1-fix: the engine build emits ONE aggregate degraded receipt; the
         # walkers record their component summaries instead of competing
@@ -1801,6 +1813,14 @@ class ContextEngine(BaseContextEngine):
         This helps the agent know WHERE files are without burning tokens on
         recursive directory listings.
         """
+        # Owner verdict + hermes doctrine: no build-time workspace map.
+        # Disabled by default (PULSEAI_REPO_MAP=on re-enables); the env
+        # getter is read PER BUILD, never captured. When off, NOTHING walks:
+        # no scan, no map, no fresh prefix -- the layer is simply absent.
+        from src.context.repo_map import repo_map_enabled
+        if not repo_map_enabled():
+            return None
+
         # Only include repo map for coding tasks.
         current_task = state.get("current_task", "")
         if not current_task:

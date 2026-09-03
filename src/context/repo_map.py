@@ -56,6 +56,26 @@ INTERESTING_EXTENSIONS = {
 MAX_FILE_SIZE = 100_000  # 100KB
 
 
+def repo_map_enabled() -> bool:
+    """Build-time repo-map layer on/off -- env-driven, read PER CALL.
+
+    Default OFF (owner verdict + hermes doctrine). Hermes' engine never
+    assembles a workspace map into the prompt: workspace knowledge comes
+    from tools ON DEMAND (grep/glob/read), and its cache doctrine treats a
+    changed request prefix as a bug with an issue number. Our map layer
+    walked the tree per build (real seconds on a 40k-file fork even bounded,
+    and a fresh prefix per workspace change), ranking by weak in-degree --
+    all cost, little signal, on EVERY coding turn including 'hi'. The
+    Aider-style pagerank port can bring it back as a HIGH-signal opt-in;
+    until then PULSEAI_REPO_MAP=on re-enables it explicitly.
+    """
+    import os as _os
+    raw = _os.getenv("PULSEAI_REPO_MAP")
+    if raw is None or not str(raw).strip():
+        return False
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 class RepoMap:
     """
     Builds and caches a structural map of the workspace.

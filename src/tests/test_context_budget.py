@@ -870,7 +870,7 @@ def test_engine_emits_one_aggregate_receipt(tmp_path, receipts, monkeypatch):
 
     ws = tmp_path / "ws"
     ws.mkdir()
-    for i in range(400):
+    for i in range(1200):
         (ws / f"m{i:03d}.py").write_text(f"def target_{i}():\n    return {i}\n")
     idx = ChunkIndex(
         ws, db_path=str(tmp_path / "agg.db"), watch=False,
@@ -895,8 +895,52 @@ def test_engine_emits_one_aggregate_receipt(tmp_path, receipts, monkeypatch):
     assert r["files_considered"] > 0
     assert r["cancelled"] is False
     comps = r.get("components", {})
+    # Repo map is OFF by default (owner verdict 2026-09-03): the receipt
+    # nests only the walkers that RAN. The three-walker shape is pinned in
+    # the opt-in case below.
+    assert set(comps) == {"chunk_index", "convention_learner"}, (
+        "default build nests exactly the two running walkers"
+    )
+
+
+def test_engine_emits_all_three_walkers_when_repo_map_opted_in(tmp_path, receipts, monkeypatch):
+    """PULSEAI_REPO_MAP=on restores the historical three-walker receipt."""
+    from src.context.context_engine import ContextEngine, TaskType
+    from src.context.chunk_index import ChunkIndex, get_index as _get_index
+    from src.context.convention_learner import ConventionLearner
+    from unittest.mock import patch
+
+    monkeypatch.setenv("PULSEAI_REPO_MAP", "on")
+    _iso_storage = str(tmp_path / "conventions-on.json")
+    _orig_init = ConventionLearner.__init__
+
+    def _isolated_init(self, storage_path: str | None = None):
+        _orig_init(self, _iso_storage)
+
+    monkeypatch.setattr(ConventionLearner, "__init__", _isolated_init)
+
+    ws = tmp_path / "ws-on"
+    ws.mkdir()
+    for i in range(1200):
+        (ws / f"m{i:03d}.py").write_text(f"def target_{i}():\n    return {i}\n")
+    idx = ChunkIndex(
+        ws, db_path=str(tmp_path / "agg-on.db"), watch=False,
+        embedder=FakeEmbedder(),
+    )
+    with patch("src.context.chunk_index.get_index", return_value=idx):
+        eng = ContextEngine(
+            max_tokens=4000, llm=None, memory_manager=None, thread_id="s-agg-on"
+        )
+        eng._build_context_layers(
+            {"current_task": "fix target_000", "workspace": str(ws)},
+            TaskType.DEBUG,
+        )
+
+    degraded = _degraded(_drain(receipts))
+    assert len(degraded) == 1
+    comps = degraded[0].get("components", {})
     assert set(comps) == {"repo_map", "chunk_index", "convention_learner"}, (
-        "all three walkers must nest inside the single receipt"
+        "opted-in build nests all three walkers inside the single receipt"
     )
 
 
