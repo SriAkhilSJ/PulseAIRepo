@@ -135,14 +135,39 @@ def _no_memory(monkeypatch):
 
 
 def test_task_manager_node_survives_prose_model(monkeypatch):
+    """A real instruction (NOT a conversational opener -- those take the free
+    path and never reach the LLM) answered in prose must classify, not die."""
     from langchain_core.messages import HumanMessage
 
     import src.graphs.chat_graph as chat_graph
 
     monkeypatch.setattr(
         chat_graph, "_task_manager_llm",
-        lambda provider, model: _FakeLLM("unrelated"),
+        lambda provider, model: _FakeLLM("This seems unrelated to the task"),
     )
+    state = {
+        "messages": [HumanMessage("also fix the flaky login test please")],
+        "latest_instruction": "also fix the flaky login test please",
+        "current_task": "build a chat app",
+        "token_usage": {},
+    }
+    config = {"configurable": {"thread_id": "t-owner", "workspace": "."}}
+    out = chat_graph.task_manager_node(dict(state), config)
+    assert out["task_action"] == "unrelated"
+    assert out["current_task"] == "build a chat app"  # preserved
+
+
+def test_conversational_opener_never_reaches_the_llm(monkeypatch):
+    """The hermes-aligned mechanism: 'hello??' classifies FREE -- the fake
+    LLM raises if consulted, proving zero provider calls were spent."""
+    from langchain_core.messages import HumanMessage
+
+    import src.graphs.chat_graph as chat_graph
+
+    def _boom(provider, model):
+        raise AssertionError("opener must not pay a classifier round-trip")
+
+    monkeypatch.setattr(chat_graph, "_task_manager_llm", _boom)
     state = {
         "messages": [HumanMessage("hello??")],
         "latest_instruction": "hello??",
@@ -151,5 +176,5 @@ def test_task_manager_node_survives_prose_model(monkeypatch):
     }
     config = {"configurable": {"thread_id": "t-owner", "workspace": "."}}
     out = chat_graph.task_manager_node(dict(state), config)
-    assert out["task_action"] == "unrelated"
-    assert out["current_task"] == "build a chat app"  # preserved
+    assert out["task_action"] == "continue"
+    assert out["current_task"] == "build a chat app"
