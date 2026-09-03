@@ -31,11 +31,13 @@
     "host_tool_result",
     "inline_completion",
     "next_edit_suggestions",
-    "shutdown"
+    "shutdown",
+    "voice_transcribe"
   ],
   "server_events": [
     "checkpoint_event",
     "context_status",
+    "voice_text",
     "error",
     "events_replay",
     "hello",

@@ -17,13 +17,14 @@ CLIENT_METHODS = frozenset({
     "events_replay", "host_capabilities_update", "host_tool_result",
     "inline_completion", "next_edit_suggestions",
     "shutdown",
+    "voice_transcribe",
 })
 SERVER_EVENTS = frozenset({
     "hello", "session_info", "token", "reasoning", "plan_updated",
     "tool_call_start", "tool_call_end", "safety_request",
     "verification_updated", "subagent_updated", "telemetry",
     "turn_started", "turn_done", "turn_failed", "checkpoint_event",
-    "runtime_degraded", "context_status", "events_replay", "error",
+    "runtime_degraded", "context_status", "voice_text", "events_replay", "error",
     "workspace.bound", "llm.request", "llm.response", "host_tool_request",
     "inline_completion_result", "next_edit_result",
 })

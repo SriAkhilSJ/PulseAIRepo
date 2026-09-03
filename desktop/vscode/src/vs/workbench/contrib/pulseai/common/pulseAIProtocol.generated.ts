@@ -38,12 +38,14 @@ export const PULSE_AI_CLIENT_METHODS = [
 	'inline_completion',
 	'next_edit_suggestions',
 	'shutdown',
+	'voice_transcribe',
 ] as const;
 export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
 
 export const PULSE_AI_SERVER_EVENTS = [
 	'checkpoint_event',
 	'context_status',
+	'voice_text',
 	'error',
 	'events_replay',
 	'hello',

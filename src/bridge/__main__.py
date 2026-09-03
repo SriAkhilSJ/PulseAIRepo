@@ -508,6 +508,18 @@ class BridgeServer:
             except Exception:
                 pass
             self.emit({"type": "session_info", **self._sessions[target], "forked_from": source})
+        elif kind == "voice_transcribe":
+            # Floor 5 voice: audio (base64) in, transcript out. Fail-closed —
+            # a voice hiccup returns an honest error event, never a crash.
+            import base64 as _b64
+            from src.voice.pipeline import transcribe as _transcribe
+            try:
+                audio = _b64.b64decode(str(frame.get("audio_b64") or ""))
+                result = _transcribe(audio, filename=str(frame.get("filename") or "audio.webm"))
+            except Exception as exc:
+                result = type("R", (), {"as_dict": staticmethod(lambda: {"ok": False, "text": "", "error": str(exc)})})()
+            payload = result.as_dict() if hasattr(result, "as_dict") else dict(result)
+            self.emit({"type": "voice_text", **payload, **self._identity_fields(sid)})
         elif kind == "prompt":
             text = str(frame.get("text") or frame.get("message") or "").strip()
             mode = str(frame.get("mode") or "agent").strip().lower()
