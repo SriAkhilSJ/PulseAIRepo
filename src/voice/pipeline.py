@@ -20,13 +20,59 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable
 
-STT_MODEL = "whisper-large-v3-turbo"
-STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-TTS_MODEL = "playai-tts"
-TTS_VOICE = "Fritz-PlayAI"
-TTS_URL = "https://api.groq.com/openai/v1/audio/speech"
-MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024  # provider hard limit
-MAX_SPEAK_CHARS = 10_000
+# ---------------------------------------------------------------------------
+# Configuration — ENV-DRIVEN, NEVER HARDCODED (the repo's "getters, never
+# captured values" rule: these are read PER CALL so a settings change or
+# provider swap mid-session is always honored; nothing here is baked in at
+# import time). Defaults exist only as fallbacks; every one is overridable.
+# ---------------------------------------------------------------------------
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+def stt_url() -> str:
+    """Speech-to-text endpoint (OpenAI-compatible /audio/transcriptions)."""
+    return _env("PULSEAI_STT_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
+
+
+def stt_model() -> str:
+    return _env("PULSEAI_STT_MODEL", "whisper-large-v3-turbo")
+
+
+def tts_url() -> str:
+    """Text-to-speech endpoint (OpenAI-compatible /audio/speech)."""
+    return _env("PULSEAI_TTS_URL", "https://api.groq.com/openai/v1/audio/speech")
+
+
+def tts_model() -> str:
+    return _env("PULSEAI_TTS_MODEL", "playai-tts")
+
+
+def tts_voice() -> str:
+    return _env("PULSEAI_TTS_VOICE", "Fritz-PlayAI")
+
+
+def max_transcribe_bytes() -> int:
+    return int(_env("PULSEAI_VOICE_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+
+
+def max_speak_chars() -> int:
+    return int(_env("PULSEAI_VOICE_MAX_SPEAK_CHARS", "10000"))
+
+
+def _api_key() -> str:
+    """Credential resolution, most-specific first: per-feature keys, then the
+    voice key, then the provider key the app already carries. No key is ever
+    hardcoded; everything comes from the environment the deployment owns."""
+    return (
+        os.environ.get("PULSEAI_STT_API_KEY")
+        or os.environ.get("PULSEAI_TTS_API_KEY")
+        or os.environ.get("PULSEAI_VOICE_API_KEY")
+        or os.environ.get("GROQ_API_KEY")
+        or os.environ.get("PULSEAI_API_KEY")
+        or ""
+    )
 
 
 @dataclass
@@ -40,14 +86,6 @@ class VoiceResult:
         return {"ok": self.ok, "text": self.text, "error": self.error}
 
 
-def _api_key() -> str:
-    return (
-        os.environ.get("GROQ_API_KEY")
-        or os.environ.get("PULSEAI_VOICE_API_KEY")
-        or ""
-    )
-
-
 def transcribe(
     audio: bytes,
     filename: str = "audio.webm",
@@ -59,16 +97,17 @@ def transcribe(
     (url, data, files, headers) and injectable for tests."""
     if not audio:
         return VoiceResult(ok=False, error="no audio received")
-    if len(audio) > MAX_TRANSCRIBE_BYTES:
-        return VoiceResult(ok=False, error="audio too large (25MB provider limit)")
+    limit = max_transcribe_bytes()
+    if len(audio) > limit:
+        return VoiceResult(ok=False, error=f"audio too large ({limit} byte limit)")
     key = api_key if api_key is not None else _api_key()
     if not key:
         return VoiceResult(ok=False, error="no voice API key configured (GROQ_API_KEY)")
     post = transport or _default_transport
     try:
         resp = post(
-            STT_URL,
-            data={"model": STT_MODEL, "response_format": "json"},
+            stt_url(),
+            data={"model": stt_model(), "response_format": "json"},
             files={"file": (filename, audio)},
             headers={"Authorization": f"Bearer {key}"},
         )
@@ -91,17 +130,17 @@ def speak(
     text = (text or "").strip()
     if not text:
         return VoiceResult(ok=False, error="nothing to speak")
-    if len(text) > MAX_SPEAK_CHARS:
-        text = text[:MAX_SPEAK_CHARS]
+    if len(text) > max_speak_chars():
+        text = text[:max_speak_chars()]
     key = api_key if api_key is not None else _api_key()
     if not key:
         return VoiceResult(ok=False, error="no voice API key configured (GROQ_API_KEY)")
     post = transport or _default_transport
-    base = os.environ.get("PULSEAI_TTS_BASE_URL", TTS_URL)
+    base = _env("PULSEAI_TTS_BASE_URL") or tts_url()
     try:
         resp = post(
             base,
-            json={"model": TTS_MODEL, "voice": TTS_VOICE, "input": text, "response_format": "wav"},
+            json={"model": tts_model(), "voice": tts_voice(), "input": text, "response_format": "wav"},
             headers={"Authorization": f"Bearer {key}"},
         )
         audio = resp.content if hasattr(resp, "content") else resp

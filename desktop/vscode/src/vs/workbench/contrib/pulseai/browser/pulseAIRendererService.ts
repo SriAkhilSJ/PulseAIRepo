@@ -102,6 +102,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private contextStatus: PulseAIRenderModel['contextStatus'];
 	/** True while the engine reports an open compaction (`compress`/`pre_api` phase). */
 	private compacting: boolean | undefined;
+	private voiceHeard: PulseAIRenderModel['voiceHeard'];
 	private history: PulseAIRenderModel['history'] = [];
 
 	/**
@@ -302,6 +303,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			// `context.status` event. Absent stays honest: no signal, no row.
 			compacting: this.compacting,
 			contextStatus: this.contextStatus,
+			voiceHeard: this.voiceHeard,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
@@ -617,6 +619,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.error = undefined;
 			this.compacting = undefined;
 			this.contextStatus = undefined;
+			this.voiceHeard = undefined;
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
 		} else if (frame.type === 'reasoning') {
@@ -680,6 +683,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.error = frame.error;
 			this.compacting = undefined;
 			this.contextStatus = undefined;
+		} else if (frame.type === 'voice_text') {
+			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
 		} else if (frame.type === 'context_status') {
 			const severity = frame.severity === 'warning' ? 'warning' : 'info';
 			if (frame.phase === 'compacted') {

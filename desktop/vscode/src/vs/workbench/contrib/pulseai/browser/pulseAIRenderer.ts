@@ -60,6 +60,12 @@ export interface PulseAIRenderModel {
 	 * `error`: an overflow warning is about the NEXT model call, this turn is still alive.
 	 * The activity row names the compaction via `compacting`; this carries the words.
 	 */
+	/**
+	 * Result of a voice_transcribe round trip (Floor 5): the panel shows what
+	 * the mic heard (or why it failed) BEFORE the prompt is submitted, so the
+	 * user can see the transcription is right instead of trusting a black box.
+	 */
+	readonly voiceHeard?: { readonly ok: boolean; readonly text: string; readonly error?: string };
 	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
@@ -624,6 +630,16 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		const label = model.turnOutcome === 'completed' ? 'Run completed' : model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
 		const iconName = model.turnOutcome === 'completed' ? 'pass-filled' : model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+	}
+	if (model.voiceHeard) {
+		const heard = model.voiceHeard;
+		if (heard.ok) {
+			lane.append(element('div', 'pulseai-context-status-row is-info', icon('lightbulb'),
+				element('span', undefined, `\u{1F3A4} Heard: ${heard.text.slice(0, 200)}`)));
+		} else {
+			lane.append(element('div', 'pulseai-context-status-row is-warning', icon('warning'),
+				element('span', undefined, `\u{1F3A4} Voice error: ${heard.error ?? 'unknown'}`)));
+		}
 	}
 	if (model.contextStatus) {
 		const status = model.contextStatus;
