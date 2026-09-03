@@ -6,7 +6,10 @@ every node of a huge tree (the desktop fork alone is 40k+ files). This module
 pins the scan budget so a cold start is always bounded and can report WHY it
 truncated (surfaced as a ``runtime.degraded`` receipt by the callers).
 
-Budget (all enforced together, first-hit wins):
+Budget (all enforced together, first-hit wins; every number is an
+env getter read per construction -- PULSEAI_SCAN_MAX_SECONDS,
+PULSEAI_SCAN_MAX_FILES, PULSEAI_SCAN_MAX_BYTES, PULSEAI_SCAN_MAX_FILE_BYTES,
+PULSEAI_SCAN_MAX_ENTRIES, PULSEAI_SCAN_MAX_VISITED):
   - elapsed:  wall-clock cap (default 5.0s)
   - files:    max files consumed (default 1000)
   - bytes:    aggregate size of consumed files, counted via stat() so no
@@ -73,6 +76,59 @@ _ELAPSED = "elapsed"
 _FILES = "files"
 _BYTES = "bytes"
 _STOPPED = "stopped"
+
+# ---------------------------------------------------------------------------
+# Zero-hardcoding seam: every scan ceiling is an env getter, read PER CALL
+# (per ContextBudget/ScanLimits construction), never captured at import.
+# Hermes pattern (tools/file_tools.py::_get_max_read_chars): a configured
+# accessor with a built-in fallback — the number never lives in logic. The
+# owner's 40k-file desktop fork is the standing counter-example to baking
+# 1,000-file ceilings into product code: raise the env, restart nothing —
+# the next turn reads the new values.
+# ---------------------------------------------------------------------------
+
+def _env_int(name: str, default: int, lo: int, hi: int) -> int:
+    try:
+        raw = os.getenv(name)
+        if raw is None or not str(raw).strip():
+            return default
+        value = int(str(raw).strip())
+    except Exception:
+        return default
+    return max(lo, min(hi, value))
+
+
+def _env_float(name: str, default: float, lo: float, hi: float) -> float:
+    try:
+        raw = os.getenv(name)
+        if raw is None or not str(raw).strip():
+            return default
+        value = float(str(raw).strip())
+    except Exception:
+        return default
+    return max(lo, min(hi, value))
+
+
+def default_scan_limits() -> "ScanLimits":
+    """Build the product-default scan ceiling from the environment, per call.
+
+    Knobs (all optional, all clamped):
+      PULSEAI_SCAN_MAX_SECONDS    wall-clock cap      (default 5.0,  0.5 .. 120)
+      PULSEAI_SCAN_MAX_FILES      files consumed      (default 1000, 1 .. 200_000)
+      PULSEAI_SCAN_MAX_BYTES      aggregate bytes     (default 16 MiB, 64 KiB .. 1 GiB)
+      PULSEAI_SCAN_MAX_FILE_BYTES per-file cap        (default 1 MiB, 1 KiB .. 64 MiB)
+      PULSEAI_SCAN_MAX_ENTRIES    entries considered  (default 1000, 1 .. 500_000)
+      PULSEAI_SCAN_MAX_VISITED    entries visited     (default 1000, 1 .. 500_000)
+    """
+    return ScanLimits(
+        max_files=_env_int("PULSEAI_SCAN_MAX_FILES", 1000, 1, 200_000),
+        max_bytes=_env_int("PULSEAI_SCAN_MAX_BYTES", 16 * 1024 * 1024, 65_536, 1_073_741_824),
+        max_file_bytes=_env_int("PULSEAI_SCAN_MAX_FILE_BYTES", 1024 * 1024, 1_024, 67_108_864),
+        max_elapsed=_env_float("PULSEAI_SCAN_MAX_SECONDS", 5.0, 0.5, 120.0),
+        max_considered=_env_int("PULSEAI_SCAN_MAX_ENTRIES", 1000, 1, 500_000),
+        max_visited=_env_int("PULSEAI_SCAN_MAX_VISITED", 1000, 1, 500_000),
+    )
+
 
 @dataclass(frozen=True)
 class ScanLimits:
@@ -197,20 +253,25 @@ class ContextBudget:
 
     def __init__(
         self,
-        max_elapsed: float = 5.0,
-        max_files: int = 1000,
-        max_bytes: int = 16 * 1024 * 1024,
-        max_file_bytes: int = 1024 * 1024,
-        max_considered: int = 1000,
-        max_visited: int = 1000,
+        max_elapsed: float | None = None,
+        max_files: int | None = None,
+        max_bytes: int | None = None,
+        max_file_bytes: int | None = None,
+        max_considered: int | None = None,
+        max_visited: int | None = None,
         allow_embedding_compute: bool = False,
     ):
-        self.max_elapsed = max_elapsed
-        self.max_files = max_files
-        self.max_bytes = max_bytes
-        self.max_file_bytes = max_file_bytes
-        self.max_considered = max_considered
-        self.max_visited = max_visited
+        # Zero-hardcoding: every ceiling unresolved by the caller is read from
+        # the environment HERE, per construction (a fresh pool per turn means
+        # a fresh env read per turn). Explicit arguments always win — callers
+        # that pass values (tests, unbounded(), share()) are untouched.
+        env = default_scan_limits()
+        self.max_elapsed = env.max_elapsed if max_elapsed is None else max_elapsed
+        self.max_files = env.max_files if max_files is None else max_files
+        self.max_bytes = env.max_bytes if max_bytes is None else max_bytes
+        self.max_file_bytes = env.max_file_bytes if max_file_bytes is None else max_file_bytes
+        self.max_considered = env.max_considered if max_considered is None else max_considered
+        self.max_visited = env.max_visited if max_visited is None else max_visited
         # Explicit inference policy: production/default/turn/watcher budgets
         # are cache-only for embeddings. ONLY ``unbounded()`` (the explicit
         # offline maintenance rebuild) may set this True. ``max_elapsed``
@@ -697,7 +758,7 @@ class BoundedScan:
         budget: ContextBudget | None = None,
     ) -> None:
         self.root = Path(workspace)
-        self.limits = limits or ScanLimits()
+        self.limits = limits or default_scan_limits()
         self.skip_dirs = (
             frozenset(skip_dirs) if skip_dirs is not None else SCAN_SKIP_DIRS
         )

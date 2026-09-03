@@ -68,6 +68,8 @@ export interface PulseAIRenderModel {
 	readonly voiceHeard?: { readonly ok: boolean; readonly text: string; readonly error?: string };
 	/** Live provider-call status (llm.request/llm.response): names the model being asked. */
 	readonly llmStatus?: { readonly model: string; readonly attempt: number };
+	/** Degradation receipt (runtime_degraded): honest bounded-scan note, never a fatal card. */
+	readonly degraded?: string;
 	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
@@ -642,6 +644,10 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			lane.append(element('div', 'pulseai-context-status-row is-warning', icon('warning'),
 				element('span', undefined, `\u{1F3A4} Voice error: ${heard.error ?? 'unknown'}`)));
 		}
+	}
+	if (model.degraded) {
+		lane.append(element('div', 'pulseai-context-status-row is-warning', icon('warning'),
+			element('span', undefined, model.degraded)));
 	}
 	if (model.llmStatus && model.running) {
 		const attempt = model.llmStatus.attempt > 1 ? ` — attempt ${model.llmStatus.attempt}` : '';

@@ -110,6 +110,15 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	 * hermes discipline that a stalled call must be visible and named.
 	 */
 	private llmStatus?: { readonly model: string; readonly attempt: number };
+
+	/**
+	 * Degradation notices (runtime_degraded frames): honest "this ran bounded"
+	 * receipts. Deliberately NOT `error` — a bounded scan is the engine working
+	 * as designed, and rendering it as the fatal card (with its Retry button)
+	 * told the user the turn died when it was alive. The hermes discipline: a
+	 * degradation is spoken, never screamed.
+	 */
+	private degraded?: string;
 	private history: PulseAIRenderModel['history'] = [];
 
 	/**
@@ -312,6 +321,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			contextStatus: this.contextStatus,
 			voiceHeard: this.voiceHeard,
 			llmStatus: this.llmStatus,
+			degraded: this.degraded,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
@@ -628,6 +638,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
+			this.degraded = undefined;
 			this.voiceHeard = undefined;
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
@@ -684,6 +695,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
+			this.degraded = undefined;
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
@@ -694,6 +706,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
+			this.degraded = undefined;
 		} else if (frame.type === 'voice_text') {
 			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
 		} else if (frame.type === 'llm.request') {
@@ -716,7 +729,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 				usagePercent: typeof frame.usage_percent === 'number' ? frame.usage_percent : undefined,
 			};
 		} else if (frame.type === 'runtime_degraded') {
-			this.error = frame.reason;
+			this.degraded = frame.reason;
 		} else if (frame.type === 'error') {
 			this.error = frame.message;
 		}
