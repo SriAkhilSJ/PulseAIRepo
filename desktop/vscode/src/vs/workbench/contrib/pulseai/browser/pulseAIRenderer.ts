@@ -66,6 +66,8 @@ export interface PulseAIRenderModel {
 	 * user can see the transcription is right instead of trusting a black box.
 	 */
 	readonly voiceHeard?: { readonly ok: boolean; readonly text: string; readonly error?: string };
+	/** Live provider-call status (llm.request/llm.response): names the model being asked. */
+	readonly llmStatus?: { readonly model: string; readonly attempt: number };
 	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
@@ -640,6 +642,11 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			lane.append(element('div', 'pulseai-context-status-row is-warning', icon('warning'),
 				element('span', undefined, `\u{1F3A4} Voice error: ${heard.error ?? 'unknown'}`)));
 		}
+	}
+	if (model.llmStatus && model.running) {
+		const attempt = model.llmStatus.attempt > 1 ? ` — attempt ${model.llmStatus.attempt}` : '';
+		lane.append(element('div', 'pulseai-context-status-row is-info', icon('lightbulb'),
+			element('span', undefined, `\u{1F4E1} Asking ${model.llmStatus.model || 'model'}${attempt}\u2026`)));
 	}
 	if (model.contextStatus) {
 		const status = model.contextStatus;

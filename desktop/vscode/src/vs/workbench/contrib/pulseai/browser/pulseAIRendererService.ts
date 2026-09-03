@@ -103,6 +103,13 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	/** True while the engine reports an open compaction (`compress`/`pre_api` phase). */
 	private compacting: boolean | undefined;
 	private voiceHeard: PulseAIRenderModel['voiceHeard'];
+	/**
+	 * Live provider-call status from llm.request/llm.response frames: which
+	 * model is being asked and which attempt is in flight. This is what turns
+	 * the pre-first-token wait from a frozen sentence into a live status — the
+	 * hermes discipline that a stalled call must be visible and named.
+	 */
+	private llmStatus?: { readonly model: string; readonly attempt: number };
 	private history: PulseAIRenderModel['history'] = [];
 
 	/**
@@ -304,6 +311,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			compacting: this.compacting,
 			contextStatus: this.contextStatus,
 			voiceHeard: this.voiceHeard,
+			llmStatus: this.llmStatus,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
@@ -619,6 +627,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.error = undefined;
 			this.compacting = undefined;
 			this.contextStatus = undefined;
+			this.llmStatus = undefined;
 			this.voiceHeard = undefined;
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
@@ -674,6 +683,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			if (frame.message && !this.assistantText) { this.assistantText = frame.message; }
 			this.compacting = undefined;
 			this.contextStatus = undefined;
+			this.llmStatus = undefined;
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
@@ -683,8 +693,15 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.error = frame.error;
 			this.compacting = undefined;
 			this.contextStatus = undefined;
+			this.llmStatus = undefined;
 		} else if (frame.type === 'voice_text') {
 			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
+		} else if (frame.type === 'llm.request') {
+			this.llmStatus = { model: frame.model ?? '', attempt: frame.attempt ?? 1 };
+			this.reasoning = `Asking ${frame.model || 'the model'}${(frame.attempt ?? 1) > 1 ? ` (attempt ${frame.attempt})` : ''}\u2026`;
+		} else if (frame.type === 'llm.response') {
+			this.llmStatus = undefined;
+			if (this.reasoning && this.reasoning.indexOf('Asking ') === 0) { this.reasoning = undefined; }
 		} else if (frame.type === 'context_status') {
 			const severity = frame.severity === 'warning' ? 'warning' : 'info';
 			if (frame.phase === 'compacted') {

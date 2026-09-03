@@ -585,6 +585,17 @@ class RetryLLMProxy:
                     self._raise_if_cancelled(error)
                     last_error = error
 
+                    # Hermes discipline: a failing call is VISIBLE. One line
+                    # per failed attempt into the bridge log
+                    # (desktop-stdout.log) — model, attempt, error class — so
+                    # a blackholed network or a dead key is diagnosable from
+                    # the log alone.
+                    print(
+                        f"[PulseAI LLM] attempt {attempt + 1}/{self._max_attempts} "
+                        f"failed on {self.model!r}: {type(error).__name__}: "
+                        f"{str(error)[:200]}"
+                    )
+
                     if not self._is_retryable(error) or attempt == self._max_attempts - 1:
                         raise
 
@@ -593,6 +604,7 @@ class RetryLLMProxy:
                     # rather than waiting up to 30 seconds for the next gate.
                     self._raise_if_cancelled()
                     delay = self._retry_delay(error, attempt)
+                    print(f"[PulseAI LLM] retrying in {delay:.1f}s ...")
                     if sid is None:
                         time.sleep(delay)
                     else:
@@ -767,6 +779,20 @@ class RetryLLMProxy:
         return min(2.0 * (attempt + 1), 30.0)
 
 
+def default_request_timeout() -> float:
+    """Provider request timeout in seconds — env-driven, read per call.
+
+    PULSEAI_LLM_REQUEST_TIMEOUT_S (default 60). A hung provider must never
+    wedge a turn forever, but the number is a deployment decision, not a
+    hardcoded one.
+    """
+    import os as _os
+    try:
+        return max(10.0, min(float(_os.environ.get("PULSEAI_LLM_REQUEST_TIMEOUT_S", "60")), 600.0))
+    except (TypeError, ValueError):
+        return 60.0
+
+
 def get_llm(provider, model):
     # Hard timeouts: a hung provider must NEVER wedge a dashboard worker
     # thread forever. Retries stay with RetryLLMProxy (single owner).
@@ -774,7 +800,7 @@ def get_llm(provider, model):
         llm = ChatGroq(
             model=model,
             api_key=GROQ_API_KEY,
-            request_timeout=60,
+            request_timeout=default_request_timeout(),
         )
         return RetryLLMProxy(llm)
 
@@ -782,7 +808,7 @@ def get_llm(provider, model):
         llm = ChatGoogleGenerativeAI(
             model=model,
             api_key=GEMINI_API_KEY,
-            timeout=60,
+            timeout=default_request_timeout(),
         )
         return RetryLLMProxy(llm)
 
@@ -791,7 +817,7 @@ def get_llm(provider, model):
             model=model,
             api_key=NVIDIA_API_KEY,
             base_url="https://integrate.api.nvidia.com/v1",
-            request_timeout=60,
+            request_timeout=default_request_timeout(),
         )
         return RetryLLMProxy(llm)
 
@@ -799,7 +825,7 @@ def get_llm(provider, model):
         llm = ChatOpenAI(
             api_key=OPENAI_API_KEY,
             model=model,
-            request_timeout=60,
+            request_timeout=default_request_timeout(),
         )
         return RetryLLMProxy(llm)
 
