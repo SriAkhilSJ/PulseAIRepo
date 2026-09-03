@@ -37,6 +37,35 @@ def automatic_compaction_status_message(engine: Any, *, phase: str, default_mess
     message = str(message).strip()
     return message or None
 
+
+def resolve_model_threshold(
+    model: str | None,
+    model_thresholds: Dict[str, float] | None,
+    default: float,
+) -> float:
+    """Resolve the effective compression threshold for a given model.
+
+    Ported from hermes-agent ``context_compressor.resolve_model_threshold``
+    (re-read at upstream ``4dac5f2``, 2026-09). ``model_thresholds`` maps
+    substring keys to override fractions. The LONGEST matching key wins (so
+    ``"glm-5.2-1M"`` beats ``"glm-5.2"`` when the model is ``glm-5.2-1M``).
+    When no override matches, or when ``model_thresholds`` is empty/None,
+    ``default`` is returned unchanged.
+
+    This is a module-level helper so plugin context engines can import and
+    reuse the same resolution logic as any built-in engine — same reason
+    Hermes exposes it at module scope.
+    """
+    if not model_thresholds or not model:
+        return default
+    best_key = ""
+    for key in model_thresholds:
+        if key in model and len(key) > len(best_key):
+            best_key = key
+    if best_key:
+        return float(model_thresholds[best_key])
+    return default
+
 class ContextEngine(ABC):
     @property
     @abstractmethod
@@ -97,4 +126,16 @@ class ContextEngine(ABC):
         return {"last_prompt_tokens": last_prompt, "threshold_tokens": self.threshold_tokens, "context_length": self.context_length, "usage_percent": min(100, last_prompt / self.context_length * 100) if self.context_length else 0, "compression_count": self.compression_count}
     def update_model(self, model: str, context_length: int, base_url: str = "", api_key: str = "", provider: str = "", api_mode: str = "") -> None:
         self.context_length = context_length
+        # Per-model threshold overrides (Hermes parity, ported from
+        # context_compressor.resolve_model_threshold): longest substring
+        # match wins; the configured percent is snapshotted ONCE so repeated
+        # model switches fall back to the engine's configured value, never
+        # the previous model's override.
+        if not hasattr(self, "_config_threshold_percent"):
+            self._config_threshold_percent = self.threshold_percent
+        self._base_threshold_percent = resolve_model_threshold(
+            model, getattr(self, "model_thresholds", {}),
+            self._config_threshold_percent,
+        )
+        self.threshold_percent = self._base_threshold_percent
         self.threshold_tokens = int(context_length * self.threshold_percent)

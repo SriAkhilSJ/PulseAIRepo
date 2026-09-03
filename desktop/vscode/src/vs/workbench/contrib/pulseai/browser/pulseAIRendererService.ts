@@ -92,6 +92,16 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private telemetry: PulseAIRenderModel['telemetry'] = {};
 	private error: string | undefined;
 	private engineSetupError = false;
+	/**
+	 * Live context-engine status (compaction in progress, overflow warning). Produced by the
+	 * engine's `context_status` events: `compress`/`pre_api` set `compacting`, `compacted`
+	 * clears it, `overflow_blocked` carries a warning that is NOT an `error` (the turn is
+	 * still alive — it warns about the NEXT model call). Cleared at turn boundaries, like
+	 * the other transient turn state.
+	 */
+	private contextStatus: PulseAIRenderModel['contextStatus'];
+	/** True while the engine reports an open compaction (`compress`/`pre_api` phase). */
+	private compacting: boolean | undefined;
 	private history: PulseAIRenderModel['history'] = [];
 
 	/**
@@ -287,10 +297,11 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			running: this.running,
 			cancelRequested: this.cancelRequested,
 			turnStartedAt: this.turnStartedAt,
-			// No producer yet: the engine emits no compaction frame, so the row cannot name one it
-			// has not been told about. The field exists so wiring it later is one line here rather
-			// than a renderer change -- and so nothing here pretends a signal exists.
-			compacting: undefined,
+			// Wired: the engine now emits `context_status` frames (compaction start/done and
+			// the overflow warning), projected by the bridge from the session-scoped
+			// `context.status` event. Absent stays honest: no signal, no row.
+			compacting: this.compacting,
+			contextStatus: this.contextStatus,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
@@ -604,6 +615,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.cancelRequested = false;
 			this.turnOutcome = 'running';
 			this.error = undefined;
+			this.compacting = undefined;
+			this.contextStatus = undefined;
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
 		} else if (frame.type === 'reasoning') {
@@ -656,6 +669,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.turnEndedAt = Date.now();
 			this.turnOutcome = frame.completed ? 'completed' : 'cancelled';
 			if (frame.message && !this.assistantText) { this.assistantText = frame.message; }
+			this.compacting = undefined;
+			this.contextStatus = undefined;
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
@@ -663,6 +678,21 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.turnEndedAt = Date.now();
 			this.turnOutcome = 'failed';
 			this.error = frame.error;
+			this.compacting = undefined;
+			this.contextStatus = undefined;
+		} else if (frame.type === 'context_status') {
+			const severity = frame.severity === 'warning' ? 'warning' : 'info';
+			if (frame.phase === 'compacted') {
+				this.compacting = undefined;
+			} else if (frame.phase === 'compress' || frame.phase === 'pre_api') {
+				this.compacting = true;
+			}
+			this.contextStatus = {
+				message: frame.message,
+				severity,
+				phase: frame.phase,
+				usagePercent: typeof frame.usage_percent === 'number' ? frame.usage_percent : undefined,
+			};
 		} else if (frame.type === 'runtime_degraded') {
 			this.error = frame.reason;
 		} else if (frame.type === 'error') {

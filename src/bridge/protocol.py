@@ -23,7 +23,7 @@ SERVER_EVENTS = frozenset({
     "tool_call_start", "tool_call_end", "safety_request",
     "verification_updated", "subagent_updated", "telemetry",
     "turn_started", "turn_done", "turn_failed", "checkpoint_event",
-    "runtime_degraded", "events_replay", "error",
+    "runtime_degraded", "context_status", "events_replay", "error",
     "workspace.bound", "llm.request", "llm.response", "host_tool_request",
     "inline_completion_result", "next_edit_result",
 })

@@ -43,6 +43,7 @@ export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
 
 export const PULSE_AI_SERVER_EVENTS = [
 	'checkpoint_event',
+	'context_status',
 	'error',
 	'events_replay',
 	'hello',

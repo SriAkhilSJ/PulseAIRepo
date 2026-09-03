@@ -53,6 +53,7 @@ export type PulseServerEvent =
 	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean } & PulseIdentity)
 	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false } & PulseIdentity)
 	| ({ readonly type: 'runtime_degraded'; readonly reason: string } & PulseIdentity)
+	| ({ readonly type: 'context_status'; readonly phase: string; readonly message: string; readonly severity?: string; readonly usage_percent?: number; readonly last_prompt_tokens?: number; readonly threshold_tokens?: number; readonly context_length?: number } & PulseIdentity)
 	| { readonly type: 'events_replay'; readonly session_id: string; readonly events: readonly unknown[] }
 	| ({ readonly type: 'workspace.bound'; readonly session_id: string; readonly workspace: string; readonly hops: string; readonly engine_root: string } & PulseIdentity)
 	| ({ readonly type: 'llm.request'; readonly model?: string; readonly attempt?: number; readonly message_count?: number; readonly messages?: readonly { readonly role: string; readonly head: string }[] } & PulseIdentity)

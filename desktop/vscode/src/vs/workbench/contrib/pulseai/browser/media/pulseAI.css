@@ -416,6 +416,26 @@
 }
 .pulseai-error-row > span:nth-child(2) { min-width: 0; flex: 1; }
 
+/* ---- Context status row (compaction progress / overflow warning) ----
+   Same lane discipline as the error row, quieter: an info status is a whisper
+   (no error chrome), a warning keeps the warning border without claiming the
+   turn failed — it warns about the NEXT model call. */
+.pulseai-context-status-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--vscode-charts-blue, var(--pulseai-failed));
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.35;
+}
+.pulseai-context-status-row.is-warning {
+	border-left-color: var(--vscode-editorWarning-foreground, var(--pulseai-failed));
+	color: var(--vscode-editorWarning-foreground, inherit);
+}
+.pulseai-context-status-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
 /* ---- Tail activity row: Hermes' scaffold line ----
    What the agent leaves at the tail of a live turn: a breathing square, the named wait under the
    sweep, and the seconds it has been waiting. `data-slot` carries upstream's own names

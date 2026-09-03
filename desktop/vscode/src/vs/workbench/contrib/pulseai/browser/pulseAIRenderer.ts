@@ -55,6 +55,12 @@ export interface PulseAIRenderModel {
 	readonly turnStartedAt?: number;
 	/** Context compaction is running. Rare, slow, and it outranks every other hint. */
 	readonly compacting?: boolean;
+	/**
+	 * Last context-engine status message (compaction progress or the overflow warning). NOT
+	 * `error`: an overflow warning is about the NEXT model call, this turn is still alive.
+	 * The activity row names the compaction via `compacting`; this carries the words.
+	 */
+	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
 	readonly running: boolean;
@@ -618,6 +624,15 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		const label = model.turnOutcome === 'completed' ? 'Run completed' : model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
 		const iconName = model.turnOutcome === 'completed' ? 'pass-filled' : model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+	}
+	if (model.contextStatus) {
+		const status = model.contextStatus;
+		const percent = typeof status.usagePercent === 'number' && status.usagePercent > 0
+			? ` (${Math.min(100, Math.round(status.usagePercent))}% of the context window)`
+			: '';
+		lane.append(element('div', `pulseai-context-status-row is-${status.severity}`,
+			icon(status.severity === 'warning' ? 'warning' : 'lightbulb'),
+			element('span', undefined, status.message + percent)));
 	}
 	if (model.engineFault) {
 		const fault = model.engineFault;

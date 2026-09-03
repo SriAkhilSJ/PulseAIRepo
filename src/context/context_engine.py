@@ -39,7 +39,7 @@ from langchain_core.messages import (
 
 from src.context.bounded_scan import ContextBudget
 from src.context.engine import ContextEngine as BaseContextEngine
-from src.context.engine import sanitize_memory_context
+from src.context.engine import resolve_model_threshold, sanitize_memory_context
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.task_types import TaskType  # P9: re-exported for existing imports
 from src.context import layer_policy  # P9: scoring/dedup/placement/compression/budget
@@ -463,6 +463,12 @@ class ContextEngine(BaseContextEngine):
         # same contract as the by-design bounding receipt.
         self._cache_break_receipt_emitted = False
 
+        # Compaction status surface: per-pressure-episode overflow warning
+        # latch (cleared when the episode re-arms) and this-build's
+        # episode-opening flag (read by the pre_api status template).
+        self._overflow_warned = False
+        self._pressure_fired_this_build = False
+
         # Set only here, at the end of construction: the background metadata probe reads this
         # before touching budget fields, and must not interleave with __init__'s own derived values.
         self._init_complete = True
@@ -800,6 +806,10 @@ class ContextEngine(BaseContextEngine):
         tightened, fired, floor = self._pressure.tighten(
             history_budget, self.context_window
         )
+        # Engine owns the side effects (P6): record whether THIS build
+        # opened the pressure episode — the compaction status surface
+        # reads it to pick the pre_api status template.
+        self._pressure_fired_this_build = fired
         if fired:
             window = int(self.context_window or 0)
             self.compression_count += 1
@@ -830,6 +840,140 @@ class ContextEngine(BaseContextEngine):
         except Exception:
             pass  # telemetry must never break a turn
 
+    # ------------------------------------------------------------------
+    # Compaction status surface (Hermes parity — the user-facing half of
+    # the compaction decision). Ported from hermes-agent
+    # conversation_compression.py's routine-status templates (re-read at
+    # upstream 4dac5f2, 2026-09). The marker phrase "Compacting context"
+    # is LOAD-BEARING (their gateway noise filter couples to it) and is
+    # kept byte-identical on purpose. Emission rules copied too: routine
+    # statuses honor emit_automatic_compaction_status; warnings always
+    # surface; telemetry can never break a turn.
+    # ------------------------------------------------------------------
+    COMPACTION_START_STATUS = (
+        "🗜️ Compacting context — summarizing earlier conversation so I can continue..."
+    )
+    COMPACTION_DONE_STATUS = "✓ Context compaction complete — continuing turn..."
+    PRE_API_COMPRESSION_STATUS_TEMPLATE = (
+        "📦 Pre-API compression: ~{tokens:,} tokens near the context limit. "
+        "Compacting before the next model call."
+    )
+    OVERFLOW_BLOCKED_STATUS_TEMPLATE = (
+        "⚠️ Context overflow risk: ~{tokens:,} tokens are at/over the "
+        "{threshold:,}-token threshold and compaction is blocked ({reason}). "
+        "The next model call may fail — consider a new session or a "
+        "larger-window model."
+    )
+
+    def _emit_context_status(
+        self,
+        phase: str,
+        message: str,
+        severity: str = "info",
+        **extra: Any,
+    ) -> None:
+        """Emit one ``context.status`` event on the session-scoped bus.
+
+        The bridge projects it to the desktop ``context_status`` wire frame
+        (same path as the ``runtime.cache_break`` receipt). Best-effort by
+        contract: a bus failure can never break the build trying to report.
+        """
+        try:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("context.status", {
+                "thread_id": self.thread_id or "unknown",
+                "phase": phase,
+                "severity": severity,
+                "message": str(message),
+                "usage_percent": round(self._pressure.usage_percent(self.context_window), 1),
+                "last_prompt_tokens": int(self.last_prompt_tokens or 0),
+                "threshold_tokens": int(self.threshold_tokens or 0),
+                "context_length": int(self.context_window or 0),
+                **extra,
+            })
+        except Exception:
+            pass  # telemetry must never break a turn
+
+    def _compaction_kill_switch_off(self) -> bool:
+        try:
+            import os
+            return os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off"
+        except Exception:
+            return False
+
+    def _maybe_emit_compaction_start(self) -> dict:
+        """Before the history pipeline runs: speak when the pressure episode
+        is open. Returns the pre-compaction shaper stats for the done check.
+
+        Hermes emits a routine status for automatic compaction; ours fires
+        only when the fuel gauge is genuinely active (the provider's REAL
+        usage crossed the threshold), so ordinary turns stay silent.
+        """
+        stats = self._shaper.stats()
+        if not self.emit_automatic_compaction_status:
+            return stats
+        if not self._usage_pressure_active:
+            return stats
+        if self._compaction_kill_switch_off():
+            return stats  # legacy pipeline: the blocked warning covers it
+        if self._pressure_fired_this_build:
+            self._emit_context_status(
+                "pre_api",
+                self.PRE_API_COMPRESSION_STATUS_TEMPLATE.format(
+                    tokens=int(self.last_prompt_tokens or 0),
+                ),
+            )
+        self._emit_context_status("compress", self.COMPACTION_START_STATUS)
+        return stats
+
+    def _maybe_emit_compaction_done(self, pre_stats: dict) -> None:
+        """After the history pipeline: the terminal edge ONLY when this
+        build actually reclaimed something (a started-but-no-op compaction
+        stays silent — never claim work that did not happen)."""
+        if not self.emit_automatic_compaction_status:
+            return
+        post = self._shaper.stats()
+        moved = any(
+            post.get(key, 0) > pre_stats.get(key, 0)
+            for key in ("prunes", "structural_compactions", "llm_summary_calls", "placeholders")
+        )
+        if moved:
+            self._emit_context_status("compacted", self.COMPACTION_DONE_STATUS)
+
+    def _warn_overflow_if_blocked(self, trimmed_history: list, history_budget: int) -> None:
+        """The #62625 silent-overflow warning (Hermes parity).
+
+        When REAL usage is at/over the threshold yet compaction cannot
+        reclaim enough — kill switch off, or the tidied history STILL
+        exceeds its budget — warn ONCE per pressure episode instead of
+        letting the context grow silently toward the hard provider limit.
+        The latch clears when the episode re-arms (usage relaxes <=60%).
+        """
+        if not self._usage_pressure_active:
+            self._overflow_warned = False
+            return
+        at_threshold = self._pressure.at_threshold(
+            self.last_prompt_tokens, self.context_window
+        )
+        if not at_threshold or self._overflow_warned:
+            return
+        if self._compaction_kill_switch_off():
+            reason = "PULSEAI_COMPACTION=off"
+        elif count_tokens(trimmed_history, self.model) > history_budget:
+            reason = "history still exceeds its budget after compaction"
+        else:
+            return
+        self._overflow_warned = True
+        self._emit_context_status(
+            "overflow_blocked",
+            self.OVERFLOW_BLOCKED_STATUS_TEMPLATE.format(
+                tokens=int(self.last_prompt_tokens or 0),
+                threshold=int(self.threshold_tokens or 0),
+                reason=reason,
+            ),
+            severity="warning",
+        )
+
     def update_model(
         self,
         model: str,
@@ -843,6 +987,22 @@ class ContextEngine(BaseContextEngine):
         context_length (bridge model registry) is trusted verbatim;
         otherwise the normal discovery chain resolves it."""
         new_model = model or self.model
+        # Per-model threshold overrides (Hermes parity): resolve BEFORE
+        # _apply_window so threshold_tokens derives from the resolved
+        # percent. Snapshot semantics match the ABC — the configured value
+        # is captured once and survives repeated switches.
+        if not hasattr(self, "_config_threshold_percent"):
+            self._config_threshold_percent = self.threshold_percent
+        self._base_threshold_percent = resolve_model_threshold(
+            new_model, getattr(self, "model_thresholds", {}),
+            self._config_threshold_percent,
+        )
+        self.threshold_percent = self._base_threshold_percent
+        # The fuel gauge keeps its own copy (UsagePressure is constructed
+        # with the percent at __init__), so the override must reach BOTH —
+        # otherwise tighten()/at_threshold() would keep deciding with the
+        # stale percent while get_status() reports the new one.
+        self._pressure.threshold_percent = self._base_threshold_percent
         if context_length and int(context_length) > 0:
             with self._api_lock:
                 self.model = new_model
@@ -986,6 +1146,15 @@ class ContextEngine(BaseContextEngine):
     _BUILDER_ORDER = layer_policy.BUILDER_ORDER
     LAYER_RELEVANCE = layer_policy.LAYER_RELEVANCE_BASE
 
+    # Per-model compaction-threshold overrides (Hermes parity, see
+    # resolve_model_threshold in src/context/engine.py). Maps model-name
+    # substrings to threshold fractions; the LONGEST matching key wins.
+    # Empty by default — every model uses the configured 0.75 until an
+    # operator or the bridge populates this (update_model reads
+    # getattr(self, "model_thresholds", {}) live, so a mid-session
+    # reconfigure always sees the current map).
+    model_thresholds: dict[str, float] = {}
+
     def build_ai_messages(self, state, system_message):
         """Thread-safe public entry: same-session concurrent turns (the
         dashboard can double-fire a thread) must not interleave the
@@ -1044,7 +1213,14 @@ class ContextEngine(BaseContextEngine):
 
         # 8. Smart history
         raw_history = list(state.get("messages", []))
+        # Compaction status surface: speak BEFORE the pipeline runs (only
+        # when the pressure episode is genuinely open), then report the
+        # terminal edge only if something was actually reclaimed, then the
+        # latched overflow warning if compaction could not free enough.
+        pre_compaction_stats = self._maybe_emit_compaction_start()
         trimmed_history = self._compact_history(raw_history, history_budget)
+        self._maybe_emit_compaction_done(pre_compaction_stats)
+        self._warn_overflow_if_blocked(trimmed_history, history_budget)
 
         # 9. Assemble final (D23: volatile layers tail the whole prompt —
         # system + stable layers + history becomes one long-lived cache

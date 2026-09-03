@@ -131,6 +131,7 @@ class BridgeServer:
             "verification.updated": "verification_updated",
             "subagent.updated": "subagent_updated",
             "runtime.degraded": "runtime_degraded",
+            "context.status": "context_status",
         }
         target = mapping.get(kind)
         if target is None:
@@ -188,7 +189,7 @@ class BridgeServer:
                 "tool_call_start", "tool_call_end", "safety_request",
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
-                "llm.request", "llm.response", "workspace.bound",
+                "llm.request", "llm.response", "workspace.bound", "context_status",
             } else None
         base = {
             "type": target,

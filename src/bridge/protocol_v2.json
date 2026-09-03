@@ -35,6 +35,7 @@
   ],
   "server_events": [
     "checkpoint_event",
+    "context_status",
     "error",
     "events_replay",
     "hello",
