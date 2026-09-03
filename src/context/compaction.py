@@ -551,8 +551,6 @@ def prune_stale_reasoning_replay(messages: list, keep_recent: int = 6) -> int:
     return pruned
 
 
-_SALVAGE_SUMMARY_MAX_CHARS = 8_000
-
 
 def _salvage_cap_summary(summary: str) -> str:
     """Salvage cap for an in-transcript summary (Hermes parity).
