@@ -815,45 +815,53 @@ def streaming_enabled(default: bool) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def get_llm(provider, model):
+def get_llm(provider, model, max_attempts: int | None = None, request_timeout: float | None = None):
+    """Build a retry-bounded provider client.
+
+    ``max_attempts`` / ``request_timeout``: optional PER-CALL overrides for
+    management-class lanes (the hermes auxiliary discipline, issue #54465:
+    hidden retries silently multiply wall time on slow endpoints -- the SDK's
+    answer was max_retries=0 and Hermes-owned retry budgets). None = the
+    historical defaults (5 attempts, default_request_timeout) -- untouched.
+    """
     # Hard timeouts: a hung provider must NEVER wedge a dashboard worker
     # thread forever. Retries stay with RetryLLMProxy (single owner).
     if provider == "groq":
         llm = ChatGroq(
             model=model,
             api_key=GROQ_API_KEY,
-            request_timeout=default_request_timeout(),
+            request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
         )
-        return RetryLLMProxy(llm)
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "gemini":
         llm = ChatGoogleGenerativeAI(
             model=model,
             api_key=GEMINI_API_KEY,
-            timeout=default_request_timeout(),
+            timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
         )
-        return RetryLLMProxy(llm)
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "nvidia":
         llm = ChatOpenAI(
             model=model,
             api_key=NVIDIA_API_KEY,
             base_url="https://integrate.api.nvidia.com/v1",
-            request_timeout=default_request_timeout(),
+            request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
         )
-        return RetryLLMProxy(llm)
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "openai":
         llm = ChatOpenAI(
             api_key=OPENAI_API_KEY,
             model=model,
-            request_timeout=default_request_timeout(),
+            request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
         )
-        return RetryLLMProxy(llm)
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "custom":
         streaming = streaming_enabled(default=True)
@@ -868,14 +876,18 @@ def get_llm(provider, model):
             timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "180"))
         except (TypeError, ValueError):
             timeout = 180.0
+        effective_timeout = (
+            request_timeout if request_timeout is not None
+            else max(10.0, min(timeout, 300.0))
+        )
         llm = ChatOpenAI(
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
             model=model,
-            request_timeout=max(10.0, min(timeout, 300.0)),
+            request_timeout=effective_timeout,
             streaming=streaming,
         )
-        return RetryLLMProxy(llm)
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     raise ValueError(f"Unknown provider: {provider}")
 

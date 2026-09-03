@@ -89,23 +89,40 @@ def test_aux_client_wraps_retry_policy(monkeypatch):
 
 
 def test_task_manager_prefers_aux_falls_back_to_main(monkeypatch):
+    """Updated to the hermes-auxiliary-discipline lane: the classifier builds
+    via get_llm with the RESOLVED aux route and an env budget; a failed aux
+    build falls back to the exact main config."""
     import src.graphs.chat_graph as cg
 
-    sentinel = object()
-    monkeypatch.setattr(cg, "get_auxiliary_llm", lambda: sentinel)
-    assert cg._task_manager_llm("groq", "M") is sentinel
-
-    def _boom():
-        raise RuntimeError("provider down")
+    monkeypatch.setenv("AUX_LLM_PROVIDER", "groq")
+    monkeypatch.setenv("AUX_LLM_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.delenv("PULSEAI_CLASSIFIER_ATTEMPTS", raising=False)
+    monkeypatch.delenv("PULSEAI_CLASSIFIER_TIMEOUT_S", raising=False)
 
     called: dict[str, tuple] = {}
 
-    def _main(provider, model):
+    def _fake_get_llm(provider, model, max_attempts=None, request_timeout=None):
+        called.setdefault("aux", []).append(
+            (provider, model, max_attempts, request_timeout)
+        )
+        if provider == "groq" and model == "llama-3.1-8b-instant":
+            return "AUX-PROXY"
+        return "MAIN"
+
+    monkeypatch.setattr(cg, "get_llm", _fake_get_llm)
+    assert cg._task_manager_llm("groq", "M") == "AUX-PROXY"
+    provider, model, attempts, timeout = called["aux"][-1]
+    assert (provider, model) == ("groq", "llama-3.1-8b-instant")
+    assert attempts == 1 and timeout == 10.0  # the env budget defaults
+
+    # aux build fails -> the MAIN config is used exactly, with no budget
+    def _boom(provider, model, max_attempts=None, request_timeout=None):
+        if model == "llama-3.1-8b-instant":
+            raise RuntimeError("provider down")
         called["hit"] = (provider, model)
         return "MAIN"
 
-    monkeypatch.setattr(cg, "get_auxiliary_llm", _boom)
-    monkeypatch.setattr(cg, "get_llm", _main)
+    monkeypatch.setattr(cg, "get_llm", _boom)
     assert cg._task_manager_llm("groq", "M") == "MAIN"
     assert called["hit"] == ("groq", "M")     # exact main config preserved
     # monkeypatch reverts automatically at teardown.

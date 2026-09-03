@@ -1462,13 +1462,64 @@ def is_plan_cancellation(message: str) -> bool:
 # =========================================================
 # TASK NODE
 # =========================================================
+_CLASSIFIER_ROUTE_LOGGED = threading.Event()
+
+
 def _task_manager_llm(provider: str, model: str):
     """Task classification is MANAGEMENT-class work (short structured
     output, not user-facing prose): route it to the auxiliary client
-    (D21). Main model is the fallback, mirroring ai_node's cost-router
-    fallback policy — routing must never block a turn."""
+    (D21) under an env-driven LATENCY BUDGET -- the hermes auxiliary
+    discipline (issue #54465: hidden retries silently multiply wall time
+    on slow endpoints; their answer was owned retries + deadlines, never
+    a message-text shortcut). Resolution and budget are read PER CALL:
+      - route: AUX_LLM_PROVIDER/AUX_LLM_MODEL env -> per-provider cheap
+        table -> main-model fallback (hermes' own documented fallback:
+        "a blocked pick is refused, let the caller keep the main model")
+      - PULSEAI_CLASSIFIER_ATTEMPTS  (default 1, clamp 1..5)
+      - PULSEAI_CLASSIFIER_TIMEOUT_S (default 10, clamp 2..120)
+    The resolved route + budget print ONCE per process: a deployment whose
+    classifier is silently riding the heavyweight main model sees it in
+    one boot line instead of paying it invisibly every turn."""
+    from src.config.settings import resolve_aux_llm
+
+    import os as _os
+
+    def _clamp(name: str, default: int, lo: int, hi: int) -> int:
+        try:
+            raw = _os.getenv(name)
+            if raw is None or not str(raw).strip():
+                return default
+            return max(lo, min(hi, int(str(raw).strip())))
+        except Exception:
+            return default
+
+    attempts = _clamp("PULSEAI_CLASSIFIER_ATTEMPTS", 1, 1, 5)
+    timeout_s = float(_clamp("PULSEAI_CLASSIFIER_TIMEOUT_S", 10, 2, 120))
+
     try:
-        return get_auxiliary_llm()
+        aux_provider, aux_model = resolve_aux_llm()
+    except Exception:
+        aux_provider, aux_model = provider, model
+
+    if not _CLASSIFIER_ROUTE_LOGGED.is_set():
+        _CLASSIFIER_ROUTE_LOGGED.set()
+        if _os.getenv("AUX_LLM_MODEL"):
+            source = "env"
+        elif aux_model != model:
+            source = "cheap-table"
+        else:
+            source = "main-fallback (set AUX_LLM_MODEL for a fast route)"
+        print(
+            f"[task_classifier] route {aux_provider}/{aux_model} "
+            f"(source: {source}); budget {attempts} attempt(s) x {timeout_s:.0f}s",
+            flush=True,
+        )
+
+    try:
+        return get_llm(
+            provider=aux_provider, model=aux_model,
+            max_attempts=attempts, request_timeout=timeout_s,
+        )
     except Exception:
         return get_llm(provider=provider, model=model)
 
@@ -1713,7 +1764,22 @@ def _invoke_task_decision(llm, task_messages) -> "TaskDecision":
     active task, which is exactly what a mis-routed conversational message
     should do. One honest line on the true fallback; never silent.
     """
-    result = llm.invoke(task_messages)
+    try:
+        result = llm.invoke(task_messages)
+    except Exception as exc:
+        # Budget exhaustion / transport death on the ROUTER must never kill
+        # the MISSION (hermes: aux failure degrades that side task, the turn
+        # proceeds). Cancellation still propagates -- a Stop is not a fault.
+        from src.llm.factory import TurnCancelledError
+
+        if isinstance(exc, TurnCancelledError):
+            raise
+        print(
+            "[task_classifier] route unavailable "
+            f"({type(exc).__name__}); defaulting to 'continue' "
+            "(active task preserved)"
+        )
+        return TaskDecision(action="continue")
     content = getattr(result, "content", "")
     if not isinstance(content, str):
         content = "".join(

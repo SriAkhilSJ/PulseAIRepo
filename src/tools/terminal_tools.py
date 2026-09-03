@@ -518,7 +518,18 @@ def run_terminal(
         if stderr:
             output += f"\nSTDERR:\n{stderr}"
         output += f"\nExit code: {process.returncode}"
-        final_output = output.strip()
+        # Output budget at the SOURCE, hermes' file-read-cap pattern
+        # (tools/file_tools.py::_get_max_read_chars: a configured knob with a
+        # built-in default -- the number lives in config, not in logic).
+        # Owner run: a recursive listing returned ~5MB and the bridge dropped
+        # the whole frame; the desktop never saw the result. Env-driven, read
+        # per call, clamped. PULSEAI_TERMINAL_MAX_OUTPUT_CHARS.
+        try:
+            _raw = os.environ.get("PULSEAI_TERMINAL_MAX_OUTPUT_CHARS", "12000")
+            _max_chars = max(1_000, min(int(str(_raw).strip()), 1_000_000))
+        except Exception:
+            _max_chars = 12_000
+        final_output = _limit_terminal_output(output.strip(), _max_chars)
         _record_verification_result(
             config, workspace, command, process.returncode, final_output
         )
