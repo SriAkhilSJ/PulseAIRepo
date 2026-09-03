@@ -65,6 +65,76 @@ COMPACTION_SUMMARY_PREFIX = (
     "the latest user message after it is the ONLY active task."
 )
 
+# hermes context_compressor.py:510 verbatim (their #11475/#14521/#33256):
+# appended to every standalone summary message so the model has an
+# unambiguous "summary ends here" boundary. Without it, weak models read
+# the verbatim quoted turns INSIDE the summary as fresh user input, or
+# regurgitate an assistant-role summary as their own output. The prefix
+# above announces the boundary; this marker CLOSES it.
+_SUMMARY_END_MARKER = (
+    "--- END OF CONTEXT SUMMARY — "
+    "respond to the message below, not the summary above ---"
+)
+
+# Image retirement (hermes _retire_stale_tool_result_images parity,
+# _IMAGE_PART_TYPES/_MAX_KEEP_TOOL_IMAGES). Screenshots and vision payloads
+# ride every later request until a provider 413 forces a reactive strip
+# (their #89286) — openai-style image_url tool results are the classic
+# case. Pulse's token counter serializes content parts, so one base64
+# frame also poisons the BUDGET estimate. Retire on the request-only copy:
+# walk newest-first, keep the newest frames (follow-up screenshot QA still
+# sees them), replace older payloads with an honest text label. User-role
+# uploads are never touched.
+_IMAGE_PART_TYPES = frozenset({"image_url", "input_image", "image"})
+_MAX_KEEP_TOOL_IMAGES = 3
+_RETIRED_IMAGE_LABEL = "[image retired from context — only the newest frames are kept]"
+
+
+def _content_has_images(content: Any) -> bool:
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(part, dict) and part.get("type") in _IMAGE_PART_TYPES
+        for part in content
+    )
+
+
+def retire_stale_tool_images(messages: list, keep_newest: int = _MAX_KEEP_TOOL_IMAGES) -> int:
+    """Replace image payloads on older tool results with text placeholders.
+
+    Walks newest-first, keeps the most recent ``keep_newest`` image-bearing
+    tool messages intact, retires the rest. HumanMessage uploads are never
+    touched (their rule: user-role uploads are not retired). Mutates the
+    request-only copy in place; returns the number of messages rewritten.
+    """
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    if keep_newest < 0:
+        keep_newest = 0
+    seen = 0
+    pruned = 0
+    for msg in reversed(messages):
+        if not isinstance(msg, ToolMessage) or isinstance(msg, HumanMessage):
+            continue
+        content = getattr(msg, "content", None)
+        if not _content_has_images(content):
+            continue
+        seen += 1
+        if seen <= keep_newest:
+            continue
+        new_parts = []
+        replaced = 0
+        for part in content:
+            if isinstance(part, dict) and part.get("type") in _IMAGE_PART_TYPES:
+                replaced += 1
+                new_parts.append({"type": "text", "text": _RETIRED_IMAGE_LABEL})
+            else:
+                new_parts.append(part)
+        if replaced:
+            msg.content = new_parts
+            pruned += 1
+    return pruned
+
 _DEFAULT_TAIL_TOKENS = 20_000
 _PLACEHOLDER_MIN_CHARS = 600
 _INEFFECTIVE_FRACTION = 0.15
@@ -658,6 +728,15 @@ class HistoryCompactor:
             body = " ".join(_text_of(msg).split())[:_DROPPED_PER_MSG]
             if not body:
                 continue
+            # hermes _redact_compaction_text parity: dropped turns feed the
+            # RUNNING summary, which outlives every later turn — a secret
+            # that leaked into a tool output must not get a home there.
+            # Best-effort, same fallback contract as the memory sanitizer.
+            try:
+                from src.utils.redact import redact_sensitive_text
+                body = redact_sensitive_text(body, force=True, redact_url_credentials=True)
+            except Exception:
+                pass
             line = f"{role}: {body}"
             total += len(line)
             if total > _DROPPED_TEXT_BUDGET:
@@ -802,7 +881,11 @@ class HistoryCompactor:
             return messages
         head = self._head_len(messages)
         summary_msg = SystemMessage(
-            content=f"{COMPACTION_SUMMARY_PREFIX}\n\n{_salvage_cap_summary(self._summary)}",
+            content=(
+                f"{COMPACTION_SUMMARY_PREFIX}\n\n"
+                f"{_salvage_cap_summary(self._summary)}\n\n"
+                f"{_SUMMARY_END_MARKER}"
+            ),
             response_metadata={"compaction": True},
         )
         return list(messages[:head]) + [summary_msg] + list(messages[head:])

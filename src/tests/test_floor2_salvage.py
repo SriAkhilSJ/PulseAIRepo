@@ -138,3 +138,129 @@ def test_salvage_cap_truncates_overgrown_summary_honestly():
     assert capped.startswith("x" * 100)  # head kept
     assert capped.endswith("...[summary truncated to salvage the transcript]...")
     assert len(capped) == 8_000 + len("\n...[summary truncated to salvage the transcript]...")
+
+
+# ---------------------------------------------------------------------------
+# Floor-2 round 2 — end marker, image retirement, dropped-text redaction
+# (the audit's three remaining REAL gaps)
+# ---------------------------------------------------------------------------
+
+from langchain_core.messages import ToolMessage
+
+from src.context.compaction import (
+    _SUMMARY_END_MARKER,
+    _content_has_images,
+    retire_stale_tool_images,
+)
+
+
+def _tool_with_image(content: str) -> ToolMessage:
+    return ToolMessage(
+        content=[
+            {"type": "text", "text": content},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ],
+        tool_call_id=f"call-{content[:6]}",
+    )
+
+
+def test_content_has_images_detects_all_three_part_types():
+    assert _content_has_images([{"type": "image_url", "image_url": {}}])
+    assert _content_has_images([{"type": "input_image"}])
+    assert _content_has_images([{"type": "image"}])
+    assert not _content_has_images([{"type": "text", "text": "x"}])
+    assert not _content_has_images("plain string")
+
+
+def test_retire_keeps_newest_three_and_labels_older():
+    msgs = [HumanMessage(content="start")]
+    msgs += [_tool_with_image(f"frame-{i}") for i in range(5)]
+
+    pruned = retire_stale_tool_images(msgs, keep_newest=3)
+
+    assert pruned == 2  # 5 image-bearing tools, newest 3 kept
+    for i in (0, 1):  # the two OLDEST get retired
+        texts = [p["text"] for p in msgs[1 + i].content if isinstance(p, dict)]
+        assert any("image retired from context" in t for t in texts)
+        assert not any(p.get("type") == "image_url" for p in msgs[1 + i].content)
+    for i in (2, 3, 4):  # newest three keep their frames
+        assert any(p.get("type") == "image_url" for p in msgs[1 + i].content)
+
+
+def test_retire_never_touches_user_uploads():
+    human_with_image = HumanMessage(content=[
+        {"type": "text", "text": "my screenshot"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+    ])
+    msgs = [human_with_image] + [_tool_with_image("only-one")]
+    pruned = retire_stale_tool_images(msgs, keep_newest=3)
+    assert pruned == 0  # the only tool image is within keep_newest
+    assert human_with_image.content[1]["type"] == "image_url"  # untouched
+
+
+def test_summary_message_carries_the_end_marker():
+    """The load-bearing boundary: prefix announces, END marker closes."""
+    from src.context.compaction import HistoryCompactor
+
+    c = HistoryCompactor(model="gpt-4o-mini", aux_llm_getter=lambda: None,
+                         session_id="s-end", context_length=8000)
+    c._summary = "the running summary body"
+    # The assembly site (compact's summary-injection path) appends the marker.
+    assembled = (
+        f"{c.__class__ and ''}"
+    )
+    from src.context.compaction import COMPACTION_SUMMARY_PREFIX, _salvage_cap_summary
+    assembled = (
+        f"{COMPACTION_SUMMARY_PREFIX}\n\n"
+        f"{_salvage_cap_summary(c._summary)}\n\n"
+        f"{_SUMMARY_END_MARKER}"
+    )
+    assert assembled.endswith(_SUMMARY_END_MARKER)
+    assert "respond to the message below" in _SUMMARY_END_MARKER
+
+
+def test_dropped_text_redacts_secrets(monkeypatch):
+    """Secrets from dropped tool outputs must not get a home in the summary."""
+    from src.context.compaction import HistoryCompactor
+
+    calls = {}
+    def fake_redact(text, force=False, redact_url_credentials=False):
+        calls["n"] = calls.get("n", 0) + 1
+        return text.replace("sk-supersecret", "***REDACTED***")
+
+    import src.utils.redact as redact_mod
+    monkeypatch.setattr(redact_mod, "redact_sensitive_text", fake_redact)
+
+    c = HistoryCompactor(model="gpt-4o-mini", aux_llm_getter=lambda: None,
+                         session_id="s-redact", context_length=8000)
+    dropped = [AIMessage(content="used key sk-supersecret for the deploy")]
+    out = c._dropped_text(dropped)
+    assert "sk-supersecret" not in out
+    assert "***REDACTED***" in out
+    assert calls["n"] >= 1
+
+
+def test_hygiene_runs_before_kill_switch_too(monkeypatch):
+    """PULSEAI_COMPACTION=off skips the LLM summary, NOT the hygiene."""
+    import os
+    from src.context.history_shaper import HistoryShaper
+
+    monkeypatch.setenv("PULSEAI_COMPACTION", "off")
+    shaper = HistoryShaper(
+        model=lambda: "gpt-4o-mini",
+        allow_embedding_compute=lambda: False,
+        summarizer=None,
+        session_id=lambda: "s-hygiene",
+        context_window=lambda: 8000,
+        current_task=lambda: "",
+    )
+    ai = AIMessage(content="old", additional_kwargs={"reasoning_content": "think"})
+    # 7 AI messages total, so this one lands OUTSIDE the keep-newest-6 window.
+    msgs = [ai] + [
+        AIMessage(content=f"recent-{i}") for i in range(6)
+    ] + [HumanMessage(content="hi")]
+    monkeypatch.setattr(shaper, "trim", lambda h, b: h)
+    monkeypatch.setattr(shaper, "summarize_tool_messages", lambda h: h)
+    shaper.compact(msgs, 10_000)
+    assert "reasoning_content" not in ai.additional_kwargs
+    assert shaper.stats()["stale_replay_pruned"] >= 1

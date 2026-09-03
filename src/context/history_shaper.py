@@ -47,6 +47,11 @@ _ZERO_STATS = {
     "summary_chars": 0,
     "placeholders": 0,
     "placeholder_chars_reclaimed": 0,
+    # Hygiene counters (shaper-owned, hermes stale-replay/image-retirement
+    # parity): part of the canonical zero shape so the pre-use contract and
+    # the kill-switch branch report the same keys.
+    "stale_replay_pruned": 0,
+    "stale_images_retired": 0,
 }
 
 
@@ -145,6 +150,23 @@ class HistoryShaper:
         bound method so the legacy path stays on the engine's public seam
         (and any engine-level override or test spy keeps working).
         """
+        if not history:
+            return []
+        # Hygiene pass — runs on BOTH paths (the kill switch skips the LLM
+        # summary, not the hygiene), on the REQUEST-ONLY copy before anything
+        # else touches the list (hermes parity: their stale-replay prune and
+        # image retirement are also pre-pipeline). Counted, not silent.
+        from src.context.compaction import (
+            prune_stale_reasoning_replay,
+            retire_stale_tool_images,
+        )
+        self._stale_replay_pruned = getattr(self, "_stale_replay_pruned", 0) + (
+            prune_stale_reasoning_replay(history)
+        )
+        self._stale_images_retired = getattr(self, "_stale_images_retired", 0) + (
+            retire_stale_tool_images(history)
+        )
+
         if os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
             # Even the structural-compaction kill switch must not replay every
             # landed write payload until the run-level token budget is gone.
@@ -154,14 +176,6 @@ class HistoryShaper:
             return trim_fn(self.summarize_tool_messages(compacted), budget)
 
         self.ensure_compactor()
-        # Phase B (hermes _prune_stale_reasoning_replay parity): aged AI
-        # reasoning payloads are stripped on the REQUEST-ONLY copy before the
-        # pipeline runs; the newest keep_recent keep theirs. Counted into the
-        # shaper's telemetry — hygiene is measured, not silent.
-        from src.context.compaction import prune_stale_reasoning_replay
-        self._stale_replay_pruned = getattr(self, "_stale_replay_pruned", 0) + (
-            prune_stale_reasoning_replay(history)
-        )
         compressor = SmartCompressor(
             model=self._model(),
             allow_embedding_compute=self._allow_embedding_compute(),
@@ -202,10 +216,19 @@ class HistoryShaper:
 
     def stats(self) -> dict:
         """D22 telemetry: prune/compaction counters for this session."""
+        # Hygiene counters are SHAPER-owned (they run pre-pipeline, including
+        # on the kill-switch path where no compactor is ever created), so they
+        # overlay both branches.
+        hygiene = {
+            "stale_replay_pruned": getattr(self, "_stale_replay_pruned", 0),
+            "stale_images_retired": getattr(self, "_stale_images_retired", 0),
+        }
         if self._compactor is None:
-            return dict(_ZERO_STATS)
+            s = dict(_ZERO_STATS)
+            s.update(hygiene)
+            return s
         s = dict(self._compactor.stats)
         s["summary_chars"] = len(self._compactor.summary)
         s["llm_suppressed_active"] = self._compactor.llm_suppressed
-        s["stale_replay_pruned"] = getattr(self, "_stale_replay_pruned", 0)
+        s.update(hygiene)
         return s
