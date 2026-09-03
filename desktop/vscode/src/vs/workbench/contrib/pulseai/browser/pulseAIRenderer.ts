@@ -229,6 +229,27 @@ function markdownCopy(text: string, slot?: string): HTMLElement {
 	return root;
 }
 
+// Hermes-pattern message action: a quiet Copy control under each completed
+// answer -- the "Run completed" green check told the user what they had just
+// watched happen; a copy button does something they actually want. Clipboard
+// write never throws into the panel (best-effort), and the label flashes
+// Copied so the click is confirmed without a dialog.
+function copyButton(text: string): HTMLElement {
+	const btn = element('button', 'pulseai-link-button pulseai-copy-btn');
+	btn.textContent = 'Copy';
+	btn.addEventListener('click', () => {
+		try {
+			void navigator.clipboard.writeText(text).then(() => {
+				btn.textContent = 'Copied';
+				setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+			}, () => { btn.textContent = 'Copy failed'; });
+		} catch {
+			btn.textContent = 'Copy failed';
+		}
+	});
+	return btn;
+}
+
 function button(label: string, className: string, action: () => void, iconName?: string): HTMLButtonElement {
 	const node = element('button', className, iconName ? icon(iconName) : undefined, label);
 	node.type = 'button';
@@ -639,6 +660,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse')));
 			if (turn.reasoning) { response.append(thinkingBlock(turn.reasoning, openTools, false)); }
 			response.append(markdownCopy(turn.assistantText));
+			response.append(copyButton(turn.assistantText));
 			lane.append(response);
 		}
 		if (turn.tools.length) {
@@ -654,9 +676,11 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			}
 			lane.append(subAgents);
 		}
-		if (turn.turnOutcome === 'completed' || turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
-			const label = turn.turnOutcome === 'completed' ? 'Run completed' : turn.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
-			const iconName = turn.turnOutcome === 'completed' ? 'pass-filled' : turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
+		// Hermes pattern: no green confetti for success -- the answer IS the
+		// completion receipt. Only real deviations (cancelled, failed) get a row.
+		if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
+			const label = turn.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
+			const iconName = turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 			lane.append(element('div', `pulseai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label)));
 		}
 	}
@@ -675,6 +699,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		// already say the only true thing: the turn is open.
 		if (model.assistantText) {
 			response.append(markdownCopy(model.assistantText, 'session-turn-content'));
+			if (!model.running) { response.append(copyButton(model.assistantText)); }
 		}
 		lane.append(response);
 	}
@@ -701,9 +726,9 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		}
 		lane.append(subAgents);
 	}
-	if (model.turnOutcome === 'completed' || model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
-		const label = model.turnOutcome === 'completed' ? 'Run completed' : model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
-		const iconName = model.turnOutcome === 'completed' ? 'pass-filled' : model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
+	if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
+		const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
+		const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
 	}
 	if (model.voiceHeard) {

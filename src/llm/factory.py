@@ -793,6 +793,26 @@ def default_request_timeout() -> float:
         return 60.0
 
 
+def streaming_enabled(default: bool) -> bool:
+    """Token streaming on/off -- env-driven, read per client construction.
+
+    PULSEAI_LLM_STREAMING: "1/true/yes/on" forces ON, anything else forces
+    OFF; unset falls back to the per-provider default. Hermes doctrine (the
+    single stream owner): streaming is the NORMAL posture -- the user watches
+    words arrive instead of staring at a frozen panel for the whole
+    generation. First-token latency is the UX; total wall time is unchanged.
+    The `custom` branch (arbitrary OpenAI-compatible servers) defaults OFF
+    because some of those servers mishandle `stream:true`; the first-class
+    provider APIs (groq/openai/nvidia/gemini) default ON -- LangChain's sync
+    invoke() owns and aggregates the stream (tool-call chunks included), which
+    is exactly the single-owner shape this file already pins in its comments.
+    """
+    raw = os.environ.get("PULSEAI_LLM_STREAMING")
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_llm(provider, model):
     # Hard timeouts: a hung provider must NEVER wedge a dashboard worker
     # thread forever. Retries stay with RetryLLMProxy (single owner).
@@ -801,6 +821,7 @@ def get_llm(provider, model):
             model=model,
             api_key=GROQ_API_KEY,
             request_timeout=default_request_timeout(),
+            streaming=streaming_enabled(default=True),
         )
         return RetryLLMProxy(llm)
 
@@ -809,6 +830,7 @@ def get_llm(provider, model):
             model=model,
             api_key=GEMINI_API_KEY,
             timeout=default_request_timeout(),
+            streaming=streaming_enabled(default=True),
         )
         return RetryLLMProxy(llm)
 
@@ -818,6 +840,7 @@ def get_llm(provider, model):
             api_key=NVIDIA_API_KEY,
             base_url="https://integrate.api.nvidia.com/v1",
             request_timeout=default_request_timeout(),
+            streaming=streaming_enabled(default=True),
         )
         return RetryLLMProxy(llm)
 
@@ -826,14 +849,12 @@ def get_llm(provider, model):
             api_key=OPENAI_API_KEY,
             model=model,
             request_timeout=default_request_timeout(),
+            streaming=streaming_enabled(default=True),
         )
         return RetryLLMProxy(llm)
 
     if provider == "custom":
-        import os
-        streaming = os.environ.get("PULSEAI_LLM_STREAMING", "").strip().lower() in {
-            "1", "true", "yes", "on",
-        }
+        streaming = streaming_enabled(default=False)
         try:
             # Default sized to GENERATION length, not ping latency (hermes
             # doctrine): a 100B-class model writing a large first response

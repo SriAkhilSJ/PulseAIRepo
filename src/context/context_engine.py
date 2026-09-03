@@ -1341,12 +1341,23 @@ class ContextEngine(BaseContextEngine):
         receipt is owed even if skip rules pruned everything without a
         mid-walk truncation."""
         import os as _os
+        from src.context.bounded_scan import SCAN_SKIP_DIRS
         seen = 0
         roots = 0
         try:
             if _os.path.isfile(workspace):
                 return False
             for _root, dirs, files in _os.walk(workspace):
+                # Honesty fix (owner report): the probe used to count EVERY
+                # entry including .git object stores and node_modules -- trees
+                # the scan itself never considers -- so any fork with a big
+                # vendor tree "exceeded" a budget it had not actually touched.
+                # Prune the SAME directories the scanner skips so the probe
+                # counts candidates, not junk.
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in SCAN_SKIP_DIRS and not d.startswith(".")
+                ]
                 seen += len(dirs) + len(files)
                 roots += 1
                 if seen > cap or roots > 2 * cap:

@@ -922,7 +922,7 @@ def ai_node(
     # model path. Keep the active-session binding at the turn boundary; clearing
     # it here would make later planner/classifier requests uninterruptible.
     try:
-        result = call_llm.invoke(messages)
+        result = _invoke_with_token_pump(call_llm, messages, session_id)
     except Exception as exc:
         # A Stop that fired while the request was in flight wins over provider
         # failover: never launch a base-provider request after cancellation.
@@ -967,7 +967,7 @@ def ai_node(
         if budget_exhausted:
             call_llm = llm
         try:
-            result = call_llm.invoke(messages)
+            result = _invoke_with_token_pump(call_llm, messages, session_id)
         except TurnCancelledError:
             return {
                 "messages": [AIMessage(
@@ -1256,6 +1256,66 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         ),
         "messages": [AIMessage(content="\n".join(lines))] if lines else [],
     }
+
+
+# ---------------------------------------------------------------------------
+# Live token streaming (hermes discipline: the user watches words arrive).
+# The pump is attached as a LangChain callback at the AGENT NODE's provider
+# invoke ONLY -- planner/classifier/compaction calls never receive it, so
+# their tokens can never leak into the transcript. Each completed invoke
+# records whether IT streamed into _TURN_LAST_CALL_STREAMED, and stream_agent
+# pops that flag at the ai-node boundary: a call that already delivered its
+# text token-by-token must not re-emit the full content as one more fake
+# chunk. Streaming off (or a provider that never fired tokens) falls back to
+# the historical single end-chunk -- nothing is lost either way.
+# ---------------------------------------------------------------------------
+_TURN_LAST_CALL_STREAMED: dict[str, bool] = {}
+
+
+class _AgentTokenPump:
+    """Forward the agent node's tokens to the event bus as live deltas.
+
+    A plain callback handler (duck-typed): LangChain calls on_llm_new_token
+    on every registered handler as the provider stream yields. Telemetry
+    discipline: emission failures must NEVER break the model call.
+    """
+
+    def __init__(self, thread_id: str):
+        self._thread_id = thread_id
+        self.streamed = False
+
+    def on_llm_new_token(self, token: str, **kwargs) -> None:  # noqa: ANN001, ANN003
+        piece = str(token or "")
+        if not piece:
+            return
+        self.streamed = True
+        try:
+            event_bus.emit("message.agent.chunk", {
+                "chunk": piece,
+                "thread_id": self._thread_id,
+            })
+        except Exception:
+            pass  # a dead bus must not kill a live generation
+
+
+def _invoke_with_token_pump(call_llm, messages, thread_id: str):
+    """Agent-node invoke with the live token pump attached (best-effort).
+
+    The pump rides in `config.callbacks`, which LangChain forwards to the
+    underlying provider client -- through RetryLLMProxy's **kwargs pass-
+    through -- so only THIS call streams. Providers that reject the config
+    kwarg (defensive) fall back to a plain invoke with no pump.
+    """
+    pump = _AgentTokenPump(thread_id)
+    try:
+        result = call_llm.invoke(messages, config={"callbacks": [pump]})
+    except TypeError:
+        result = call_llm.invoke(messages)
+    except Exception:
+        _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+        raise
+    _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+    return result
 
 
 def is_plan_approval(message: str) -> bool:
@@ -3556,11 +3616,18 @@ def stream_agent(
                 # AI produced final text
                 elif last_message.content:
                     final_response = last_message.content
-                    # Stream the whole content as one chunk for now
-                    event_bus.emit("message.agent.chunk", {
-                        "chunk": final_response,
-                        "thread_id": thread_id,
-                    })
+                    # Live tokens already carried THIS call's text to the
+                    # client piece by piece (_invoke_with_token_pump recorded
+                    # that in _TURN_LAST_CALL_STREAMED); re-emitting the whole
+                    # content here would print the answer twice. A call that
+                    # did not stream (streaming off, provider without token
+                    # callbacks, pump rejected) falls back to this single
+                    # historical chunk -- either way the text appears once.
+                    if not _TURN_LAST_CALL_STREAMED.pop(thread_id, False):
+                        event_bus.emit("message.agent.chunk", {
+                            "chunk": final_response,
+                            "thread_id": thread_id,
+                        })
 
             # ---------------------------------------------
             # PROGRESS NODE — show step completion
