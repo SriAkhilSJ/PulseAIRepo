@@ -50,7 +50,10 @@ def test_text_not_found_leaves_file_untouched(tmp_path):
     ws, f = _ws(tmp_path)
     before = (tmp_path / f).read_bytes()
     mtime = os.path.getmtime(tmp_path / f)
-    out = _call(ws, f, "def bar():", "def baz():")
+    # NOTE: "def bar():" would now fuzzy-match "def foo():" (context_aware,
+    # 9-strategy chain — hermes/OpenCode shipped behavior). A contract for
+    # TRUE absence must be genuinely dissimilar on every line.
+    out = _call(ws, f, "zzz_protocol_handler():", "def baz():")
     assert "not found" in out.lower()
     assert (tmp_path / f).read_bytes() == before
     assert os.path.getmtime(tmp_path / f) == mtime, "file was written on failure!"
@@ -88,9 +91,18 @@ def test_fuzzy_replaces_whole_block_with_whitespace_drift(tmp_path):
 
 
 def test_fuzzy_rejects_when_too_different(tmp_path):
+    # 9-strategy chain (Floor 5): still rejects when NO window fits —
+    # every line dissimilar (window score < 0.5) or the pattern has more
+    # lines than the file. Near-miss single lines DO match now
+    # (context_aware, shipped hermes/OpenCode behavior) — see the note in
+    # test_text_not_found_leaves_file_untouched.
     ws, f = _ws(tmp_path)
     out = _call(ws, f, "classTotallyDifferent:\n    x = 1\n    y = 2", "z = 3")
     assert "not found" in out.lower()
+
+    too_many_lines = "def a():\n    pass\ndef b():\n    pass\ndef c():\n    pass\n"
+    out2 = _call(ws, f, too_many_lines, "z = 3")
+    assert "not found" in out2.lower()
 
 
 def test_fuzzy_find_block_locates_span():

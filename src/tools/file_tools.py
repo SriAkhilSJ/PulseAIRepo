@@ -863,29 +863,30 @@ def edit_file(
         encoding="utf-8"
     )
 
-    match_mode = "exact"
-    if old_text in original:
-        updated_content = original.replace(
-            old_text,
-            new_text,
-            1
+    # The 9-strategy fuzzy chain (hermes tools/fuzzy_match.py parity,
+    # Floor 5): exact → line_trimmed → whitespace_normalized →
+    # indentation_flexible → escape_normalized → trimmed_boundary →
+    # unicode_normalized → block_anchor → context_aware. Guards carried
+    # over: whitespace-only anchors rejected, identical old/new is an
+    # error, ambiguity returns match LOCATIONS (one follow-up), similarity
+    # strategies never replace_all, escape-drift blocked, indentation
+    # shifted to the file's own, Unicode preserved on unicode matches.
+    from src.tools.fuzzy_match import is_already_applied, fuzzy_find_and_replace
+
+    if old_text == new_text and is_already_applied(original, old_text, new_text):
+        return (
+            f"ℹ️ No change: {path} already contains the target text "
+            f"(edit already applied — success-shaped no-op)."
         )
-    else:
-        span = _fuzzy_find_block(original, old_text)
-        if span is None:
-            return (
-                f"❌ Text not found in {path}. "
-                f"Read the file first and retry with current content."
-            )
-        match_mode = "fuzzy"
-        orig_lines = original.splitlines(keepends=True)
-        new_lines = new_text.splitlines(keepends=True)
-        if new_lines and not new_lines[-1].endswith("\n"):
-            new_lines[-1] += "\n"
-        start, end = span
-        updated_content = "".join(
-            orig_lines[:start] + new_lines + orig_lines[end:]
-        )
+
+    updated_content, match_count, strategy, error = fuzzy_find_and_replace(
+        original, old_text, new_text
+    )
+    if error is not None:
+        # Compatible with the long-standing "not found" contract: no strategy
+        # matched, nothing was written, and the model knows exactly why.
+        return f"❌ Text not found in {path}: {error}"
+    match_mode = "exact" if (strategy or "exact") == "exact" else "fuzzy"
 
     if updated_content == original:
         return f"ℹ️ No change: new_text equals the existing content in {path}."
