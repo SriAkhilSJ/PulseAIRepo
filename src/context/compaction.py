@@ -46,6 +46,11 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 from src.context.token_budget import count_tokens
 
+from src.context.summary_route_pin import (
+    aux_llm_for_route,
+    take_pinned_summary_route,
+)
+
 log = logging.getLogger("pulseai.compaction")
 
 # hermes context_compressor.py:399 verbatim — same marker text on purpose
@@ -443,6 +448,58 @@ def salvage_grown_transcript(original: list[BaseMessage], candidate: list[BaseMe
     return None
 
 
+_STALE_REASONING_KEYS = ("reasoning", "reasoning_content", "reasoning_details")
+
+
+def prune_stale_reasoning_replay(messages: list, keep_recent: int = 6) -> int:
+    """Strip stale reasoning-replay fields from aged AI messages (Hermes
+    ``_prune_stale_reasoning_replay`` parity, Floor-2 Phase B).
+
+    Reasoning payloads ride along on AIMessages and are re-sent on every
+    request; past the recent window they are dead weight that bloats the
+    transcript and can re-confuse the model on replay. The most recent
+    ``keep_recent`` AI messages keep their reasoning untouched. Runs on the
+    REQUEST-ONLY copy inside compaction — the checkpoint store is never
+    mutated (the structural guarantee this module was built under).
+
+    Returns the number of messages actually pruned (telemetry only).
+    """
+    ai_indexes = [i for i, m in enumerate(messages) if isinstance(m, AIMessage)]
+    stale = set(ai_indexes[:-keep_recent]) if keep_recent > 0 else set(ai_indexes)
+    pruned = 0
+    for i in stale:
+        kwargs = getattr(messages[i], "additional_kwargs", None)
+        if not isinstance(kwargs, dict):
+            continue
+        hit = False
+        for key in _STALE_REASONING_KEYS:
+            if key in kwargs:
+                kwargs.pop(key)
+                hit = True
+        if hit:
+            pruned += 1
+    return pruned
+
+
+_SALVAGE_SUMMARY_MAX_CHARS = 8_000
+
+
+def _salvage_cap_summary(summary: str) -> str:
+    """Salvage cap for an in-transcript summary (Hermes parity).
+
+    hermes-agent ``context_compressor.py`` caps a standalone compaction
+    summary at ``_SALVAGE_SUMMARY_MAX_CHARS = 8_000`` as a LAST-RESORT shrink
+    when the transcript has grown pathologically: an over-chatty running
+    summary must never become its own overflow. The head is kept (Pulse's
+    iterative summary keeps its anchor index at the top); the cut is honest.
+    """
+    if len(summary) <= _SALVAGE_SUMMARY_MAX_CHARS:
+        return summary
+    return summary[:_SALVAGE_SUMMARY_MAX_CHARS] + (
+        "\n...[summary truncated to salvage the transcript]..."
+    )
+
+
 class HistoryCompactor:
     """Per-session compactor: prune, protect, (optionally) summarize."""
 
@@ -615,11 +672,20 @@ class HistoryCompactor:
         use_llm = self._suppress_llm_for == 0
         if use_llm and self._aux_llm_getter is not None:
             try:
-                llm = self._aux_llm_getter()
+                # Pinned summary route (Hermes #78981 parity): consume ONCE
+                # for this attempt — the digest augmentation below reuses the
+                # SAME consumed route and never re-consults the ContextVar,
+                # so a failed pinned backend cannot get a second full
+                # deadline. No pin installed -> the settings-driven getter.
+                route = take_pinned_summary_route()
+                llm = aux_llm_for_route(self._aux_llm_getter, route)
                 prompt = _EXTEND_PROMPT.format(prev=self._summary or "(empty)", new=new_text)
                 response = llm.invoke(prompt)
                 text = getattr(response, "content", str(response))
                 base = " ".join(str(text).split())[:_SUMMARY_MAX_CHARS]
+                # Hermes coverage rule: the pin covers THE summary call only
+                # ("its only non-recursive call site"). Digest augmentation
+                # keeps the settings-driven getter.
                 self._summary = self._augment_summary_lean(base, dropped)
                 self.stats["llm_summary_calls"] += 1
                 return
@@ -637,6 +703,7 @@ class HistoryCompactor:
             self._summary = combined[-overall_cap:]
         else:
             self._summary = merged
+
     def _note_effectiveness(self, before: int, after: int) -> None:
         if before <= 0:
             return
@@ -735,7 +802,7 @@ class HistoryCompactor:
             return messages
         head = self._head_len(messages)
         summary_msg = SystemMessage(
-            content=f"{COMPACTION_SUMMARY_PREFIX}\n\n{self._summary}",
+            content=f"{COMPACTION_SUMMARY_PREFIX}\n\n{_salvage_cap_summary(self._summary)}",
             response_metadata={"compaction": True},
         )
         return list(messages[:head]) + [summary_msg] + list(messages[head:])

@@ -154,6 +154,14 @@ class HistoryShaper:
             return trim_fn(self.summarize_tool_messages(compacted), budget)
 
         self.ensure_compactor()
+        # Phase B (hermes _prune_stale_reasoning_replay parity): aged AI
+        # reasoning payloads are stripped on the REQUEST-ONLY copy before the
+        # pipeline runs; the newest keep_recent keep theirs. Counted into the
+        # shaper's telemetry — hygiene is measured, not silent.
+        from src.context.compaction import prune_stale_reasoning_replay
+        self._stale_replay_pruned = getattr(self, "_stale_replay_pruned", 0) + (
+            prune_stale_reasoning_replay(history)
+        )
         compressor = SmartCompressor(
             model=self._model(),
             allow_embedding_compute=self._allow_embedding_compute(),
@@ -199,4 +207,5 @@ class HistoryShaper:
         s = dict(self._compactor.stats)
         s["summary_chars"] = len(self._compactor.summary)
         s["llm_suppressed_active"] = self._compactor.llm_suppressed
+        s["stale_replay_pruned"] = getattr(self, "_stale_replay_pruned", 0)
         return s
