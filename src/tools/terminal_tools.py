@@ -518,16 +518,7 @@ def run_terminal(
         if stderr:
             output += f"\nSTDERR:\n{stderr}"
         output += f"\nExit code: {process.returncode}"
-        # Owner desktop run: `for /d /r` over a 40k-file repo returned ~5MB
-        # and the bridge DROPPED the whole frame -- the desktop never saw the
-        # result. Cap at the source, env-driven, read per call. The head+tail
-        # limiter keeps errors (usually at the end) and the head.
-        try:
-            _raw = os.environ.get("PULSEAI_TERMINAL_MAX_OUTPUT_CHARS", "12000")
-            _max_chars = max(1_000, min(int(str(_raw).strip()), 1_000_000))
-        except Exception:
-            _max_chars = 12_000
-        final_output = _limit_terminal_output(output.strip(), _max_chars)
+        final_output = output.strip()
         _record_verification_result(
             config, workspace, command, process.returncode, final_output
         )

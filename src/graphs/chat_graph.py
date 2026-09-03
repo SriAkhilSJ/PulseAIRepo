@@ -1507,21 +1507,6 @@ _D30_DANGER_TOKENS = frozenset({
     "doesn't", "didn't", "can't", "wont", "won't", "?", "delete", "remove",
 })
 
-# D30-extension (owner latency runs): closed set of pure conversational
-# openers. Exact-match only (normalization strips trailing punctuation and
-# collapses whitespace); a message that says anything beyond these words --
-# "hi can you fix the login" -- is NOT here and pays the LLM as before.
-_D30_CONVERSATIONAL_OPENERS = frozenset({
-    "hi", "hello", "hey", "heyy", "heya", "yo", "hiya", "sup",
-    "hello??", "hi??", "hey??",
-    "good morning", "good evening", "good afternoon", "good night",
-    "thanks", "thank you", "thx", "ty", "ok thanks", "okay thanks",
-    "bye", "goodbye", "see you", "later", "good bye",
-    "who are you", "who are you?", "what are you", "what can you do",
-    "help", "test", "testing", "test 1", "test 123",
-})
-
-
 _D30_APPROVAL_WORDS = frozenset({
     # must stay in sync with is_plan_approval()'s set: these are routing
     # decisions, not classifications — the approval branch owns them.
@@ -1558,22 +1543,9 @@ def _quick_task_decision(
     raw = (latest_instruction or "").strip()
     if not raw or "\n" in raw:  # multi-line messages are never slam-dunks
         return None
-    norm = " ".join(raw.lower().split()).strip(" .!…~?!")
+    norm = " ".join(raw.lower().split()).strip(" .!…~")
     if not norm:
         return None
-
-    # Pure conversational openers -> FREE, no LLM call. Owner runs: every chat
-    # turn paid a full classifier round-trip to a slow endpoint BEFORE the
-    # model could say hello (2x '[task_classifier] unparseable' per session,
-    # 35s 'hi'). Hermes alignment: its engine never classifies the user's
-    # message -- history carries the task -- so the hermes-faithful move is
-    # to not spend a provider call here at all. The action label is the
-    # established D30 ack contract ('continue', task preserved) so this set
-    # and _D30_ACK_VOCAB agree wherever they overlap. Conservative closed
-    # lexicon, exact normalized match only -- anything longer or unknown
-    # falls through to the LLM exactly as before.
-    if norm in _D30_CONVERSATIONAL_OPENERS:
-        return ("continue", current_task)
 
     # Bare plan-approval words BELONG to the approval branch above (which
     # claims them before the quick path ever runs). The veto compares the
