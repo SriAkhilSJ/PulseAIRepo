@@ -918,6 +918,26 @@ def ai_node(
         # Drop tool pairs so the no-tools request is a clean text chat.
         messages = _drop_tool_pairs(messages)
 
+    # Prefill visibility (owner runs: 33s 'hi', 3:12 after a two-tool turn --
+    # nobody could say whether the whale was ours or the endpoint's). One
+    # line per agent call: the chars/4 estimate of the ACTUAL assembled
+    # request. A number in the tens of thousands here is OUR prompt; a small
+    # number with a long wait indicts the endpoint.
+    try:
+        _req_chars = sum(
+            len(getattr(m, "content", "") or "")
+            if isinstance(getattr(m, "content", ""), str)
+            else len(str(getattr(m, "content", "")))
+            for m in messages
+        )
+        print(
+            f"[ai_node] request ~{_req_chars // 4 / 1000:.1f}k tokens "
+            f"({len(messages)} messages) -> {provider}/{model}",
+            flush=True,
+        )
+    except Exception:
+        pass  # diagnostics never block the call
+
     # RetryLLMProxy.invoke() owns request-scoped abort registration for every
     # model path. Keep the active-session binding at the turn boundary; clearing
     # it here would make later planner/classifier requests uninterruptible.

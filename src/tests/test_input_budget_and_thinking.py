@@ -25,7 +25,7 @@ def test_spend_cap_defaults_and_env(monkeypatch):
     monkeypatch.delenv("PULSEAI_CONTEXT_BUDGET_TOKENS", raising=False)
     monkeypatch.delenv("PULSEAI_HISTORY_BUDGET_TOKENS", raising=False)
     assert context_spend_cap() == 32_768
-    assert history_spend_cap() == 98_304
+    assert history_spend_cap() == 32_768
     assert input_budget_source() == "defaults"
 
     monkeypatch.setenv("PULSEAI_CONTEXT_BUDGET_TOKENS", "8192")
@@ -33,7 +33,7 @@ def test_spend_cap_defaults_and_env(monkeypatch):
     assert input_budget_source() == "env"
 
     monkeypatch.setenv("PULSEAI_HISTORY_BUDGET_TOKENS", "bogus")
-    assert history_spend_cap() == 98_304  # garbage -> default
+    assert history_spend_cap() == 32_768  # garbage -> default
 
     monkeypatch.setenv("PULSEAI_CONTEXT_BUDGET_TOKENS", "1")
     assert context_spend_cap() == 2_048  # clamped to lo

@@ -395,8 +395,15 @@ def context_spend_cap() -> int:
 
 
 def history_spend_cap() -> int:
-    """Max tokens of HISTORY shipped per call (default 98,304)."""
-    return _spend_cap("PULSEAI_HISTORY_BUDGET_TOKENS", 98_304, 4_096, 1_000_000)
+    """Max tokens of HISTORY shipped per call (default 32,768).
+
+    Tightened from 98,304 after the owner desktop runs: even clamped at
+    ~131k total, the custom router endpoint spent minutes prefilling before
+    the first word (3:12 after a two-tool turn). First-word latency is the
+    product; raise PULSEAI_HISTORY_BUDGET_TOKENS explicitly if a deployment
+    wants deeper history.
+    """
+    return _spend_cap("PULSEAI_HISTORY_BUDGET_TOKENS", 32_768, 4_096, 1_000_000)
 
 
 def input_budget_source() -> str:

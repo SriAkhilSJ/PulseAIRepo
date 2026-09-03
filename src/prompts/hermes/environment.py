@@ -72,13 +72,21 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
     parts.append(f"Terminal dialect: {terminal_dialect()}.")
 
     if is_windows():
+        # SINGLE SOURCE OF TRUTH (owner desktop run 2026-09-03): the terminal
+        # gate refuses POSIX verbs on EVERY Windows host (terminal_tools
+        # _posix_violations, no bash escape hatch), so the upstream hermes
+        # WINDOWS_BASH_SHELL_HINT ("runs commands through bash (git-bash /
+        # MSYS) ... Use `ls` ... PowerShell builtins will NOT work") was a
+        # direct contradiction stapled into the same block. The model read
+        # both, gambled on bash, ran `ls`, and burned a turn on the refusal.
+        # The hint stays banned until the gate itself learns to spawn bash;
+        # the block below states the enforced reality and nothing else.
         parts.append(
             "# Windows terminal dialect\n"
             f"The terminal tool runs {terminal_dialect()}. POSIX-only verbs "
             f"({_POSIX_ONLY_VERBS}) are NOT available — use the PowerShell/cmd "
             "equivalents (Get-ChildItem, Select-Object -First, findstr). Do not "
-            "emit a POSIX shape and hope. "
-            + (WINDOWS_BASH_SHELL_HINT if WINDOWS_BASH_SHELL_HINT else "")
+            "emit a POSIX shape and hope."
         )
     elif _is_wsl():
         parts.append(
