@@ -801,11 +801,13 @@ def streaming_enabled(default: bool) -> bool:
     single stream owner): streaming is the NORMAL posture -- the user watches
     words arrive instead of staring at a frozen panel for the whole
     generation. First-token latency is the UX; total wall time is unchanged.
-    The `custom` branch (arbitrary OpenAI-compatible servers) defaults OFF
-    because some of those servers mishandle `stream:true`; the first-class
-    provider APIs (groq/openai/nvidia/gemini) default ON -- LangChain's sync
-    invoke() owns and aggregates the stream (tool-call chunks included), which
-    is exactly the single-owner shape this file already pins in its comments.
+    ALL provider branches default ON -- including `custom`: the owner's
+    deployment routes every turn through a custom OpenAI-compatible endpoint
+    whose model streams fine, and words-arrive-as-words is the product
+    posture. LangChain's sync invoke() owns and aggregates the stream
+    (tool-call chunks included) -- the single-owner shape this file already
+    pins in its comments. PULSEAI_LLM_STREAMING=off is the escape hatch for
+    a server that mishandles `stream:true`.
     """
     raw = os.environ.get("PULSEAI_LLM_STREAMING")
     if raw is None or not str(raw).strip():
@@ -854,7 +856,7 @@ def get_llm(provider, model):
         return RetryLLMProxy(llm)
 
     if provider == "custom":
-        streaming = streaming_enabled(default=False)
+        streaming = streaming_enabled(default=True)
         try:
             # Default sized to GENERATION length, not ping latency (hermes
             # doctrine): a 100B-class model writing a large first response

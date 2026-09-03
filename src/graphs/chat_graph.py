@@ -1585,6 +1585,85 @@ def _latest_instruction_from_messages(messages: list) -> str:
     return ""
 
 
+def _salvage_task_decision(text: str) -> "TaskDecision | None":
+    """Parse a TaskDecision out of whatever the model ACTUALLY said.
+
+    Owner desktop run: `auto/best-chat` answered the classification prompt
+    with the literal word `unrelated` -- semantically PERFECT, syntactically
+    not JSON -- and with_structured_output raised, burning 5 proxy retries on
+    a permanently-failing parse before the turn died. The router's whole job
+    is one of three words; accept them in ANY wrapper: bare prose, JSON, or
+    JSON fenced inside chatter. Returns None only when nothing salvageable
+    is present.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    import json as _json
+    import re as _re
+
+    # direct JSON or an embedded {...} block
+    candidates = [raw]
+    match = _re.search(r"\{.*\}", raw, _re.S)
+    if match:
+        candidates.append(match.group(0))
+    for candidate in candidates:
+        try:
+            data = _json.loads(candidate)
+            if isinstance(data, dict):
+                action = str(data.get("action") or data.get("classification")
+                             or data.get("type") or data.get("status") or "").strip().lower()
+                if action in {"new", "continue", "unrelated"}:
+                    return TaskDecision(
+                        action=action,  # type: ignore[arg-type]
+                        updated_task=data.get("updated_task") or None,
+                    )
+        except Exception:
+            continue
+
+    # bare action word (the owner's exact case), case/punctuation tolerant
+    word = _re.sub(r"[^a-z]", "", raw.lower())
+    if word in {"new", "continue", "unrelated"}:
+        return TaskDecision(action=word)  # type: ignore[arg-type]
+    # the action named anywhere in a short prose answer ("This is unrelated
+    # to the current task") -- only trusted for SHORT replies so a chatty
+    # essay mentioning 'new' cannot hijack the task
+    if len(raw) <= 200:
+        for action in ("unrelated", "continue", "new"):
+            if _re.search(rf"\b{action}\b", raw.lower()):
+                return TaskDecision(action=action)  # type: ignore[arg-type]
+    return None
+
+
+def _invoke_task_decision(llm, task_messages) -> "TaskDecision":
+    """Classifier invoke that can NEVER fail the turn on a parse.
+
+    The strict with_structured_output path couples a prose-obedient model's
+    normal answer to a JSON ValidationError, which RetryLLMProxy then
+    faithfully retries 5x (a permanently failing call) before the graph
+    crashes. This lane invokes RAW (transport retries still cover real
+    network faults), salvages the answer, and -- only when nothing is
+    salvageable -- falls back to the SAFE default: 'continue' preserves the
+    active task, which is exactly what a mis-routed conversational message
+    should do. One honest line on the true fallback; never silent.
+    """
+    result = llm.invoke(task_messages)
+    content = getattr(result, "content", "")
+    if not isinstance(content, str):
+        content = "".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict)
+        ) if isinstance(content, list) else str(content)
+    salvaged = _salvage_task_decision(content)
+    if salvaged is not None:
+        return salvaged
+    print(
+        "[task_classifier] unparseable classification answer; "
+        "defaulting to 'continue' (active task preserved)"
+    )
+    return TaskDecision(action="continue")
+
+
 def task_manager_node(
     state: AgentState,
     config: RunnableConfig,
@@ -1749,10 +1828,6 @@ def task_manager_node(
 
     llm = _task_manager_llm(provider, model)
 
-    task_llm = llm.with_structured_output(
-        TaskDecision
-    )
-
     task_messages = [
         SystemMessage(
             content="""
@@ -1787,10 +1862,7 @@ For "unrelated", preserve the existing active task exactly.
         ),
     ]
 
-    decision = cast(
-        TaskDecision,
-        task_llm.invoke(task_messages),
-    )
+    decision = _invoke_task_decision(llm, task_messages)
 
     call_usage = TokenTracker.record_call(task_messages, decision, model)
 

@@ -115,15 +115,19 @@ def test_ambiguous_messages_return_no_quick_decision(msg, monkeypatch):
 def test_llm_path_still_taken_for_ambiguous(monkeypatch):
     calls = {"n": 0}
 
-    class FakeStructured:
+    class FakeLLM:
+        # The classifier lane invokes RAW since the prose-salvage port (the
+        # strict with_structured_output chain died on prose-obedient models):
+        # the fake returns the decision as JSON, which _salvage_task_decision
+        # parses -- but the node MUST still consult the LLM exactly once.
         def invoke(self, _msgs):
             calls["n"] += 1
-            return SimpleNamespace(action="continue",
-                                   updated_task="build a login page with OAuth")
+            from types import SimpleNamespace
 
-    class FakeLLM:
-        def with_structured_output(self, _schema):
-            return FakeStructured()
+            return SimpleNamespace(
+                content='{"action": "continue", "updated_task": '
+                        '"build a login page with OAuth"}'
+            )
 
     monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: FakeLLM())
     # record_call must return the REAL TokenUsage dataclass — the node
