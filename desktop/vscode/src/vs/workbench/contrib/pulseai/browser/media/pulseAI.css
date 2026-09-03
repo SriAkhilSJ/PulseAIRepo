@@ -1119,3 +1119,28 @@
 }
 .pulseai-md .pulseai-md-pre,
 .pulseai-md .pulseai-md-code { user-select: text; }
+
+
+/* ---------------------------------------------------------------------------
+ * Hermes-port: message actions + activity row (pulseAIRenderer.ts).
+ * - .pulseai-icon-action: the copy control is an ICON button (codicon copy,
+ *   check-flash on success) -- never a naked text line.
+ * - .pulseai-activity-row: the ONE tail row while a turn runs -- pulse dot +
+ *   wait hint + live elapsed seconds (updated in place by the 1s ticker).
+ * ------------------------------------------------------------------------- */
+.pulseai-message-actions { display: flex; gap: 4px; margin-top: 2px; }
+.pulseai-icon-action {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 22px; height: 22px; padding: 0;
+	background: transparent; border: none; border-radius: 4px;
+	color: var(--vscode-foreground); opacity: .55; cursor: pointer;
+}
+.pulseai-icon-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+.pulseai-icon-action .codicon { font-size: 14px; }
+.pulseai-activity-row { gap: 6px; }
+.pulseai-activity-dot {
+	width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto;
+	background: currentColor; animation: pulseai-opacity-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulseai-opacity-pulse { 0%, 100% { opacity: .15; } 50% { opacity: .85; } }
+.pulseai-elapsed { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }

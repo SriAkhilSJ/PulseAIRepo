@@ -70,6 +70,8 @@ export interface PulseAIRenderModel {
 	readonly llmStatus?: { readonly model: string; readonly attempt: number };
 	/** Degradation receipt (runtime_degraded): honest bounded-scan note, never a fatal card. */
 	readonly degraded?: string;
+	/** Wall-clock ms when the running turn started (drives the live elapsed timer). */
+	readonly turnStartedAt?: number;
 	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
@@ -234,17 +236,66 @@ function markdownCopy(text: string, slot?: string): HTMLElement {
 // watched happen; a copy button does something they actually want. Clipboard
 // write never throws into the panel (best-effort), and the label flashes
 // Copied so the click is confirmed without a dialog.
+// Hermes port (components/chat/activity-timer.ts): seconds tick on a 1s
+// heartbeat WITHOUT re-rendering the panel -- the ticker surgically updates
+// only .pulseai-elapsed nodes in place, so a full transcript rebuild (which
+// would reset scroll and disclosure state) never happens on a clock tick.
+function formatElapsedSeconds(seconds: number): string {
+	return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+let elapsedTicker: number | undefined;
+
+function elapsedSpan(originMs?: number): HTMLElement {
+	const span = element('span', 'pulseai-scaffold-meta pulseai-elapsed');
+	const origin = typeof originMs === 'number' && originMs > 0 ? originMs : Date.now();
+	datasetSet(span, 'origin', String(origin));
+	span.textContent = formatElapsedSeconds(Math.max(0, Math.floor((Date.now() - origin) / 1000)));
+	if (elapsedTicker === undefined) {
+		elapsedTicker = window.setInterval(() => {
+			for (const node of document.querySelectorAll<HTMLSpanElement>('span.pulseai-elapsed')) {
+				const nodeOrigin = Number(node.dataset.origin || '0');
+				if (nodeOrigin > 0) {
+					node.textContent = formatElapsedSeconds(Math.max(0, Math.floor((Date.now() - nodeOrigin) / 1000)));
+				}
+			}
+		}, 1000);
+	}
+	return span;
+}
+
+function datasetSet(node: HTMLElement, key: string, value: string): void {
+	node.dataset[key] = value;
+}
+
 function copyButton(text: string): HTMLElement {
-	const btn = element('button', 'pulseai-link-button pulseai-copy-btn');
-	btn.textContent = 'Copy';
+	// Hermes port (ui/copy-button.tsx): an ICON action, not a text line --
+	// copy glyph, tooltip title, 1.5s check-flash on success, error state on
+	// denial. Clipboard via the async API, never throwing into the panel.
+	const btn = element('button', 'pulseai-icon-action') as HTMLButtonElement;
+	btn.type = 'button';
+	btn.title = 'Copy';
+	btn.setAttribute('aria-label', 'Copy');
+	btn.append(icon('copy'));
+	const reset = () => {
+		btn.replaceChildren(icon('copy'));
+		btn.title = 'Copy';
+	};
 	btn.addEventListener('click', () => {
 		try {
 			void navigator.clipboard.writeText(text).then(() => {
-				btn.textContent = 'Copied';
-				setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-			}, () => { btn.textContent = 'Copy failed'; });
+				btn.replaceChildren(icon('check'));
+				btn.title = 'Copied';
+				setTimeout(reset, 1500);
+			}, () => {
+				btn.replaceChildren(icon('error'));
+				btn.title = 'Copy failed';
+				setTimeout(reset, 1500);
+			});
 		} catch {
-			btn.textContent = 'Copy failed';
+			btn.replaceChildren(icon('error'));
+			btn.title = 'Copy failed';
+			setTimeout(reset, 1500);
 		}
 	});
 	return btn;
@@ -745,10 +796,22 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		lane.append(element('div', 'pulseai-context-status-row is-warning', icon('warning'),
 			element('span', undefined, model.degraded)));
 	}
-	if (model.llmStatus && model.running) {
-		const attempt = model.llmStatus.attempt > 1 ? ` — attempt ${model.llmStatus.attempt}` : '';
-		lane.append(element('div', 'pulseai-context-status-row is-info', icon('lightbulb'),
-			element('span', undefined, `\u{1F4E1} Asking ${model.llmStatus.model || 'model'}${attempt}\u2026`)));
+	// Hermes port (assistant-ui/thread/status.tsx ResponseLoadingIndicator):
+	// while the turn runs, the TAIL carries one activity row -- pulse dot +
+	// wait hint (the named provider attempt when llm.request named one,
+	// otherwise the unconditional fact) + LIVE elapsed seconds. Turn ended ->
+	// the row is gone; history turns never grow one (tail-only rule).
+	if (model.running) {
+		let hint = 'Waiting on the model\u2026';
+		if (model.llmStatus) {
+			const attempt = model.llmStatus.attempt > 1 ? ` \u2014 attempt ${model.llmStatus.attempt}` : '';
+			hint = `Asking ${model.llmStatus.model || 'model'}${attempt}\u2026`;
+		}
+		const row = element('div', 'pulseai-context-status-row is-info pulseai-activity-row');
+		row.append(element('span', 'pulseai-activity-dot'));
+		row.append(element('span', undefined, hint));
+		row.append(elapsedSpan(model.turnStartedAt));
+		lane.append(row);
 	}
 	if (model.contextStatus) {
 		const status = model.contextStatus;
