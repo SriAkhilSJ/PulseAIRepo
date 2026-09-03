@@ -1272,20 +1272,39 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 _TURN_LAST_CALL_STREAMED: dict[str, bool] = {}
 
 
-class _AgentTokenPump:
+from langchain_core.callbacks import BaseCallbackHandler
+
+
+class _AgentTokenPump(BaseCallbackHandler):
     """Forward the agent node's tokens to the event bus as live deltas.
 
-    A plain callback handler (duck-typed): LangChain calls on_llm_new_token
-    on every registered handler as the provider stream yields. Telemetry
-    discipline: emission failures must NEVER break the model call.
+    REGRESSION FIX (owner desktop run at f414aa02): the pump was duck-typed,
+    but LangChain's callback manager reads ``handler.run_inline`` on EVERY
+    registered handler (callbacks/manager.py) -- an attribute only
+    BaseCallbackHandler carries. Every agent call died with
+    "'_AgentTokenPump' object has no attribute 'run_inline'" and burned all
+    5 retries. Subclassing the base is the contract, not ceremony.
+
+    ``run_inline = True`` is deliberate: without it the manager dispatches
+    each event through ``run_in_executor(copy_context().run, ...)`` and token
+    chunks can land OUT OF ORDER -- garbled transcript. Inline delivery keeps
+    tokens strictly in provider order. Telemetry discipline: emission
+    failures must NEVER break the model call.
     """
+
+    run_inline = True
 
     def __init__(self, thread_id: str):
         self._thread_id = thread_id
         self.streamed = False
 
-    def on_llm_new_token(self, token: str, **kwargs) -> None:  # noqa: ANN001, ANN003
-        piece = str(token or "")
+    def on_llm_new_token(self, token, **kwargs) -> None:  # noqa: ANN001, ANN003
+        # Chat models may deliver the chunk payload as the positional string
+        # OR as a GenerationChunk on the token/kwarg -- take .text when the
+        # positional argument is not itself text.
+        piece = getattr(token, "text", None)
+        if not isinstance(piece, str):
+            piece = str(token or "")
         if not piece:
             return
         self.streamed = True

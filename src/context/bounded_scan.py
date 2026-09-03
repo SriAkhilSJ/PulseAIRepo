@@ -109,6 +109,24 @@ def _env_float(name: str, default: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+_SCAN_ENV_VARS = (
+    "PULSEAI_SCAN_MAX_SECONDS", "PULSEAI_SCAN_MAX_FILES",
+    "PULSEAI_SCAN_MAX_BYTES", "PULSEAI_SCAN_MAX_FILE_BYTES",
+    "PULSEAI_SCAN_MAX_ENTRIES", "PULSEAI_SCAN_MAX_VISITED",
+)
+
+
+def scan_budget_source() -> str:
+    """'env' when any PULSEAI_SCAN_* knob is present in the process env,
+    else 'defaults'. Boot-log honesty: a bound that silently ignored the
+    env is exactly the bug that took a desktop session to find."""
+    for name in _SCAN_ENV_VARS:
+        raw = os.getenv(name)
+        if raw is not None and str(raw).strip():
+            return "env"
+    return "defaults"
+
+
 def default_scan_limits() -> "ScanLimits":
     """Build the product-default scan ceiling from the environment, per call.
 

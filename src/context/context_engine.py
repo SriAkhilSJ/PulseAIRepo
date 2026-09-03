@@ -586,6 +586,21 @@ class ContextEngine(BaseContextEngine):
                 f"{self.model!r} (source: {source}); token budget "
                 f"{self.max_tokens:,} (provider cap {cap:,})"
             )
+            # Boot honesty for the scan bound: print the ceiling this engine
+            # will actually enforce and WHERE it came from. The owner's
+            # desktop session ran with PULSEAI_SCAN_* set in a terminal while
+            # the IDE process never inherited them -- a silent env loss that
+            # this line makes visible forever.
+            try:
+                from src.context.bounded_scan import default_scan_limits, scan_budget_source
+                _sl = default_scan_limits()
+                print(
+                    f"[ContextEngine] scan budget: entries {_sl.max_considered:,}, "
+                    f"files {_sl.max_files:,}, {_sl.max_bytes / 1_048_576:.0f} MiB, "
+                    f"{_sl.max_elapsed:.1f}s (source: {scan_budget_source()})"
+                )
+            except Exception:
+                pass  # diagnostics never block boot
 
     def reconfigure_model(self, model: str, probe_window: bool = True) -> None:
         """Point THIS engine at a different model without replacing it.
@@ -1419,7 +1434,7 @@ class ContextEngine(BaseContextEngine):
             extra.append(
                 f"walk bound: {pool.max_considered:,} entries to consider, {pool.max_files:,} files,"
                 f" {pool.max_bytes / 1_048_576:.0f} MiB, {pool.max_elapsed:.1f}s -- a file-count ceiling"
-                " from ContextBudget defaults, independent of the model window"
+                " from ContextBudget (tunable via PULSEAI_SCAN_* env), independent of the model window"
             )
         if getattr(self, "context_window_source", "") == "default":
             extra.append(

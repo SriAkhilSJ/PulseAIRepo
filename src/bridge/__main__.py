@@ -17,6 +17,23 @@ import uuid
 #: terminal frame goes out anyway (see _flush_events).
 _EVENT_FLUSH_TIMEOUT_S = 5.0
 
+# ---------------------------------------------------------------------------
+# Env-file loading BEFORE any src.* import: several modules resolve keys and
+# knobs from os.environ at import time, and the desktop child process cannot
+# rely on Windows propagating freshly `setx`-ed user env through a
+# still-running explorer.exe (the owner's scan knobs silently never arrived).
+# The workspace `.env` (cwd == engine root) and ~/.pulseai/.env are the
+# reliable sources. load_dotenv never overrides values already in the
+# process environment: real env wins, files are the fallback.
+# ---------------------------------------------------------------------------
+try:
+    from pathlib import Path as _dotenv_path
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv()  # <engine root>/.env
+    _load_dotenv(str(_dotenv_path.home() / ".pulseai" / ".env"))
+except Exception:
+    pass  # env files are a fallback; their absence must never block boot
+
 from src.bridge.protocol import (
     CLIENT_METHODS, EXECUTION_MODES, ProtocolError, check_client_hello, decode_line,
     encode, error_frame, hello,
