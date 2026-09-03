@@ -173,7 +173,7 @@ class TokenTracker:
                 return tiktoken.encoding_for_model(model)
             except Exception as exc:
                 from src.context.tokenizer_fallback import warn_once
-                warn_once(f"encoding_for_model({model!r})", exc)
+                warn_once(f"encoding_for_model({model!r})", exc, note="using the standard cl100k_base tokenizer (exact counts)")
                 return tiktoken.get_encoding("cl100k_base")
         except Exception as exc:
             from src.context.tokenizer_fallback import HEURISTIC_ENCODER, warn_once

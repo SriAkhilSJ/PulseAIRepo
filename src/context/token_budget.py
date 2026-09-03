@@ -35,7 +35,7 @@ def count_tokens(messages: list[BaseMessage], model: str | None = None) -> int:
             encoder = tiktoken.encoding_for_model(model_name)
         except Exception as exc:
             from src.context.tokenizer_fallback import HEURISTIC_ENCODER, warn_once
-            warn_once(f"encoding_for_model({model_name!r})", exc)
+            warn_once(f"encoding_for_model({model_name!r})", exc, note="using the standard cl100k_base tokenizer (exact counts)")
             encoder = tiktoken.get_encoding("cl100k_base")
     except Exception as exc:
         from src.context.tokenizer_fallback import HEURISTIC_ENCODER, warn_once

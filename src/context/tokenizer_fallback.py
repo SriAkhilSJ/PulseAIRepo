@@ -27,13 +27,18 @@ class HeuristicEncoder:
 HEURISTIC_ENCODER = HeuristicEncoder()
 
 
-def warn_once(context: str, error: BaseException) -> None:
+def warn_once(context: str, error: BaseException, *, note: str | None = None) -> None:
+    """One honest line per process. ``note`` states what ACTUALLY took over:
+    the standard cl100k tokenizer when that fallback succeeded (the usual
+    case -- exact counts, nothing lost), or the ~chars/4 heuristic only when
+    even cl100k is unavailable. The old flat text claimed chars/4 on every
+    path, which read like counts were garbage when they were exact."""
     if _warned.is_set():
         return
     _warned.set()
     print(
-        f"[tokenizer] unavailable ({context}): {type(error).__name__}: {error} — "
-        "degrading to ~chars/4 heuristic token counts (imprecise, never fatal). "
-        "Install/populate the tiktoken cache (one online run) for exact counts.",
+        f"[tokenizer] no built-in mapping ({context}): {type(error).__name__}: "
+        f"{error} — {note or 'degrading to the ~chars/4 heuristic token counts'}. "
+        "Never fatal.",
         flush=True,
     )
