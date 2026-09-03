@@ -156,6 +156,79 @@ function icon(name: string): HTMLElement {
 	return renderToolIcon(name);
 }
 
+// ---------------------------------------------------------------------------
+// Minimal markdown rendering for the transcript (pure DOM, zero deps).
+// The panel used to print assistant text as one plain text node, so every
+// legitimate markdown line -- the model's "###" headers, the finalize stamp's
+// bullets and sign-offs -- leaked as literal hash/asterisk soup. This renders
+// the small dialect we actually emit (headings, bullets, hr, fenced code,
+// bold/italic/inline-code) using element()/createTextNode ONLY -- never
+// innerHTML -- so nothing the model sends can inject markup. Anything outside
+// the dialect renders as plain text, which is the honest fallback.
+// ---------------------------------------------------------------------------
+
+function mdInline(target: HTMLElement, text: string): void {
+	for (const part of text.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/)) {
+		if (!part) { continue; }
+		if (part.length > 4 && part.indexOf('**') === 0 && part.lastIndexOf('**') === part.length - 2) {
+			target.append(element('strong', undefined, part.slice(2, -2)));
+		} else if (part.length > 2 && part.charCodeAt(0) === 96 && part.charCodeAt(part.length - 1) === 96) {
+			target.append(element('code', 'pulseai-md-code', part.slice(1, -1)));
+		} else if (part.length > 2 && part.indexOf('*') === 0 && part.lastIndexOf('*') === part.length - 1) {
+			target.append(element('em', undefined, part.slice(1, -1)));
+		} else {
+			target.append(element('span', undefined, part));
+		}
+	}
+}
+
+function markdownCopy(text: string, slot?: string): HTMLElement {
+	const root = element('div', 'pulseai-assistant-copy pulseai-md');
+	if (slot) { root.dataset.slot = slot; }
+	let list: HTMLUListElement | null = null;
+	let code: HTMLPreElement | null = null;
+	for (const raw of text.split(/\r?\n/)) {
+		const line = raw.replace(/\s+$/, '');
+		if (code) {
+			if (line.trim() === '```') { code = null; }
+			else { code.append(document.createTextNode(raw + '\n')); }
+			continue;
+		}
+		if (line.trim() === '```') {
+			code = element('pre', 'pulseai-md-pre') as HTMLPreElement;
+			root.append(code);
+			continue;
+		}
+		const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+		if (heading) {
+			list = null;
+			const h = element('div', `pulseai-md-h pulseai-md-h${heading[1].length}`);
+			mdInline(h, heading[2]);
+			root.append(h);
+			continue;
+		}
+		if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) {
+			list = null;
+			root.append(element('hr', 'pulseai-md-hr'));
+			continue;
+		}
+		const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
+		if (bullet) {
+			if (!list) { list = element('ul', 'pulseai-md-ul') as HTMLUListElement; root.append(list); }
+			const li = element('li') as HTMLLIElement;
+			mdInline(li, bullet[1]);
+			list.append(li);
+			continue;
+		}
+		if (!line.trim()) { list = null; continue; }
+		list = null;
+		const para = element('div', 'pulseai-md-p');
+		mdInline(para, line);
+		root.append(para);
+	}
+	return root;
+}
+
 function button(label: string, className: string, action: () => void, iconName?: string): HTMLButtonElement {
 	const node = element('button', className, iconName ? icon(iconName) : undefined, label);
 	node.type = 'button';
@@ -565,7 +638,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			const response = element('section', 'pulseai-assistant-message');
 			response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse')));
 			if (turn.reasoning) { response.append(thinkingBlock(turn.reasoning, openTools, false)); }
-			response.append(element('p', 'pulseai-assistant-copy', turn.assistantText));
+			response.append(markdownCopy(turn.assistantText));
 			lane.append(response);
 		}
 		if (turn.tools.length) {
@@ -601,9 +674,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		// died on a provider error still printed confident progress. The spinner and the 'Working' label
 		// already say the only true thing: the turn is open.
 		if (model.assistantText) {
-			const copy = element('p', 'pulseai-assistant-copy', model.assistantText);
-			copy.dataset.slot = 'session-turn-content';
-			response.append(copy);
+			response.append(markdownCopy(model.assistantText, 'session-turn-content'));
 		}
 		lane.append(response);
 	}

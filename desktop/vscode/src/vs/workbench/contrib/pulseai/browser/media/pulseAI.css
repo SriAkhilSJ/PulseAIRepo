@@ -1079,3 +1079,43 @@
 	.pulseai-session-row.is-needs-input .pulseai-status-dot.is-waiting { animation: none; }
 	.pulseai-session-row.is-needs-input { background: color-mix(in srgb, var(--vscode-list-hoverBackground, #3a3d41) 8%, transparent); }
 }
+
+
+/* ---------------------------------------------------------------------------
+ * Transcript markdown (pulseai-md): the assistant copy is rendered as real
+ * markdown via DOM in pulseAIRenderer.ts. Keep these rules theme-driven --
+ * every color comes from a VS Code theme variable so the map never fights
+ * the user's theme.
+ * ------------------------------------------------------------------------- */
+.pulseai-md { line-height: 1.55; }
+.pulseai-md .pulseai-md-p { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pulseai-md .pulseai-md-h { font-weight: 600; margin: 8px 0 4px 0; }
+.pulseai-md .pulseai-md-h1,
+.pulseai-md .pulseai-md-h2 { font-size: 1.15em; border-bottom: 1px solid var(--vscode-editorWidget-border, rgba(128,128,128,.35)); padding-bottom: 2px; }
+.pulseai-md .pulseai-md-h3,
+.pulseai-md .pulseai-md-h4 { font-size: 1.05em; }
+.pulseai-md .pulseai-md-h5,
+.pulseai-md .pulseai-md-h6 { font-size: 1em; color: var(--vscode-descriptionForeground); }
+.pulseai-md .pulseai-md-ul { margin: 2px 0 6px 0; padding-left: 20px; }
+.pulseai-md .pulseai-md-ul li { margin: 1px 0; }
+.pulseai-md .pulseai-md-hr { border: none; border-top: 1px solid var(--vscode-editorWidget-border, rgba(128,128,128,.35)); margin: 8px 0; }
+.pulseai-md .pulseai-md-code {
+	font-family: var(--monaco-monospace-font, monospace);
+	font-size: 0.95em;
+	background: var(--vscode-textCodeBlock-background);
+	color: var(--vscode-textPreformat-foreground, inherit);
+	padding: 1px 4px;
+	border-radius: 3px;
+}
+.pulseai-md .pulseai-md-pre {
+	font-family: var(--monaco-monospace-font, monospace);
+	font-size: 0.95em;
+	background: var(--vscode-textCodeBlock-background);
+	padding: 8px 10px;
+	border-radius: 4px;
+	overflow-x: auto;
+	margin: 6px 0;
+	white-space: pre;
+}
+.pulseai-md .pulseai-md-pre,
+.pulseai-md .pulseai-md-code { user-select: text; }

@@ -119,6 +119,11 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	 * degradation is spoken, never screamed.
 	 */
 	private degraded?: string;
+	/** Reasoning frames seen this turn. The bridge sends exactly ONE pre-model
+	 * liveness frame ('Turn accepted...'); a real reasoning stream sends many.
+	 * The counter is how the renderer can hand the liveness line off to the
+	 * llmStatus row without string-matching transport copy. */
+	private reasoningFrameCount = 0;
 	private history: PulseAIRenderModel['history'] = [];
 
 	/**
@@ -640,10 +645,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.llmStatus = undefined;
 			this.degraded = undefined;
 			this.voiceHeard = undefined;
+			this.reasoningFrameCount = 0;
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
+			// The answer started; whatever was in the Thinking block is done.
+			this.reasoning = undefined;
 		} else if (frame.type === 'reasoning') {
 			this.reasoning = frame.text;
+			this.reasoningFrameCount += 1;
 		} else if (frame.type === 'plan_updated') {
 			this.plan = frame.steps.map(planText);
 		} else if (frame.type === 'tool_call_start') {
@@ -711,7 +720,12 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
 		} else if (frame.type === 'llm.request') {
 			this.llmStatus = { model: frame.model ?? '', attempt: frame.attempt ?? 1 };
-			this.reasoning = `Asking ${frame.model || 'the model'}${(frame.attempt ?? 1) > 1 ? ` (attempt ${frame.attempt})` : ''}\u2026`;
+			// The 📡 row now carries the wait (which model, which attempt). The
+			// Thinking block must not parrot it: a status line dressed as
+			// reasoning is exactly the fake-progress the user called out. The
+			// bridge's single liveness frame is transport copy, not thought --
+			// clear it once a real provider attempt is named.
+			if (this.reasoningFrameCount <= 1) { this.reasoning = undefined; }
 		} else if (frame.type === 'llm.response') {
 			this.llmStatus = undefined;
 			if (this.reasoning && this.reasoning.indexOf('Asking ') === 0) { this.reasoning = undefined; }

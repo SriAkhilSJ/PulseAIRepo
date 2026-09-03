@@ -1132,43 +1132,55 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # budget-exhausted run with a failing typecheck and a broken app
     # still closed with a green checkmark. When verification never
     # passed, say so plainly instead of claiming success.
-    lines = []
+    lines: list[str] = []
     task_display = current_task[:70] if current_task else "Task"
-    if unverified:
-        lines.append(f"## ⚠️ Ended unverified: {task_display}")
-        lines.append("")
-        lines.append(
-            "**This run did NOT pass verification.** Code was written but "
-            "no check proved it sound — typecheck failed or never ran, and "
-            "the app was not proven to render. Do not treat this as a "
-            "working deliverable until verification passes."
-        )
-        lines.append("")
-    elif failed_steps:
-        lines.append(f"## ⚠️ Ended incomplete: {task_display}")
-        lines.append("")
-        lines.append("**This run ended with unresolved failures.**")
-        lines.append("")
+    did_work = bool(steps_completed or failed_steps or unverified)
+    if not did_work:
+        # Pure conversational turn ("hi"): nothing was done, nothing failed,
+        # nothing is unverified -- so there is NOTHING to report and the
+        # model's own streamed words are the entire message. The stamp below
+        # exists to keep CODING runs honest (D9); stapled onto a greeting it
+        # was fake product voice -- "## ✅ Finished: hi / What would you like
+        # to do next?" read as if the model said it. The verdict still rides
+        # out structurally (task_completed / task_status), so the desktop
+        # receipt row and the bridge's terminal frame lose nothing.
+        lines = []
     else:
-        lines.append(f"## ✅ Finished: {task_display}")
-        lines.append("")
+        if unverified:
+            lines.append(f"## ⚠️ Ended unverified: {task_display}")
+            lines.append("")
+            lines.append(
+                "**This run did NOT pass verification.** Code was written but "
+                "no check proved it sound — typecheck failed or never ran, and "
+                "the app was not proven to render. Do not treat this as a "
+                "working deliverable until verification passes."
+            )
+            lines.append("")
+        elif failed_steps:
+            lines.append(f"## ⚠️ Ended incomplete: {task_display}")
+            lines.append("")
+            lines.append("**This run ended with unresolved failures.**")
+            lines.append("")
+        else:
+            lines.append(f"## ✅ Finished: {task_display}")
+            lines.append("")
 
-    # Summarize what was done
-    if steps_completed:
-        lines.append("### 📁 What I did:")
-        for step in steps_completed[-8:]:
-            lines.append(f"- {step}")
-        lines.append("")
+        # Summarize what was done
+        if steps_completed:
+            lines.append("### 📁 What I did:")
+            for step in steps_completed[-8:]:
+                lines.append(f"- {step}")
+            lines.append("")
 
-    # Note any issues
-    if failed_steps:
-        lines.append("### ⚠️ Issues I ran into:")
-        for failure in failed_steps[-3:]:
-            lines.append(f"- {failure}")
-        lines.append("")
+        # Note any issues
+        if failed_steps:
+            lines.append("### ⚠️ Issues I ran into:")
+            for failure in failed_steps[-3:]:
+                lines.append(f"- {failure}")
+            lines.append("")
 
-    lines.append("---")
-    lines.append("*Need any tweaks? Just let me know!*")
+        lines.append("---")
+        lines.append("*Need any tweaks? Just let me know!*")
 
     # Add proactive suggestions
     from src.context.reflection_engine import ReflectionEngine
@@ -1181,8 +1193,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     )
 
     suggestions_text = reflector.format_suggestions(reflection.get("suggestions", []))
-    if suggestions_text:
-        # insert before the final sign-off
+    if suggestions_text and lines:
+        # insert before the final sign-off -- only on runs that did work; a
+        # chat turn has no stamp block for suggestions to attach to.
         lines.insert(-2, suggestions_text)
 
     # Export analytics for dashboard
@@ -1241,7 +1254,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             else "failed" if failed_steps
             else "completed"
         ),
-        "messages": [AIMessage(content="\n".join(lines))],
+        "messages": [AIMessage(content="\n".join(lines))] if lines else [],
     }
 
 
