@@ -139,6 +139,7 @@ class BridgeServer:
             "message.agent.chunk": "token",
             "llm.request": "llm.request",
             "llm.response": "llm.response",
+            "reasoning.update": "reasoning",
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
             "tool.approval.request": "safety_request",

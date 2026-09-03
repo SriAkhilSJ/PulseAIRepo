@@ -368,6 +368,47 @@ def _http_get_json(
     return None
 
 
+def _spend_cap(name: str, default: int, lo: int, hi: int) -> int:
+    """Input-side budget clamp, env-driven, read per call.
+
+    The discovered window is a CEILING, not a target: budgets proportional
+    to a 1M window (~400k context + ~600k history) make every model call
+    prefill hundreds of thousands of tokens -- minutes of 'Waiting on the
+    model' before the first word (owner desktop run, 2026-09-03). These
+    clamps keep per-call input sane while the window still bounds the worst
+    case. PULSEAI_CONTEXT_BUDGET_TOKENS / PULSEAI_HISTORY_BUDGET_TOKENS.
+    """
+    import os as _os
+    try:
+        raw = _os.getenv(name)
+        if raw is None or not str(raw).strip():
+            return default
+        value = int(str(raw).strip())
+    except Exception:
+        return default
+    return max(lo, min(hi, value))
+
+
+def context_spend_cap() -> int:
+    """Max tokens of CONTEXT LAYERS assembled per call (default 32,768)."""
+    return _spend_cap("PULSEAI_CONTEXT_BUDGET_TOKENS", 32_768, 2_048, 1_000_000)
+
+
+def history_spend_cap() -> int:
+    """Max tokens of HISTORY shipped per call (default 98,304)."""
+    return _spend_cap("PULSEAI_HISTORY_BUDGET_TOKENS", 98_304, 4_096, 1_000_000)
+
+
+def input_budget_source() -> str:
+    """'env' when either spend knob is set, else 'defaults' (boot honesty)."""
+    import os as _os
+    for name in ("PULSEAI_CONTEXT_BUDGET_TOKENS", "PULSEAI_HISTORY_BUDGET_TOKENS"):
+        raw = _os.getenv(name)
+        if raw is not None and str(raw).strip():
+            return "env"
+    return "defaults"
+
+
 def _settings_key(name: str) -> str | None:
     """API key via settings first (.env is loaded there), raw env as fallback.
 

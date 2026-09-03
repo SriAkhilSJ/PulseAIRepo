@@ -576,8 +576,19 @@ class ContextEngine(BaseContextEngine):
             # same number, so engine and guard stay in lockstep.
             cap = usable if PROVIDER_SAFE_LIMIT <= 0 else PROVIDER_SAFE_LIMIT
             self.max_tokens = max(min(usable, cap), 4_096)
-            self.context_budget = int(self.max_tokens * 0.4)
-            self.history_budget = self.max_tokens - self.context_budget
+            # The window is a ceiling, not a target: per-call INPUT is clamped
+            # to env spend caps (defaults 32k context / 96k history) so a 1M
+            # window cannot talk the pipeline into prefilling 400k+ tokens on
+            # every call. Small windows are unaffected (min picks theirs).
+            from src.context.model_budgets import (
+                context_spend_cap, history_spend_cap, input_budget_source,
+            )
+            self.context_budget = min(
+                int(self.max_tokens * 0.4), context_spend_cap()
+            )
+            self.history_budget = min(
+                self.max_tokens - self.context_budget, history_spend_cap()
+            )
             # Hermes threshold: the engine owns the compaction decision at
             # 75% of the REAL window (not the trimmed budget).
             self.threshold_tokens = int(self.context_window * self.threshold_percent)
@@ -593,11 +604,19 @@ class ContextEngine(BaseContextEngine):
             # this line makes visible forever.
             try:
                 from src.context.bounded_scan import default_scan_limits, scan_budget_source
+                from src.context.model_budgets import (
+                    context_spend_cap, history_spend_cap, input_budget_source,
+                )
                 _sl = default_scan_limits()
                 print(
                     f"[ContextEngine] scan budget: entries {_sl.max_considered:,}, "
                     f"files {_sl.max_files:,}, {_sl.max_bytes / 1_048_576:.0f} MiB, "
                     f"{_sl.max_elapsed:.1f}s (source: {scan_budget_source()})"
+                )
+                print(
+                    f"[ContextEngine] per-call input budget: context "
+                    f"{self.context_budget:,} + history {self.history_budget:,} "
+                    f"tokens (source: {input_budget_source()})"
                 )
             except Exception:
                 pass  # diagnostics never block boot
@@ -1337,6 +1356,24 @@ class ContextEngine(BaseContextEngine):
         try:
             layers = self._build_context_layers_inner(state, task_type, walkers)
             self._emit_build_receipt()
+            # Latency honesty: the owner's 'hi' sat 33s and nobody could say
+            # where it went. One line per build over a second: total wall time
+            # plus each walker's file count, so a slow first turn names its cost.
+            try:
+                pool = self._active_pool
+                if pool is not None and pool.elapsed >= 1.0:
+                    parts = [
+                        f"{name} {summary.get('files_considered', 0)} files"
+                        for name, summary in (pool.component_summaries() or {}).items()
+                    ]
+                    suffix = f" ({', '.join(parts)})" if parts else ""
+                    print(
+                        f"[ContextEngine] context build {pool.elapsed:.1f}s"
+                        f"{suffix}",
+                        flush=True,
+                    )
+            except Exception:
+                pass  # diagnostics never block the turn
             return layers
         finally:
             self._active_budget = None

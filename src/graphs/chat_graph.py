@@ -1297,11 +1297,57 @@ class _AgentTokenPump(BaseCallbackHandler):
     def __init__(self, thread_id: str):
         self._thread_id = thread_id
         self.streamed = False
+        self._reasoning_acc = ""
+
+    def _emit_reasoning(self, piece: str) -> None:
+        """Forward a reasoning delta as the ACCUMULATED text.
+
+        The desktop's reasoning frame REPLACES the Thinking text, so each
+        update carries reasoning-so-far -- streaming semantics without any
+        protocol change. Only fired when the endpoint actually streams
+        reasoning_content (deepseek-style); a model with none stays silent,
+        which is the honest state.
+        """
+        self._reasoning_acc += piece
+        try:
+            event_bus.emit("reasoning.update", {
+                "text": self._reasoning_acc,
+                "thread_id": self._thread_id,
+            })
+        except Exception:
+            pass  # a dead bus must not kill a live generation
 
     def on_llm_new_token(self, token, **kwargs) -> None:  # noqa: ANN001, ANN003
         # Chat models may deliver the chunk payload as the positional string
         # OR as a GenerationChunk on the token/kwarg -- take .text when the
         # positional argument is not itself text.
+        # Reasoning deltas ride the chunk's additional_kwargs (reasoning_content
+        # on the message or the chunk) -- forward them as live Thinking BEFORE
+        # the answer, exactly as hermes' desktop separates thought from reply.
+        chunk = kwargs.get("chunk")
+        reasoning_piece = ""
+        if chunk is not None:
+            extra = getattr(chunk, "additional_kwargs", None) or {}
+            raw = extra.get("reasoning_content") or extra.get("reasoning")
+            if isinstance(raw, str) and raw and len(raw) > len(self._reasoning_acc) \
+                    and raw.startswith(self._reasoning_acc):
+                # cumulative payload: take only the new tail
+                reasoning_piece = raw[len(self._reasoning_acc):]
+            elif isinstance(raw, str) and raw:
+                reasoning_piece = raw
+            else:
+                message = getattr(chunk, "message", None)
+                message_extra = getattr(message, "additional_kwargs", None) or {}
+                raw = message_extra.get("reasoning_content") or message_extra.get("reasoning")
+                if isinstance(raw, str) and raw and len(raw) > len(self._reasoning_acc) \
+                        and raw.startswith(self._reasoning_acc):
+                    reasoning_piece = raw[len(self._reasoning_acc):]
+                elif isinstance(raw, str) and raw:
+                    reasoning_piece = raw
+        if reasoning_piece:
+            self.streamed = True
+            self._emit_reasoning(reasoning_piece)
+
         piece = getattr(token, "text", None)
         if not isinstance(piece, str):
             piece = str(token or "")
