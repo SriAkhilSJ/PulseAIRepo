@@ -1209,6 +1209,25 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "skills": len(skill_manager.list_skills()),
     })
 
+    # Floor 6: the observability receipt (env-gated, fail-closed, JSONL).
+    # Same shape as the analytics.update above but durable — this is the
+    # cost-per-task ledger. Best-effort: never breaks the turn.
+    try:
+        from src.observability import record_turn_receipt
+        record_turn_receipt(
+            thread_id=_final_thread_id,
+            model=str(LLM_MODEL),
+            provider=str(LLM_PROVIDER),
+            input_tokens=int(prompt_tokens or 0),
+            output_tokens=int(completion_tokens or 0),
+            estimated_cost_usd=float(cost_usd or 0.0),
+            execution_mode=str(state.get("execution_mode") or ""),
+            completed=not bool(state.get("failed_steps")),
+            error="; ".join(str(s) for s in (state.get("failed_steps") or [])[:3]),
+        )
+    except Exception:
+        pass
+
     event_bus.emit("suggestions", {
         "thread_id": _final_thread_id,
         "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
