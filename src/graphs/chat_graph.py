@@ -1958,6 +1958,30 @@ def task_manager_node(
             "workspace": config["configurable"].get("workspace", "."),
         }
 
+    # Hermes pipeline parity (run_conversation): ZERO model calls before the
+    # main one. In ask mode the classifier verdict cannot change the route —
+    # after_task_manager returns "ai" before ever reading task_action — so
+    # the round-trip was pure latency tax (owner field run: 14s of "Waiting
+    # on the model" before a simple listing request, then the classifier's
+    # answer was thrown away). Ask default: the free quick decision above,
+    # else "continue" with the active task preserved (the "unrelated"
+    # semantics, minus the round-trip). PULSEAI_TASK_CLASSIFIER (read per
+    # call): "on" = classify in every mode (legacy), "off" = in no mode;
+    # unset = ask skips, execute/plan keep the bounded classifier.
+    classifier_mode = os.environ.get("PULSEAI_TASK_CLASSIFIER", "").strip().lower()
+    if classifier_mode == "off" or (
+        state.get("execution_mode") == "ask" and classifier_mode != "on"
+    ):
+        return {
+            "current_task": current_task,
+            "task_action": "continue",
+            "token_usage": state.get("token_usage", _zero_token_usage()),
+            "turn_token_usage": _zero_token_usage(),
+            "iteration_used": 0,
+            "grace_done": 0,
+            "workspace": config["configurable"].get("workspace", "."),
+        }
+
     llm = _task_manager_llm(provider, model)
 
     task_messages = [
