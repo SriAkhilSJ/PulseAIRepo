@@ -10,7 +10,7 @@
 .pulseai-render-root {
 	color: var(--vscode-foreground);
 	background: var(--vscode-editor-background);
-	font-family: var(--vscode-font-family);
+	font-family: var(--pulseai-font-ui);
 	font-size: inherit;
 	overflow: hidden;
 }
@@ -49,10 +49,10 @@
 }
 
 .pulseai-agent-header-title {
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	font-weight: 600;
 	text-transform: uppercase;
-	letter-spacing: 0.5px;
+	letter-spacing: var(--pulseai-track-caps);
 	color: var(--vscode-descriptionForeground);
 }
 
@@ -65,7 +65,7 @@
 	border-radius: 3px;
 	background: var(--vscode-button-secondaryBackground, transparent);
 	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	cursor: pointer;
 	white-space: nowrap;
 }
@@ -91,7 +91,7 @@
 	gap: 5px;
 	min-width: 0;
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 	white-space: nowrap;
 }
 
@@ -122,18 +122,18 @@
 	padding: 4px 10px;
 	list-style: none;
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 	cursor: pointer;
 }
 .pulseai-plan-strip-summary::-webkit-details-marker { display: none; }
 .pulseai-plan-strip-summary:hover { background: var(--vscode-list-hoverBackground); }
 .pulseai-plan-strip-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-.pulseai-plan-strip-summary strong { color: var(--vscode-foreground); font-size: 11px; }
+.pulseai-plan-strip-summary strong { color: var(--vscode-foreground); font-size: var(--pulseai-text-body); }
 .pulseai-plan-strip-summary > .codicon-chevron-down { transition: transform 120ms ease; }
 .pulseai-plan-strip:not([open]) .pulseai-plan-strip-summary > .codicon-chevron-down { transform: rotate(-90deg); }
 .pulseai-plan-strip-state { display: inline-flex; align-items: center; gap: 5px; color: var(--pulseai-running); }
 .pulseai-plan-strip-list { display: grid; gap: 5px; margin: 0; padding: 2px 12px 9px 30px; list-style: none; }
-.pulseai-plan-strip-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; line-height: 1.35; }
+.pulseai-plan-strip-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); line-height: 1.35; }
 .pulseai-plan-strip-list li.is-active { color: var(--vscode-foreground); }
 
 .pulseai-agent-shell > .pulseai-transcript-scroll { flex: 1 1 auto; }
@@ -171,13 +171,13 @@
 	align-items: center;
 	gap: 6px;
 	height: 20px;
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 }
 
 .pulseai-stream-label {
 	margin-left: auto;
 	color: var(--pulseai-running);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 	font-weight: normal;
 }
 
@@ -195,7 +195,7 @@
 	padding-left: 8px;
 	border-left: 1px solid var(--vscode-panel-border);
 	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	line-height: 1.4;
 }
 
@@ -209,9 +209,9 @@
 	gap: 6px;
 	min-height: 25px;
 	color: var(--vscode-descriptionForeground);
-	font-size: 9px;
+	font-size: var(--pulseai-text-micro);
 	font-weight: 600;
-	letter-spacing: .06em;
+	letter-spacing: var(--pulseai-track-caps);
 	text-transform: uppercase;
 }
 .pulseai-section-count {
@@ -223,7 +223,7 @@
 	border-radius: 8px;
 	background: var(--vscode-badge-background);
 	color: var(--vscode-badge-foreground);
-	font-size: 9px;
+	font-size: var(--pulseai-text-micro);
 	letter-spacing: 0;
 }
 
@@ -260,13 +260,13 @@
 
 .pulseai-tool-summary strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; white-space: nowrap; }
 .pulseai-tool-target { min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); text-overflow: ellipsis; white-space: nowrap; }
-.pulseai-tool-duration { color: var(--vscode-descriptionForeground); font-size: 10px; }
+.pulseai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
 
 .pulseai-tool-state {
 	padding: 1px 4px;
 	border: 1px solid var(--vscode-panel-border, transparent);
 	color: var(--vscode-descriptionForeground);
-	font-size: 9px;
+	font-size: var(--pulseai-text-micro);
 	line-height: 14px;
 	text-transform: uppercase;
 }
@@ -327,18 +327,18 @@
 
 /* ---- Tool fields (Kilo Fields pattern, black/blue only) ---- */
 .pulseai-tool-fields { display: grid; gap: 4px; padding-top: 6px; }
-.pulseai-tool-field-row { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 8px; font-size: 10px; }
-.pulseai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; }
-.pulseai-tool-field-val { color: var(--vscode-foreground); font-family: var(--vscode-editor-font-family); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-tool-field-row { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 8px; font-size: var(--pulseai-text-meta); }
+.pulseai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: var(--pulseai-text-micro); letter-spacing: var(--pulseai-track-caps); }
+.pulseai-tool-field-val { color: var(--vscode-foreground); font-family: var(--pulseai-font-mono); font-size: var(--pulseai-text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-search-results { display: grid; gap: 4px; margin-top: 6px; }
-.pulseai-search-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: 10px; }
+.pulseai-search-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
 .pulseai-tool-checks { display: grid; gap: 6px; padding: 6px 0; }
-.pulseai-tool-checks > div { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--vscode-descriptionForeground); }
-.pulseai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: 9px; text-transform: uppercase; }
-.pulseai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: 10px; }
+.pulseai-tool-checks > div { display: flex; align-items: center; gap: 6px; font-size: var(--pulseai-text-meta); color: var(--vscode-descriptionForeground); }
+.pulseai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: var(--pulseai-text-micro); text-transform: uppercase; }
+.pulseai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
 .pulseai-child-tool-list { display: grid; gap: 4px; margin-top: 6px; }
-.pulseai-child-tool-list > div { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--vscode-descriptionForeground); }
-.pulseai-code-preview, .pulseai-diff-preview { font-size: 11px; line-height: 1.4; }
+.pulseai-child-tool-list > div { display: flex; align-items: center; gap: 6px; font-size: var(--pulseai-text-meta); color: var(--vscode-descriptionForeground); }
+.pulseai-code-preview, .pulseai-diff-preview { font-size: var(--pulseai-text-body); line-height: 1.4; }
 
 .pulseai-tool-body {
 	padding: 0 7px 8px 34px;
@@ -346,7 +346,7 @@
 }
 
 .pulseai-tool-field { padding-top: 6px; }
-.pulseai-tool-field-label { display: block; margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: 9px; text-transform: uppercase; }
+.pulseai-tool-field-label { display: block; margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); text-transform: uppercase; }
 
 .pulseai-tool-pre,
 .pulseai-terminal-output {
@@ -357,7 +357,7 @@
 	border: 1px solid var(--vscode-panel-border, transparent);
 	background: var(--vscode-textCodeBlock-background);
 	color: var(--vscode-editor-foreground);
-	font-family: var(--vscode-editor-font-family);
+	font-family: var(--pulseai-font-mono);
 	font-size: var(--vscode-editor-font-size, 12px);
 	line-height: 1.45;
 	white-space: pre-wrap;
@@ -369,13 +369,13 @@
 	gap: 7px;
 	padding: 7px 8px;
 	background: var(--vscode-terminal-background, var(--vscode-textCodeBlock-background));
-	font-family: var(--vscode-editor-font-family);
+	font-family: var(--pulseai-font-mono);
 	line-height: 1.4;
 }
 .pulseai-terminal-prompt { color: var(--pulseai-verified); }
 .pulseai-terminal-command code { overflow-wrap: anywhere; }
 .pulseai-terminal-output { max-height: 260px; border-top: 0; }
-.pulseai-terminal-result { display: flex; align-items: center; gap: 9px; min-height: 25px; color: var(--vscode-descriptionForeground); font-size: 10px; }
+.pulseai-terminal-result { display: flex; align-items: center; gap: 9px; min-height: 25px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
 
 .pulseai-tool-actions { display: flex; align-items: center; gap: 5px; padding-top: 5px; }
 .pulseai-turn-receipt {
@@ -386,7 +386,7 @@
 	margin-top: 7px;
 	border-top: 1px solid var(--vscode-panel-border, transparent);
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 }
 .pulseai-turn-receipt.is-completed > .codicon { color: var(--pulseai-verified); }
 .pulseai-turn-receipt.is-cancelled > .codicon { color: var(--pulseai-approval); }
@@ -399,7 +399,7 @@
 	border: 0;
 	background: transparent;
 	color: var(--vscode-textLink-foreground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 }
 .pulseai-link-button:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
 
@@ -447,7 +447,7 @@
 	gap: 6px;
 	min-height: 22px;
 	padding: 3px 10px;
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	color: var(--vscode-descriptionForeground);
 }
 .pulseai-scaffold-pulse {
@@ -481,7 +481,7 @@
 	border: 0;
 	background: none;
 	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	list-style: none;
 	cursor: pointer;
 }
@@ -497,14 +497,14 @@
 }
 .pulseai-disclosure-row:hover .pulseai-disclosure-stack { background: var(--vscode-list-hoverBackground); }
 .pulseai-disclosure-stack strong { color: var(--vscode-foreground); font-weight: 500; }
-.pulseai-disclosure-caret { opacity: 0; font-size: 9px; transition: opacity 120ms ease; }
+.pulseai-disclosure-caret { opacity: 0; font-size: var(--pulseai-text-micro); transition: opacity 120ms ease; }
 .pulseai-disclosure-row:hover .pulseai-disclosure-caret,
 .pulseai-thought-row[open] .pulseai-disclosure-caret { opacity: 0.75; }
 .pulseai-thought-body { padding: 2px 10px 6px 26px; }
 .pulseai-thought-body p {
 	margin: 0;
 	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	line-height: 1.45;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
@@ -537,7 +537,7 @@
 .pulseai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
 .pulseai-approval-copy > .codicon { margin-top: 2px; color: var(--pulseai-approval); }
 .pulseai-approval-copy div { display: grid; min-width: 0; }
-.pulseai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
 
 .pulseai-button {
@@ -651,7 +651,7 @@
 	border: 0;
 	background: transparent;
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 	cursor: pointer;
 }
 .pulseai-composer-pill:hover,
@@ -678,7 +678,7 @@
 	outline: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
 }
 .pulseai-send-button.pulseai-send-stop:hover { color: var(--vscode-foreground); }
-.pulseai-composer-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 5px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: 9px; }
+.pulseai-composer-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 5px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); }
 .pulseai-icon-button {
 	display: inline-flex;
 	align-items: center;
@@ -689,7 +689,7 @@
 	border: 0;
 	background: transparent;
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 }
 .pulseai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
 
@@ -732,8 +732,8 @@
 	min-height: 48px;
 	padding: 7px 10px;
 }
-.pulseai-manager-pane-head h2 { margin: 1px 0 0; font-size: 13px; font-weight: 600; }
-.pulseai-eyebrow { color: var(--vscode-descriptionForeground); font-size: 8px; letter-spacing: .08em; }
+.pulseai-manager-pane-head h2 { margin: 1px 0 0; font-size: var(--pulseai-text-title); font-weight: 600; }
+.pulseai-eyebrow { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); letter-spacing: var(--pulseai-track-caps); }
 
 .pulseai-manager-search {
 	display: flex;
@@ -747,7 +747,7 @@
 	color: var(--vscode-input-placeholderForeground);
 }
 .pulseai-workspace-group { overflow: auto; }
-.pulseai-workspace-title { display: flex; align-items: center; gap: 5px; height: 27px; padding: 0 8px; font-size: 11px; }
+.pulseai-workspace-title { display: flex; align-items: center; gap: 5px; height: 27px; padding: 0 8px; font-size: var(--pulseai-text-body); }
 .pulseai-workspace-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-session-row {
 	display: grid;
@@ -767,8 +767,8 @@
 .pulseai-session-row strong,
 .pulseai-session-row div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-session-row div span,
-.pulseai-session-state { color: var(--vscode-descriptionForeground); font-size: 9px; }
-.pulseai-manager-sidebar-footer { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); font-size: 10px; }
+.pulseai-session-state { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); }
+.pulseai-manager-sidebar-footer { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
 
 .pulseai-manager-titlebar {
 	display: flex;
@@ -778,10 +778,10 @@
 	min-height: 56px;
 	padding: 7px 12px;
 }
-.pulseai-manager-breadcrumb { color: var(--vscode-descriptionForeground); font-size: 10px; }
-.pulseai-manager-titlebar h1 { max-width: 680px; margin: 3px 0 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-manager-breadcrumb { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
+.pulseai-manager-titlebar h1 { max-width: 680px; margin: 3px 0 0; overflow: hidden; font-size: var(--pulseai-text-page); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-manager-tabs { display: flex; height: 32px; padding-left: 7px; }
-.pulseai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.pulseai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-body); }
 .pulseai-manager-tabs button:hover { color: var(--vscode-foreground); }
 .pulseai-manager-tabs button.is-active { border-bottom-color: var(--pulseai-accent); color: var(--vscode-foreground); }
 .pulseai-manager-main .pulseai-transcript-lane { max-width: 860px; padding: 18px clamp(18px, 4vw, 42px) 24px; }
@@ -789,14 +789,14 @@
 .pulseai-manager-main .pulseai-composer-input { min-height: 58px; }
 
 .pulseai-inspector-section { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
-.pulseai-inspector-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; font-size: 10px; text-transform: uppercase; }
-.pulseai-inspector-title strong { color: var(--vscode-descriptionForeground); font-size: 9px; font-weight: 500; }
+.pulseai-inspector-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; font-size: var(--pulseai-text-meta); text-transform: uppercase; }
+.pulseai-inspector-title strong { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); font-weight: 500; }
 .pulseai-plan-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.pulseai-plan-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; line-height: 1.35; }
+.pulseai-plan-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); line-height: 1.35; }
 .pulseai-plan-list li.is-active { color: var(--vscode-foreground); }
 .pulseai-plan-list li.is-muted { opacity: .75; }
-.pulseai-evidence-row { display: flex; align-items: flex-start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; line-height: 1.35; }
-.pulseai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: 10px; }
+.pulseai-evidence-row { display: flex; align-items: flex-start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); line-height: 1.35; }
+.pulseai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
 .pulseai-usage-grid strong { color: var(--vscode-foreground); font-weight: 500; }
 
 /* Viewport queries are a fallback; container queries are authoritative because
@@ -870,7 +870,7 @@
 	gap: 6px;
 	padding: 5px 0;
 	border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 50%, transparent);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 }
 .pulseai-subagent-row.is-running { background: color-mix(in srgb, var(--pulseai-running) 5%, transparent); }
 .pulseai-subagent-row.is-completed { background: color-mix(in srgb, var(--pulseai-verified) 5%, transparent); }
@@ -883,14 +883,14 @@
 .pulseai-subagent-state {
 	padding: 1px 4px;
 	border: 1px solid var(--vscode-panel-border, transparent);
-	font-size: 9px;
+	font-size: var(--pulseai-text-micro);
 	text-transform: uppercase;
 }
 .pulseai-subagent-state.is-running { color: var(--pulseai-running); }
 .pulseai-subagent-state.is-completed { color: var(--pulseai-verified); }
 .pulseai-subagent-state.is-failed { color: var(--pulseai-failed); }
 .pulseai-subagent-state.is-cancelled { color: var(--pulseai-approval); }
-.pulseai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: 9px; }
+.pulseai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); }
 .pulseai-subagent-result {
 	grid-column: 1 / -1;
 	margin-top: 4px;
@@ -902,7 +902,7 @@
 	overflow: auto;
 	border: 1px solid var(--vscode-panel-border, transparent);
 	background: var(--vscode-textCodeBlock-background);
-	font-family: var(--vscode-editor-font-family);
+	font-family: var(--pulseai-font-mono);
 	font-size: var(--vscode-editor-font-size, 11px);
 	line-height: 1.4;
 	white-space: pre-wrap;
@@ -926,7 +926,7 @@
 	display: grid;
 	place-items: center;
 	cursor: pointer;
-	font-size: 9px;
+	font-size: var(--pulseai-text-micro);
 }
 
 /* --- permission handling: allow / allow-for-session / deny, colour-coded by
@@ -968,7 +968,7 @@
 	border: 1px solid var(--vscode-inputValidation-infoBorder, transparent);
 	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
 	box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 }
 .pulseai-webview-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .pulseai-webview-unreachable .pulseai-button { justify-self: start; }
@@ -983,7 +983,7 @@
 	flex: 1 1 auto;
 	min-height: 0;
 }
-.pulseai-empty-copy { margin: 0; color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.5; }
+.pulseai-empty-copy { margin: 0; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-copy); line-height: 1.5; }
 .pulseai-starter-grid { display: grid; gap: 6px; }
 .pulseai-starter-prompt {
 	display: flex;
@@ -996,7 +996,7 @@
 	background: var(--vscode-list-hoverBackground, transparent);
 	color: var(--vscode-foreground);
 	cursor: pointer;
-	font-size: 12px;
+	font-size: var(--pulseai-text-copy);
 	width: 100%;
 }
 .pulseai-starter-prompt:hover { border-color: var(--vscode-focusBorder); }
@@ -1018,7 +1018,7 @@
 	padding: 5px 8px;
 	cursor: pointer;
 	list-style: none;
-	font-size: 11.5px;
+	font-size: var(--pulseai-text-body-lg);
 	color: var(--vscode-descriptionForeground);
 }
 .pulseai-tool-run-summary::-webkit-details-marker { display: none; }
@@ -1032,11 +1032,11 @@
 	border-radius: 8px;
 	background: var(--vscode-badge-background);
 	color: var(--vscode-badge-foreground);
-	font-size: 10px;
+	font-size: var(--pulseai-text-meta);
 }
 .pulseai-tool-run-body { border-top: 1px solid var(--vscode-widget-border, transparent); padding: 4px 6px 6px; }
 .pulseai-tool-run-body .pulseai-tool-row { border: 0; padding-left: 0; }
-@media (max-width: 420px) { .pulseai-tool-run-summary { font-size: 11px; } }
+@media (max-width: 420px) { .pulseai-tool-run-summary { font-size: var(--pulseai-text-body); } }
 
 /* --- one surface at a time in a narrow auxiliary bar --- */
 .pulseai-view-tabs { display: flex; gap: 4px; padding: 4px 6px 0; flex-shrink: 0; }
@@ -1044,7 +1044,7 @@
 .pulseai-view-tab {
 	flex: 0 1 auto;
 	padding: 3px 9px;
-	font-size: 11px;
+	font-size: var(--pulseai-text-body);
 	border: 1px solid var(--vscode-widget-border, transparent);
 	border-bottom: 0;
 	border-radius: 4px 4px 0 0;
@@ -1136,7 +1136,7 @@
 	color: var(--vscode-foreground); opacity: .55; cursor: pointer;
 }
 .pulseai-icon-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
-.pulseai-icon-action .codicon { font-size: 14px; }
+.pulseai-icon-action .codicon { font-size: var(--pulseai-icon-md); }
 .pulseai-activity-row { gap: 6px; }
 .pulseai-activity-dot {
 	width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto;
@@ -1174,7 +1174,7 @@
  * prose is the content; the raw call arguments are an audit trail. */
 .pulseai-tool-args-details { margin-top: 6px; }
 .pulseai-tool-args-summary {
-	cursor: pointer; opacity: .55; font-size: 11px; user-select: none;
+	cursor: pointer; opacity: .55; font-size: var(--pulseai-text-body); user-select: none;
 }
 .pulseai-tool-args-summary:hover { opacity: .85; }
 .pulseai-tool-args-details[open] .pulseai-tool-args-summary { opacity: .85; }
@@ -1183,7 +1183,7 @@
  * monospace list. Colors and fonts come from theme vars; no invented values. */
 .pulseai-llm-anatomy { margin: 2px 0 0 14px; }
 .pulseai-llm-anatomy-summary {
-	cursor: pointer; list-style: none; opacity: .55; font-size: 10px;
+	cursor: pointer; list-style: none; opacity: .55; font-size: var(--pulseai-text-meta);
 	user-select: none; color: var(--vscode-descriptionForeground);
 }
 .pulseai-llm-anatomy-summary:hover { opacity: .85; }
@@ -1192,14 +1192,14 @@
 }
 .pulseai-llm-anatomy-row {
 	display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 6px;
-	font-size: 10px; line-height: 1.4; align-items: baseline;
+	font-size: var(--pulseai-text-meta); line-height: 1.4; align-items: baseline;
 }
 .pulseai-llm-anatomy-role {
 	color: var(--vscode-descriptionForeground); text-transform: uppercase;
-	font-size: 9px; letter-spacing: 0.04em; text-align: right;
+	font-size: var(--pulseai-text-micro); letter-spacing: var(--pulseai-track-caps); text-align: right;
 }
 .pulseai-llm-anatomy-head {
-	font-family: var(--vscode-editor-font-family); color: var(--vscode-descriptionForeground);
+	font-family: var(--pulseai-font-mono); color: var(--vscode-descriptionForeground);
 	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pulseai-elapsed { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }

@@ -18,6 +18,7 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IPulseAIRendererService } from '../common/pulseAIRendererService.js';
+import { installPulseTheme } from './pulseTheme.js';
 
 /**
  * Where the built CopilotKit SPA lands inside the app. `npm run build` in `pulse-webview`
@@ -51,7 +52,7 @@ export class PulseAIViewPane extends ViewPane {
 		@IViewDescriptorService viewDescriptorService: IViewDescriptorService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IOpenerService openerService: IOpenerService,
-		@IThemeService themeService: IThemeService,
+		@IThemeService private readonly pulseThemeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 		@IPulseAIRendererService private readonly pulseAIRendererService: IPulseAIRendererService,
 	) {
@@ -64,7 +65,7 @@ export class PulseAIViewPane extends ViewPane {
 			viewDescriptorService,
 			instantiationService,
 			openerService,
-			themeService,
+			pulseThemeService,
 			hoverService,
 		);
 	}
@@ -72,6 +73,9 @@ export class PulseAIViewPane extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		this.pulseBody = DOM.append(container, DOM.$('.pulseai-view'));
+		// Semantic palette is derived from the LIVE theme (hermes seed→token
+		// machine) and re-derived on every theme change — never hardcoded.
+		this._register(installPulseTheme(this.pulseBody, this.pulseThemeService));
 		this.pulseBody.style.display = 'flex';
 		this.pulseBody.style.flexDirection = 'column';
 		this.pulseBody.style.minHeight = '0';

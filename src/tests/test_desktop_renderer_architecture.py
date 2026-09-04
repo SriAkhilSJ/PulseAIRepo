@@ -252,6 +252,74 @@ def test_file_write_rows_report_counted_values_not_placeholders():
         "routed through the command; strict=True means fixing it without saying so fails here."
     ),
 )
+
+
 def test_manager_opens_through_one_path_pending_owner_decision():
     service = _text("browser", "pulseAIRendererService.ts")
     assert "executeCommand(PulseAICommandId.OpenManager)" in service
+
+
+_HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}\\b")
+
+
+def test_pulseai_palette_is_derived_not_hardcoded():
+    """Owner directive ("don't hardcode plz", twice): the semantic palette is
+    DERIVED from the live workbench theme by the hermes seed-to-token machine
+    (themes/color.ts + themes/vscode.ts port), never hand-picked hex. The CSS
+    token file carries var() fallback chains only; color literals live solely
+    in pulseTheme.ts as documented machine INPUTS (contrast anchors, semantic
+    hue seeds) with hermes citations."""
+    tokens = _text("browser", "media", "pulseAI-tokens.css")
+    hexes = _HEX_RE.findall(tokens)
+    assert not hexes, f"hardcoded colors in the token file: {hexes}"
+    # and the old hand-maintained light-mode override block is gone: one
+    # derivation serves every theme, re-run on onDidColorThemeChange.
+    assert ".monaco-workbench.vs" not in tokens
+
+    machine = _text("browser", "pulseTheme.ts")
+    # the hermes enforcement values, by name
+    assert "ACCENT_MIN_CONTRAST = 4.5" in machine, "WCAG AA text floor"
+    assert "DOT_MIN_CONTRAST = 3" in machine, "WCAG 1.4.11 non-text floor"
+    assert "HARMONIZE_STRENGTH = 0.25" in machine, "hermes harmonize strength"
+    # the derivation actually runs against the LIVE theme and re-runs on change
+    assert "onDidColorThemeChange" in machine
+    assert "--vscode-button-background" in machine, "accent seed chain present"
+    assert "ensureContrast(accentSource, sidebar, ACCENT_MIN_CONTRAST)" in machine
+    assert "harmonize(seed, accent, HARMONIZE_STRENGTH)" in machine
+    # every literal hex in the machine is a documented seed/anchor, not an
+    # output: outputs are always derived (set() calls take derived values only)
+    allowed = {
+        "#ffffff", "#161616", "#000000",          # contrast anchors (hermes)
+        "#1e1e1e", "#d4d4d4",                     # missing-theme fallbacks (hermes)
+        "#10b981",                                # SUCCESS_SEED (hermes --ui-success)
+        "#e25563",                                # DESTRUCTIVE_FALLBACK (hermes)
+        "#efb75c",                                # APPROVAL_SEED (pulse identity)
+        "#9b8cff",                                # AGENT_SEED (pulse identity)
+    }
+    found = {h.lower() for h in _HEX_RE.findall(machine)}
+    unexpected = found - allowed
+    assert not unexpected, f"undocumented color literals in pulseTheme.ts: {sorted(unexpected)}"
+    # pane + manager editor install the machine on their roots
+    for file in ("pulseAIViewPane.ts", "pulseAIManagerEditor.ts"):
+        assert "installPulseTheme(" in _text("browser", file), file
+
+
+def test_pulseai_type_grammar_is_tokenized():
+    """hermes scaffold grammar: sizes and tracking are NAMED tokens, never
+    literals; numerals that tick hold tabular; caps labels share ONE tracking
+    value; fonts are the host's own stacks."""
+    css = _text("browser", "media", "pulseAI.css")
+    raw_sizes = re.findall(r"font-size:\s*[0-9.]+(?:px|rem)\b", css)
+    assert not raw_sizes, f"raw font sizes: {raw_sizes}"
+    raw_tracking = re.findall(r"letter-spacing:\s*[0-9.]+(?:px|em)\b", css)
+    assert not raw_tracking, f"raw letter-spacing: {raw_tracking}"
+    assert "font-size: var(--pulseai-text-" in css
+    assert "letter-spacing: var(--pulseai-track-caps)" in css
+    tokens = _text("browser", "media", "pulseAI-tokens.css")
+    for token in ("--pulseai-font-ui", "--pulseai-font-mono", "--pulseai-text-meta",
+                  "--pulseai-text-body", "--pulseai-text-micro", "--pulseai-track-caps"):
+        assert token in tokens, token
+    # host stacks, nothing bundled
+    assert "--vscode-font-family" in tokens and "@font-face" not in tokens
+    # hermes meta grammar: tabular numerals on ticking cells
+    assert "font-variant-numeric: tabular-nums" in tokens

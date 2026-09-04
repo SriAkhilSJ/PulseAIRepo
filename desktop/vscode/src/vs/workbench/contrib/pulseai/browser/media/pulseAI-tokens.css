@@ -1,18 +1,64 @@
-/* PulseAI-specific semantic tokens. Layout consumes VS Code theme variables directly. */
+/* PulseAI design tokens.
+ *
+ * COLORS — derived, never hardcoded (owner directive: "don't hardcode plz").
+ * The `--pulseai-*` semantic outputs are computed at runtime by pulseTheme.ts
+ * (a port of the hermes desktop theme machine: apps/desktop/src/themes/
+ * color.ts + themes/vscode.ts): seeds read from the LIVE workbench theme
+ * (--vscode-* custom properties), accent contrast-enforced to WCAG AA 4.5:1
+ * against the sidebar it labels, semantic dots = constant hue seeds
+ * harmonized toward the accent in OKLCH (hermes `harmonize`, 0.25) then
+ * guaranteed 3:1 (WCAG 1.4.11). This file carries only var() FALLBACK chains
+ * into the host theme — theme-native paint before the machine runs — and is
+ * re-derived on every theme change (onDidColorThemeChange). The former
+ * hand-picked light/dark hex palette lived here and is gone: hand edits drift
+ * from the host theme silently and can't be re-derived (hermes presets.ts
+ * lesson, verbatim).
+ *
+ * TYPE — the hermes scaffold grammar (styles.css): two host font stacks (the
+ * workbench's own — zero bundled fonts), one meta size (0.625rem), tabular
+ * numerals on every counter/duration cell, caps letter-spacing token.
+ */
 :root {
-	--pulseai-accent: #22d3ee;
-	--pulseai-running: #22d3ee;
-	--pulseai-verified: #49d190;
-	--pulseai-approval: #efb75c;
-	--pulseai-failed: #ed727c;
-	--pulseai-agent: #9b8cff;
+	/* Fallback chains INTO the host theme, so the pane paints theme-native
+	 * even before pulseTheme.ts runs. No hex here — a hex would paint a
+	 * foreign brand over a theme we didn't read. */
+	--pulseai-accent: var(--vscode-focusBorder, var(--vscode-button-background));
+	--pulseai-running: var(--pulseai-accent);
+	--pulseai-verified: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+	--pulseai-approval: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+	--pulseai-failed: var(--vscode-errorForeground, var(--vscode-charts-red));
+	--pulseai-agent: var(--vscode-symbolKindClass, var(--pulseai-accent));
+
+	/* Type grammar (hermes scaffold): the host's own stacks — the user's
+	 * editor font IS the product font; nothing bundled competes with it. */
+	--pulseai-font-ui: var(--vscode-font-family);
+	--pulseai-font-mono: var(--vscode-editor-font-family);
+
+	/* Scale — every size the pane paints, named by role (hermes scaffold
+	 * grammar: sizes are tokens, never literals). Values carry the pane's
+	 * existing steps 1:1 — a centralization, not a redesign; a later pass can
+	 * tighten them onto a modular scale. rem so the host's font-size
+	 * preference scales the pane (px ignored the user's setting). */
+	--pulseai-text-micro: 0.5625rem;   /* 9px scaffold floor + eyebrow */
+	--pulseai-text-meta: 0.625rem;     /* 10px meta — hermes' meta size */
+	--pulseai-text-body: 0.6875rem;    /* 11px default UI text */
+	--pulseai-text-body-lg: 0.71875rem;/* 11.5px transcript/tool rows */
+	--pulseai-text-copy: 0.75rem;      /* 12px reading copy, starters */
+	--pulseai-text-title: 0.8125rem;   /* 13px pane heading */
+	--pulseai-text-page: 0.9375rem;    /* 15px manager page title */
+	--pulseai-icon-md: 0.875rem;       /* 14px codicon glyph cell */
+
+	/* Caps tracking — hermes styles.css:0.08em on spaced uppercase labels.
+	 * ONE tracking value for every caps label (the old 0.04em/0.08em split
+	 * was per-selector tuning, exactly what the grammar forbids). */
+	--pulseai-track-caps: 0.08em;
 }
 
-.monaco-workbench.vs {
-	--pulseai-accent: #087f94;
-	--pulseai-running: #087f94;
-	--pulseai-verified: #178456;
-	--pulseai-approval: #9b620d;
-	--pulseai-failed: #be3d49;
-	--pulseai-agent: #6652d9;
+/* Tabular numerals wherever digits update in place (hermes meta grammar):
+ * durations, anatomy counts, plan step numbers. Proportional digits shimmy
+ * as the number ticks; tabular digits hold the cell steady. */
+.pulseai-tool-duration,
+.pulseai-llm-anatomy-row,
+.pulseai-plan-strip-list li {
+	font-variant-numeric: tabular-nums;
 }
