@@ -7,6 +7,7 @@ All pure: temp workspaces + temp stores, git plumbing only, no LLM.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -78,60 +79,6 @@ def test_write_file_snapshot_preserves_old_content(tmp_path, monkeypatch):
     res = mgr.restore(ws, cps[0]["hash"], "target.py")
     assert res["success"] is True
     assert (Path(ws) / "target.py").read_text() == ORIG
-
-
-def test_prewarm_hides_the_git_walk_under_model_latency(tmp_path, monkeypatch):
-    """Owner run 2026-09-04: a `dir` tool round cost 43.8s because the
-    pre-command snapshot ran its 30s git-add walk synchronously in front of
-    the command. Now the turn PREWARMS the snapshot in a background thread
-    (new_turn(workspace)) while the model thinks; the mutation gate JOINS the
-    in-flight job before proceeding — D31 serialization held (a mutation can
-    never run ahead of its pre-state capture), the dedup mark survives, and
-    new_turn itself never blocks."""
-    import threading
-    import time as _time
-
-    mgr = _mgr(tmp_path)
-    ws = _ws(tmp_path)
-
-    gate = threading.Event()
-    takes: list[str] = []
-    real_take = mgr._take
-
-    def slow_take(working_dir, reason):
-        gate.wait(timeout=10)  # hold the prewarm mid-`git add`
-        takes.append(reason)
-        return real_take(working_dir, reason)
-
-    monkeypatch.setattr(mgr, "_take", slow_take)
-
-    t0 = _time.monotonic()
-    mgr.new_turn(ws)  # spawns the background prewarm
-    assert _time.monotonic() - t0 < 1.0, "new_turn must not block on the snapshot"
-    _time.sleep(0.3)  # let the thread reach the gated _take
-    assert not takes, "prewarm runs in the background"
-
-    # The mutation gate must JOIN the in-flight prewarm: run it in a side
-    # thread and prove it BLOCKS until the prewarm's git walk finishes.
-    box: dict = {}
-
-    def mutation() -> None:
-        box["ok"] = mgr.ensure_checkpoint(ws, "run_terminal: dir")
-
-    t1 = threading.Thread(target=mutation)
-    t1.start()
-    _time.sleep(0.3)
-    assert t1.is_alive(), "gate returned while the prewarm was mid-flight: D31 broken"
-    gate.set()  # release the prewarm's git walk
-    t1.join(timeout=10)
-    assert not t1.is_alive()
-    assert takes == ["turn-start prewarm"], "gate waited for the prewarm first"
-    # the prewarm consumed this turn's snapshot slot: the mutation dedups
-    assert box["ok"] is False
-
-    # a second mutation this turn pays nothing and spawns no thread
-    assert mgr.ensure_checkpoint(ws, "second mutation") is False
-    assert takes == ["turn-start prewarm"]
 
 
 def test_once_per_turn_then_new_turn_snapshots_again(tmp_path, monkeypatch):
@@ -354,3 +301,74 @@ def test_success_logs_duration(tmp_path, capsys):
     assert mgr.ensure_checkpoint(str(ws), "timing test") is True
     out = capsys.readouterr().out
     assert "snapshot took" in out
+
+
+def test_store_matches_hermes_checkpoint_contract(tmp_path):
+    """The hermes checkpoint_manager.py contract, pinned: 50k file cap, 30s
+    git budget clamped 10..60, DEFAULT_EXCLUDES in the store's info/exclude,
+    and dependency trees never entering a snapshot."""
+    import subprocess
+    assert sc._MAX_FILES == 50_000, 'hermes _MAX_FILES'
+    assert sc._GIT_TIMEOUT == 30, 'hermes HERMES_CHECKPOINT_TIMEOUT default'
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    (Path(ws) / 'app.py').write_text('x = 1' + chr(10))
+    nm = Path(ws) / 'node_modules' / 'left-pad'
+    nm.mkdir(parents=True, exist_ok=True)
+    (nm / 'index.js').write_text('module.exports = 1' + chr(10))
+    assert mgr.ensure_checkpoint(ws, 'test') is True
+    store = sc._store_path(tmp_path / 'store-home')
+    exclude = (store / 'info' / 'exclude').read_text(encoding='utf-8')
+    assert 'node_modules/' in exclude, 'hermes DEFAULT_EXCLUDES installed'
+    index_file = sc._index_path(store, sc._project_hash(ws))
+    env = {**os.environ, 'GIT_DIR': str(store), 'GIT_INDEX_FILE': str(index_file)}
+    out = subprocess.run(['git', 'ls-files', '--cached'], capture_output=True,
+                         text=True, env=env, timeout=30).stdout
+    assert 'app.py' in out, 'real work is snapshotted'
+    assert 'node_modules' not in out, 'dependency forest never enters the snapshot'
+
+
+def test_legacy_store_without_excludes_is_migrated(tmp_path):
+    """Owner run #2 root cause: a checkpoint store created by an older build
+    has no info/exclude, so its index carries node_modules forever and every
+    `git add -A` re-walks it (87s on his IDE-source workspace). Hermes ships
+    explicit legacy migrations; our top-up rewrites the exclude file AND
+    evicts the poisoned paths from every per-project index, once."""
+    import subprocess
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    (Path(ws) / 'app.py').write_text('x = 1' + chr(10))
+    nm = Path(ws) / 'node_modules' / 'left-pad'
+    nm.mkdir(parents=True, exist_ok=True)
+    (nm / 'index.js').write_text('module.exports = 1' + chr(10))
+    assert mgr.ensure_checkpoint(ws, 'seed') is True
+    store = sc._store_path(tmp_path / 'store-home')
+    index_file = sc._index_path(store, sc._project_hash(ws))
+    env = {**os.environ, 'GIT_DIR': str(store), 'GIT_INDEX_FILE': str(index_file),
+           'GIT_WORK_TREE': ws}
+    def tracked():
+        return subprocess.run(['git', 'ls-files', '--cached'], capture_output=True,
+                              text=True, env=env, timeout=30).stdout
+    # simulate the legacy store: strip the excludes and force the dependency
+    # path into the index (pre-exclude builds had exactly this state)
+    (store / 'info' / 'exclude').write_text('# legacy store, no excludes' + chr(10), encoding='utf-8')
+    subprocess.run(['git', 'add', 'node_modules'], capture_output=True, env=env, timeout=30)
+    assert 'node_modules' in tracked(), 'legacy poisoning present'
+    sc._init_store(store)  # same call every snapshot makes
+    assert 'node_modules/' in (store / 'info' / 'exclude').read_text(encoding='utf-8')
+    assert 'node_modules' not in tracked(), 'migration evicted the poisoned paths'
+
+
+def test_new_turn_is_a_plain_dedup_reset(tmp_path):
+    """Hermes CheckpointManager.new_turn(): dedup reset ONLY. No background
+    threads, no joins - the snapshot is synchronous and fast because the
+    exclude list keeps git out of dependency trees."""
+    import threading
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.new_turn()
+    assert mgr._done_this_turn == set()
+    assert not [t for t in threading.enumerate() if 'prewarm' in t.name], 'no prewarm machinery exists'
+    mgr.ensure_checkpoint(ws, 'test')
+    mgr.new_turn()
+    assert mgr._done_this_turn == set(), 'dedup resets, next turn snapshots again'

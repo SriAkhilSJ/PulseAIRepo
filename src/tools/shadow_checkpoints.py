@@ -57,8 +57,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-_GIT_TIMEOUT = 15          # seconds per bare git call (add gets 2x)
-_MAX_FILES = 200_000       # above this, snapshot is skipped entirely
+_GIT_TIMEOUT = 30          # hermes HERMES_CHECKPOINT_TIMEOUT default (clamp 10..60)
+_MAX_FILES = 50_000        # hermes _MAX_FILES: skip huge directories (bounded walk)
 _COMMITTER_NAME = "PulseAI Shadow"
 _COMMITTER_EMAIL = "shadow@pulseai.local"
 
@@ -209,9 +209,64 @@ def _run_git(
     return ok, result.stdout.strip(), result.stderr.strip()
 
 
+# Directory patterns whose entries may already sit in a legacy store's index.
+# Excludes only stop UNTRACKED files from being added; paths snapshotted
+# before DEFAULT_EXCLUDES existed stay tracked and keep poisoning every
+# `git add -A` (owner run #2: 87s on his IDE-source workspace).
+_MIGRATION_DIRS = (
+    "node_modules", "dist", "build", "target", "out", ".next", ".nuxt",
+    "__pycache__", ".venv", "venv", "env", "coverage",
+)
+
+
+def _ensure_excludes(store: Path) -> None:
+    """Keep the store's info/exclude current with DEFAULT_EXCLUDES, and
+    migrate a legacy index that predates them.
+
+    Hermes writes the exclude file once at store init AND ships an explicit
+    legacy migration (_migrate_legacy_store) for stores from older layouts —
+    this is the same two-part discipline: (1) idempotent top-up of the
+    exclude file (the owner's checkpoint store predated DEFAULT_EXCLUDES, so
+    `git add -A` on his IDE-source workspace spent 87s inside node_modules);
+    (2) one-shot eviction of already-tracked migration paths from every
+    per-project index, because info/exclude never untracks a file. Best-
+    effort: any failure degrades to the old behavior, never crashes.
+    """
+    exclude = store / "info" / "exclude"
+    try:
+        if exclude.exists() and "node_modules/" in exclude.read_text(encoding="utf-8"):
+            return
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text("\n".join(DEFAULT_EXCLUDES) + "\n", encoding="utf-8")
+    except OSError:
+        return  # a read-only store degrades to the old behavior, never crashes
+    # One-time migration: untrack the poisoned paths in every index.
+    indexes_dir = store / "indexes"
+    if not indexes_dir.is_dir():
+        return
+    env = {
+        **os.environ,
+        "GIT_DIR": str(store),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+    for index_file in indexes_dir.iterdir():
+        if not index_file.is_file():
+            continue
+        migrate_env = {**env, "GIT_INDEX_FILE": str(index_file)}
+        subprocess.run(
+            ["git", "rm", "-r", "--cached", "--quiet", "--ignore-unmatch",
+             *_MIGRATION_DIRS],
+            capture_output=True, timeout=_GIT_TIMEOUT, env=migrate_env,
+            stdin=subprocess.DEVNULL,
+        )
+
+
 def _init_store(store: Path) -> None:
     """Create the shared store once (idempotent)."""
     if (store / "HEAD").exists():
+        _ensure_excludes(store)
         return
     store.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -246,7 +301,9 @@ def _git_timeout() -> int:
         value = int(raw) if raw else _GIT_TIMEOUT
     except (TypeError, ValueError):
         value = _GIT_TIMEOUT
-    return max(5, min(value, 120))
+    # Hermes clamp: max(10, min(v, 60)) — one budget for every git call,
+    # no 2x multipliers.
+    return max(10, min(value, 60))
 
 
 def _max_files() -> int:
@@ -322,86 +379,39 @@ class ShadowCheckpoints:
         self._done_this_turn: set[str] = set()
         self._git_available: Optional[bool] = None
         self._lock = threading.Lock()
-        # Turn-start prewarms, one event per workspace: the snapshot runs in
-        # a background thread WHILE the model thinks, so the first mutation
-        # of the turn joins a finished job instead of paying the git-add walk
-        # synchronously (owner run 2026-09-04: `dir` cost 43.8s because the
-        # pre-command snapshot burned the whole 30s add budget on a huge tree
-        # — correct serialization, wrong place in the timeline). Completed
-        # events STAY in the map until the next new_turn: any late mutation
-        # gate in the same turn must still join (instantly) rather than slip
-        # past a finished-but-unawaited snapshot and race the dedup mark.
-        self._prewarm: dict[str, threading.Event] = {}
 
     # -- turn lifecycle ----------------------------------------------------
 
-    def new_turn(self, working_dir: Optional[str] = None) -> None:
+    def new_turn(self) -> None:
         """Reset per-turn dedup. Called at the start of each AI iteration.
 
-        With `working_dir`, ALSO prewarm that workspace's checkpoint in a
-        background thread: pre-state capture begins before the model can emit
-        any tool call, so D31's before-mutation guarantee keeps its
-        serialization (the mutation gate joins the job) while the git walk
-        hides under the model's latency. Never raises.
+        Hermes CheckpointManager.new_turn(): dedup reset ONLY — snapshots are
+        synchronous, and they are fast because the store's info/exclude keeps
+        git out of dependency/build trees (see DEFAULT_EXCLUDES), not because
+        of timeline tricks. Never raises.
         """
         self._done_this_turn.clear()
-        if not working_dir or not self.enabled:
-            return
-        try:
-            abs_dir = str(_normalize_path(working_dir))
-            done = threading.Event()
-            with self._lock:
-                # Replace any stale event from a previous iteration.
-                self._prewarm[abs_dir] = done
-
-            def _prewarm() -> None:
-                try:
-                    # _join_prewarm=False: this thread IS the job; joining
-                    # itself would deadlock.
-                    self.ensure_checkpoint(
-                        abs_dir, "turn-start prewarm", _join_prewarm=False
-                    )
-                except Exception:
-                    pass  # a broken prewarm must never surface here
-                finally:
-                    done.set()
-
-            threading.Thread(target=_prewarm, daemon=True,
-                             name="pulse-shadow-prewarm").start()
-        except Exception:
-            pass
 
     # -- public API ---------------------------------------------------------
 
-    def ensure_checkpoint(
-        self, working_dir: str, reason: str = "auto",
-        _join_prewarm: bool = True,
-    ) -> bool:
+    def ensure_checkpoint(self, working_dir: str, reason: str = "auto") -> bool:
         """Snapshot if enabled/changed/not-done-this-turn. NEVER raises.
 
-        A turn-start prewarm for this workspace may still be mid-`git add`;
-        the default path JOINS it before anything proceeds — the same
-        serialization as the old synchronous snapshot (pre-state fully
-        captured before any mutation), but the common case finds the job
-        already done during the model's thinking time. The wait happens
-        OUTSIDE the lock (the prewarm thread needs this lock too) and is
-        self-bounded by the git timeouts, so it inherits the same budget the
-        synchronous walk always had.
+        Hermes CheckpointManager.ensure_checkpoint() verbatim shape: enabled
+        probe, never root/home, once per directory per turn, synchronous —
+        the git walk is bounded by info/exclude + the file-count cap + the
+        per-call timeout, not by background machinery.
         """
         if not self.enabled:
             return False
-        abs_dir = str(_normalize_path(working_dir))
-        if _join_prewarm:
-            with self._lock:
-                event = self._prewarm.get(abs_dir)
-            if event is not None:
-                event.wait()
         try:
             with self._lock:
                 if self._git_available is None:
                     self._git_available = shutil.which("git") is not None
                 if not self._git_available:
                     return False
+
+                abs_dir = str(_normalize_path(working_dir))
                 if abs_dir in {"/", str(Path.home())}:
                     return False
                 if not _retry_after_giveup_enabled() and _gave_up(abs_dir):
@@ -493,7 +503,7 @@ class ShadowCheckpoints:
         target = file_path if file_path else "."
         ok, _, err = _run_git(
             ["checkout", commit_hash, "--", target],
-            store, abs_dir, timeout=_GIT_TIMEOUT * 2, index_file=index_file,
+            store, abs_dir, timeout=_git_timeout(), index_file=index_file,
         )
         if not ok:
             return {"success": False, "error": f"Restore failed: {err}",
@@ -543,7 +553,7 @@ class ShadowCheckpoints:
             index_file.unlink()
         index_file.parent.mkdir(parents=True, exist_ok=True)
 
-        add_budget = _git_timeout() * 2
+        add_budget = _git_timeout()
         ok, _, _ = _run_git(["add", "-A"], store, working_dir,
                             timeout=add_budget, index_file=index_file)
         if not ok:
@@ -694,13 +704,9 @@ def checkpoint_before_mutation(workspace: str, reason: str) -> None:
         pass
 
 
-def begin_agent_turn(working_dir: Optional[str] = None) -> None:
-    """Called at the start of each AI iteration (ai_node). Never raises.
-
-    Pass the workspace so the first snapshot of the turn prewarms in the
-    background while the model thinks (D31 serialization preserved: the
-    mutation gate joins the job before any command runs)."""
+def begin_agent_turn() -> None:
+    """Called at the start of each AI iteration (ai_node). Never raises."""
     try:
-        get_shadow_checkpoints().new_turn(working_dir)
+        get_shadow_checkpoints().new_turn()
     except Exception:
         pass

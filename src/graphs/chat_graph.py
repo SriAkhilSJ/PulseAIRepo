@@ -822,12 +822,9 @@ def ai_node(
     )
 
     # D31: start of an AI iteration — reset shadow-checkpoint dedup so the
-    # first mutation this iteration snapshots the pre-change workspace, and
-    # PREWARM that snapshot in the background now: the git-add walk runs
-    # under the model's thinking time instead of in front of the first tool
-    # (owner run: `dir` paid a 30s add budget → 43.8s tool round).
+    # first mutation this iteration snapshots the pre-change workspace.
     from src.tools.shadow_checkpoints import begin_agent_turn
-    begin_agent_turn(configurable.get("workspace") or ".")
+    begin_agent_turn()
 
     # D40: iteration budget. Once exhausted, tools are hidden and the model
     # may only produce text (the hermes grace call). The FIRST exhausted call
