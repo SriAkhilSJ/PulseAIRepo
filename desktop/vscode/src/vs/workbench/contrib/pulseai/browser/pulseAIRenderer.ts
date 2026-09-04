@@ -68,6 +68,10 @@ export interface PulseAIRenderModel {
 	readonly voiceHeard?: { readonly ok: boolean; readonly text: string; readonly error?: string };
 	/** Live provider-call status (llm.request/llm.response): names the model being asked. */
 	readonly llmStatus?: { readonly model: string; readonly attempt: number };
+	/** Hermes session-states.ts port: busy but silent for the 5-min watchdog
+	 * window. A presentation hint (hollow dot, honest row text) — never an
+	 * error, never a claim the turn died. */
+	readonly stalled?: boolean;
 	/** Degradation receipt (runtime_degraded): honest bounded-scan note, never a fatal card. */
 	readonly degraded?: string;
 	/** Wall-clock ms when the running turn started (drives the live elapsed timer). */
@@ -360,6 +364,32 @@ function labeledPayload(label: string, value: unknown): HTMLElement {
 	return element('div', 'pulseai-tool-field', element('span', 'pulseai-tool-field-label', label), element('pre', 'pulseai-tool-pre', boundedText(value)));
 }
 
+// Hermes port (components/chat/expandable-block.tsx): cap a collapsed output
+// block at 7.5rem with a bottom fade + one chevron; expanded caps at 40dvh and
+// scrolls. Measured on the next frame so short output carries no chrome at all
+// (their ResizeObserver discipline: never a sync scrollHeight read per mount).
+function expandableOutput(content: HTMLElement): HTMLElement {
+	const wrap = element('div', 'pulseai-expandable is-collapsed');
+	const clip = element('div', 'pulseai-expandable-clip', content);
+	const toggle = element('button', 'pulseai-expandable-toggle', icon('chevron-down')) as HTMLButtonElement;
+	toggle.type = 'button';
+	toggle.setAttribute('aria-expanded', 'false');
+	toggle.setAttribute('aria-label', 'Expand output');
+	toggle.addEventListener('click', () => {
+		const collapsed = wrap.classList.toggle('is-collapsed');
+		toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+	});
+	const fade = element('div', 'pulseai-expandable-fade', toggle);
+	wrap.append(clip, fade);
+	window.requestAnimationFrame(() => {
+		if (clip.scrollHeight <= 121) {
+			wrap.classList.remove('is-collapsed');
+			wrap.classList.add('is-fits');
+		}
+	});
+	return wrap;
+}
+
 function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement {
 	const args = record(tool.arguments);
 	const result = record(tool.result);
@@ -381,7 +411,7 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	const body = element('div', 'pulseai-tool-body pulseai-terminal-body');
 	body.append(
 		element('div', 'pulseai-terminal-command', element('span', 'pulseai-terminal-prompt', '$'), element('code', undefined, command)),
-		element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output...' : 'No captured output')),
+		expandableOutput(element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output...' : 'No captured output'))),
 		element('div', 'pulseai-terminal-result', element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)), element('span', undefined, `exit ${exit}`), element('span', undefined, duration)),
 	);
 	const actions = element('div', 'pulseai-tool-actions');
@@ -818,6 +848,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	if (model.running) {
 		const liveTool = [...model.tools].reverse().find(tool => tool.state === 'running' || tool.state === 'queued');
 		let hint: string;
+		let stalled = model.stalled === true;
 		if (liveTool) {
 			const target = compactTarget(displayTarget(liveTool)) ?? liveTool.name;
 			hint = liveTool.state === 'queued'
@@ -826,10 +857,16 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		} else if (model.llmStatus) {
 			const attempt = model.llmStatus.attempt > 1 ? ` \u2014 attempt ${model.llmStatus.attempt}` : '';
 			hint = `Asking ${model.llmStatus.model || 'model'}${attempt}\u2026`;
+		} else if (model.stalled) {
+			// Hermes wording discipline: silence is not completion and not an
+			// error — state the fact and keep the Stop option, without
+			// screaming failure or pretending progress.
+			hint = 'No activity for 5:00 \u2014 the turn is still running, but nothing has arrived.';
+			stalled = true;
 		} else {
 			hint = 'Waiting on the model\u2026';
 		}
-		const row = element('div', 'pulseai-context-status-row is-info pulseai-activity-row');
+		const row = element('div', `pulseai-context-status-row is-info pulseai-activity-row${stalled ? ' is-stalled' : ''}`);
 		row.append(element('span', 'pulseai-activity-dot'));
 		row.append(element('span', undefined, hint));
 		row.append(elapsedSpan(model.turnStartedAt));

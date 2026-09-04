@@ -112,6 +112,17 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private llmStatus?: { readonly model: string; readonly attempt: number };
 
 	/**
+	 * Hermes port (apps/desktop/src/store/session-states.ts): busy but SILENT
+	 * for the whole watchdog window. Tuned there against real behavior — under
+	 * ~4min paints healthy tool runs as suspect, 8min lands after the user has
+	 * already given up; 5min is the compromise. Silence is NOT completion: long
+	 * tool calls are legitimately quiet, so this is a presentation hint that
+	 * never mutates the engine's real turn state, and ANY frame clears it.
+	 */
+	private stalled: boolean | undefined;
+	private stallWatchdog: number | undefined;
+
+	/**
 	 * Degradation notices (runtime_degraded frames): honest "this ran bounded"
 	 * receipts. Deliberately NOT `error` — a bounded scan is the engine working
 	 * as designed, and rendering it as the fatal card (with its Retry button)
@@ -119,10 +130,10 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	 * degradation is spoken, never screamed.
 	 */
 	private degraded?: string;
-	/** Reasoning frames seen this turn. The bridge sends exactly ONE pre-model
-	 * liveness frame ('Turn accepted...'); a real reasoning stream sends many.
-	 * The counter is how the renderer can hand the liveness line off to the
-	 * llmStatus row without string-matching transport copy. */
+	/** Reasoning frames seen this turn. A real reasoning stream sends many; a
+	 * transport liveness dress-up (a status line posing as thought) sends one.
+	 * The counter is how the renderer can hand a single-frame "reasoning" off
+	 * to the llmStatus row without string-matching copy. */
 	private reasoningFrameCount = 0;
 	private history: PulseAIRenderModel['history'] = [];
 
@@ -326,6 +337,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			contextStatus: this.contextStatus,
 			voiceHeard: this.voiceHeard,
 			llmStatus: this.llmStatus,
+			stalled: this.stalled,
 			degraded: this.degraded,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
@@ -606,8 +618,41 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		}
 	}
 
+	/**
+	 * Hermes session-states.ts watchdog, 5-minute window (their tuning note:
+	 * under ~4min paints healthy typechecks/test runs as suspect; 8min arrives
+	 * after the user gave up). One timer per turn; every frame re-arms it via
+	 * acceptFrame. Firing only flips the presentation hint.
+	 */
+	private armStallWatchdog(): void {
+		this.clearStallWatchdog();
+		this.stallWatchdog = window.setTimeout(() => {
+			this.stallWatchdog = undefined;
+			if (this.running) {
+				this.stalled = true;
+				this.render();
+			}
+		}, 5 * 60 * 1000);
+	}
+
+	private clearStallWatchdog(): void {
+		if (this.stallWatchdog !== undefined) {
+			window.clearTimeout(this.stallWatchdog);
+			this.stallWatchdog = undefined;
+		}
+		this.stalled = undefined;
+	}
+
 	private acceptFrame(frame: PulseServerEvent): void {
 		if ('event_id' in frame && frame.event_id && !this.rememberEvent(frame.event_id)) { return; }
+		// Hermes watchdog (apps/desktop/src/store/session-states.ts): ANY state
+		// publish re-arms the window; a busy turn that publishes nothing for the
+		// whole window paints `stalled`. Presentation hint only — it never
+		// mutates the engine's real turn state, and the next frame clears it.
+		if (this.running) {
+			this.stalled = undefined;
+			this.armStallWatchdog();
+		}
 		if (frame.type === 'events_replay') {
 			for (const event of frame.events) {
 				const candidate = valueRecord(event);
@@ -646,6 +691,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.degraded = undefined;
 			this.voiceHeard = undefined;
 			this.reasoningFrameCount = 0;
+			this.clearStallWatchdog();
+			this.armStallWatchdog();
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
 			// The answer started; whatever was in the Thinking block is done.
@@ -705,6 +752,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
 			this.degraded = undefined;
+			this.clearStallWatchdog();
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
@@ -716,6 +764,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
 			this.degraded = undefined;
+			this.clearStallWatchdog();
 		} else if (frame.type === 'voice_text') {
 			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
 		} else if (frame.type === 'llm.request') {
