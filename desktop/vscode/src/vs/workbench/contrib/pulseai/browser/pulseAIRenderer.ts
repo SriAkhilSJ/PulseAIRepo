@@ -576,7 +576,13 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 			.replace(/^\s*(\*\*)?\s*(💭\s*)?thinking\s*:?\s*(\*\*)?\s*/i, '')
 			.replace(/^\s*(\*\*)?\s*reasoning\s*:?\s*(\*\*)?\s*/i, '');
 		if (prose.trim()) {
-			body.append(expandableOutput(markdownCopy(prose)));
+			if (tool.name === 'think') {
+				// Hermes thought body: small, dim, quiet scaffold — never a
+				// full-width prose block competing with the answer.
+				body.append(expandableOutput(element('div', 'pulseai-thought-body', markdownCopy(prose))));
+			} else {
+				body.append(expandableOutput(markdownCopy(prose)));
+			}
 			const argsDetails = element('details', 'pulseai-tool-args-details') as HTMLDetailsElement;
 			argsDetails.append(element('summary', 'pulseai-tool-args-summary', 'Arguments'));
 			argsDetails.append(labeledPayload('Arguments', tool.arguments));
@@ -602,7 +608,11 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 	const shouldDefaultOpen = presentation.defaultOpen === 'always' || (presentation.defaultOpen === 'running' && (tool.state === 'running' || tool.state === 'approval'));
 	details.open = openTools.has(tool.id) || shouldDefaultOpen;
 
-	const titleSpan = element('strong', isPending ? 'pulseai-shimmer' : undefined, presentation.title);
+	// Hermes wording (ThinkingDisclosure): a live block says "Thinking", a
+	// settled one says "Thought" — the tool catalog title stays canonical for
+	// other surfaces; the transcript row speaks hermes.
+	const rowTitle = tool.name === 'think' ? (isPending ? 'Thinking' : 'Thought') : presentation.title;
+	const titleSpan = element('strong', isPending ? 'pulseai-shimmer' : undefined, rowTitle);
 	const targetText = displayTarget(tool);
 	// Hermes quiet-card rule: the target echo must SAY something. When it
 	// just repeats the tool name ("Think think"), it is noise — drop it.

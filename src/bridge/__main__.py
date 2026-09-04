@@ -775,7 +775,33 @@ class BridgeServer:
                 "error": str(exc),
             })
 
+    @staticmethod
+    def _start_boot_warmup() -> None:
+        """Load optional heavy backends at PROCESS START, not mid-turn.
+
+        Field proof (owner, 2026-09-04): the first WORK turn triggered the
+        first memory write -> first MemoryManager construction -> embedder
+        load — and the turn never came back, with the last log line being
+        the memory warmup notice. Housekeeping (hermes: memory saves are
+        never on the turn's critical path) belongs at boot, where its cost
+        is visible and its failure cannot eat a live conversation. The
+        PULSEAI_MEMORY_WARMUP_AT_BOOT gate is read per process start.
+        """
+        if os.environ.get("PULSEAI_MEMORY_WARMUP_AT_BOOT", "").strip().lower() in {"0", "false", "no", "off"}:
+            return
+
+        def _warm():
+            try:
+                from src.graphs.chat_graph import memory_manager
+                if memory_manager is not None:
+                    memory_manager.warmup()
+            except Exception as exc:
+                print(f"[bridge] boot memory warmup skipped: {exc!r}", file=sys.stderr, flush=True)
+
+        threading.Thread(target=_warm, name="pulseai-boot-warmup", daemon=True).start()
+
     def run(self) -> int:
+        self._start_boot_warmup()
         while not self._shutdown.is_set():
             line = sys.stdin.buffer.readline()
             if not line:

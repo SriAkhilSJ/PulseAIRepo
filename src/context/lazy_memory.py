@@ -19,6 +19,21 @@ import threading
 from typing import Any, Callable
 
 _WARMUP_BUDGET_ENV = "PULSEAI_MEMORY_WARMUP_BUDGET_S"
+_INIT_BUDGET_ENV = "PULSEAI_MEMORY_INIT_BUDGET_S"
+
+
+def _init_budget() -> float:
+    """Hard ceiling for background construction. Env-driven, read once per
+    construction. Past it, memory is DISABLED for the process: a backend
+    that needs minutes (embedder download on a slow/proxied network) must
+    never sit half-born under live turns — calls degrade and the failure
+    is loud. 0 disables the watchdog."""
+    raw = os.environ.get(_INIT_BUDGET_ENV, "").strip()
+    try:
+        value = float(raw) if raw else 180.0
+    except (TypeError, ValueError):
+        value = 180.0
+    return max(0.0, min(value, 3600.0))
 
 
 def _warmup_budget() -> float:
@@ -62,10 +77,29 @@ class LazyMemoryManager:
         ).start()
 
     def _construct(self) -> None:
+        import time as _time
+
+        watchdog: threading.Timer | None = None
+        init_budget = _init_budget()
+        if init_budget > 0:
+            watchdog = threading.Timer(init_budget, self._disable_after_budget,
+                                       args=(init_budget,))
+            watchdog.daemon = True
+            watchdog.start()
+        print(
+            "[memory] warmup: constructing backend in background "
+            "(heavy deps / embedder download may run on first use)",
+            flush=True,
+        )
+        t0 = _time.monotonic()
         try:
             instance = self._factory()
             with self._lock:
                 self._instance = instance
+            print(
+                f"[memory] warmup: backend ready in {_time.monotonic() - t0:.1f}s",
+                flush=True,
+            )
         except Exception as exc:
             with self._lock:
                 self._disabled = True
@@ -75,13 +109,32 @@ class LazyMemoryManager:
                 flush=True,
             )
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
             self._ready.set()
 
+    def _disable_after_budget(self, budget: float) -> None:
+        """Watchdog: construction blew its ceiling. Disable for the process —
+        later results are still admitted once set (the work is done either
+        way), but no caller waits and the log names the wall."""
+        with self._lock:
+            if self._instance is not None or self._disabled:
+                return
+            self._disabled = True
+        print(
+            f"[memory] init exceeded {budget:.0f}s — long-term memory "
+            f"DISABLED for this process (calls degrade to defaults). "
+            f"Fix the embedder/network or raise {_INIT_BUDGET_ENV}.",
+            flush=True,
+        )
+
     def _get(self, timeout: float) -> Any | None:
-        if self._instance is not None:
-            return self._instance
+        # Disabled check FIRST: after the init watchdog fires, the process
+        # stays honest even if the zombie construction eventually lands.
         if self._disabled:
             return None
+        if self._instance is not None:
+            return self._instance
         self.warmup()
         if self._ready.wait(timeout):
             return None if self._disabled else self._instance

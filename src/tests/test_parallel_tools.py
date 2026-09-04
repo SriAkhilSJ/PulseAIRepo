@@ -14,6 +14,7 @@ end-to-end pins (bare ToolNode.invoke dies outside compile, §27).
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -562,3 +563,50 @@ def test_mixed_batch_known_calls_stay_durable(tmp_path, monkeypatch):
     assert [m.name for m in msgs] == ["slow_a", "mystery"], "input order preserved"
     assert msgs[0].content == "slow_a:1" and msgs[0].status != "error"
     assert msgs[1].status == "error" and "not a valid tool" in msgs[1].content
+
+
+def test_auth_dead_provider_circuit_breaker():
+    """One 401 must not cost a doomed round trip on EVERY future call: the
+    pair is marked auth-dead for the process and routing skips it (owner log
+    2026-09-04: three 401+failover round trips per turn on a dead groq key)."""
+    import src.graphs.chat_graph as cg
+
+    class AuthenticationError(Exception):
+        pass  # same type NAME the provider SDKs raise
+
+    cg._AUTH_DEAD_PROVIDERS.clear()
+    assert cg._mark_auth_dead("groq", "llama", AuthenticationError("401")) is True
+    assert ("groq", "llama") in cg._AUTH_DEAD_PROVIDERS
+    # non-auth failures never trip the breaker
+    assert cg._mark_auth_dead("x", "y", ValueError("boom")) is False
+    assert ("x", "y") not in cg._AUTH_DEAD_PROVIDERS
+    cg._AUTH_DEAD_PROVIDERS.clear()
+
+
+def test_memory_init_watchdog_displaces_zombie_backend(monkeypatch):
+    """A backend that needs minutes (embedder download) must not sit half-
+    born under live turns: past PULSEAI_MEMORY_INIT_BUDGET_S the process
+    DISABLES memory (calls degrade instantly) and says so loudly."""
+    import time as _time
+    from src.context.lazy_memory import LazyMemoryManager
+
+    monkeypatch.setenv("PULSEAI_MEMORY_INIT_BUDGET_S", "0.05")
+    started = threading.Event()
+    release = threading.Event()
+
+    def _slow_factory():
+        started.set()
+        release.wait(5)
+        return object()
+
+    lazy = LazyMemoryManager(_slow_factory)
+    lazy.warmup()
+    assert started.wait(2)
+    # budget is 0.05s; by the time this poll sees it, the watchdog has fired
+    deadline = _time.monotonic() + 2
+    while _time.monotonic() < deadline and not lazy.disabled:
+        _time.sleep(0.01)
+    assert lazy.disabled, "watchdog must disable memory past the init budget"
+    # calls degrade instantly instead of waiting
+    assert lazy.store_task_completion(task="t") is None
+    release.set()

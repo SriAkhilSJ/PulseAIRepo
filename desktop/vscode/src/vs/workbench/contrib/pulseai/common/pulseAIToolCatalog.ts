@@ -36,7 +36,9 @@ const tool = (title: string, family: PulseAIToolRendererFamily, icon: string, de
 	// for the same call. `browser/pulseAIIcons.ts` turns these names into filled SVGs where Hermes
 	// has solid paths and falls back to the codicon font otherwise -- upstream's rule, verbatim.
 export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentation>> = {
-	think: tool('Think', 'control', 'brain'),
+	// Hermes ThinkingDisclosure: live reasoning is VISIBLE (open), a settled
+	// thought collapses to one quiet row. 'running' gives exactly that.
+	think: tool('Think', 'control', 'brain', 'running'),
 	verify: tool('Verify', 'verification', 'check', 'running'),
 	ask_user: tool('Question', 'control', 'question', 'running'),
 	session_search: tool('Search sessions', 'session', 'history'),

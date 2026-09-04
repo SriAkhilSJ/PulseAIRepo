@@ -1004,6 +1004,22 @@ def ai_node(
     except Exception:
         pass  # diagnostics never block the call
 
+    # Circuit breaker: a provider that failed auth earlier in this process is
+    # skipped BEFORE the doomed request (each 401 round trip cost the owner
+    # seconds on every call of every turn).
+    if (provider, model) in _AUTH_DEAD_PROVIDERS and (provider, model) != (base_provider, base_model):
+        print(
+            f"[ai_node] auth-dead provider skipped: {provider}/{model} "
+            f"-> {base_provider}/{base_model} (circuit breaker)"
+        )
+        provider, model = base_provider, base_model
+        llm = get_llm(provider=provider, model=model)
+        llm_with_tools = (
+            llm if execution_mode == "ask"
+            else llm.bind_tools(_resolve_bound_tools(state, config))
+        )
+        call_llm = llm_with_tools
+
     # RetryLLMProxy.invoke() owns request-scoped abort registration for every
     # model path. Keep the active-session binding at the turn boundary; clearing
     # it here would make later planner/classifier requests uninterruptible.
@@ -1030,6 +1046,11 @@ def ai_node(
             f"[ai_node] provider failover {provider}/{model} -> "
             f"{base_provider}/{base_model} ({type(exc).__name__})"
         )
+        if _mark_auth_dead(provider, model, exc):
+            print(
+                f"[ai_node] {provider}/{model} marked AUTH-DEAD for this "
+                "process; future turns skip straight to failover"
+            )
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
         llm_with_tools = (
@@ -1203,6 +1224,10 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             steps_completed=steps_completed,
             plan=plan,
         )
+        print(
+            "[turn] memory store done (degraded=no-op if backend cold)",
+            flush=True,
+        )
     try:
         engine = get_context_engine(config)
         if state.get("failed_steps") or unverified:
@@ -1227,6 +1252,12 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     lines: list[str] = []
     task_display = current_task[:70] if current_task else "Task"
     did_work = bool(steps_completed or failed_steps or unverified)
+    print(
+        "[turn] finalize entered: "
+        f"steps={len(steps_completed)} failed={len(failed_steps)} "
+        f"unverified={unverified}",
+        flush=True,
+    )
     if did_work and unverified:
         lines.append(f"## ⚠️ Ended unverified: {task_display}")
         lines.append("")
@@ -1304,6 +1335,11 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
     })
 
+    print(
+        "[turn] finalize done: "
+        + ("unverified" if unverified else "failed" if failed_steps else "completed"),
+        flush=True,
+    )
     return {
         "plan": plan,
         "task_completed": task_succeeded,
@@ -1328,6 +1364,22 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 # the historical single end-chunk -- nothing is lost either way.
 # ---------------------------------------------------------------------------
 _TURN_LAST_CALL_STREAMED: dict[str, bool] = {}
+
+# Auth-dead providers (hermes-style circuit breaker): a 401 never heals
+# mid-session, yet the router kept re-proposing the dead provider on EVERY
+# call — each turn paying a doomed request + failover round trip (owner log
+# 2026-09-04: three `attempt 1/5 ... 401 Invalid API Key` lines per turn).
+# One strike marks the pair; routing skips it until process restart.
+_AUTH_DEAD_PROVIDERS: set[tuple[str, str]] = set()
+
+
+def _mark_auth_dead(provider: str, model: str, exc: BaseException) -> bool:
+    """True when `exc` is an authentication failure worth breaking the
+    circuit on. Type-name based so no provider SDK import is needed."""
+    if f"{type(exc).__name__}" not in {"AuthenticationError", "PermissionDeniedError"}:
+        return False
+    _AUTH_DEAD_PROVIDERS.add((str(provider or ""), str(model or "")))
+    return True
 
 
 from langchain_core.callbacks import BaseCallbackHandler
