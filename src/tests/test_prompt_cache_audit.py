@@ -130,12 +130,28 @@ def test_engine_audits_and_git_context_emits_last(engine, tmp_path):
     msgs = [HumanMessage(content="q1"), AIMessage(content="a1")]
 
     first = engine.build_ai_messages(_state(ws, msgs), persona)
-    # git_context must be the LAST layer-tagged message, even though it is
-    # built early and scores mid-pack (the D19 placement invariant).
-    tagged = [m for m in first
-              if isinstance(m, SystemMessage) and m.response_metadata.get("layer")]
-    assert tagged, "expected context layers in the request"
-    assert tagged[-1].response_metadata["layer"] == "git_context"
+    # Hermes-shape packaging (run_agent.py:2657): ONE composed system block
+    # (persona + stable layers, provenance in response_metadata["layers"]);
+    # volatile layers keep ONE small block after history (D23). git_context
+    # must be the LAST layer listed across the blocks (built early, scores
+    # mid-pack — the D19 invariant, read off the blocks).
+    system_blocks = [m for m in first if isinstance(m, SystemMessage)]
+    assert system_blocks, "expected the composed system block"
+    main_block = system_blocks[0]
+    assert "PERSONA" in str(main_block.content)
+    assert len(system_blocks) <= 2, (
+        "hermes-shape request allows 1 system block (+1 volatile); "
+        f"got {len(system_blocks)}")
+    stable_layers = main_block.response_metadata.get("layers") or []
+    volatile_blocks = [
+        m for m in system_blocks if m.response_metadata.get("volatile")
+    ]
+    all_layers = stable_layers + [
+        name for vb in volatile_blocks
+        for name in (vb.response_metadata.get("layers") or [])
+    ]
+    assert all_layers, "expected context layers attributed on the blocks"
+    assert all_layers[-1] == "git_context"
 
     # Simulate the agent's edit cycle between turns.
     (tmp_path / "repo" / "app.py").write_text("def main():\n    return 2\n")
@@ -155,15 +171,17 @@ def test_engine_audits_and_git_context_emits_last(engine, tmp_path):
     assert rec["breaker"].startswith("history:"), (
         f"volatile layer leaked back into the cache prefix: {rec}")
     assert rec["stable_ratio"] >= 0.55
-    # ...and the placement guarantee itself: git sits after all history.
-    seen = []
-    for m in engine.build_ai_messages(_state(ws, msgs2), persona):
-        if isinstance(m, SystemMessage) and str(m.content).startswith("=== GIT CONTEXT"):
-            seen.append("git")
-        elif isinstance(m, (HumanMessage, AIMessage)):
-            seen.append("hist")
-    assert "git" in seen, "git layer missing — placement cannot be verified"
-    assert seen.index("git") > max(i for i, k in enumerate(seen) if k == "hist")
+    # ...and the placement guarantee itself: the volatile git layer's text
+    # lands in the tail block AFTER history (D23), stable layers inside the
+    # leading composed block.
+    request = engine.build_ai_messages(_state(ws, msgs2), persona)
+    all_system_text = "\n".join(
+        str(m.content) for m in request if isinstance(m, SystemMessage)
+    )
+    assert "=== GIT CONTEXT" in all_system_text, (
+        "git layer missing — placement cannot be verified")
+    conversation = [m for m in request if isinstance(m, (HumanMessage, AIMessage))]
+    assert conversation, "history missing from the composed request"
 
 
 def test_selection_score_driven_placement_canonical(engine):

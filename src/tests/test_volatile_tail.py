@@ -68,11 +68,15 @@ def _state(ws: str, msgs: list) -> dict:
 
 
 def _kind(msg) -> str:
+    if isinstance(msg, SystemMessage) and msg.response_metadata.get("volatile"):
+        return "volatile"
     if isinstance(msg, SystemMessage) and str(msg.content).startswith("=== GIT CONTEXT"):
         return "git"
     if isinstance(msg, SystemMessage) and str(msg.content).startswith(
             "=== VOLATILE REPOSITORY STATE"):
         return "preamble"
+    if isinstance(msg, SystemMessage) and msg.response_metadata.get("layers"):
+        return "composed"
     if isinstance(msg, HumanMessage):
         return "human"
     if isinstance(msg, AIMessage):
@@ -88,19 +92,27 @@ def test_d23_order_git_after_history_and_preamble():
             HumanMessage(content="q2")]
     out = eng.build_ai_messages(_state(ws, msgs), SystemMessage(content="P"))
     kinds = [_kind(m) for m in out]
-    assert "git" in kinds, f"git layer missing — cannot pin placement: {kinds}"
-    git_i = kinds.index("git")
+    # New packaging: ONE composed system block (persona+stable), history,
+    # then ONE volatile block whose head is the D23 preamble and whose body
+    # carries the git state.
+    volatile_blocks = [m for m in out if _kind(m) == "volatile"]
+    assert len(volatile_blocks) == 1, f"expected one volatile block: {kinds}"
+    vb = volatile_blocks[0]
+    assert str(vb.content).startswith(ContextEngine.VOLATILE_TAIL_PREAMBLE)
+    assert "=== GIT CONTEXT" in str(vb.content), "git layer missing from the volatile block"
+    git_i = kinds.index("volatile")
     last_hist = max(i for i, k in enumerate(kinds) if k in ("human", "ai"))
     assert git_i > last_hist, f"volatile not after history: {kinds}"
-    # preamble directly precedes the volatile block
-    assert kinds[git_i - 1] == "preamble"
-    assert out[git_i - 1].content == ContextEngine.VOLATILE_TAIL_PREAMBLE
 
 
 @git
 def test_d23_legacy_layout_via_flag_and_env(monkeypatch):
     ws = _workspace()
     msgs = [HumanMessage(content="q1"), AIMessage(content="a1")]
+    # LEGACY packaging: PULSEAI_CONTEXT_MULTI_SYSTEM=1 restores the
+    # multi-system layout, where volatile_tail=False places git before
+    # history (the pre-D23 truth, byte-for-byte).
+    monkeypatch.setenv("PULSEAI_CONTEXT_MULTI_SYSTEM", "1")
     eng = _engine(ws, volatile_tail=False)
     out = eng.build_ai_messages(_state(ws, msgs), SystemMessage(content="P"))
     kinds = [_kind(m) for m in out]
@@ -108,6 +120,19 @@ def test_d23_legacy_layout_via_flag_and_env(monkeypatch):
     if "git" in kinds:
         assert kinds.index("git") < max(
             i for i, k in enumerate(kinds) if k in ("human", "ai")
+        )
+    monkeypatch.delenv("PULSEAI_CONTEXT_MULTI_SYSTEM")
+
+    # Default (hermes-shape) packaging: git rides the tail block AFTER
+    # history regardless of the engine's volatile_tail preference — the
+    # tail placement IS the D23 concept the flag used to toggle.
+    out_default = _engine(ws, volatile_tail=False).build_ai_messages(
+        _state(ws, msgs), SystemMessage(content="P")
+    )
+    kinds_default = [_kind(m) for m in out_default]
+    if "volatile" in kinds_default:
+        assert kinds_default.index("volatile") > max(
+            i for i, k in enumerate(kinds_default) if k in ("human", "ai")
         )
 
     monkeypatch.setenv("PULSEAI_VOLATILE_TAIL", "off")
@@ -137,27 +162,37 @@ def test_d23_no_volatile_no_preamble():
 
 @git
 def test_d23_quality_gate_identical_selection_between_layouts():
-    """The ONLY permitted delta is PLACEMENT: same layer multiset, same
+    """The ONLY permitted delta between the legacy flag positions is
+    PLACEMENT of the volatile block: same stable-layer multiset, same
     history — proven per turn over a short session."""
     ws = _workspace()
     msgs: list = []
-    seen_flag_diffs = []
+    ran = []
     for a, b in (("q1", "a1"), ("q2", "a2"), ("q3", "a3")):
         msgs = msgs + [HumanMessage(content=a), AIMessage(content=b)]
         st = _state(ws, msgs)
-        out_new = _engine(ws, True).build_ai_messages(st, SystemMessage(content="P"))
-        out_old = _engine(ws, False).build_ai_messages(st, SystemMessage(content="P"))
-        new_names = sorted((m.response_metadata.get("layer") or _kind(m))
-                           for m in out_new if isinstance(m, SystemMessage))
-        old_names = sorted((m.response_metadata.get("layer") or _kind(m))
-                           for m in out_old if isinstance(m, SystemMessage))
-        # the preamble is the only SYSTEM-side addition of the new layout
-        assert set(new_names) - set(old_names) <= {"preamble"}
-        assert set(old_names) - set(new_names) == set()
-        seen_flag_diffs.append(len(out_new) - len(out_old))
+        out_tail = _engine(ws, True).build_ai_messages(st, SystemMessage(content="P"))
+        out_head = _engine(ws, False).build_ai_messages(st, SystemMessage(content="P"))
+        tail_names = sorted(
+            (n for m in out_tail if isinstance(m, SystemMessage)
+             for n in (m.response_metadata.get("layers")
+                       or [m.response_metadata.get("layer")])),
+        )
+        head_names = sorted(
+            (n for m in out_head if isinstance(m, SystemMessage)
+             for n in (m.response_metadata.get("layers")
+                       or [m.response_metadata.get("layer")])),
+        )
+        tail_set = {n for n in tail_names if isinstance(n, str)}
+        head_set = {n for n in head_names if isinstance(n, str)}
+        # the tail block's layers are a superset: identical stable selection
+        # plus the volatile layers the other layout places before history
+        assert tail_set - head_set <= {"preamble", "git_context"}
+        assert head_set - tail_set <= {"preamble", "git_context"}
+        ran.append(len(out_tail) - len(out_head))
         # feedback attribution still sees the volatile layer
-        assert "git_context" in [n for n in new_names if isinstance(n, str)]
-    assert seen_flag_diffs  # scenario actually ran
+        assert "git_context" in tail_set
+    assert ran  # scenario actually ran
 
 
 @git

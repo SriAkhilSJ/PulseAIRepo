@@ -168,17 +168,22 @@ def test_copilot_webview_host_is_a_setting_and_fails_loudly():
         assert key in view, f"{key} must be read by the pane"
         assert f"'{key}'" in contribution, f"{key} must be declared, not merely read"
     # The default may exist only as a named constant -- never inline on the element,
-    # which is what made it unconfigurable in the first place.
+    # which is what made it unconfigurable in the first place. The default itself is
+    # 'local': the built SPA served same-origin. The workbench CSP frames only 'self'
+    # and vscode-webview:, so pinning the old dev-server literal as the default would
+    # ship a frame that is refused before it is asked; localhost:5173 survives only
+    # in the comments that explain why.
     assert "setAttribute('src', 'http://localhost:5173')" not in view
-    assert "const DEFAULT_COPILOT_WEBVIEW_URL = 'http://localhost:5173'" in view
+    assert "const DEFAULT_COPILOT_WEBVIEW_URL = 'local'" in view
     assert "frame.setAttribute('src', url)" in view
     # Off means off: the iframe must not be built at all, so the native renderer
     # gets the whole pane instead of 50% of it.
     disabled_guard = view.index("copilotWebview.enabled') === false")
     assert "return;" in view[disabled_guard:disabled_guard + 200]
-    # And a dead URL is a message, not a blank rectangle.
+    # And a dead URL is a message, not a blank rectangle: the honest fix for a
+    # missing pane is the built SPA, not a dev server that may not be running.
     assert "pulseai-webview-unreachable" in view
-    assert "npm run dev" in view
+    assert "npm run build" in view
     # The load event is the only honest success signal, so the watchdog is cancelled
     # on dispose rather than left to fire into torn-down DOM.
     assert "watchdog.cancel()" in view

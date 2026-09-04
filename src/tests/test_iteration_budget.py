@@ -103,8 +103,11 @@ def test_ai_node_grace_call_when_exhausted(monkeypatch):
     assert llm.bound is not None, "bind_tools still prepared a bound client"
     assert llm.sent_messages is not None, "unbound proxy served the grace call"
     assert llm.bound.sent_messages is None, "bound client must NOT have been invoked"
-    assert "PERSONA" in [m.content for m in llm.sent_messages]
-    assert any("iteration budget" in m.content for m in llm.sent_messages), "grace nudge"
+    # Hermes shape: one fused system block carries persona + layers + grace
+    # nudge, so receipt is by substring, not exact block equality.
+    assert any("PERSONA" in str(m.content) for m in llm.sent_messages), "persona survives the fuse"
+    assert any("iteration budget" in str(m.content) for m in llm.sent_messages), "grace nudge"
+    assert len([m for m in llm.sent_messages if m.type == "system"]) == 1, "one system block out the door"
     assert out["iteration_used"] == 2
     assert out["grace_done"] == 1
     assert "token_usage" in out

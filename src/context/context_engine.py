@@ -1262,12 +1262,68 @@ class ContextEngine(BaseContextEngine):
         self._maybe_emit_compaction_done(pre_compaction_stats)
         self._warn_overflow_if_blocked(trimmed_history, history_budget)
 
-        # 9. Assemble final (D23: volatile layers tail the whole prompt —
-        # system + stable layers + history becomes one long-lived cache
-        # prefix; only the small volatile block recomputes when it changes)
-        final_messages = [system_message] + self._position_volatile_tail(
-            context_messages, trimmed_history
-        )
+        # 9. Assemble final. Hermes request shape (run_agent.py:2657): ONE
+        # composed system message + the conversation. Persona + STABLE layers
+        # fold into that single block (stable provider cache prefix; "hi" =
+        # 1 system + 1 user, not seven system blocks). The VOLATILE layers
+        # (hot per-turn state like git_context) keep ONE small block placed
+        # after history — folding them into block #0 churned the whole
+        # prefix on every repo edit (cache audit caught it: breaker persona
+        # instead of history). D23's ordering intent is preserved: stable
+        # first, volatile nearest generation. PULSEAI_CONTEXT_MULTI_SYSTEM=1
+        # (read per call) restores the legacy multi-system packaging.
+        multi_system = os.environ.get(
+            "PULSEAI_CONTEXT_MULTI_SYSTEM", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if multi_system:
+            final_messages = [system_message] + self._position_volatile_tail(
+                context_messages, trimmed_history
+            )
+        else:
+            stable: list[SystemMessage] = []
+            volatile: list[SystemMessage] = []
+            for msg in context_messages:
+                if layer_policy.infer_layer_name(msg) in layer_policy.VOLATILE_LAYERS:
+                    volatile.append(msg)
+                else:
+                    stable.append(msg)
+            parts = [str(getattr(system_message, "content", "") or "")]
+            for layer in stable:
+                text = str(getattr(layer, "content", "") or "")
+                if text.strip():
+                    parts.append(text)
+            composed = SystemMessage(content="\n\n".join(parts))
+            composed.additional_kwargs = dict(
+                getattr(system_message, "additional_kwargs", {}) or {}
+            )
+            # Provenance rides the block: layer names in send order, so the
+            # cache audit / feedback attribution keep their contract.
+            composed.response_metadata = {
+                **dict(getattr(system_message, "response_metadata", {}) or {}),
+                "layers": [layer_policy.infer_layer_name(m) for m in stable],
+            }
+            tail_messages: list = []
+            volatile_texts = [
+                str(getattr(layer, "content", "") or "")
+                for layer in volatile
+                if str(getattr(layer, "content", "") or "").strip()
+            ]
+            if volatile_texts:
+                # The D23 honesty preamble rides the block's head: the
+                # labeled-state-block contract is preserved.
+                volatile_block = SystemMessage(
+                    content="\n\n".join(
+                        [self.VOLATILE_TAIL_PREAMBLE, *volatile_texts]
+                    )
+                )
+                volatile_block.response_metadata = {
+                    "layers": [
+                        layer_policy.infer_layer_name(m) for m in volatile
+                    ],
+                    "volatile": True,
+                }
+                tail_messages = [volatile_block]
+            final_messages = [composed, *trimmed_history, *tail_messages]
 
         # 10. Cache for next turn
         self._last_state_hash = current_hash

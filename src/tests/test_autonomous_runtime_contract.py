@@ -18,6 +18,53 @@ def test_lazy_memory_does_not_construct_until_first_method_call():
     manager = LazyMemoryManager(lambda: calls.append("constructed") or Memory())
     assert calls == []
     assert manager.initialized is False
+
+
+def test_fuse_system_head_merges_only_leading_system_blocks(monkeypatch):
+    """Hermes :2657 shape: exactly one system message leaves the door. Only
+    the LEADING run of system blocks fuses; a block after history (out-of-band
+    steer) is never touched, and the kill-switch restores the legacy request."""
+    from src.graphs import chat_graph
+
+    monkeypatch.delenv("PULSEAI_CONTEXT_MULTI_SYSTEM", raising=False)
+    msgs = [
+        SystemMessage(content="PERSONA", response_metadata={"layers": ["persona"]}),
+        SystemMessage(content="=== SAFETY GUARD ==="),
+        HumanMessage(content="hi"),
+        SystemMessage(content="=== OUT-OF-BAND USER STEER ==="),
+    ]
+    out = chat_graph._fuse_system_head(msgs)
+    assert [m.type for m in out] == ["system", "human", "system"]
+    assert out[0].content == "PERSONA\n\n=== SAFETY GUARD ==="
+    assert out[0].response_metadata["layers"] == ["persona"]
+    assert out[0].response_metadata["fused_system_blocks"] == 2
+    assert out[2].content == "=== OUT-OF-BAND USER STEER ==="
+
+    # a single leading system is already hermes-shaped: untouched
+    one = chat_graph._fuse_system_head(
+        [SystemMessage(content="only"), HumanMessage(content="x")]
+    )
+    assert [m.type for m in one] == ["system", "human"]
+    assert one[0].content == "only"
+
+    # kill-switch: legacy multi-system request preserved byte-for-byte
+    monkeypatch.setenv("PULSEAI_CONTEXT_MULTI_SYSTEM", "1")
+    legacy = chat_graph._fuse_system_head(
+        [SystemMessage(content="PERSONA"), SystemMessage(content="=== SAFETY GUARD ==="),
+         HumanMessage(content="hi")]
+    )
+    assert [m.type for m in legacy] == ["system", "system", "human"]
+    assert [m.type for m in legacy] == ["system", "system", "human"]
+
+
+def test_lazy_memory_constructs_on_first_method_call():
+    calls = []
+
+    class Memory:
+        def retrieve_relevant_memories(self, query, top_k=2):
+            return [{"query": query}]
+
+    manager = LazyMemoryManager(lambda: calls.append("constructed") or Memory())
     assert manager.retrieve_relevant_memories("task") == [{"query": "task"}]
     assert calls == ["constructed"]
     assert manager.initialized is True
@@ -161,10 +208,16 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
 
     assert captured["tools"] == ["write_file"]
     assert {"max_tokens": 4096} in captured["binds"]
+    # Hermes request shape (run_agent.py:2657): ONE system message + the
+    # conversation. Runtime prefixes (CopilotKit guard, safety guard, Windows
+    # terminal platform) fuse into the head block before the provider call.
     assert [message.type for message in captured["messages"]] == [
-        "system", "system", "system", "human"
+        "system", "human"
     ]
-    assert "Windows cmd.exe" in captured["messages"][-2].content
+    assert len([m for m in captured["messages"] if m.type == "system"]) == 1
+    system_block = captured["messages"][0]
+    assert "Windows cmd.exe" in system_block.content
+    assert system_block.response_metadata.get("fused_system_blocks", 1) >= 3
     assert captured["messages"][-1].content == task
     assert result["iteration_used"] == 1
 
@@ -199,8 +252,10 @@ def test_autonomous_initial_prompt_has_one_user_tail_and_no_style_conflicts(tmp_
         system_message=chat_graph.autonomous_system_message,
     )
     chat_graph._insert_system_prefix(messages, "DIRECT DELIVERY")
+    messages = chat_graph._fuse_system_head(messages)
 
-    assert [message.type for message in messages] == ["system", "system", "human"]
+    # One fused system block + the single user tail (hermes :2657).
+    assert [message.type for message in messages] == ["system", "human"]
     combined = "\n".join(str(message.content) for message in messages[:-1]).lower()
     assert "explain your reasoning before taking action" not in combined
     assert "start with a high-level overview" not in combined

@@ -35,9 +35,22 @@ def test_ask_never_routes_an_unsolicited_tool_call_to_execution():
     assert should_continue(state) == "finalize"
 
 
-def test_plan_still_previews_instead_of_executing():
+def test_plan_mode_reasons_in_loop_instead_of_engine_preview():
+    """PLAN MODE is a prompt, not an engine (chat_graph planner: hermes
+    parity, and the 'hi' costing two provider calls fix): plan requests feed
+    the live agent the plan prompt and the model reaches the list through
+    plan_update inside the loop. The preview node survives for the
+    approve-a-plan reviser flow, but the planner no longer routes to it."""
     assert after_task_manager({"execution_mode": "plan", "task_action": "new"}) == "planner"
-    assert after_planner({"execution_mode": "plan"}) == "plan_preview"
+    assert after_planner({"execution_mode": "plan"}) == "ai"
+    # the preview surface still exists behind plan_reviser
+    builder_edges = chat_graph_builder_plan_preview_edge_intact()
+    assert builder_edges is True
+
+
+def chat_graph_builder_plan_preview_edge_intact() -> bool:
+    from src.graphs.chat_graph import builder
+    return ("plan_reviser", "plan_preview") in set(builder.edges)
 
 
 def test_agent_and_debug_continue_through_execution_path():

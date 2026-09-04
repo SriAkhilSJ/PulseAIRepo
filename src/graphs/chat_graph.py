@@ -722,6 +722,44 @@ def _insert_system_prefix(messages: list, content: str) -> None:
     messages.insert(index, SystemMessage(content=content))
 
 
+def _fuse_system_head(messages: list) -> list:
+    """Hermes request shape (run_agent.py:2657): ONE system message, then the
+    conversation. Runtime prefixes (mode banner, CopilotKit context, safety
+    guard, terminal platform, grace nudge) are inserted as separate
+    SystemMessages for assembly clarity; before the provider call they fuse
+    into the head block so the request leaves as a single system + history —
+    one stable cache prefix, exactly hermes' `effective_system`. Blocks after
+    the first non-system role (e.g. out-of-band steers) are never touched.
+    PULSEAI_CONTEXT_MULTI_SYSTEM=1 (read per call) keeps the legacy
+    multi-system request.
+    """
+    if os.environ.get(
+        "PULSEAI_CONTEXT_MULTI_SYSTEM", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}:
+        return messages
+    k = 0
+    while (
+        k + 1 < len(messages)
+        and getattr(messages[k + 1], "type", "") == "system"
+    ):
+        k += 1
+    if k == 0:
+        return messages
+    base = messages[0]
+    texts = [str(getattr(m, "content", "") or "") for m in messages[:k + 1]]
+    merged = SystemMessage(content="\n\n".join(t for t in texts if t.strip()))
+    merged.additional_kwargs = dict(
+        getattr(base, "additional_kwargs", {}) or {}
+    )
+    # Provenance: the engine's layer names ride along untouched; the runtime
+    # prefixes are not engine layers, so they only announce their count.
+    merged.response_metadata = {
+        **dict(getattr(base, "response_metadata", {}) or {}),
+        "fused_system_blocks": k + 1,
+    }
+    return [merged, *messages[k + 1:]]
+
+
 def ai_node(
     state: AgentState,
     config: RunnableConfig,
@@ -917,6 +955,10 @@ def ai_node(
         # a full budget run (54 calls) and died on the FAREWELL call.
         # Drop tool pairs so the no-tools request is a clean text chat.
         messages = _drop_tool_pairs(messages)
+
+    # Hermes request shape: exactly one system message leaves the door (see
+    # _fuse_system_head). The anatomy log below then reports the TRUE request.
+    messages = _fuse_system_head(messages)
 
     # Prefill visibility (owner runs: 33s 'hi', 3:12 after a two-tool turn --
     # nobody could say whether the whale was ours or the endpoint's). One
