@@ -3410,14 +3410,60 @@ class SafeToolNode:
             return _with_repaired(self._node.invoke(state, config)["messages"])
         if all(tc.get("name", "") in self._tools_by_name for tc in tool_calls):
             return _with_repaired(self._execute_durable(tool_calls, config))
-        # Unknown names remain ToolNode's responsibility so its canonical
-        # validation error and tool-call pairing behavior are preserved.
-        if _repaired_ai is not None:
-            state = dict(state)
-            state["messages"] = messages[:-1] + [_repaired_ai]
-        if not _tc.admit_action(_cfg_sid):
-            return _cancelled_result()
-        return _with_repaired(self._node.invoke(state, config)["messages"])
+
+        # Mixed/unknown batch: KNOWN calls keep the durable chokepoint; an
+        # UNKNOWN name answers with ToolNode's canonical validation text —
+        # but through the same middleware (`_durable_denial`), not through
+        # ToolNode itself. Lifecycle invariant: stream_agent emits `tool.call`
+        # for EVERY model-proposed call before this node runs, so every call
+        # must end with a `tool.result` frame. An unknown singleton used to
+        # vanish into ToolNode with NO end event — the card stayed
+        # "Running <tool>…" forever and the turn read as hung while the graph
+        # moved on (owner report #4, 2026-09-04: three cards never closed,
+        # "❌ Tool failed" ×3, activity row ran for the life of the turn).
+        try:
+            # ToolNode's exact template when available; pinned fallback keeps
+            # the contract if langgraph moves it.
+            from langgraph.prebuilt.tool_node import (
+                INVALID_TOOL_NAME_ERROR_TEMPLATE,
+            )
+        except Exception:
+            INVALID_TOOL_NAME_ERROR_TEMPLATE = (
+                "Error: {requested_tool} is not a valid tool, "
+                "try one of [{available_tools}]."
+            )
+        known = [tc for tc in tool_calls if tc.get("name", "") in self._tools_by_name]
+        unknown = [tc for tc in tool_calls if tc.get("name", "") not in self._tools_by_name]
+        results_by_id: dict = {}
+        if known:
+            for m in self._execute_durable(known, config):
+                results_by_id[m.tool_call_id] = m
+        if unknown:
+            if not _tc.admit_action(_cfg_sid):
+                return _cancelled_result()
+            available = ", ".join(self._tools_by_name.keys())
+            for tc in unknown:
+                canonical = INVALID_TOOL_NAME_ERROR_TEMPLATE.format(
+                    requested_tool=tc.get("name", ""), available_tools=available,
+                )
+                results_by_id[tc.get("id", "")] = self._durable_denial(
+                    tc, canonical, config,
+                )
+        # Pairing integrity: every proposed call gets a terminal ToolMessage,
+        # in input order. A missing slot would desync the model's next turn.
+        for tc in tool_calls:
+            if tc.get("id", "") not in results_by_id:
+                results_by_id[tc.get("id", "")] = ToolMessage(
+                    content=(
+                        f"⛔ Tool `{tc.get('name', '')}` produced no terminal "
+                        "receipt (executor dropped the slot)."
+                    ),
+                    tool_call_id=tc.get("id", ""), name=tc.get("name", ""),
+                    status="error",
+                )
+        return _with_repaired(
+            [results_by_id[tc["id"]] for tc in tool_calls]
+        )
 
 tool_node = SafeToolNode(tools, SafetyGuard())
 

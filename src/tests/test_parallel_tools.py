@@ -499,3 +499,66 @@ def test_without_auto_approve_overwrite_still_flagged(tmp_path, monkeypatch):
         "write_file", {"path": "keep.txt", "content": "new"})
     assert ok is False
     assert "overwrite" in warning.lower()
+
+
+# ---------------------------------------- lifecycle pin (owner report #4)
+def test_unknown_singleton_emits_tool_result_event(tmp_path, monkeypatch):
+    """Owner report #4 (2026-09-04): three tool cards stuck on "Running …" for
+    the life of the turn, activity row loading "life long". Root cause: an
+    unknown-name SINGLETON fell through to langgraph ToolNode, which pairs the
+    model's ToolMessage but emits NO `tool.result` event — the renderer saw
+    tool_call_start and nothing else, so the card could never close. Pin:
+    EVERY proposed call, known or not, ends its lifecycle on the bus, and the
+    end frame carries the same tool id the start frame used."""
+    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    from src.dashboard.event_bus import event_bus
+    q = event_bus.subscribe(None)
+    try:
+        # drain the subscriber replay so only NEW events count
+        while True:
+            try:
+                q.get_nowait()
+            except Exception:
+                break
+        tools = [_mk("slow_a", 0.0)]
+        node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
+        out = _reach_node(node, _state(_calls(("mystery", {}))), _cfg(tmp_path))
+        msgs = [m for m in out["messages"] if isinstance(m, ToolMessage)]
+        assert len(msgs) == 1, "unknown singleton must pair exactly one ToolMessage"
+        assert msgs[0].status == "error"
+        assert "not a valid tool" in msgs[0].content, "canonical ToolNode text preserved"
+    finally:
+        event_bus.unsubscribe(q)
+    ends = []
+    while True:
+        try:
+            item = q.get_nowait()
+        except Exception:
+            break
+        if isinstance(item, dict) and item.get("type") == "tool.result":
+            ends.append(item)
+    assert ends, (
+        "tool.result MISSING for an unknown-name singleton — the renderer card "
+        "would stick on Running forever (owner report #4 regression)"
+    )
+    # The end frame must carry the SAME tool id the model proposed, so the
+    # renderer matches it against its open card. (The START frame is emitted
+    # by stream_agent before this node runs; node-level pins own the end.)
+    assert any(
+        (e.get("payload") or {}).get("tool_id") == "tc0" for e in ends
+    ), f"id mismatch: {ends}"
+
+
+def test_mixed_batch_known_calls_stay_durable(tmp_path, monkeypatch):
+    """A batch of one KNOWN + one UNKNOWN call: the known call must still go
+    through the durable path (journal + tool.result) and the unknown through
+    the canonical error — both terminal, input order preserved."""
+    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    tools = [_mk("slow_a", 0.0)]
+    node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
+    out = _reach_node(node, _state(_calls(("slow_a", {"x": "1"}), ("mystery", {}))),
+                      _cfg(tmp_path))
+    msgs = [m for m in out["messages"] if isinstance(m, ToolMessage)]
+    assert [m.name for m in msgs] == ["slow_a", "mystery"], "input order preserved"
+    assert msgs[0].content == "slow_a:1" and msgs[0].status != "error"
+    assert msgs[1].status == "error" and "not a valid tool" in msgs[1].content
