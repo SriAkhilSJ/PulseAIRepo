@@ -518,7 +518,22 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		body.append(toolFields([['Runtime', 'Python 3.14'], ['Status', stateLabel(tool.state)]]));
 		body.append(element('pre', 'pulseai-tool-pre pulseai-terminal-output', boundedText(result ?? tool.arguments, 600).slice(0, 700)));
 	} else {
-		body.append(labeledPayload('Details', { arguments: tool.arguments, result: tool.result }));
+		// Generic families: a STRING result is model prose (think reasoning,
+		// salvage notes). Render it through the same markdown pass as
+		// assistant copy, inside the hermes expandable (cap + fade + chevron).
+		// The old raw JSON dump leaked `**Thinking:**` and \n escapes into
+		// the panel (owner verdict: disgusting). Arguments stay reachable,
+		// collapsed, honestly labeled.
+		const resultText = typeof tool.result === 'string' ? tool.result : '';
+		if (resultText.trim()) {
+			body.append(expandableOutput(markdownCopy(resultText)));
+			const argsDetails = element('details', 'pulseai-tool-args-details') as HTMLDetailsElement;
+			argsDetails.append(element('summary', 'pulseai-tool-args-summary', 'Arguments'));
+			argsDetails.append(labeledPayload('Arguments', tool.arguments));
+			body.append(argsDetails);
+		} else {
+			body.append(labeledPayload('Details', { arguments: tool.arguments, result: tool.result }));
+		}
 	}
 	const fileTarget = firstString(tool.arguments, ['path', 'file_path', 'resource']);
 	if (fileTarget && presentation.family !== 'file-read' && presentation.family !== 'file-write') {

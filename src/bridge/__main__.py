@@ -251,7 +251,16 @@ class BridgeServer:
                     event_session = str(
                         payload.get("session_id") or payload.get("thread_id") or ""
                     ) or None
-                    if event_session is not None and event_session != own_sid:
+                    # llm.request/llm.response are provider-call STATUS from
+                    # threads whose thread-local session binding may not match
+                    # the bridge session (field proof: the activity row sat on
+                    # the generic "Waiting on the model" text because these
+                    # frames were filtered out here). They are diagnostic, not
+                    # turn content — forward them; concurrency isolation stays
+                    # for everything user-visible.
+                    is_llm_status = str(event.get("type") or "").startswith("llm.")
+                    if (event_session is not None and event_session != own_sid
+                            and not is_llm_status):
                         continue
                 frame = self._project_event(event, identity)
                 if frame:

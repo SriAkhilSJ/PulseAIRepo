@@ -112,8 +112,10 @@ def test_ambiguous_messages_return_no_quick_decision(msg, monkeypatch):
     assert cg._quick_task_decision("build a login page", msg) is None or msg == ""
 
 
-def test_llm_path_still_taken_for_ambiguous(monkeypatch):
-    calls = {"n": 0}
+def test_ambiguous_by_default_skips_llm_opt_in_consults_once(monkeypatch):
+    """Hermes-parity default: an ambiguous instruction pays NO classifier
+    round-trip (field: "hello" paid one and the answer was unparseable).
+    PULSEAI_TASK_CLASSIFIER=on restores the consult-exactly-once lane."""
 
     class FakeLLM:
         # The classifier lane invokes RAW since the prose-salvage port (the
@@ -129,6 +131,19 @@ def test_llm_path_still_taken_for_ambiguous(monkeypatch):
                         '"build a login page with OAuth"}'
             )
 
+    calls = {"n": 0}
+    st = _state("now please also add OAuth to that login")
+    st["token_usage"] = cg._zero_token_usage()
+
+    # DEFAULT: no round-trip at all.
+    monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("default must not construct the classifier")))
+    out = cg.task_manager_node(st, _cfg())
+    assert out["task_action"] == "continue"
+    assert out["current_task"] == "build a login page", "task label preserved verbatim on skip"
+
+    # OPT-IN: consult the LLM exactly once.
+    monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "on")
     monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: FakeLLM())
     # record_call must return the REAL TokenUsage dataclass — the node
     # merges it with `+`, which reads .prompt_tokens off the addition
@@ -136,10 +151,8 @@ def test_llm_path_still_taken_for_ambiguous(monkeypatch):
     from src.context.token_tracker import TokenUsage
     monkeypatch.setattr(cg.TokenTracker, "record_call",
                         staticmethod(lambda *a, **k: TokenUsage(calls_made=1)))
-    st = _state("now please also add OAuth to that login")
-    st["token_usage"] = cg._zero_token_usage()
-    out = cg.task_manager_node(st, _cfg())
-    assert calls["n"] == 1, "ambiguous message must still consult the LLM"
+    out = cg.task_manager_node(_state("now please also add OAuth to that login"), _cfg())
+    assert calls["n"] == 1, "opt-in lane must consult the LLM exactly once"
     assert out["task_action"] == "continue"
     assert out["current_task"] == "build a login page with OAuth"
 

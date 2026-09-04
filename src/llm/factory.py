@@ -793,6 +793,24 @@ def default_request_timeout() -> float:
         return 60.0
 
 
+def _stream_stall_timeout() -> float:
+    """Per-attempt SILENCE budget for streaming calls (hermes run.py: extend
+    while tokens move — a fixed wall-clock punishes SLOW and HUNG equally,
+    and only silence is the enemy). On a streaming request the transport read
+    timeout is the gap BETWEEN received chunks, so sizing it to silence means
+    a slow-but-alive generation never trips it while a dead endpoint fails
+    the attempt within the budget. Field proof: the owner's endpoint hung
+    after a tool call and the generation-sized 180s timeout handed it 3
+    minutes of silent "Waiting on the model" per attempt. Env:
+    PULSEAI_LLM_STALL_TIMEOUT_S, default 45, clamp 10..300, read per call."""
+    raw = os.environ.get("PULSEAI_LLM_STALL_TIMEOUT_S", "")
+    try:
+        value = float(raw) if raw.strip() else 45.0
+    except (TypeError, ValueError):
+        value = 45.0
+    return max(10.0, min(value, 300.0))
+
+
 def streaming_enabled(default: bool) -> bool:
     """Token streaming on/off -- env-driven, read per client construction.
 
@@ -832,6 +850,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             api_key=GROQ_API_KEY,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            max_retries=0,  # hermes #54465: hidden SDK retries multiply wall time; RetryLLMProxy owns the policy
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -841,6 +860,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             api_key=GEMINI_API_KEY,
             timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            max_retries=0,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -851,6 +871,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             base_url="https://integrate.api.nvidia.com/v1",
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            max_retries=0,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -860,32 +881,36 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            max_retries=0,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "custom":
         streaming = streaming_enabled(default=True)
         try:
-            # Default sized to GENERATION length, not ping latency (hermes
+            # Sized to GENERATION length for NON-streaming calls (hermes
             # doctrine): a 100B-class model writing a large first response
-            # (Test 5: the GARGANTUA raytracer turn) legitimately needs
-            # >60s wall time when not streaming — the old 60s default killed
-            # exactly that turn twice (~122s = 2 attempts) and failed the
-            # run. Classifiers are unaffected: a timeout only matters when
-            # exceeded, and they return in seconds.
+            # legitimately needs >60s wall time when no stream is running.
             timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "180"))
         except (TypeError, ValueError):
             timeout = 180.0
-        effective_timeout = (
-            request_timeout if request_timeout is not None
-            else max(10.0, min(timeout, 300.0))
-        )
+        if request_timeout is not None:
+            effective_timeout = request_timeout
+        elif streaming:
+            # Streaming: the read timeout is the gap BETWEEN chunks — size it
+            # to SILENCE, not generation (hermes extend-while-tokens-move).
+            # The generation-sized 180s gave a hung endpoint 3 silent minutes
+            # per attempt (x attempts = the "died after a tool call" panel).
+            effective_timeout = _stream_stall_timeout()
+        else:
+            effective_timeout = max(10.0, min(timeout, 300.0))
         llm = ChatOpenAI(
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
             model=model,
             request_timeout=effective_timeout,
             streaming=streaming,
+            max_retries=0,  # hermes #54465: the proxy owns retries; SDK-hidden ones multiply wall time
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 

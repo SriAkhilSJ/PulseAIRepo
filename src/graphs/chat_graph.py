@@ -1959,19 +1959,15 @@ def task_manager_node(
         }
 
     # Hermes pipeline parity (run_conversation): ZERO model calls before the
-    # main one. In ask mode the classifier verdict cannot change the route —
-    # after_task_manager returns "ai" before ever reading task_action — so
-    # the round-trip was pure latency tax (owner field run: 14s of "Waiting
-    # on the model" before a simple listing request, then the classifier's
-    # answer was thrown away). Ask default: the free quick decision above,
-    # else "continue" with the active task preserved (the "unrelated"
-    # semantics, minus the round-trip). PULSEAI_TASK_CLASSIFIER (read per
-    # call): "on" = classify in every mode (legacy), "off" = in no mode;
-    # unset = ask skips, execute/plan keep the bounded classifier.
+    # main one — in EVERY mode, unless the owner opts back in with
+    # PULSEAI_TASK_CLASSIFIER=on (read per call). Field proof (agent-mode
+    # run): "hello" paid a classifier round-trip that returned an
+    # UNPARSEABLE answer and would have been used only as "continue" anyway;
+    # the free D30 quick decision above already owns acks and explicit
+    # resets. A new-task instruction still lands: the main model sees it and
+    # acts; only the task label may lag, which recovery/finalize reconcile.
     classifier_mode = os.environ.get("PULSEAI_TASK_CLASSIFIER", "").strip().lower()
-    if classifier_mode == "off" or (
-        state.get("execution_mode") == "ask" and classifier_mode != "on"
-    ):
+    if classifier_mode != "on":
         return {
             "current_task": current_task,
             "task_action": "continue",

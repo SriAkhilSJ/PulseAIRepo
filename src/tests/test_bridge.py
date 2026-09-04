@@ -293,7 +293,7 @@ def test_forwarder_keeps_sessionless_events_drops_other_sessions():
     server.emit = emitted.append
 
     q.put({"type": "llm.request", "payload": {"session_id": None, "model": "m"}})       # sessionless -> keep
-    q.put({"type": "llm.request", "payload": {"session_id": "other", "model": "m"}})    # other session -> drop
+    q.put({"type": "llm.request", "payload": {"session_id": "other", "model": "m"}})    # llm.* status -> keep (diagnostic bypass)
     q.put({"type": "llm.request", "payload": {"session_id": "own", "model": "m"}})      # own -> keep
     q.put({"type": "message.agent.chunk", "payload": {"text": "hi"}})                   # sessionless -> keep
     q.put({"type": "tool.call", "payload": {"session_id": "other", "name": "x"}})       # other -> drop
@@ -310,7 +310,7 @@ def test_forwarder_keeps_sessionless_events_drops_other_sessions():
     done.set(); t.join(timeout=2)
 
     kinds = [f["type"] for f in emitted]
-    assert kinds.count("llm.request") == 2, kinds      # sessionless + own kept, other dropped
+    assert kinds.count("llm.request") == 3, kinds      # sessionless + other (status bypass) + own
     assert kinds.count("token") == 1, kinds            # sessionless chunk kept
     assert "tool_call_start" not in kinds              # other session dropped
 

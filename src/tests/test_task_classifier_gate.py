@@ -1,14 +1,14 @@
-"""Pins for the ask-mode classifier gate (hermes pipeline parity).
+"""Pins for the hermes-parity classifier gate (post field-proof flip).
 
-hermes' run_conversation performs ZERO model calls before the main one.
-Pulse's ask mode paid a classifier round-trip whose verdict after_task_manager
-throws away (it returns "ai" before reading task_action) — the owner's field
-log showed 14s of "Waiting on the model" before a plain listing request.
+Field proof (owner agent-mode run): "hello" paid a classifier round-trip on
+the main-fallback route that returned an UNPARSEABLE answer and would have
+been used only as "continue" anyway. Hermes' run_conversation performs ZERO
+model calls before the main one — that is now the default in every mode.
 
 Contract (PULSEAI_TASK_CLASSIFIER read per call):
-  unset -> ask skips the classifier, execute/plan keep it (aux-budgeted)
-  "on"  -> classify in every mode (legacy)
-  "off" -> classify in no mode (quick free decision still runs first)
+  unset/off -> no classifier round-trip in any mode (free D30 quick decision
+               still owns acks and explicit resets)
+  "on"      -> classify in every mode (legacy), on the bounded aux budget
 """
 
 from __future__ import annotations
@@ -32,64 +32,46 @@ def _cfg() -> dict:
     return {"configurable": {"thread_id": "t-classifier-gate", "workspace": "."}}
 
 
-@pytest.fixture(autouse=True)
-def _no_real_llm(monkeypatch):
-    """Any classifier construction or invocation in a skipped lane is a bug."""
+def _forbid_classifier(monkeypatch):
     monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: (_ for _ in ()).throw(
         AssertionError("classifier LLM constructed on a skip path")))
-
-
-def test_ask_mode_skips_the_classifier_by_default(monkeypatch):
     monkeypatch.setattr(cg, "_invoke_task_decision", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("ask mode must not pay the classifier round-trip")))
+        AssertionError("classifier round-trip paid on a skip path")))
 
+
+def test_ask_mode_skips_by_default(monkeypatch):
+    _forbid_classifier(monkeypatch)
     out = cg.task_manager_node(_state("ask"), _cfg())
-
     assert out["task_action"] == "continue"
     assert out["current_task"] == "list the folders of the workspace"
-    assert out["iteration_used"] == 0
 
 
-def test_env_on_restores_classification_in_ask_mode(monkeypatch):
+def test_agent_mode_skips_by_default_too(monkeypatch):
+    """The field-proof lane: agent mode paid the call and threw the answer away."""
+    _forbid_classifier(monkeypatch)
+    out = cg.task_manager_node(_state("agent"), _cfg())
+    assert out["task_action"] == "continue"
+    assert out["current_task"] == "list the folders of the workspace"
+
+
+def test_env_on_restores_classification(monkeypatch):
     monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "on")
-    monkeypatch.setattr(
-        cg, "_task_manager_llm", lambda *a, **k: object()
-    )
+    monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: object())
     monkeypatch.setattr(
         cg, "_invoke_task_decision",
         lambda llm, messages: cg.TaskDecision(action="new", updated_task="brand new task"),
     )
 
-    out = cg.task_manager_node(_state("ask"), _cfg())
+    out = cg.task_manager_node(_state("agent"), _cfg())
 
     assert out["task_action"] == "new"
     assert out["current_task"] == "brand new task"
 
 
-def test_execute_mode_still_classifies_by_default(monkeypatch):
-    monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: object())
-    seen = {}
-
-    def fake_invoke(llm, messages):
-        seen["called"] = True
-        return cg.TaskDecision(action="continue", updated_task="list the folders of the workspace, now with details")
-
-    monkeypatch.setattr(cg, "_invoke_task_decision", fake_invoke)
-
-    out = cg.task_manager_node(_state("agent"), _cfg())
-
-    assert seen["called"], "execute mode keeps the (bounded) classifier"
-    assert out["task_action"] == "continue"
-    assert "now with details" in out["current_task"]
-
-
-def test_env_off_skips_even_in_execute_mode(monkeypatch):
+def test_env_off_is_an_explicit_alias_of_the_default(monkeypatch):
     monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "off")
-    monkeypatch.setattr(cg, "_invoke_task_decision", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("PULSEAI_TASK_CLASSIFIER=off must skip the round-trip")))
-
+    _forbid_classifier(monkeypatch)
     out = cg.task_manager_node(_state("agent"), _cfg())
-
     assert out["task_action"] == "continue"
 
 

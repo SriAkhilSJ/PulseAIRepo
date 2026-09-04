@@ -139,6 +139,10 @@ def test_task_manager_node_survives_prose_model(monkeypatch):
 
     import src.graphs.chat_graph as chat_graph
 
+    # The prose-salvage mechanism lives on the OPT-IN classifier lane
+    # (PULSEAI_TASK_CLASSIFIER=on); the hermes-parity default never reaches
+    # the LLM at all (covered by test_task_classifier_gate.py).
+    monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "on")
     monkeypatch.setattr(
         chat_graph, "_task_manager_llm",
         lambda provider, model: _FakeLLM("unrelated"),

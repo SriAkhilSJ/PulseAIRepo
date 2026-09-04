@@ -1170,4 +1170,12 @@
 }
 .pulseai-expandable-toggle:hover { opacity: 1; }
 .pulseai-expandable:not(.is-collapsed) .pulseai-expandable-toggle { transform: rotate(180deg); }
+/* Collapsed arguments drawer on generic tool cards (think & friends): the
+ * prose is the content; the raw call arguments are an audit trail. */
+.pulseai-tool-args-details { margin-top: 6px; }
+.pulseai-tool-args-summary {
+	cursor: pointer; opacity: .55; font-size: 11px; user-select: none;
+}
+.pulseai-tool-args-summary:hover { opacity: .85; }
+.pulseai-tool-args-details[open] .pulseai-tool-args-summary { opacity: .85; }
 .pulseai-elapsed { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }
