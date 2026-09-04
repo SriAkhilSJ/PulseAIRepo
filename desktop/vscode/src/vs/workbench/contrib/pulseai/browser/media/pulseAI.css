@@ -1213,3 +1213,141 @@
 	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pulseai-elapsed { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }
+
+
+/* ===========================================================================
+ * Hermes transcript skin (apps/desktop/src/styles.css) — ported verbatim as
+ * RATIOS, not colors: every token is color-mix over the live VS Code theme
+ * variables, so nothing is hardcoded and the skin follows the user's theme.
+ *
+ * What makes it read as hermes:
+ *   1. ONE quiet color for all scaffolding (thinking headers, tool rows,
+ *      activity) at 64% foreground — the prose alone speaks at ~94%.
+ *   2. Tool rows are borderless dim LINES, not framed cards; expanding one is
+ *      the only moment it gains a surface.
+ *   3. The user's message is the only tinted bubble (accent-seeded mix).
+ *   4. No per-message brand label on a settled reply — the answer is the
+ *      reply; "Working" appears only while the turn is live.
+ *   5. Hermes rhythm: 12px between turn blocks, 6px between tool rows,
+ *      13px/18px prose, 11px scaffold text.
+ * All rules are scoped `.pulseai-transcript-lane :where(...)` — zero-specificity
+ * heads, so existing manager-surface rules keep winning where they disagree.
+ * ------------------------------------------------------------------------ */
+
+.pulseai-transcript-scroll {
+	--pulseai-h-text: color-mix(in srgb, var(--vscode-editor-foreground) 94%, transparent);
+	--pulseai-h-body: color-mix(in srgb, var(--vscode-editor-foreground) 74%, transparent);
+	--pulseai-h-quiet: color-mix(in srgb, var(--vscode-editor-foreground) 54%, transparent);
+	--pulseai-h-scaffold: color-mix(in srgb, var(--vscode-editor-foreground) 64%, transparent);
+	--pulseai-h-meta: color-mix(in srgb, var(--vscode-editor-foreground) 44%, transparent);
+	--pulseai-h-stroke: color-mix(in srgb, var(--vscode-panel-border) 60%, transparent);
+	--pulseai-h-bubble: color-mix(in srgb, var(--vscode-focusBorder) 9%, var(--vscode-editor-background));
+	--pulseai-h-bubble-edge: color-mix(in srgb, var(--vscode-focusBorder) 16%, transparent);
+	--pulseai-h-turn-gap: 12px;
+	--pulseai-h-scaffold-gap: 4px;
+	--pulseai-h-tool-row-gap: 6px;
+	--pulseai-h-prose-size: 13px;
+	--pulseai-h-prose-line: 18px;
+	--pulseai-h-scaffold-size: 11px;
+	--pulseai-h-meta-size: 10px;
+	--pulseai-h-code-size: 12px;
+	--pulseai-h-radius: 12px;
+}
+
+/* --- rhythm ------------------------------------------------------------- */
+.pulseai-transcript-lane :where(.pulseai-user-message) {
+	margin: 0 0 var(--pulseai-h-turn-gap) auto;
+	max-width: 86%;
+	width: fit-content;
+	padding: 6px 12px;
+	border: 1px solid var(--pulseai-h-bubble-edge);
+	border-radius: var(--pulseai-h-radius);
+	background: var(--pulseai-h-bubble);
+	color: var(--pulseai-h-text);
+	font-size: var(--pulseai-h-prose-size);
+	line-height: var(--pulseai-h-prose-line);
+}
+.pulseai-transcript-lane :where(.pulseai-assistant-message) {
+	margin: 0 0 var(--pulseai-h-turn-gap);
+	color: var(--pulseai-h-text);
+	font-size: var(--pulseai-h-prose-size);
+	line-height: var(--pulseai-h-prose-line);
+}
+/* The brand label is a live indicator, not a letterhead: hermes shows no
+   per-message header on a settled reply. */
+.pulseai-transcript-lane :where(.pulseai-assistant-message:not(.is-streaming)) :where(.pulseai-assistant-label) {
+	display: none;
+}
+.pulseai-transcript-lane :where(.pulseai-assistant-message.is-streaming) :where(.pulseai-assistant-label) {
+	height: 16px;
+	font-size: var(--pulseai-h-scaffold-size);
+	color: var(--pulseai-h-scaffold);
+}
+
+/* --- one scaffold voice -------------------------------------------------- */
+.pulseai-transcript-lane :where(.pulseai-tool-list) {
+	margin: var(--pulseai-h-scaffold-gap) 0;
+	border-top: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--pulseai-h-tool-row-gap);
+}
+.pulseai-transcript-lane :where(.pulseai-section-heading) { display: none; }
+.pulseai-transcript-lane :where(.pulseai-tool-row) {
+	border-bottom: 0;
+	font-size: var(--pulseai-h-scaffold-size);
+	color: var(--pulseai-h-scaffold);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-row[open]) {
+	border: 1px solid var(--pulseai-h-stroke);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 45%, transparent);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-summary) {
+	min-height: 22px;
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-run) { font-size: var(--pulseai-h-scaffold-size); }
+.pulseai-transcript-lane :where(.pulseai-tool-run-summary) {
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-run-body) { border-top: 1px solid var(--pulseai-h-stroke); }
+.pulseai-transcript-lane :where(.pulseai-thought-row) {
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-disclosure-row) { color: var(--pulseai-h-scaffold); }
+.pulseai-transcript-lane :where(.pulseai-thought-body) {
+	color: var(--pulseai-h-quiet);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-scaffold-status) {
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-scaffold-meta),
+.pulseai-transcript-lane :where(.pulseai-tool-duration) {
+	color: var(--pulseai-h-meta);
+	font-size: var(--pulseai-h-meta-size);
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- prose --------------------------------------------------------------- */
+.pulseai-transcript-lane :where(.pulseai-assistant-copy) {
+	margin: 2px 0 0;
+	color: var(--pulseai-h-text);
+	font-size: var(--pulseai-h-prose-size);
+	line-height: var(--pulseai-h-prose-line);
+}
+.pulseai-transcript-lane :where(.pulseai-md .pulseai-md-p) {
+	margin: 0 0 0.7rem;
+	line-height: var(--pulseai-h-prose-line);
+}
+.pulseai-transcript-lane :where(.pulseai-md .pulseai-md-p:last-child) { margin-bottom: 0; }
+.pulseai-transcript-lane :where(.pulseai-md .pulseai-md-code) {
+	border-radius: 4px;
+	font-size: var(--pulseai-h-code-size);
+}
