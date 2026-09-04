@@ -28,6 +28,20 @@ export interface PulseAIToolView {
 	readonly duration?: string;
 }
 
+/**
+ * One entry in the turn's ordered timeline — hermes' message.parts contract
+ * (apps/desktop message-parts.tsx walks the parts array in arrival order, so
+ * text and tool rows interleave exactly as the model produced them). Tool
+ * BODIES keep living in the `tools` map; a tool part only pins the position
+ * where its card paints. Without this the turn collapsed into one text blob
+ * painted above a block of cards, so a model that works-then-answers showed
+ * its final wording at the TOP and every tool call beneath it — arrival order
+ * inverted.
+ */
+export type PulseAITurnPart =
+	| { readonly kind: 'text'; readonly text: string }
+	| { readonly kind: 'tool'; readonly toolId: string };
+
 export interface PulseAISubAgentView {
 	readonly id: string;
 	readonly state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -76,8 +90,6 @@ export interface PulseAIRenderModel {
 	readonly stalled?: boolean;
 	/** Degradation receipt (runtime_degraded): honest bounded-scan note, never a fatal card. */
 	readonly degraded?: string;
-	/** Wall-clock ms when the running turn started (drives the live elapsed timer). */
-	readonly turnStartedAt?: number;
 	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: PulseExecutionMode;
@@ -86,6 +98,8 @@ export interface PulseAIRenderModel {
 	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
 	readonly userMessage?: string;
 	readonly assistantText: string;
+	/** Ordered timeline (hermes message.parts): text segments and tool calls in arrival order. */
+	readonly parts: readonly PulseAITurnPart[];
 	readonly reasoning?: string;
 	readonly tools: readonly PulseAIToolView[];
 	readonly subAgents: readonly PulseAISubAgentView[];
@@ -114,6 +128,7 @@ export interface PulseAIRenderModel {
 	readonly history: readonly {
 		readonly userMessage?: string;
 		readonly assistantText: string;
+		readonly parts: readonly PulseAITurnPart[];
 		readonly reasoning?: string;
 		readonly tools: readonly PulseAIToolView[];
 		readonly subAgents: readonly PulseAISubAgentView[];
@@ -617,13 +632,15 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean): HTMLElement {
+function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true): HTMLElement {
 	const section = element('section', 'pulseai-tool-list');
 	section.dataset.component = 'tool-list';
-	section.append(element('div', 'pulseai-section-heading',
-		element('span', undefined, 'Actions'),
-		element('span', 'pulseai-section-count', String(tools.length)),
-	));
+	if (showHeading) {
+		section.append(element('div', 'pulseai-section-heading',
+			element('span', undefined, 'Actions'),
+			element('span', 'pulseai-section-count', String(tools.length)),
+		));
+	}
 
 	for (const group of splitRunGroups(tools)) {
 		if (group.kind === 'card') {
@@ -816,22 +833,93 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
 	return details;
 }
 
+/**
+ * One assistant turn: label, thinking disclosure, then the ORDERED timeline —
+ * hermes message-parts.tsx walks message.parts at their arrival index, so a
+ * work-then-answer turn reads top-to-bottom in the order the model produced
+ * it: tool cards where the calls happened, final wording LAST. Tool bodies
+ * come from the view map; a tool whose start frame was missed still paints
+ * (after the timeline) so a card can never silently vanish.
+ */
+function assistantTurn(
+	spec: {
+		reasoning?: string;
+		assistantText: string;
+		parts: readonly PulseAITurnPart[];
+		tools: readonly PulseAIToolView[];
+		live: boolean;
+		current?: boolean;
+		thoughtSeconds?: number;
+		cancelRequested?: boolean;
+	},
+	host: PulseAIRenderHost,
+	openTools: Set<string>,
+): HTMLElement {
+	const live = spec.live;
+	const response = element('section', `pulseai-assistant-message${live ? ' pulseai-breathing-edge is-streaming' : ''}`);
+	if (spec.current) { response.dataset.component = 'session-turn'; }
+	response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), live ? element('span', 'pulseai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
+	if (spec.reasoning) { response.append(thinkingBlock(spec.reasoning, openTools, live, spec.thoughtSeconds)); }
+	// Parts are the ordering source. A turn that predates them (or somehow
+	// carries text without a single text part) falls back to the legacy
+	// single-block paint so the answer can never be dropped by a missing
+	// timeline.
+	const parts = spec.parts.length
+		? spec.parts
+		: (spec.assistantText ? [{ kind: 'text' as const, text: spec.assistantText }] : []);
+	const toolsById = new Map(spec.tools.map(t => [t.id, t]));
+	let lastTextIndex = -1;
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i];
+		if (part.kind === 'text' && part.text) { lastTextIndex = i; }
+	}
+	// The streaming slot rides the LAST text segment only: the painter's fast
+	// path patches exactly that node per token; earlier segments are frozen.
+	let run: PulseAIToolView[] = [];
+	const flushRun = () => {
+		if (!run.length) { return; }
+		// In-message runs drop the "Actions" heading: hermes tool rows carry
+		// their own labels, and a heading wedged between text segments reads
+		// as a second message.
+		response.append(toolSection(run, host, openTools, live, false));
+		run = [];
+	};
+	parts.forEach((part, index) => {
+		if (part.kind === 'tool') {
+			const tool = toolsById.get(part.toolId);
+			if (tool) { run.push(tool); }
+			return;
+		}
+		if (!part.text) { return; }
+		flushRun();
+		response.append(markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined));
+	});
+	flushRun();
+	// A tool with no part (a replay that lost its start frame) must still show.
+	const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
+	const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
+	if (orphans.length) { response.append(toolSection(orphans, host, openTools, live, false)); }
+	if (spec.assistantText && lastTextIndex < 0) {
+		response.append(markdownCopy(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
+	}
+	if (spec.assistantText && !live) { response.append(copyButton(spec.assistantText, host)); }
+	return response;
+}
+
 function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTools: Set<string>, liveThoughtSeconds?: number): HTMLElement {
 	const scroll = element('div', 'pulseai-transcript-scroll');
 	const lane = element('div', 'pulseai-transcript-lane');
 	// History: previous turns (user → agent) preserved wireframe style, no breathing
 	for (const turn of model.history) {
 		if (turn.userMessage) lane.append(element('div', 'pulseai-user-message', turn.userMessage));
-		if (turn.assistantText || turn.reasoning) {
-			const response = element('section', 'pulseai-assistant-message');
-			response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse')));
-			if (turn.reasoning) { response.append(thinkingBlock(turn.reasoning, openTools, false)); }
-			response.append(markdownCopy(turn.assistantText));
-			response.append(copyButton(turn.assistantText, host));
-			lane.append(response);
-		}
-		if (turn.tools.length) {
-			lane.append(toolSection(turn.tools, host, openTools, false));
+		if (turn.assistantText || turn.reasoning || turn.parts.length || turn.tools.length) {
+			lane.append(assistantTurn({
+				reasoning: turn.reasoning,
+				assistantText: turn.assistantText,
+				parts: turn.parts,
+				tools: turn.tools,
+				live: false,
+			}, host, openTools));
 		}
 		if (turn.subAgents.length) {
 			const subAgents = element('section', 'pulseai-subagent-list');
@@ -855,23 +943,21 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	if (model.userMessage) {
 		lane.append(element('div', 'pulseai-user-message', model.userMessage));
 	}
-	if (model.assistantText || model.reasoning || model.running) {
-		const response = element('section', `pulseai-assistant-message${model.running ? ' pulseai-breathing-edge is-streaming' : ''}`);
-		response.dataset.component = 'session-turn';
-		response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse'), model.running ? element('span', 'pulseai-stream-label', model.cancelRequested ? 'Stopping.' : 'Working') : undefined));
-		if (model.reasoning) { response.append(thinkingBlock(model.reasoning, openTools, model.running, liveThoughtSeconds)); }
-		// No assistant text means there is nothing to narrate. The line used to fall back to a sentence
-		// claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
-		// died on a provider error still printed confident progress. The spinner and the 'Working' label
-		// already say the only true thing: the turn is open.
-		if (model.assistantText) {
-			response.append(markdownCopy(model.assistantText, 'session-turn-content'));
-			if (!model.running) { response.append(copyButton(model.assistantText, host)); }
-		}
-		lane.append(response);
-	}
-	if (model.tools.length) {
-		lane.append(toolSection(model.tools, host, openTools, model.running));
+	// No assistant text means there is nothing to narrate. The line used to fall back to a sentence
+	// claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
+	// died on a provider error still printed confident progress. The spinner and the 'Working' label
+	// already say the only true thing: the turn is open.
+	if (model.assistantText || model.reasoning || model.running || model.parts.length || model.tools.length) {
+		lane.append(assistantTurn({
+			reasoning: model.reasoning,
+			assistantText: model.assistantText,
+			parts: model.parts,
+			tools: model.tools,
+			live: model.running,
+			current: true,
+			thoughtSeconds: liveThoughtSeconds,
+			cancelRequested: model.cancelRequested,
+		}, host, openTools));
 	}
 	if (model.subAgents.length) {
 		const subAgents = element('section', 'pulseai-subagent-list');
@@ -1323,16 +1409,23 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 	// The full rebuild tore down every tool card + re-parsed all markdown on
 	// every animation frame, O(turn length) per frame (the owner's "UI not
 	// nice" jank that compounds the longer a turn runs). `paintSignature`
-	// covers everything EXCEPT `assistantText`: an identical signature with
-	// grown text means a streaming delta, patched into the existing
-	// [data-slot=session-turn-content] node with the near-bottom scroll rule
-	// preserved. Any other change (tools, plan, status, turn boundaries)
-	// takes the full paint exactly as before.
+	// covers everything EXCEPT text content: it pins the part SHAPE (kinds +
+	// tool ids), so token growth keeps the signature identical and patches the
+	// [data-slot=session-turn-content] node (the LAST text segment — hermes
+	// parts order means that is the live one) with the near-bottom scroll rule
+	// preserved. A new part or tool changes the shape and takes the full paint
+	// exactly as before.
 	let lastPaint: { signature: string; text: string } | undefined;
+	const lastTextPart = (model: PulseAIRenderModel): Extract<PulseAITurnPart, { kind: 'text' }> | undefined => {
+		for (let i = model.parts.length - 1; i >= 0; i--) {
+			const part = model.parts[i];
+			if (part.kind === 'text' && part.text) { return part; }
+		}
+		return undefined;
+	};
 	const paintSignature = (model: PulseAIRenderModel): string => {
-		const { assistantText: _text, ...rest } = model;
-		void _text;
-		return JSON.stringify(rest);
+		const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text')).join('>');
+		return `${JSON.stringify({ ...model, assistantText: undefined, parts: undefined })}|${shape}`;
 	};
 	// The activity row's timers outlive individual renders; a tick repaints from the last model,
 	// which is what makes the seconds move while the engine is quiet.
@@ -1345,22 +1438,26 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 				lastPaint = undefined;
 			}
 			const signature = paintSignature(model);
+			const streaming = lastTextPart(model);
 			if (
 				lastPaint
 				&& lastPaint.signature === signature
-				&& model.assistantText !== lastPaint.text
-				&& model.assistantText.startsWith(lastPaint.text)
+				&& streaming
+				&& streaming.text !== lastPaint.text
+				&& streaming.text.startsWith(lastPaint.text)
 			) {
 				const slot = root.querySelector<HTMLElement>('[data-slot="session-turn-content"]');
 				if (slot) {
-					slot.replaceChildren(markdownCopy(model.assistantText, 'session-turn-content'));
+					slot.replaceChildren(markdownCopy(streaming.text, 'session-turn-content'));
 					const scroller = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
 					if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32) {
 						scroller.scrollTop = scroller.scrollHeight;
 					}
+					lastPaint = { signature, text: streaming.text };
+					return;
 				}
-				lastPaint = { signature, text: model.assistantText };
-				return;
+				// No live slot even though the shape says one should exist — the
+				// DOM does not match the model; take the full paint to resync.
 			}
 			const previousScroll = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
 			const scrollTop = previousScroll?.scrollTop ?? 0;
@@ -1380,7 +1477,7 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 				input?.focus({ preventScroll: true });
 				if (input && selectionStart !== undefined && selectionEnd !== undefined) { input.setSelectionRange(selectionStart, selectionEnd); }
 			}
-			lastPaint = { signature, text: model.assistantText };
+			lastPaint = { signature, text: lastTextPart(model)?.text ?? '' };
 
 		};
 	return {

@@ -356,4 +356,8 @@ def test_no_progress_line_is_invented_when_there_is_nothing_to_report():
     copy_call = re.search(r"element\('div', 'pulseai-assistant-copy[^)]*\)", renderer)
     assert copy_call, "the assistant copy element must still exist -- the fix is to gate it, not delete it (01e09f92 merged the markdown root into this class; the pin follows the call shape)"
     assert "||" not in copy_call.group(0), f"the copy line must render only real text: {copy_call.group(0)}"
-    assert "if (model.assistantText) {" in renderer, "the copy element needs an emptiness guard to survive removal of the fallback"
+    # hermes message-parts port (owner report #4): the guard moved into the
+    # turn painter — empty text segments never paint, and the legacy
+    # single-block fallback stays emptiness-gated.
+    assert "if (!part.text) { return; }" in renderer, "empty text segments never paint"
+    assert "if (spec.assistantText && lastTextIndex < 0)" in renderer, "the copy element needs an emptiness guard to survive removal of the fallback"

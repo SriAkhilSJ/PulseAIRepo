@@ -24,6 +24,7 @@ import {
 	PulseAIRenderMount,
 	PulseAIToolState,
 	PulseAIToolView,
+	PulseAITurnPart,
 	PulseAISubAgentView,
 } from './pulseAIRenderer.js';
 
@@ -77,6 +78,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private turnOutcome: PulseAIRenderModel['turnOutcome'] = 'idle';
 	private userMessage: string | undefined;
 	private assistantText = '';
+	/**
+	 * Ordered timeline (hermes message.parts): one entry per text segment and
+	 * tool call, in arrival order. `assistantText` stays the concatenated
+	 * string for copy/inspector; the TRANSCRIPT paints from `parts` so tools
+	 * sit where they happened and the final answer lands last. Cleared at
+	 * turn boundaries with the rest of the turn state.
+	 */
+	private parts: PulseAITurnPart[] = [];
 	private reasoning: string | undefined;
 	/**
 	 * Epoch ms the current turn began, or undefined between turns. The tail activity row counts
@@ -358,6 +367,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
+			parts: [...this.parts],
 			reasoning: this.reasoning,
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
@@ -602,6 +612,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.history = [...this.history, {
 				userMessage: this.userMessage,
 				assistantText: this.assistantText,
+				parts: [...this.parts],
 				reasoning: this.reasoning,
 				tools: [...this.tools.values()],
 				subAgents: [...this.subAgents.values()],
@@ -611,6 +622,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		}
 		this.userMessage = text;
 		this.assistantText = '';
+		this.parts = [];
 		this.reasoning = undefined;
 		this.tools.clear();
 		this.subAgents.clear();
@@ -623,6 +635,28 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.turnStartedAt = Date.now();
 		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode });
 		this.render();
+	}
+
+	/**
+	 * Timeline writers (hermes parts ingestion): text extends the LAST text
+	 * segment — a token that follows tool calls opens a NEW segment instead of
+	 * teleporting into the pre-tool text, which is what keeps interleave order
+	 * truthful. Tools pin their position once; updates go through the tools
+	 * map, never the timeline.
+	 */
+	private appendTextPart(chunk: string): void {
+		if (!chunk) { return; }
+		const last = this.parts[this.parts.length - 1];
+		if (last?.kind === 'text') {
+			this.parts[this.parts.length - 1] = { kind: 'text', text: last.text + chunk };
+		} else {
+			this.parts.push({ kind: 'text', text: chunk });
+		}
+	}
+
+	private pushToolPart(toolId: string): void {
+		if (!toolId || this.parts.some(p => p.kind === 'tool' && p.toolId === toolId)) { return; }
+		this.parts.push({ kind: 'tool', toolId });
 	}
 
 	private send(frame: PulseClientMethod): void {
@@ -712,6 +746,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.armStallWatchdog();
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
+			this.appendTextPart(frame.text);
 			// The answer started; whatever was in the Thinking block is done.
 			this.reasoning = undefined;
 		} else if (frame.type === 'reasoning') {
@@ -721,6 +756,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.plan = frame.steps.map(planText);
 		} else if (frame.type === 'tool_call_start') {
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
+			this.pushToolPart(frame.tool_id);
 		} else if (frame.type === 'tool_call_end') {
 			const existing = this.tools.get(frame.tool_id);
 			const result = valueRecord(frame.result);
@@ -736,6 +772,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		} else if (frame.type === 'safety_request') {
 			const existing = this.tools.get(frame.tool_id);
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
+			// An approval can arrive without a prior start frame; the card must
+			// still have a place in the timeline.
+			this.pushToolPart(frame.tool_id);
 			this.approval = { toolId: frame.tool_id, name: frame.name, diff: frame.diff };
 		} else if (frame.type === 'subagent_updated') {
 			const subagent_id = frame.subagent_id;
@@ -764,7 +803,10 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
 			this.turnOutcome = frame.completed ? 'completed' : 'cancelled';
-			if (frame.message && !this.assistantText) { this.assistantText = frame.message; }
+			if (frame.message && !this.assistantText) {
+				this.assistantText = frame.message;
+				this.appendTextPart(frame.message);
+			}
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;

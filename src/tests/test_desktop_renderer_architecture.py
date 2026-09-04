@@ -118,7 +118,14 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     # Activity runs, not a flat list: both transcript branches fold through the shared rule.
     assert "function toolSection" in renderer
     assert "agentColumn(" in renderer
-    assert renderer.count("lane.append(toolSection(") == 2, "both transcript branches group; none stays a flat list"
+    # Hermes message-parts order (owner report #4, 2026-09-04): tool groups
+    # fold INSIDE the assistant turn at their arrival position — never a flat
+    # lane-level block after the text. One painter (assistantTurn), both
+    # transcript branches, every consecutive tool run through the shared rule.
+    assert renderer.count("lane.append(toolSection(") == 0, "tool groups paint inside the turn timeline, not as a lane-level block"
+    assert "function assistantTurn(" in renderer
+    assert renderer.count("response.append(toolSection(run, host, openTools, live, false))") == 1, "consecutive tool runs fold through the shared grouping rule"
+    assert "markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
         "a settled turn must not narrate in the present tense"
@@ -271,12 +278,16 @@ def test_streaming_isolation_only_the_message_part_repaints():
     moving)."""
     renderer = _text("browser", "pulseAIRenderer.ts")
     assert "paintSignature" in renderer
-    assert "const { assistantText: _text, ...rest } = model" in renderer
+    # Text content (string AND part text) is excluded from the signature; the
+    # part SHAPE (kinds + tool ids) stays in, so a new tool/text segment takes
+    # the full paint while token growth takes the delta path.
+    assert "assistantText: undefined, parts: undefined" in renderer
+    assert "p.kind === 'tool' ? `tool:${p.toolId}` : 'text'" in renderer
     assert '[data-slot="session-turn-content"]' in renderer
-    assert "model.assistantText.startsWith(lastPaint.text)" in renderer
+    assert "streaming.text.startsWith(lastPaint.text)" in renderer
     # timer ticks (same text) must NOT take the delta path: the seconds live
     # only in a full repaint
-    assert "model.assistantText !== lastPaint.text" in renderer
+    assert "streaming.text !== lastPaint.text" in renderer
     # session switch invalidates the memo
     assert "planOpen = undefined;" in renderer and "lastPaint = undefined" in renderer
     # the delta patch keeps the near-bottom scroll rule (delta path uses
