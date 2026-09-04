@@ -632,7 +632,7 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true): HTMLElement {
+	function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true): HTMLElement {
 	const section = element('section', 'pulseai-tool-list');
 	section.dataset.component = 'tool-list';
 	if (showHeading) {
@@ -642,7 +642,16 @@ function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost,
 		));
 	}
 
-	for (const group of splitRunGroups(tools)) {
+	const groups = splitRunGroups(tools);
+	// Hermes: a SINGLE action is one bare row — never a collapsible run group
+	// with a "(1)" count bubble wrapping its own duplicate header (owner
+	// screenshot 2026-09-04: "Running dir /b (1)" over a "Terminal dir /b"
+	// card said the same thing twice). Only 2+ calls earn a run summary.
+	if (groups.length === 1 && groups[0].kind === 'run' && groups[0].tools.length === 1) {
+		section.append(toolRow(groups[0].tools[0], host, openTools));
+		return section;
+	}
+	for (const group of groups) {
 		if (group.kind === 'card') {
 			section.append(toolRow(group.tool, host, openTools));
 			continue;
