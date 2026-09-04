@@ -6,6 +6,7 @@ Pulse contributes semantic colors only (never global workbench chrome).
 from __future__ import annotations
 
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -77,9 +78,19 @@ def test_no_global_workbench_chrome_recoloring():
 
 
 def test_pulse_semantic_colors_remain_but_never_as_large_chrome():
+    """Pulse keeps a semantic identity, but as derivation SEEDS, not painted
+    hex. The old hand palette (#22d3ee accent, #49d190 verified, #ed727c
+    failed) painted a foreign brand over whatever theme the user ran —
+    retired by the seed-to-token machine (owner: "don't hardcode plz").
+    Approval (#efb75c) and agent (#9b8cff) survive as machine INPUTS in
+    pulseTheme.ts; accent/verified/failed derive from the live workbench
+    theme + the hermes success seed. The tokens file carries var() fallback
+    chains only — zero hex, and never a workbench chrome key."""
     tokens = (PULSE / "browser" / "media" / "pulseAI-tokens.css").read_text(encoding="utf-8")
-    for semantic in ("#22d3ee", "#9b8cff", "#49d190", "#efb75c", "#ed727c"):
-        assert semantic in tokens
+    machine = (PULSE / "browser" / "pulseTheme.ts").read_text(encoding="utf-8")
+    for seed in ("#efb75c", "#9b8cff"):
+        assert seed in machine, f"semantic seed {seed} must survive in the machine"
+    assert not re.findall(r"#[0-9a-fA-F]{3,8}\b", tokens), "no hex in the token file"
     # The tokens file may only carry Pulse semantic variables, never workbench chrome.
     for chrome_key in ("titleBar", "activityBar", "statusBar", "sideBar.background"):
         assert chrome_key not in tokens

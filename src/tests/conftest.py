@@ -44,6 +44,23 @@ import pytest as _pytest  # noqa: E402
 
 
 @_pytest.fixture(autouse=True)
+def _quiet_shadow_checkpoints(monkeypatch):
+    """Test hygiene: no shadow-checkpoint git walks inside graph tests.
+
+    ai_node now PREWARMS a workspace snapshot in a background thread at the
+    start of every iteration (owner run 2026-09-04: the synchronous
+    pre-command snapshot cost a 30s git-add budget in front of a trivial
+    `dir`). Tests drive ai_node with workspace="." — THIS repo, hundreds of
+    thousands of files — so every graph test would spawn a repo-wide git walk
+    and starve timing-based assertions. Production sessions configure real
+    workspaces and are unaffected; the checkpoint suites construct their own
+    ShadowCheckpoints(enabled=True) or delete this env in their own fixtures
+    (which run after autouse), so they keep full coverage.
+    """
+    monkeypatch.setenv("PULSEAI_CHECKPOINTS", "off")
+
+
+@_pytest.fixture(autouse=True)
 def _stop_chunk_index_watchers():
     """Test hygiene: never let a chunk-index file-watcher daemon outlive a test.
 

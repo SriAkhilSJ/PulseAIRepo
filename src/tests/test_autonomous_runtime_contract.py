@@ -20,10 +20,13 @@ def test_lazy_memory_does_not_construct_until_first_method_call():
     assert manager.initialized is False
 
 
-def test_fuse_system_head_merges_only_leading_system_blocks(monkeypatch):
-    """Hermes :2657 shape: exactly one system message leaves the door. Only
-    the LEADING run of system blocks fuses; a block after history (out-of-band
-    steer) is never touched, and the kill-switch restores the legacy request."""
+def test_fuse_system_head_merges_every_system_block(monkeypatch):
+    """Hermes :2657 shape: exactly one system message leaves the door, no
+    matter which node injected guidance — leading prefixes AND mid-history
+    blocks (the tool cycle's progress reflection, out-of-band steers) fold
+    into the head in original order; EXACT duplicate texts collapse so the
+    head never accumulates the reflection prompt N times; empty system
+    blocks vanish; the kill-switch restores the legacy request."""
     from src.graphs import chat_graph
 
     monkeypatch.delenv("PULSEAI_CONTEXT_MULTI_SYSTEM", raising=False)
@@ -31,14 +34,22 @@ def test_fuse_system_head_merges_only_leading_system_blocks(monkeypatch):
         SystemMessage(content="PERSONA", response_metadata={"layers": ["persona"]}),
         SystemMessage(content="=== SAFETY GUARD ==="),
         HumanMessage(content="hi"),
+        AIMessage(content="", tool_calls=[]),
+        ToolMessage(content="ok", tool_call_id="c1"),
+        SystemMessage(content="=== PROGRESS REFLECTION ==="),
+        HumanMessage(content="again"),
+        SystemMessage(content="=== PROGRESS REFLECTION ==="),  # duplicate
+        SystemMessage(content="   "),  # empty: dropped
         SystemMessage(content="=== OUT-OF-BAND USER STEER ==="),
     ]
     out = chat_graph._fuse_system_head(msgs)
-    assert [m.type for m in out] == ["system", "human", "system"]
-    assert out[0].content == "PERSONA\n\n=== SAFETY GUARD ==="
+    assert [m.type for m in out] == ["system", "human", "ai", "tool", "human"]
+    merged: str = str(out[0].content)
+    assert merged.index("PERSONA") < merged.index("SAFETY GUARD") < \
+        merged.index("PROGRESS REFLECTION") < merged.index("OUT-OF-BAND")
+    assert merged.count("PROGRESS REFLECTION") == 1, "duplicate collapsed"
     assert out[0].response_metadata["layers"] == ["persona"]
-    assert out[0].response_metadata["fused_system_blocks"] == 2
-    assert out[2].content == "=== OUT-OF-BAND USER STEER ==="
+    assert out[0].response_metadata["fused_system_blocks"] == 6
 
     # a single leading system is already hermes-shaped: untouched
     one = chat_graph._fuse_system_head(
@@ -53,7 +64,6 @@ def test_fuse_system_head_merges_only_leading_system_blocks(monkeypatch):
         [SystemMessage(content="PERSONA"), SystemMessage(content="=== SAFETY GUARD ==="),
          HumanMessage(content="hi")]
     )
-    assert [m.type for m in legacy] == ["system", "system", "human"]
     assert [m.type for m in legacy] == ["system", "system", "human"]
 
 

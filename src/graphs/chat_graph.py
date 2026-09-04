@@ -726,10 +726,13 @@ def _fuse_system_head(messages: list) -> list:
     """Hermes request shape (run_agent.py:2657): ONE system message, then the
     conversation. Runtime prefixes (mode banner, CopilotKit context, safety
     guard, terminal platform, grace nudge) are inserted as separate
-    SystemMessages for assembly clarity; before the provider call they fuse
-    into the head block so the request leaves as a single system + history —
-    one stable cache prefix, exactly hermes' `effective_system`. Blocks after
-    the first non-system role (e.g. out-of-band steers) are never touched.
+    SystemMessages for assembly clarity, and nodes append guidance blocks into
+    the transcript (the tool cycle's progress reflection, out-of-band steers);
+    before the provider call EVERY system block folds into the head in
+    original order, so the request leaves as a single system + history —
+    exactly hermes' `effective_system`, recomposed per call. Exact-duplicate
+    texts collapse: the tool cycle re-appends the same reflection prompt every
+    batch, and folding N copies would bloat the head with repeats.
     PULSEAI_CONTEXT_MULTI_SYSTEM=1 (read per call) keeps the legacy
     multi-system request.
     """
@@ -737,27 +740,35 @@ def _fuse_system_head(messages: list) -> list:
         "PULSEAI_CONTEXT_MULTI_SYSTEM", ""
     ).strip().lower() in {"1", "true", "yes", "on"}:
         return messages
-    k = 0
-    while (
-        k + 1 < len(messages)
-        and getattr(messages[k + 1], "type", "") == "system"
-    ):
-        k += 1
-    if k == 0:
+    head = messages[0] if messages else None
+    if head is None or getattr(head, "type", "") != "system":
         return messages
-    base = messages[0]
-    texts = [str(getattr(m, "content", "") or "") for m in messages[:k + 1]]
+    texts: list[str] = []
+    seen: set[str] = set()
+    fused = 0
+    rest: list = []
+    for m in messages:
+        if getattr(m, "type", "") == "system":
+            text = str(getattr(m, "content", "") or "")
+            if text.strip() and text not in seen:
+                texts.append(text)
+                seen.add(text)
+            fused += 1
+        else:
+            rest.append(m)
+    if fused == 1:
+        return messages
     merged = SystemMessage(content="\n\n".join(t for t in texts if t.strip()))
     merged.additional_kwargs = dict(
-        getattr(base, "additional_kwargs", {}) or {}
+        getattr(head, "additional_kwargs", {}) or {}
     )
     # Provenance: the engine's layer names ride along untouched; the runtime
     # prefixes are not engine layers, so they only announce their count.
     merged.response_metadata = {
-        **dict(getattr(base, "response_metadata", {}) or {}),
-        "fused_system_blocks": k + 1,
+        **dict(getattr(head, "response_metadata", {}) or {}),
+        "fused_system_blocks": fused,
     }
-    return [merged, *messages[k + 1:]]
+    return [merged, *rest]
 
 
 def ai_node(
@@ -810,9 +821,12 @@ def ai_node(
     )
 
     # D31: start of an AI iteration — reset shadow-checkpoint dedup so the
-    # first mutation this iteration snapshots the pre-change workspace.
+    # first mutation this iteration snapshots the pre-change workspace, and
+    # PREWARM that snapshot in the background now: the git-add walk runs
+    # under the model's thinking time instead of in front of the first tool
+    # (owner run: `dir` paid a 30s add budget → 43.8s tool round).
     from src.tools.shadow_checkpoints import begin_agent_turn
-    begin_agent_turn()
+    begin_agent_turn(configurable.get("workspace") or ".")
 
     # D40: iteration budget. Once exhausted, tools are hidden and the model
     # may only produce text (the hermes grace call). The FIRST exhausted call

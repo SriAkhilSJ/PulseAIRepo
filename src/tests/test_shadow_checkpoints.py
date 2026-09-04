@@ -80,6 +80,60 @@ def test_write_file_snapshot_preserves_old_content(tmp_path, monkeypatch):
     assert (Path(ws) / "target.py").read_text() == ORIG
 
 
+def test_prewarm_hides_the_git_walk_under_model_latency(tmp_path, monkeypatch):
+    """Owner run 2026-09-04: a `dir` tool round cost 43.8s because the
+    pre-command snapshot ran its 30s git-add walk synchronously in front of
+    the command. Now the turn PREWARMS the snapshot in a background thread
+    (new_turn(workspace)) while the model thinks; the mutation gate JOINS the
+    in-flight job before proceeding — D31 serialization held (a mutation can
+    never run ahead of its pre-state capture), the dedup mark survives, and
+    new_turn itself never blocks."""
+    import threading
+    import time as _time
+
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+
+    gate = threading.Event()
+    takes: list[str] = []
+    real_take = mgr._take
+
+    def slow_take(working_dir, reason):
+        gate.wait(timeout=10)  # hold the prewarm mid-`git add`
+        takes.append(reason)
+        return real_take(working_dir, reason)
+
+    monkeypatch.setattr(mgr, "_take", slow_take)
+
+    t0 = _time.monotonic()
+    mgr.new_turn(ws)  # spawns the background prewarm
+    assert _time.monotonic() - t0 < 1.0, "new_turn must not block on the snapshot"
+    _time.sleep(0.3)  # let the thread reach the gated _take
+    assert not takes, "prewarm runs in the background"
+
+    # The mutation gate must JOIN the in-flight prewarm: run it in a side
+    # thread and prove it BLOCKS until the prewarm's git walk finishes.
+    box: dict = {}
+
+    def mutation() -> None:
+        box["ok"] = mgr.ensure_checkpoint(ws, "run_terminal: dir")
+
+    t1 = threading.Thread(target=mutation)
+    t1.start()
+    _time.sleep(0.3)
+    assert t1.is_alive(), "gate returned while the prewarm was mid-flight: D31 broken"
+    gate.set()  # release the prewarm's git walk
+    t1.join(timeout=10)
+    assert not t1.is_alive()
+    assert takes == ["turn-start prewarm"], "gate waited for the prewarm first"
+    # the prewarm consumed this turn's snapshot slot: the mutation dedups
+    assert box["ok"] is False
+
+    # a second mutation this turn pays nothing and spawns no thread
+    assert mgr.ensure_checkpoint(ws, "second mutation") is False
+    assert takes == ["turn-start prewarm"]
+
+
 def test_once_per_turn_then_new_turn_snapshots_again(tmp_path, monkeypatch):
     _hook_env(monkeypatch, tmp_path)
     ws = _ws(tmp_path)

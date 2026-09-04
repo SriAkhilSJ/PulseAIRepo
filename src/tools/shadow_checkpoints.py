@@ -322,27 +322,86 @@ class ShadowCheckpoints:
         self._done_this_turn: set[str] = set()
         self._git_available: Optional[bool] = None
         self._lock = threading.Lock()
+        # Turn-start prewarms, one event per workspace: the snapshot runs in
+        # a background thread WHILE the model thinks, so the first mutation
+        # of the turn joins a finished job instead of paying the git-add walk
+        # synchronously (owner run 2026-09-04: `dir` cost 43.8s because the
+        # pre-command snapshot burned the whole 30s add budget on a huge tree
+        # — correct serialization, wrong place in the timeline). Completed
+        # events STAY in the map until the next new_turn: any late mutation
+        # gate in the same turn must still join (instantly) rather than slip
+        # past a finished-but-unawaited snapshot and race the dedup mark.
+        self._prewarm: dict[str, threading.Event] = {}
 
     # -- turn lifecycle ----------------------------------------------------
 
-    def new_turn(self) -> None:
-        """Reset per-turn dedup. Called at the start of each AI iteration."""
+    def new_turn(self, working_dir: Optional[str] = None) -> None:
+        """Reset per-turn dedup. Called at the start of each AI iteration.
+
+        With `working_dir`, ALSO prewarm that workspace's checkpoint in a
+        background thread: pre-state capture begins before the model can emit
+        any tool call, so D31's before-mutation guarantee keeps its
+        serialization (the mutation gate joins the job) while the git walk
+        hides under the model's latency. Never raises.
+        """
         self._done_this_turn.clear()
+        if not working_dir or not self.enabled:
+            return
+        try:
+            abs_dir = str(_normalize_path(working_dir))
+            done = threading.Event()
+            with self._lock:
+                # Replace any stale event from a previous iteration.
+                self._prewarm[abs_dir] = done
+
+            def _prewarm() -> None:
+                try:
+                    # _join_prewarm=False: this thread IS the job; joining
+                    # itself would deadlock.
+                    self.ensure_checkpoint(
+                        abs_dir, "turn-start prewarm", _join_prewarm=False
+                    )
+                except Exception:
+                    pass  # a broken prewarm must never surface here
+                finally:
+                    done.set()
+
+            threading.Thread(target=_prewarm, daemon=True,
+                             name="pulse-shadow-prewarm").start()
+        except Exception:
+            pass
 
     # -- public API ---------------------------------------------------------
 
-    def ensure_checkpoint(self, working_dir: str, reason: str = "auto") -> bool:
-        """Snapshot if enabled/changed/not-done-this-turn. NEVER raises."""
+    def ensure_checkpoint(
+        self, working_dir: str, reason: str = "auto",
+        _join_prewarm: bool = True,
+    ) -> bool:
+        """Snapshot if enabled/changed/not-done-this-turn. NEVER raises.
+
+        A turn-start prewarm for this workspace may still be mid-`git add`;
+        the default path JOINS it before anything proceeds — the same
+        serialization as the old synchronous snapshot (pre-state fully
+        captured before any mutation), but the common case finds the job
+        already done during the model's thinking time. The wait happens
+        OUTSIDE the lock (the prewarm thread needs this lock too) and is
+        self-bounded by the git timeouts, so it inherits the same budget the
+        synchronous walk always had.
+        """
         if not self.enabled:
             return False
+        abs_dir = str(_normalize_path(working_dir))
+        if _join_prewarm:
+            with self._lock:
+                event = self._prewarm.get(abs_dir)
+            if event is not None:
+                event.wait()
         try:
             with self._lock:
                 if self._git_available is None:
                     self._git_available = shutil.which("git") is not None
                 if not self._git_available:
                     return False
-
-                abs_dir = str(_normalize_path(working_dir))
                 if abs_dir in {"/", str(Path.home())}:
                     return False
                 if not _retry_after_giveup_enabled() and _gave_up(abs_dir):
@@ -635,9 +694,13 @@ def checkpoint_before_mutation(workspace: str, reason: str) -> None:
         pass
 
 
-def begin_agent_turn() -> None:
-    """Called at the start of each AI iteration (ai_node). Never raises."""
+def begin_agent_turn(working_dir: Optional[str] = None) -> None:
+    """Called at the start of each AI iteration (ai_node). Never raises.
+
+    Pass the workspace so the first snapshot of the turn prewarms in the
+    background while the model thinks (D31 serialization preserved: the
+    mutation gate joins the job before any command runs)."""
     try:
-        get_shadow_checkpoints().new_turn()
+        get_shadow_checkpoints().new_turn(working_dir)
     except Exception:
         pass
