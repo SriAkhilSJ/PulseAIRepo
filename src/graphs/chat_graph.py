@@ -1213,62 +1213,40 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         pass  # Feedback is best-effort; never block finalization
 
 
-    # Build a beautiful completion message. Honesty gate (D9): the
-    # finalize node used to stamp "## ✅ Finished" unconditionally — a
-    # budget-exhausted run with a failing typecheck and a broken app
-    # still closed with a green checkmark. When verification never
-    # passed, say so plainly instead of claiming success.
+    # Finalize writes NO prose on success. Hermes appends nothing after the
+    # model's answer — the streamed words ARE the turn. Our stamp block
+    # ("## ✅ Finished: <task> / What I did / Need any tweaks?") was invented
+    # voice: the owner called it "hardcoded text at last" (2026-09-04), and it
+    # also leaked a STALE task name ("Finished: hi" on a directory-listing
+    # turn). Everything it carried now rides structure: the verdict in
+    # task_completed/task_status (terminal frame + receipt row), per-step
+    # outcomes in the tool cards, suggestions in the `suggestions` event.
+    # Only genuine DEVIATIONS keep words here — an unverified or failed run
+    # must say so plainly (D9 honesty), because the model's own answer may
+    # claim success.
     lines: list[str] = []
     task_display = current_task[:70] if current_task else "Task"
     did_work = bool(steps_completed or failed_steps or unverified)
-    if not did_work:
-        # Pure conversational turn ("hi"): nothing was done, nothing failed,
-        # nothing is unverified -- so there is NOTHING to report and the
-        # model's own streamed words are the entire message. The stamp below
-        # exists to keep CODING runs honest (D9); stapled onto a greeting it
-        # was fake product voice -- "## ✅ Finished: hi / What would you like
-        # to do next?" read as if the model said it. The verdict still rides
-        # out structurally (task_completed / task_status), so the desktop
-        # receipt row and the bridge's terminal frame lose nothing.
-        lines = []
-    else:
-        if unverified:
-            lines.append(f"## ⚠️ Ended unverified: {task_display}")
-            lines.append("")
-            lines.append(
-                "**This run did NOT pass verification.** Code was written but "
-                "no check proved it sound — typecheck failed or never ran, and "
-                "the app was not proven to render. Do not treat this as a "
-                "working deliverable until verification passes."
-            )
-            lines.append("")
-        elif failed_steps:
-            lines.append(f"## ⚠️ Ended incomplete: {task_display}")
-            lines.append("")
-            lines.append("**This run ended with unresolved failures.**")
-            lines.append("")
-        else:
-            lines.append(f"## ✅ Finished: {task_display}")
-            lines.append("")
+    if did_work and unverified:
+        lines.append(f"## ⚠️ Ended unverified: {task_display}")
+        lines.append("")
+        lines.append(
+            "**This run did NOT pass verification.** Code was written but "
+            "no check proved it sound — typecheck failed or never ran, and "
+            "the app was not proven to render. Do not treat this as a "
+            "working deliverable until verification passes."
+        )
+        lines.append("")
+    elif did_work and failed_steps:
+        lines.append(f"## ⚠️ Ended incomplete: {task_display}")
+        lines.append("")
+        for failure in failed_steps[-3:]:
+            lines.append(f"- {failure}")
+        lines.append("")
 
-        # Summarize what was done
-        if steps_completed:
-            lines.append("### 📁 What I did:")
-            for step in steps_completed[-8:]:
-                lines.append(f"- {step}")
-            lines.append("")
-
-        # Note any issues
-        if failed_steps:
-            lines.append("### ⚠️ Issues I ran into:")
-            for failure in failed_steps[-3:]:
-                lines.append(f"- {failure}")
-            lines.append("")
-
-        lines.append("---")
-        lines.append("*Need any tweaks? Just let me know!*")
-
-    # Add proactive suggestions
+    # Reflection stays computed: its suggestions ride the `suggestions`
+    # event (below) for UI surfacing; they are never stapled into the
+    # transcript as the model's voice.
     from src.context.reflection_engine import ReflectionEngine
     reflector = ReflectionEngine()
     reflection = reflector.reflect(
@@ -1277,12 +1255,6 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         failed_steps=failed_steps,
         plan=plan,
     )
-
-    suggestions_text = reflector.format_suggestions(reflection.get("suggestions", []))
-    if suggestions_text and lines:
-        # insert before the final sign-off -- only on runs that did work; a
-        # chat turn has no stamp block for suggestions to attach to.
-        lines.insert(-2, suggestions_text)
 
     # Export analytics for dashboard
     from src.agents.cost_router import cost_router
