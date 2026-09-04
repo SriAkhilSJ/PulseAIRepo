@@ -5,6 +5,7 @@
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -184,6 +185,12 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
 		openEngineSettings: () => { void this.commandService.executeCommand(PulseAICommandId.OpenSettings); },
 		openManager: () => { this.openManagerWindow(); },
+		copyToClipboard: text => {
+			// Real clipboard (field: navigator.clipboard.writeText is
+			// permission-blocked inside the webview). The workbench service
+			// owns the privileged path; never let clipboard trouble throw.
+			try { this.clipboardService.writeText(text); } catch { /* best effort */ }
+		},
 	};
 
 	constructor(
@@ -192,6 +199,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IClipboardService private readonly clipboardService: IClipboardService,
 		@IAuxiliaryWindowService private readonly auxiliaryWindowService: IAuxiliaryWindowService,
 		@IPulseAISessionStore private readonly sessionStore: IPulseAISessionStore,
 	) {

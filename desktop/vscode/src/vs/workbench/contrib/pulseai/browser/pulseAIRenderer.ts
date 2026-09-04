@@ -135,6 +135,9 @@ export interface PulseAIRenderHost {
 	openFolder(): void;
 	openEngineSettings(): void;
 	openManager(): void;
+	/** Real clipboard via the workbench service (webview navigator.clipboard
+	 * is permission-blocked in the field). Implementations own the fallback. */
+	copyToClipboard(text: string): void;
 }
 
 export interface PulseAIRenderMount extends IDisposable {
@@ -272,10 +275,12 @@ function datasetSet(node: HTMLElement, key: string, value: string): void {
 	node.dataset[key] = value;
 }
 
-function copyButton(text: string): HTMLElement {
+function copyButton(text: string, host?: PulseAIRenderHost): HTMLElement {
 	// Hermes port (ui/copy-button.tsx): an ICON action, not a text line --
 	// copy glyph, tooltip title, 1.5s check-flash on success, error state on
-	// denial. Clipboard via the async API, never throwing into the panel.
+	// denial. With a host, clipboard goes through the workbench service
+	// (navigator.clipboard is permission-blocked in the webview — field
+	// proof); without one, the async-API fallback path.
 	const btn = element('button', 'pulseai-icon-action') as HTMLButtonElement;
 	btn.type = 'button';
 	btn.title = 'Copy';
@@ -285,21 +290,30 @@ function copyButton(text: string): HTMLElement {
 		btn.replaceChildren(icon('copy'));
 		btn.title = 'Copy';
 	};
+	const flash = () => {
+		btn.replaceChildren(icon('check'));
+		btn.title = 'Copied';
+		setTimeout(reset, 1500);
+	};
+	const fail = () => {
+		btn.replaceChildren(icon('error'));
+		btn.title = 'Copy failed';
+		setTimeout(reset, 1500);
+	};
 	btn.addEventListener('click', () => {
+		if (host) {
+			try {
+				host.copyToClipboard(text);
+				flash();
+			} catch {
+				fail();
+			}
+			return;
+		}
 		try {
-			void copyTextToClipboard(text).then(() => {
-				btn.replaceChildren(icon('check'));
-				btn.title = 'Copied';
-				setTimeout(reset, 1500);
-			}, () => {
-				btn.replaceChildren(icon('error'));
-				btn.title = 'Copy failed';
-				setTimeout(reset, 1500);
-			});
+			void copyTextToClipboard(text).then(flash, fail);
 		} catch {
-			btn.replaceChildren(icon('error'));
-			btn.title = 'Copy failed';
-			setTimeout(reset, 1500);
+			fail();
 		}
 	});
 	return btn;
@@ -435,7 +449,7 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 		element('div', 'pulseai-terminal-result', element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)), element('span', undefined, `exit ${exit}`), element('span', undefined, duration)),
 	);
 	const actions = element('div', 'pulseai-tool-actions');
-	actions.append(button('Copy command', 'pulseai-link-button', () => void copyTextToClipboard(command), 'copy'));
+	actions.append(copyButton(command, host));
 	const cwd = firstString(args, ['cwd', 'path']);
 	if (cwd) { actions.append(button('Reveal location', 'pulseai-link-button', () => host.revealFile(cwd), 'go-to-file')); }
 	body.append(actions);
@@ -465,7 +479,7 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		body.append(toolFields([['Path', target], ['Lines', lines], ['Encoding', 'UTF-8']]));
 		const content = firstString(result, ['content']) ?? boundedText(tool.result, 800);
 		body.append(element('pre', 'pulseai-tool-pre pulseai-code-preview', content.slice(0, 800)));
-		body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file'), button('Copy path', 'pulseai-link-button', () => void copyTextToClipboard(target), 'copy')));
+		body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file'), copyButton(target, host)));
 	} else if (presentation.family === 'file-write') {
 		const diff = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
 		// Counted from the diff that is actually here. The fallback here used to be a
@@ -502,7 +516,7 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 	} else if (presentation.family === 'web') {
 		body.append(toolFields([['URL', target], ['Status', firstString(result, ['status']) ?? '200 OK'], ['Received', firstString(result, ['size']) ?? '—']]));
 		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 500)));
-		body.append(element('div', 'pulseai-tool-actions', button('Open source', 'pulseai-link-button', () => host.revealFile(target), 'link'), button('Copy URL', 'pulseai-link-button', () => void copyTextToClipboard(target), 'copy')));
+		body.append(element('div', 'pulseai-tool-actions', button('Open source', 'pulseai-link-button', () => host.revealFile(target), 'link'), copyButton(target, host)));
 	} else if (presentation.family === 'browser') {
 		body.append(toolFields([['Page', firstString(args, ['page']) ?? '—'], ['URL', target], ['Viewport', '1280 × 800']]));
 		body.append(element('div', 'pulseai-browser-snapshot', element('div', undefined, element('span', undefined, 'document'), element('code', undefined, boundedText(result, 120).slice(0, 80)))));
@@ -525,8 +539,14 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		// the panel (owner verdict: disgusting). Arguments stay reachable,
 		// collapsed, honestly labeled.
 		const resultText = typeof tool.result === 'string' ? tool.result : '';
-		if (resultText.trim()) {
-			body.append(expandableOutput(markdownCopy(resultText)));
+		// Models often self-announce ("**Thinking:** ...") — the card title
+		// already says what the tool is, so a duplicated label is fake chrome.
+		// Presentation-only strip of the leading self-labels.
+		const prose = resultText
+			.replace(/^\s*(\*\*)?\s*(💭\s*)?thinking\s*:?\s*(\*\*)?\s*/i, '')
+			.replace(/^\s*(\*\*)?\s*reasoning\s*:?\s*(\*\*)?\s*/i, '');
+		if (prose.trim()) {
+			body.append(expandableOutput(markdownCopy(prose)));
 			const argsDetails = element('details', 'pulseai-tool-args-details') as HTMLDetailsElement;
 			argsDetails.append(element('summary', 'pulseai-tool-args-summary', 'Arguments'));
 			argsDetails.append(labeledPayload('Arguments', tool.arguments));
@@ -553,11 +573,17 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 	details.open = openTools.has(tool.id) || shouldDefaultOpen;
 
 	const titleSpan = element('strong', isPending ? 'pulseai-shimmer' : undefined, presentation.title);
+	const targetText = displayTarget(tool);
+	// Hermes quiet-card rule: the target echo must SAY something. When it
+	// just repeats the tool name ("Think think"), it is noise — drop it.
+	const targetMeaningful = !!targetText
+		&& targetText.toLowerCase() !== tool.name.toLowerCase()
+		&& targetText.toLowerCase() !== presentation.title.toLowerCase();
 	const summary = element('summary', 'pulseai-tool-summary',
 		statusGlyph(tool.state),
 		icon(presentation.icon),
 		titleSpan,
-		element('span', 'pulseai-tool-target', displayTarget(tool)),
+		targetMeaningful ? element('span', 'pulseai-tool-target', targetText) : undefined,
 		tool.duration ? element('span', 'pulseai-tool-duration', tool.duration) : undefined,
 		element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)),
 		isPending ? undefined : icon('chevron-right'),
@@ -787,7 +813,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			response.append(element('div', 'pulseai-assistant-label', icon('pulse'), element('strong', undefined, 'Pulse')));
 			if (turn.reasoning) { response.append(thinkingBlock(turn.reasoning, openTools, false)); }
 			response.append(markdownCopy(turn.assistantText));
-			response.append(copyButton(turn.assistantText));
+			response.append(copyButton(turn.assistantText, host));
 			lane.append(response);
 		}
 		if (turn.tools.length) {
@@ -826,7 +852,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		// already say the only true thing: the turn is open.
 		if (model.assistantText) {
 			response.append(markdownCopy(model.assistantText, 'session-turn-content'));
-			if (!model.running) { response.append(copyButton(model.assistantText)); }
+			if (!model.running) { response.append(copyButton(model.assistantText, host)); }
 		}
 		lane.append(response);
 	}

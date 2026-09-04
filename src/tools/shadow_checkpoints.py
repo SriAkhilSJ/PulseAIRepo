@@ -87,6 +87,29 @@ DEFAULT_EXCLUDES = [
 
 _HASH_RE = re.compile(r"^[0-9a-f]{6,40}$")
 
+# Per-process circuit breaker (owner field run: EVERY terminal command paid
+# the same 30s git-add give-up on a tree the snapshot can never cover —
+# 30s/turn, forever). After a give-up for a workspace, snapshots are skipped
+# for that workspace until the process restarts.
+# PULSEAI_SHADOW_RETRY_AFTER_GIVEUP=1 (read per call) restores retry behavior.
+_GAVE_UP_LOCK = threading.Lock()
+_GAVE_UP_WORKSPACES: set = set()
+
+
+def _retry_after_giveup_enabled() -> bool:
+    raw = os.environ.get("PULSEAI_SHADOW_RETRY_AFTER_GIVEUP", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _mark_gave_up(abs_dir: str) -> None:
+    with _GAVE_UP_LOCK:
+        _GAVE_UP_WORKSPACES.add(abs_dir)
+
+
+def _gave_up(abs_dir: str) -> bool:
+    with _GAVE_UP_LOCK:
+        return abs_dir in _GAVE_UP_WORKSPACES
+
 
 # --------------------------------------------------------------------------
 # paths + env
@@ -322,6 +345,8 @@ class ShadowCheckpoints:
                 abs_dir = str(_normalize_path(working_dir))
                 if abs_dir in {"/", str(Path.home())}:
                     return False
+                if not _retry_after_giveup_enabled() and _gave_up(abs_dir):
+                    return False
                 if abs_dir in self._done_this_turn:
                     return False
                 self._done_this_turn.add(abs_dir)
@@ -431,9 +456,12 @@ class ShadowCheckpoints:
         cap = _max_files()
 
         if _dir_file_count(Path(working_dir), cap) > cap:
+            _mark_gave_up(str(_normalize_path(working_dir)))
             print(
                 f"[shadow_checkpoint] {working_dir}: skipped — tree over the "
-                f"{cap}-file cap (PULSEAI_SHADOW_MAX_FILES); NO undo point taken",
+                f"{cap}-file cap (PULSEAI_SHADOW_MAX_FILES); NO undo point taken; "
+                "snapshots are skipped for this workspace until restart "
+                "(PULSEAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
                 flush=True,
             )
             return False
@@ -462,11 +490,15 @@ class ShadowCheckpoints:
         if not ok:
             # Owner field proof: this give-up used to be SILENT — the turn
             # burned the whole add budget (30s) every first terminal command
-            # and the log said nothing. Name it, every time.
+            # and the log said nothing. Name it, and trip the per-process
+            # breaker so no later turn re-pays the same hopeless add.
+            _mark_gave_up(str(_normalize_path(working_dir)))
             print(
                 f"[shadow_checkpoint] {working_dir}: gave up after ~{add_budget}s "
                 "on 'git add' — tree too large for the snapshot budget "
-                "(PULSEAI_SHADOW_GIT_TIMEOUT_S); NO undo point taken",
+                "(PULSEAI_SHADOW_GIT_TIMEOUT_S); NO undo point taken; "
+                "snapshots are skipped for this workspace until restart "
+                "(PULSEAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
                 flush=True,
             )
             return False
