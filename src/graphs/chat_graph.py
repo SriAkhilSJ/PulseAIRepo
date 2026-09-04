@@ -3,6 +3,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from collections import OrderedDict
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -1010,7 +1011,7 @@ def ai_node(
     # model path. Keep the active-session binding at the turn boundary; clearing
     # it here would make later planner/classifier requests uninterruptible.
     try:
-        result = _invoke_with_token_pump(call_llm, messages, session_id)
+        result = _invoke_with_token_pump(call_llm, messages, session_id, provider, model)
     except Exception as exc:
         # A Stop that fired while the request was in flight wins over provider
         # failover: never launch a base-provider request after cancellation.
@@ -1055,7 +1056,7 @@ def ai_node(
         if budget_exhausted:
             call_llm = llm
         try:
-            result = _invoke_with_token_pump(call_llm, messages, session_id)
+            result = _invoke_with_token_pump(call_llm, messages, session_id, provider, model)
         except TurnCancelledError:
             return {
                 "messages": [AIMessage(
@@ -1386,6 +1387,14 @@ class _AgentTokenPump(BaseCallbackHandler):
         self._thread_id = thread_id
         self.streamed = False
         self._reasoning_acc = ""
+        # Response receipt (owner run 2026-09-04: a 2:08 "Waiting on the
+        # model" spinner had NO telemetry — silence vs slow generation vs
+        # tokens-arriving-but-not-rendered were indistinguishable). One
+        # honest line per call settles it.
+        self._t0 = time.monotonic()
+        self.first_token_s: float | None = None
+        self.token_count = 0
+        self.char_count = 0
 
     def _emit_reasoning(self, piece: str) -> None:
         """Forward a reasoning delta as the ACCUMULATED text.
@@ -1404,6 +1413,13 @@ class _AgentTokenPump(BaseCallbackHandler):
             })
         except Exception:
             pass  # a dead bus must not kill a live generation
+
+    def _mark(self, piece: str) -> None:
+        """Receipt counters: first-token latency + chunk/char totals."""
+        if self.first_token_s is None:
+            self.first_token_s = time.monotonic() - self._t0
+        self.token_count += 1
+        self.char_count += len(piece)
 
     def on_llm_new_token(self, token, **kwargs) -> None:  # noqa: ANN001, ANN003
         # Chat models may deliver the chunk payload as the positional string
@@ -1434,6 +1450,7 @@ class _AgentTokenPump(BaseCallbackHandler):
                     reasoning_piece = raw
         if reasoning_piece:
             self.streamed = True
+            self._mark(reasoning_piece)
             self._emit_reasoning(reasoning_piece)
 
         piece = getattr(token, "text", None)
@@ -1442,6 +1459,7 @@ class _AgentTokenPump(BaseCallbackHandler):
         if not piece:
             return
         self.streamed = True
+        self._mark(piece)
         try:
             event_bus.emit("message.agent.chunk", {
                 "chunk": piece,
@@ -1451,13 +1469,22 @@ class _AgentTokenPump(BaseCallbackHandler):
             pass  # a dead bus must not kill a live generation
 
 
-def _invoke_with_token_pump(call_llm, messages, thread_id: str):
+def _invoke_with_token_pump(
+    call_llm, messages, thread_id: str, provider: str = "", model: str = "",
+):
     """Agent-node invoke with the live token pump attached (best-effort).
 
     The pump rides in `config.callbacks`, which LangChain forwards to the
     underlying provider client -- through RetryLLMProxy's **kwargs pass-
     through -- so only THIS call streams. Providers that reject the config
     kwarg (defensive) fall back to a plain invoke with no pump.
+
+    On completion, one receipt line: total wall time, first-token latency
+    and whether anything actually streamed. The owner's "Waiting on the
+    model 2:08" (2026-09-04) was unattributable — this line makes the next
+    one self-diagnosing: first token ~0.x s = endpoint fine, renderer blind;
+    first token ~120 s = endpoint slow/silent (stall budget owns it);
+    "non-streaming" = streaming got disabled upstream.
     """
     pump = _AgentTokenPump(thread_id)
     try:
@@ -1468,6 +1495,23 @@ def _invoke_with_token_pump(call_llm, messages, thread_id: str):
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
         raise
     _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+    try:
+        route = f"{provider}/{model}" if provider else "llm"
+        total = time.monotonic() - pump._t0
+        if pump.streamed:
+            ft = pump.first_token_s if pump.first_token_s is not None else total
+            print(
+                f"[ai_node] {route} answered in {total:.1f}s "
+                f"(first token {ft:.1f}s, {pump.token_count} chunks streamed)",
+                flush=True,
+            )
+        else:
+            print(
+                f"[ai_node] {route} answered in {total:.1f}s (non-streaming response)",
+                flush=True,
+            )
+    except Exception:
+        pass  # telemetry never breaks the call
     return result
 
 

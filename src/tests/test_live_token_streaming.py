@@ -112,6 +112,52 @@ def test_invoke_with_pump_records_whether_the_call_streamed(monkeypatch):
     assert chat_graph._TURN_LAST_CALL_STREAMED["t2"] is False
 
 
+def test_invoke_with_pump_logs_a_response_receipt(capsys, monkeypatch):
+    """Owner run 2026-09-04: a 2:08 "Waiting on the model" spinner had no
+    telemetry — silence vs slow endpoint vs tokens-rendered-nowhere were
+    indistinguishable. Every agent call now prints ONE receipt: wall time,
+    first-token latency, chunk count (or an explicit non-streaming mark)."""
+    import src.graphs.chat_graph as chat_graph
+
+    chat_graph._TURN_LAST_CALL_STREAMED.clear()
+
+    class StreamingLLM:
+        def invoke(self, messages, config=None):
+            for handler in config["callbacks"]:
+                handler.on_llm_new_token("Hel")
+                handler.on_llm_new_token("lo")
+            return "ok"
+
+    class SilentLLM:
+        def invoke(self, messages, config=None):
+            return "ok"
+
+    chat_graph._invoke_with_token_pump(
+        StreamingLLM(), [], "t1", provider="custom", model="auto/best-chat"
+    )
+    out = capsys.readouterr().out
+    line = [ln for ln in out.splitlines() if "answered in" in ln]
+    assert len(line) == 1, out
+    assert "custom/auto/best-chat" in line[0]
+    assert "first token" in line[0] and "2 chunks streamed" in line[0]
+
+    chat_graph._invoke_with_token_pump(SilentLLM(), [], "t2", provider="custom", model="m")
+    out2 = capsys.readouterr().out
+    assert "non-streaming response" in out2, out2
+    # exceptions still record the streamed flag before propagating
+    class BoomLLM:
+        def invoke(self, messages, config=None):
+            for handler in config["callbacks"]:
+                handler.on_llm_new_token("partial")
+            raise RuntimeError("endpoint died mid-stream")
+
+    try:
+        chat_graph._invoke_with_token_pump(BoomLLM(), [], "t3")
+    except RuntimeError:
+        pass
+    assert chat_graph._TURN_LAST_CALL_STREAMED["t3"] is True
+
+
 def test_invoke_with_pump_survives_config_rejection(monkeypatch):
     import src.graphs.chat_graph as chat_graph
 
