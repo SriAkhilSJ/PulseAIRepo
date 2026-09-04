@@ -1500,9 +1500,18 @@ def _invoke_with_token_pump(
         total = time.monotonic() - pump._t0
         if pump.streamed:
             ft = pump.first_token_s if pump.first_token_s is not None else total
+            shape = ""
+            # Pseudo-stream detection: a real stream lands many small chunks;
+            # an endpoint that buffers the whole generation and emits one SSE
+            # event shows up as a tiny chunk count with real text volume
+            # (owner run 2026-09-04: "first token 8.1s, 1 chunks streamed").
+            # Name it — the fix lives on the endpoint, not in the panel.
+            if pump.token_count <= 2 and pump.char_count >= 200:
+                shape = " [buffered: endpoint sent the whole answer as one chunk]"
             print(
                 f"[ai_node] {route} answered in {total:.1f}s "
-                f"(first token {ft:.1f}s, {pump.token_count} chunks streamed)",
+                f"(first token {ft:.1f}s, {pump.token_count} chunks streamed)"
+                f"{shape}",
                 flush=True,
             )
         else:

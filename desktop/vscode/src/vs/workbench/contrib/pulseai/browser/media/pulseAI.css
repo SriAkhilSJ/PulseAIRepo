@@ -374,7 +374,17 @@
 }
 .pulseai-terminal-prompt { color: var(--pulseai-verified); }
 .pulseai-terminal-command code { overflow-wrap: anywhere; }
-.pulseai-terminal-output { max-height: 260px; border-top: 0; }
+/* Hermes terminal-output.tsx (mechanism 8): max-h-16 — a 4rem window on the
+ * output, not the tall panel this used to be; monospace does not wrap
+ * lines horizontally, whitespace: pre); meta-size text. boundedText keeps
+ * the tail, so the window + tail-jump reads the live end of the stream. */
+.pulseai-terminal-output {
+	max-height: var(--pulseai-terminal-max-h);
+	border-top: 0;
+	white-space: pre;
+	font-size: var(--pulseai-text-micro);
+	line-height: 1.5;
+}
 .pulseai-terminal-result { display: flex; align-items: center; gap: 9px; min-height: 25px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
 
 .pulseai-tool-actions { display: flex; align-items: center; gap: 5px; padding-top: 5px; }

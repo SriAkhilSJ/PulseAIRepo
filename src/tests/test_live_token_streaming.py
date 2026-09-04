@@ -140,6 +140,20 @@ def test_invoke_with_pump_logs_a_response_receipt(capsys, monkeypatch):
     assert len(line) == 1, out
     assert "custom/auto/best-chat" in line[0]
     assert "first token" in line[0] and "2 chunks streamed" in line[0]
+    assert "buffered" not in line[0], "two real chunks is a stream"
+
+    # a pseudo-stream: one giant chunk after a long silence — the endpoint
+    # buffered the whole generation (owner run 2026-09-04: "first token
+    # 8.1s, 1 chunks streamed"). The receipt must name it.
+    class BufferedLLM:
+        def invoke(self, messages, config=None):
+            for handler in config["callbacks"]:
+                handler.on_llm_new_token("x" * 500)
+            return "ok"
+
+    chat_graph._invoke_with_token_pump(BufferedLLM(), [], "t4")
+    out_b = capsys.readouterr().out
+    assert "1 chunks streamed" in out_b and "buffered" in out_b, out_b
 
     chat_graph._invoke_with_token_pump(SilentLLM(), [], "t2", provider="custom", model="m")
     out2 = capsys.readouterr().out

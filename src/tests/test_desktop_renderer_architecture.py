@@ -349,3 +349,36 @@ def test_pulseai_type_grammar_is_tokenized():
     assert "--vscode-font-family" in tokens and "@font-face" not in tokens
     # hermes meta grammar: tabular numerals on ticking cells
     assert "font-variant-numeric: tabular-nums" in tokens
+
+
+def test_reveal_paths_and_terminal_obey_hermes():
+    """Owner run 2026-09-04: (a) Reveal location crashed the panel - a Windows
+    drive-letter path matched the URI-scheme sniff first and URI.parse mangled
+    the backslashes into an unresolvable resource; hermes display-path.ts:
+    reveal/IPC always carry the real absolute path, so filesystem paths are
+    tested BEFORE any scheme sniffing. (b) The terminal card read weird - the
+    PASSED pill appeared twice around one receipt; hermes scaffold grammar
+    carries state ONCE (the colored glyph) and receipts as one meta line.
+    (c) The stdout box was a 260px panel; hermes terminal-output.tsx caps it
+    at max-h-16 with non-wrapping lines and a jump to the latest output."""
+    service = _text("browser", "pulseAIRendererService.ts")
+    # Anchors avoid backslash literals entirely: the drive/UNC branch and the
+    # scheme branch are identified by their RETURNS, and ORDER is the pin.
+    resource_fn = service.index("private resourceUri")
+    fs_test = service.index("i.test(resource)) { return URI.file(resource); }")
+    scheme_test = service.index("i.test(resource)) { return URI.parse(resource); }")
+    assert resource_fn < fs_test < scheme_test, "filesystem paths must be tested before the scheme sniff"
+    assert "died after a tool call" in service
+
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    summary_start = renderer.index("const summary = element('summary'")
+    summary_end = renderer.index("details.append(summary")
+    assert "pulseai-tool-state" not in renderer[summary_start:summary_end]
+    assert "· exit ${exit}" in renderer, "one meta receipt line"
+    assert "dataset.tailed" in renderer, "terminal tail jump present"
+
+    css = _text("browser", "media", "pulseAI.css")
+    assert "var(--pulseai-terminal-max-h)" in css
+    assert "260px" not in css, "the tall stdout panel is retired"
+    tokens = _text("browser", "media", "pulseAI-tokens.css")
+    assert "--pulseai-terminal-max-h: 4rem" in tokens, "hermes max-h-16"

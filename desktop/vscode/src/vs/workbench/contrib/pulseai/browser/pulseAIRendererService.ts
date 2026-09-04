@@ -885,8 +885,16 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 
 	private resourceUri(resource: string): URI {
 		const folder = this.workspaceContextService.getWorkspace().folders[0];
-		if (/^[a-z][a-z0-9+.-]*:/i.test(resource)) { return URI.parse(resource); }
+		// Windows drive letters ("D:\repo", "D:/repo") and UNC paths are
+		// filesystem paths, NOT URI schemes — so they are tested FIRST. A
+		// bare `D:\repo` matches the scheme sniff below (`D:` looks like a
+		// scheme to it), and URI.parse mangles the backslashes into
+		// `D:%5Crepo` — which the text-model resolver then refuses. That was
+		// the owner's "died after a tool call" (2026-09-04 log, Reveal
+		// location). Hermes display-path.ts: copy/reveal/IPC always carry
+		// the real absolute path; display formatting is paint only.
 		if (/^(?:[a-z]:[\\/]|[\\/])/i.test(resource)) { return URI.file(resource); }
+		if (/^[a-z][a-z0-9+.-]*:/i.test(resource)) { return URI.parse(resource); }
 		return folder ? URI.joinPath(folder.uri, resource) : URI.file(resource);
 	}
 }

@@ -52,6 +52,11 @@
 	 * ONE tracking value for every caps label (the old 0.04em/0.08em split
 	 * was per-selector tuning, exactly what the grammar forbids). */
 	--pulseai-track-caps: 0.08em;
+
+	/* Terminal output window — hermes terminal-output.tsx `max-h-16`: a
+	 * 4rem viewport on stdout with the tail pinned (the end of the stream
+	 * is the payload), never a tall panel that eats the transcript. */
+	--pulseai-terminal-max-h: 4rem;
 }
 
 /* Tabular numerals wherever digits update in place (hermes meta grammar):

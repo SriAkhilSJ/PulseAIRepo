@@ -415,16 +415,26 @@ function expandableOutput(content: HTMLElement): HTMLElement {
 		const collapsed = wrap.classList.toggle('is-collapsed');
 		toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 	});
-	const fade = element('div', 'pulseai-expandable-fade', toggle);
-	wrap.append(clip, fade);
-	window.requestAnimationFrame(() => {
-		if (clip.scrollHeight <= 121) {
-			wrap.classList.remove('is-collapsed');
-			wrap.classList.add('is-fits');
-		}
-	});
-	return wrap;
-}
+		const fade = element('div', 'pulseai-expandable-fade', toggle);
+		wrap.append(clip, fade);
+		window.requestAnimationFrame(() => {
+			if (clip.scrollHeight <= 121) {
+				wrap.classList.remove('is-collapsed');
+				wrap.classList.add('is-fits');
+			}
+			// Hermes terminal-output.tsx: jump straight to the LATEST output
+			// on first delivery — boundedText keeps the tail, so the end of
+			// the stream is the payload (dir listings end at the current
+			// entries). First delivery only; a later resize must not yank
+			// the user while they scroll up reading earlier output.
+			const pre = clip.querySelector<HTMLElement>('.pulseai-terminal-output');
+			if (pre && !pre.dataset.tailed && pre.scrollHeight > pre.clientHeight) {
+				pre.dataset.tailed = 'true';
+				pre.scrollTop = pre.scrollHeight;
+			}
+		});
+		return wrap;
+	}
 
 function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement {
 	const args = record(tool.arguments);
@@ -445,11 +455,14 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	exit ??= (tool.state === 'running' ? 'running' : 'unknown');
 	const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';
 	const body = element('div', 'pulseai-tool-body pulseai-terminal-body');
-	body.append(
-		element('div', 'pulseai-terminal-command', element('span', 'pulseai-terminal-prompt', '$'), element('code', undefined, command)),
-		expandableOutput(element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output...' : 'No captured output'))),
-		element('div', 'pulseai-terminal-result', element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)), element('span', undefined, `exit ${exit}`), element('span', undefined, duration)),
-	);
+		body.append(
+			element('div', 'pulseai-terminal-command', element('span', 'pulseai-terminal-prompt', '$'), element('code', undefined, command)),
+			expandableOutput(element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output...' : 'No captured output'))),
+			// One meta line (hermes scaffold grammar): state word + exit code
+			// + duration, plain text — the colored glyph in the header already
+			// carries the state, so no second PASSED pill here.
+			element('div', 'pulseai-terminal-result', element('span', undefined, `${stateLabel(tool.state)} · exit ${exit}`), element('span', 'pulseai-tool-duration', duration)),
+		);
 	const actions = element('div', 'pulseai-tool-actions');
 	actions.append(copyButton(command, host));
 	const cwd = firstString(args, ['cwd', 'path']);
@@ -587,7 +600,6 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 		titleSpan,
 		targetMeaningful ? element('span', 'pulseai-tool-target', targetText) : undefined,
 		tool.duration ? element('span', 'pulseai-tool-duration', tool.duration) : undefined,
-		element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)),
 		isPending ? undefined : icon('chevron-right'),
 	);
 	details.append(summary, familyBody(tool, host));
