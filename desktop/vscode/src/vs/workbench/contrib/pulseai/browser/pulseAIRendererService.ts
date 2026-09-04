@@ -111,6 +111,13 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	 * hermes discipline that a stalled call must be visible and named.
 	 */
 	private llmStatus?: { readonly model: string; readonly attempt: number };
+	/**
+	 * Bounded anatomy of the LIVE request (llm.request carries role+head per
+	 * message — factory `_request_heads`). Answers "what is the model actually
+	 * seeing?" with one click instead of a chat question. Cleared with the
+	 * other transient turn state.
+	 */
+	private llmHeads?: readonly { readonly role: string; readonly head: string }[];
 
 	/**
 	 * Hermes port (apps/desktop/src/store/session-states.ts): busy but SILENT
@@ -345,6 +352,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			contextStatus: this.contextStatus,
 			voiceHeard: this.voiceHeard,
 			llmStatus: this.llmStatus,
+			llmHeads: this.llmHeads,
 			stalled: this.stalled,
 			degraded: this.degraded,
 			turnOutcome: this.turnOutcome,
@@ -696,6 +704,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
+			this.llmHeads = undefined;
 			this.degraded = undefined;
 			this.voiceHeard = undefined;
 			this.reasoningFrameCount = 0;
@@ -759,6 +768,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
+			this.llmHeads = undefined;
 			this.degraded = undefined;
 			this.clearStallWatchdog();
 		} else if (frame.type === 'turn_failed') {
@@ -771,12 +781,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
+			this.llmHeads = undefined;
 			this.degraded = undefined;
 			this.clearStallWatchdog();
 		} else if (frame.type === 'voice_text') {
 			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
 		} else if (frame.type === 'llm.request') {
 			this.llmStatus = { model: frame.model ?? '', attempt: frame.attempt ?? 1 };
+			this.llmHeads = frame.messages;
 			// The 📡 row now carries the wait (which model, which attempt). The
 			// Thinking block must not parrot it: a status line dressed as
 			// reasoning is exactly the fake-progress the user called out. The
@@ -785,6 +797,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			if (this.reasoningFrameCount <= 1) { this.reasoning = undefined; }
 		} else if (frame.type === 'llm.response') {
 			this.llmStatus = undefined;
+			this.llmHeads = undefined;
 			if (this.reasoning && this.reasoning.indexOf('Asking ') === 0) { this.reasoning = undefined; }
 		} else if (frame.type === 'context_status') {
 			const severity = frame.severity === 'warning' ? 'warning' : 'info';

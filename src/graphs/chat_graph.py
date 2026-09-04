@@ -921,8 +921,11 @@ def ai_node(
     # Prefill visibility (owner runs: 33s 'hi', 3:12 after a two-tool turn --
     # nobody could say whether the whale was ours or the endpoint's). One
     # line per agent call: the chars/4 estimate of the ACTUAL assembled
-    # request. A number in the tens of thousands here is OUR prompt; a small
-    # number with a long wait indicts the endpoint.
+    # request, plus the ROLE anatomy — a bare count hid the fact that even a
+    # fresh "hi" carries the whole context-layer stack (1 persona system +
+    # the fitted context layers + 1 user message; tool turns add the
+    # assistant/tool pairs). A number in the tens of thousands here is OUR
+    # prompt; a small number with a long wait indicts the endpoint.
     try:
         _req_chars = sum(
             len(getattr(m, "content", "") or "")
@@ -930,9 +933,18 @@ def ai_node(
             else len(str(getattr(m, "content", "")))
             for m in messages
         )
+        _roles: dict[str, int] = {}
+        for _m in messages:
+            _r = str(getattr(_m, "type", "unknown"))
+            _roles[_r] = _roles.get(_r, 0) + 1
+        _role_label = {"system": "system", "human": "user", "ai": "assistant", "tool": "tool"}
+        _role_bits = " + ".join(
+            f"{_count} {_role_label.get(_r, _r)}"
+            for _r, _count in sorted(_roles.items(), key=lambda kv: -kv[1])
+        )
         print(
             f"[ai_node] request ~{_req_chars // 4 / 1000:.1f}k tokens "
-            f"({len(messages)} messages) -> {provider}/{model}",
+            f"({len(messages)} messages: {_role_bits}) -> {provider}/{model}",
             flush=True,
         )
     except Exception:

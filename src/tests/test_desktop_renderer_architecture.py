@@ -98,7 +98,7 @@ def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
     renderer = _text("browser", "pulseAIRenderer.ts")
     for receipt in (
         "function boundedText", "earlier characters omitted", "terminal-command",
-        "terminal-output", "exitCode", "duration", "Copy command", "Reveal location",
+        "terminal-output", "exitCode", "duration", "copyButton(command, host)", "Reveal location",
     ):
         assert receipt in renderer
 

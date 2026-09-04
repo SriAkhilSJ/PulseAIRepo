@@ -68,6 +68,8 @@ export interface PulseAIRenderModel {
 	readonly voiceHeard?: { readonly ok: boolean; readonly text: string; readonly error?: string };
 	/** Live provider-call status (llm.request/llm.response): names the model being asked. */
 	readonly llmStatus?: { readonly model: string; readonly attempt: number };
+	/** Bounded anatomy of the live request: role + head per message. */
+	readonly llmHeads?: readonly { readonly role: string; readonly head: string }[];
 	/** Hermes session-states.ts port: busy but silent for the 5-min watchdog
 	 * window. A presentation hint (hollow dot, honest row text) — never an
 	 * error, never a claim the turn died. */
@@ -932,6 +934,28 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		row.append(element('span', undefined, hint));
 		row.append(elapsedSpan(model.turnStartedAt));
 		lane.append(row);
+		// The anatomy inspector: the LIVE request, role+head per message —
+		// "why 8 messages for hi?" becomes one click in the product, not a
+		// chat question. Data rides the llm.request frame (factory caps the
+		// heads); display slices are presentation guards only.
+		const heads = model.llmHeads ?? [];
+		if (heads.length) {
+			const anatomy = element('details', 'pulseai-llm-anatomy') as HTMLDetailsElement;
+			anatomy.append(element('summary', 'pulseai-llm-anatomy-summary',
+				element('span', undefined, `What the model sees \u2014 ${heads.length} message${heads.length === 1 ? '' : 's'}`),
+			));
+			const list = element('div', 'pulseai-llm-anatomy-list');
+			for (const head of heads.slice(0, 32)) {
+				const roleLabel = head.role === 'human' ? 'user'
+					: head.role === 'ai' ? 'assistant' : head.role;
+				list.append(element('div', 'pulseai-llm-anatomy-row',
+					element('span', `pulseai-llm-anatomy-role is-${roleLabel}`, roleLabel),
+					element('code', 'pulseai-llm-anatomy-head', (head.head || '').replace(/\s+/g, ' ').slice(0, 140)),
+				));
+			}
+			anatomy.append(list);
+			lane.append(anatomy);
+		}
 	}
 	if (model.contextStatus) {
 		const status = model.contextStatus;
