@@ -259,6 +259,32 @@ def test_manager_opens_through_one_path_pending_owner_decision():
     assert "executeCommand(PulseAICommandId.OpenManager)" in service
 
 
+def test_streaming_isolation_only_the_message_part_repaints():
+    """hermes mechanism 6: while tokens arrive, only the message part
+    re-renders -- never the whole transcript. The renderer used to tear down
+    every tool card and re-parse all markdown on every animation frame,
+    O(turn length) per frame (the "UI not nice" jank). The delta path must
+    key on a signature that EXCLUDES assistantText, patch the existing
+    [data-slot=session-turn-content] node, keep the near-bottom scroll rule,
+    and fall back to the full paint for anything else (tools, plan, status,
+    timer ticks with unchanged text -- the thinking seconds must keep
+    moving)."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "paintSignature" in renderer
+    assert "const { assistantText: _text, ...rest } = model" in renderer
+    assert '[data-slot="session-turn-content"]' in renderer
+    assert "model.assistantText.startsWith(lastPaint.text)" in renderer
+    # timer ticks (same text) must NOT take the delta path: the seconds live
+    # only in a full repaint
+    assert "model.assistantText !== lastPaint.text" in renderer
+    # session switch invalidates the memo
+    assert "planOpen = undefined;" in renderer and "lastPaint = undefined" in renderer
+    # the delta patch keeps the near-bottom scroll rule (delta path uses
+    # `scroller`, the full paint `previousScroll`)
+    assert "scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32" in renderer
+    assert "previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32" in renderer
+
+
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}\\b")
 
 

@@ -1306,6 +1306,22 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 	let planSession: string | undefined;
 	let disposed = false;
 	let lastModel: PulseAIRenderModel | undefined;
+	// Hermes streaming isolation (apps/desktop mechanism 6): while tokens
+	// arrive, ONLY the message part re-renders — never the whole transcript.
+	// The full rebuild tore down every tool card + re-parsed all markdown on
+	// every animation frame, O(turn length) per frame (the owner's "UI not
+	// nice" jank that compounds the longer a turn runs). `paintSignature`
+	// covers everything EXCEPT `assistantText`: an identical signature with
+	// grown text means a streaming delta, patched into the existing
+	// [data-slot=session-turn-content] node with the near-bottom scroll rule
+	// preserved. Any other change (tools, plan, status, turn boundaries)
+	// takes the full paint exactly as before.
+	let lastPaint: { signature: string; text: string } | undefined;
+	const paintSignature = (model: PulseAIRenderModel): string => {
+		const { assistantText: _text, ...rest } = model;
+		void _text;
+		return JSON.stringify(rest);
+	};
 	// The activity row's timers outlive individual renders; a tick repaints from the last model,
 	// which is what makes the seconds move while the engine is quiet.
 	const activity = createActivityState(() => { if (!disposed) { tick(); } });
@@ -1314,6 +1330,25 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 			if (model.sessionId !== planSession) {
 				planSession = model.sessionId;
 				planOpen = undefined;
+				lastPaint = undefined;
+			}
+			const signature = paintSignature(model);
+			if (
+				lastPaint
+				&& lastPaint.signature === signature
+				&& model.assistantText !== lastPaint.text
+				&& model.assistantText.startsWith(lastPaint.text)
+			) {
+				const slot = root.querySelector<HTMLElement>('[data-slot="session-turn-content"]');
+				if (slot) {
+					slot.replaceChildren(markdownCopy(model.assistantText, 'session-turn-content'));
+					const scroller = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
+					if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32) {
+						scroller.scrollTop = scroller.scrollHeight;
+					}
+				}
+				lastPaint = { signature, text: model.assistantText };
+				return;
 			}
 			const previousScroll = root.querySelector<HTMLElement>('.pulseai-transcript-scroll');
 			const scrollTop = previousScroll?.scrollTop ?? 0;
@@ -1333,6 +1368,7 @@ export function mountPulseAIRenderer(root: HTMLElement, surface: PulseAISurface,
 				input?.focus({ preventScroll: true });
 				if (input && selectionStart !== undefined && selectionEnd !== undefined) { input.setSelectionRange(selectionStart, selectionEnd); }
 			}
+			lastPaint = { signature, text: model.assistantText };
 
 		};
 	return {
