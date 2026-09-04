@@ -251,3 +251,52 @@ def test_invalid_hash_and_escape_paths_rejected(tmp_path):
     cp = mgr.list_checkpoints(ws)[0]["hash"]
     assert mgr.restore(ws, cp, "../escape.txt")["success"] is False
     assert mgr.restore(ws, cp, "/abs/path.txt")["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# honesty pins (owner field run: 30s/turn burned silently in the snapshot)
+# ---------------------------------------------------------------------------
+
+@git
+def test_file_cap_skips_with_honest_log(tmp_path, monkeypatch, capsys):
+    ws = tmp_path / "ws-cap"
+    ws.mkdir()
+    for i in range(3):
+        (ws / f"f{i}.py").write_text("x = 1\n")
+    monkeypatch.setenv("PULSEAI_SHADOW_MAX_FILES", "2")
+    mgr = _mgr(tmp_path)
+
+    assert mgr.ensure_checkpoint(str(ws), "cap test") is False
+    out = capsys.readouterr().out
+    assert "NO undo point taken" in out
+    assert "PULSEAI_SHADOW_MAX_FILES" in out
+
+
+@git
+def test_add_giveup_is_named_not_silent(tmp_path, monkeypatch, capsys):
+    ws = _ws(tmp_path)
+    monkeypatch.delenv("PULSEAI_SHADOW_MAX_FILES", raising=False)
+    real_run_git = sc._run_git
+
+    def fake_run_git(args, *rest, **kwargs):
+        if args and args[0] == "add":
+            return False, "", "simulated add timeout"
+        return real_run_git(args, *rest, **kwargs)
+
+    monkeypatch.setattr(sc, "_run_git", fake_run_git)
+    mgr = _mgr(tmp_path)
+
+    assert mgr.ensure_checkpoint(str(ws), "timeout test") is False
+    out = capsys.readouterr().out
+    assert "gave up after" in out
+    assert "PULSEAI_SHADOW_GIT_TIMEOUT_S" in out
+
+
+@git
+def test_success_logs_duration(tmp_path, capsys):
+    ws = _ws(tmp_path)
+    mgr = _mgr(tmp_path)
+
+    assert mgr.ensure_checkpoint(str(ws), "timing test") is True
+    out = capsys.readouterr().out
+    assert "snapshot took" in out

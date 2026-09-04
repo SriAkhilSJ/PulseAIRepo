@@ -214,7 +214,31 @@ def _init_store(store: Path) -> None:
     )
 
 
-def _dir_file_count(path: Path, bail_at: int = _MAX_FILES) -> int:
+def _git_timeout() -> int:
+    """Per-call snapshot git budget. Env-driven (PULSEAI_SHADOW_GIT_TIMEOUT_S),
+    read every call — the owner run burned 30s per turn here because the add
+    budget (2x base) was a fixed constant the user could neither see nor tune."""
+    raw = os.environ.get("PULSEAI_SHADOW_GIT_TIMEOUT_S", "").strip()
+    try:
+        value = int(raw) if raw else _GIT_TIMEOUT
+    except (TypeError, ValueError):
+        value = _GIT_TIMEOUT
+    return max(5, min(value, 120))
+
+
+def _max_files() -> int:
+    """Per-call file-count cap (PULSEAI_SHADOW_MAX_FILES), read every call.
+    Explicit user intent is honored exactly — a silently-overridden knob is
+    a lie (clamped only to a positive int)."""
+    raw = os.environ.get("PULSEAI_SHADOW_MAX_FILES", "").strip()
+    try:
+        value = int(raw) if raw else _MAX_FILES
+    except (TypeError, ValueError):
+        value = _MAX_FILES
+    return max(1, min(value, 5_000_000))
+
+
+def _dir_file_count(path: Path, bail_at: int) -> int:
     """Count files with early exit (huge trees => skip snapshot, cheaply)."""
     count = 0
     for _dirpath, dirnames, filenames in os.walk(path):
@@ -403,8 +427,15 @@ class ShadowCheckpoints:
         store = _store_path(self._base)
         _init_store(store)
         _touch_project(store, working_dir)
+        started = time.monotonic()
+        cap = _max_files()
 
-        if _dir_file_count(Path(working_dir)) > _MAX_FILES:
+        if _dir_file_count(Path(working_dir), cap) > cap:
+            print(
+                f"[shadow_checkpoint] {working_dir}: skipped — tree over the "
+                f"{cap}-file cap (PULSEAI_SHADOW_MAX_FILES); NO undo point taken",
+                flush=True,
+            )
             return False
 
         dir_hash = _project_hash(working_dir)
@@ -425,9 +456,19 @@ class ShadowCheckpoints:
             index_file.unlink()
         index_file.parent.mkdir(parents=True, exist_ok=True)
 
+        add_budget = _git_timeout() * 2
         ok, _, _ = _run_git(["add", "-A"], store, working_dir,
-                            timeout=_GIT_TIMEOUT * 2, index_file=index_file)
+                            timeout=add_budget, index_file=index_file)
         if not ok:
+            # Owner field proof: this give-up used to be SILENT — the turn
+            # burned the whole add budget (30s) every first terminal command
+            # and the log said nothing. Name it, every time.
+            print(
+                f"[shadow_checkpoint] {working_dir}: gave up after ~{add_budget}s "
+                "on 'git add' — tree too large for the snapshot budget "
+                "(PULSEAI_SHADOW_GIT_TIMEOUT_S); NO undo point taken",
+                flush=True,
+            )
             return False
 
         if self.max_file_size_mb > 0:
@@ -466,6 +507,11 @@ class ShadowCheckpoints:
 
         self._trim_history(store, working_dir, ref, dir_hash)
         self._maybe_gc(store, working_dir)
+        print(
+            f"[shadow_checkpoint] snapshot took {time.monotonic() - started:.1f}s "
+            f"({working_dir})",
+            flush=True,
+        )
         return True
 
     def _drop_oversize_from_index(self, store: Path, working_dir: str,

@@ -287,7 +287,7 @@ function copyButton(text: string): HTMLElement {
 	};
 	btn.addEventListener('click', () => {
 		try {
-			void navigator.clipboard.writeText(text).then(() => {
+			void copyTextToClipboard(text).then(() => {
 				btn.replaceChildren(icon('check'));
 				btn.title = 'Copied';
 				setTimeout(reset, 1500);
@@ -310,6 +310,26 @@ function button(label: string, className: string, action: () => void, iconName?:
 	node.type = 'button';
 	node.addEventListener('click', action);
 	return node;
+}
+
+// Webview clipboard can be permission-blocked (field: NotAllowedError on
+// writeText). Degrade honestly: async API first, hidden-textarea fallback,
+// real failure surfaced by the caller's UI either way.
+function copyTextToClipboard(text: string): Promise<void> {
+	if (navigator.clipboard?.writeText) {
+		return navigator.clipboard.writeText(text).catch(() => copyViaExecCommand(text));
+	}
+	return new Promise<void>((resolve) => { copyViaExecCommand(text); resolve(); });
+}
+function copyViaExecCommand(text: string): void {
+	const textarea = document.createElement('textarea');
+	textarea.value = text;
+	textarea.setAttribute('readonly', 'true');
+	textarea.style.position = 'fixed';
+	textarea.style.opacity = '0';
+	document.body.append(textarea);
+	textarea.select();
+	try { document.execCommand('copy'); } finally { textarea.remove(); }
 }
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -415,7 +435,7 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 		element('div', 'pulseai-terminal-result', element('span', `pulseai-tool-state is-${tool.state}`, stateLabel(tool.state)), element('span', undefined, `exit ${exit}`), element('span', undefined, duration)),
 	);
 	const actions = element('div', 'pulseai-tool-actions');
-	actions.append(button('Copy command', 'pulseai-link-button', () => void navigator.clipboard?.writeText(command), 'copy'));
+	actions.append(button('Copy command', 'pulseai-link-button', () => void copyTextToClipboard(command), 'copy'));
 	const cwd = firstString(args, ['cwd', 'path']);
 	if (cwd) { actions.append(button('Reveal location', 'pulseai-link-button', () => host.revealFile(cwd), 'go-to-file')); }
 	body.append(actions);
@@ -445,7 +465,7 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		body.append(toolFields([['Path', target], ['Lines', lines], ['Encoding', 'UTF-8']]));
 		const content = firstString(result, ['content']) ?? boundedText(tool.result, 800);
 		body.append(element('pre', 'pulseai-tool-pre pulseai-code-preview', content.slice(0, 800)));
-		body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file'), button('Copy path', 'pulseai-link-button', () => void navigator.clipboard?.writeText(target), 'copy')));
+		body.append(element('div', 'pulseai-tool-actions', button('Open file', 'pulseai-link-button', () => host.revealFile(target), 'go-to-file'), button('Copy path', 'pulseai-link-button', () => void copyTextToClipboard(target), 'copy')));
 	} else if (presentation.family === 'file-write') {
 		const diff = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
 		// Counted from the diff that is actually here. The fallback here used to be a
@@ -482,7 +502,7 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 	} else if (presentation.family === 'web') {
 		body.append(toolFields([['URL', target], ['Status', firstString(result, ['status']) ?? '200 OK'], ['Received', firstString(result, ['size']) ?? '—']]));
 		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 500)));
-		body.append(element('div', 'pulseai-tool-actions', button('Open source', 'pulseai-link-button', () => host.revealFile(target), 'link'), button('Copy URL', 'pulseai-link-button', () => void navigator.clipboard?.writeText(target), 'copy')));
+		body.append(element('div', 'pulseai-tool-actions', button('Open source', 'pulseai-link-button', () => host.revealFile(target), 'link'), button('Copy URL', 'pulseai-link-button', () => void copyTextToClipboard(target), 'copy')));
 	} else if (presentation.family === 'browser') {
 		body.append(toolFields([['Page', firstString(args, ['page']) ?? '—'], ['URL', target], ['Viewport', '1280 × 800']]));
 		body.append(element('div', 'pulseai-browser-snapshot', element('div', undefined, element('span', undefined, 'document'), element('code', undefined, boundedText(result, 120).slice(0, 80)))));

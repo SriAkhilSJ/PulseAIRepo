@@ -353,7 +353,7 @@ def test_no_progress_line_is_invented_when_there_is_nothing_to_report():
     bridge = (root / "src/bridge/__main__.py").read_text(encoding="utf-8")
     assert inspecting not in renderer, "assistant copy must not be invented when assistantText is empty"
     assert preparing not in bridge, "the pre-graph liveness frame must not narrate a step that has not run"
-    copy_call = re.search(r"element\('p', 'pulseai-assistant-copy'[^)]*\)", renderer)
-    assert copy_call, "the assistant copy element must still exist -- the fix is to gate it, not delete it"
+    copy_call = re.search(r"element\('div', 'pulseai-assistant-copy[^)]*\)", renderer)
+    assert copy_call, "the assistant copy element must still exist -- the fix is to gate it, not delete it (01e09f92 merged the markdown root into this class; the pin follows the call shape)"
     assert "||" not in copy_call.group(0), f"the copy line must render only real text: {copy_call.group(0)}"
     assert "if (model.assistantText) {" in renderer, "the copy element needs an emptiness guard to survive removal of the fallback"

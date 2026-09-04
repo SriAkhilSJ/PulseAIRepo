@@ -34,7 +34,9 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     renderer = _text("browser", "pulseAIRenderer.ts")
     service = _text("browser", "pulseAIRendererService.ts")
     for source in (renderer, service):
-        assert "node:" not in source
+        # Ban node/electron IMPORTS, not any substring ("node:" also matches
+        # TypeScript parameter annotations like `datasetSet(node: HTMLElement)`).
+        assert not re.search(r"""from\s+['"]node:""", source)
         assert "electron-browser/" not in source
         assert ".innerHTML" not in source
     assert "IPulseAIEngineService" in service
