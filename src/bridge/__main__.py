@@ -316,6 +316,8 @@ class BridgeServer:
         q = None
         done = None
         forwarder = None
+        import time as _time
+        _turn_t0 = _time.monotonic()
         # Establish active ownership before publishing turn_started. Once the
         # UI can show Stop, stream_agent's nested begin must preserve it.
         turn_controls.begin(sid)
@@ -397,16 +399,27 @@ class BridgeServer:
                     execution_mode=mode,
                 )
                 cancelled = turn_controls.cancelled(sid)
-                # All provider/tool events were queued before stream_agent
-                # returned. Flush them before the terminal frame so a fast
-                # finalization cannot strand the last tool.result behind
-                # turn_done or drop it when the forwarder stops.
+                # Owner-machine diagnosis (2026-09-04 "run never ends, I have
+                # to press Stop"): turn_done is SILENT in the log, so a log
+                # that ends at the last ai answer proves nothing — the engine
+                # may have finished with the frame lost, or be stuck right
+                # here. These stderr receipts make the end of the turn
+                # observable: if the [bridge] turn-end line appears, the
+                # engine completed and the hunt is renderer-side; if it never
+                # appears, the wall between the last ai answer and this line
+                # names the guilty call. (stderr -> owner log as
+                # `[PulseAI Engine] ...`.)
+                import sys as _sys
+                import time as _time
+                _turn_wall = _time.monotonic() - _turn_t0
+                print(f"[bridge] graph returned in {_turn_wall:.1f}s; draining event queue", file=_sys.stderr, flush=True)
                 if q is not None:
                     stranded = self._flush_events(q, _EVENT_FLUSH_TIMEOUT_S)
                     if stranded:
                         # Better a degraded note than a swallowed terminal frame:
                         # without turn_done a headless client waits for its whole
                         # watchdog while the engine has already finished.
+                        print(f"[bridge] event queue STRANDED {stranded} event(s)", file=_sys.stderr, flush=True)
                         self.emit({
                             "type": "runtime_degraded", **identity.event_fields(),
                             "reason": f"event queue flush incomplete: {stranded} event(s) undrained",
@@ -418,6 +431,11 @@ class BridgeServer:
                     "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
                 })
+                print(
+                    f"[bridge] turn end: completed={task_completed and not cancelled} "
+                    f"cancelled={cancelled} wall={_time.monotonic() - _turn_t0:.1f}s",
+                    file=_sys.stderr, flush=True,
+                )
             except Exception as exc:
                 # Transport closure can surface through different provider
                 # exception types. Intentional Stop wins over generic failure
@@ -433,6 +451,7 @@ class BridgeServer:
                         "type": "turn_failed", **identity.event_fields(),
                         "error": str(exc), "completed": False,
                     })
+                    print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
         finally:
             if diagnostics_enabled:
                 import faulthandler
