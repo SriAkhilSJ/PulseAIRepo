@@ -362,13 +362,13 @@ class BridgeServer:
 
             # Non-sensitive liveness frame before entering the real graph. The text used to name a
             # workspace step this code had not started and would not necessarily reach -- a 402 from the
-            # provider still printed it, straight above "Run failed". Say only what is unconditionally
-            # true here: the turn was accepted and we are waiting on the model. Everything else in the
-            # transcript comes from real tool events.
-            self.emit({
-                "type": "reasoning", **identity.event_fields(),
-                "text": "Turn accepted. Waiting on the model…",
-            })
+            # No canned "thinking" prose here. The bridge used to inject a
+            # fabricated reasoning row ("Turn accepted. Waiting on the model…")
+            # — text that appears and vanishes with no model behind it, which
+            # the owner explicitly rejected. The renderer's live activity row
+            # (dot + real state + elapsed seconds) already says everything
+            # that is unconditionally true; the transcript carries only real
+            # events now.
             try:
                 # Interactive IDE sessions default to ask. Guarded autonomous
                 # benchmark runners may opt into the same session-scoped,

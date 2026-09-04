@@ -380,6 +380,12 @@ def run_terminal(
 
     USE for quick commands: python scripts, tests, checks, environment
     inspection, verifying generated code. Inspect non-zero exit codes.
+    The output envelope ends with "Exit code: N" — read it before
+    claiming success.
+
+    Duration is owned by the engine (PULSEAI_TERMINAL_TIMEOUT, default
+    300s): do NOT pass a timeout parameter; there is none in this
+    tool's schema.
 
     DO NOT use for long-running installs/builds/servers (use
     start_terminal) or for reading known files (use read_file). Never run

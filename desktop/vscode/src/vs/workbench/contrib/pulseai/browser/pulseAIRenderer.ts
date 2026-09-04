@@ -365,7 +365,18 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	const result = record(tool.result);
 	const command = firstString(args, ['command', 'script']) ?? 'Command details unavailable';
 	const output = resultOutput(tool);
-	const exit = firstString(result, ['exitCode', 'exit_code', 'status', 'code']) ?? (tool.state === 'running' ? 'running' : 'unknown');
+	const exitSource = typeof tool.result === 'string' ? tool.result : '';
+	let exit = firstString(result, ['exitCode', 'exit_code', 'status', 'code']);
+	if (exit === undefined && exitSource) {
+		// run_terminal appends "Exit code: N" as the last line of its envelope
+		// (and the output cap keeps the tail), so the real exit code is
+		// recoverable even when the result is a plain string. Timeout
+		// envelopes carry their own marker instead.
+		const sentinel = /Exit code: (-?\d+)\s*$/.exec(exitSource);
+		if (sentinel) { exit = sentinel[1]; }
+		else if (exitSource.includes('run_terminal timed out')) { exit = 'timeout'; }
+	}
+	exit ??= (tool.state === 'running' ? 'running' : 'unknown');
 	const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';
 	const body = element('div', 'pulseai-tool-body pulseai-terminal-body');
 	body.append(
@@ -798,14 +809,25 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 	}
 	// Hermes port (assistant-ui/thread/status.tsx ResponseLoadingIndicator):
 	// while the turn runs, the TAIL carries one activity row -- pulse dot +
-	// wait hint (the named provider attempt when llm.request named one,
-	// otherwise the unconditional fact) + LIVE elapsed seconds. Turn ended ->
-	// the row is gone; history turns never grow one (tail-only rule).
+	// wait hint + LIVE elapsed seconds. Turn ended -> the row is gone;
+	// history turns never grow one (tail-only rule). The hint names REAL
+	// state, never a guess: a live tool card means the tool is the thing
+	// working (owner run: the row claimed "Waiting on the model" for 4min
+	// while dir /s /b was the one grinding); only a truly idle gap between
+	// tool and model may fall through to the generic text.
 	if (model.running) {
-		let hint = 'Waiting on the model\u2026';
-		if (model.llmStatus) {
+		const liveTool = [...model.tools].reverse().find(tool => tool.state === 'running' || tool.state === 'queued');
+		let hint: string;
+		if (liveTool) {
+			const target = compactTarget(displayTarget(liveTool)) ?? liveTool.name;
+			hint = liveTool.state === 'queued'
+				? `Queued: ${liveTool.name}\u2026`
+				: `Running ${target}\u2026`;
+		} else if (model.llmStatus) {
 			const attempt = model.llmStatus.attempt > 1 ? ` \u2014 attempt ${model.llmStatus.attempt}` : '';
 			hint = `Asking ${model.llmStatus.model || 'model'}${attempt}\u2026`;
+		} else {
+			hint = 'Waiting on the model\u2026';
 		}
 		const row = element('div', 'pulseai-context-status-row is-info pulseai-activity-row');
 		row.append(element('span', 'pulseai-activity-dot'));

@@ -2812,9 +2812,23 @@ class SafeToolNode:
         if not turn_controls.admit_action(self._session_id(config)):
             return self._cancelled_tool_messages(tool_calls, config)
         from src.graphs.parallel_tools import run_durable_batch_sequential
-        return run_durable_batch_sequential(
+        # Seam observability (owner field runs: the log went silent between
+        # a finished tool and the next "[ai_node] request" line, and nobody
+        # could tell WHICH side owned the hang). One line at the exact
+        # tool->model handoff: if the tool PASSED in the UI but this line
+        # never prints, the hang is inside the durable transaction; if it
+        # prints but "[ai_node] request" doesn't, the hang is graph-side.
+        import time as _time
+        _t0 = _time.monotonic()
+        results = run_durable_batch_sequential(
             tool_calls, self._tools_by_name, config
         )
+        print(
+            f"[tool_node] {len(results)} tool result(s) ready in "
+            f"{_time.monotonic() - _t0:.1f}s -> handing back to the model",
+            flush=True,
+        )
+        return results
 
     def _diff_payload(self, tool_call: dict, workspace: str) -> dict | None:
         name = tool_call.get("name", "")
