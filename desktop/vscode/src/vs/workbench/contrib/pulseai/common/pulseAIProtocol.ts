@@ -50,7 +50,7 @@ export type PulseServerEvent =
 	| ({ readonly type: 'subagent_updated'; readonly subagent_id: string; readonly state: string } & PulseIdentity)
 	| ({ readonly type: 'telemetry'; readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number } & PulseIdentity)
 	| ({ readonly type: 'checkpoint_event'; readonly checkpoint_hash?: string; readonly checkpoints?: readonly unknown[]; readonly restore?: unknown } & PulseIdentity)
-	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean } & PulseIdentity)
+	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean; readonly cancelled: boolean } & PulseIdentity)
 	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false } & PulseIdentity)
 	| ({ readonly type: 'runtime_degraded'; readonly reason: string } & PulseIdentity)
 		| ({ readonly type: 'voice_text'; readonly ok: boolean; readonly text?: string; readonly error?: string } & PulseIdentity)

@@ -53,7 +53,10 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "frame.cancel_requested" in service
     assert "Stopping." in renderer
     assert "Run cancelled" in renderer
-    assert "frame.completed ? 'completed' : 'cancelled'" in service
+    # Terminal mapping uses the frame's real cancel flag: an ended-incomplete
+    # run (completed:false, cancelled:false) must NOT paint "Run cancelled" —
+    # the task verdict already landed in-band via finalize's trailing receipt.
+    assert "frame.cancelled ? 'cancelled' : 'completed'" in service
     assert "scheduleRestart" in service
     assert "restartAttempts >= 3" in service
     assert "requestAnimationFrame" in service

@@ -802,7 +802,13 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
-			this.turnOutcome = frame.completed ? 'completed' : 'cancelled';
+			// Transport verdict vs task verdict: `completed:false` with
+			// `cancelled:false` is an ENDED-INCOMPLETE turn (finalize said the
+			// task failed) — the run itself finished and its trailing receipt
+			// already says so in-band. Only a real cancel paints "Run
+			// cancelled"; calling every incomplete run cancelled is progress
+			// theatre in reverse (a lie about the Stop button).
+			this.turnOutcome = frame.cancelled ? 'cancelled' : 'completed';
 			if (frame.message && !this.assistantText) {
 				this.assistantText = frame.message;
 				this.appendTextPart(frame.message);
