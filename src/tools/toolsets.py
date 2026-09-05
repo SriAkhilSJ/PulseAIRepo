@@ -33,7 +33,7 @@ _WORKSPACE_WRITE_TOOLS: tuple[str, ...] = (
     "write_file", "edit_file", "copy_file",
 )
 _EXECUTION_TOOLS: tuple[str, ...] = (
-    "run_terminal", "execute_code",
+    "run_terminal", "terminal", "execute_code",
     "start_terminal", "check_terminal", "read_terminal_output",
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
 )

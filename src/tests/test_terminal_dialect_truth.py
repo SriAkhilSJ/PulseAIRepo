@@ -82,3 +82,29 @@ def test_foreground_timeout_cap_env(monkeypatch):
     monkeypatch.setenv("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "1")
     eff, rejection = _foreground_timeout(31)
     assert eff == 0 and "exceeds the maximum of 30s" in rejection
+
+
+def test_hermes_terminal_name_alias_executes(tmp_path):
+    """Field run 2026-09-05: the model emitted the tool name `terminal`
+    (hermes' name) — pulse only knew `run_terminal`, the unknown-name
+    rejection ended the turn as "Tool failed: terminal" / "Ended
+    incomplete: list the files". The hermes name must EXECUTE with the
+    run_terminal contract, not reject."""
+    from src.tools.terminal_tools import terminal
+
+    assert terminal.name == "terminal"
+    out = terminal.invoke(
+        {"command": "echo pulse_alias_probe"},
+        {"configurable": {"workspace": str(tmp_path)}},
+    )
+    assert "pulse_alias_probe" in out
+    assert "Exit code: 0" in out
+
+
+def test_hermes_terminal_alias_in_execution_toolset():
+    """The alias binds wherever run_terminal binds — a hermes-trained tool
+    call must never hit the unknown-name path again."""
+    from src.tools.toolsets import _EXECUTION_TOOLS
+
+    assert "terminal" in _EXECUTION_TOOLS
+    assert "run_terminal" in _EXECUTION_TOOLS

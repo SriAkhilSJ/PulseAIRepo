@@ -112,6 +112,7 @@ from src.tools.file_tools import (
 from src.tools.terminal_tools import (
     run_terminal,
     start_terminal,
+    terminal,
     check_terminal,
     stop_terminal,
     list_terminal_processes,
@@ -397,6 +398,7 @@ tools = [
     think,
     verify,
     ask_user,
+    terminal,
     plan_update,
     delegate_to_subagent,
     delegate_to_subagent_batch,
@@ -2486,6 +2488,22 @@ def after_progress(state: AgentState) -> str:
     finalize through the plan-complete shortcut — the E2 copy nudge
     fires instead.
     """
+    # Hermes question discipline (field run 2026-09-05, "asked question
+    # but"): ask_user returned its echo to the MODEL, which kept working —
+    # asked AND ran a command in the same turn, then died "Ended
+    # incomplete". In hermes a clarifying question is a TURN END: the user
+    # answers in the chat, the next turn proceeds with the reply. An
+    # ask_user-only tool batch therefore finalizes right here; the
+    # question card is the answer surface and the end is CLEAN (no steps,
+    # no failures -> no "Ended incomplete" stamp).
+    _msgs = state.get("messages") or []
+    if _msgs and isinstance(_msgs[-1], ToolMessage) and getattr(_msgs[-1], "name", "") == "ask_user":
+        for _m in reversed(_msgs[:-1]):
+            if getattr(_m, "type", "") == "ai":
+                _calls = getattr(_m, "tool_calls", None) or []
+                if _calls and all(c.get("name") == "ask_user" for c in _calls):
+                    return "finalize"
+                break
     route = ph.next_after_progress(
         recovery_mode=state.get("recovery_mode", False),
         recovery_attempts=state.get("recovery_attempts", 0),

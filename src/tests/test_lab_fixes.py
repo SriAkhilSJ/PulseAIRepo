@@ -1208,3 +1208,50 @@ def test_retest_copy_task_finalizes_once_components_placed():
             fh.write("// component\n")
     state = _retest_state(ws, finish_nudges=2)
     assert should_continue(state) == "finalize"
+
+
+def test_ask_user_batch_finalizes_turn_hermes_style():
+    """Field run 2026-09-05 ("asked question but"): ask_user returned its
+    echo to the MODEL, which kept working (asked AND ran a command), then
+    the turn died "Ended incomplete". Hermes questions are prose
+    turn-enders: the user answers in chat, the next turn proceeds. An
+    ask_user-only tool batch must finalize immediately (clean end — no
+    steps, no failures, no stamp)."""
+    from langchain_core.messages import AIMessage, ToolMessage
+    from src.graphs.chat_graph import after_progress
+
+    msgs = [
+        AIMessage(content="", tool_calls=[
+            {"name": "ask_user",
+             "args": {"question": "Which directory?"},
+             "id": "1", "type": "tool_call"}]),
+        ToolMessage(
+            content="? **I need a bit more clarity:** ...",
+            tool_call_id="1", name="ask_user"),
+    ]
+    state = {"messages": msgs, "recovery_mode": False,
+             "recovery_attempts": 0, "replan_needed": False,
+             "env_failures": 0, "pivot_count": 0}
+    assert after_progress(state) == "finalize"
+
+
+def test_mixed_batch_with_ask_user_does_not_short_circuit():
+    """ask_user alongside a real tool in the same batch: the real result
+    still routes normally — only a pure-ask batch ends the turn."""
+    from langchain_core.messages import AIMessage, ToolMessage
+    from src.graphs.chat_graph import after_progress
+
+    msgs = [
+        AIMessage(content="", tool_calls=[
+            {"name": "ask_user", "args": {"question": "which?"},
+             "id": "1", "type": "tool_call"},
+            {"name": "run_terminal",
+             "args": {"command": "dir"}, "id": "2", "type": "tool_call"}]),
+        ToolMessage(content="? ...", tool_call_id="1", name="ask_user"),
+        ToolMessage(content="file.txt\nExit code: 0",
+                    tool_call_id="2", name="run_terminal"),
+    ]
+    state = {"messages": msgs, "recovery_mode": False,
+             "recovery_attempts": 0, "replan_needed": False,
+             "env_failures": 0, "pivot_count": 0}
+    assert after_progress(state) != "finalize"

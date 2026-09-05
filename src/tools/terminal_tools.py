@@ -241,6 +241,32 @@ def start_terminal(
         f"Process ID: {process_id}\n"
         f"Command: {command}"
     )
+
+@tool
+def terminal(
+    command: str,
+    config: RunnableConfig,
+    timeout: int | str | None = None,
+) -> str:
+    """
+    Execute shell commands in the active workspace (alias of run_terminal).
+
+    Hermes tool-name parity (field run 2026-09-05): models trained on
+    hermes emit the tool name `terminal` — the unknown-name rejection
+    ended a listing turn as "Tool failed: terminal". This alias makes the
+    hermes name EXECUTE with run_terminal's full contract: timeout
+    honored (default 300s, foreground max 600s, above-cap rejected with a
+    start_terminal pivot), cmd.exe dialect on Windows.
+
+    Do NOT use cat/head/tail (use read_file), grep/rg/find/ls
+    (use list_files or search_code), sed/awk (use edit_file), or
+    echo/heredoc file creation (use write_file). Reserve the terminal
+    for: builds, installs, git, processes, scripts, network, package
+    managers — anything that needs a shell.
+    """
+    return run_terminal.func(command, config, timeout)
+
+
 def _limit_terminal_output(
     output: str,
     max_chars: int = 12_000,
