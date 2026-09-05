@@ -46,11 +46,17 @@ class TestGuardSubstitution:
         assert not self._blocked(guard, "echo hello world")       # benign passes
         assert not self._blocked(guard, "ls -la && pwd")          # benign operators pass
 
-    def test_rm_is_matched_as_a_shell_token_not_a_substring(self, guard):
-        assert self._blocked(guard, "rm file.txt")
-        assert self._blocked(guard, "rm\tfile.txt")
-        assert self._blocked(guard, "rm")
+    def test_rm_semantics_follow_hermes_approval_detection(self, guard):
+        # Hermes port (2026-09-05): rm asks only when RECURSIVE or
+        # root-targeted — a single-file rm of a git-tracked file is
+        # recoverable (the consent rule), and the old any-rm token rule was
+        # the Format-Table-class false positive generator this test used to
+        # pin against.
+        assert not self._blocked(guard, "rm file.txt")
+        assert not self._blocked(guard, "rm\tfile.txt")
+        assert not self._blocked(guard, "rm")
         assert self._blocked(guard, "sudo rm -rf build")
+        assert self._blocked(guard, "rm -rf build")
         assert not self._blocked(guard, "Get-ChildItem | Format-Table")
         assert not self._blocked(guard, "echo platform")
 

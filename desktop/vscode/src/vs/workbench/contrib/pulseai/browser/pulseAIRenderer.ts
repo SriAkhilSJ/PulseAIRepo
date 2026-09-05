@@ -1327,6 +1327,18 @@ function agentColumn(model: PulseAIRenderModel, host: PulseAIRenderHost, openToo
 	const nodes: HTMLElement[] = [];
 	const plan = planStrip(model, planOpen, setPlanOpen);
 	if (plan) { nodes.push(plan); }
+	// An engine that is not ready is a FACT the panel must paint — the empty
+	// state's starter grid under a dead engine reads as a send button that
+	// does nothing (field 2026-09-05). Same quiet row the activity ticker
+	// uses; the chip lives in the Manager, this names the state HERE.
+	if (model.engineState !== 'ready' && !model.engineFault) {
+		const row = element('div', 'pulseai-context-status-row is-info');
+		row.append(element('span', 'pulseai-activity-dot'));
+		row.append(element('span', undefined, model.engineState === 'starting'
+			? 'Pulse engine is starting — prompts send the moment it is ready.'
+			: `Pulse engine: ${model.engineState}.`));
+		nodes.push(row);
+	}
 	// An empty transcript is a designed surface, not a blank div -- the same rule the ported
 	// webview follows (`hermes-ui/components/empty-state.tsx`). Exactly one of the two is
 	// mounted, so a first-run view never shows an empty lane under a grid of starters.

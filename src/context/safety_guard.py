@@ -56,14 +56,12 @@ class SafetyGuard:
     """
     Checks tool calls for safety before execution.
     """
-    DANGEROUS_COMMANDS = {
-        "del ", "rd /s", "mkfs", "dd ", "format ",
-        ":(){ :|:& };:",  # fork bomb
-    }
-    # Match rm as a shell token instead of a raw substring. The old "rm"
-    # pattern blocked harmless commands such as PowerShell's Format-Table;
-    # the branch's interim "rm " fix still missed tabs and a bare `rm`.
-    RM_COMMAND = re.compile(r"(?<![\w-])rm(?=\s|$)", re.IGNORECASE)
+    # The dangerous-command table IS the hermes approval_detection taxonomy
+    # (src/context/approval_detection.py). The former 6-substring list and
+    # the any-rm token rule are gone: hermes gates rm only when it is
+    # recursive/root-targeted, and the Windows tier (Remove-Item -Recurse,
+    # taskkill /F, del /s /q, reg delete...) is exactly the shape field
+    # models send.
 
     CRITICAL_PATHS = {
         ".env", ".env.local", "secrets", "credentials",
@@ -112,10 +110,11 @@ class SafetyGuard:
             return True, ""
 
         # --- Terminal command check ---
-        if tool_name in ("run_terminal", "start_terminal"):
+        if tool_name in ("run_terminal", "start_terminal", "terminal"):
             command = tool_args.get("command", "")
-            if self._is_dangerous_command(command):
-                return False, self._dangerous_command_warning(command)
+            risk = self._command_risk(command)
+            if risk:
+                return False, self._dangerous_command_warning(command, risk)
 
         # --- Default: safe ---
         return True, ""
@@ -259,24 +258,26 @@ class SafetyGuard:
         path_lower = str(path).lower()
         return any(critical in path_lower for critical in self.CRITICAL_PATHS)
 
-    def _is_dangerous_command(self, command: str) -> bool:
-        """Check if a shell command is dangerous.
+    def _command_risk(self, command: str) -> str | None:
+        """The reason this command needs a human, or None to run as-is.
 
-        Command substitution ($() or backticks) ALWAYS escalates: the
-        substring list only sees literal text, so `$(cat ~/.env)` would sail
-        through as "safe-looking" while smuggling secrets into the context.
-        (The reviewer's example `echo $(rm -rf /)` was already caught —
-        "rm -rf" is a literal substring — but the general hole was real.)
+        Hermes approval_detection taxonomy (tools/approval_detection.py):
+        the dangerous tier names WHAT makes it dangerous; the hardline
+        floor is refused pre-spawn by the terminal tools themselves — it
+        must never be approvable, so it cannot live on the ask-first path.
+
+        Command substitution ($() or backticks) ALWAYS escalates: no
+        literal-text table sees the substituted text, so `$(cat ~/.env)`
+        would sail through as "safe-looking" while smuggling secrets into
+        the context.
 
         NOTE: this guard is a human checkpoint, not a sandbox. Determined
         obfuscation can always slip past regexes; approvals are the control.
         """
         if "$(" in command or "`" in command:
-            return True
-        cmd_lower = command.lower().strip()
-        if self.RM_COMMAND.search(cmd_lower):
-            return True
-        return any(danger in cmd_lower for danger in self.DANGEROUS_COMMANDS)
+            return "command substitution — the literal text is not the whole command"
+        from src.context.approval_detection import detect_dangerous_command
+        return detect_dangerous_command(command)
 
     def _overwrite_warning(self, path: str) -> str:
         return (
@@ -296,10 +297,12 @@ class SafetyGuard:
             f"Please confirm you want to edit this file, or tell me to use a different approach."
         )
 
-    def _dangerous_command_warning(self, command: str) -> str:
+    def _dangerous_command_warning(self, command: str, risk: str) -> str:
+        # Hermes approval_prompt discipline: name WHAT is dangerous (the
+        # finding), show the command, keep the human in charge — no vague
+        # "looks destructive".
         return (
-            f"🛑 **Safety Check:** The command `{command}` looks destructive.\n\n"
-            f"I've blocked it to prevent accidental data loss.\n\n"
-            f"If you're sure, tell me exactly what you want to delete and why, "
-            f"and I'll help you do it safely."
+            f"🛑 **Approval required:** this command needs your OK — {risk}.\n\n"
+            f"```\n{command}\n```\n\n"
+            f"Approve here, or tell me a different approach."
         )

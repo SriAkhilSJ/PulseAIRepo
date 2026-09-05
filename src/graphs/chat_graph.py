@@ -2950,6 +2950,15 @@ def replanner_node(
 # Wrap ToolNode with safety guard
 from src.context.safety_guard import SafetyGuard
 
+def _denied_command(tc) -> str:
+    """Compact command echo for denial ToolMessages — the model adapts by
+    seeing WHAT was denied, not just a policy adjective (hermes denial
+    receipts carry the command)."""
+    args = tc.get("args") or {}
+    command = args.get("command") if isinstance(args, dict) else None
+    return f"\nDenied command: {command}" if command else ""
+
+
 class SafeToolNode:
     """
     Wrapper around ToolNode that checks safety before executing.
@@ -3251,7 +3260,8 @@ class SafeToolNode:
             def _content(tc, first_line):
                 return (
                     f"⛔ AUTO-DENIED (sub-agent safety policy): "
-                    f"`{tc.get('name', '')}` was blocked. {first_line}\n"
+                    f"`{tc.get('name', '')}` was blocked. {first_line}"
+                f"{_denied_command(tc)}\n"
                     "Sub-agents cannot ask the human for approval, so "
                     "dangerous operations are denied immediately. Do not "
                     "retry this operation; either accomplish the task a "
@@ -3309,7 +3319,8 @@ class SafeToolNode:
             def _content(tc, first_line):
                 return (
                     f"⛔ BLOCKED (safety policy): `{tc.get('name', '')}` was not "
-                    f"executed. {first_line}\n"
+                    f"executed. {first_line}"
+                    f"{_denied_command(tc)}\n"
                     f"Choose a safe alternative (edit_file for small "
                     f"changes, a different path, or a non-destructive "
                     f"command) and continue — do not wait for approval."

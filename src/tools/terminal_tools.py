@@ -195,6 +195,10 @@ def start_terminal(
 
     workspace = config["configurable"]["workspace"]
 
+    _bg_floor = _hardline_refusal(command)
+    if _bg_floor:
+        return _bg_floor
+
     process_id = str(uuid.uuid4())[:8]
 
     _bg_argv, _bg_shell, _ = select_shell(command)
@@ -404,6 +408,23 @@ FOREGROUND_MAX_TIMEOUT_DEFAULT = 600  # hermes TERMINAL_MAX_FOREGROUND_TIMEOUT
 
 # PURE read verbs only. Executing tools (python/node/npm/pip/pytest) are
 # DELIBERATELY absent — code can write, and execute_code already snapshots.
+def _hardline_refusal(command: str) -> str | None:
+    """The never-run floor (hermes HARDLINE_PATTERNS): refused BEFORE spawn,
+    unconditionally — the approval dock must never be able to approve a
+    root wipe, a block-device write, or a shutdown. Pure classification
+    lives in src/context/approval_detection.py; this wrapper keeps the
+    refusal text with the tools that enforce it."""
+    from src.context.approval_detection import detect_hardline_command
+    finding = detect_hardline_command(command)
+    if not finding:
+        return None
+    return (
+        f"⛔ refused: {finding}. This command is on the never-run floor — "
+        "it cannot be executed or approved in any mode. State a different "
+        "approach."
+    )
+
+
 _READONLY_FIRST_TOKENS = frozenset({
     "dir", "ls", "type", "cat", "head", "tail", "findstr", "grep", "rg",
     "where", "which", "pwd", "tree", "wc", "stat", "file", "whoami", "hostname",
@@ -533,6 +554,9 @@ def run_terminal(
     # gate is obsolete by construction (field 2026-09-05: PowerShell cmdlets
     # into cmd.exe -> exit 255 twice -> recovery limit; the gate blocked
     # POSIX while the block taught PowerShell, and cmd runs NEITHER).
+    _floor = _hardline_refusal(command)
+    if _floor:
+        return _floor
     violations = [] if select_shell(command)[2] == "bash" else _posix_violations(command)
     if violations:
         return (

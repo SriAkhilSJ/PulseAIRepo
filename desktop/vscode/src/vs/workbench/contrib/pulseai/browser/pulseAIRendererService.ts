@@ -598,8 +598,27 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	}
 
 	private async submitPrompt(text: string): Promise<void> {
-		await this.ensureEngine();
-		if (this.engineService.state !== PulseAIEngineState.Ready) { return; }
+		// A bounded wait, not an unbounded one: ensureEngine resolves when
+		// start() settles, but a wedged sidecar must not eat the user's
+		// click forever (field 2026-09-05: "send button not working" — the
+		// click died in the old silent not-ready return with ZERO feedback).
+		await Promise.race([
+			this.ensureEngine(),
+			new Promise<void>(resolve => setTimeout(resolve, 20_000)),
+		]);
+		if (this.engineService.state !== PulseAIEngineState.Ready) {
+			// The one dishonest thing the old code did: return silently. The
+			// user typed a prompt and pressed send; the panel owes them the
+			// state of the engine and an action (hermes: state the fact,
+			// keep an option). start() failures already paint their own
+			// message — only the quiet paths get words here. The draft is
+			// preserved (cleared only after the ready check below).
+			if (!this.error) {
+				this.error = `Pulse engine is ${this.engineService.state} — not accepting prompts yet. Give it a moment, or retry from the Manager panel.`;
+			}
+			this.render();
+			return;
+		}
 		this.draft = '';
 		this.error = undefined;
 		if (!this.sessionId) {
