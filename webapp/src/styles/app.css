@@ -1,0 +1,144 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@theme inline {
+  --color-foreground: var(--dt-foreground);
+  --color-muted-foreground: var(--dt-muted-foreground);
+  --font-sans: var(--pulseai-font-sans);
+  --font-mono: var(--pulseai-font-mono);
+}
+
+/* ── Codicon font (vendored @vscode/codicons 0.0.36, MIT) — subset to the
+      glyphs the ported components use. ── */
+@font-face {
+  font-family: 'codicon';
+  src: url('../assets/codicon.ttf') format('truetype');
+}
+
+.codicon {
+  font-family: 'codicon';
+  font-display: block;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: auto;
+  user-select: none;
+}
+.codicon-modifier-spin {
+  animation: codicon-spin 1.5s steps(30) infinite;
+}
+@keyframes codicon-spin {
+  to { transform: rotate(360deg); }
+}
+.codicon-chevron-down:before { content: '\eab4'; }
+.codicon-chevron-right:before { content: '\eab6'; }
+.codicon-lightbulb:before { content: '\ea61'; }
+.codicon-terminal:before { content: '\ea85'; }
+.codicon-question:before { content: '\eb32'; }
+
+/* ── Page shell ── */
+html,
+body {
+  background: var(--ui-chat-surface-background);
+  color: var(--ui-text-primary);
+  font-family: var(--pulseai-font-sans);
+  font-size: var(--conversation-text-font-size);
+  line-height: var(--conversation-line-height);
+}
+
+/* Hermes conversation column: min(86%, 44rem), turn blocks separated by
+   --turn-block-gap. */
+.pulseai-conversation {
+  width: min(86%, 44rem);
+  margin-inline: auto;
+  padding-block: 1.25rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--turn-block-gap);
+}
+
+.pulseai-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--turn-block-gap);
+}
+
+/* Prose: paragraphs separated by --paragraph-gap (hermes single knob). */
+.pulseai-prose p {
+  margin: 0;
+}
+.pulseai-prose p + p {
+  margin-top: var(--paragraph-gap);
+}
+.pulseai-prose code {
+  font-family: var(--pulseai-font-mono);
+  font-size: 0.9em;
+  background: var(--ui-inline-code-background);
+  color: var(--ui-inline-code-foreground);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.3rem;
+}
+
+/* User turn: quiet, indented (hermes --sticky-human-top / indent scale). */
+.pulseai-human {
+  color: var(--ui-text-primary);
+  padding-inline-start: var(--message-text-indent);
+  border-inline-start: 0.125rem solid var(--dt-border);
+  padding-block: 0.1rem;
+}
+
+/* ── Scaffold resting fade (styles.css, verbatim mechanics): the BLOCK that
+      holds a scaffold row dims; prose stays primary. Lift on hover or
+      keyboard focus only. ── */
+[data-slot='pulseai_assistant-message-content'] [data-conversation-scaffold] {
+  opacity: 0.67;
+  transition: opacity 120ms ease-out;
+}
+[data-slot='pulseai_assistant-message-content'] [data-conversation-scaffold]:is(:hover, :has(:focus-visible)) {
+  opacity: 1;
+}
+
+/* Adjacent scaffold lines are one sequence, not blocks. */
+.pulseai-scaffold-sequence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--scaffold-block-gap);
+}
+
+/* ── Question card (widget surface, hermes radius/scale) ── */
+.pulseai-question-card {
+  background: var(--ui-widget-surface-background);
+  border: 1px solid color-mix(in srgb, var(--ui-base) 7.5%, transparent);
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--ui-text-primary);
+  font-size: var(--conversation-text-font-size);
+  line-height: var(--conversation-line-height);
+}
+.pulseai-question-card .pulseai-question-title {
+  color: var(--ui-text-secondary);
+  font-size: var(--conversation-caption-font-size);
+  line-height: var(--conversation-caption-line-height);
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.pulseai-question-card ul {
+  margin: 0;
+  padding-inline-start: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--ui-text-primary);
+}

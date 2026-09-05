@@ -1,0 +1,27 @@
+{
+  "name": "pulseai-spa",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "PulseAI chat surface — hermes desktop chat components rendered as a website. Built bundle is copied to desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/ where pulseAIViewPane.ts loads it (fixes 'Not allowed to load local resource').",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tailwind-merge": "3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.0.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.2.0"
+  }
+}

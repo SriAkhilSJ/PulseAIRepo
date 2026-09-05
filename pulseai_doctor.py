@@ -97,7 +97,30 @@ def main() -> int:
             missing_files = True
         print(f"    [{state}] {label}")
 
-    print("[5] renderer compile state:")
+    print("[5] webview SPA (pulseai-spa website):")
+    spa_out = os.path.join(
+        REPO,
+        "out", "vs", "workbench", "contrib", "pulseai", "browser",
+        "media", "pulseai-spa", "index.html",
+    )
+    spa_src = os.path.join(
+        REPO,
+        "desktop", "vscode", "src", "vs", "workbench", "contrib", "pulseai",
+        "browser", "media", "pulseai-spa", "index.html",
+    )
+    if not os.path.exists(spa_src):
+        print("    [MISSING] SPA source bundle not found in src/ (git pull first)")
+    elif not os.path.exists(spa_out):
+        print("    [MISSING] out/ has no pulseai-spa yet — run: cd desktop\\vscode && npm run compile")
+    else:
+        stale = os.path.getmtime(spa_out) < os.path.getmtime(spa_src)
+        print(
+            "    [STALE ] out/ SPA older than src/ — run: cd desktop\\vscode && npm run compile"
+            if stale
+            else "    [OK    ] webview SPA compiled into out/ (Webview tab will load it)"
+        )
+
+    print("[6] renderer compile state:")
     out_path = os.path.join(REPO, RENDERER_OUT)
     src_path = os.path.join(REPO, RENDERER_SRC)
     if not os.path.exists(out_path):
