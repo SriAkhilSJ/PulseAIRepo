@@ -843,6 +843,32 @@ class BridgeServer:
 
         threading.Thread(target=_warm, name="pulseai-boot-warmup", daemon=True).start()
 
+    @staticmethod
+    def _apply_memory_policy() -> None:
+        """Desktop default: long-term memory OFF.
+
+        Field proof (2026-09-04): the in-process embedder backend
+        (torch/sentence-transformers + its own SQLite) wedged the turn
+        process at the checkpointer commit — twice, always while backend
+        construction overlapped a live turn, on Windows. Hermes keeps
+        memory housekeeping OFF the turn's critical path; ours sat right
+        on it. Until the backend moves behind a real process boundary,
+        the desktop engine runs with memory disabled unless the user
+        opts in (PULSEAI_MEMORY=on). CLI/dashboard surfaces are not
+        affected (this policy lives in the bridge). Must run BEFORE the
+        first chat_graph import — the lazy manager reads the env there.
+        """
+        opted_in = os.environ.get("PULSEAI_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
+        if opted_in:
+            print("[bridge] long-term memory: ON (PULSEAI_MEMORY=on)", file=sys.stderr, flush=True)
+            return
+        os.environ.setdefault("PULSEAI_DISABLE_LONG_TERM_MEMORY", "1")
+        print(
+            "[bridge] long-term memory: OFF (desktop default; "
+            "PULSEAI_MEMORY=on to enable)",
+            file=sys.stderr, flush=True,
+        )
+
     def _log_build(self) -> None:
         """One stderr line naming the exact build this engine process runs.
 
@@ -866,6 +892,7 @@ class BridgeServer:
         print(f"[bridge] engine build: {build}", file=sys.stderr, flush=True)
 
     def run(self) -> int:
+        self._apply_memory_policy()
         self._log_build()
         self._start_boot_warmup()
         while not self._shutdown.is_set():

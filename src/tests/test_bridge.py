@@ -342,3 +342,24 @@ def test_session_create_reports_prior_checkpoints(sidecar, tmp_path):
                            "session_id": f"fresh-{uuid.uuid4().hex[:8]}"})
     assert info["type"] == "session_info"
     assert info.get("prior_checkpoints") == 0
+
+
+def test_bridge_memory_policy_defaults_off_and_honors_optin(monkeypatch, capsys):
+    """Desktop engine default: long-term memory OFF (the in-process embedder
+    wedged live turns at the checkpointer commit on Windows, 2026-09-04).
+    PULSEAI_MEMORY=on opts back in. The policy must not leak env to the test
+    process either way."""
+    import os
+    from src.bridge.__main__ import BridgeServer
+
+    monkeypatch.delenv("PULSEAI_DISABLE_LONG_TERM_MEMORY", raising=False)
+    monkeypatch.delenv("PULSEAI_MEMORY", raising=False)
+    BridgeServer._apply_memory_policy()
+    assert os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY") == "1"
+    assert "long-term memory: OFF" in capsys.readouterr().err
+
+    monkeypatch.setenv("PULSEAI_MEMORY", "on")
+    monkeypatch.delenv("PULSEAI_DISABLE_LONG_TERM_MEMORY", raising=False)
+    BridgeServer._apply_memory_policy()
+    assert os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY") is None
+    assert "long-term memory: ON" in capsys.readouterr().err

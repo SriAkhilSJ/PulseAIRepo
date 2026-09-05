@@ -138,6 +138,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	 */
 	private stalled: boolean | undefined;
 	private stallWatchdog: number | undefined;
+	private hardWatchdog: number | undefined;
 
 	/**
 	 * Degradation notices (runtime_degraded frames): honest "this ran bounded"
@@ -683,6 +684,33 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 				this.render();
 			}
 		}, 5 * 60 * 1000);
+		// HARD rendering kill (owner, 2026-09-04: "after the task is finished,
+		// rendering should stop" — the panel rendered Working for many minutes
+		// after the engine had gone quiet). Seven minutes with ZERO frames
+		// cannot be a live turn: every provider call is bracketed by
+		// llm.request/llm.response frames, so real silence means the engine
+		// is gone. End the turn LOCALLY with an honest receipt. If the
+		// engine wakes after all, its next terminal frame re-runs this
+		// handler and the truth replaces our note.
+		this.clearHardWatchdog();
+		this.hardWatchdog = window.setTimeout(() => {
+			this.hardWatchdog = undefined;
+			if (!this.running) { return; }
+			this.running = false;
+			this.cancelRequested = false;
+			this.turnStartedAt = undefined;
+			this.turnEndedAt = Date.now();
+			this.turnOutcome = 'failed';
+			this.stalled = undefined;
+			this.llmStatus = undefined;
+			this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
+			this.clearStallWatchdog();
+			this.render();
+		}, 7 * 60 * 1000);
+	}
+
+	private clearHardWatchdog(): void {
+		if (this.hardWatchdog !== undefined) { clearTimeout(this.hardWatchdog); this.hardWatchdog = undefined; }
 	}
 
 	private clearStallWatchdog(): void {
@@ -690,6 +718,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			window.clearTimeout(this.stallWatchdog);
 			this.stallWatchdog = undefined;
 		}
+		this.clearHardWatchdog();
 		this.stalled = undefined;
 	}
 
