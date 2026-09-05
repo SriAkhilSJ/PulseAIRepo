@@ -458,6 +458,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		const workspace = this.workspacePath;
 		if (!workspace) {
 			this.engineSetupError = false;
+			// Field 2026-09-05: a dead engine with zero log lines is
+			// undebuggable — every quiet path out of start() must speak.
+			console.warn('[PulseAI] engine start skipped: no workspace folder is open. Open a folder to enable the agent.');
 			return;
 		}
 		this.error = undefined;
@@ -613,6 +616,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			// keep an option). start() failures already paint their own
 			// message — only the quiet paths get words here. The draft is
 			// preserved (cleared only after the ready check below).
+			console.warn(`[PulseAI] prompt not sent: engine state=${this.engineService.state}, workspace=${this.workspacePath ? 'ok' : 'MISSING'}`);
 			if (!this.error) {
 				this.error = `Pulse engine is ${this.engineService.state} — not accepting prompts yet. Give it a moment, or retry from the Manager panel.`;
 			}
