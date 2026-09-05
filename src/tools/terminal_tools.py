@@ -9,6 +9,8 @@ import time
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from src.runtime.windows_shell import select_shell
+
 
 # R3-1: POSIX-on-Windows guard. R3 (Test-3 retest) burned 25 identical calls
 # sending POSIX shell (`mkdir -p /tmp/...`, `which npx`, `cp X /tmp`) against
@@ -195,9 +197,10 @@ def start_terminal(
 
     process_id = str(uuid.uuid4())[:8]
 
+    _bg_argv, _bg_shell, _ = select_shell(command)
     popen_kwargs = dict(
         cwd=workspace,
-        shell=True,
+        shell=_bg_shell,
         # stdin=DEVNULL, never inherited: under the bridge, fd 0 is the client's
         # JSON-RPC pipe. A child that inherits it can read the parent's protocol
         # frames — stealing turns and desynchronizing the stream — and on Windows
@@ -215,7 +218,7 @@ def start_terminal(
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
         popen_kwargs["start_new_session"] = True
-    process = subprocess.Popen(command, **popen_kwargs)
+    process = subprocess.Popen(_bg_argv if _bg_argv is not None else command, **popen_kwargs)
 
     # Store the process
     with _process_lock:
@@ -399,6 +402,48 @@ def _record_verification_result(
 FOREGROUND_MAX_TIMEOUT_DEFAULT = 600  # hermes TERMINAL_MAX_FOREGROUND_TIMEOUT
 
 
+# PURE read verbs only. Executing tools (python/node/npm/pip/pytest) are
+# DELIBERATELY absent — code can write, and execute_code already snapshots.
+_READONLY_FIRST_TOKENS = frozenset({
+    "dir", "ls", "type", "cat", "head", "tail", "findstr", "grep", "rg",
+    "where", "which", "pwd", "tree", "wc", "stat", "file", "whoami", "hostname",
+    "get-childitem", "gci", "test-path", "select-string", "sls",
+    "get-content", "gc", "get-item", "gi", "get-command", "gcm", "echo",
+})
+_READONLY_GIT_SUBCOMMANDS = frozenset({
+    "status", "log", "diff", "show", "branch", "remote", "rev-parse",
+    "ls-files", "config", "describe", "blame", "shortlog", "tag",
+})
+_MUTATION_MARKERS = (">>", "set-content", "add-content", "new-item",
+                     "remove-item", "out-file")
+
+
+def _looks_mutating(command: str) -> bool:
+    """True unless the command is recognizably read-only (D31 scope).
+
+    Conservative both ways: a known read verb skips the 24s-class snapshot;
+    anything unrecognized or carrying a redirect still snapshots. `/` in cmd
+    is a FLAG not a redirect, so `dir /b` is clean; a lone `>` (with the
+    cmd no-op `2>$null`/`2>nul` tolerated) is a write.
+    """
+    text = command.strip()
+    if not text:
+        return False
+    if ">" in text.replace("2>$null", "").replace("2>nul", ""):
+        return True
+    lowered = text.lower()
+    if any(marker in lowered for marker in _MUTATION_MARKERS):
+        return True
+    words = re.findall(r"[^\s;&|()<>]+", text)
+    if not words:
+        return False
+    first = words[0].strip("([{\"'").rstrip(")]}\"',;").lower()
+    if first == "git":
+        second = words[1].lower() if len(words) > 1 else ""
+        return second not in _READONLY_GIT_SUBCOMMANDS
+    return first not in _READONLY_FIRST_TOKENS
+
+
 def _foreground_timeout(value) -> tuple[int, str | None]:
     """Hermes terminal contract (tools/terminal_tool.py:943-957), ported:
     the MODEL owns foreground timeout — honored, coerced (models send
@@ -483,11 +528,12 @@ def run_terminal(
     if timeout_rejection:
         return f"⛔ run_terminal rejected: {timeout_rejection}"
 
-    # R3-1: POSIX-dialect guard. Detect POSIX-only verbs/paths being sent to a
-    # Windows shell and pivot BEFORE spawning — R3's 25-command retry loop was
-    # the SAME dialect error ("syntax incorrect" / "which not recognized")
-    # repeated; each would otherwise spawn and fail fast, re-learning nothing.
-    violations = _posix_violations(command)
+    # R3-1 POSIX-dialect guard — cmd.exe-fallback ONLY. Hermes' Windows
+    # backend runs bash (git-bash/MSYS): there, POSIX IS the dialect and the
+    # gate is obsolete by construction (field 2026-09-05: PowerShell cmdlets
+    # into cmd.exe -> exit 255 twice -> recovery limit; the gate blocked
+    # POSIX while the block taught PowerShell, and cmd runs NEITHER).
+    violations = [] if select_shell(command)[2] == "bash" else _posix_violations(command)
     if violations:
         return (
             "⛔ run_terminal: this command uses POSIX-only shell that does not "
@@ -502,9 +548,14 @@ def run_terminal(
     # D31: shadow snapshot BEFORE shell commands — `rm`, `git reset --hard`,
     # move/rename accidents are the #1 destruction vector. Per-turn dedup
     # makes this a no-op after the first mutation of the turn.
-    from src.tools.shadow_checkpoints import checkpoint_before_mutation
-    _reason = "run_terminal: " + " ".join(command.split())[:80]
-    checkpoint_before_mutation(workspace, _reason)
+    # Read-only commands skip the snapshot entirely (field 2026-09-05:
+    # `dir /b /s` paid a 24.3s checkpoint before a listing — hermes
+    # checkpoints MUTATIONS, not reads). Unknown shapes still snapshot:
+    # the safe default is pay-for-safety, not guess-read-only.
+    if _looks_mutating(command):
+        from src.tools.shadow_checkpoints import checkpoint_before_mutation
+        _reason = "run_terminal: " + " ".join(command.split())[:80]
+        checkpoint_before_mutation(workspace, _reason)
 
     # (timeout resolved above — hermes contract: model-owned, env-defaulted,
     # hard-capped. The old env-only re-read here silently discarded the
@@ -519,8 +570,9 @@ def run_terminal(
     env["NO_COLOR"] = "1"
 
     try:
+        argv, shell_flag, _dialect = select_shell(command)
         popen_kwargs = dict(
-            cwd=workspace, shell=True, stdin=subprocess.DEVNULL,
+            cwd=workspace, shell=shell_flag, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             encoding="utf-8", errors="replace", env=env,
         )
@@ -528,7 +580,7 @@ def run_terminal(
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             popen_kwargs["start_new_session"] = True
-        process = subprocess.Popen(command, **popen_kwargs)
+        process = subprocess.Popen(argv if argv is not None else command, **popen_kwargs)
         started = time.monotonic()
         stdout = stderr = ""
         session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))

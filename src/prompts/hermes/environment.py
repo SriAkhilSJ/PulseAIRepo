@@ -40,6 +40,9 @@ def is_windows() -> bool:
 def terminal_dialect() -> str:
     """The shell the terminal tool actually spawns — stated, never assumed."""
     if is_windows():
+        from src.runtime.windows_shell import windows_bash_available
+        if windows_bash_available():
+            return "bash (git-bash / MSYS) dialect"
         shell = (os.environ.get("COMSPEC") or "").lower()
         if "pwsh" in shell or "powershell" in shell:
             return "Windows PowerShell/cmd.exe dialect"
@@ -72,22 +75,48 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
     parts.append(f"Terminal dialect: {terminal_dialect()}.")
 
     if is_windows():
-        # SINGLE SOURCE OF TRUTH (owner desktop run 2026-09-03): the terminal
-        # gate refuses POSIX verbs on EVERY Windows host (terminal_tools
-        # _posix_violations, no bash escape hatch), so the upstream hermes
-        # WINDOWS_BASH_SHELL_HINT ("runs commands through bash (git-bash /
-        # MSYS) ... Use `ls` ... PowerShell builtins will NOT work") was a
-        # direct contradiction stapled into the same block. The model read
-        # both, gambled on bash, ran `ls`, and burned a turn on the refusal.
-        # The hint stays banned until the gate itself learns to spawn bash;
-        # the block below states the enforced reality and nothing else.
-        parts.append(
-            "# Windows terminal dialect\n"
-            f"The terminal tool runs {terminal_dialect()}. POSIX-only verbs "
-            f"({_POSIX_ONLY_VERBS}) are NOT available — use the PowerShell/cmd "
-            "equivalents (Get-ChildItem, Select-Object -First, findstr). Do not "
-            "emit a POSIX shape and hope."
-        )
+        from src.runtime.windows_shell import windows_bash_available
+        if windows_bash_available():
+            # Backend flipped to hermes' own: bash (git-bash/MSYS) spawns the
+            # commands, so the gate that banned POSIX is bypassed in
+            # terminal_tools and hermes' hint is the TRUTH here. Ported
+            # verbatim up to the sentence that references hermes-only tools
+            # (pty `process(submit)`/`process(write)` do not exist in pulse —
+            # same rule that banned this hint under cmd: the block never
+            # names a tool the runtime lacks).
+            parts.append(
+                "# Windows terminal dialect\n"
+                "Shell: on this Windows host your `terminal` tool runs commands "
+                "through bash (git-bash / MSYS), NOT PowerShell or cmd.exe. Use "
+                "POSIX shell syntax (`ls`, `$HOME`, `&&`, `|`, single-quoted "
+                "strings) inside terminal calls. MSYS-style paths like "
+                "`/c/Users/<user>/...` work alongside native "
+                "`C:\\Users\\<user>\\...` paths. PowerShell builtins "
+                "(`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT work — "
+                "use their POSIX equivalents (`ls`, `$FOO`, `grep`). Path "
+                "arguments for NATIVE Windows programs (git, rg, node, python, "
+                "...) are NOT translated: MSYS path conversion is disabled "
+                "here, so `git -C /c/Users/x` or `node /tmp/a.js` fails with "
+                "'cannot change to'/'not found' even though `cd /c/Users/x` (a "
+                "bash builtin) works. Pass `C:/Users/x`-style forward-slash "
+                "native paths to native tools, and prefer `$LOCALAPPDATA/Temp` "
+                "over `/tmp` for scratch files a native tool must read."
+            )
+        else:
+            # cmd.exe fallback (PULSEAI_WINDOWS_BASH=off or no git-bash):
+            # SINGLE SOURCE OF TRUTH (owner desktop run 2026-09-03): the
+            # terminal gate refuses POSIX verbs on EVERY cmd host, so the
+            # block states the enforced reality and nothing else.
+            parts.append(
+                "# Windows terminal dialect\n"
+                f"The terminal tool runs {terminal_dialect()}. POSIX-only verbs "
+                f"({_POSIX_ONLY_VERBS}) are NOT available — use the cmd "
+                "equivalents (dir, findstr, type). PowerShell cmdlets "
+                "(Get-ChildItem, Select-Object) are NOT commands here either: "
+                "cmd.exe cannot run them — prefix real PowerShell with "
+                "`powershell -NoProfile -Command \"...\"`. Do not emit a "
+                "shape the shell cannot run."
+            )
     elif _is_wsl():
         parts.append(
             WSL_ENVIRONMENT_HINT

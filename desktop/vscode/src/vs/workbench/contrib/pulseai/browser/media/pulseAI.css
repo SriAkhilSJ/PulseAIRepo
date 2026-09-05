@@ -1381,3 +1381,7 @@
 	font-size: var(--pulseai-text-micro);
 	opacity: 0.8;
 }
+
+/* Hermes thought rows carry no status glyph — keep the grid cell so the
+ * label column stays aligned with neighboring tool rows. */
+.pulseai-glyph-spacer { width: 14px; height: 1px; }

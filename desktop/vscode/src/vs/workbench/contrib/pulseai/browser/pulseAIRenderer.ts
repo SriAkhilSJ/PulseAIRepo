@@ -576,9 +576,14 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		// Models often self-announce ("**Thinking:** ...") — the card title
 		// already says what the tool is, so a duplicated label is fake chrome.
 		// Presentation-only strip of the leading self-labels.
+		// Both self-announce shapes leak in the field: "💭 **Thinking:**" and
+		// "**Thinking:**" — the label marker may sit on either side of the
+		// bold wrapper (and the 💭 on either side of the label). One pattern
+		// per position, tolerant of order.
 		const prose = resultText
-			.replace(/^\s*(\*\*)?\s*(💭\s*)?thinking\s*:?\s*(\*\*)?\s*/i, '')
-			.replace(/^\s*(\*\*)?\s*reasoning\s*:?\s*(\*\*)?\s*/i, '');
+			.replace(/^\s*(?:\*\*)?\s*💭?\s*(?:\*\*)?\s*thinking\s*:?\s*(?:\*\*)?\s*:?\s*/i, '')
+			.replace(/^\s*💭\s+/, '')
+			.replace(/^\s*(?:\*\*)?\s*reasoning\s*:?\s*(?:\*\*)?\s*:?\s*/i, '');
 		if (prose.trim()) {
 			if (tool.name === 'think') {
 				// Hermes thought body: small, dim, quiet scaffold — never a
@@ -587,10 +592,15 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 			} else {
 				body.append(expandableOutput(markdownCopy(prose)));
 			}
-			const argsDetails = element('details', 'pulseai-tool-args-details') as HTMLDetailsElement;
-			argsDetails.append(element('summary', 'pulseai-tool-args-summary', 'Arguments'));
-			argsDetails.append(labeledPayload('Arguments', tool.arguments));
-			body.append(argsDetails);
+			if (tool.name !== 'think') {
+				// Hermes thought cards carry ONLY the thought — an "Arguments"
+				// disclosure under a thinking row is chrome the user never asked
+				// to open (field screenshot 2026-09-05).
+				const argsDetails = element('details', 'pulseai-tool-args-details') as HTMLDetailsElement;
+				argsDetails.append(element('summary', 'pulseai-tool-args-summary', 'Arguments'));
+				argsDetails.append(labeledPayload('Arguments', tool.arguments));
+				body.append(argsDetails);
+			}
 		} else {
 			body.append(labeledPayload('Details', { arguments: tool.arguments, result: tool.result }));
 		}
@@ -624,7 +634,7 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 		&& targetText.toLowerCase() !== tool.name.toLowerCase()
 		&& targetText.toLowerCase() !== presentation.title.toLowerCase();
 	const summary = element('summary', 'pulseai-tool-summary',
-		statusGlyph(tool.state),
+		tool.name === 'think' ? element('span', 'pulseai-glyph-spacer') : statusGlyph(tool.state),
 		icon(presentation.icon),
 		titleSpan,
 		targetMeaningful ? element('span', 'pulseai-tool-target', targetText) : undefined,

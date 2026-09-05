@@ -11,29 +11,108 @@ names cmd/PowerShell truth and NEVER the bash hint.
 from __future__ import annotations
 
 
-def test_windows_environment_block_never_preaches_bash(monkeypatch):
+def test_windows_block_matches_backend_bash(monkeypatch):
+    """Backend truth (2026-09-05): with git-bash present the terminal SPAWNS
+    bash (hermes' Windows backend; terminal_tools bypasses the POSIX gate),
+    so the block must preach bash — the old ban was the cmd-gate era."""
     from src.prompts.hermes import environment as env
 
     monkeypatch.setattr(env, "is_windows", lambda: True)
-    monkeypatch.setattr(env, "WINDOWS_BASH_SHELL_HINT", (
-        "Shell: on this Windows host your run_terminal tool runs commands "
-        "through bash (git-bash / MSYS), NOT PowerShell or cmd.exe."
-    ))
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: True)
     block = env.build_environment_hints()
 
-    assert "git-bash" not in block, "the banned bash hint leaked into the block"
-    assert "through bash" not in block
+    assert "through bash (git-bash / MSYS)" in block
+    assert "PowerShell builtins" in block and "will NOT work" in block
+    assert "cmd.exe dialect" not in block
+
+
+def test_windows_block_cmd_fallback_still_honest(monkeypatch):
+    """No git-bash (or PULSEAI_WINDOWS_BASH=off): cmd.exe truth — no bash
+    hint, and PowerShell cmdlets named as NOT commands (field 2026-09-05:
+    Get-ChildItem|Select-Object into cmd.exe -> exit 255 -> recovery limit)."""
+    from src.prompts.hermes import environment as env
+
+    monkeypatch.setattr(env, "is_windows", lambda: True)
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: False)
+    block = env.build_environment_hints()
+
+    assert "through bash" not in block, "the bash hint leaked into the cmd block"
     assert "Terminal dialect:" in block
-    assert "NOT available" in block, "the enforced pivot guidance must stay"
+    assert "cmd" in block
+    assert "powershell -NoProfile -Command" in block
 
 
-def test_windows_block_still_guides_to_powershell(monkeypatch):
+def test_windows_cmd_fallback_guides_cmd_equivalents(monkeypatch):
     from src.prompts.hermes import environment as env
 
     monkeypatch.setattr(env, "is_windows", lambda: True)
-    monkeypatch.setattr(env, "WINDOWS_BASH_SHELL_HINT", "through bash (git-bash / MSYS)")
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: False)
     block = env.build_environment_hints()
-    assert "PowerShell/cmd" in block or "Get-ChildItem" in block
+    assert "dir, findstr, type" in block or "Get-ChildItem" in block
+
+
+def test_windows_dialect_name_follows_backend(monkeypatch):
+    """terminal_dialect() states the ACTUAL spawn shell."""
+    from src.prompts.hermes import environment as env
+
+    monkeypatch.setattr(env, "is_windows", lambda: True)
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: True)
+    assert "bash" in env.terminal_dialect()
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: False)
+    assert "cmd.exe" in env.terminal_dialect()
+
+
+def test_select_shell_bash_backend(monkeypatch):
+    """Hermes backend: [bash, -c, command] with shell=False; gate bypass is
+    keyed on the same selection."""
+    import src.tools.terminal_tools as tt
+    from src.runtime.windows_shell import select_shell
+
+    monkeypatch.setattr(tt, "_IS_WINDOWS", True)
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash", lambda o="": r"C:\Program Files\Git\bin\bash.exe")
+    monkeypatch.setattr("src.runtime.windows_shell._IS_WINDOWS", True)
+    argv, shell_flag, dialect = select_shell("dir /b")
+    assert argv == [r"C:\Program Files\Git\bin\bash.exe", "-c", "dir /b"]
+    assert shell_flag is False and dialect == "bash"
+    # gate bypass lives at the run_terminal call site: under the bash
+    # dialect POSIX IS the dialect, so the guard never fires
+    assert select_shell("ls -la | grep foo")[2] == "bash"
+
+
+def test_select_shell_cmd_fallback(monkeypatch):
+    import src.tools.terminal_tools as tt
+    from src.runtime.windows_shell import select_shell
+
+    monkeypatch.setattr(tt, "_IS_WINDOWS", True)
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash", lambda o="": None)
+    monkeypatch.setattr("src.runtime.windows_shell._IS_WINDOWS", True)
+    argv, shell_flag, dialect = select_shell("dir /b")
+    assert argv is None and shell_flag is True and dialect == "cmd"
+    assert tt._posix_violations("ls -la") != []
+
+
+def test_windows_bash_override_off(monkeypatch):
+    """PULSEAI_WINDOWS_BASH=off forces the cmd fallback even with git-bash."""
+    import src.runtime.windows_shell as ws
+
+    monkeypatch.setenv("PULSEAI_WINDOWS_BASH", "off")
+    assert ws.windows_bash_available() is False
+
+
+def test_read_only_commands_skip_shadow_checkpoint():
+    """Field 2026-09-05: `dir /b /s` paid a 24.3s shadow checkpoint before a
+    listing. Hermes checkpoints MUTATIONS, not reads; the classifier must
+    skip pure reads and still snapshot mutations/unknowns."""
+    import src.tools.terminal_tools as tt
+
+    for read in ("dir /b /s D:\\x", "dir /b D:\\x | findstr /i test",
+                 "git status", "git log --oneline", "rg --files src",
+                 "Get-Content a.txt", "type README.md"):
+        assert not tt._looks_mutating(read), read
+    for mutation in ("rm -rf build", "del /q x.txt", "git reset --hard",
+                     "git commit -m x", "echo hi > out.txt", "npm install",
+                     "python script.py"):
+        assert tt._looks_mutating(mutation), mutation
 
 
 def test_non_windows_blocks_unchanged(monkeypatch):
