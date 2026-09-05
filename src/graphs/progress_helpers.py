@@ -117,13 +117,24 @@ def next_after_progress(
     plan_complete: bool,
     env_failures: int,
     pivot_count: int,
+    plan_wrap_nudges: int = 0,
 ) -> str:
     """Pure routing decision for after_progress (unit-testable).
 
     Old behavior: 3 terminal failures -> recovery_limit (pause for user)
     even when the failures were environmental and a different strategy
     existed. New behavior: repeated environment-level failures route to a
-    bounded strategy pivot (MAX_PIVOTS) before giving up."""
+    bounded strategy pivot (MAX_PIVOTS) before giving up.
+
+    Hermes loop law (field 2026-09-05, "Ended incomplete: verify test2
+    folder"): the MODEL ends its turn by stopping tool calls — the graph
+    never finalizes underneath a live tool batch. The old plan-complete
+    shortcut decapitated the model right after it emitted `npm install`
+    (the tool result was never fed back), then the finalize stamp called
+    the cut "Ended incomplete". Now plan completion gets ONE bounded
+    wrap nudge (the grace-call shape hermes uses at budget exhaustion):
+    the model is told to deliver its final answer, and only if it keeps
+    tooling past that does the shortcut finalize."""
     if recovery_mode and recovery_attempts >= RECOVERY_LIMIT:
         if env_failures >= 2 and pivot_count < MAX_PIVOTS:
             return "pivot"
@@ -131,7 +142,7 @@ def next_after_progress(
     if replan_needed:
         return "replanner"
     if plan_complete:
-        return "finalize"
+        return "finalize" if plan_wrap_nudges >= 1 else "finish_gate"
     return "ai"
 
 _TRACE_RESULT_TAIL = 1000
@@ -177,6 +188,25 @@ _ERROR_MARKER_RE = re.compile(
     r"^(?:error:|traceback|unknown process id|path escapes workspace)",
     re.IGNORECASE | re.MULTILINE,
 )
+
+
+def trailing_batch_failed(messages: list) -> bool:
+    """True when the model's FINAL tool batch contains an error result.
+
+    Hermes turn semantics: per-tool failures are observations the model
+    iterates on — they never by themselves fail the turn. Only a failure
+    the model never got past (it is still in the trailing batch at
+    finalize time, i.e. unrecovered) marks the turn incomplete. Field
+    2026-09-05: a run with two LONG-recovered failures (a mis-typed
+    read_file path, a bad CLI flag — both retried successfully) was
+    stamped "Ended incomplete" by the failed_steps history alone, while
+    the actual last action (npm install) was cut mid-flight by routing.
+    """
+    latest = latest_tool_messages(messages)
+    return any(
+        _ERROR_MARKER_RE.search(str(getattr(m, "content", "") or ""))
+        for m in latest
+    )
 
 
 def classify_tool_outcome(tool_name: str, result: str) -> str:

@@ -75,16 +75,55 @@ def test_work_run_never_carries_the_signoff_tail(_no_memory):
 
 
 def test_failed_run_keeps_the_incomplete_stamp(_no_memory):
+    """Only an UNRECOVERED failure (still the trailing tool batch) stamps
+    'Ended incomplete' - hermes: tool errors are observations; recovered
+    history never fails a turn (see test_recovered_tool_failures_...)."""
+    from langchain_core.messages import AIMessage, ToolMessage
     from src.graphs.chat_graph import finalize_node
 
     state = _chat_state()
+    state["messages"] = state["messages"] + [
+        AIMessage(content="running the check..."),
+        ToolMessage(
+            content="Error: terminal verification crashed (exit 1)",
+            tool_call_id="t1", name="run_terminal",
+        ),
+    ]
     state["failed_steps"] = ["Terminal verification crashed"]
     out = finalize_node(dict(state), {"configurable": {}})
     text = out["messages"][0].content
     assert "Ended incomplete" in text
-    assert "✅ Finished" not in text
-    assert "Need any tweaks" not in text, "deviation notes stay bare — no sign-off tail"
+    assert "\u2705 Finished" not in text
+    assert "Need any tweaks" not in text, "deviation notes stay bare - no sign-off tail"
     assert out["task_completed"] is False
+
+
+def test_recovered_tool_failures_never_stamp_incomplete(_no_memory):
+    """Field 2026-09-05 ('Ended incomplete: verify test2 folder'): the two
+    failed steps were long recovered (mis-typed path retried OK, bad CLI
+    flag replaced) - the run must complete with NO stamp; outcomes live in
+    the tool cards."""
+    from langchain_core.messages import AIMessage, ToolMessage
+    from src.graphs.chat_graph import finalize_node
+
+    state = _chat_state()
+    state["current_task"] = "verify the test2 folder"
+    state["messages"] = [
+        AIMessage(content="working..."),
+        ToolMessage(content="\u274c read_file: no such file", tool_call_id="t1", name="read_file"),
+        AIMessage(content="retrying"),
+        ToolMessage(content="\u2705 Read file: app/globals.css", tool_call_id="t2", name="read_file"),
+        AIMessage(content="All checks pass - here is the summary."),
+    ]
+    state["steps_completed"] = ["Read file: app/globals.css"]
+    state["failed_steps"] = [
+        "Command failed: read_file test2_ws_retest/[README.md](http://README.md)",
+        "Command failed: npx next dev --host 0.0.0.0",
+    ]
+    out = finalize_node(dict(state), {"configurable": {}})
+    assert out["messages"] == [], "no stamp on a recovered run"
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
 
 
 def test_deviation_header_uses_latest_user_message_not_stale_task(_no_memory):
@@ -92,7 +131,7 @@ def test_deviation_header_uses_latest_user_message_not_stale_task(_no_memory):
     hi' — the deviation header read current_task, stale from the session's
     first prompt. The LAST user message in the transcript is the honest
     label."""
-    from langchain_core.messages import HumanMessage
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from src.graphs.chat_graph import finalize_node
 
     state = _chat_state()
@@ -100,6 +139,11 @@ def test_deviation_header_uses_latest_user_message_not_stale_task(_no_memory):
         HumanMessage("hi"),
         state["messages"][-1],  # stale assistant turn from the "hi" exchange
         HumanMessage("list the folders and files and present it in a file tree"),
+        AIMessage(content="listing..."),
+        ToolMessage(
+            content="Error: run_terminal timed out after 300s",
+            tool_call_id="t9", name="run_terminal",
+        ),
     ]
     state["current_task"] = "hi"  # stale, must be outranked
     state["steps_completed"] = []
@@ -114,9 +158,16 @@ def test_failure_bullets_are_one_tight_line(_no_memory):
     """Owner: 'needs some discipline' — failure bullets used to carry the
     full command AND the tool-output tail (duplicating the tool card in the
     transcript). One bounded line each now."""
+    from langchain_core.messages import AIMessage, ToolMessage
     from src.graphs.chat_graph import finalize_node
 
     state = _chat_state()
+    state["messages"] = state["messages"] + [
+        AIMessage(content="running tree..."),
+        ToolMessage(
+            content="Error: tree not recognized", tool_call_id="t2", name="run_terminal",
+        ),
+    ]
     state["steps_completed"] = ["Ran command successfully: tree"]
     state["failed_steps"] = [
         "Command failed: powershell -NoProfile -Command \"Get-ChildItem -Path 'D:\\x' -Recurse\"\n"

@@ -1225,12 +1225,20 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # its continuation attempts is still unverified when required receipts are
     # absent; bounded routing must never turn missing evidence into a PASS.
     from src.graphs.gates import _verification_ran_and_passed
+    from src.graphs.progress_helpers import trailing_batch_failed
     unverified = (
         _looks_like_execution_task(current_task)
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
     )
-    task_succeeded = not unverified and not bool(failed_steps)
+    # Hermes turn semantics (field 2026-09-05, "Ended incomplete" on a run
+    # whose two tool errors were both long-recovered): failed_steps HISTORY
+    # never fails a turn — tool errors are observations the model iterated
+    # past. Only a failure still sitting in the trailing tool batch
+    # (unrecovered — the model's final act was the failure) or D9-unverified
+    # code marks the turn incomplete.
+    trailing_failed = trailing_batch_failed(state.get("messages") or [])
+    task_succeeded = not unverified and not trailing_failed
     if not task_succeeded:
         plan = finalize_plan(
             plan=list(state.get("plan", [])),
@@ -1248,7 +1256,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         )
     try:
         engine = get_context_engine(config)
-        if state.get("failed_steps") or unverified:
+        if trailing_failed or unverified:
             engine.record_feedback(success=False, task=current_task)
         else:
             engine.record_feedback(success=True, task=current_task)
@@ -1286,7 +1294,11 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             "working deliverable until verification passes."
         )
         lines.append("")
-    elif did_work and failed_steps:
+    elif did_work and trailing_failed:
+        # Only UNRECOVERED failures stamp the transcript (trailing batch):
+        # recovered error history shows in the tool cards, hermes-style —
+        # the stamp on a recovered run lied ("Ended incomplete" while the
+        # agent was mid-work and succeeding).
         lines.append(f"## ⚠️ Ended incomplete: {task_display}")
         lines.append("")
         for failure in failed_steps[-3:]:
@@ -1366,7 +1378,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "task_completed": task_succeeded,
         "task_status": (
             "unverified" if unverified
-            else "failed" if failed_steps
+            else "failed" if trailing_failed
             else "completed"
         ),
         "messages": [AIMessage(content="\n".join(lines))] if lines else [],
@@ -2511,6 +2523,7 @@ def after_progress(state: AgentState) -> str:
         plan_complete=is_plan_complete(state),
         env_failures=state.get("env_failures", 0),
         pivot_count=state.get("pivot_count", 0),
+        plan_wrap_nudges=state.get("plan_wrap_nudges", 0),
     )
     if route == "finalize" and (
         _verify_unsatisfied(state)
@@ -3943,6 +3956,7 @@ def invoke_agent(
                 "iteration_used": 0,
                 "grace_done": 0,
                 "incomplete_response_retries": 0,
+                "plan_wrap_nudges": 0,
                 "turn_token_usage": _zero_token_usage(),
             },
             config=config,
@@ -4040,6 +4054,7 @@ def stream_agent(
             "iteration_used": 0,
             "grace_done": 0,
             "incomplete_response_retries": 0,
+            "plan_wrap_nudges": 0,
             "turn_token_usage": _zero_token_usage(),
         }
         if initial_plan is not None:

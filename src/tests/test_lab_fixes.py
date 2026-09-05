@@ -403,7 +403,10 @@ def test_after_progress_plan_complete_but_unverified_routes_to_finish_gate():
 
 
 def test_after_progress_plan_complete_verified_finalizes():
-    """Plan complete AND verification satisfied (typecheck ✅) -> finalize."""
+    """Hermes loop law (field 2026-09-05): plan complete + verify satisfied
+    must NOT finalize underneath a live tool batch — the model ends its own
+    turn. First hit gets the ONE bounded wrap nudge (hermes grace-call
+    shape); if the model keeps tooling past it, the shortcut finalizes."""
     from src.graphs.chat_graph import after_progress
     from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
@@ -425,6 +428,10 @@ def test_after_progress_plan_complete_verified_finalizes():
         "recovery_mode": False, "recovery_attempts": 0, "replan_needed": False,
         "env_failures": 0, "pivot_count": 0,
     }
+    # First plan-complete hit: wrap nudge, not a mid-work cut.
+    assert after_progress(state) == "finish_gate"
+    # Model kept tooling past the wrap nudge: the shortcut finalizes.
+    state["plan_wrap_nudges"] = 1
     assert after_progress(state) == "finalize"
 
 
@@ -450,8 +457,10 @@ def test_progress_conditional_edges_include_finish_gate():
 
 
 def test_after_progress_verify_budget_exhausted_allows_finalize():
-    """Bounded: after 2 verify nudges the plan-complete route finalizes
-    even if the model refused to verify — gates must not starve."""
+    """Bounded: the plan-complete route must not loop forever. With the
+    verify budget spent AND the one wrap nudge already given, it finalizes
+    even if the model refused both to verify and to wrap up (hermes loop
+    law: one grace nudge, then the router concludes)."""
     from src.graphs.chat_graph import after_progress
     from langchain_core.messages import AIMessage
     state = {
@@ -464,6 +473,10 @@ def test_after_progress_verify_budget_exhausted_allows_finalize():
         "recovery_mode": False, "recovery_attempts": 0, "replan_needed": False,
         "env_failures": 0, "pivot_count": 0,
     }
+    # verify budget spent but the wrap nudge not yet given: one grace shot
+    assert after_progress(state) == "finish_gate"
+    # wrap nudge spent: the router concludes
+    state["plan_wrap_nudges"] = 1
     assert after_progress(state) == "finalize"
 
 

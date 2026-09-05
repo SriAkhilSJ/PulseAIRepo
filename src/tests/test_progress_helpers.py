@@ -442,3 +442,60 @@ def test_r3_1_no_fingerprint_no_retry_tracking():
     out = progress_node({"messages": msgs, "current_task": "t"}, _cfg())
     assert "command_retries" not in out
     assert len(out["failed_steps"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Hermes loop law (field 2026-09-05, "Ended incomplete: verify test2 folder"):
+# the model ends its own turn; recovered tool errors never fail a turn.
+# ---------------------------------------------------------------------------
+
+def test_next_after_progress_plan_complete_gives_one_wrap_nudge():
+    """Plan completion must NOT finalize underneath a live tool batch: the
+    first hit routes to finish_gate (wrap nudge), the second (model kept
+    tooling) to the bounded shortcut."""
+    base = dict(
+        recovery_mode=False, recovery_attempts=0, replan_needed=False,
+        env_failures=0, pivot_count=0,
+    )
+    assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=0, **base) == "finish_gate"
+    assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=1, **base) == "finalize"
+    # plan not complete: unchanged
+    assert ph.next_after_progress(plan_complete=False, plan_wrap_nudges=0, **base) == "ai"
+
+
+def test_trailing_batch_failed_detects_unrecovered_failure():
+    from langchain_core.messages import AIMessage, ToolMessage
+    msgs = [
+        AIMessage(content="working..."),
+        ToolMessage(content="Error: npm install timed out", tool_call_id="t1", name="run_terminal"),
+    ]
+    assert ph.trailing_batch_failed(msgs) is True
+    recovered = [
+        ToolMessage(content="❌ read_file: no such file", tool_call_id="t1", name="read_file"),
+        AIMessage(content="retrying"),
+        ToolMessage(content="✅ Read file: app/page.tsx", tool_call_id="t2", name="read_file"),
+    ]
+    assert ph.trailing_batch_failed(recovered) is False
+    assert ph.trailing_batch_failed([AIMessage(content="all done")]) is False
+    assert ph.trailing_batch_failed([]) is False
+
+
+def test_finish_gate_plan_wrap_branch_nudges_and_counts():
+    """The plan-complete stop in finish_gate_node injects the wrap nudge and
+    bumps its own bounded counter (not verify/finish budgets)."""
+    from langchain_core.messages import AIMessage
+    from src.graphs.gates import finish_gate_node
+    state = {
+        "messages": [AIMessage(content="x")],
+        "steps_completed": ["Ran command successfully: ls"],
+        "failed_steps": [],
+        "current_task": "list the folders",
+        "plan": [{"id": "1", "status": "completed", "description": "list"}],
+        "verify_nudges": 0,
+        "finish_nudges": 0,
+        "plan_wrap_nudges": 0,
+        "workspace": ".",
+    }
+    out = finish_gate_node(state)
+    assert "final answer" in out["messages"][0].content
+    assert out["plan_wrap_nudges"] == 1

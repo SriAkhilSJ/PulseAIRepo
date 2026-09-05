@@ -57,6 +57,17 @@ _FINISH_NUDGE = (
     "artifact) and keep going until the deliverable actually exists.]"
 )
 
+# Hermes grace-call shape (budget.py's _GRACE_NUDGE, for plan completion):
+# every plan step is marked complete — the model must deliver its final
+# answer instead of starting new work. The ROUTER, not this nudge, ends the
+# turn if the model keeps tooling past it.
+_PLAN_WRAP_NUDGE = (
+    "[System: Every step in the plan is now marked complete. Do not start "
+    "new work and do not call more tools. Give your final answer now: "
+    "report what was done, what the results are, and anything the user "
+    "still needs to do themselves.]"
+)
+
 # E2-specific finish nudge: a copy/compose task names its deliverable files
 # (e.g. "Copy-paste this component to /components/ui ... hero-futuristic.tsx
 # and demo.tsx"). When the task carries that shape and nothing was written/
@@ -765,6 +776,16 @@ def finish_gate_node(state: AgentState) -> dict:
         return {
             "messages": [SystemMessage(content=nudge)],
             "verify_nudges": state.get("verify_nudges", 0) + 1,
+        }
+    # Hermes loop law (field 2026-09-05): the plan completed but the model
+    # is mid-work (progress runs right after a tool batch). Tell it to
+    # deliver the final answer — the model, not the router, ends the turn.
+    # Bounded: after_progress finalizes the second time plan-complete hits.
+    plan = state.get("plan") or []
+    if plan and all(step.get("status") == "completed" for step in plan):
+        return {
+            "messages": [SystemMessage(content=_PLAN_WRAP_NUDGE)],
+            "plan_wrap_nudges": state.get("plan_wrap_nudges", 0) + 1,
         }
     nudge = _FINISH_NUDGE
     if _looks_like_copy_task(state.get("current_task", "")) and not _wrote_code_files(state):

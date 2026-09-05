@@ -91,6 +91,7 @@ class AgentState(CopilotKitState, total=False):
     finish_nudges: int      # hermes-style early-finish nudges applied (bounded)
     incomplete_response_retries: int  # output-limit continuations this turn (bounded)
     verify_nudges: int      # Test-2: nudges to run a verification tool (bounded)
+    plan_wrap_nudges: int   # hermes loop law: wrap-up nudges after plan completion (bounded: 1)
     token_usage: dict[str, Any]  # Cumulative tokens/cost for the active task/session
     turn_token_usage: dict[str, Any]  # Turn-scoped safety budget; resets on each user turn
     workspace: str  # Root path of the active project

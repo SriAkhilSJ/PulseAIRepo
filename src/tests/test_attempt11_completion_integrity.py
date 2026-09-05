@@ -104,12 +104,24 @@ def test_finalize_uses_latest_instruction_when_current_task_is_absent(monkeypatc
 
 
 def test_finalize_never_completes_with_unresolved_failed_steps(monkeypatch):
-    from langchain_core.messages import AIMessage
+    """UNRECOVERED failure (still the trailing tool batch at finalize) keeps
+    the turn incomplete. Recovered failure HISTORY alone must not fail the
+    turn — hermes treats tool errors as observations the model iterates past
+    (field 2026-09-05: a run with two long-recovered errors was stamped
+    'Ended incomplete' while its actual last action was cut mid-flight by
+    the old plan-complete shortcut)."""
+    from langchain_core.messages import AIMessage, ToolMessage
     import src.graphs.chat_graph as chat_graph
 
     monkeypatch.setattr(chat_graph, "memory_manager", None)
     state = {
-        "messages": [AIMessage(content="done")],
+        "messages": [
+            AIMessage(content="trying..."),
+            ToolMessage(
+                content="Error: npm install timed out after 180s",
+                tool_call_id="t1", name="run_terminal",
+            ),
+        ],
         "current_task": "Explain the repository",
         "steps_completed": [],
         "failed_steps": ["Terminal verification crashed"],
@@ -122,6 +134,44 @@ def test_finalize_never_completes_with_unresolved_failed_steps(monkeypatch):
     assert update["task_status"] == "failed"
     assert "Ended incomplete" in update["messages"][0].content
     assert "✅ Finished" not in update["messages"][0].content
+
+
+def test_finalize_completes_when_failures_were_recovered(monkeypatch):
+    """The exact field shape (2026-09-05): failed_steps history carries a
+    mis-typed read_file and a bad CLI flag — both retried successfully —
+    and the turn must complete WITHOUT the 'Ended incomplete' stamp. The
+    per-tool outcomes stay visible in their tool cards."""
+    from langchain_core.messages import AIMessage, ToolMessage
+    import src.graphs.chat_graph as chat_graph
+
+    monkeypatch.setattr(chat_graph, "memory_manager", None)
+    state = {
+        "messages": [
+            AIMessage(content="working..."),
+            ToolMessage(
+                content="❌ read_file: no such file",
+                tool_call_id="t1", name="read_file",
+            ),
+            AIMessage(content="retrying with the right path"),
+            ToolMessage(
+                content="✅ Read file: test2_ws_retest/app/globals.css",
+                tool_call_id="t2", name="read_file",
+            ),
+        ],
+        "current_task": "verify the test2 folder",
+        "steps_completed": ["Read file: test2_ws_retest/app/globals.css"],
+        "failed_steps": [
+            "Command failed: read_file test2_ws_retest/[README.md](http://README.md)",
+            "Command failed: npx next dev --host 0.0.0.0",
+        ],
+        "plan": [],
+    }
+
+    update = finalize_node(state, {"configurable": {}})
+
+    assert update["task_completed"] is True
+    assert update["task_status"] == "completed"
+    assert update["messages"] == []
 
 
 def test_terminal_subprocess_forces_utf8_transport(monkeypatch, tmp_path):

@@ -97,11 +97,15 @@ def main() -> int:
             missing_files = True
         print(f"    [{state}] {label}")
 
-    gulpfile = os.path.join(REPO, "desktop", "vscode", "build", "gulpfile.ts")
-    if os.path.exists(gulpfile) and "'compile'" in open(gulpfile, encoding="utf-8", errors="replace").read():
-        print("[4b] build system: gulpfile.ts present (npm run compile is REAL now - expect minutes of output)")
+    gulpfile = os.path.join(REPO, "desktop", "vscode", "gulpfile.mjs")
+    try:
+        gulpfile_text = open(gulpfile, encoding="utf-8", errors="replace").read()
+    except OSError:
+        gulpfile_text = ""
+    if "export async function compile" in gulpfile_text and "tsc" in gulpfile_text:
+        print("[4b] build system: gulpfile.mjs carries the compile task (npm run compile is REAL now - expect minutes of output)")
     else:
-        print("[4b] build system: [MISSING] desktop/vscode/build/gulpfile.ts - npm run compile fails instantly (pull first)")
+        print("[4b] build system: [MISSING] compile task in desktop/vscode/gulpfile.mjs - npm run compile fails instantly (pull first)")
 
     print("[5] webview SPA (pulseai-spa website):")
     spa_out = os.path.join(

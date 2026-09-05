@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +56,25 @@ def test_worker_validates_frames_paths_and_bridge_presence():
         assert receipt in worker
     contract = _text("common", "pulseAIWorkerService.ts")
     assert "environment" not in contract, "renderer must not inject arbitrary child environment"
+
+
+def test_compile_task_is_self_contained_in_tracked_gulpfile():
+    # fecbf105 disaster class: the compile lived in build/gulpfile.ts, but
+    # .gitignore's `desktop/vscode/build/*` silently excluded it from every
+    # commit ("git add -A" skipped it without a warning) — the remote chain
+    # NEVER had a working compile, and the sandbox snapshot kept dropping the
+    # untracked file. The compile implementation must live in the TRACKED
+    # gulpfile.mjs and must not import anything from the ignored build/ dir.
+    gulpfile = (FORK / "gulpfile.mjs").read_text(encoding="utf-8")
+    assert "build/gulpfile.ts" not in gulpfile
+    assert "export async function compile" in gulpfile
+    assert "tsconfig.json" in gulpfile and "tsc" in gulpfile
+    assert "pulseai-spa" in gulpfile, "compile must copy the SPA media tree"
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", "desktop/vscode/gulpfile.mjs"],
+        cwd=ROOT, capture_output=True, text=True,
+    ).stdout.strip()
+    assert tracked == "desktop/vscode/gulpfile.mjs", tracked
 
 
 def test_spa_iframe_uses_browser_uri_not_file_uri():
