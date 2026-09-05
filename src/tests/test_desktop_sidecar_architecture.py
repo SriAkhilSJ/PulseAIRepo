@@ -36,8 +36,11 @@ def test_worker_validates_frames_paths_and_bridge_presence():
         # src/bridge/__main__.py; otherwise the worker walks UP to the repo
         # that does (a workspace change must not kill the engine).
         "resolveEngineDirectory(options.engineRoot",
-        "existsSync(join(requested, 'src', 'bridge', '__main__.py'))",
+        "function ownsBridge(root: string)",
+        "existsSync(join(root, 'src', 'bridge', '__main__.py'))",
         "MAX_ENGINE_ROOT_UPWALK",
+        # install-tree self-discovery (workspace outside the repo must work)
+        "resolved from the install tree",
         "['-m', 'src.bridge']", "STOP_GRACE_MS",
     ):
         assert receipt in worker

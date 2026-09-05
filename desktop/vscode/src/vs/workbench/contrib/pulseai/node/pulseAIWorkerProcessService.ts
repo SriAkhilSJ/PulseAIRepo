@@ -29,13 +29,25 @@ const MAX_ENGINE_ROOT_UPWALK = 10;
  * test workspaces nested under PulseAIRepo), the owning repo is a few
  * parents up — walk and resolve, loudly.
  */
+function ownsBridge(root: string): boolean {
+	return existsSync(join(root, 'src', 'bridge', '__main__.py'));
+}
+
+// This worker file lives in the ENGINE'S OWN INSTALL TREE
+// (<repo>/desktop/vscode/out/vs/workbench/contrib/pulseai/node) — walking up
+// from it finds the repo that owns src/bridge regardless of which folder the
+// user opened (field 2026-09-05: d:\TestPulseAI is a SIBLING of the repo, no
+// up-walk from it can ever reach the engine — but the engine can reach
+// itself). Compiled output is CommonJS, so __dirname exists here.
+const MODULE_DIR = typeof __dirname !== 'undefined' ? __dirname : '';
+
 function resolveEngineDirectory(requested: string, note: (line: string) => void): string {
-	if (existsSync(join(requested, 'src', 'bridge', '__main__.py'))) {
+	if (ownsBridge(requested)) {
 		return requested;
 	}
 	let current = dirname(requested);
 	for (let hops = 0; hops < MAX_ENGINE_ROOT_UPWALK; hops++) {
-		if (existsSync(join(current, 'src', 'bridge', '__main__.py'))) {
+		if (ownsBridge(current)) {
 			note(`engine root: '${requested}' has no src/bridge — resolved UP to '${current}'`);
 			return current;
 		}
@@ -43,12 +55,24 @@ function resolveEngineDirectory(requested: string, note: (line: string) => void)
 		if (parent === current) { break; }
 		current = parent;
 	}
+	if (MODULE_DIR) {
+		current = dirname(MODULE_DIR);
+		for (let hops = 0; hops < MAX_ENGINE_ROOT_UPWALK; hops++) {
+			if (ownsBridge(current)) {
+				note(`engine root: workspace '${requested}' is outside the engine repo — resolved from the install tree to '${current}'`);
+				return current;
+			}
+			const parent = dirname(current);
+			if (parent === current) { break; }
+			current = parent;
+		}
+	}
 	note(
-		`no src/bridge/__main__.py at '${requested}' or in ${MAX_ENGINE_ROOT_UPWALK} parent folder(s). ` +
+		`no src/bridge/__main__.py from '${requested}', its parents, or the install tree. ` +
 		`Open a folder inside the PulseAI repo, or set 'pulseai.engineRoot' to the repo root.`
 	);
 	throw new Error(
-		`PulseAI bridge not found under engine root: ${requested} (and ${MAX_ENGINE_ROOT_UPWALK} parent folders). ` +
+		`PulseAI bridge not found for workspace '${requested}' (up-walk and install tree both exhausted). ` +
 		`Set 'pulseai.engineRoot' to the folder that contains src/bridge.`
 	);
 }
