@@ -4,7 +4,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -16,6 +16,42 @@ import {
 
 const MAX_FRAME_BYTES = 1 << 20;
 const STOP_GRACE_MS = 1_500;
+
+const MAX_ENGINE_ROOT_UPWALK = 10;
+
+/**
+ * The engine root that actually owns `src/bridge`. The requested root is
+ * honored only when it IS an engine (field 2026-09-05: the user changed the
+ * opened folder to a Next.js app -> `python -m src.bridge` was doomed in a
+ * directory with no src.bridge -> "send button not working", the failure
+ * invisible because the throw surfaced nowhere the user reads). When the
+ * requested root is a folder INSIDE the engine repo (the standing workflow:
+ * test workspaces nested under PulseAIRepo), the owning repo is a few
+ * parents up — walk and resolve, loudly.
+ */
+function resolveEngineDirectory(requested: string, note: (line: string) => void): string {
+	if (existsSync(join(requested, 'src', 'bridge', '__main__.py'))) {
+		return requested;
+	}
+	let current = dirname(requested);
+	for (let hops = 0; hops < MAX_ENGINE_ROOT_UPWALK; hops++) {
+		if (existsSync(join(current, 'src', 'bridge', '__main__.py'))) {
+			note(`engine root: '${requested}' has no src/bridge — resolved UP to '${current}'`);
+			return current;
+		}
+		const parent = dirname(current);
+		if (parent === current) { break; }
+		current = parent;
+	}
+	note(
+		`no src/bridge/__main__.py at '${requested}' or in ${MAX_ENGINE_ROOT_UPWALK} parent folder(s). ` +
+		`Open a folder inside the PulseAI repo, or set 'pulseai.engineRoot' to the repo root.`
+	);
+	throw new Error(
+		`PulseAI bridge not found under engine root: ${requested} (and ${MAX_ENGINE_ROOT_UPWALK} parent folders). ` +
+		`Set 'pulseai.engineRoot' to the folder that contains src/bridge.`
+	);
+}
 
 function checkedFrame(frame: string): string {
 	if (Buffer.byteLength(frame, 'utf8') > MAX_FRAME_BYTES) {
@@ -49,18 +85,16 @@ export class PulseAIWorkerProcessService extends Disposable implements IPulseAIW
 		if (!isAbsolute(options.engineRoot)) {
 			throw new Error('PulseAI engine root must be an absolute path');
 		}
-		if (!existsSync(join(options.engineRoot, 'src', 'bridge'))) {
-			throw new Error(`PulseAI bridge not found under engine root: ${options.engineRoot}`);
-		}
+		const engineRoot = resolveEngineDirectory(options.engineRoot, line => this._onDidWriteStderr.fire(line));
 
 		this.stopping = false;
 		this._onDidChangeState.fire({ state: 'starting' });
 		const venvPython = process.platform === 'win32'
-			? join(options.engineRoot, '.venv', 'Scripts', 'python.exe')
-			: join(options.engineRoot, '.venv', 'bin', 'python');
+			? join(engineRoot, '.venv', 'Scripts', 'python.exe')
+			: join(engineRoot, '.venv', 'bin', 'python');
 		const python = options.pythonPath || process.env['PULSEAI_PYTHON_PATH'] || (existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3'));
 		const child = spawn(python, ['-m', 'src.bridge'], {
-			cwd: options.engineRoot,
+			cwd: engineRoot,
 			env: { ...process.env, PYTHONUNBUFFERED: '1' },
 			stdio: ['pipe', 'pipe', 'pipe'],
 			windowsHide: true,
