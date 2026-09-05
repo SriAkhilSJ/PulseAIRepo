@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { Emitter } from '../../../../base/common/event.js';
+import { FileAccess, Schemas } from '../../../../base/common/network.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import {
 	IPulseAIWorkerProcessService,
@@ -38,8 +39,41 @@ function ownsBridge(root: string): boolean {
 // from it finds the repo that owns src/bridge regardless of which folder the
 // user opened (field 2026-09-05: d:\TestPulseAI is a SIBLING of the repo, no
 // up-walk from it can ever reach the engine — but the engine can reach
-// itself). Compiled output is CommonJS, so __dirname exists here.
-const MODULE_DIR = typeof __dirname !== 'undefined' ? __dirname : '';
+// itself). Self-location has two paths: real CommonJS Node contexts have
+// __dirname — but THIS process doesn't: utility processes load the worker as
+// ESM (bootstrap-fork.ts `await import(VSCODE_ESM_ENTRYPOINT)`, tsconfig
+// module nodenext), and __dirname does not exist in ESM. Field 2026-09-05:
+// `typeof __dirname` was 'undefined' and the first install-tree walk silently
+// never ran ("up-walk and install tree both exhausted" even though the file
+// sat inside the repo). So fall back to FileAccess, which resolves this
+// module's own id against _VSCODE_FILE_ROOT (set by bootstrap-esm.ts from
+// import.meta.dirname in this process, by workbench.ts in the renderer) and
+// comes back as vscode-file://vscode-app/<appRoot>/out/vs/…
+const MODULE_ID = 'vs/workbench/contrib/pulseai/node/pulseAIWorkerProcessService.js';
+
+function currentModuleDir(): string | undefined {
+	if (typeof __dirname !== 'undefined' && __dirname) {
+		return __dirname;
+	}
+	try {
+		const uri = FileAccess.asBrowserUri(MODULE_ID);
+		if (uri.scheme === Schemas.file) {
+			return dirname(uri.fsPath);
+		}
+		if (uri.scheme === Schemas.vscodeFileResource) {
+			// vscode-file://vscode-app/D:/… — `fsPath` would UNC-ify the
+			// authority, so take the path and strip the POSIX lead off a
+			// Windows drive ("/D:/…" -> "D:/…").
+			let p = decodeURIComponent(uri.path);
+			if (/^\/[A-Za-z]:\//.test(p)) { p = p.slice(1); }
+			return p ? dirname(p) : undefined;
+		}
+	} catch {
+		// No file root in this context (web/remote) — the install tree is not
+		// a local directory there anyway.
+	}
+	return undefined;
+}
 
 function resolveEngineDirectory(requested: string, note: (line: string) => void): string {
 	if (ownsBridge(requested)) {
@@ -55,8 +89,9 @@ function resolveEngineDirectory(requested: string, note: (line: string) => void)
 		if (parent === current) { break; }
 		current = parent;
 	}
-	if (MODULE_DIR) {
-		current = dirname(MODULE_DIR);
+	const moduleDir = currentModuleDir();
+	if (moduleDir) {
+		current = moduleDir;
 		for (let hops = 0; hops < MAX_ENGINE_ROOT_UPWALK; hops++) {
 			if (ownsBridge(current)) {
 				note(`engine root: workspace '${requested}' is outside the engine repo — resolved from the install tree to '${current}'`);
@@ -68,7 +103,8 @@ function resolveEngineDirectory(requested: string, note: (line: string) => void)
 		}
 	}
 	note(
-		`no src/bridge/__main__.py from '${requested}', its parents, or the install tree. ` +
+		`no src/bridge/__main__.py from '${requested}', its parents, or the install tree` +
+		(moduleDir ? ` (probed from '${moduleDir}')` : ' (module self-location unavailable in this process)') + '. ' +
 		`Open a folder inside the PulseAI repo, or set 'pulseai.engineRoot' to the repo root.`
 	);
 	throw new Error(

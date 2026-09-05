@@ -131,10 +131,15 @@ export class PulseAIViewPane extends ViewPane {
 		}
 		const configured = (cfg.getValue<string>('pulseai.copilotWebview.url') || DEFAULT_COPILOT_WEBVIEW_URL).trim();
 		const isLocal = configured === '' || configured.toLowerCase() === 'local';
-		// `asFileUri` takes the build-time union of app resource paths; ours is a directory the SPA is
-		// copied into after `npm run build`, so it can't be in that union, and every caller below only
-		// ever needs a same-origin file URI.
-		const url = isLocal ? FileAccess.asFileUri(LOCAL_SPA_RESOURCE as never).toString(true) : configured;
+		// `asBrowserUri`, NOT `asFileUri` (field log 2026-09-05: "Not allowed to
+		// load local resource"): the native workbench document itself is served
+		// from `vscode-file://vscode-app/<appRoot>/out/` (workbench.ts baseUrl),
+		// and Chromium refuses a raw `file://` iframe from that origin. The
+		// browser URI is the document's OWN origin, so frame-src 'self' admits
+		// it, and it degrades to the same file URI in pure-browser contexts.
+		// Typed `as never`: the SPA directory is copied into out/ after the
+		// build, so it can't be in the build-time union of app resource paths.
+		const url = isLocal ? FileAccess.asBrowserUri(LOCAL_SPA_RESOURCE as never).toString(true) : configured;
 		const share = Math.min(85, Math.max(10, Number(cfg.getValue<number>('pulseai.copilotWebview.height')) || 50));
 
 		const slot = DOM.append(parent, DOM.$('.pulseai-webview-slot'));

@@ -41,11 +41,31 @@ def test_worker_validates_frames_paths_and_bridge_presence():
         "MAX_ENGINE_ROOT_UPWALK",
         # install-tree self-discovery (workspace outside the repo must work)
         "resolved from the install tree",
+        # field 2026-09-05: the utility process loads this worker as ESM
+        # (bootstrap-fork.ts `await import(VSCODE_ESM_ENTRYPOINT)`; tsconfig
+        # module nodenext) — __dirname does NOT exist there, so self-location
+        # falls back to FileAccess against _VSCODE_FILE_ROOT (set by
+        # bootstrap-esm.ts). A `typeof __dirname`-only guard silently
+        # disabled the walk: "up-walk and install tree both exhausted".
+        "currentModuleDir",
+        "FileAccess.asBrowserUri(MODULE_ID)",
+        "Schemas.vscodeFileResource",
         "['-m', 'src.bridge']", "STOP_GRACE_MS",
     ):
         assert receipt in worker
     contract = _text("common", "pulseAIWorkerService.ts")
     assert "environment" not in contract, "renderer must not inject arbitrary child environment"
+
+
+def test_spa_iframe_uses_browser_uri_not_file_uri():
+    # field 2026-09-05: the native workbench document is served from
+    # vscode-file://vscode-app/<appRoot>/out/ (workbench.ts baseUrl), and a raw
+    # file:// iframe from that origin is refused by Chromium ("Not allowed to
+    # load local resource"). The SPA frame must ride FileAccess.asBrowserUri —
+    # the document's OWN origin, admitted by frame-src 'self'.
+    pane = _text("browser", "pulseAIViewPane.ts")
+    assert "FileAccess.asBrowserUri(LOCAL_SPA_RESOURCE" in pane
+    assert "asFileUri(LOCAL_SPA_RESOURCE" not in pane
 
 
 def test_workbench_uses_existing_utility_process_framework():
