@@ -139,6 +139,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private stalled: boolean | undefined;
 	private stallWatchdog: number | undefined;
 	private hardWatchdog: number | undefined;
+	/** Engine build reported on session_info — painted on the status chip so
+	 * a stale engine is visible in the panel, not only in stderr. */
+	private engineBuild: string | undefined;
 
 	/**
 	 * Degradation notices (runtime_degraded frames): honest "this ran bounded"
@@ -343,6 +346,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private get model(): PulseAIRenderModel {
 		return {
 			engineState: this.engineService.state,
+			engineBuild: this.engineBuild,
 			workspaceLabel: this.workspaceLabel,
 			noWorkspace: this.workspaceFolderCount === 0,
 			// P0: exact hint the renderer shows when no project folder is open.
@@ -746,6 +750,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		if (frame.type === 'session_info') {
 			const previousSessionId = this.sessionId;
 			this.sessionId = frame.session_id;
+			if (typeof frame.build === 'string' && frame.build) { this.engineBuild = frame.build; }
 			if (previousSessionId !== frame.session_id) { this.publishHostCapabilities(frame.session_id); }
 			if (typeof frame.cancel_requested === 'boolean') { this.cancelRequested = frame.cancel_requested; }
 			for (const event of frame.events ?? []) {

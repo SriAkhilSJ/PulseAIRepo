@@ -55,6 +55,10 @@ export interface PulseAISubAgentView {
 
 export interface PulseAIRenderModel {
 	readonly engineState: string;
+	/** Engine build ("<sha> <date>"), from session_info. A stale engine is
+	 * visible on the status chip — the "not fixed" reports traced twice to a
+	 * build that never reached the engine process. */
+	readonly engineBuild?: string;
 	readonly workspaceLabel: string;
 	readonly noWorkspace: boolean;
 	readonly noWorkspaceHint: string;
@@ -694,7 +698,13 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 function engineStatus(model: PulseAIRenderModel): HTMLElement {
 	const state = model.engineState;
 	const tone = state === 'ready' ? 'ready' : state === 'starting' ? 'running' : state === 'crashed' || state === 'degraded' ? 'failed' : 'idle';
-	return element('span', `pulseai-engine-status is-${tone}`, element('span', 'pulseai-status-dot'), state === 'ready' ? 'Pulse ready' : `Engine ${state}`);
+	const chip = element('span', `pulseai-engine-status is-${tone}`, element('span', 'pulseai-status-dot'), state === 'ready' ? 'Pulse ready' : `Engine ${state}`);
+	if (model.engineBuild && model.engineBuild !== 'unknown') {
+		const short = model.engineBuild.split(/\s+/)[0];
+		chip.append(element('span', 'pulseai-engine-build', short));
+		chip.title = `Engine build: ${model.engineBuild}`;
+	}
+	return chip;
 }
 
 function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggle: (open: boolean) => void): HTMLElement | undefined {

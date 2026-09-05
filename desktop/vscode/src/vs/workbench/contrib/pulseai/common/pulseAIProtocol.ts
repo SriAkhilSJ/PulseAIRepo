@@ -34,6 +34,8 @@ export interface PulseSessionInfo {
 	readonly host_tool_result_resolved?: boolean;
 	readonly events?: readonly unknown[];
 	readonly agent_status?: Readonly<Record<string, unknown>>;
+	/** Engine build ("<sha> <date>") — a stale engine is visible in the panel. */
+	readonly build?: string;
 }
 
 export type PulseServerEvent =

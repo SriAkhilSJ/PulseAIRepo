@@ -88,6 +88,10 @@ class BridgeServer:
         host_capability_broker.set_emitter(self.emit)
 
     def emit(self, frame: dict) -> None:
+        if frame.get("type") == "session_info":
+            # The renderer paints the engine build on its status chip — a
+            # stale engine is visible IN THE PANEL, not just in stderr.
+            frame = {**frame, "build": self._engine_build()}
         with self._write_lock:
             self._protocol_out.write(encode(frame))
             self._protocol_out.flush()
@@ -869,15 +873,8 @@ class BridgeServer:
             file=sys.stderr, flush=True,
         )
 
-    def _log_build(self) -> None:
-        """One stderr line naming the exact build this engine process runs.
-
-        Field discipline (2026-09-04): hung turns can only be attributed to
-        a build by which probe lines exist in the log — and twice the actual
-        answer was "the engine is still running the previous build". Now the
-        log says so itself: every session starts with the engine's commit.
-        """
-        build = "unknown"
+    def _engine_build(self) -> str:
+        """The exact build this engine process runs ("<sha> <date>")."""
         try:
             import subprocess
             engine_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -886,10 +883,20 @@ class BridgeServer:
                 capture_output=True, text=True, timeout=3, cwd=engine_root,
             )
             if proc.returncode == 0 and proc.stdout.strip():
-                build = proc.stdout.strip()
+                return proc.stdout.strip()
         except Exception:
             pass
-        print(f"[bridge] engine build: {build}", file=sys.stderr, flush=True)
+        return "unknown"
+
+    def _log_build(self) -> None:
+        """One stderr line naming the exact build this engine process runs.
+
+        Field discipline (2026-09-04): hung turns can only be attributed to
+        a build by which probe lines exist in the log — and twice the actual
+        answer was "the engine is still running the previous build". Now the
+        log says so itself: every session starts with the engine's commit.
+        """
+        print(f"[bridge] engine build: {self._engine_build()}", file=sys.stderr, flush=True)
 
     def run(self) -> int:
         self._apply_memory_policy()
