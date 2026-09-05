@@ -31,7 +31,13 @@ def test_worker_validates_frames_paths_and_bridge_presence():
     for receipt in (
         "MAX_FRAME_BYTES", "Buffer.byteLength", "frame.includes('\\n')",
         "JSON.parse(frame)", "isAbsolute(options.engineRoot)",
-        "existsSync(join(options.engineRoot, 'src', 'bridge'))",
+        # 2026-09-05: the bridge presence check became an OWNERSHIP resolver —
+        # the requested root is used only when it truly owns
+        # src/bridge/__main__.py; otherwise the worker walks UP to the repo
+        # that does (a workspace change must not kill the engine).
+        "resolveEngineDirectory(options.engineRoot",
+        "existsSync(join(requested, 'src', 'bridge', '__main__.py'))",
+        "MAX_ENGINE_ROOT_UPWALK",
         "['-m', 'src.bridge']", "STOP_GRACE_MS",
     ):
         assert receipt in worker
