@@ -102,6 +102,16 @@ export class PulseAIWorkerProcessService extends Disposable implements IPulseAIW
 		});
 		this.child = child;
 
+		// A failed SPAWN (python not on PATH, permission denied) fires 'error'
+		// and never reaches the stderr pipe — without this listener the only
+		// symptom was "handshake timed out" with zero diagnostics.
+		child.on('error', (err: Error) => {
+			this._onDidWriteStderr.fire(
+				`engine spawn failed: ${err.message} (python='${python}', cwd='${engineRoot}'). ` +
+				`Install Python or set 'pulseai.pythonPath'.`
+			);
+		});
+
 		this.stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
 		this.stdout.on('line', line => {
 			if (Buffer.byteLength(line, 'utf8') <= MAX_FRAME_BYTES) {

@@ -22,7 +22,12 @@ import {
 	PULSE_AI_WORKER_MODULE_ID,
 } from '../common/pulseAIWorkerService.js';
 
-const HANDSHAKE_TIMEOUT_MS = 8_000;
+// Cold-start tolerant (2026-09-05 field: after pulling new engine code the
+// bridge's first Python import recompiles caches and can exceed any tight
+// budget — the 8s timeout killed the engine with zero stderr, because the
+// sidecar was still IMPORTING, not hanging). Still bounded; the second
+// start is warm and fast either way.
+const HANDSHAKE_TIMEOUT_MS = 45_000;
 
 export class PulseAIEngineService extends Disposable implements IPulseAIEngineService {
 	declare readonly _serviceBrand: undefined;
@@ -100,6 +105,12 @@ export class PulseAIEngineService extends Disposable implements IPulseAIEngineSe
 				new Promise<never>((_, reject) => setTimeout(() => reject(new Error('PulseAI bridge handshake timed out')), HANDSHAKE_TIMEOUT_MS)),
 			]);
 		} catch (error) {
+			// The renderer dev console is where the user reads — a crashed
+			// engine with no reason in that console is undebuggable (field
+			// 2026-09-05: "send button not working", zero log lines).
+			this.logService.error(
+				`[PulseAI Engine] start failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			await this.releaseWorker();
 			this.setState(PulseAIEngineState.Crashed);
 			throw error;

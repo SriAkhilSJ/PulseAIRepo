@@ -475,6 +475,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		}).catch(error => {
 			this.engineSetupError = error instanceof PulseAIEngineSetupError;
 			this.error = error instanceof Error ? error.message : String(error);
+			console.error('[PulseAI] engine start failed:', this.error);
 		}).finally(() => {
 			this.startPromise = undefined;
 			this.render();
