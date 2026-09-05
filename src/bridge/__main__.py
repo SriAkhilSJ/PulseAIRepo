@@ -843,7 +843,30 @@ class BridgeServer:
 
         threading.Thread(target=_warm, name="pulseai-boot-warmup", daemon=True).start()
 
+    def _log_build(self) -> None:
+        """One stderr line naming the exact build this engine process runs.
+
+        Field discipline (2026-09-04): hung turns can only be attributed to
+        a build by which probe lines exist in the log — and twice the actual
+        answer was "the engine is still running the previous build". Now the
+        log says so itself: every session starts with the engine's commit.
+        """
+        build = "unknown"
+        try:
+            import subprocess
+            engine_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            proc = subprocess.run(
+                ["git", "log", "-1", "--format=%h %ci"],
+                capture_output=True, text=True, timeout=3, cwd=engine_root,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                build = proc.stdout.strip()
+        except Exception:
+            pass
+        print(f"[bridge] engine build: {build}", file=sys.stderr, flush=True)
+
     def run(self) -> int:
+        self._log_build()
         self._start_boot_warmup()
         while not self._shutdown.is_set():
             line = sys.stdin.buffer.readline()
