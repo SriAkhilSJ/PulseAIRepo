@@ -370,10 +370,57 @@ def _record_verification_result(
             pass
 
 
+FOREGROUND_MAX_TIMEOUT_DEFAULT = 600  # hermes TERMINAL_MAX_FOREGROUND_TIMEOUT
+
+
+def _foreground_timeout(value) -> tuple[int, str | None]:
+    """Hermes terminal contract (tools/terminal_tool.py:943-957), ported:
+    the MODEL owns foreground timeout — honored, coerced (models send
+    strings), rejected when non-positive, and CAPPED: a foreground call
+    above the max is rejected with the background pivot, never accepted
+    into a multi-hour wait (owner field case: timeout=30000s read as
+    'life long'). Env default still sizes ordinary runs; the env floor
+    NEVER lowers below the explicit request's absence... i.e. env default
+    applies only when the model passed nothing.
+    Returns (effective_seconds, rejection_message_or_None).
+    """
+    raw_env = os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "300")
+    try:
+        default = int(raw_env)
+    except (TypeError, ValueError):
+        default = 300
+    try:
+        raw_max = os.environ.get("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "")
+        max_cap = int(raw_max) if raw_max else FOREGROUND_MAX_TIMEOUT_DEFAULT
+    except (TypeError, ValueError):
+        max_cap = FOREGROUND_MAX_TIMEOUT_DEFAULT
+    max_cap = max(30, min(max_cap, 3600))
+
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return max(1, default), None
+    try:
+        requested = int(str(value).strip())
+    except (TypeError, ValueError):
+        return max(1, default), None
+    if requested <= 0:
+        return 0, (
+            f"timeout must be a positive number of seconds (got {requested})."
+        )
+    if requested > max_cap:
+        return 0, (
+            f"Foreground timeout {requested}s exceeds the maximum of "
+            f"{max_cap}s. Do NOT retry foreground with a larger timeout — "
+            "use start_terminal (background) and read_terminal_output/"
+            "check_terminal instead."
+        )
+    return requested, None
+
+
 @tool
 def run_terminal(
     command: str,
-    config: RunnableConfig
+    config: RunnableConfig,
+    timeout: int | str | None = None,
 ) -> str:
     """
     Run a short terminal command inside the active workspace (shell).
@@ -383,9 +430,13 @@ def run_terminal(
     The output envelope ends with "Exit code: N" — read it before
     claiming success.
 
-    Duration is owned by the engine (PULSEAI_TERMINAL_TIMEOUT, default
-    300s): do NOT pass a timeout parameter; there is none in this
-    tool's schema.
+    Hermes timeout contract: max seconds to wait (default 300,
+    foreground max 600). Returns the moment the command finishes — set
+    a generous timeout for long tasks; you will NOT wait unnecessarily.
+    A foreground timeout above 600s is REJECTED — use start_terminal
+    (background) for longer commands. To ENUMERATE files use list_files
+    or a bounded listing (rg --files, or Get-ChildItem on ONE folder);
+    NEVER recurse the whole repository tree.
 
     DO NOT use for long-running installs/builds/servers (use
     start_terminal) or for reading known files (use read_file). Never run
@@ -393,6 +444,14 @@ def run_terminal(
     """
 
     workspace = config["configurable"]["workspace"]
+
+    # Hermes terminal contract (tools/terminal_tool.py): the model's
+    # timeout is HONORED — coerced, validated, capped. Silently ignoring
+    # it (the old behavior) taught the model nothing and read as
+    # "life long" when it asked for 30000s.
+    timeout, timeout_rejection = _foreground_timeout(timeout)
+    if timeout_rejection:
+        return f"⛔ run_terminal rejected: {timeout_rejection}"
 
     # R3-1: POSIX-dialect guard. Detect POSIX-only verbs/paths being sent to a
     # Windows shell and pivot BEFORE spawning — R3's 25-command retry loop was
@@ -417,18 +476,9 @@ def run_terminal(
     _reason = "run_terminal: " + " ".join(command.split())[:80]
     checkpoint_before_mutation(workspace, _reason)
 
-    # E2 guard: a blocking interactive CLI (e.g. `shadcn init` prompting
-    # "Use arrow-keys") would otherwise hang forever in a headless agent.
-    # Cap foreground time (default 120s, env-tunable) so a wedged subprocess
-    # returns a parseable failure instead of eating a turn. 120s clears
-    # legitimate first-run installs (E2's npm install took 36s) without
-    # letting a dead interactive prompt block the loop forever.
-    try:
-        # Sized to real package installs (test5-2: npm install three on a
-        # cold Windows cache legitimately runs minutes); env-overridable.
-        timeout = int(os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "300"))
-    except (TypeError, ValueError):
-        timeout = 120
+    # (timeout resolved above — hermes contract: model-owned, env-defaulted,
+    # hard-capped. The old env-only re-read here silently discarded the
+    # model's request.)
 
     # E2 guard: non-interactive transport. Interactive prompts read a TTY
     # that does not exist here, so a command that NEEDS one is an
@@ -549,7 +599,10 @@ def run_terminal(
             "NOT retry the same interactive command or pipe canned input. "
             "Pivot: use non-interactive flags (e.g. --yes, --no-input), "
             "write/place the files directly, or use start_terminal for a "
-            "long-running process."
+            "long-running process. "
+            "(Exit 124 semantics: the command hit its timeout. Raise "
+            "timeout= (foreground max 600s) or run it with start_terminal "
+            "and read_terminal_output.)"
         )
 
     except Exception as error:
