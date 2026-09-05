@@ -85,3 +85,46 @@ def test_failed_run_keeps_the_incomplete_stamp(_no_memory):
     assert "✅ Finished" not in text
     assert "Need any tweaks" not in text, "deviation notes stay bare — no sign-off tail"
     assert out["task_completed"] is False
+
+
+def test_deviation_header_uses_latest_user_message_not_stale_task(_no_memory):
+    """Owner leak (2026-09-05): a file-listing turn printed 'Ended incomplete:
+    hi' — the deviation header read current_task, stale from the session's
+    first prompt. The LAST user message in the transcript is the honest
+    label."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.chat_graph import finalize_node
+
+    state = _chat_state()
+    state["messages"] = [
+        HumanMessage("hi"),
+        state["messages"][-1],  # stale assistant turn from the "hi" exchange
+        HumanMessage("list the folders and files and present it in a file tree"),
+    ]
+    state["current_task"] = "hi"  # stale, must be outranked
+    state["steps_completed"] = []
+    state["failed_steps"] = ["run_terminal timed out after 300s"]
+    out = finalize_node(dict(state), {"configurable": {}})
+    text = out["messages"][0].content
+    assert "Ended incomplete: list the folders and files and present it in a file tree"[:60] in text
+    assert "incomplete: hi" not in text
+
+
+def test_failure_bullets_are_one_tight_line(_no_memory):
+    """Owner: 'needs some discipline' — failure bullets used to carry the
+    full command AND the tool-output tail (duplicating the tool card in the
+    transcript). One bounded line each now."""
+    from src.graphs.chat_graph import finalize_node
+
+    state = _chat_state()
+    state["steps_completed"] = ["Ran command successfully: tree"]
+    state["failed_steps"] = [
+        "Command failed: powershell -NoProfile -Command \"Get-ChildItem -Path 'D:\\x' -Recurse\"\n"
+        "Actual tool output:\n"
+        + ("x" * 500)
+    ]
+    out = finalize_node(dict(state), {"configurable": {}})
+    text = out["messages"][0].content
+    bullet = [line for line in text.splitlines() if line.startswith("- ")][0]
+    assert len(bullet) <= 165, f"bullet too long ({len(bullet)}): {bullet[:80]}..."
+    assert "Actual tool output" not in text

@@ -154,7 +154,9 @@ def list_files(
     config: RunnableConfig
 ) -> str:
     """
-    List files and directories inside a workspace directory.
+    List files and directories inside a workspace directory. Use this
+    instead of ls / Get-ChildItem / dir in the terminal. Lists ONE level
+    only — never recurse.
 
     WHEN TO USE:
     - To inspect a directory when the repo map is insufficient.
@@ -322,7 +324,8 @@ def search_code(
     config: RunnableConfig
 ) -> str:
     """
-    Search recursively for text within files inside the current workspace.
+    Search for text within files inside the current workspace. Use this
+    instead of grep / rg / findstr / Select-String in the terminal.
 
     WHEN TO USE:
     - To find functions, classes, imports, config keys, errors, or examples.

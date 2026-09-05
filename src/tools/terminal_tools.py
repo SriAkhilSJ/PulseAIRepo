@@ -434,9 +434,13 @@ def run_terminal(
     foreground max 600). Returns the moment the command finishes — set
     a generous timeout for long tasks; you will NOT wait unnecessarily.
     A foreground timeout above 600s is REJECTED — use start_terminal
-    (background) for longer commands. To ENUMERATE files use list_files
-    or a bounded listing (rg --files, or Get-ChildItem on ONE folder);
-    NEVER recurse the whole repository tree.
+    (background) for longer commands.
+
+    Do NOT use cat/head/tail (use read_file), grep/rg/find/ls
+    (use list_files or search_code), sed/awk (use edit_file), or
+    echo/heredoc file creation (use write_file). Reserve the terminal
+    for: builds, installs, git, processes, scripts, network, package
+    managers — anything that needs a shell.
 
     DO NOT use for long-running installs/builds/servers (use
     start_terminal) or for reading known files (use read_file). Never run

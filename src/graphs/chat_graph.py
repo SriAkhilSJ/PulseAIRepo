@@ -1195,6 +1195,22 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     current_task = state.get("current_task") or state.get("latest_instruction", "")
     steps_completed = state.get("steps_completed", [])
     failed_steps = state.get("failed_steps", [])
+    # Task-name discipline (owner leak, 2026-09-05): the deviation header
+    # printed "Ended incomplete: hi" on a file-listing turn — `current_task`
+    # was stale from the session's first prompt. The LAST USER MESSAGE in
+    # this turn's transcript is the only honest label; state fields are the
+    # fallback when the transcript is somehow empty.
+    for _msg in reversed(state.get("messages") or []):
+        if getattr(_msg, "type", "") == "human":
+            _raw = _msg.content
+            if isinstance(_raw, list):
+                _raw = " ".join(
+                    b.get("text", "") for b in _raw if isinstance(b, dict)
+                ) or str(_raw)
+            _text = str(_raw).strip()
+            if _text:
+                current_task = _text
+                break
 
     # Feedback loop: record FAILURE if the task ended with failed steps,
     # otherwise success. (Previously success was recorded unconditionally,
@@ -1272,7 +1288,10 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         lines.append(f"## ⚠️ Ended incomplete: {task_display}")
         lines.append("")
         for failure in failed_steps[-3:]:
-            lines.append(f"- {failure}")
+            # One tight line each (owner: "needs some discipline" — the old
+            # bullet carried the full command AND the tool-output tail,
+            # duplicating the tool card in the transcript).
+            lines.append(f"- {failure.splitlines()[0][:160]}")
         lines.append("")
 
     # Reflection stays computed: its suggestions ride the `suggestions`
