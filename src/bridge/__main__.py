@@ -318,6 +318,45 @@ class BridgeServer:
         forwarder = None
         import time as _time
         _turn_t0 = _time.monotonic()
+        # Hermes run-watchdog discipline: the UI must never wait on a turn
+        # forever. Owner field proof (2026-09-04): the graph finished its last
+        # node but the turn never ended - "Working" hung until the user pressed
+        # Stop. If no terminal frame lands within the budget, the bridge emits
+        # one itself (stall receipt) so the session is RELEASED even while the
+        # stuck thread stays stuck. PULSEAI_TURN_STALL_TIMEOUT_S, 0 = off.
+        _terminal = threading.Event()
+
+        def _stall_watchdog() -> None:
+            raw = os.environ.get("PULSEAI_TURN_STALL_TIMEOUT_S", "").strip()
+            try:
+                budget = float(raw) if raw else 600.0
+            except (TypeError, ValueError):
+                budget = 600.0
+            budget = max(0.0, min(budget, 3600.0))
+            if budget <= 0:
+                return
+            if not _terminal.wait(budget):
+                wall = _time.monotonic() - _turn_t0
+                print(
+                    f"[bridge] turn STALL watchdog fired after {wall:.0f}s "
+                    "with no terminal frame - releasing the session",
+                    file=sys.stderr, flush=True,
+                )
+                self.emit({
+                    "type": "runtime_degraded", **identity.event_fields(),
+                    "reason": f"turn stalled {wall:.0f}s after the last engine activity (watchdog)",
+                })
+                self.emit({
+                    "type": "turn_done", **identity.event_fields(),
+                    "message": (
+                        "This turn stalled and was ended by the watchdog. "
+                        "The reply above is what the engine produced; send "
+                        "another message to continue."
+                    ),
+                    "completed": False, "cancelled": False, "stub": False,
+                })
+
+        threading.Thread(target=_stall_watchdog, name="pulseai-turn-watchdog", daemon=True).start()
         # Establish active ownership before publishing turn_started. Once the
         # UI can show Stop, stream_agent's nested begin must preserve it.
         turn_controls.begin(sid)
@@ -348,6 +387,7 @@ class BridgeServer:
                     "type": "token", **identity.event_fields(),
                     "text": text, "test_runner": "echo",
                 })
+                _terminal.set()
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
                     "message": text, "completed": True, "stub": False,
@@ -425,6 +465,7 @@ class BridgeServer:
                             "reason": f"event queue flush incomplete: {stranded} event(s) undrained",
                         })
                 task_completed = bool(getattr(result, "completed", True))
+                _terminal.set()
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
                     "message": str(result),
@@ -441,12 +482,14 @@ class BridgeServer:
                 # exception types. Intentional Stop wins over generic failure
                 # attribution and must produce one terminal cancelled receipt.
                 if turn_controls.cancelled(sid):
+                    _terminal.set()
                     self.emit({
                         "type": "turn_done", **identity.event_fields(),
                         "message": "Operation cancelled by the user.",
                         "completed": False, "cancelled": True, "stub": False,
                     })
                 else:
+                    _terminal.set()
                     self.emit({
                         "type": "turn_failed", **identity.event_fields(),
                         "error": str(exc), "completed": False,

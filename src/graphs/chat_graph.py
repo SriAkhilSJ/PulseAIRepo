@@ -3834,6 +3834,19 @@ def get_context_engine(
 _CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
 os.makedirs(os.path.dirname(_CHECKPOINT_DB), exist_ok=True)
 _checkpoint_conn = sqlite3.connect(_CHECKPOINT_DB, check_same_thread=False)
+# Windows field failure (2026-09-04): the turn died BETWEEN finalize's return
+# and the stream generator ending - the state commit / post-loop checkpoint
+# reads. Default rollback-journal SQLite lets one writer EXCLUDE all readers
+# during a commit and vice versa; with several threads on this one shared
+# connection that is a stall class, not a crash. WAL makes readers and the
+# writer concurrent; an explicit busy_timeout turns any residual contention
+# into a bounded wait instead of an instant error.
+try:
+    _checkpoint_conn.execute("PRAGMA journal_mode=WAL")
+    _checkpoint_conn.execute("PRAGMA busy_timeout=10000")
+    _checkpoint_conn.execute("PRAGMA synchronous=NORMAL")
+except Exception:
+    pass  # an unhardened checkpointer still works; never block graph compile
 memory = SqliteSaver(_checkpoint_conn)
 memory.setup()
 
@@ -4110,6 +4123,7 @@ def stream_agent(
             # turn completion. Attempt 11 discarded this state and returned
             # the preceding "I will inspect" text as completed=true.
             if "finalize" in event:
+                print("[turn] stream: finalize update received", flush=True)
                 finalize_data = event.get("finalize") or {}
                 turn_completed = bool(finalize_data.get("task_completed", False))
                 final_messages = finalize_data.get("messages") or []
@@ -4127,6 +4141,7 @@ def stream_agent(
                             "thread_id": thread_id,
                         })
 
+        print("[turn] stream loop ended", flush=True)
         event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # D38: post-run bounded background self-curation (memory review on the
         # aux model). Never blocks the response — state is snapshotted from the
@@ -4134,6 +4149,7 @@ def stream_agent(
         from src.context.self_curation import maybe_spawn_memory_review
         try:
             maybe_spawn_memory_review(thread_id)
+            print("[turn] post-run review spawned", flush=True)
         except Exception:
             pass
 
@@ -4145,6 +4161,7 @@ def stream_agent(
         try:
             snap = graph.get_state(config)
             snap_values = dict(snap.values or {})
+            print("[turn] state snapshot ok", flush=True)
         except Exception:
             pass
 

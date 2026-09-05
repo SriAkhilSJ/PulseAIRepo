@@ -75,8 +75,11 @@ class VectorMemory:
         """Fresh per-call connection (v2 semantics kept — no shared-conn
         threading surface). The sqlite-vec extension must be registered on
         EVERY connection; it is loaded before any statement executes so the
-        transaction context never wraps the load."""
-        conn = sqlite3.connect(self.db_path)
+        transaction context never wraps the load. `timeout` keeps lock
+        contention bounded-but-patient (Windows field turn died in this
+        neighborhood; default 5s raised so a checkpoint commit next door
+        never fails a memory write)."""
+        conn = sqlite3.connect(self.db_path, timeout=10)
         if self._uses_vec and sqlite_vec is not None:
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
@@ -84,7 +87,7 @@ class VectorMemory:
         return conn
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=10) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS memories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
