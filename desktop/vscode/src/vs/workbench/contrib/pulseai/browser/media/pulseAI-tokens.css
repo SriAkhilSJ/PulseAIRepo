@@ -67,3 +67,30 @@
 .pulseai-plan-strip-list li {
 	font-variant-numeric: tabular-nums;
 }
+
+/* Hermes conversation system (apps/desktop styles.css, conversation block) —
+ * ported verbatim. Sizes/metrics are hermes tokens; every color stays
+ * semantic (derived from the live workbench theme at runtime by pulseTheme).
+ * Values: prose 0.8125rem on a 1.125rem line grid; tool rows 0.6875rem; meta
+ * 0.625rem tabular; code bodies 0.7rem; turn gap 0.375rem; block gap
+ * 0.75rem; scaffold gap = block/3; paragraph gap 0.7rem; radius turn 0.75rem,
+ * code card 0.625rem; disclosure caret rests at opacity 0. */
+:root {
+	--pulseai-conv-size: 0.8125rem;
+	--pulseai-conv-line: 1.125rem;
+	--pulseai-conv-tool-size: 0.6875rem;
+	--pulseai-conv-code-size: 0.7rem;
+	--pulseai-conv-meta-size: 0.625rem;
+	--pulseai-turn-gap: 0.375rem;
+	--pulseai-turn-block-gap: 0.75rem;
+	--pulseai-scaffold-gap: calc(var(--pulseai-turn-block-gap) / 3);
+	--pulseai-paragraph-gap: 0.7rem;
+	--pulseai-radius-turn: 0.75rem;
+	--pulseai-radius-code: 0.625rem;
+	--pulseai-scaffold-text: color-mix(in srgb, var(--vscode-foreground) 64%, transparent);
+	--pulseai-scaffold-meta: color-mix(in srgb, var(--vscode-foreground) 44%, transparent);
+	--pulseai-bubble-bg: color-mix(in srgb, var(--pulseai-accent) 6%, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)));
+	--pulseai-bubble-border: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+	--pulseai-codecard-bg: color-mix(in srgb, var(--vscode-editor-background, var(--vscode-sideBar-background)) 88%, var(--vscode-sideBar-background));
+	--pulseai-caret-rest: 0;
+}
