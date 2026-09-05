@@ -1385,3 +1385,16 @@
 /* Hermes thought rows carry no status glyph — keep the grid cell so the
  * label column stays aligned with neighboring tool rows. */
 .pulseai-glyph-spacer { width: 14px; height: 1px; }
+
+/* ── Hermes scaffold resting fade (styles.css, verbatim mechanics) ──
+   Every scaffold block (tool row, run group, thought row) rests dimmed;
+   prose stays primary. Lift on hover or KEYBOARD focus only — :focus-within
+   also matches the focus a mouse click leaves on the disclosure toggle,
+   which kept a row lit after you clicked to collapse it. */
+.pulseai-assistant-message [data-conversation-scaffold] {
+	opacity: 0.67;
+	transition: opacity 120ms ease-out;
+}
+.pulseai-assistant-message [data-conversation-scaffold]:is(:hover, :has(:focus-visible)) {
+	opacity: 1;
+}

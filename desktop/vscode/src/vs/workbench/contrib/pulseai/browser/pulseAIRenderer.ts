@@ -617,6 +617,7 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 	const isPending = tool.state === 'running' || tool.state === 'queued';
 	const details = element('details', `pulseai-tool-row is-${tool.state}`);
 	details.dataset.component = 'tool-trigger';
+	details.dataset.conversationScaffold = '';
 	details.dataset.toolId = tool.id;
 	details.dataset.toolName = tool.name;
 	const shouldDefaultOpen = presentation.defaultOpen === 'always' || (presentation.defaultOpen === 'running' && (tool.state === 'running' || tool.state === 'approval'));
@@ -685,6 +686,7 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 		const runLive = live && runTools.some(tool => tool.state === 'running' || tool.state === 'queued');
 		const details = element('details', `pulseai-tool-run${runLive ? ' is-live' : ''}`) as HTMLDetailsElement;
 		details.dataset.component = 'tool-run';
+		details.dataset.conversationScaffold = '';
 		details.dataset.runKey = key;
 		details.open = runLive || openTools.has(key);
 		details.addEventListener('toggle', () => {
@@ -851,6 +853,7 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
 	const key = 'thought';
 	const details = element('details', 'pulseai-thought-row') as HTMLDetailsElement;
 	details.dataset.component = 'disclosure';
+	details.dataset.conversationScaffold = '';
 	details.dataset.disclosureKey = key;
 	// Open while the thinking is happening, so you can read it; folded afterwards, so a long
 	// turn does not leave a wall of prose above the answer.
