@@ -53,6 +53,17 @@ def test_queue_steer_cancel_are_protocol_distinct(bridge):
     assert cancelled["cancel_requested"] is False
 
 
+def test_queue_frame_honors_the_execution_mode(bridge):
+    """An explicit queue frame may carry a mode; a bogus one falls back to
+    agent and queues fine. Depth receipts prove every frame landed; the
+    registry-level mode preservation is pinned in
+    test_hermes_runtime_values.test_queue_preserves_the_prompt_execution_mode."""
+    first = send(bridge, {"type": "queue", "session_id": "sq", "text": "explain this", "mode": "ask"})
+    second = send(bridge, {"type": "queue", "session_id": "sq", "text": "plan it", "mode": "plan"})
+    third = send(bridge, {"type": "queue", "session_id": "sq", "text": "bogus", "mode": "nonsense"})
+    assert (first["queued"], second["queued"], third["queued"]) == (1, 2, 3)
+
+
 def test_checkpoint_list_has_structured_event(bridge, tmp_path):
     frame = send(bridge, {
         "type": "checkpoint_list", "session_id": "s", "workspace": str(tmp_path)

@@ -1,10 +1,20 @@
-"""D36 pre-send sanitizer: lossless dedup of the outgoing message list.
+"""D36 pre-send sanitizer: hermes outstanding-call semantics.
 
-Mirrors hermes' pre-call sanitizer (agent_runtime_helpers.py:3436) and the
-byte-identical tool-result dedup (context_compressor.py:3390):
+Ported from hermes' ``_dedupe_tool_call_ids`` (agent/agent_runtime_helpers.py:
+2690):
   - collapse duplicate tool_calls within an assistant message (DeepSeek 400)
-  - drop later tool results reusing an already-seen tool_call_id
-  - keep the newest byte-identical result, re-point older copies at it
+  - OUTSTANDING-CALL tracking: a result answers a PENDING call or is dropped;
+    an id answered once may be re-armed by a genuine new call (llama.cpp
+    constant-id sessions) — hermes: "a seen-once-drop-forever rule ... deletes
+    [the second legitimate result], so from the second tool call onward the
+    model never sees any result — it announces its next action and the turn
+    dies with the work unfinished."
+  - empty tool content becomes a placeholder (Sarvam 400)
+
+There is deliberately NO content-based dedup: hermes never re-points one
+assistant tool_call at another call's result. Pulse field proof (2026-09-06):
+the old byte-identical dedup hid repeated `terminal ls -la` results and the
+model re-ran the same command four times in one turn.
 """
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -54,22 +64,55 @@ def test_reused_tool_call_id_result_dropped():
     assert tool_msgs[0].content == "content one"
 
 
-def test_byte_identical_results_keep_newest_and_rewire():
+def test_byte_identical_results_both_survive():
+    """Hermes has NO content dedup: two identical results answering two live
+    calls are both legitimate history. The old keep-newest-and-repoint rule
+    manufactured pairings the model read as amnesia (field flail)."""
     msgs = [
         _aim([{"id": "c1", "name": "read_file", "args": {"path": "a.py"}}]),
         _tool("c1", "SAME BYTES", "r1"),
         _aim([{"id": "c2", "name": "read_file", "args": {"path": "a.py"}}]),
-        _tool("c2", "SAME BYTES", "r2"),  # byte-identical to r1
+        _tool("c2", "SAME BYTES", "r2"),  # byte-identical to r1, own live call
     ]
     out = sanitize_request_messages(msgs)
     tool_msgs = [m for m in out if isinstance(m, ToolMessage)]
-    assert out is not msgs
-    assert len(tool_msgs) == 1
-    assert tool_msgs[0].tool_call_id == "c2", "newest copy survives"
-    # The older assistant tool_call must be re-pointed at the surviving id so
-    # no tool_call is left without a matching result.
+    assert len(tool_msgs) == 2, "each result answers its own outstanding call"
+    assert [t.tool_call_id for t in tool_msgs] == ["c1", "c2"]
     ai_msgs = [m for m in out if isinstance(m, AIMessage)]
-    assert ai_msgs[0].tool_calls[0]["id"] == "c2"
+    assert ai_msgs[0].tool_calls[0]["id"] == "c1", "no re-pointing, ever"
+    assert ai_msgs[1].tool_calls[0]["id"] == "c2"
+
+
+def test_answered_id_rearms_for_a_genuine_new_call():
+    """llama.cpp constant-id discipline (hermes #58327 note): the same id
+    answering a NEW call must keep the new result — the seen-once rule
+    deleted it and the turn died with the work unfinished."""
+    msgs = [
+        _aim([{"id": "c1", "name": "terminal", "args": {"command": "ls"}}]),
+        _tool("c1", "listing one", "r1"),
+        _aim([{"id": "c1", "name": "terminal", "args": {"command": "ls"}}]),
+        _tool("c1", "listing two", "r2"),
+    ]
+    out = sanitize_request_messages(msgs)
+    tool_msgs = [m for m in out if isinstance(m, ToolMessage)]
+    assert [t.content for t in tool_msgs] == ["listing one", "listing two"]
+
+
+def test_unanswered_duplicate_call_dropped_result_kept():
+    """An assistant tool_call repeating an id that is STILL outstanding is a
+    retry/crash glitch: hermes drops the LATER CALL so the live result has
+    one unambiguous owner."""
+    msgs = [
+        _aim([{"id": "c1", "name": "read_file", "args": {"path": "a.py"}}]),
+        _aim([{"id": "c1", "name": "read_file", "args": {"path": "a.py"}}]),
+        _tool("c1", "the one result", "r1"),
+    ]
+    out = sanitize_request_messages(msgs)
+    ai_msgs = [m for m in out if isinstance(m, AIMessage)]
+    assert len(ai_msgs[0].tool_calls) == 1
+    assert ai_msgs[1].tool_calls == [], "duplicate unanswered call removed"
+    tool_msgs = [m for m in out if isinstance(m, ToolMessage)]
+    assert len(tool_msgs) == 1 and tool_msgs[0].content == "the one result"
 
 
 def test_same_gap_result_not_deduped():

@@ -13,7 +13,7 @@ AbortHandle = Callable[[], None]
 class _Control:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     steer: deque[str] = field(default_factory=deque)
-    queued: deque[str] = field(default_factory=deque)
+    queued: deque = field(default_factory=deque)
     active: bool = False
     active_depth: int = 0
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -161,16 +161,29 @@ class TurnControlRegistry:
             item.steer.clear()
             return out
 
-    def queue(self, session_id: str, text: str) -> int:
+    def queue(self, session_id: str, text: str, mode: str = "agent") -> int:
+        """Queue a prompt sent while a turn is running. The prompt is a NEW
+        turn in waiting, so it carries the execution mode the user had
+        selected (the renderer sends it on every prompt frame). Dropping the
+        mode here made every queued Ask/Plan/Debug prompt silently run as a
+        full agent turn (field 2026-09-06: "Ask is not working" — the mode
+        picker said Ask, the drained turn bound tools and ran the terminal)."""
         item = self._get(session_id)
         with item.lock:
-            item.queued.append(str(text).strip())
+            item.queued.append((str(text).strip(), str(mode or "agent").strip().lower() or "agent"))
             return len(item.queued)
 
-    def pop_queued(self, session_id: str) -> str | None:
+    def pop_queued(self, session_id: str) -> tuple[str, str] | None:
+        """Pop the next queued prompt as (text, execution_mode), or None."""
         item = self._get(session_id)
         with item.lock:
-            return item.queued.popleft() if item.queued else None
+            if not item.queued:
+                return None
+            entry = item.queued.popleft()
+            if isinstance(entry, tuple):
+                return entry
+            # Legacy plain-text entries (pre-mode producers) default to agent.
+            return (str(entry), "agent")
 
     def reset(self, session_id: str) -> None:
         with self._lock:

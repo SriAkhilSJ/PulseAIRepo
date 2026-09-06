@@ -101,7 +101,22 @@ def test_cancel_steer_and_queue_are_distinct():
     assert controls.cancel("s") is True
     assert controls.cancelled("s") is True
     assert controls.drain_steer("s") == ["use the existing file"]
-    assert controls.pop_queued("s") == "then write docs"
+    assert controls.pop_queued("s") == ("then write docs", "agent")
+
+
+def test_queue_preserves_the_prompt_execution_mode():
+    """A queued prompt is a NEW turn in waiting: the renderer's selected mode
+    rides with it, or the drained Ask/Plan/Debug prompt silently ran as a
+    full agent turn (field 2026-09-06: "Ask is not working" — the picker said
+    Ask and the drained turn bound the terminal)."""
+    controls = TurnControlRegistry()
+    controls.queue("s", "list the files", mode="ask")
+    controls.queue("s", "draft the approach", mode="plan")
+    controls.queue("s", "no mode given")
+    assert controls.pop_queued("s") == ("list the files", "ask")
+    assert controls.pop_queued("s") == ("draft the approach", "plan")
+    assert controls.pop_queued("s") == ("no mode given", "agent")
+    assert controls.pop_queued("s") is None
 
 
 def test_tool_transaction_never_executes_when_intent_persistence_fails(monkeypatch):
