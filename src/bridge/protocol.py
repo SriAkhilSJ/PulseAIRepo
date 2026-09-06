@@ -12,6 +12,7 @@ EXECUTION_MODES = frozenset({"agent", "plan", "debug", "ask"})
 CLIENT_METHODS = frozenset({
     "hello", "session_create", "session_load", "session_resume",
     "session_list", "session_fork", "prompt", "cancel", "steer", "queue", "safety_reply",
+    "clarify_reply",
     "checkpoint_list", "checkpoint_restore",
     "subagent_launch", "subagent_status", "subagent_cancel", "subagent_result",
     "events_replay", "host_capabilities_update", "host_tool_result",
@@ -22,6 +23,7 @@ CLIENT_METHODS = frozenset({
 SERVER_EVENTS = frozenset({
     "hello", "session_info", "token", "reasoning", "plan_updated",
     "tool_call_start", "tool_call_end", "safety_request",
+    "clarify_request", "todo_updated",
     "verification_updated", "subagent_updated", "telemetry",
     "turn_started", "turn_done", "turn_failed", "checkpoint_event",
     "runtime_degraded", "context_status", "voice_text", "events_replay", "error",

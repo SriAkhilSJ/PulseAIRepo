@@ -11,7 +11,7 @@ import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { PulseAICommandId } from '../common/pulseAI.js';
 import { IPulseAIEngineService, PulseAIEngineSetupError, PulseAIEngineState } from '../common/pulseAIEngineService.js';
-import type { PulseClientMethod, PulseExecutionMode, PulseServerEvent } from '../common/pulseAIProtocol.js';
+import type { PulseClarifyQuestion, PulseClientMethod, PulseExecutionMode, PulseServerEvent, PulseTodoItem } from '../common/pulseAIProtocol.js';
 import { PULSE_AI_WORKBENCH_CAPABILITIES } from '../common/pulseAIWorkbenchCapabilities.js';
 import { IPulseAIRendererService, PulseAISurface } from '../common/pulseAIRendererService.js';
 import { IPulseAISessionStore } from '../common/pulseAISessionStore.js';
@@ -75,6 +75,16 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
+	/** Pending hermes clarify batch (the ask tool): the card answers per qid. */
+	private clarify?: {
+		readonly requestId: string;
+		readonly title: string;
+		readonly toolId?: string;
+		readonly questions: readonly PulseClarifyQuestion[];
+	};
+	/** Live hermes todo_list state, reconciled atomically on {todos, revision}. */
+	private todos: readonly PulseTodoItem[] = [];
+	private todoRevision = 0;
 	private turnOutcome: PulseAIRenderModel['turnOutcome'] = 'idle';
 	private userMessage: string | undefined;
 	private assistantText = '';
@@ -185,6 +195,14 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			const tool = this.tools.get(toolId);
 			if (tool) { this.tools.set(toolId, { ...tool, state: approved ? 'running' : 'failed' }); }
 			this.approval = undefined;
+			this.render();
+		},
+		replyToClarify: (requestId, answers, timedOut) => {
+			// The clarify card rides ONE batch reply (hermes #18450): answers per
+			// qid; an explicit Skip resolves the batch empty (deliberate, not a
+			// timeout). The pending card stays up in its submitting state until
+			// the clarify tool_call_end swaps in the settled Q&A.
+			this.send({ type: 'clarify_reply', session_id: this.sessionId, request_id: requestId, answers, timed_out: timedOut });
 			this.render();
 		},
 		openDiff: toolId => { void this.openDiff(toolId); },
@@ -377,6 +395,8 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
 			approval: this.approval,
+			clarify: this.clarify,
+			todos: this.todos,
 			plan: this.plan,
 			verification: this.verification,
 			telemetry: this.telemetry,
@@ -656,6 +676,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		this.tools.clear();
 		this.subAgents.clear();
 		this.approval = undefined;
+		this.clarify = undefined;
 		this.plan = [];
 		this.verification = undefined;
 		this.running = true;
@@ -827,6 +848,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 				duration: typeof result?.duration === 'string' ? result.duration : typeof result?.duration_ms === 'number' ? `${result.duration_ms}ms` : undefined,
 			});
 			if (this.approval?.toolId === frame.tool_id) { this.approval = undefined; }
+			if (this.clarify?.toolId === frame.tool_id) { this.clarify = undefined; }
 		} else if (frame.type === 'safety_request') {
 			const existing = this.tools.get(frame.tool_id);
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
@@ -834,6 +856,28 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			// still have a place in the timeline.
 			this.pushToolPart(frame.tool_id);
 			this.approval = { toolId: frame.tool_id, name: frame.name, diff: frame.diff };
+		} else if (frame.type === 'clarify_request') {
+			// Hermes ask-tool card: the batch of questions rides its own frame
+			// (args alone can't drive the form — no qids to respond with).
+			this.clarify = {
+				requestId: frame.request_id,
+				title: frame.title ?? '',
+				toolId: frame.tool_id,
+				questions: frame.questions,
+			};
+			if (frame.tool_id) { this.pushToolPart(frame.tool_id); }
+		} else if (frame.type === 'todo_updated') {
+			// Hermes todo panel: {todos, revision} reconciles atomically; keep
+			// the revision even when the list went empty (the unpin decision).
+			const items: PulseTodoItem[] = [];
+			for (const raw of frame.todos) {
+				const row = raw as PulseTodoItem;
+				if (row && typeof row.id === 'string' && typeof row.content === 'string') {
+					items.push({ id: row.id, content: row.content, status: row.status, ...(row.parent ? { parent: row.parent } : {}) });
+				}
+			}
+			this.todos = items;
+			this.todoRevision = frame.revision;
 		} else if (frame.type === 'subagent_updated') {
 			const subagent_id = frame.subagent_id;
 			const existing = this.subAgents.get(subagent_id) ?? { id: subagent_id, state: 'pending' as const };
@@ -860,6 +904,9 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
+			// A turn ended with an unanswered clarify: the blocking layer has
+			// already timed the wait out — never leave a dead interactive card.
+			this.clarify = undefined;
 			// Transport verdict vs task verdict: `completed:false` with
 			// `cancelled:false` is an ENDED-INCOMPLETE turn (finalize said the
 			// task failed) — the run itself finished and its trailing receipt

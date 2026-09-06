@@ -127,7 +127,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     # transcript branches, every consecutive tool run through the shared rule.
     assert renderer.count("lane.append(toolSection(") == 0, "tool groups paint inside the turn timeline, not as a lane-level block"
     assert "function assistantTurn(" in renderer
-    assert renderer.count("response.append(toolSection(run, host, openTools, live, false))") == 1, "consecutive tool runs fold through the shared grouping rule"
+    assert renderer.count("response.append(toolSection(run, host, openTools, live, false, spec.clarify))") == 1, "consecutive tool runs fold through the shared grouping rule"
     assert "markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
@@ -144,23 +144,62 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
 
 
 def test_execution_mode_picker_is_functional_and_theme_driven():
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    service = _text("browser", "pulseAIRendererService.ts")
-    protocol = _text("common", "pulseAIProtocol.ts")
-    generated = _text("common", "pulseAIProtocol.generated.ts")
-    css = _text("browser", "media", "pulseAI.css")
-    for mode in ("agent", "plan", "debug", "ask"):
-        assert f"id: '{mode}'" in renderer
-        assert f"'{mode}'" in generated
-    assert "setMode(mode: PulseExecutionMode)" in renderer
-    assert "readonly mode?: PulseExecutionMode" in protocol
-    assert "mode: this.mode" in service
-    assert "this.send({ type: 'prompt'" in service
-    assert ".pulseai-mode-menu" in css
-    for token in ("--vscode-menu-background", "--vscode-menu-foreground", "--vscode-focusBorder"):
-        assert token in css
-    assert "#071118" not in css
-    assert "#061115" not in css
+	renderer = _text("browser", "pulseAIRenderer.ts")
+	service = _text("browser", "pulseAIRendererService.ts")
+	protocol = _text("common", "pulseAIProtocol.ts")
+	generated = _text("common", "pulseAIProtocol.generated.ts")
+	css = _text("browser", "media", "pulseAI.css")
+	for mode in ("agent", "plan", "debug", "ask"):
+		assert f"id: '{mode}'" in renderer
+		assert f"'{mode}'" in generated
+	assert "setMode(mode: PulseExecutionMode)" in renderer
+	assert "readonly mode?: PulseExecutionMode" in protocol
+	assert "mode: this.mode" in service
+	assert "this.send({ type: 'prompt'" in service
+	assert ".pulseai-mode-menu" in css
+	for token in ("--vscode-menu-background", "--vscode-menu-foreground", "--vscode-focusBorder"):
+		assert token in css
+	assert "#071118" not in css
+	assert "#061115" not in css
+
+
+def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
+	"""The hermes task tool (todo_list) and ask tool (clarify) ride their own
+	frames into the panel: the clarify card answers per qid through
+	clarify_reply; the todo panel reconciles on {todos, revision} and lives
+	between the transcript and the composer (the composer status stack)."""
+	renderer = _text("browser", "pulseAIRenderer.ts")
+	service = _text("browser", "pulseAIRendererService.ts")
+	protocol = _text("common", "pulseAIProtocol.ts")
+	css = _text("browser", "media", "pulseAI.css")
+	for frame in ("clarify_request", "todo_updated", "clarify_reply"):
+		assert frame in protocol, f"{frame} must be typed in the payload contract"
+	assert "replyToClarify" in renderer and "replyToClarify" in service
+	assert "'clarify_request'" in service and "'todo_updated'" in service
+	# The clarify card is interactive (choices + Other row + Skip/Continue), the
+	# todo panel speaks checkbox glyphs, and both are hermes-shaped.
+	for piece in ("pulseai-clarify-choice", "Other (type your answer)", "pulseai-key-badge"):
+		assert piece in renderer, piece
+	assert "pulseai-clarify-form" in css and ".pulseai-key-badge" in css
+	assert "todoStack(" in renderer and ".pulseai-todo-row" in css
+	assert "pulseai-todo-ring" in renderer, "pending items speak dashed ring, not spinner-and-dot"
+	# The approval dropdown is hermes': split pill [Run | ▾] with a menu that
+	# carries session/always/reject, plus the Esc reject and confirm dialog.
+	for piece in ("pulseai-approval-pill", "pulseai-approval-menu", "Always allow…", "Allow for session", "pulseai-dialog-overlay"):
+		assert piece in renderer, piece
+	assert ".pulseai-approval-menu.is-open" in css
+
+
+def test_engine_tools_todo_and_clarify_are_core():
+	"""hermes registers both tools with check_fn -> True (never posture-gated);
+	Pulse keeps the same universality in the core toolset."""
+	source = _toolsets_source()
+	assert '"todo_list"' in source and '"clarify"' in source
+
+
+def _toolsets_source() -> str:
+	from pathlib import Path
+	return (Path(__file__).resolve().parents[1] / "tools" / "toolsets.py").read_text(encoding="utf-8")
 
 
 def test_copilot_webview_host_is_a_setting_and_fails_loudly():
@@ -212,9 +251,13 @@ def test_approval_dock_offers_every_scope_the_protocol_carries():
     renderer = _text("browser", "pulseAIRenderer.ts")
     css = _text("browser", "media", "pulseAI.css")
     assert "host.replyToSafety(approval.toolId, true, true)" in renderer
+    # Hermes ApprovalBar (2026-09-06 port): the grants live in the chevron
+    # menu — Run (allow once) is the pill's primary segment, session/always
+    # are menu items, Reject is both a menu entry and the standalone Esc ghost.
     assert "'Allow for session'" in renderer
-    assert "'Allow once'" in renderer
-    assert "'Deny'" in renderer
+    assert "'Always allow…'" in renderer
+    assert "'Reject'" in renderer
+    assert "dataset.approveOnce" in renderer and "dataset.deny" in renderer
     # Every decision carries an icon and a hint: a bare word on a button is how
     # "Allow" and "Allow always" get clicked by mistake.
     assert ".pulseai-button-allow" in css and ".pulseai-button-deny" in css

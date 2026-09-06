@@ -568,6 +568,184 @@
 .pulseai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
 .pulseai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
 
+/* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
+.pulseai-approval-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.pulseai-approval-pill {
+	position: relative;
+	display: inline-flex;
+	align-items: stretch;
+	height: 24px;
+	overflow: visible;
+	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
+	color: var(--vscode-focusBorder);
+}
+.pulseai-approval-run {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 100%; padding: 0 8px; border: none; border-radius: 5px 0 0 5px;
+	background: transparent; color: inherit; font-size: var(--pulseai-text-body-lg); font-weight: 500;
+	cursor: pointer;
+}
+.pulseai-approval-run:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
+.pulseai-approval-divider { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent); }
+.pulseai-approval-more {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 20px; height: 100%; padding: 0; border: none; border-radius: 0 5px 5px 0;
+	background: transparent; color: inherit; cursor: pointer;
+}
+.pulseai-approval-more:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
+.pulseai-approval-menu {
+	display: none;
+	position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
+	min-width: 176px; padding: 4px;
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, rgba(128,128,128,.35)));
+	border-radius: 6px;
+	background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+	box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+.pulseai-approval-menu.is-open { display: grid; gap: 1px; }
+.pulseai-approval-menu-item {
+	display: flex; align-items: center; gap: 7px;
+	height: 26px; padding: 0 8px; border: none; border-radius: 4px;
+	background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	font-size: var(--pulseai-text-body-lg); text-align: left; cursor: pointer;
+}
+.pulseai-approval-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.2)); }
+.pulseai-approval-menu-item.is-destructive { color: var(--vscode-errorForeground); }
+.pulseai-approval-menu-item .codicon { font-size: var(--pulseai-text-title); }
+.pulseai-approval-reject {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body-lg); cursor: pointer;
+}
+.pulseai-approval-reject:hover { color: var(--vscode-foreground); }
+.pulseai-approval-review {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body-lg); cursor: pointer;
+}
+.pulseai-approval-review:hover { color: var(--vscode-foreground); }
+.pulseai-approval-kbd { font-size: var(--pulseai-text-micro); opacity: .6; }
+.pulseai-approval-command-toggle {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body-lg); cursor: pointer;
+}
+.pulseai-approval-command-toggle:hover { color: var(--vscode-foreground); }
+.pulseai-approval-command {
+	display: none;
+	width: 100%; max-height: 160px; overflow: auto;
+	margin: 6px 0 0; padding: 6px 10px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 6px;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--pulseai-text-body-lg); line-height: 1.45;
+	white-space: pre-wrap; word-break: break-word;
+}
+.pulseai-approval-command.is-open { display: block; }
+.pulseai-dialog-overlay {
+	display: none;
+	position: fixed; inset: 0; z-index: 100;
+	align-items: center; justify-content: center;
+	background: rgba(0,0,0,.45);
+}
+.pulseai-dialog-overlay.is-open { display: flex; }
+.pulseai-dialog {
+	width: min(420px, calc(100vw - 48px));
+	padding: 16px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.35));
+	border-radius: 8px;
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	box-shadow: 0 8px 28px rgba(0,0,0,.5);
+}
+.pulseai-dialog h3 { margin: 0 0 8px; font-size: var(--pulseai-text-title); font-weight: 600; }
+.pulseai-dialog-copy { margin: 0 0 10px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-body-lg); line-height: 1.5; }
+.pulseai-dialog-command {
+	max-height: 120px; overflow: auto; margin: 0 0 10px; padding: 6px 10px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3)); border-radius: 6px;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--pulseai-text-body-lg);
+	white-space: pre-wrap; word-break: break-word;
+}
+.pulseai-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Hermes clarify card (the ask tool) ── */
+.pulseai-clarify-card {
+	display: grid; gap: 8px;
+	margin: 6px 0;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 88%, transparent);
+	font-size: var(--pulseai-text-body, 13px);
+}
+.pulseai-clarify-form { border-color: color-mix(in srgb, var(--vscode-focusBorder) 40%, transparent); }
+.pulseai-clarify-block { display: grid; gap: 6px; }
+.pulseai-clarify-q { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; line-height: 1.45; }
+.pulseai-clarify-q > .codicon, .pulseai-clarify-q > svg { margin-top: 2px; flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+.pulseai-clarify-choices { display: grid; gap: 1px; }
+.pulseai-clarify-choice, .pulseai-clarify-other {
+	display: flex; width: 100%; align-items: flex-start; gap: 8px;
+	padding: 5px 6px; border: none; border-radius: 4px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: inherit; text-align: left; cursor: pointer;
+}
+.pulseai-clarify-choice:hover, .pulseai-clarify-other:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-clarify-choice.is-selected { color: var(--vscode-foreground); }
+.pulseai-clarify-choice.is-active, .pulseai-clarify-other.is-active { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-clarify-choice-label { flex: 1 1 auto; overflow-wrap: anywhere; }
+.pulseai-clarify-recommended { color: var(--vscode-descriptionForeground); }
+.pulseai-key-badge {
+	display: inline-flex; align-items: center; justify-content: center;
+	min-width: 18px; height: 18px; padding: 0 4px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.4)); border-radius: 4px;
+	font-size: var(--pulseai-text-micro); color: var(--vscode-descriptionForeground);
+	margin-top: 1px;
+}
+.pulseai-key-badge.is-selected {
+	border-color: var(--vscode-button-background);
+	background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+}
+.pulseai-clarify-other-input {
+	flex: 1 1 auto; min-height: 0; resize: none;
+	border: none; background: transparent; color: var(--vscode-foreground);
+	font: inherit; outline: none;
+}
+.pulseai-clarify-open { padding: 6px; border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3)); border-radius: 6px; }
+.pulseai-clarify-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.pulseai-clarify-submit[disabled] { opacity: .5; cursor: not-allowed; }
+.pulseai-clarify-a { display: flex; align-items: flex-start; gap: 8px; color: var(--vscode-descriptionForeground); }
+.pulseai-clarify-a.is-error { color: var(--vscode-errorForeground); }
+.pulseai-clarify-a.is-skipped { font-style: italic; color: var(--vscode-descriptionForeground); opacity: .8; }
+.pulseai-clarify-a-badge {
+	display: inline-flex; align-items: center; justify-content: center;
+	min-width: 18px; height: 18px; padding: 0 4px; margin-top: 1px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.4)); border-radius: 50%;
+	font-size: var(--pulseai-text-micro);
+}
+.pulseai-clarify-late { display: grid; gap: 1px; }
+.pulseai-clarify-late-hint { margin: 2px 0 0; padding: 0 6px; font-size: var(--pulseai-text-body); color: var(--vscode-descriptionForeground); }
+
+/* ── Hermes todo panel (the task tool) ── */
+.pulseai-todo-stack { display: grid; gap: 4px; }
+.pulseai-todo-list { display: grid; gap: 1px; }
+.pulseai-todo-row {
+	display: flex; align-items: center; gap: 8px;
+	min-height: 20px; padding: 1px 8px;
+	font-size: var(--pulseai-text-meta, 12px); color: var(--vscode-foreground);
+}
+.pulseai-todo-row.is-completed .pulseai-todo-content { color: var(--vscode-descriptionForeground); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--vscode-descriptionForeground) 60%, transparent); }
+.pulseai-todo-row.is-completed > .codicon, .pulseai-todo-row.is-completed > svg { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.pulseai-todo-row.is-cancelled { color: var(--vscode-descriptionForeground); opacity: .6; }
+.pulseai-todo-ring {
+	box-sizing: border-box; width: 11px; height: 11px; flex-shrink: 0;
+	border: 1px dashed var(--vscode-descriptionForeground);
+	border-radius: 50%; opacity: .65;
+}
+.pulseai-todo-row .pulseai-mini-spinner { width: 11px; height: 11px; flex-shrink: 0; }
+
 .pulseai-button {
 	height: 24px;
 	padding: 0 9px;

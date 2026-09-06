@@ -30,12 +30,31 @@ export interface PulseSessionInfo {
 	readonly cancel_requested?: boolean;
 	readonly steer_accepted?: boolean;
 	readonly safety_resolved?: boolean;
+	readonly clarify_resolved?: boolean;
 	readonly host_capabilities_updated?: number;
 	readonly host_tool_result_resolved?: boolean;
 	readonly events?: readonly unknown[];
 	readonly agent_status?: Readonly<Record<string, unknown>>;
 	/** Engine build ("<sha> <date>") — a stale engine is visible in the panel. */
 	readonly build?: string;
+}
+
+/** Hermes todo_list item shape ({id, content, status, parent?} — parent nests a subtask). */
+export interface PulseTodoItem {
+	readonly id: string;
+	readonly content: string;
+	readonly status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+	readonly parent?: string;
+}
+
+/** One normalized clarify question (hermes clarify_tool._normalize_questions). */
+export interface PulseClarifyQuestion {
+	readonly qid: string;
+	readonly id?: string | null;
+	readonly question: string;
+	readonly choices?: readonly string[] | null;
+	readonly choices_offered?: readonly string[] | null;
+	readonly multi_select?: boolean;
 }
 
 export type PulseServerEvent =
@@ -48,6 +67,8 @@ export type PulseServerEvent =
 	| ({ readonly type: 'tool_call_start'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & PulseIdentity)
 	| ({ readonly type: 'tool_call_end'; readonly tool_id: string; readonly status: string; readonly result?: unknown } & PulseIdentity)
 	| ({ readonly type: 'safety_request'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown; readonly diff?: unknown; readonly warning?: string } & PulseIdentity)
+	| ({ readonly type: 'clarify_request'; readonly tool_id?: string; readonly request_id: string; readonly title?: string; readonly questions: readonly PulseClarifyQuestion[] } & PulseIdentity)
+	| ({ readonly type: 'todo_updated'; readonly todos: readonly PulseTodoItem[]; readonly revision: number; readonly summary?: Readonly<Record<string, number>> } & PulseIdentity)
 	| ({ readonly type: 'verification_updated'; readonly status: string; readonly evidence?: unknown } & PulseIdentity)
 	| ({ readonly type: 'subagent_updated'; readonly subagent_id: string; readonly state: string } & PulseIdentity)
 	| ({ readonly type: 'telemetry'; readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number } & PulseIdentity)
@@ -85,6 +106,7 @@ export type PulseClientMethod =
 	| ({ readonly type: 'steer'; readonly text: string } & PulseSessionRequest)
 	| ({ readonly type: 'queue'; readonly text: string } & PulseSessionRequest)
 	| ({ readonly type: 'safety_reply'; readonly tool_id: string; readonly approved: boolean; readonly always_allow?: boolean } & PulseSessionRequest)
+	| ({ readonly type: 'clarify_reply'; readonly request_id: string; readonly answers: Readonly<Record<string, string | readonly string[]>>; readonly timed_out?: boolean } & PulseSessionRequest)
 	| ({ readonly type: 'checkpoint_list'; readonly workspace: string } & PulseSessionRequest)
 	| ({ readonly type: 'checkpoint_restore'; readonly workspace: string; readonly checkpoint_hash: string; readonly file_path?: string } & PulseSessionRequest)
 	| ({ readonly type: 'subagent_launch'; readonly goal: string; readonly mode?: string; readonly parent_capabilities?: readonly string[]; readonly allowed_capabilities?: readonly string[] } & PulseSessionRequest)

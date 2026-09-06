@@ -97,6 +97,8 @@ from src.agents.planner import (
 )
 from src.models.plan_models import steps_to_dicts
 from src.tools.plan_tool import plan_update
+from src.tools.todo_tool import todo_list, inject_active_todos, clear_todo_store
+from src.tools.clarify_tool import clarify
 from src.graphs import progress_helpers as ph
 from src.tools.file_tools import (
     read_file,
@@ -400,6 +402,8 @@ tools = [
     ask_user,
     terminal,
     plan_update,
+    todo_list,
+    clarify,
     delegate_to_subagent,
     delegate_to_subagent_batch,
     display_pulse_task,
@@ -969,6 +973,15 @@ def ai_node(
         # a full budget run (54 calls) and died on the FAREWELL call.
         # Drop tool pairs so the no-tools request is a clean text chat.
         messages = _drop_tool_pairs(messages)
+
+    # Hermes todo pipeline (tools/todo_tool.py format_for_injection): the
+    # session's ACTIVE task list rides every model call, so the list survives
+    # context trims and the model never re-does finished work after
+    # compression. Finished/cancelled items are excluded by the store itself.
+    _sid_for_todos = str(session_id or "default")
+    _todo_block = inject_active_todos(_sid_for_todos)
+    if _todo_block:
+        messages.append(SystemMessage(content=_todo_block))
 
     # Hermes request shape: exactly one system message leaves the door (see
     # _fuse_system_head). The anatomy log below then reports the TRUE request.

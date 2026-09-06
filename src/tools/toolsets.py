@@ -23,7 +23,12 @@ from src.agents.runtime_profile import (
 )
 
 # Paid on every turn. Keep this truly universal and action-neutral.
-_CORE_TOOLS: tuple[str, ...] = ("think", "verify", "ask_user", "session_search")
+# todo_list + clarify are hermes' always-available pair (todo_tool.py
+# check_todo_requirements -> True; clarify_tool.py check_clarify_requirements
+# -> True): the task list and the ask-the-user tool are never posture-gated.
+_CORE_TOOLS: tuple[str, ...] = (
+    "think", "verify", "ask_user", "session_search", "todo_list", "clarify",
+)
 
 _WORKSPACE_READ_TOOLS: tuple[str, ...] = (
     "read_file", "list_files", "search_code",

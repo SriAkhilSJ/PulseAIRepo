@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
-import type { PulseExecutionMode } from '../common/pulseAIProtocol.js';
+import type { PulseClarifyQuestion, PulseExecutionMode, PulseTodoItem } from '../common/pulseAIProtocol.js';
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import type { PulseAISessionRow } from '../common/pulseAISessionProjection.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
@@ -108,6 +108,15 @@ export interface PulseAIRenderModel {
 	readonly tools: readonly PulseAIToolView[];
 	readonly subAgents: readonly PulseAISubAgentView[];
 	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown };
+	/** Pending hermes clarify batch (the ask tool) awaiting this panel's answer. */
+	readonly clarify?: {
+		readonly requestId: string;
+		readonly title: string;
+		readonly toolId?: string;
+		readonly questions: readonly PulseClarifyQuestion[];
+	};
+	/** Live hermes todo_list state ({todos, revision} — reconciles atomically). */
+	readonly todos: readonly PulseTodoItem[];
 	readonly plan: readonly string[];
 	readonly verification?: string;
 	readonly telemetry: { readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number };
@@ -148,6 +157,8 @@ export interface PulseAIRenderHost {
 	cancel(): void;
 	steer(text: string): void;
 	replyToSafety(toolId: string, approved: boolean, alwaysAllow?: boolean): void;
+	/** Hermes ask-tool reply: answers per qid; timedOut=true is an explicit skip-all. */
+	replyToClarify(requestId: string, answers: Record<string, string | readonly string[]>, timedOut?: boolean): void;
 	openDiff(toolId: string): void;
 	revealFile(resource: string): void;
 	restoreCheckpoint(hash: string): void;
@@ -612,7 +623,15 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 	return body;
 }
 
-function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<string>): HTMLDetailsElement {
+function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<string>, pendingClarify?: PulseAIRenderModel['clarify']): HTMLDetailsElement {
+	// Hermes (message-parts ChainToolFallback): a clarify call renders its own
+	// widget card — the interactive question while it blocks, the settled Q&A
+	// after — never a generic collapsible tool row.
+	if (tool.name === 'clarify' && pendingClarify !== undefined) {
+		// The card is a widget, not a disclosure row; the toolSection slot
+		// only appends HTMLElements, so the cast keeps the signature honest.
+		return clarifyCard(tool, host, openTools, pendingClarify) as unknown as HTMLDetailsElement;
+	}
 	const presentation = pulseAIToolPresentation(tool.name);
 	const isPending = tool.state === 'running' || tool.state === 'queued';
 	const details = element('details', `pulseai-tool-row is-${tool.state}`);
@@ -657,7 +676,7 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-	function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true): HTMLElement {
+	function toolSection(tools: readonly PulseAIToolView[], host: PulseAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: PulseAIRenderModel['clarify']): HTMLElement {
 	const section = element('section', 'pulseai-tool-list');
 	section.dataset.component = 'tool-list';
 	if (showHeading) {
@@ -673,12 +692,12 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 	// screenshot 2026-09-04: "Running dir /b (1)" over a "Terminal dir /b"
 	// card said the same thing twice). Only 2+ calls earn a run summary.
 	if (groups.length === 1 && groups[0].kind === 'run' && groups[0].tools.length === 1) {
-		section.append(toolRow(groups[0].tools[0], host, openTools));
+		section.append(toolRow(groups[0].tools[0], host, openTools, pendingClarify));
 		return section;
 	}
 	for (const group of groups) {
 		if (group.kind === 'card') {
-			section.append(toolRow(group.tool, host, openTools));
+			section.append(toolRow(group.tool, host, openTools, pendingClarify));
 			continue;
 		}
 		const runTools = group.tools;
@@ -699,7 +718,7 @@ function toolRow(tool: PulseAIToolView, host: PulseAIRenderHost, openTools: Set<
 		);
 		details.append(summary);
 		const body = element('div', 'pulseai-tool-run-body');
-		for (const tool of runTools) { body.append(toolRow(tool, host, openTools)); }
+		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, pendingClarify)); }
 		details.append(body);
 		section.append(details);
 	}
@@ -893,6 +912,7 @@ function assistantTurn(
 		current?: boolean;
 		thoughtSeconds?: number;
 		cancelRequested?: boolean;
+		clarify?: PulseAIRenderModel['clarify'];
 	},
 	host: PulseAIRenderHost,
 	openTools: Set<string>,
@@ -923,7 +943,7 @@ function assistantTurn(
 		// In-message runs drop the "Actions" heading: hermes tool rows carry
 		// their own labels, and a heading wedged between text segments reads
 		// as a second message.
-		response.append(toolSection(run, host, openTools, live, false));
+		response.append(toolSection(run, host, openTools, live, false, spec.clarify));
 		run = [];
 	};
 	parts.forEach((part, index) => {
@@ -940,7 +960,7 @@ function assistantTurn(
 	// A tool with no part (a replay that lost its start frame) must still show.
 	const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
 	const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
-	if (orphans.length) { response.append(toolSection(orphans, host, openTools, live, false)); }
+	if (orphans.length) { response.append(toolSection(orphans, host, openTools, live, false, spec.clarify)); }
 	if (spec.assistantText && lastTextIndex < 0) {
 		response.append(markdownCopy(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
 	}
@@ -999,6 +1019,7 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			current: true,
 			thoughtSeconds: liveThoughtSeconds,
 			cancelRequested: model.cancelRequested,
+			clarify: model.clarify,
 		}, host, openTools));
 	}
 	if (model.subAgents.length) {
@@ -1160,25 +1181,513 @@ function emptyState(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLEle
 function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement | undefined {
 	if (!model.approval) { return undefined; }
 	const approval = model.approval;
+	ensureGlobalCardKeys();
 	const dock = element('section', 'pulseai-approval-dock');
 	dock.dataset.component = 'approval-dock';
-	dock.append(
-		element('div', 'pulseai-approval-copy', icon('shield'), element('div', undefined, element('strong', undefined, `${pulseAIToolPresentation(approval.name).title} needs approval`), element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })) )),
-		element('div', 'pulseai-approval-actions',
-			approval.diff ? button('Review change', 'pulseai-button pulseai-button-secondary', () => host.openDiff(approval.toolId), 'diff') : undefined,
-			hinted(button('Deny', 'pulseai-button pulseai-button-secondary pulseai-button-deny', () => host.replyToSafety(approval.toolId, false), 'close'),
-				'Deny this call. The next write is asked about again.'),
+	dock.dataset.toolId = approval.toolId;
+
+	// Hermes ApprovalBar (apps/desktop/.../tool/approval.tsx), ported shape for
+	// shape: a compact split pill [Run ⌘⏎ | ▾] under the pending tool row, a
+	// separate Reject ghost with its Esc hint, a Command disclosure revealing
+	// the full call, and "Always allow" behind a confirm dialog. The ▾ menu —
+	// Allow for session / Always allow… / Reject — is the piece the old flat
+	// button row was missing.
+	const commandText = approvalCommandText(approval.name, approval.diff);
+
+	const runButton = button('Run', 'pulseai-approval-run', () => host.replyToSafety(approval.toolId, true), 'check');
+	runButton.dataset.approveOnce = '';
+	hinted(runButton, 'Allow this call only.');
+	const runHint = element('span', 'pulseai-approval-kbd', isMac() ? '⌘⏎' : 'Ctrl⏎');
+	runButton.append(runHint);
+
+	const menu = element('div', 'pulseai-approval-menu');
+	menu.append(
+		button('Allow for session', 'pulseai-approval-menu-item', () => {
 			// The client protocol has carried `always_allow` since the start and the
-			// bridge honours it (src/bridge/__main__.py:552 -> EventBus.resolveApproval),
-			// but no control ever sent it: every ordinary write re-prompted for the rest
-			// of the session, so the grant existed and was unreachable from the UI.
-			hinted(button('Allow for session', 'pulseai-button pulseai-button-secondary pulseai-button-allow-session', () => host.replyToSafety(approval.toolId, true, true), 'pass-filled'),
-				'Allow, and stop asking for ordinary workspace writes in this session. Secret paths and git-ignored files are still asked every time.'),
-			hinted(button('Allow once', 'pulseai-button pulseai-button-primary pulseai-button-allow', () => host.replyToSafety(approval.toolId, true), 'check'),
-				'Allow this call only.'),
+			// bridge honours it, but no control ever sent it before the hermes bar:
+			// every ordinary write re-prompted for the rest of the session.
+			menu.classList.remove('is-open');
+			host.replyToSafety(approval.toolId, true, true);
+		}, 'pass-filled'),
+		button('Always allow…', 'pulseai-approval-menu-item', () => {
+			menu.classList.remove('is-open');
+			overlay.classList.add('is-open');
+		}, 'shield'),
+		button('Reject', 'pulseai-approval-menu-item is-destructive', () => {
+			menu.classList.remove('is-open');
+			host.replyToSafety(approval.toolId, false);
+		}, 'close'),
+	);
+
+	const menuTrigger = element('button', 'pulseai-approval-more') as HTMLButtonElement;
+	menuTrigger.type = 'button';
+	menuTrigger.setAttribute('aria-label', 'More options');
+	menuTrigger.setAttribute('aria-expanded', 'false');
+	menuTrigger.append(icon('chevron-down'));
+	menuTrigger.addEventListener('click', event => {
+		event.stopPropagation();
+		const open = menu.classList.toggle('is-open');
+		menuTrigger.setAttribute('aria-expanded', String(open));
+	});
+	document.addEventListener('click', () => menu.classList.remove('is-open'), { once: true });
+
+	const pill = element('div', 'pulseai-approval-pill', runButton);
+	if (true) {
+		const divider = element('span', 'pulseai-approval-divider');
+		divider.setAttribute('aria-hidden', 'true');
+		pill.append(divider, menuTrigger);
+	}
+	pill.append(menu);
+
+	const reject = hinted(button('Reject', 'pulseai-approval-reject', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
+	reject.dataset.deny = '';
+	const rejectHint = element('span', 'pulseai-approval-kbd', 'Esc');
+	reject.append(rejectHint);
+
+	const commandToggle = element('button', 'pulseai-approval-command-toggle') as HTMLButtonElement;
+	commandToggle.type = 'button';
+	commandToggle.append(element('span', undefined, 'Command'), icon('chevron-down'));
+	const commandPre = element('pre', 'pulseai-approval-command', commandText);
+	commandToggle.setAttribute('aria-expanded', 'false');
+	commandToggle.addEventListener('click', () => {
+		const open = commandPre.classList.toggle('is-open');
+		commandToggle.setAttribute('aria-expanded', String(open));
+	});
+
+	// "Always allow" persists for the session, so it goes through a confirm
+	// step rather than firing straight from the menu (hermes' dialog rule).
+	const overlay = element('div', 'pulseai-dialog-overlay');
+	const dialog = element('div', 'pulseai-dialog');
+	dialog.append(
+		element('h3', undefined, 'Always allow this?'),
+		element('p', 'pulseai-dialog-copy', `Pulse will stop asking before running ${pulseAIToolPresentation(approval.name).title} for the rest of this session. Secret paths and git-ignored files are still asked every time.`),
+		commandText ? element('pre', 'pulseai-dialog-command', commandText) : undefined,
+	);
+	const dialogButtons = element('div', 'pulseai-dialog-actions');
+	dialogButtons.append(
+		button('Cancel', 'pulseai-button pulseai-button-secondary', () => overlay.classList.remove('is-open')),
+		button('Always allow', 'pulseai-button pulseai-button-primary', () => {
+			overlay.classList.remove('is-open');
+			host.replyToSafety(approval.toolId, true, true);
+		}),
+	);
+	dialog.append(dialogButtons);
+	overlay.append(dialog);
+	overlay.addEventListener('click', event => { if (event.target === overlay) overlay.classList.remove('is-open'); });
+
+	dock.append(
+		element('div', 'pulseai-approval-copy', icon('shield'), element('div', undefined,
+			element('strong', undefined, `${pulseAIToolPresentation(approval.name).title} needs approval`),
+			element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })))),
+		element('div', 'pulseai-approval-bar',
+			pill,
+			reject,
+			approval.diff ? button('Review change', 'pulseai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined,
+			commandText ? commandToggle : undefined,
 		),
+		commandPre,
+		overlay,
 	);
 	return dock;
+}
+
+function isMac(): boolean {
+	return typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform);
+}
+
+function approvalCommandText(name: string, diff: unknown): string {
+	const row = (diff && typeof diff === 'object') ? diff as Record<string, unknown> : {};
+	for (const key of ['command', 'cmd', 'path', 'file_path']) {
+		const value = row[key];
+		if (typeof value === 'string' && value.trim()) { return value.trim(); }
+	}
+	if (diff === undefined || diff === null) { return name; }
+	try { return `${name} ${JSON.stringify(diff)}`.trim(); } catch { return name; }
+}
+
+// ── Hermes clarify card (the ask tool) ───────────────────────────────────────
+// Port of apps/desktop/src/components/assistant-ui/clarify-tool.tsx: a widget
+// card — the interactive batch form while the turn blocks, the settled Q&A
+// after, and a skipped card whose choices draft a follow-up instead of
+// vanishing. Draft state lives OUTSIDE the render (keyed by request id), the
+// same way `openTools` survives re-renders.
+
+const RECOMMENDED_LABEL = '(Recommended)';
+
+function stripRecommended(text: string): string {
+	const stripped = String(text ?? '').trim();
+	if (stripped.toLowerCase().endsWith(RECOMMENDED_LABEL.toLowerCase())) {
+		return stripped.slice(0, -RECOMMENDED_LABEL.length).trim();
+	}
+	return stripped;
+}
+
+interface ClarifyDraft {
+	selected: Map<string, Set<string>>;
+	other: Map<string, string>;
+	cursor: number;
+}
+
+const clarifyDrafts = new Map<string, ClarifyDraft>();
+
+function clarifyDraft(requestId: string): ClarifyDraft {
+	let draft = clarifyDrafts.get(requestId);
+	if (!draft) {
+		draft = { selected: new Map(), other: new Map(), cursor: 0 };
+		clarifyDrafts.set(requestId, draft);
+	}
+	return draft;
+}
+
+interface ClarifyResponseRow {
+	id?: string;
+	question?: string;
+	user_response?: string | readonly string[];
+	choices_offered?: readonly string[] | null;
+}
+
+function parseClarifyResult(raw: unknown): { responses: ClarifyResponseRow[]; timedOut: boolean; error?: string } {
+	if (typeof raw !== 'string') { return { responses: [], timedOut: false }; }
+	try {
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		if (typeof parsed.error === 'string') { return { responses: [], timedOut: false, error: parsed.error }; }
+		const responses: ClarifyResponseRow[] = [];
+		const list = Array.isArray(parsed.responses) ? parsed.responses : [parsed];
+		for (const entry of list) {
+			if (entry && typeof entry === 'object') { responses.push(entry as ClarifyResponseRow); }
+		}
+		return { responses, timedOut: parsed.timed_out === true };
+	} catch {
+		return { responses: [], timedOut: false };
+	}
+}
+
+function letterFor(index: number): string {
+	return String.fromCharCode(97 + index);
+}
+
+function keyBadge(char: string, selected: boolean): HTMLElement {
+	const badge = element('span', `pulseai-key-badge${selected ? ' is-selected' : ''}`, char);
+	badge.setAttribute('aria-hidden', 'true');
+	return badge;
+}
+
+/** Split "Use React (Recommended)" into [bare, recommended?] the way the
+ * ChoiceLabel renders it: the suffix is presentation, tertiary-toned. */
+function choiceParts(choice: string): { bare: string; recommended: boolean } {
+	const trimmed = String(choice ?? '').trim();
+	if (trimmed.toLowerCase().endsWith(RECOMMENDED_LABEL.toLowerCase())) {
+		return { bare: trimmed.slice(0, -RECOMMENDED_LABEL.length).trim(), recommended: true };
+	}
+	return { bare: trimmed, recommended: false };
+}
+
+function clarifyChoiceRow(
+	qid: string, index: number, choice: string, multi: boolean,
+	draft: ClarifyDraft, requestId: string, onDirty: () => void,
+): HTMLElement {
+	const { bare, recommended } = choiceParts(choice);
+	const picked = draft.selected.get(qid)?.has(bare) ?? false;
+	const row = element('button', `pulseai-clarify-choice${picked ? ' is-selected' : ''}`) as HTMLButtonElement;
+	row.type = 'button';
+	row.dataset.choiceIndex = String(index);
+	row.dataset.qid = qid;
+	row.dataset.choice = bare;
+	const selectedSet = draft.selected.get(qid);
+	row.setAttribute('aria-pressed', String(picked));
+	row.append(keyBadge(letterFor(index), picked));
+	const label = element('span', 'pulseai-clarify-choice-label');
+	label.append(document.createTextNode(bare));
+	if (recommended) { label.append(element('span', 'pulseai-clarify-recommended', ` ${RECOMMENDED_LABEL}`)); }
+	row.append(label);
+	row.addEventListener('click', () => {
+		const set = draft.selected.get(qid) ?? new Set<string>();
+		if (multi) {
+			if (set.has(bare)) { set.delete(bare); row.classList.remove('is-selected'); row.setAttribute('aria-pressed', 'false'); }
+			else { set.add(bare); row.classList.add('is-selected'); row.setAttribute('aria-pressed', 'true'); }
+			draft.selected.set(qid, set);
+			return;
+		}
+		// Single select: one picked row per question; picking clears siblings.
+		set.clear();
+		set.add(bare);
+		draft.selected.set(qid, set);
+		draft.other.set(qid, '');
+		const form = row.closest('.pulseai-clarify-form');
+		for (const other of (form?.querySelectorAll<HTMLElement>(`[data-qid="${qid}"].pulseai-clarify-choice`) ?? [])) {
+			const isThis = other === row;
+			other.classList.toggle('is-selected', isThis);
+			other.setAttribute('aria-pressed', String(isThis));
+		}
+		const textarea = form?.querySelector<HTMLTextAreaElement>(`textarea[data-qid="${qid}"]`);
+		if (textarea) { textarea.value = ''; }
+		onDirty();
+	});
+	return row;
+}
+
+function clarifyCard(
+	tool: PulseAIToolView, host: PulseAIRenderHost, _openTools: Set<string>,
+	pending: NonNullable<PulseAIRenderModel['clarify']>,
+): HTMLElement {
+	ensureGlobalCardKeys();
+	// Settled: the tool result carries the batch JSON — Q/A card, hermes
+	// ClarifyToolSettled. A skipped card keeps its choices clickable; a pick
+	// drafts a quoted follow-up into the composer (Enter sends, a running turn
+	// queues it like any other prompt).
+	if (tool.result !== undefined) {
+		const { responses, timedOut, error } = parseClarifyResult(tool.result);
+		const card = element('div', 'pulseai-clarify-card');
+		card.dataset.component = 'clarify-settled';
+		const skipped = !error && responses.length > 0 && responses.every(r => {
+			const value = r.user_response;
+			return value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
+		});
+		for (const response of responses) {
+			card.append(element('div', 'pulseai-clarify-q', icon('question'), element('span', undefined, response.question ?? '')));
+			const answer = response.user_response;
+			const answerText = error
+				? error
+				: skipped ? 'Skipped'
+					: Array.isArray(answer) ? (answer as readonly string[]).join(', ')
+						: (typeof answer === 'string' ? answer : '').trim();
+			if (answerText) {
+				card.append(element('div', `pulseai-clarify-a${error ? ' is-error' : ''}${skipped ? ' is-skipped' : ''}`,
+					element('span', 'pulseai-clarify-a-badge', 'A'), element('span', undefined, answerText)));
+			}
+			if (timedOut || skipped) {
+				const choices = response.choices_offered ?? [];
+				if (choices.length) {
+					const late = element('div', 'pulseai-clarify-late');
+					choices.forEach((choice, index) => {
+						const { bare } = choiceParts(choice);
+						const row = element('button', 'pulseai-clarify-choice') as HTMLButtonElement;
+						row.type = 'button';
+						row.append(keyBadge(letterFor(index), false), element('span', 'pulseai-clarify-choice-label', bare));
+						row.addEventListener('click', () => {
+							// Hermes late-answer: a pick can't resolve the dead
+							// request — it drafts a quoted follow-up instead.
+							host.setDraft(`Re: "${response.question ?? 'your question'}" — ${bare}`);
+						});
+						late.append(row);
+					});
+					late.append(element('p', 'pulseai-clarify-late-hint', 'The turn moved on — pick one to draft a follow-up instead.'));
+					card.append(late);
+				}
+			}
+		}
+		return card;
+	}
+
+	// Pending: the interactive batch form (hermes ClarifyToolSinglePending /
+	// ClarifyToolBatchPending). Args alone can't drive it — the request frame
+	// carries the qids the reply needs.
+	const draft = clarifyDraft(pending.requestId);
+	const form = element('div', 'pulseai-clarify-card pulseai-clarify-form');
+	form.dataset.component = 'clarify-inline';
+	form.dataset.live = '1';
+	form.dataset.requestId = pending.requestId;
+
+	const collectAnswers = (): Record<string, string | readonly string[]> => {
+		const answers: Record<string, string | readonly string[]> = {};
+		for (const question of pending.questions) {
+			const other = draft.other.get(question.qid) ?? '';
+			if (other.trim()) { answers[question.qid] = other.trim(); continue; }
+			const picked = Array.from(draft.selected.get(question.qid) ?? []);
+			if (picked.length === 1) { answers[question.qid] = picked[0]; }
+			else if (picked.length > 1) { answers[question.qid] = picked; }
+		}
+		return answers;
+	};
+
+	const submitButton = element('button', 'pulseai-button pulseai-button-primary pulseai-clarify-submit') as HTMLButtonElement;
+	submitButton.type = 'button';
+	submitButton.dataset.clarifySubmit = '';
+	submitButton.append('Continue', element('span', 'pulseai-approval-kbd', '⏎'));
+	submitButton.addEventListener('click', () => {
+		form.dataset.live = '0';
+		host.replyToClarify(pending.requestId, collectAnswers(), false);
+	});
+
+	const skipButton = element('button', 'pulseai-button pulseai-button-secondary pulseai-clarify-skip') as HTMLButtonElement;
+	skipButton.type = 'button';
+	skipButton.textContent = 'Skip';
+	skipButton.addEventListener('click', () => {
+		form.dataset.live = '0';
+		// Hermes skip: the batch resolves EMPTY — a deliberate skip the model
+		// reads as "" answers, distinct from a walk-away timeout.
+		host.replyToClarify(pending.requestId, {}, false);
+	});
+
+	for (const question of pending.questions) {
+		const multi = question.multi_select === true;
+		const block = element('div', 'pulseai-clarify-block');
+		block.append(element('div', 'pulseai-clarify-q', icon('question'), element('span', undefined, question.question)));
+		const choices = question.choices ?? [];
+		if (choices.length) {
+			const group = element('div', 'pulseai-clarify-choices');
+			group.setAttribute('role', 'group');
+			choices.forEach((choice, index) => {
+				group.append(clarifyChoiceRow(question.qid, index, choice, multi, draft, pending.requestId, () => refreshSubmit()));
+			});
+			// The auto-appended "Other (type your answer)" row — hermes: the UI
+			// always appends it; typing is its own answer and clears picks.
+			const otherRow = element('label', 'pulseai-clarify-other');
+			otherRow.dataset.choiceIndex = String(choices.length);
+			otherRow.dataset.qid = question.qid;
+			otherRow.append(keyBadge(letterFor(choices.length), false));
+			const textarea = element('textarea', 'pulseai-clarify-other-input') as HTMLTextAreaElement;
+			textarea.rows = 1;
+			textarea.placeholder = 'Other (type your answer)';
+			textarea.dataset.qid = question.qid;
+			textarea.value = draft.other.get(question.qid) ?? '';
+			textarea.addEventListener('input', () => {
+				draft.other.set(question.qid, textarea.value);
+				if (textarea.value.trim()) {
+					draft.selected.set(question.qid, new Set());
+					for (const row of form.querySelectorAll<HTMLElement>(`[data-qid="${question.qid}"].pulseai-clarify-choice`)) {
+						row.classList.remove('is-selected');
+						row.setAttribute('aria-pressed', 'false');
+					}
+				}
+				refreshSubmit();
+			});
+			otherRow.append(textarea);
+			group.append(otherRow);
+			block.append(group);
+		} else {
+			const textarea = element('textarea', 'pulseai-clarify-other-input pulseai-clarify-open') as HTMLTextAreaElement;
+			textarea.rows = 2;
+			textarea.placeholder = 'Type your answer…';
+			textarea.dataset.qid = question.qid;
+			textarea.value = draft.other.get(question.qid) ?? '';
+			textarea.addEventListener('input', () => { draft.other.set(question.qid, textarea.value); refreshSubmit(); });
+			block.append(textarea);
+		}
+		form.append(block);
+	}
+
+	function refreshSubmit(): void {
+		const answers = collectAnswers();
+		const hasAnswer = Object.keys(answers).length > 0;
+		submitButton.disabled = !hasAnswer;
+	}
+	refreshSubmit();
+
+	const actions = element('div', 'pulseai-clarify-actions', skipButton, submitButton);
+	form.append(actions);
+	return form;
+}
+
+// ── Hermes todo panel (the task tool) ────────────────────────────────────────
+// Port of the composer status stack's todo rows (status-row.tsx): checkbox
+// glyphs, not spinner-and-dot — a dashed ring while pending, codicons once the
+// item resolves, a live spinner only on the in_progress item; depth-indented
+// subtasks; an X/Y count. Rendered ABOVE the composer, like upstream.
+
+function todoStack(model: PulseAIRenderModel): HTMLElement | undefined {
+	const todos = model.todos;
+	if (!todos.length) { return undefined; }  // hermes: no active list, no panel
+	const counted = todos.filter(t => t.status !== 'cancelled');
+	const done = counted.filter(t => t.status === 'completed').length;
+	const stack = element('section', 'pulseai-todo-stack');
+	stack.dataset.component = 'todo-stack';
+	stack.append(element('div', 'pulseai-section-heading',
+		icon('list-ordered'),
+		element('span', undefined, 'Tasks'),
+		element('span', 'pulseai-section-count', `${done}/${counted.length}`),
+	));
+	const list = element('div', 'pulseai-todo-list');
+	for (const todo of todos) {
+		const depth = todoDepth(todo, todos);
+		const glyph = todoGlyph(todo.status);
+		const row = element('div', `pulseai-todo-row is-${todo.status}`);
+		if (depth) { row.style.paddingLeft = `${Math.min(depth, 4) * 0.8}rem`; }
+		row.append(glyph, element('span', 'pulseai-todo-content', todo.content));
+		list.append(row);
+	}
+	stack.append(list);
+	return stack;
+}
+
+function todoDepth(todo: PulseTodoItem, todos: readonly PulseTodoItem[]): number {
+	let depth = 0;
+	let current = todo;
+	const byId = new Map(todos.map(t => [t.id, t]));
+	while (current.parent && byId.has(current.parent) && current.parent !== current.id && depth < 4) {
+		current = byId.get(current.parent)!;
+		depth += 1;
+	}
+	return depth;
+}
+
+function todoGlyph(status: PulseTodoItem['status']): HTMLElement {
+	if (status === 'in_progress') { return element('span', 'pulseai-mini-spinner'); }
+	if (status === 'completed') { return icon('pass-filled'); }
+	if (status === 'cancelled') { return icon('circle-slash'); }
+	// Pending: a dashed ring — the row speaks checkbox, not spinner-and-dot.
+	const ring = element('span', 'pulseai-todo-ring');
+	ring.setAttribute('aria-hidden', 'true');
+	return ring;
+}
+
+// ── Global card keys ─────────────────────────────────────────────────────────
+// One capture-phase listener, installed once (hermes' window keydown in
+// ClarifyToolSinglePending + ApprovalBar): ⌘/Ctrl+Enter runs the approval,
+// Esc rejects it; letters/numbers/arrows/Enter drive the live clarify card.
+// The DOM is the state — a re-render between keystrokes cannot desync us.
+
+let globalCardKeysInstalled = false;
+
+function ensureGlobalCardKeys(): void {
+	if (globalCardKeysInstalled || typeof document === 'undefined') { return; }
+	globalCardKeysInstalled = true;
+	document.addEventListener('keydown', (event: KeyboardEvent) => {
+		const dock = document.querySelector<HTMLElement>('[data-component="approval-dock"][data-tool-id]');
+		if (dock) {
+			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+				event.preventDefault();
+				dock.querySelector<HTMLButtonElement>('[data-approve-once]')?.click();
+				return;
+			}
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				dock.querySelector<HTMLButtonElement>('[data-deny]')?.click();
+				return;
+			}
+		}
+		const form = document.querySelector<HTMLElement>('.pulseai-clarify-form[data-live="1"]');
+		if (!form || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) { return; }
+		const active = document.activeElement as HTMLElement | null;
+		if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable)) { return; }
+		const rows = Array.from(form.querySelectorAll<HTMLElement>('[data-choice-index]'));
+		if (!rows.length) { return; }
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			event.preventDefault();
+			const delta = event.key === 'ArrowDown' ? 1 : -1;
+			const current = rows.findIndex(row => row.classList.contains('is-active'));
+			const next = Math.max(0, Math.min(rows.length - 1, (current === -1 ? 0 : current + delta)));
+			rows.forEach((row, index) => row.classList.toggle('is-active', index === next));
+			return;
+		}
+		if (/^[1-9]$/.test(event.key)) {
+			const row = rows[Number(event.key) - 1];
+			if (row) { event.preventDefault(); row.classList.add('is-active'); (row as HTMLButtonElement).click?.(); }
+			return;
+		}
+		const key = event.key.toLowerCase();
+		if (key.length === 1 && key >= 'a' && key <= 'z') {
+			const row = rows[key.charCodeAt(0) - 97];
+			if (row) { event.preventDefault(); row.classList.add('is-active'); if ((row as HTMLButtonElement).click) { (row as HTMLButtonElement).click(); } else { (row.querySelector('textarea') as HTMLTextAreaElement | null)?.focus(); } }
+			return;
+		}
+		if (event.key === 'Enter') {
+			const activeRow = rows.find(row => row.classList.contains('is-active'));
+			if (activeRow) { event.preventDefault(); if ((activeRow as HTMLButtonElement).click) { (activeRow as HTMLButtonElement).click(); } else { (activeRow.querySelector('textarea') as HTMLTextAreaElement | null)?.focus(); } return; }
+			const submit = form.querySelector<HTMLButtonElement>('[data-clarify-submit]');
+			if (submit && !submit.disabled) { event.preventDefault(); submit.click(); }
+		}
+	}, true);
 }
 
 /** A `title` hint for buttons built through `button()`, which has no options bag. */
@@ -1351,6 +1860,11 @@ function agentColumn(model: PulseAIRenderModel, host: PulseAIRenderHost, openToo
 	if (working) { nodes.push(working); }
 	const approval = approvalDock(model, host);
 	if (approval) { nodes.push(approval); }
+	// Hermes: the todo panel lives between the transcript and the composer
+	// (the composer status stack) — the list rides ABOVE the input, never
+	// buried in transcript history.
+	const todos = todoStack(model);
+	if (todos) { nodes.push(todos); }
 	return nodes;
 }
 

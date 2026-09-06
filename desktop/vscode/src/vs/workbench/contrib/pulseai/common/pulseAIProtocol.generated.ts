@@ -26,6 +26,7 @@ export const PULSE_AI_CLIENT_METHODS = [
 	'steer',
 	'queue',
 	'safety_reply',
+	'clarify_reply',
 	'checkpoint_list',
 	'checkpoint_restore',
 	'subagent_launch',
@@ -44,15 +45,15 @@ export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
 
 export const PULSE_AI_SERVER_EVENTS = [
 	'checkpoint_event',
+	'clarify_request',
 	'context_status',
-	'voice_text',
 	'error',
 	'events_replay',
 	'hello',
-	'llm.request',
-	'llm.response',
 	'host_tool_request',
 	'inline_completion_result',
+	'llm.request',
+	'llm.response',
 	'next_edit_result',
 	'plan_updated',
 	'reasoning',
@@ -61,6 +62,7 @@ export const PULSE_AI_SERVER_EVENTS = [
 	'session_info',
 	'subagent_updated',
 	'telemetry',
+	'todo_updated',
 	'token',
 	'tool_call_end',
 	'tool_call_start',
@@ -68,6 +70,7 @@ export const PULSE_AI_SERVER_EVENTS = [
 	'turn_failed',
 	'turn_started',
 	'verification_updated',
+	'voice_text',
 	'workspace.bound',
 ] as const;
 export type PulseServerEventName = (typeof PULSE_AI_SERVER_EVENTS)[number];

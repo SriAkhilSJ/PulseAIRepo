@@ -147,6 +147,8 @@ class BridgeServer:
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
             "tool.approval.request": "safety_request",
+            "tool.clarify.request": "clarify_request",
+            "todo.updated": "todo_updated",
             "analytics.update": "telemetry",
             "plan.created": "plan_updated",
             "checkpoint.created": "checkpoint_event",
@@ -192,6 +194,24 @@ class BridgeServer:
                 **base, "tool_id": tool_id, "name": name,
                 "arguments": payload.get("arguments", payload.get("tool_args")),
                 "diff": payload.get("diff"), "warning": payload.get("warning"),
+            }
+        if target == "clarify_request":
+            # Hermes clarify card payload: one batch of normalized questions,
+            # answered per qid through the clarify_reply frame.
+            return {
+                **base, "tool_id": tool_id,
+                "request_id": str(payload.get("id") or ""),
+                "title": payload.get("title", ""),
+                "questions": payload.get("questions", []),
+                "session_id": payload.get("session_id", identity.session_id),
+            }
+        if target == "todo_updated":
+            # Hermes todo panel payload: {todos, revision} reconciles atomically.
+            return {
+                **base,
+                "todos": payload.get("todos", []),
+                "revision": payload.get("revision", 0),
+                "summary": payload.get("summary", {}),
             }
         return {**base, **payload, "type": target}
 
@@ -662,6 +682,17 @@ class BridgeServer:
                 bool(frame.get("always_allow", False)), session_id=sid,
             )
             self.emit({"type": "session_info", "session_id": sid, "safety_resolved": ok})
+        elif kind == "clarify_reply":
+            # Hermes ask-tool answer path: the card replies per qid; an explicit
+            # skip (timed_out) resolves the batch so the model decides itself.
+            from src.dashboard.event_bus import clarify_queue
+            ok = clarify_queue.resolve(
+                str(frame.get("request_id") or ""),
+                frame.get("answers") or {},
+                timed_out=bool(frame.get("timed_out", False)),
+                session_id=sid,
+            )
+            self.emit({"type": "session_info", "session_id": sid, "clarify_resolved": ok})
         elif kind == "subagent_launch":
             from src.agents.subagent_lifecycle import subagent_lifecycle
             handle = subagent_lifecycle.launch(

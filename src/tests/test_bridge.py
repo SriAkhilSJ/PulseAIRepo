@@ -363,3 +363,36 @@ def test_bridge_memory_policy_defaults_off_and_honors_optin(monkeypatch, capsys)
     BridgeServer._apply_memory_policy()
     assert os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY") is None
     assert "long-term memory: ON" in capsys.readouterr().err
+
+
+def test_project_event_forwards_clarify_request_and_todo_updated():
+    """Hermes task+ask pipeline on the wire: the clarify card needs its batch
+    of qid-keyed questions; the todo panel reconciles on {todos, revision}."""
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="proj-3", workspace="/tmp/pbr-ws")
+    clarify_frame = BridgeServer._project_event({
+        "type": "tool.clarify.request",
+        "payload": {
+            "id": "abc123", "session_id": "proj-3",
+            "questions": [{"qid": "q0", "question": "Which stack?",
+                           "choices": ["FastAPI (Recommended)", "Flask"],
+                           "choices_offered": ["FastAPI", "Flask"],
+                           "multi_select": False}],
+            "title": "",
+        },
+    }, identity)
+    assert clarify_frame is not None and clarify_frame["type"] == "clarify_request"
+    assert clarify_frame["request_id"] == "abc123"
+    assert clarify_frame["questions"][0]["qid"] == "q0"
+
+    todo_frame = BridgeServer._project_event({
+        "type": "todo.updated",
+        "payload": {"session_id": "proj-3", "todos": [
+            {"id": "1", "content": "scaffold", "status": "in_progress"}],
+            "revision": 3},
+    }, identity)
+    assert todo_frame is not None and todo_frame["type"] == "todo_updated"
+    assert todo_frame["revision"] == 3
+    assert todo_frame["todos"][0]["content"] == "scaffold"

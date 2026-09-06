@@ -186,3 +186,75 @@ class ApprovalQueue:
 
 event_bus = EventBus()
 approval_queue = ApprovalQueue()
+
+
+class ClarifyQueue:
+    """Session-scoped clarify (hermes ask-tool) requests: the model's batch of
+    questions blocks the turn until the UI replies, the user skips, or the
+    timeout fires. Shape mirrors ApprovalQueue so the bridge/renderer plumbing
+    is identical; the payload is answers-by-qid instead of a decision."""
+
+    def __init__(self):
+        self._pending: dict[str, dict] = {}
+        self._conditions: dict[str, threading.Condition] = {}
+        self._lock = threading.RLock()
+
+    def request(self, request_id: str, questions: list[dict], *, session_id: str = "default") -> dict:
+        with self._lock:
+            condition = self._conditions.setdefault(request_id, threading.Condition(self._lock))
+            item = {
+                "id": request_id, "session_id": session_id,
+                "questions": questions, "status": "pending",
+                "answers": None, "timed_out": False,
+                "created_at": time.time(),
+            }
+            self._pending[request_id] = item
+            return dict(item)
+
+    def resolve(
+        self, request_id: str, answers: dict | None,
+        *, timed_out: bool = False, session_id: str | None = None,
+    ) -> bool:
+        with self._lock:
+            item = self._pending.get(request_id)
+            if item is None or (session_id and item["session_id"] != session_id):
+                return False
+            item.update(status="resolved", answers=dict(answers or {}), timed_out=bool(timed_out))
+            self._conditions.setdefault(request_id, threading.Condition(self._lock)).notify_all()
+            return True
+
+    def wait_for_answers(self, request_id: str, timeout: float = 300.0) -> dict | None:
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._lock:
+            condition = self._conditions.setdefault(request_id, threading.Condition(self._lock))
+            while True:
+                item = self._pending.get(request_id)
+                if item and item.get("status") == "resolved":
+                    result = dict(item)
+                    self._pending.pop(request_id, None)
+                    self._conditions.pop(request_id, None)
+                    return result
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    # Hermes timeout semantics: the user walked away — every
+                    # question resolves to the canonical sentinel, which the
+                    # tool reports as timed_out so the model decides and moves.
+                    if item:
+                        item.update(status="resolved", answers={}, timed_out=True)
+                        result = dict(item)
+                        self._pending.pop(request_id, None)
+                        self._conditions.pop(request_id, None)
+                        return result
+                    return None
+                condition.wait(timeout=remaining)
+
+    def get_pending(self, session_id: str | None = None) -> list[dict]:
+        with self._lock:
+            return [
+                dict(item) for item in self._pending.values()
+                if item["status"] == "pending"
+                and (session_id is None or item["session_id"] == session_id)
+            ]
+
+
+clarify_queue = ClarifyQueue()
