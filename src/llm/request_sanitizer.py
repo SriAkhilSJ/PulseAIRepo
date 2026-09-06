@@ -1,59 +1,36 @@
 """
-Pre-send Request Sanitizer (D36, hermes outstanding-call semantics)
-===================================================================
-A deterministic cleanup of the message list that runs at the final pre-API
-chokepoint (RetryLLMProxy.invoke). Ported from hermes' pre-call sanitizer
-``_dedupe_tool_call_ids`` (agent/agent_runtime_helpers.py:2690) — same
-tracking discipline, adapted to LangChain messages:
+Pre-send Request Sanitizer (D36)
+===============================
+A lossless, deterministic cleanup of the message list that runs at the final
+pre-API chokepoint (RetryLLMProxy.invoke). Mirrors hermes' pre-call
+sanitizer (agent_runtime_helpers.py:3436-3479) and the byte-identical tool
+result dedup (context_compressor.py:3390):
 
   1. Collapse duplicate tool_call entries WITHIN an assistant message
      (keep the first occurrence of each id). Strict providers (DeepSeek)
      reject a payload where the same tool_call_id appears more than once
      with HTTP 400 "Duplicate value for 'tool_call_id'".
-  2. OUTSTANDING-CALL tracking (the hermes core): an assistant tool_call
-     REGISTERS its id as outstanding; a tool result CONSUMES the matching
-     outstanding id; a result that answers no outstanding call is dropped.
+  2. Drop later tool result messages that REUSE an already-seen
+     tool_call_id. Duplicates arise from retries, crash/resume glitches, or
+     a re-played compression window. Keeps every tool_call satisfied.
+  3. Byte-identical tool result dedup: when two DIFFERENT tool results carry
+     the exact same content, keep the NEWEST copy and drop the older one,
+     re-pointing the older assistant tool_call at the surviving id so no
+     tool_call is ever left without a result.
 
-    Why NOT "seen-once-drop-forever": hermes' docstring names the exact
-    failure — llama.cpp reuses one constant id for every tool call, and a
-    seen-once rule "reads the SECOND legitimate tool result of such a
-    session as a duplicate and deletes it, so from the second tool call
-    onward the model never sees any result — it announces its next action
-    and the turn dies with the work unfinished." Pulse field proof
-    (2026-09-06): the byte-identical content dedup below that rule kept
-    `terminal ls -la` results invisible and the model re-ran the same
-    command four times in one turn. A genuine new call that reuses an id
-    re-arms it first; only a result with no PENDING call is dropped.
-
-  3. Empty tool-result content becomes a placeholder (strict providers
-     such as Sarvam HTTP-400 an empty ToolMessage string).
-
-There is deliberately NO content-based dedup: hermes keeps every result
-visible and never re-points one assistant tool_call at another call's
-result — manufactured pairings read as amnesia to the model and are what
-produced the repeated-command flail the first sanitizer version caused.
-
-The sanitizer must never raise — the pre-send path is hot, so any failure
-returns the input unchanged.
+The sanitizer is intentionally lossless: every remaining assistant tool_call
+still has a matching tool result, and no unique content is dropped. It must
+never raise — the pre-send path is hot, so any failure returns the input
+unchanged.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 
 def _call_id(tool_call: dict[str, Any]) -> str:
     return (tool_call.get("id") or "").strip()
-
-
-def _rebuild_ai_message(msg: AIMessage, kept_tool_calls: list[dict[str, Any]]) -> AIMessage:
-    return AIMessage(
-        content=msg.content,
-        tool_calls=kept_tool_calls,
-        additional_kwargs={k: v for k, v in msg.additional_kwargs.items()
-                           if k != "tool_calls"},
-        id=msg.id,
-    )
 
 
 def _collapse_duplicate_tool_calls(
@@ -80,64 +57,100 @@ def _collapse_duplicate_tool_calls(
                 seen.add(cid)
             kept.append(tc)
         if dropped_any:
-            msg = _rebuild_ai_message(msg, kept)
+            msg = AIMessage(
+                content=msg.content,
+                tool_calls=kept,
+                additional_kwargs={k: v for k, v in msg.additional_kwargs.items()
+                                   if k != "tool_calls"},
+                id=msg.id,
+            )
         out.append(msg)
     return out, removed
 
 
-def _dedupe_by_outstanding_calls(
+def _drop_reused_result_ids(
     messages: list[BaseMessage],
 ) -> tuple[list[BaseMessage], int]:
-    """(2) Outstanding-call tracking, ported from hermes
-    ``_dedupe_tool_call_ids``: every assistant tool_call re-arms its id; a
-    tool result consumes the outstanding id it answers; a result answering
-    NO outstanding call is dropped. A repeated assistant tool_call whose id
-    is STILL outstanding (unanswered duplicate — retries, crash/resume
-    glitches) drops the LATER CALL, the same choice hermes makes: keep
-    exactly one live call per id so its result has one unambiguous owner.
-
+    """(2) Drop tool results whose tool_call_id was already consumed.
     Returns (messages, removed_count)."""
-    outstanding: dict[str, None] = {}
+    seen: set[str] = set()
     out: list[BaseMessage] = []
     removed = 0
-
     for msg in messages:
-        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-            kept: list[dict[str, Any]] = []
-            dropped_any = False
-            for tc in msg.tool_calls:
-                cid = _call_id(tc)
-                if cid and cid in outstanding:
-                    # Unanswered duplicate of a live call: drop THIS call,
-                    # keep the model's newest intent unambiguous.
-                    dropped_any = True
-                    removed += 1
-                    continue
-                if cid:
-                    outstanding[cid] = None
-                kept.append(tc)
-            if dropped_any:
-                msg = _rebuild_ai_message(msg, kept)
-        elif isinstance(msg, ToolMessage):
+        cid = ""
+        if isinstance(msg, ToolMessage):
             cid = (msg.tool_call_id or "").strip()
-            if cid:
-                if cid not in outstanding:
-                    # Answers no pending call: retry echoes and re-played
-                    # compression windows land here. Hermes keeps such a
-                    # result OUT — it cannot be paired to any live call.
-                    removed += 1
-                    continue
-                # Consumed: the id may be legitimately re-armed by a NEW
-                # call later in the conversation (llama.cpp constant-id
-                # sessions run entirely on this re-arm path).
-                del outstanding[cid]
+        if cid:
+            if cid in seen:
+                removed += 1
+                continue
+            seen.add(cid)
         out.append(msg)
+    return out, removed
 
+
+def _dedup_byte_identical_results(
+    messages: list[BaseMessage],
+) -> tuple[list[BaseMessage], int]:
+    """(3) Keep the NEWEST byte-identical tool result; drop older exact
+    duplicates and re-point the dropped ids at the surviving copy so every
+    assistant tool_call keeps a matching result. Returns (messages,
+    removed_count)."""
+    # Scan from the tail: first seen content wins (the newest copy).
+    hash_to_kept: dict[str, str] = {}          # content hash -> kept id
+    dropped_id_map: dict[str, str] = {}        # dropped id -> kept id
+    drop_indices: set[int] = set()
+
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if not isinstance(msg, ToolMessage):
+            continue
+        cid = (msg.tool_call_id or "").strip()
+        if not cid:
+            continue
+        content = getattr(msg, "content", "")
+        if not isinstance(content, str):
+            continue
+        h = hash(content)
+        if h in hash_to_kept:
+            kept_id = hash_to_kept[h]
+            if kept_id != cid:
+                # Older exact duplicate of a newer result: drop it and
+                # re-point any assistant tool_call that referenced it.
+                dropped_id_map[cid] = kept_id
+                drop_indices.add(i)
+        else:
+            hash_to_kept[h] = cid
+
+    if not drop_indices:
+        return messages, 0
+
+    out: list[BaseMessage] = []
+    removed = 0
+    for i, msg in enumerate(messages):
+        if i in drop_indices:
+            removed += 1
+            continue
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            kept = [
+                {**tc, "id": dropped_id_map[tc.get("id", "")]}
+                if tc.get("id") in dropped_id_map
+                else tc
+                for tc in msg.tool_calls
+            ]
+            msg = AIMessage(
+                content=msg.content,
+                tool_calls=kept,
+                additional_kwargs={k: v for k, v in msg.additional_kwargs.items()
+                                   if k != "tool_calls"},
+                id=msg.id,
+            )
+        out.append(msg)
     return out, removed
 
 
 def _ensure_nonempty_tool_content(messages: list[BaseMessage]) -> tuple[list[BaseMessage], int]:
-    """(3) Strict providers (e.g. Sarvam) HTTP-400 a ToolMessage whose content is an
+    """Strict providers (e.g. Sarvam) HTTP-400 a ToolMessage whose content is an
     empty string ("String should have at least 1 character"). A tool that returns
     "" (empty dir listing, no-op, etc.) produces exactly that. Replace empty
     content with a minimal placeholder so the request is always accepted.
@@ -160,22 +173,23 @@ def _ensure_nonempty_tool_content(messages: list[BaseMessage]) -> tuple[list[Bas
 
 
 def sanitize_request_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
-    """Deterministic pre-send cleanup (hermes outstanding-call semantics).
-    Never raises; returns the input unchanged on any unexpected error."""
+    """Lossless pre-send cleanup. Never raises; returns the input unchanged
+    on any unexpected error."""
     if not isinstance(messages, list) or not messages:
         return messages
     try:
         out = messages
-        n1 = n2 = n3 = 0
+        n1 = n2 = n3 = n4 = 0
         out, n1 = _collapse_duplicate_tool_calls(out)
-        out, n2 = _dedupe_by_outstanding_calls(out)
-        out, n3 = _ensure_nonempty_tool_content(out)
-        total = n1 + n2 + n3
+        out, n2 = _drop_reused_result_ids(out)
+        out, n3 = _dedup_byte_identical_results(out)
+        out, n4 = _ensure_nonempty_tool_content(out)
+        total = n1 + n2 + n3 + n4
         if total:
             print(
                 f"[RequestSanitizer] removed/fixed {total} item(s) pre-send "
-                f"(dup tool_calls={n1}, unpaired results/calls={n2}, "
-                f"empty-tool-content={n3})"
+                f"(dup tool_calls={n1}, re-used tool_call_id={n2}, "
+                f"byte-identical results={n3}, empty-tool-content={n4})"
             )
             return out
         # Nothing removed: hand back the INPUT object so callers can gate on

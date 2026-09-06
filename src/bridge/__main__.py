@@ -514,10 +514,7 @@ class BridgeServer:
         from src.runtime.turn_control import turn_controls
         queued = turn_controls.pop_queued(sid)
         if queued and not self._shutdown.is_set():
-            queued_text, queued_mode = queued
-            # A drained prompt is its own turn and keeps its own execution
-            # mode (Ask/Plan/Debug must not collapse into agent here).
-            self._run_turn(sid, queued_text, workspace, mode=queued_mode)
+            self._run_turn(sid, queued, workspace)
 
     def handle(self, frame: dict) -> bool:
         kind = frame["type"]
@@ -625,10 +622,7 @@ class BridgeServer:
                 self.emit(error_frame(f"unsupported execution mode: {mode}"))
             elif sid in self._workers and self._workers[sid].is_alive():
                 from src.runtime.turn_control import turn_controls
-                # The queued prompt is a NEW turn in waiting: it keeps the
-                # execution mode the user selected, or the drain would run
-                # every queued Ask/Plan/Debug prompt as a full agent turn.
-                depth = turn_controls.queue(sid, text, mode=mode)
+                depth = turn_controls.queue(sid, text)
                 self.emit({"type": "session_info", "session_id": sid, "queued": depth})
             else:
                 # Warm the heavy turn-path imports on the MAIN thread before
@@ -659,11 +653,7 @@ class BridgeServer:
             self.emit({"type": "session_info", "session_id": sid, "steer_accepted": accepted})
         elif kind == "queue":
             from src.runtime.turn_control import turn_controls
-            # Explicit queue frame: honor a mode the client sent (default agent).
-            q_mode = str(frame.get("mode") or "agent").strip().lower()
-            if q_mode not in EXECUTION_MODES:
-                q_mode = "agent"
-            depth = turn_controls.queue(sid, str(frame.get("text") or ""), mode=q_mode)
+            depth = turn_controls.queue(sid, str(frame.get("text") or ""))
             self.emit({"type": "session_info", "session_id": sid, "queued": depth})
         elif kind == "safety_reply":
             from src.dashboard.event_bus import approval_queue

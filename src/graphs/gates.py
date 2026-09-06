@@ -452,22 +452,9 @@ def should_continue(state: AgentState):
             return "finish_gate"
         return "finalize"
 
-    # Ask mode (hermes /btw discipline, agent/side_question.py): the loop
-    # STAYS the loop. A tool call is denied at dispatch (SafeToolNode) and
-    # the model answers in text on the next iteration — hermes' fork path
-    # explicitly accepts "the model may waste an iteration on a (denied)
-    # tool call first" (_FORK_MAX_ITERATIONS = 3). Finalizing on the
-    # tool_call itself ended the ask turn with an unanswered call and no
-    # answer at all (field 2026-09-06: "Ask is not working"). Only a text
-    # response ends the turn; execution and verification nudges must not
-    # turn Ask into Agent.
+    # Ask mode never binds tools. Its first complete text response is the
+    # answer; execution and verification nudges must not turn it into Agent.
     if state.get("execution_mode") == "ask":
-        if getattr(last_message, "tool_calls", None):
-            return "tools"
-        if isinstance(last_message, ToolMessage):
-            # A dispatch denial (or any paired result) came back: the model
-            # now owes the user its text answer — send it back around.
-            return "ai"
         return "finalize"
 
     # ── Hermes loop law (ported, behavior-based) ─────────────────────────

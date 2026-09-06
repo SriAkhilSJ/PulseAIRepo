@@ -816,12 +816,12 @@ def ai_node(
 
     execution_mode = cast(ExecutionMode, state.get("execution_mode", "agent"))
 
-    # Hermes cache-parity rule (side_question.py): "tools[] stays
-    # byte-identical" — Ask keeps the SAME bound tool schema as every other
-    # mode and enforces no-mutation by denying calls at dispatch
-    # (SafeToolNode), never by unbinding. Unbinding here used to change the
-    # request shape between turns and force a history rewrite below.
-    llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+    # Ask is structurally conversational: no tool schema is sent and no tool
+    # call can be executed. Other modes retain the phase-scoped tool waist.
+    llm_with_tools = (
+        llm if execution_mode == "ask"
+        else llm.bind_tools(_resolve_bound_tools(state, config))
+    )
 
     # D31: start of an AI iteration — reset shadow-checkpoint dedup so the
     # first mutation this iteration snapshots the pre-change workspace.
@@ -852,20 +852,15 @@ def ai_node(
         ),
     )
     if execution_mode == "ask":
-        # Hermes /btw rules (_FORK_PROMPT, side_question.py) adapted to a
-        # live in-session turn: answer only the question, don't continue or
-        # critique prior work, say-so instead of guessing. Tools stay bound
-        # (cache parity); SafeToolNode denies any call at dispatch.
         _insert_system_prefix(
             messages,
             "=== ASK MODE ===\n"
-            "Answer and explain without changing files, running commands, or calling tools.\n"
-            "Rules:\n"
-            "- Answer ONLY the user's question. Do not continue, redo, or critique the main task.\n"
-            "- Do NOT call any tools — they are disabled for this turn; a denied call wastes an iteration. Answer directly in text.\n"
-            "- If the conversation does not contain enough information to answer, say so plainly instead of guessing.\n"
-            "- Be concise and direct; suggest next steps when useful.",
+            "Answer and explain without changing files, running commands, or calling tools. "
+            "Be clear about uncertainty and suggest next steps when useful.",
         )
+        # A resumed session can contain earlier Agent-mode tool pairs. Ask sends
+        # no tool declarations, so remove those pairs before the provider call.
+        messages = _drop_tool_pairs(messages)
     elif execution_mode == "debug":
         _insert_system_prefix(
             messages,
@@ -1028,9 +1023,10 @@ def ai_node(
             pass  # diagnostics never break the turn
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
-        # Failover keeps the hermes cache-parity rule: tools stay bound in
-        # every mode, including Ask (dispatch denial owns no-mutation).
-        llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+        llm_with_tools = (
+            llm if execution_mode == "ask"
+            else llm.bind_tools(_resolve_bound_tools(state, config))
+        )
         call_llm = llm_with_tools
 
     # RetryLLMProxy.invoke() owns request-scoped abort registration for every
@@ -1090,9 +1086,10 @@ def ai_node(
         except Exception:
             pass  # diagnostics never break the turn
         llm = get_llm(provider=provider, model=model)
-        # Failover keeps the hermes cache-parity rule: tools stay bound in
-        # every mode, including Ask (dispatch denial owns no-mutation).
-        llm_with_tools = llm.bind_tools(_resolve_bound_tools(state, config))
+        llm_with_tools = (
+            llm if execution_mode == "ask"
+            else llm.bind_tools(_resolve_bound_tools(state, config))
+        )
         from src.context.cache_preservation import redecorate_for_failover
         messages, _d37_info = redecorate_for_failover(messages)
         call_model = model
@@ -3206,35 +3203,6 @@ class SafeToolNode:
         tool_calls = getattr(last_msg, "tool_calls", None)
         if not tool_calls:
             return self._node.invoke(state, config)
-
-        # ── ASK MODE: deny at dispatch (hermes side_question.py) ────
-        # Hermes never achieves "no tools" by unbinding them: tools[]
-        # stays byte-identical for prompt-cache parity and the fork arms a
-        # thread-scoped whitelist whose denial message teaches the model
-        # to answer in text ("Side question (/btw) denied tool call:
-        # {tool_name}. Tools are disabled here — answer directly from the
-        # conversation context."). Pulse ports that: an Ask turn keeps the
-        # tool schema, and ANY proposed call is denied here — never
-        # executed — with the denial routed through the durable
-        # transaction boundary so the UI's tool.call gets a terminal
-        # event and the pairing stays intact for the next model call.
-        if state.get("execution_mode") == "ask":
-            denials = [
-                self._durable_denial(
-                    tc,
-                    "Ask-mode denied tool call: "
-                    f"{tc.get('name', '')}. Tools are disabled in Ask mode — "
-                    "answer the user directly in text from the conversation "
-                    "context.",
-                    config,
-                )
-                for tc in tool_calls
-            ]
-            print(
-                f"[SafeToolNode] ask-mode dispatch denial x{len(denials)} "
-                f"for {_cfg_sid}; no tool executed"
-            )
-            return {"messages": denials}
 
         # Get workspace + thread from config
         workspace = "."
