@@ -692,26 +692,73 @@ def test_syntax_receipt_bad_json_rejected():
 
 def test_cost_router_never_routes_to_dead_provider(monkeypatch):
     """Field 2026-09-06 (owner: 'why does the model read Groq API when the
-    agent runs through custom api?'): a present-but-INVALID key put groq in
-    the cheap tier and every cheap-tier turn paid a 401 round trip before
-    failover. Once marked dead, ROUTE selection itself skips the pair."""
+    agent runs through custom api?'): a present-but-INVALID offload key made
+    every cheap-tier turn pay a 401 round trip before failover. Once marked
+    dead, ROUTE selection itself skips the pair. Offload is FULLY env-driven
+    (owner directive: no hardcoded provider — key/url/model via env)."""
     from src.agents.cost_router import CostRouter
 
     monkeypatch.setenv("PULSEAI_CHEAP_TIER", "on")
-    router = CostRouter()
-    router.tiers["cheap"] = {"provider": "groq", "model": "llama-3.1-8b-instant"}
+    monkeypatch.setenv("PULSEAI_CHEAP_API_KEY", "gsk_test_invalid")
+    monkeypatch.setenv("PULSEAI_CHEAP_BASE_URL", "https://api.groq.com/openai/v1")
+    monkeypatch.setenv("PULSEAI_CHEAP_MODEL", "llama-3.1-8b-instant")
     monkeypatch.setattr("src.agents.cost_router.LLM_PROVIDER", "custom")
     monkeypatch.setattr("src.agents.cost_router.LLM_MODEL", "auto/best-chat")
 
+    router = CostRouter()
     provider, model = router.route("list files")
-    assert (provider, model) == ("groq", "llama-3.1-8b-instant")
+    assert (provider, model) == ("cheap", "llama-3.1-8b-instant")
 
-    router.mark_dead("groq", "llama-3.1-8b-instant")
+    router.mark_dead("cheap", "llama-3.1-8b-instant")
     provider, model = router.route("list files")
     assert (provider, model) == ("custom", "auto/best-chat")
     assert router._last_route["failed_over"] is True
     info = router.get_last_route_info()
-    assert "custom" in info and "groq" not in info
+    assert "custom" in info and "llama-3.1-8b-instant" not in info
+
+
+def test_cost_router_offload_is_env_configured_not_hardcoded(monkeypatch):
+    """No GROQ_API_KEY anywhere in the cheap tier: without PULSEAI_CHEAP_*
+    the offload is not armed at all; with all three vars it arms as the
+    virtual 'cheap' provider for ANY OpenAI-compatible endpoint; half-set
+    vars arm nothing and say why."""
+    from src.agents.cost_router import CostRouter
+
+    monkeypatch.setenv("PULSEAI_CHEAP_TIER", "on")
+    for var in ("PULSEAI_CHEAP_API_KEY", "PULSEAI_CHEAP_BASE_URL", "PULSEAI_CHEAP_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    from src.agents.cost_router import LLM_PROVIDER, LLM_MODEL
+    router = CostRouter()
+    # Unarmed offload => cheap tier IS the user's default pair (no provider
+    # name hardcoded anywhere in the router).
+    assert router.tiers["cheap"] == {"provider": LLM_PROVIDER, "model": LLM_MODEL}
+
+    monkeypatch.setenv("PULSEAI_CHEAP_API_KEY", "k")
+    monkeypatch.setenv("PULSEAI_CHEAP_BASE_URL", "http://localhost:1234/v1")
+    router = CostRouter()
+    assert "cheap" != router.tiers["cheap"]["provider"], "half-configured must not arm"
+
+    monkeypatch.setenv("PULSEAI_CHEAP_MODEL", "qwen2.5-coder-7b")
+    router = CostRouter()
+    assert router.tiers["cheap"] == {"provider": "cheap", "model": "qwen2.5-coder-7b"}
+
+
+def test_get_llm_cheap_provider_builds_openai_compatible_client(monkeypatch):
+    """get_llm('cheap', model) builds the ChatOpenAI client against the env
+    base_url/key; half-configured env raises a NAMING error."""
+    monkeypatch.setenv("PULSEAI_CHEAP_API_KEY", "k-test")
+    monkeypatch.setenv("PULSEAI_CHEAP_BASE_URL", "http://localhost:1234/v1")
+    from src.llm.factory import get_llm
+
+    llm = get_llm("cheap", "qwen2.5-coder-7b", max_attempts=1)
+    inner = getattr(llm, "llm", llm)
+    assert "qwen2.5-coder-7b" in str(getattr(inner, "model_name", getattr(inner, "model", "")))
+
+    monkeypatch.delenv("PULSEAI_CHEAP_BASE_URL")
+    import pytest
+    with pytest.raises(ValueError) as err:
+        get_llm("cheap", "m", max_attempts=1)
+    assert "PULSEAI_CHEAP_BASE_URL" in str(err.value)
 
 
 def test_cost_router_offload_disabled_by_env(monkeypatch):

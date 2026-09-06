@@ -58,19 +58,32 @@ class CostRouter:
             "premium": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
         }
 
-        # Try to add Groq as cheap tier (if available and different from
-        # default; PULSEAI_CHEAP_TIER=off disables the offload entirely —
-        # routing knobs are configuration, never hardcoded).
+        # Cheap tier = a fully env-configured OpenAI-compatible offload
+        # (owner directive 2026-09-06: "rather than using hardcoded provider
+        # add its api key, url, model routed through env... as cheap or low
+        # tier api"). No provider name is hardcoded anywhere: all three of
+        #   PULSEAI_CHEAP_API_KEY / PULSEAI_CHEAP_BASE_URL / PULSEAI_CHEAP_MODEL
+        # must be set (any OpenAI-compatible endpoint works — groq, together,
+        # openrouter, a local server). Env is read per _build_tiers call, so
+        # key rotation applies without a restart. PULSEAI_CHEAP_TIER=off
+        # disables the offload entirely.
         try:
             if not self._offload_enabled():
                 print("[cost_router] cheap-tier offload disabled (PULSEAI_CHEAP_TIER=off)", flush=True)
             else:
-                from src.config.settings import GROQ_API_KEY
-                if GROQ_API_KEY and LLM_PROVIDER != "groq":
-                    self.tiers["cheap"] = {
-                        "provider": "groq",
-                        "model": "llama-3.1-8b-instant",
-                    }
+                import os as _os
+                cheap_key = (_os.environ.get("PULSEAI_CHEAP_API_KEY") or "").strip()
+                cheap_url = (_os.environ.get("PULSEAI_CHEAP_BASE_URL") or "").strip()
+                cheap_model = (_os.environ.get("PULSEAI_CHEAP_MODEL") or "").strip()
+                if cheap_key and cheap_url and cheap_model:
+                    self.tiers["cheap"] = {"provider": "cheap", "model": cheap_model}
+                elif cheap_key or cheap_url or cheap_model:
+                    print(
+                        "[cost_router] cheap-tier offload NOT armed: set ALL of "
+                        "PULSEAI_CHEAP_API_KEY, PULSEAI_CHEAP_BASE_URL, "
+                        "PULSEAI_CHEAP_MODEL (cheap tier stays on the default model)",
+                        flush=True,
+                    )
         except Exception:
             pass
 
@@ -126,6 +139,9 @@ class CostRouter:
         Return (provider, model) for the given task.
         Falls back to default if the target provider fails.
         """
+        # Env getters read per call (standing rule): rebuild the tier table
+        # so key/url/model rotation applies without a restart.
+        self._build_tiers()
         tier = self.classify(task, current_plan)
         
         # Increment counters

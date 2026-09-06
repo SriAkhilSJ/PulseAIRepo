@@ -885,6 +885,30 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
+    if provider == "cheap":
+        # Owner directive 2026-09-06: the low tier is a FULLY env-configured
+        # OpenAI-compatible offload — PULSEAI_CHEAP_API_KEY / _BASE_URL /
+        # _MODEL. No provider name is hardcoded; the endpoint just has to
+        # speak the OpenAI API (groq, together, openrouter, local servers).
+        # Env is read per call (standing rule) so rotation needs no restart.
+        import os as _os
+        cheap_key = (_os.environ.get("PULSEAI_CHEAP_API_KEY") or "").strip()
+        cheap_url = (_os.environ.get("PULSEAI_CHEAP_BASE_URL") or "").strip()
+        if not cheap_key or not cheap_url:
+            raise ValueError(
+                "provider 'cheap' requires PULSEAI_CHEAP_API_KEY and "
+                "PULSEAI_CHEAP_BASE_URL (and PULSEAI_CHEAP_MODEL in the router)"
+            )
+        llm = ChatOpenAI(
+            api_key=cheap_key,
+            base_url=cheap_url,
+            model=model,
+            request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
+            streaming=streaming_enabled(default=True),
+            max_retries=0,  # hermes #54465: RetryLLMProxy owns the retry policy
+        )
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+
     if provider == "custom":
         streaming = streaming_enabled(default=True)
         try:
