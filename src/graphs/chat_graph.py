@@ -1357,7 +1357,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             output_tokens=int(completion_tokens or 0),
             estimated_cost_usd=float(cost_usd or 0.0),
             execution_mode=str(state.get("execution_mode") or ""),
-            completed=not bool(state.get("failed_steps")),
+            completed=not (trailing_failed or unverified),
             error="; ".join(str(s) for s in (state.get("failed_steps") or [])[:3]),
         )
     except Exception:
@@ -1370,7 +1370,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 
     print(
         "[turn] finalize done: "
-        + ("unverified" if unverified else "failed" if failed_steps else "completed"),
+        + ("unverified" if unverified else "failed" if trailing_failed else "completed"),
         flush=True,
     )
     return {
@@ -4198,11 +4198,18 @@ def stream_agent(
                             if isinstance(block, dict)
                         ) or str(content)
                     if content:
-                        final_response = str(content)
-                        event_bus.emit("message.agent.chunk", {
-                            "chunk": final_response,
-                            "thread_id": thread_id,
-                        })
+                        # The ai-node branch above already emitted (or
+                        # deliberately skipped) the assistant text for THIS
+                        # turn; a finalize copy that is byte-identical is a
+                        # duplicate paint, not new information. Deviation
+                        # stamps ("Ended incomplete/...") differ from the
+                        # answer and still go out.
+                        if str(content) != str(final_response or ""):
+                            final_response = str(content)
+                            event_bus.emit("message.agent.chunk", {
+                                "chunk": final_response,
+                                "thread_id": thread_id,
+                            })
 
         print("[turn] stream loop ended", flush=True)
         event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})

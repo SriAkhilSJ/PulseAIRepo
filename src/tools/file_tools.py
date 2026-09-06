@@ -8,6 +8,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import ntpath
 
 PROJECT_ROOT = Path.cwd()
 
@@ -49,12 +51,120 @@ def _record_workspace_edit(config: RunnableConfig, workspace: str, paths: list[s
             pass
 
 
+# Hermes path coercion (tools/file_tools_paths.py::_host_text +
+# tools/environments/local.py::_msys_to_windows_path, verbatim where
+# universal). The model legitimately speaks GIT-BASH on this engine — its
+# terminal IS git-bash on the owner's Windows machine (select_shell contract)
+# — so it writes file-tool paths in the same dialect: '/d/test2_ws_retest'.
+# Hermes translates that dialect BEFORE any anchoring ("on host backends
+# translate Git Bash /c/Users/... drive paths before Path sees them"); our
+# old leading-slash strip instead turned '/d/x' into the RELATIVE 'd/x' and
+# silently nested it under the workspace (field 2026-09-06:
+# D:\TestPulseAI\d\test2_ws_retest). No-op off Windows, for empty input and
+# for real POSIX paths like /home/x; idempotent on native paths.
+def _suggest_similar_files(resolved: Path) -> str:
+    """Hermes file_operations.py::_suggest_similar_files (compact port): up to
+    5 scored sibling names for a not-found path — exact/case-insensitive,
+    stem match, prefix/substring, extension overlap, near-miss spelling."""
+    import difflib
+
+    directory = resolved.parent
+    filename = resolved.name
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return ""
+    stem = os.path.splitext(filename)[0].lower()
+    ext = os.path.splitext(filename)[1].lower()
+    lower = filename.lower()
+    scored = []
+    for entry in entries:
+        if entry == filename:
+            continue  # the exact name just failed to open
+        lf = entry.lower()
+        es = os.path.splitext(entry)[0].lower()
+        score = 0
+        if lf == lower:
+            score = 100
+        elif es == stem:
+            score = 90
+        elif lf.startswith(lower) or lower.startswith(lf):
+            score = 70
+        elif lower in lf:
+            score = 60
+        elif lf in lower and len(lf) > 2:
+            score = 40
+        elif ext and os.path.splitext(entry)[1].lower() == ext:
+            if len(set(lower) & set(lf)) >= max(len(lower), len(lf)) * 0.4:
+                score = 30
+        if score == 0 and difflib.SequenceMatcher(None, lower, lf).ratio() >= 0.8:
+            score = 50
+        if score > 0:
+            scored.append((score, entry))
+    scored.sort(key=lambda x: -x[0])
+    return ", ".join(entry for _, entry in scored[:5])
+
+
+_IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
+_MSYS_DRIVE_RE = re.compile(r"^/(?:(?:cygdrive|mnt)/)?([a-zA-Z])(/.*)?$")
+
+
+def _msys_to_windows_path(path: str) -> str:
+    if not _IS_WINDOWS or not path:
+        return path
+    m = _MSYS_DRIVE_RE.match(path)
+    if not m:
+        return path
+    tail = (m.group(2) or "").replace("/", "\\")
+    return f"{m.group(1).upper()}:{tail or chr(92)}"
+
+
+# Mechanical arg coercion (hermes arg_coercion spirit): the model sometimes
+# wraps a path in markdown/backticks — field 2026-09-05 burned three tool
+# calls on read_file {'path': '[README.md](http://README.md)'}. Unwrap ONE
+# markdown link that spans the whole argument, plus surrounding backticks
+# and quotes. Content paths (mid-string links) are data and left alone.
+_MD_LINK_WRAP_RE = re.compile(r"^\[([^[\]]+)\]\([^)]*\)$")
+
+
+def _coerce_tool_path(path: str) -> str:
+    p = str(path or "").strip()
+    if p.startswith(("`", '"', "'")) and p.endswith(("`", '"', "'")) and len(p) >= 2:
+        p = p[1:-1].strip()
+    m = _MD_LINK_WRAP_RE.match(p)
+    if m:
+        p = m.group(1).strip()
+    return p
+
+
 def resolve_workspace_path(
     workspace: str,
     path: str
 ) -> Path:
 
     workspace_path = Path(workspace).resolve()
+
+    path = _coerce_tool_path(path)
+    # Git-Bash/cygwin drive dialect first (hermes _host_text order):
+    # '/d/test2_ws_retest' -> 'D:\test2_ws_retest' BEFORE the relative
+    # anchoring below can mis-read it as workspace-relative.
+    path = _msys_to_windows_path(path)
+
+    # Hermes anchor rule: an input that IS an absolute path on this host is
+    # returned resolved-but-unanchored — anchored/joined only when it stays
+    # inside the workspace (field 2026-09-06: read_file on the workspace
+    # root itself was stripped into a relative fragment and read a nested
+    # path that never existed). Absolute-but-outside falls through to the
+    # legacy project-root-relative handling below, which keeps the pinned
+    # "/components/x" convention and its containment guarantees.
+    if isinstance(path, str):
+        _abs_on_host = path.startswith("/") or (
+            _IS_WINDOWS and (ntpath.isabs(path) or re.match(r"^[A-Za-z]:[\\/]", path))
+        )
+        if _abs_on_host:
+            as_is = Path(path).resolve()
+            if as_is.is_relative_to(workspace_path):
+                return as_is
 
     # Models routinely write the conventional path "/components/ui/x.tsx"
     # with a LEADING SLASH (it reads as project-root-relative). Under Path
@@ -121,12 +231,32 @@ def read_file(
     except Exception:
         pass
 
-    with open(
-        safe_path,
-        "r",
-        encoding="utf-8"
-    ) as file:
-        content = file.read()
+    # Hermes read guards (tools/file_tools.py read_file_tool +
+    # file_operations.py::_suggest_similar_files): a DIRECTORY read is a
+    # tool-choice error with a named alternative (field 2026-09-06: the
+    # model read_file'd 'D:/TestPulseAI' itself and burned a step), and a
+    # not-found returns up to 5 scored sibling suggestions so the next
+    # attempt is informed instead of a second blind guess.
+    if safe_path.is_dir():
+        return (
+            f"Error: '{path}' is a DIRECTORY, not a file. "
+            f"Use list_files on it to see its contents."
+        )
+    try:
+        with open(
+            safe_path,
+            "r",
+            encoding="utf-8"
+        ) as file:
+            content = file.read()
+    except FileNotFoundError:
+        suggestion = _suggest_similar_files(safe_path)
+        if suggestion:
+            return (
+                f"Error: File not found: '{path}'. "
+                f"Similar names in its folder: {suggestion}"
+            )
+        return f"Error: File not found: '{path}'."
 
     # D32: stamp "this agent has seen the current content" — the file-state
     # guard's knowledge base for clobber detection (never raises).

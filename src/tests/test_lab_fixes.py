@@ -701,6 +701,79 @@ def test_resolve_workspace_path_strips_workspace_leaf_prefix(tmp_path):
     assert got.is_relative_to(root)
 
 
+def test_msys_drive_paths_translate_before_anchoring(monkeypatch):
+    """Hermes _host_text port (field 2026-09-06): the model speaks git-bash
+    (its terminal IS git-bash on Windows) and passed '/d/test2_ws_retest' to
+    read_file; the old leading-slash strip turned it into the RELATIVE
+    'd/test2_ws_retest' and silently nested it under the workspace
+    (D:\\TestPulseAI\\d\\test2_ws_retest). The MSYS dialect must translate
+    to a Windows drive path BEFORE any anchoring, exactly like hermes."""
+    from src.tools import file_tools
+
+    # Platform-gated exactly like hermes (their tests patch _IS_WINDOWS on a
+    # POSIX host too): the translation is a no-op off Windows in production.
+    monkeypatch.setattr(file_tools, "_IS_WINDOWS", True)
+    assert file_tools._msys_to_windows_path("/d/test2_ws_retest") == "D:\\test2_ws_retest"
+    assert file_tools._msys_to_windows_path("/c/Users/x") == "C:\\Users\\x"
+    assert file_tools._msys_to_windows_path("/cygdrive/d/x") == "D:\\x"
+    assert file_tools._msys_to_windows_path("/mnt/c/x") == "C:\\x"
+    assert file_tools._msys_to_windows_path("D:/x") == "D:/x"  # native: no-op
+    assert file_tools._msys_to_windows_path("/home/x") == "/home/x"  # real posix: no-op
+    assert file_tools._msys_to_windows_path("") == ""
+    monkeypatch.setattr(file_tools, "_IS_WINDOWS", False)
+    assert file_tools._msys_to_windows_path("/d/test2_ws_retest") == "/d/test2_ws_retest"
+
+
+def test_tool_path_coercion_unwraps_markdown_and_quotes():
+    """Field 2026-09-05: read_file {'path': '[README.md](http://README.md)'}
+    burned three tool calls. One markdown link spanning the WHOLE argument
+    is unwrapped; mid-string links stay data (hermes arg_coercion spirit)."""
+    from src.tools.file_tools import _coerce_tool_path
+
+    assert _coerce_tool_path("[README.md](http://README.md)") == "README.md"
+    assert _coerce_tool_path("`app/page.tsx`") == "app/page.tsx"
+    assert _coerce_tool_path('"notes v2.txt"') == "notes v2.txt"
+    assert _coerce_tool_path("see [x](y) now") == "see [x](y) now"
+    assert _coerce_tool_path(" app/page.tsx ") == "app/page.tsx"
+
+
+def test_resolve_workspace_path_still_strips_leading_slash(tmp_path):
+    """The conventional '/components/x' project-root-relative form keeps its
+    legacy meaning (workspace-relative) after the coercion layer."""
+    from src.tools.file_tools import resolve_workspace_path
+
+    root = (tmp_path / "ws").resolve()
+    root.mkdir()
+    got = resolve_workspace_path(str(root), "/components/ui/x.tsx")
+    assert got == root / "components" / "ui" / "x.tsx"
+
+
+def test_read_file_directory_points_to_list_files(tmp_path):
+    """Hermes not-regular discipline (field 2026-09-06: the model read_file'd
+    the workspace ROOT 'D:/TestPulseAI'): a directory read returns a clean
+    error naming the right tool, never a raw IsADirectoryError traceback."""
+    from src.tools.file_tools import read_file
+
+    root = tmp_path / "ws"
+    (root / "sub").mkdir(parents=True)
+    out = read_file.func(str(root), {"configurable": {"workspace": str(root)}})
+    assert "DIRECTORY" in out and "list_files" in out
+
+
+def test_read_file_not_found_suggests_similar_names(tmp_path):
+    """Hermes _suggest_similar_files port: not-found returns scored sibling
+    names so the next attempt is informed (README.md vs README.md.bak)."""
+    from src.tools.file_tools import read_file
+
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / "README.md.bak").write_text("x", encoding="utf-8")
+    (root / "readme.md").write_text("real", encoding="utf-8")
+    out = read_file.func(str(root / "README.md"), {"configurable": {"workspace": str(root)}})
+    assert "File not found" in out
+    assert "readme.md" in out  # case-insensitive exact match suggested
+
+
 def test_resolve_workspace_path_plain_relative_unchanged(tmp_path):
     from src.tools.file_tools import resolve_workspace_path
 
