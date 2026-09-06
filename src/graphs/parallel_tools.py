@@ -123,12 +123,68 @@ def is_eligible(
     return True
 
 
+# Hermes arg discipline (tools/arg_coercion.py — schema-guided, conservative,
+# "originals kept whenever a repair is not unambiguous"). The model's training
+# prior names file-tool arguments differently than our schemas (field
+# 2026-09-06: read_file {'file_path': ...} died in schema validation BEFORE
+# any guard could help; the fallback cost a terminal round trip). Repair ONLY
+# a REQUIRED parameter that is missing while EXACTLY ONE known alias is
+# present and that alias is not itself a schema parameter of the tool.
+_ARG_ALIASES: dict[str, tuple[str, ...]] = {
+    "path": ("file_path", "filepath", "file", "path_str"),
+    "content": ("text", "file_contents", "new_content", "body"),
+    "command": ("cmd", "shell_command", "bash_command"),
+    "query": ("search_query",),
+    "old_string": ("old_text", "find", "search"),
+    "new_string": ("new_text", "replace", "replacement"),
+    "url": ("link",),
+    "cwd": ("working_dir", "working_directory"),
+}
+
+
+def _required_params(tool) -> set:
+    try:
+        schema = getattr(tool, "args_schema", None)
+        fields = getattr(schema, "model_fields", None)
+        if fields:
+            return {n for n, f in fields.items() if f.is_required()}
+    except Exception:
+        pass
+    try:
+        return set(getattr(tool, "args", {}) or {})
+    except Exception:
+        return set()
+
+
+def coerce_tool_arg_aliases(tool, args: dict) -> dict:
+    """Rename model-dialect keys onto the tool's real parameter names."""
+    try:
+        required = _required_params(tool)
+        schema_params = set(getattr(tool, "args", {}) or {})
+        missing = required - set(args)
+        for canonical in list(missing):
+            for alias in _ARG_ALIASES.get(canonical, ()):
+                if alias in args and alias not in schema_params:
+                    args[canonical] = args.pop(alias)
+                    print(
+                        f"[tools] {getattr(tool, 'name', '?')}: argument "
+                        f"'{alias}' -> '{canonical}' (model dialect)",
+                        flush=True,
+                    )
+                    break
+    except Exception:
+        pass  # coercion is best-effort; never blocks dispatch
+    return args
+
+
 def _run_one(tools_by_name: dict, tc: dict, config) -> ToolMessage:
     """One call through the unified durable middleware chokepoint."""
     name = tc.get("name", "")
     args = dict(tc.get("args") or {})
+    tool = None
     try:
         tool = tools_by_name[name]
+        args = coerce_tool_arg_aliases(tool, args)
         from src.runtime.tool_middleware import execute_tool_transaction
         outcome = execute_tool_transaction(
             name=name, args=args, tool_call_id=tc["id"], config=config,
@@ -142,6 +198,27 @@ def _run_one(tools_by_name: dict, tc: dict, config) -> ToolMessage:
         # Intent-persistence failure lands here BEFORE invoke() and therefore
         # guarantees no side effect. Result-persistence failure is surfaced
         # loudly so the loop stops rather than compounding unaudited work.
+        text = str(exc)
+        lowered = text.lower()
+        if isinstance(exc, (TypeError, ValueError)) or any(
+            marker in lowered for marker in (
+                "unexpected keyword", "missing required", "required argument",
+                "invalid arguments", "validation",
+            )
+        ):
+            # Hermes teaching-error discipline: the schema IS the repair
+            # manual. Name the expected arguments so the very next call
+            # is correct (field 2026-09-06: read_file('file_path') cost a
+            # whole terminal round trip to recover).
+            expected = sorted((_required_params(tool) if tool else set()) or ())
+            return ToolMessage(
+                content=(
+                    f"Error: {name} was called with wrong arguments: {text}\n"
+                    f"Expected arguments: {expected}. Fix the argument "
+                    f"names/types and call {name} again."
+                ),
+                tool_call_id=tc["id"], name=name, status="error",
+            )
         return ToolMessage(
             content=f"⛔ Tool not executed or runtime halted: {exc}",
             tool_call_id=tc["id"], name=name, status="error",

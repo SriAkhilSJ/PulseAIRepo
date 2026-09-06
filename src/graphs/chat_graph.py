@@ -1053,7 +1053,31 @@ def ai_node(
                 f"[ai_node] {provider}/{model} marked AUTH-DEAD for this "
                 "process; future turns skip straight to failover"
             )
+            # Hermes honesty discipline: a dead credential is the OWNER's
+            # actionable fact, not console noise. One surface per process,
+            # on the degraded channel the panel already renders.
+            try:
+                from src.dashboard.event_bus import event_bus as _eb
+                _eb.emit("runtime.degraded", {
+                    "thread_id": session_id,
+                    "component": "llm_credentials",
+                    "reason": (
+                        f"{provider} rejected the API key "
+                        f"({type(exc).__name__}) — fix the {provider.upper()}"
+                        f"_API_KEY in settings; using "
+                        f"{base_provider}/{base_model} for this session."
+                    ),
+                })
+            except Exception:
+                pass  # diagnostics never break the turn
         provider, model = base_provider, base_model
+        try:
+            from src.agents.cost_router import cost_router as _cr
+            _route = getattr(_cr, "_last_route", None)
+            if isinstance(_route, dict):
+                _cr._last_route = {**_route, "provider": provider, "model": model, "failed_over": True}
+        except Exception:
+            pass  # diagnostics never break the turn
         llm = get_llm(provider=provider, model=model)
         llm_with_tools = (
             llm if execution_mode == "ask"

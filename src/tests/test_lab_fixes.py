@@ -690,6 +690,72 @@ def test_syntax_receipt_bad_json_rejected():
     assert r is not None
 
 
+def test_arg_alias_coercion_repairs_file_path_dialect():
+    """Field 2026-09-06 ('crucial'): the model called read_file with
+    {'file_path': ...} — its training-prior name — and died in schema
+    validation before any guard could help; recovery cost a terminal
+    round trip. Hermes arg_coercion discipline: a REQUIRED param that is
+    missing while exactly one known alias is present gets renamed onto
+    the schema name (conservative: only unambiguous repairs)."""
+    from src.tools.file_tools import read_file
+    from src.graphs.parallel_tools import coerce_tool_arg_aliases
+
+    args = coerce_tool_arg_aliases(read_file, {"file_path": "app/page.tsx"})
+    assert args == {"path": "app/page.tsx"}
+
+    # canonical already present: untouched
+    assert coerce_tool_arg_aliases(read_file, {"path": "a"}) == {"path": "a"}
+    # alias that is itself a schema param is never renamed away
+    assert coerce_tool_arg_aliases(read_file, {"path": "a", "file_path": "b"}) == {
+        "path": "a", "file_path": "b",
+    }
+
+
+def test_read_file_accepts_file_path_end_to_end(tmp_path):
+    """The exact field call now succeeds: read_file(file_path=...) reads."""
+    from src.tools.file_tools import read_file
+    from src.graphs.parallel_tools import coerce_tool_arg_aliases
+
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / "package.json").write_text('{"name": "x"}', encoding="utf-8")
+    args = coerce_tool_arg_aliases(read_file, {
+        "file_path": str(root / "package.json"),
+    })
+    out = read_file.func(**args, config={"configurable": {"workspace": str(root)}})
+    assert '"name": "x"' in out
+
+
+def test_run_one_teaches_expected_arguments_on_wrong_args(monkeypatch):
+    """When args are still wrong (no alias matched), the error must TEACH
+    the expected arguments (hermes teaching-error discipline) instead of
+    wearing the runtime-halt voice."""
+    import src.graphs.parallel_tools as pt
+    from src.tools.file_tools import read_file
+
+    captured = {}
+
+    def fake_transaction(*, name, args, tool_call_id, config, invoke):
+        try:
+            invoke()
+        except Exception as exc:
+            captured["exc"] = exc
+            raise
+        raise AssertionError("invoke should have raised")
+
+    monkeypatch.setattr(
+        "src.runtime.tool_middleware.execute_tool_transaction", fake_transaction
+    )
+    msg = pt._run_one(
+        {"read_file": read_file},
+        {"name": "read_file", "args": {" Totally ": "bogus"}, "id": "t1"},
+        {"configurable": {"workspace": ".", "thread_id": "s"}},
+    )
+    assert msg.status == "error"
+    assert "Expected arguments" in msg.content
+    assert "'path'" in msg.content
+
+
 def test_resolve_workspace_path_strips_workspace_leaf_prefix(tmp_path):
     """A workspace-prefixed model path must not double-nest the workspace."""
     from src.tools.file_tools import resolve_workspace_path
