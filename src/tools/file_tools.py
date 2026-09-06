@@ -207,6 +207,11 @@ def read_file(
     Read a text file and return its contents. Use for known files where
     accuracy matters. For searching, use search_code; for directories, use
     list_files. Respects line ranges when given.
+
+    PATHS: accepts Windows ("D:/proj/file.txt"), git-bash ("/d/proj/file.txt"),
+    and workspace-relative ("src/app.py") forms. NEVER guess a path: if you
+    have not seen the exact name in a listing or search result, call
+    list_files / search_code first — a guessed name is a wasted call.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -251,12 +256,16 @@ def read_file(
             content = file.read()
     except FileNotFoundError:
         suggestion = _suggest_similar_files(safe_path)
+        root_hint = (
+            f" Workspace root: {workspace} — list_files it first when the "
+            "name is a guess."
+        )
         if suggestion:
             return (
                 f"Error: File not found: '{path}'. "
-                f"Similar names in its folder: {suggestion}"
+                f"Similar names in its folder: {suggestion}.{root_hint}"
             )
-        return f"Error: File not found: '{path}'."
+        return f"Error: File not found: '{path}'.{root_hint}"
 
     # D32: stamp "this agent has seen the current content" — the file-state
     # guard's knowledge base for clobber detection (never raises).

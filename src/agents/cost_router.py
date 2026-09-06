@@ -12,6 +12,7 @@ What this changes:
 - Automatically upgrades to powerful models when needed
 - Falls back safely if the cheap model isn't configured
 """
+import os
 from typing import Literal
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
 
@@ -26,7 +27,24 @@ class CostRouter:
         self._cheap_count = 0
         self._standard_count = 0
         self._premium_count = 0
+        # Field 2026-09-06 (owner: "why does the model read Groq API when the
+        # agent runs through custom api?"): a PRESENT-but-invalid key put
+        # groq in the cheap tier, and every cheap-tier turn paid a 401 round
+        # trip before failover. The router now keeps its own dead set: once
+        # auth fails, ROUTE selection skips the pair for the process life —
+        # not just the request path.
+        self._dead: set[tuple[str, str]] = set()
         self._build_tiers()
+
+    def mark_dead(self, provider: str, model: str) -> None:
+        """Retire a (provider, model) pair from route selection after an
+        authentication failure. In-process only: a fixed key should get a
+        fresh shot on the next app start."""
+        self._dead.add((str(provider or ""), str(model or "")))
+
+    def _offload_enabled(self) -> bool:
+        raw = (os.environ.get("PULSEAI_CHEAP_TIER", "") or "").strip().lower()
+        return raw not in {"off", "false", "0", "no"}
 
     def _build_tiers(self):
         """
@@ -40,14 +58,19 @@ class CostRouter:
             "premium": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
         }
 
-        # Try to add Groq as cheap tier (if available and different from default)
+        # Try to add Groq as cheap tier (if available and different from
+        # default; PULSEAI_CHEAP_TIER=off disables the offload entirely —
+        # routing knobs are configuration, never hardcoded).
         try:
-            from src.config.settings import GROQ_API_KEY
-            if GROQ_API_KEY and LLM_PROVIDER != "groq":
-                self.tiers["cheap"] = {
-                    "provider": "groq",
-                    "model": "llama-3.1-8b-instant",
-                }
+            if not self._offload_enabled():
+                print("[cost_router] cheap-tier offload disabled (PULSEAI_CHEAP_TIER=off)", flush=True)
+            else:
+                from src.config.settings import GROQ_API_KEY
+                if GROQ_API_KEY and LLM_PROVIDER != "groq":
+                    self.tiers["cheap"] = {
+                        "provider": "groq",
+                        "model": "llama-3.1-8b-instant",
+                    }
         except Exception:
             pass
 
@@ -111,11 +134,19 @@ class CostRouter:
         elif tier == "premium": self._premium_count += 1
 
         result = (self.tiers[tier]["provider"], self.tiers[tier]["model"])
+        failed_over = False
+        if result in self._dead:
+            # Auth-dead pairs never get a doomed request at route time; the
+            # default tier answers instead (hermes circuit-breaker spirit —
+            # the breaker lives at ROUTE selection, not just the request).
+            result = (LLM_PROVIDER, LLM_MODEL)
+            failed_over = True
         self._last_route = {
             "tier": tier,
             "provider": result[0],
             "model": result[1],
             "task_preview": task[:60],
+            **({"failed_over": True} if failed_over else {}),
         }
         return result
 

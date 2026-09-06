@@ -1014,6 +1014,13 @@ def ai_node(
             f"[ai_node] auth-dead provider skipped: {provider}/{model} "
             f"-> {base_provider}/{base_model} (circuit breaker)"
         )
+        try:
+            from src.agents.cost_router import cost_router as _cr
+            _route = getattr(_cr, "_last_route", None)
+            if isinstance(_route, dict):
+                _cr._last_route = {**_route, "provider": base_provider, "model": base_model, "failed_over": True}
+        except Exception:
+            pass  # diagnostics never break the turn
         provider, model = base_provider, base_model
         llm = get_llm(provider=provider, model=model)
         llm_with_tools = (
@@ -1436,6 +1443,11 @@ def _mark_auth_dead(provider: str, model: str, exc: BaseException) -> bool:
     if f"{type(exc).__name__}" not in {"AuthenticationError", "PermissionDeniedError"}:
         return False
     _AUTH_DEAD_PROVIDERS.add((str(provider or ""), str(model or "")))
+    try:
+        from src.agents.cost_router import cost_router
+        cost_router.mark_dead(provider, model)
+    except Exception:
+        pass  # diagnostics never break the turn
     return True
 
 

@@ -690,6 +690,56 @@ def test_syntax_receipt_bad_json_rejected():
     assert r is not None
 
 
+def test_cost_router_never_routes_to_dead_provider(monkeypatch):
+    """Field 2026-09-06 (owner: 'why does the model read Groq API when the
+    agent runs through custom api?'): a present-but-INVALID key put groq in
+    the cheap tier and every cheap-tier turn paid a 401 round trip before
+    failover. Once marked dead, ROUTE selection itself skips the pair."""
+    from src.agents.cost_router import CostRouter
+
+    monkeypatch.setenv("PULSEAI_CHEAP_TIER", "on")
+    router = CostRouter()
+    router.tiers["cheap"] = {"provider": "groq", "model": "llama-3.1-8b-instant"}
+    monkeypatch.setattr("src.agents.cost_router.LLM_PROVIDER", "custom")
+    monkeypatch.setattr("src.agents.cost_router.LLM_MODEL", "auto/best-chat")
+
+    provider, model = router.route("list files")
+    assert (provider, model) == ("groq", "llama-3.1-8b-instant")
+
+    router.mark_dead("groq", "llama-3.1-8b-instant")
+    provider, model = router.route("list files")
+    assert (provider, model) == ("custom", "auto/best-chat")
+    assert router._last_route["failed_over"] is True
+    info = router.get_last_route_info()
+    assert "custom" in info and "groq" not in info
+
+
+def test_cost_router_offload_disabled_by_env(monkeypatch):
+    """PULSEAI_CHEAP_TIER=off keeps every tier on the user's default
+    provider — routing knobs are configuration, never hardcoded."""
+    from src.agents.cost_router import CostRouter
+
+    monkeypatch.setenv("PULSEAI_CHEAP_TIER", "off")
+    from src.config.settings import LLM_PROVIDER, LLM_MODEL
+    router = CostRouter()
+    # Offload off => the cheap tier IS the user's default pair, whatever it
+    # is in this environment (the owner's is custom/auto/best-chat).
+    assert router.tiers["cheap"] == {"provider": LLM_PROVIDER, "model": LLM_MODEL}
+    provider, model = router.route("hello")
+    assert (provider, model) == (LLM_PROVIDER, LLM_MODEL)
+
+
+def test_read_file_teaches_dialect_and_never_guess():
+    """The model-facing description carries the path teaching (hermes writes
+    tool schema descriptions as the repair manual): both dialects accepted,
+    never guess a name — list/search first."""
+    from src.tools.file_tools import read_file
+
+    doc = read_file.description
+    assert "git-bash" in doc and "NEVER guess" in doc
+    assert "list_files" in doc
+
+
 def test_arg_alias_coercion_repairs_file_path_dialect():
     """Field 2026-09-06 ('crucial'): the model called read_file with
     {'file_path': ...} — its training-prior name — and died in schema
