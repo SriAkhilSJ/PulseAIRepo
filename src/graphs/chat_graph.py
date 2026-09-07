@@ -123,11 +123,15 @@ from src.tools.terminal_tools import (
 )
 from src.tools.web_tools import web_search, web_fetch
 # #8 (external review): fault-tolerant browser-tool import. The optional
-# mcp/pywintypes stack must never break engine boot — if it is missing the
-# browser tools are simply unbound (the D5 fake-verification hole is
-# documented in browser_mcp's docstring) and the degradation is loud.
+# stack must never break engine boot — if it is missing the browser tools
+# are simply unbound (the D5 fake-verification hole is documented in the
+# browser_tools docstring) and the degradation is loud.
+# Backend history: browser_mcp.py (puppeteer-MCP, hardcoded lab paths) is
+# REPLACED by hermes' local browser stack — the agent-browser CLI port
+# (browser_tools.py, hermes tools/browser_tool*.py). Same browser_* names
+# the renderer already maps to explore cards, hermes' contracts.
 try:
-    from src.tools.browser_mcp import BROWSER_TOOLS
+    from src.tools.browser_tools import BROWSER_TOOLS
 except Exception as _browser_mcp_exc:  # ImportError + any transitive boot failure
     BROWSER_TOOLS = []
     print(

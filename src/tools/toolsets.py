@@ -59,9 +59,10 @@ def web_available(config: Any = None) -> bool:
 
 
 def _browser_tool_names() -> tuple[str, ...]:
-    """Registered browser tools, loaded lazily because MCP is optional."""
+    """Registered browser tools, loaded lazily because the agent-browser CLI
+    is resolved per call (hermes backend; browser_mcp is retired)."""
     try:
-        from src.tools.browser_mcp import BROWSER_TOOLS
+        from src.tools.browser_tools import BROWSER_TOOLS
         return tuple(t.name for t in BROWSER_TOOLS)
     except Exception:
         return ()

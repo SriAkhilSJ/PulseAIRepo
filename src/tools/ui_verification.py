@@ -119,8 +119,8 @@ def _verify_one_url(
     url: str, screenshot_name: str, config: RunnableConfig,
     required_selector: str = "",
 ) -> tuple[bool, str]:
-    from src.tools.browser_mcp import (
-        browser_navigate, browser_snapshot, browser_screenshot, browser_evaluate,
+    from src.tools.browser_tools import (
+        browser_navigate, browser_snapshot, browser_console, browser_screenshot,
     )
 
     navigate = str(browser_navigate.invoke({"url": url}, config=config))
@@ -129,9 +129,10 @@ def _verify_one_url(
     )):
         return False, "navigation failed:\n" + navigate
 
-    snapshot = str(browser_snapshot.invoke({}, config=config))
+    snapshot = str(browser_snapshot.invoke({"full": True}, config=config))
     normalized = snapshot.replace('\\"', '"')
-    has_text = bool(re.search(r'"(?:title|text)":\s*"[^"\n]+', normalized))
+    # hermes snapshot shape: {"success":true,"snapshot":"...","element_count":N}
+    has_text = bool(re.search(r'"(?:snapshot|title|text)":\s*"[^"\n]+', normalized))
     if not has_text:
         return False, "browser snapshot was empty:\n" + snapshot[-3000:]
 
@@ -141,7 +142,7 @@ def _verify_one_url(
         script = (
             "JSON.stringify((()=>{const xs=[...document.querySelectorAll('" + selector + "')];"
             "return {count:xs.length,videos:xs.filter(x=>x.tagName==='VIDEO').map(v=>"
-            "({autoplay:v.autoplay,muted:v.muted,loop:v.loop,playsInline:v.playsInline," 
+            "({autoplay:v.autoplay,muted:v.muted,loop:v.loop,playsInline:v.playsInline,"
             "preload:v.preload,readyState:v.readyState}))}})())"
         )
         selector_receipt = ""
@@ -149,7 +150,9 @@ def _verify_one_url(
         # Give remote/video media a bounded chance to reach HAVE_CURRENT_DATA;
         # this is real playback readiness, not merely a <video> tag existing.
         for _ in range(9):
-            selector_receipt = str(browser_evaluate.invoke({"script": script}, config=config))
+            # hermes eval surface: browser_console(expression=...) runs JS in the
+            # page and returns {"success":true,"result":<parsed>} (browser_tool.py).
+            selector_receipt = str(browser_console.invoke({"expression": script}, config=config))
             norm = selector_receipt.replace('\\"', '"')
             if required_selector.lower() != "video" or any(
                 int(value) >= 2 for value in re.findall(r'"readyState":(\d+)', norm)

@@ -9,7 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLSETS = ROOT / "src" / "tools" / "toolsets.py"
-BROWSER = ROOT / "src" / "tools" / "browser_mcp.py"
+BROWSER = ROOT / "src" / "tools" / "browser_tools.py"
 CATALOG = ROOT / "ui" / "src" / "runtime" / "toolCatalog.ts"
 
 
