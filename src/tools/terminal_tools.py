@@ -408,6 +408,86 @@ FOREGROUND_MAX_TIMEOUT_DEFAULT = 600  # hermes TERMINAL_MAX_FOREGROUND_TIMEOUT
 
 # PURE read verbs only. Executing tools (python/node/npm/pip/pytest) are
 # DELIBERATELY absent — code can write, and execute_code already snapshots.
+# ---------------------------------------------------------------------------
+# Hermes foreground/background guard (tools/terminal_tool_guards.py,
+# _foreground_background_guidance) — a TOOL contract: a foreground terminal
+# call cannot serve long-lived servers/watchers or shell backgrounding, so
+# the tool refuses BEFORE the wait and teaches the exact re-send. Field
+# tuition otherwise: every `npm run dev` in run_terminal burned the full
+# foreground timeout (316.5s on 2026-09-07 10:28, again 2026-09-07 2:19 PM)
+# before the exit-124 pivot. Hermes refuses in zero seconds. Guidance names
+# pulse's real tools (start_terminal / read_terminal_output).
+# ---------------------------------------------------------------------------
+_SHELL_LEVEL_BACKGROUND_RE = re.compile(
+    r"(?:^|[;&|]\s*|&&\s*|\|\|\s*|\$\(\s*)(?:nohup|disown|setsid)\b", re.IGNORECASE | re.MULTILINE
+)
+_INLINE_BACKGROUND_AMP_RE = re.compile(r"\s&\s")
+_TRAILING_BACKGROUND_AMP_RE = re.compile(r"\s&\s*(?:#.*)?$")
+
+_LONG_LIVED_FOREGROUND_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|watch)\b",
+    r"\bdocker\s+compose\s+up\b",
+    r"\bnext\s+dev\b",
+    r"\bvite(?:\s|$)",
+    r"\bnodemon\b",
+    r"\buvicorn\b",
+    r"\bgunicorn\b",
+    r"\bpython(?:3)?\s+-m\s+http\.server\b",
+))
+
+
+def _strip_quotes(command: str) -> str:
+    """hermes terminal_tool_guards._strip_quotes (minus heredoc masking,
+    which is a hermes shell_heredoc module pulse does not carry): blank
+    quoted/backtick content so keywords inside strings can't match."""
+    result = re.sub(r"'[^']*'", "''", command)
+    result = re.sub(r'"(?:[^"\\]|\\.)*"', '""', result)
+    return re.sub(r"`[^`]*`", "``", result)
+
+
+def _looks_like_help_or_version_command(command: str) -> bool:
+    """hermes: informational invocations are never blocked."""
+    normalized = " ".join(command.lower().split())
+    return (
+        " --help" in normalized
+        or normalized.endswith(" -h")
+        or " --version" in normalized
+        or normalized.endswith(" -v")
+    )
+
+
+def _foreground_background_guidance(command: str) -> str | None:
+    """hermes _foreground_background_guidance, verbatim logic; guidance text
+    adapted to pulse's tool names (terminal(background=true) -> start_terminal)."""
+    if _looks_like_help_or_version_command(command):
+        return None
+    unquoted = _strip_quotes(command)
+    if _SHELL_LEVEL_BACKGROUND_RE.search(unquoted):
+        return (
+            "Foreground command uses shell-level background wrappers "
+            "(nohup/disown/setsid). Re-send WITHOUT the wrapper as "
+            "start_terminal(command=\"<cmd>\") so the process is tracked, "
+            "then run readiness checks and tests in separate commands "
+            "(read_terminal_output / check_terminal)."
+        )
+    if _INLINE_BACKGROUND_AMP_RE.search(unquoted) or _TRAILING_BACKGROUND_AMP_RE.search(unquoted):
+        return (
+            "Foreground command uses '&' backgrounding — this shell cannot run "
+            "it that way. Re-send WITHOUT the '&' as start_terminal(command="
+            "\"<cmd>\"), then poll readiness with read_terminal_output and run "
+            "tests in follow-up commands."
+        )
+    if any(p.search(unquoted) for p in _LONG_LIVED_FOREGROUND_PATTERNS):
+        return (
+            "This foreground command starts a long-lived server/watch process "
+            "and would hang until the timeout (it never exits). Run it with "
+            "start_terminal(command=\"<cmd>\"), wait for the port/log signal "
+            "with read_terminal_output, then execute tests in a separate "
+            "command — browser tools for UI proof."
+        )
+    return None
+
+
 def _hardline_refusal(command: str) -> str | None:
     """The never-run floor (hermes HARDLINE_PATTERNS): refused BEFORE spawn,
     unconditionally — the approval dock must never be able to approve a
@@ -548,6 +628,14 @@ def run_terminal(
     timeout, timeout_rejection = _foreground_timeout(timeout)
     if timeout_rejection:
         return f"⛔ run_terminal rejected: {timeout_rejection}"
+
+    # Hermes foreground/background guard (terminal_tool.py :965 — the guard
+    # fires BEFORE the deadline math): a command the foreground transport
+    # cannot serve is refused in zero seconds with the exact re-send, not
+    # after burning the whole timeout.
+    _fb_guidance = _foreground_background_guidance(command)
+    if _fb_guidance:
+        return f"⛔ run_terminal refused: {_fb_guidance}"
 
     # R3-1 POSIX-dialect guard — cmd.exe-fallback ONLY. Hermes' Windows
     # backend runs bash (git-bash/MSYS): there, POSIX IS the dialect and the
