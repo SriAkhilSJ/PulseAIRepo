@@ -271,3 +271,58 @@ def test_reasoning_only_stream_still_flushes_the_answer():
         assert chunks and chunks[0]["chunk"] == "The actual answer."
     finally:
         cg.event_bus.emit = original
+
+
+def test_pump_flush_and_stream_loop_fallback_do_not_double_paint():
+    """Hermes-port parity check: hermes ends EVERY turn with one authoritative
+    message.complete; our equivalent end is turn_done.message fed by
+    final_response. The pump-level flush (buffered endpoint) and the
+    stream-loop fallback are two paths to that ONE text — the flush marks the
+    call delivered, so the fallback must stay silent (no double paint)."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs import chat_graph as cg
+
+    events: list[tuple[str, dict]] = []
+    original = cg.event_bus.emit
+    cg.event_bus.emit = lambda kind, payload=None: (
+        events.append((kind, payload or {})), original(kind, payload))[1]
+    try:
+        class BufferedLLM:
+            model = "buffered"
+
+            def invoke(self, messages, config=None):
+                return AIMessage(content="The buffered answer.")
+
+        result = cg._invoke_with_token_pump(BufferedLLM(), [], "dup-t", "test", "buffered")
+        assert result.content == "The buffered answer."
+        # the flush marks the call delivered (the exact flag the stream loop reads)
+        assert cg._TURN_LAST_CALL_STREAMED.get("dup-t") is True
+        chunks = [p for kind, p in events if kind == "message.agent.chunk"]
+        assert chunks == [{"chunk": "The buffered answer.", "thread_id": "dup-t"}]
+    finally:
+        cg.event_bus.emit = original
+
+
+def test_content_block_answers_normalize_to_clean_text():
+    """A provider answering in content BLOCKS must not leak a list onto the
+    wire: the fallback chunk and turn_done.message carry clean text only
+    (hermes message.complete payload["text"] is always a string)."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs import chat_graph as cg
+
+    events: list[tuple[str, dict]] = []
+    original = cg.event_bus.emit
+    cg.event_bus.emit = lambda kind, payload=None: (
+        events.append((kind, payload or {})), original(kind, payload))[1]
+    try:
+        message = AIMessage(content=[
+            {"type": "text", "text": "Hello "},
+            {"type": "text", "text": "from blocks."},
+        ])
+        assert cg._result_answer_text(message) == "Hello from blocks."
+        # the stream-loop fallback path uses the same normalization
+        assert isinstance(cg._result_answer_text(message), str)
+    finally:
+        cg.event_bus.emit = original

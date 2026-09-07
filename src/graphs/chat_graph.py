@@ -1647,6 +1647,11 @@ def _invoke_with_token_pump(
             )
         else:
             flushed = _flush_unstreamed_answer(pump, result, thread_id)
+            if flushed:
+                # The flag means "this call's text already reached the client"
+                # — the stream-loop fallback (final_response emission) must
+                # not re-emit the same answer (double paint).
+                _TURN_LAST_CALL_STREAMED[thread_id] = True
             note = " — answer flushed to the UI as one frame" if flushed else ""
             print(
                 f"[ai_node] {route} answered in {total:.1f}s "
@@ -4218,7 +4223,11 @@ def stream_agent(
 
                 # AI produced final text
                 elif last_message.content:
-                    final_response = last_message.content
+                    # Normalize content (str or content-block list) to clean
+                    # text: this feeds the fallback chunk AND turn_done's
+                    # authoritative message (hermes message.complete shape —
+                    # the wire never carries a list).
+                    final_response = _result_answer_text(last_message)
                     # Live tokens already carried THIS call's text to the
                     # client piece by piece (_invoke_with_token_pump recorded
                     # that in _TURN_LAST_CALL_STREAMED); re-emitting the whole
@@ -4226,7 +4235,7 @@ def stream_agent(
                     # did not stream (streaming off, provider without token
                     # callbacks, pump rejected) falls back to this single
                     # historical chunk -- either way the text appears once.
-                    if not _TURN_LAST_CALL_STREAMED.pop(thread_id, False):
+                    if final_response and not _TURN_LAST_CALL_STREAMED.pop(thread_id, False):
                         event_bus.emit("message.agent.chunk", {
                             "chunk": final_response,
                             "thread_id": thread_id,
