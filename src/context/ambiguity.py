@@ -52,7 +52,7 @@ AMBIGUITY_ALERT_ADVANCED = (
     "- What does 'better' or 'fixed' mean in this context?\n"
     "- Are there tests, examples, or docs that clarify the goal?\n\n"
     "If the task remains unclear after checking available context, "
-    "use ask_user() to get clarification rather than making assumptions."
+    "use the clarify tool to ask the user, rather than making assumptions."
 )
 
 AMBIGUITY_ALERT_FALLBACK = (

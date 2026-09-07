@@ -268,7 +268,8 @@ def test_no_phantom_tool_names_in_the_assembled_prompt():
     real = set(all_known_tool_names()) | {
         "think",
         "verify",
-        "ask_user",
+        "clarify",
+        "todo_list",
         "read_file",
         "write_file",
         "edit_file",

@@ -20,7 +20,7 @@ class ExecutionPhase:
     guidance: str = ""
 
 
-_ALWAYS = frozenset({"ask_user"})
+_ALWAYS = frozenset({"clarify"})
 _FILE_MUTATIONS = frozenset({"write_file", "edit_file", "copy_file"})
 _READS = frozenset({
     "read_file", "list_files", "search_code", "session_search",

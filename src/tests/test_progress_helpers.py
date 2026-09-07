@@ -224,7 +224,7 @@ def test_d9_reflection_prompt_bytes():
         "You just received a tool result. Take a moment to evaluate it:"
     )
     assert ph.PROGRESS_REFLECTION_PROMPT.endswith(
-        "Don't verify meta-tools like think(), verify(), or ask_user()."
+        "Don't verify meta-tools like think(), verify(), or clarify()."
     )
 
 

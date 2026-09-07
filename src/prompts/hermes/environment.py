@@ -67,11 +67,33 @@ def git_snapshot(cwd: Path) -> dict:
 
 
 def build_environment_hints(cwd: Optional[Path] = None) -> str:
-    """Compose the stable environment block for this process ("" when nothing to say)."""
+    """Compose the stable environment block for this process ("" when nothing to say).
+
+    Hermes shape (agent/prompt_builder.py:_local_host_hints): the model gets
+    Host / User home directory / Current working directory as FLAT FACTS, plus
+    on Windows the hostname-is-not-username note. The working-directory line is
+    what lets an unqualified request ("list the files") resolve without a
+    clarifying question — field 2026-09-06: the model asked which directory to
+    explore because no prompt fact named one.
+    """
     parts: list[str] = []
+
+    workspace = Path(cwd) if cwd is not None else Path.cwd()
+
+    # ── Hermes local-host block (verbatim fact lines) ────────────────────
     system = _platform.system() or ("Windows" if is_windows() else ("Darwin" if sys.platform == "darwin" else "Linux"))
     release = _platform.release()
-    parts.append(f"Environment: {system} {release}, Python {sys.version_info.major}.{sys.version_info.minor}.")
+    parts.append(f"Host: {system} ({release}). Python {sys.version_info.major}.{sys.version_info.minor}.")
+    parts.append(f"User home directory: {Path.home()}")
+    parts.append(f"Current working directory: {workspace}")
+
+    if is_windows():
+        parts.append(
+            "Note: on Windows, the machine hostname (e.g. from `hostname` or uname) is NOT the "
+            "username. Use the 'User home directory' above to construct paths under "
+            "C:\\Users\\<user>\\, never the hostname."
+        )
+
     parts.append(f"Terminal dialect: {terminal_dialect()}.")
 
     if is_windows():
@@ -124,12 +146,15 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
         )
 
     workspace = Path(cwd) if cwd is not None else Path.cwd()
-    git = git_snapshot(workspace)
+    git = git_snapshot(workspace) if workspace.exists() else {"is_repo": False, "root": "", "branch": ""}
     if git["is_repo"]:
         branch = f" on branch `{git['branch']}`" if git["branch"] else ""
         parts.append(f"Workspace: {workspace} — git repository rooted at {git['root']}{branch}.")
-    else:
+    elif workspace.exists():
         parts.append(f"Workspace: {workspace} — not a git repository.")
+    # A workspace that does not exist on THIS host (a Windows drive path probed
+    # from a POSIX engine) reports no git facts at all: find_git_root would
+    # resolve the missing path upward and name a bogus root (probed live).
 
     return "\n\n".join(p for p in parts if p).strip()
 

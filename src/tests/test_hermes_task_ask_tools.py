@@ -205,3 +205,56 @@ def test_clarify_tool_invoke_blocks_until_reply():
     ))
     thread.join(timeout=5)
     assert out["responses"][0]["user_response"] == "B"
+
+
+# ── Field 2026-09-06 prompt-engineering round ────────────────────────────────
+
+def test_list_files_without_path_lists_the_workspace_root(tmp_path):
+    """Field proof: list_files(path) REQUIRED a path, so "list the files" gave
+    the model nothing to pass and it asked the user which directory — the
+    screenshot's clarify-in-prose. Hermes' shape: unqualified listing = the
+    working directory, no question."""
+    from src.tools.file_tools import list_files
+    (tmp_path / "index.html").write_text("<html></html>")
+    (tmp_path / "src").mkdir()
+    out = list_files.invoke({}, config={"configurable": {"workspace": str(tmp_path)}})
+    assert "index.html" in out and "src" in out
+
+
+def test_env_hints_carry_the_hermes_host_block(tmp_path):
+    """Hermes _local_host_hints: Host / User home directory / Current working
+    directory as flat facts. The cwd line is what makes an unqualified request
+    resolve without a clarifying question (field 2026-09-06: "no Pulse
+    workspace context available to me")."""
+    from src.prompts.hermes.environment import build_environment_hints
+    hints = build_environment_hints(tmp_path)
+    assert "Host: " in hints
+    assert "User home directory: " in hints
+    assert f"Current working directory: {tmp_path}" in hints
+
+
+def test_windows_drive_letter_workspace_is_absolute_as_is():
+    """A Windows workspace path must survive a POSIX engine host verbatim —
+    Path('d:\\\\TestPulseAI') is RELATIVE there and resolve() welded it onto the
+    engine's cwd (/engine/root/d:\\TestPulseAI), a directory that exists
+    nowhere (probed live 2026-09-06)."""
+    from pathlib import Path
+    from src.prompts.hermes.view import view_from_config
+    view = view_from_config(
+        {"configurable": {"thread_id": "drive-letter-1", "workspace": "d:\\TestPulseAI"}},
+        None,
+    )
+    assert view.cwd == Path("d:\\TestPulseAI")
+    assert not str(view.cwd).startswith(str(Path.cwd()))
+
+
+def test_one_ask_tool_only():
+    """hermes has ONE ask tool (clarify). The legacy ask_user echo tool left
+    the bound surface — two competing ask tools plus prose-asking is how the
+    field turn ended in a text question no card could render."""
+    import src.graphs.chat_graph as cg
+    names = {t.name for t in cg.tools}
+    assert "ask_user" not in names
+    assert "clarify" in names
+    from src.tools.toolsets import _CORE_TOOLS
+    assert "ask_user" not in _CORE_TOOLS and "clarify" in _CORE_TOOLS

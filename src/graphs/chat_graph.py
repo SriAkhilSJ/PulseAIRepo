@@ -224,27 +224,9 @@ def verify(
     )
 
 
-@tool
-def ask_user(question: str) -> str:
-    """
-    Ask the user a clarifying question when the request is ambiguous.
-
-    WHEN TO USE:
-    - The user did not specify a required file name, library, format, or approach.
-    - Multiple valid interpretations exist and choosing one would be risky.
-    - You are about to make an irreversible or destructive change.
-
-    WHEN NOT TO USE:
-    - Do not ask for errors you can diagnose with tools.
-    - Do not ask if the repo map, files, or tests provide enough information.
-    """
-    return (
-        f"❓ **I need a bit more clarity:**\n\n"
-        f"{question}\n\n"
-        f"*Once you reply, I'll get right back to work.*"
-    )
-
-
+# ask_user (legacy echo tool) REMOVED from the model surface — hermes has ONE
+# ask tool, `clarify` (blocking, structured, UI card). The after_progress
+# finalize rule below survives only as legacy-replay compat for old sessions.
 @tool
 def delegate_to_subagent(
     mode: Literal["research", "code", "test", "review"],
@@ -399,7 +381,6 @@ def display_pulse_task(
 tools = [
     think,
     verify,
-    ask_user,
     terminal,
     plan_update,
     todo_list,
@@ -550,7 +531,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     """The tool OBJECTS to bind for this turn (narrowed by task type).
 
     The autonomous surface deliberately has a smaller waist than interactive
-    IDE chat. It cannot answer ask_user, and broad meta/delegation/process
+    IDE chat. It cannot answer clarify, and broad meta/delegation/process
     schemas diluted the direct actions in six Test-5 traces.
     """
     if not _PULSEAI_TOOLSETS_ON:
@@ -660,10 +641,11 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     bound = [_TOOLS_BY_NAME[n] for n in names if n in _TOOLS_BY_NAME]
     if bound:
         return bound
-    # A guarded phase never falls back to the full registry. Keep ask_user as
-    # the safe escape hatch; general mode retains the historical safe superset.
-    if phase.allowed is not None and "ask_user" in _TOOLS_BY_NAME:
-        return [_TOOLS_BY_NAME["ask_user"]]
+    # A guarded phase never falls back to the full registry. Keep clarify as
+    # the safe escape hatch (hermes' one ask tool); general mode retains the
+    # historical safe superset.
+    if phase.allowed is not None and "clarify" in _TOOLS_BY_NAME:
+        return [_TOOLS_BY_NAME["clarify"]]
     return list(tools)
 
 
@@ -902,11 +884,11 @@ def ai_node(
             "=== PULSE CONTEXT MISSING ===\n"
             "No Pulse workspace context was shared via useAgentContext. If the user asks about files, tasks, or workspace entities, you must refuse to answer about entities the shared context does not carry, and name what is missing instead of inventing plausible entities. Ask the frontend to share context.",
         )
-    # Guard unattended side effects: remind model to use ask_user for destructive actions
+    # Guard unattended side effects: remind model to use clarify for destructive actions
     _insert_system_prefix(
         messages,
         "=== SAFETY GUARD ===\n"
-        "Unattended side effects (file overwrites, deletions, dangerous shell commands) are guarded by SafetyGuard/ask_user. For any destructive or irreversible change, call ask_user to confirm before proceeding.",
+        "Unattended side effects (file overwrites, deletions, dangerous shell commands) are guarded by SafetyGuard/clarify. For any destructive or irreversible change, call clarify to confirm before proceeding.",
     )
 
     # State the actual shell contract before the model guesses. The terminal
@@ -2550,7 +2532,9 @@ def after_progress(state: AgentState) -> str:
     fires instead.
     """
     # Hermes question discipline (field run 2026-09-05, "asked question
-    # but"): ask_user returned its echo to the MODEL, which kept working —
+    # but"): the legacy ask_user returned its echo to the MODEL, which kept
+    # working — ask_user is no longer bound (clarify replaced it), but old
+    # checkpointed sessions can still replay its messages:
     # asked AND ran a command in the same turn, then died "Ended
     # incomplete". In hermes a clarifying question is a TURN END: the user
     # answers in the chat, the next turn proceeds with the reply. An

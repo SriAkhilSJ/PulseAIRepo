@@ -15,7 +15,7 @@ from src.tools.toolsets import (
     resolve_toolset_names,
 )
 
-CORE = {"think", "verify", "ask_user", "session_search"}
+CORE = {"think", "verify", "session_search", "todo_list", "clarify"}
 MUTATION = {"write_file", "edit_file", "copy_file"}
 PROCESS = {"run_terminal", "execute_code", "start_terminal"}
 WEB = {"web_search", "web_fetch"}

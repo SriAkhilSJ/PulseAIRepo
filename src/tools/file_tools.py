@@ -289,13 +289,15 @@ def read_file(
 
 @tool
 def list_files(
-    path: str,
-    config: RunnableConfig
+    path: str = ".",
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """
-    List files and directories inside a workspace directory. Use this
-    instead of ls / Get-ChildItem / dir in the terminal. Lists ONE level
-    only — never recurse.
+    List files and directories in the workspace. Use this instead of ls / Get-ChildItem / dir in the terminal. Lists ONE level only — never recurse.
+
+    For an unqualified request like "list the files", call this with NO path:
+    it lists the workspace root — the directory the user means. Only pass a
+    path when the user names one.
 
     WHEN TO USE:
     - To inspect a directory when the repo map is insufficient.
@@ -305,9 +307,13 @@ def list_files(
     WHEN NOT TO USE:
     - Do not recursively list the entire repo unless necessary.
     - Prefer the repo map or search_code when looking for known symbols.
+
+    Args:
+        path: Optional path INSIDE the workspace to list. Omit or pass "." for
+            the workspace root. Never guess absolute paths outside it.
     """
 
-    workspace = config["configurable"]["workspace"]
+    workspace = str((config or {}).get("configurable", {}).get("workspace") or ".")
 
     safe_path = resolve_workspace_path(
         workspace,

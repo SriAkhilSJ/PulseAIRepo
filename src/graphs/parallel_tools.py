@@ -28,8 +28,9 @@ Two execution paths replace the coin flip:
 
 Eligibility is CONSERVATIVE (any doubt => sequential):
 - at least 2 calls (a single call has no ordering question — ToolNode);
-- no wildcard tools (execute_code / any *terminal* / ask_user /
-  delegate_* — unknown or nested blast radius);
+- no wildcard tools (execute_code / any *terminal* / clarify /
+  delegate_* — unknown blast radius, or clarify BLOCKS the batch on the
+  user's answer);
 - file tools (anything with a path arg) must be pairwise DISJOINT with
   every writer: a mutating call (write_file/edit_file) conflicts with
   any other file call touching the same file; readers never conflict
@@ -69,7 +70,7 @@ MUTATING_TOOLS = frozenset({"write_file", "edit_file"})
 WILDCARD_TOOLS = frozenset({
     "execute_code", "run_terminal", "start_terminal", "check_terminal",
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
-    "read_terminal_output", "scaffold_nextjs", "ask_user",
+    "read_terminal_output", "scaffold_nextjs", "clarify", "todo_list",
     "delegate_to_subagent", "delegate_to_subagent_batch",
 })
 

@@ -48,7 +48,7 @@ PROGRESS_REFLECTION_PROMPT = (
     "- Does the output match what you expected?\n"
     "- Should you proceed, fix something, ask the user, or replan?\n\n"
     "Use verify() when the result needs explicit validation. "
-    "Don't verify meta-tools like think(), verify(), or ask_user()."
+    "Don't verify meta-tools like think(), verify(), or clarify()."
 )
 
 OUTCOME_SUCCESS = "success"

@@ -14,6 +14,7 @@ Nothing here builds prompt text; it only resolves inputs.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -207,11 +208,19 @@ def view_from_config(
     provider = str(cfg("provider", getattr(settings, "LLM_PROVIDER", "")) or "")
 
     workspace = str(cfg("workspace", "") or "")
-    cwd = Path(workspace).expanduser() if workspace else Path.cwd()
-    try:
-        cwd = cwd.resolve()
-    except Exception:
-        pass
+    # Absolute-as-is (the repo's resolver rule): a drive-letter path from a
+    # Windows workspace is ABSOLUTE even when the engine host is POSIX —
+    # Path("d:\\TestPulseAI") is relative there, and resolve() welded it onto
+    # the engine's own cwd ("/engine/root/d:\TestPulseAI"), naming a directory
+    # that exists nowhere (field-class bug, probed 2026-09-06).
+    if re.match(r"^[A-Za-z]:[\\/]", workspace):
+        cwd = Path(workspace)
+    else:
+        cwd = Path(workspace).expanduser() if workspace else Path.cwd()
+        try:
+            cwd = cwd.resolve()
+        except Exception:
+            pass
 
     context_length: Optional[int] = None
     try:  # pyrefly: ignore [missing-import]

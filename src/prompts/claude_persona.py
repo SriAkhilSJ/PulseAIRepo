@@ -78,7 +78,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `verify(step_description, expected_result, actual_result, success)` — Check whether a previous action produced the expected result. Use before moving to the next step when success isn't obvious.
 
-- `ask_user(question)` — Ask a clarifying question when ambiguity would cause risky guessing. Don't use this for errors you can diagnose with tools.
+- `clarify(questions)` — Ask the user one or more structured questions (choices, multi-select, or free text) when a decision or clarification is needed before proceeding. Don't use this for errors you can diagnose with tools; prefer deciding low-stakes questions yourself.
 
 ### File Operations
 
@@ -158,7 +158,7 @@ Need to prove TypeScript code is sound before finishing? → `typecheck_workspac
 
 Need to prove a UI/frontend app actually renders before finishing? → `browser_navigate`, then `browser_snapshot` + `browser_screenshot`
 
-Need to ask before choosing? → `ask_user`
+Need to ask before choosing? → `clarify`
 
 ## Working with Plans
 
@@ -342,7 +342,7 @@ _D35_FINISH_JOB = """
 #      but never told the model to REACH FOR TOOLS instead of mental math
 #      for facts. Weak open-weights models (our model IS qwen, in hermes'
 #      TOOL_USE_ENFORCEMENT_MODELS) answer facts from memory by default.
-#   2. missing-context rule — the legacy persona defaulted ask_user-first;
+#   2. missing-context rule — the legacy persona defaulted ask-first;
 #      hermes' block inverts it (tool lookup FIRST, ask only when no tool
 #      can retrieve, label assumptions when proceeding under uncertainty).
 #   3. verification checklist — the persona had "verify" as a workflow step
@@ -363,9 +363,9 @@ Your memory describes the codebase you have seen in this session, not the
 live system you run on.
 
 Missing context: do NOT guess or hallucinate. Look it up with the right tool
-(search_code, read_file, web_search). Use ask_user only when no tool can
-retrieve it; if you must proceed with incomplete information, label the
-assumption explicitly.
+(search_code, read_file, web_search). Use clarify only when no tool can
+retrieve it AND the answer changes what you do; if you must proceed with
+incomplete information, label the assumption explicitly.
 
 Before finalizing, verify: correctness (every stated requirement met),
 grounding (claims backed by tool output), formatting (matches the request

@@ -11,9 +11,9 @@ def test_setup_phase_hides_inspection_tools():
     phase = derive_execution_phase(_state("Scaffold a fresh Next.js project"))
     assert phase.name == "setup"
     names = filter_tool_names(
-        ["think", "read_file", "list_files", "scaffold_nextjs", "ask_user"], phase
+        ["think", "read_file", "list_files", "scaffold_nextjs", "clarify"], phase
     )
-    assert names == ["scaffold_nextjs", "ask_user"]
+    assert names == ["scaffold_nextjs", "clarify"]
 
 
 def test_delivery_phase_exposes_only_mutations_and_bounds_batch():
