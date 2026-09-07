@@ -445,18 +445,16 @@ tools = [
 
 
 # --------------------------------------------------------------------------- #
-# P0-A: Toolset waist (Hermes Law #2 — narrow core, capability at the edges). #
-# `tools` stays the FULL registry (the SafeToolNode executes whatever the     #
-# model calls), but only the RESOLVED subset is bound on each call, so the    #
-# model only pays the token cost for the tools its task actually needs.       #
-# Kill-switch: PULSEAI_TOOLSETS=off restores the all-tools binding.           #
+# Tool binding — hermes' registry snapshot (agent_init._load_tools).          #
+# Hermes loads agent.tools ONCE from the registry and binds the SAME list on  #
+# every call; narrowing exists only as operator toolset opt-in/out and        #
+# check_fn availability (deps missing -> tool unregistered). Pulse matched    #
+# that on 2026-09-07 after the field proved the old task-keyword waist is a   #
+# failure generator ("browser testing" lost its tools to the word "build";    #
+# a differently-worded ask would never bind them at all). `tools` IS the      #
+# bound list; the SafeToolNode executes whatever the model calls.             #
 # --------------------------------------------------------------------------- #
 _TOOLS_BY_NAME: dict[str, Any] = {t.name: t for t in tools}
-
-# Resolve once at import (env rarely changes mid-process); cheap to read.
-_PULSEAI_TOOLSETS_ON = (
-    os.environ.get("PULSEAI_TOOLSETS", "on").strip().lower() != "off"
-)
 
 _FILE_DELIVERY_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file", "scaffold_nextjs",
@@ -538,34 +536,28 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     IDE chat. It cannot answer clarify, and broad meta/delegation/process
     schemas diluted the direct actions in six Test-5 traces.
     """
-    if not _PULSEAI_TOOLSETS_ON:
-        return tools
-    from src.tools.toolsets import resolve_toolset_names
-    names = resolve_toolset_names(
-        state.get("current_task", ""), config
-    )
-    autonomous = _is_autonomous_workspace(config)
-    if autonomous:
-        autonomous_tools = {
-            "read_file", "list_files", "search_code",
-            "discover_host_capabilities", "invoke_host_capability",
-            "write_file", "edit_file", "copy_file",
-            "run_terminal", "typecheck_workspace",
-            "web_search", "web_fetch",
-            "verify_ui_workspace", "verify_ui_routes",
-            "display_pulse_task",
-            # The agent's eyes — hermes never hides browser tools, and an
-            # autonomous build that cannot watch its own app is blind.
-            *(t.name for t in BROWSER_TOOLS),
-        }
-        names = [name for name in names if name in autonomous_tools]
-    # A verifier with no project cannot produce evidence. Hiding it is stronger
-    # than repeatedly telling a weak model not to call it: Test5-5 paid three
-    # model/replan cycles for typecheck_workspace on an empty directory.
+    # The registry snapshot, hermes-shaped: every registered tool is bound,
+    # every turn, regardless of task wording (agent_init._load_tools loads
+    # the registry once; per-message narrowing does not exist in hermes).
+    names = [t.name for t in tools]
+    # check_fn availability (hermes registration semantics): the browser
+    # stack is bound only when the agent-browser CLI resolves. Resolution is
+    # cached, so a missing CLI costs one fast raise per turn and the tools
+    # stay unbound instead of the model paying for a doomed call.
+    try:
+        from src.tools.browser_tools import find_agent_browser
+        find_agent_browser()
+    except Exception:
+        names = [name for name in names if not name.startswith("browser_")]
+    # check_fn: a verifier with no project cannot produce evidence. Hiding it
+    # is stronger than repeatedly telling a weak model not to call it:
+    # Test5-5 paid three model/replan cycles for typecheck_workspace on an
+    # empty directory. (Workspace STATE, not task words.)
     from pathlib import Path
     workspace = Path(config.get("configurable", {}).get("workspace", "."))
     if not (workspace / "tsconfig.json").exists():
         names = [name for name in names if name != "typecheck_workspace"]
+    autonomous = _is_autonomous_workspace(config)
     resolved_names = list(names)
 
     from src.runtime.execution_phases import base_phase
@@ -573,13 +565,9 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     # phase machinery — see execution_phases.py). The state-driven phases
     # below replace this object when their conditions hold.
     phase = base_phase()
-    # Hermes discipline (288-run core_tool_deferral battery, PR #97979; field
-    # proof 2026-09-07): the phase NEVER removes tools — a plan step reading
-    # "Run the build..." stripped the browser tools and todo_list mid-turn and
-    # the model reported "we cannot actually launch a browser". Phases steer
-    # through guidance (phase_guidance, below); the ONE narrowing is the
-    # per-turn capability waist above. (Keyword phases now carry allowed=None;
-    # only the state-driven phases below still bound an allowlist.)
+    # Neutral base: phases are STATE-derived only (hermes has no keyword
+    # phase machinery — see execution_phases.py). The state-driven phases
+    # below replace this object when their conditions hold.
     names = resolved_names
     empty_autonomous_delivery = (
         autonomous

@@ -114,3 +114,63 @@ def test_state_driven_forced_delivery_phase_keeps_its_allowlist(tmp_path):
     if phase_name == "forced_delivery":
         assert names <= {"write_file", "edit_file", "copy_file"}
         assert config["configurable"]["phase_allowed_tools"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Hermes registry binding (agent_init._load_tools): full registry every turn,
+# availability check_fn, operator/state narrows only — NO task-text matching
+# ---------------------------------------------------------------------------
+
+def test_binding_is_the_registry_snapshot_regardless_of_task_wording(tmp_path):
+    """hermes binds the same registry for 'hi' and for a build task. Pulse's
+    former task-keyword waist (runtime_profile regexes over current_task) is
+    retired from binding: any phrasing gets the full surface."""
+    from src.graphs.chat_graph import _resolve_bound_tools
+
+    for task in ("hi", "test my app works", "fix the bug", "写一个网站"):
+        config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
+        names = {t.name for t in _resolve_bound_tools({"current_task": task}, config)}
+        assert "run_terminal" in names, task
+        assert "web_search" in names, task
+        assert "todo_list" in names, task
+        assert "write_file" in names, task
+        # no per-task phase/guidance leaked from task WORDS
+        assert config["configurable"]["execution_phase"] == "general", task
+        assert config["configurable"]["phase_allowed_tools"] is None, task
+
+
+def test_browser_tools_bound_when_cli_resolves_hidden_when_it_doesnt(tmp_path, monkeypatch):
+    """hermes check_fn: a tool whose deps are missing is not registered. The
+    CLI resolution is cached — the check costs one fast raise when missing."""
+    from src.graphs.chat_graph import _resolve_bound_tools
+    import src.tools.browser_tools as bt
+
+    config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
+    monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+    names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
+    assert "browser_navigate" in names  # real resolution succeeds in CI (npx sentinel)
+
+    bt.invalidate_cli_cache()
+    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(tmp_path / "no-such-browser"))
+    bt.invalidate_cli_cache()
+    names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
+    assert not any(name.startswith("browser_") for name in names)
+    assert "run_terminal" in names  # everything else survives
+    bt.invalidate_cli_cache()
+
+
+def test_typecheck_hidden_only_by_workspace_state(tmp_path):
+    """check_fn on project state: no tsconfig -> no typecheck_workspace —
+    regardless of task words (kept from the hermes availability shape)."""
+    from src.graphs.chat_graph import _resolve_bound_tools
+
+    config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
+    names = {t.name for t in _resolve_bound_tools(
+        {"current_task": "typecheck everything"}, config)}
+    assert "typecheck_workspace" not in names
+
+    (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
+    config2 = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
+    names2 = {t.name for t in _resolve_bound_tools(
+        {"current_task": "typecheck everything"}, config2)}
+    assert "typecheck_workspace" in names2
