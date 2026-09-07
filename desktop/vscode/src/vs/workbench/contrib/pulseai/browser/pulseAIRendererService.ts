@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
@@ -207,6 +208,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		},
 		openDiff: toolId => { void this.openDiff(toolId); },
 		revealFile: resource => { void this.revealFile(resource); },
+		resourceSrc: resource => this.resourceBrowserSrc(resource),
 		restoreCheckpoint: checkpointHash => {
 			const workspace = this.workspacePath;
 			if (workspace) { this.send({ type: 'checkpoint_restore', session_id: this.sessionId, workspace, checkpoint_hash: checkpointHash }); }
@@ -1024,6 +1026,17 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 			this.render();
+		}
+	}
+
+	private resourceBrowserSrc(resource: string): string | undefined {
+		// file:// is not loadable from the workbench DOM; FileAccess translates
+		// it to the scheme the renderer may fetch (same path resolution as
+		// revealFile — Windows drives, schemes, workspace-relative).
+		try {
+			return FileAccess.uriToBrowserUri(this.resourceUri(resource)).toString(true);
+		} catch (error) {
+			return undefined;
 		}
 	}
 

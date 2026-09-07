@@ -161,6 +161,11 @@ export interface PulseAIRenderHost {
 	replyToClarify(requestId: string, answers: Record<string, string | readonly string[]>, timedOut?: boolean): void;
 	openDiff(toolId: string): void;
 	revealFile(resource: string): void;
+	/** A loadable src for a workspace-relative or absolute resource path
+	 * (screenshots, recordings) — undefined when it cannot be resolved.
+	 * Implementations own the file->browser-URI translation so this file
+	 * stays free of workbench URI services. */
+	resourceSrc(resource: string): string | undefined;
 	restoreCheckpoint(hash: string): void;
 	retryEngine(): void;
 	selectWorkspace(uri: string): void;
@@ -563,9 +568,71 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 500)));
 		body.append(element('div', 'pulseai-tool-actions', button('Open source', 'pulseai-link-button', () => host.revealFile(target), 'link'), copyButton(target, host)));
 	} else if (presentation.family === 'browser') {
-		body.append(toolFields([['Page', firstString(args, ['page']) ?? '—'], ['URL', target], ['Viewport', '1280 × 800']]));
-		body.append(element('div', 'pulseai-browser-snapshot', element('div', undefined, element('span', undefined, 'document'), element('code', undefined, boundedText(result, 120).slice(0, 80)))));
-		body.append(element('div', 'pulseai-tool-actions', button('Open screenshot', 'pulseai-link-button', () => host.revealFile(target), 'device-camera'), button('Open browser', 'pulseai-link-button', () => host.revealFile(target), 'browser')));
+		// Hermes backend receipts (browser_tools.py): honest per-tool fields.
+		// The lab-era rows (a Page field and a hardcoded viewport — puppeteer
+		// shapes of a backend that never ran on user machines), the fake
+		// 'document' line, and the reveal-on-URL buttons are retired:
+		// visible testing (owner 2026-09-07) shows the EVIDENCE here — the
+		// screenshot image, the session recording, the ref the agent acted on.
+		if (tool.name === 'browser_screenshot') {
+			const raw = typeof tool.result === 'string' ? tool.result : '';
+			const saved = /Screenshot saved:\s*([^\s(]+)/.exec(raw)?.[1];
+			body.append(toolFields([
+				['Saved', saved ?? '—'],
+				['Quality', /visual quality passed/i.test(raw) ? 'passed' : tool.state === 'running' ? 'running' : tool.state === 'failed' ? 'failed' : '—'],
+			]));
+			if (saved) {
+				const src = host.resourceSrc(saved);
+				if (src) {
+					const img = element('img', 'pulseai-browser-screenshot');
+					img.src = src;
+					img.alt = `Screenshot ${saved}`;
+					body.append(img);
+				}
+				body.append(element('div', 'pulseai-tool-actions',
+					button('Reveal screenshot', 'pulseai-link-button', () => host.revealFile(saved), 'device-camera'),
+					copyButton(saved, host)));
+			}
+		} else if (tool.name === 'browser_navigate') {
+			const recording = firstString(result, ['recording']);
+			body.append(toolFields([
+				['URL', firstString(args, ['url']) ?? target],
+				['Title', firstString(result, ['title']) ?? '—'],
+				['Elements', firstString(result, ['element_count']) ?? '—'],
+			]));
+			const snapshot = firstString(result, ['snapshot']);
+			if (snapshot) { body.append(element('pre', 'pulseai-tool-pre', boundedText(snapshot, 600))); }
+			if (recording) {
+				// The visible-testing artifact (hermes record start/stop): one
+				// click to watch what the agent did in the window.
+				body.append(element('div', 'pulseai-tool-actions',
+					button('Watch session recording', 'pulseai-link-button', () => host.revealFile(recording), 'device-camera'),
+					copyButton(recording, host)));
+			} else {
+				body.append(element('div', 'pulseai-tool-actions',
+					copyButton(firstString(args, ['url']) ?? target, host)));
+			}
+		} else if (tool.name === 'browser_click' || tool.name === 'browser_type' || tool.name === 'browser_press') {
+			body.append(toolFields([
+				['Element', firstString(args, ['ref']) ?? firstString(args, ['key']) ?? '—'],
+				['Text', firstString(args, ['text']) ?? '—'],
+				['Done', firstString(result, ['clicked', 'typed', 'pressed']) ?? (tool.state === 'passed' ? 'yes' : tool.state === 'failed' ? 'no' : '…')],
+			]));
+		} else if (tool.name === 'browser_console') {
+			body.append(toolFields([
+				['Expression', firstString(args, ['expression']) ?? '—'],
+				['Messages', firstString(result, ['total_messages']) ?? '—'],
+				['JS errors', firstString(result, ['total_errors']) ?? '—'],
+			]));
+			const evaluated = firstString(result, ['result']);
+			if (evaluated) { body.append(element('pre', 'pulseai-tool-pre', boundedText(evaluated, 400))); }
+		} else {
+			body.append(toolFields([
+				['URL', firstString(args, ['url']) ?? target],
+				['Detail', firstString(result, ['count', 'scrolled', 'url', 'success']) ?? '—'],
+			]));
+			body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 400)));
+		}
 	} else if (presentation.family === 'session') {
 		body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));
 		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 400)));

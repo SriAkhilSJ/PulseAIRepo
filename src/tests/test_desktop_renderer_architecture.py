@@ -439,3 +439,40 @@ def test_reveal_paths_and_terminal_obey_hermes():
     assert "260px" not in css, "the tall stdout panel is retired"
     tokens = _text("browser", "media", "pulseAI-tokens.css")
     assert "--pulseai-terminal-max-h: 4rem" in tokens, "hermes max-h-16"
+
+
+def test_browser_cards_render_hermes_visible_testing_evidence():
+    """Owner 2026-09-07 'add UI too': the browser family must show the hermes
+    backend's EVIDENCE — honest per-tool fields, the screenshot image inline,
+    the session recording one click away — not the lab-era fake chrome
+    (Page/Viewport rows of a puppeteer backend that never ran)."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    # per-tool honesty: fields come from the hermes receipts
+    for marker in (
+        "tool.name === 'browser_screenshot'",
+        "tool.name === 'browser_navigate'",
+        "tool.name === 'browser_console'",
+        "firstString(result, ['element_count'])",
+        "firstString(result, ['recording'])",
+        "Screenshot saved:",
+    ):
+        assert marker in renderer
+    # the screenshot is PAINTED, not just named
+    assert "pulseai-browser-screenshot" in renderer
+    assert "img.src = src" in renderer
+    # the recording is WATCHABLE from the card (hermes record start/stop)
+    assert "Watch session recording" in renderer
+    # the fake chrome is gone
+    assert "1280 × 800" not in renderer, "puppeteer-era viewport lie"
+    assert "pulseai-browser-snapshot" not in renderer, "fake document line retired"
+
+    # image loading crosses the workbench boundary through the HOST contract,
+    # implemented with FileAccess in the service (renderer stays neutral)
+    assert "resourceSrc(resource: string): string | undefined" in renderer
+    service = _text("browser", "pulseAIRendererService.ts")
+    assert "resourceBrowserSrc" in service
+    assert "FileAccess.uriToBrowserUri" in service
+
+    css = _text("browser", "media", "pulseAI.css")
+    assert ".pulseai-browser-screenshot" in css
+    assert "var(--vscode-panel-border" in css
