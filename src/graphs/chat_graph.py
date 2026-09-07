@@ -568,8 +568,11 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         names = [name for name in names if name != "typecheck_workspace"]
     resolved_names = list(names)
 
-    from src.runtime.execution_phases import derive_execution_phase
-    phase = derive_execution_phase(dict(state))
+    from src.runtime.execution_phases import base_phase
+    # Neutral base: phases are STATE-derived only (hermes has no keyword
+    # phase machinery — see execution_phases.py). The state-driven phases
+    # below replace this object when their conditions hold.
+    phase = base_phase()
     # Hermes discipline (288-run core_tool_deferral battery, PR #97979; field
     # proof 2026-09-07): the phase NEVER removes tools — a plan step reading
     # "Run the build..." stripped the browser tools and todo_list mid-turn and

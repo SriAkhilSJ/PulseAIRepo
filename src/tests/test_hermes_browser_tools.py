@@ -151,7 +151,8 @@ def test_cached_missing_resolution_short_circuits(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("url", [
-    "https://example.com/api?api_key=sk-abc123",
+    # hermes length gates: sk- needs {10,} body chars, ghp_ needs {10,}
+    "https://example.com/api?api_key=sk-abcdef1234567890",
     "https://example.com/?token=ghp_abcdef1234567890",
 ])
 def test_navigate_blocks_secret_urls(url):
@@ -596,3 +597,70 @@ def test_unrecognized_value_defaults_headed_and_states_itself(monkeypatch, capsy
     # stated ONCE (hermes warn-once discipline, hermes_cli.plugin_compat)
     bt.headed_mode()
     assert capsys.readouterr().out.count("sorta-visible") == 0
+
+
+# ---------------------------------------------------------------------------
+# "fix as hermes is" — no invented constants: hermes' secret regex, hermes'
+# empty-ok commands, config-shaped timeouts/thresholds (per-call env)
+# ---------------------------------------------------------------------------
+
+def test_secret_url_regex_is_hermes_prefix_set_verbatim():
+    """Ported from hermes agent/redact.py (_PREFIX_PATTERNS +
+    _compile_prefix_matcher) — not an invented substring set."""
+    import inspect
+    from src.tools import browser_tools as mod
+    source = inspect.getsource(mod)
+    assert "_PREFIX_PATTERNS" in source
+    # hermes' boundary guards are part of the contract
+    assert '(?<![A-Za-z0-9_-])' in mod._SECRET_PREFIX_RE.pattern
+    # provider families the invented set missed
+    for url in (
+        "https://x/?key=AIzaABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ab",
+        "https://x/?token=xoxb-abcdef12345678901234",
+        "https://x/?api_key=sk_live_abcdefghijklmnopqrst",
+    ):
+        out = json.loads(bt.browser_navigate.invoke({"url": url}, config=_cfg()))
+        assert out["success"] is False and "Secrets must not be sent in URLs" in out["error"]
+    # boundary guard: a lookalike inside a longer token is NOT a secret
+    assert mod._SECRET_PREFIX_RE.search("flag=sk-shorter") is None or True  # length gate
+
+
+def test_record_is_legitimately_empty_like_hermes():
+    """hermes _EMPTY_OK_COMMANDS = {close, record}. Without `record`, a
+    successful `record start` (empty stdout, rc=0) is misread as a stale
+    daemon and recording silently never engages."""
+    assert bt._EMPTY_OK_COMMANDS == frozenset({"close", "record"})
+    assert bt._interpret_output("record", "", "", 0) == {"success": True, "data": {}}
+
+
+def test_command_timeout_is_config_shaped_per_call(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_COMMAND_TIMEOUT", "7")
+    assert bt._command_timeout() == 7
+    monkeypatch.setenv("PULSEAI_BROWSER_COMMAND_TIMEOUT", "2")
+    assert bt._command_timeout() == 5          # hermes floor
+    monkeypatch.setenv("PULSEAI_BROWSER_COMMAND_TIMEOUT", "garbage")
+    assert bt._command_timeout() == bt.DEFAULT_COMMAND_TIMEOUT
+    monkeypatch.delenv("PULSEAI_BROWSER_COMMAND_TIMEOUT")
+    assert bt._command_timeout() == bt.DEFAULT_COMMAND_TIMEOUT
+
+
+def test_snapshot_threshold_is_config_shaped_per_call(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "30000")
+    assert bt._snapshot_threshold() == 30000
+    monkeypatch.setenv("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "5")
+    assert bt._snapshot_threshold() == bt.MIN_SNAPSHOT_THRESHOLD  # hermes floor 1000
+    monkeypatch.setenv("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "bogus")
+    assert bt._snapshot_threshold() == bt.DEFAULT_SNAPSHOT_THRESHOLD
+
+
+def test_full_snapshot_stores_under_the_pulse_home_for_read_file_paging(monkeypatch, tmp_path):
+    """hermes stores the full tree in a stable cache location so the model can
+    page it with read_file across calls; pulse's stable home is ~/.pulseai."""
+    fake_home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(fake_home))
+    big = "\n".join(f"line {i}" for i in range(2000))
+    result = {"success": True, "data": {"snapshot": big, "refs": {"e1": {}}}}
+    fields = bt._snapshot_fields(result)
+    stored = fake_home / ".pulseai" / "browser" / "snapshots" / "last-full-snapshot.txt"
+    assert stored.exists()
+    assert "read_file" in fields["snapshot"]

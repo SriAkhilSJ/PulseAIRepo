@@ -83,7 +83,7 @@ MIN_FIRST_OPEN_TIMEOUT = 120
 DEFAULT_SNAPSHOT_THRESHOLD = 15_000
 MIN_SNAPSHOT_THRESHOLD = 1_000
 MAX_STORED_SNAPSHOT_CHARS = 2_000_000
-_EMPTY_OK_COMMANDS = frozenset({"close"})
+_EMPTY_OK_COMMANDS = frozenset({"close", "record"})  # hermes :119
 
 _SCROLL_PIXELS = 500
 DEFAULT_SESSION_INACTIVITY_TIMEOUT = 120  # hermes browser.inactivity_timeout default
@@ -98,13 +98,50 @@ _METADATA_HOSTS = frozenset({
     "metadata", "100.100.100.200",
 })
 
-# hermes blocks URLs carrying credential-shaped strings via agent.redact's
-# prefix regex; this is pulse's equivalent conservative set.
-_SECRET_PREFIX_RE = re.compile(
-    r"(sk-[A-Za-z0-9]|ghp_[A-Za-z0-9]|gho_[A-Za-z0-9]|github_pat_|AKIA[A-Z0-9]{16}"
-    r"|xox[baprs]-|Bearer\s+[A-Za-z0-9._\-]+|api[_-]?key\s*=|[A-Za-z0-9_]*token\s*=)",
-    re.IGNORECASE,
-)
+# hermes agent/redact.py _PREFIX_PATTERNS + _compile_prefix_matcher, verbatim
+# (the URL-floor consumer, not the masker). Invented substrings missed whole
+# provider families and had no token-boundary guards.
+_PREFIX_PATTERNS = [
+    r"sk-[A-Za-z0-9_-]{10,}",           # OpenAI / OpenRouter / Anthropic (sk-ant-*)
+    r"ghp_[A-Za-z0-9]{10,}",            # GitHub PAT (classic)
+    r"github_pat_[A-Za-z0-9_]{10,}",    # GitHub PAT (fine-grained)
+    r"gho_[A-Za-z0-9]{10,}",            # GitHub OAuth access token
+    r"ghu_[A-Za-z0-9]{10,}",            # GitHub user-to-server token
+    r"ghs_[A-Za-z0-9]{10,}",            # GitHub server-to-server token
+    r"ghr_[A-Za-z0-9]{10,}",            # GitHub refresh token
+    r"xapp-\d+-[A-Za-z0-9-]{10,}",      # Slack app-level token
+    r"xox[baprs]-[A-Za-z0-9-]{10,}",    # Slack bot/app/user tokens
+    r"AIza[A-Za-z0-9_-]{30,}",          # Google API keys
+    r"pplx-[A-Za-z0-9]{10,}",           # Perplexity
+    r"fal_[A-Za-z0-9_-]{10,}",          # Fal.ai
+    r"fc-[A-Za-z0-9]{10,}",             # Firecrawl
+    r"bb_live_[A-Za-z0-9_-]{10,}",      # BrowserBase
+    r"gAAAA[A-Za-z0-9_=-]{20,}",        # Codex encrypted tokens
+    r"AKIA[A-Z0-9]{16}",                # AWS Access Key ID
+    r"sk_live_[A-Za-z0-9]{10,}",        # Stripe secret key (live)
+    r"sk_test_[A-Za-z0-9]{10,}",        # Stripe secret key (test)
+    r"rk_live_[A-Za-z0-9]{10,}",        # Stripe restricted key
+    r"SG\.[A-Za-z0-9_-]{10,}",          # SendGrid API key
+    r"hf_[A-Za-z0-9]{10,}",             # HuggingFace token
+    r"r8_[A-Za-z0-9]{10,}",             # Replicate API token
+    r"npm_[A-Za-z0-9]{10,}",            # npm access token
+    r"pypi-[A-Za-z0-9_-]{10,}",         # PyPI API token
+    r"dop_v1_[A-Za-z0-9]{10,}",         # DigitalOcean PAT
+    r"doo_v1_[A-Za-z0-9]{10,}",         # DigitalOcean OAuth
+    r"am_[A-Za-z0-9_-]{10,}",           # AgentMail API key
+    r"sk_[A-Za-z0-9_]{10,}",            # ElevenLabs TTS key
+    r"tvly-[A-Za-z0-9]{10,}",           # Tavily search API key
+    r"exa_[A-Za-z0-9]{10,}",            # Exa search API key
+]
+
+
+def _compile_prefix_matcher(patterns: list) -> "re.Pattern[str]":
+    # hermes redact: boundary guards so a match can never sit inside a longer
+    # token (a path segment, an id) and cry wolf.
+    return re.compile(r"(?<![A-Za-z0-9_-])(" + "|".join(patterns) + r")(?![A-Za-z0-9_-])")
+
+
+_SECRET_PREFIX_RE = _compile_prefix_matcher(_PREFIX_PATTERNS)
 
 _GET_IMAGES_JS = """JSON.stringify(
         [...document.images].map(img => ({
@@ -354,7 +391,13 @@ def _command_env(session_name: str) -> Dict[str, str]:
 
 
 def _command_timeout() -> int:
-    return DEFAULT_COMMAND_TIMEOUT
+    """hermes browser.command_timeout (default 30s, floor 5s); pulse's config
+    shape is the env, read PER CALL (standing rule)."""
+    raw = os.environ.get("PULSEAI_BROWSER_COMMAND_TIMEOUT", "").strip()
+    try:
+        return max(int(raw), 5) if raw else DEFAULT_COMMAND_TIMEOUT
+    except ValueError:
+        return DEFAULT_COMMAND_TIMEOUT
 
 
 def _open_timeout(*, first_open: bool) -> int:
@@ -462,6 +505,16 @@ def _url_policy_error(url: str) -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Shared response shaping — hermes browser_tool
 # ---------------------------------------------------------------------------
+def _snapshot_threshold() -> int:
+    """hermes browser.snapshot_threshold (default 15000, floor 1000), read
+    PER CALL."""
+    raw = os.environ.get("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "").strip()
+    try:
+        return max(int(raw), MIN_SNAPSHOT_THRESHOLD) if raw else DEFAULT_SNAPSHOT_THRESHOLD
+    except ValueError:
+        return DEFAULT_SNAPSHOT_THRESHOLD
+
+
 def _snapshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
     """`snapshot` + `element_count`; oversized snapshots truncate at line
     boundaries and the full tree is stored for read_file paging (hermes)."""
@@ -469,12 +522,13 @@ def _snapshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
     snapshot_text = data.get("snapshot", "") or ""
     refs = data.get("refs") or {}
     full_path: Optional[str] = None
-    if len(snapshot_text) > DEFAULT_SNAPSHOT_THRESHOLD:
-        cut = snapshot_text.rfind("\n", 0, DEFAULT_SNAPSHOT_THRESHOLD)
+    threshold = _snapshot_threshold()
+    if len(snapshot_text) > threshold:
+        cut = snapshot_text.rfind("\n", 0, threshold)
         if cut < MIN_SNAPSHOT_THRESHOLD:
-            cut = DEFAULT_SNAPSHOT_THRESHOLD
+            cut = threshold
         try:
-            snap_dir = Path(tempfile.gettempdir()) / "pulseai-browser-snapshots"
+            snap_dir = Path.home() / ".pulseai" / "browser" / "snapshots"
             snap_dir.mkdir(parents=True, exist_ok=True)
             stored = snap_dir / "last-full-snapshot.txt"
             stored.write_text(snapshot_text[:MAX_STORED_SNAPSHOT_CHARS], encoding="utf-8")
