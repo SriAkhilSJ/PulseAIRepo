@@ -455,6 +455,7 @@ tools = [
 # bound list; the SafeToolNode executes whatever the model calls.             #
 # --------------------------------------------------------------------------- #
 _TOOLS_BY_NAME: dict[str, Any] = {t.name: t for t in tools}
+_TOOL_AVAILABILITY_REPORTED = False  # hermes load-line: once per process
 
 _FILE_DELIVERY_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file", "scaffold_nextjs",
@@ -540,6 +541,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     # every turn, regardless of task wording (agent_init._load_tools loads
     # the registry once; per-message narrowing does not exist in hermes).
     names = [t.name for t in tools]
+    hidden_receipts: list[str] = []
     # check_fn availability (hermes registration semantics): the browser
     # stack is bound only when the agent-browser CLI resolves. Resolution is
     # cached, so a missing CLI costs one fast raise per turn and the tools
@@ -547,7 +549,11 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     try:
         from src.tools.browser_tools import find_agent_browser
         find_agent_browser()
-    except Exception:
+    except Exception as _cli_exc:
+        hidden_receipts.append(
+            "browser_* tools (agent-browser CLI not found — install with "
+            "`npm install -g agent-browser`, then run `agent-browser install` "
+            "once; set PULSEAI_AGENT_BROWSER to the CLI path to override)")
         names = [name for name in names if not name.startswith("browser_")]
     # check_fn: a verifier with no project cannot produce evidence. Hiding it
     # is stronger than repeatedly telling a weak model not to call it:
@@ -556,7 +562,21 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     from pathlib import Path
     workspace = Path(config.get("configurable", {}).get("workspace", "."))
     if not (workspace / "tsconfig.json").exists():
+        hidden_receipts.append("typecheck_workspace (no tsconfig.json in the workspace)")
         names = [name for name in names if name != "typecheck_workspace"]
+    # hermes agent_init._load_tools paints availability once at load ("Loaded
+    # N tools" + "⚠️ Some tools may not work due to missing requirements").
+    # Pulse binds lazily per turn, so the receipt prints on the FIRST binding
+    # per process — a silently hidden browser stack read as "the agent
+    # cannot test" in the field (2026-09-07 1:34 PM) with no trace why.
+    global _TOOL_AVAILABILITY_REPORTED
+    if hidden_receipts and not _TOOL_AVAILABILITY_REPORTED:
+        _TOOL_AVAILABILITY_REPORTED = True
+        print(
+            f"[tools] binding {len(names)} tools; unavailable this session: "
+            + "; ".join(hidden_receipts),
+            flush=True,
+        )
     autonomous = _is_autonomous_workspace(config)
     resolved_names = list(names)
 

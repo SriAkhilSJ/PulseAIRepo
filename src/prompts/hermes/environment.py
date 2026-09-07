@@ -96,6 +96,22 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
 
     parts.append(f"Terminal dialect: {terminal_dialect()}.")
 
+    # hermes paints toolset availability at load (agent_init :1080-1088);
+    # the model-facing carrier here is the env block. Browser-stack absence
+    # is a host STATE fact: without it the model improvises (built a stray
+    # page instead of testing — field 2026-09-07 1:34 PM).
+    try:
+        from src.tools.browser_tools import find_agent_browser
+        find_agent_browser()
+    except Exception:
+        parts.append(
+            "Browser tools: NOT available on this host (agent-browser CLI "
+            "not found). Install with `npm install -g agent-browser`, then "
+            "run `agent-browser install` once. Until then, a testing ask "
+            "cannot be executed in a browser — say so and name the install "
+            "step; do not substitute building pages or scripts."
+        )
+
     if is_windows():
         from src.runtime.windows_shell import windows_bash_available
         if windows_bash_available():

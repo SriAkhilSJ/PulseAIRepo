@@ -174,3 +174,71 @@ def test_typecheck_hidden_only_by_workspace_state(tmp_path):
     names2 = {t.name for t in _resolve_bound_tools(
         {"current_task": "typecheck everything"}, config2)}
     assert "typecheck_workspace" in names2
+
+
+# ---------------------------------------------------------------------------
+# Availability receipt — hermes agent_init._load_tools ("⚠️ Some tools may
+# not work due to missing requirements"), once per process, names the fix
+# ---------------------------------------------------------------------------
+
+def test_availability_receipt_names_the_install_fix_once(tmp_path, monkeypatch, capsys):
+    """Field 2026-09-07 1:34 PM: the browser stack was silently hidden and
+    nobody could tell why. The first binding must print WHICH tools are
+    unavailable and the install step; later bindings stay quiet (hermes
+    prints the load line once)."""
+    from src.graphs.chat_graph import _resolve_bound_tools
+    import src.graphs.chat_graph as cg
+    import src.tools.browser_tools as bt
+
+    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(tmp_path / "nope"))
+    bt.invalidate_cli_cache()
+    cg._TOOL_AVAILABILITY_REPORTED = False
+    try:
+        names = {t.name for t in _resolve_bound_tools({"current_task": "x"},
+                                                      {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})}
+        assert not any(name.startswith("browser_") for name in names)
+        out = capsys.readouterr().out
+        assert "[tools] binding" in out
+        assert "agent-browser" in out and "npm install -g agent-browser" in out
+        # second binding: no repeat (hermes load-line discipline)
+        _resolve_bound_tools({"current_task": "x"},
+                             {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})
+        assert capsys.readouterr().out.count("[tools] binding") == 0
+        # available stack binds without the receipt (nothing hidden: the
+        # workspace gets a tsconfig so typecheck_workspace binds too)
+        bt.invalidate_cli_cache()
+        monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+        (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
+        cg._TOOL_AVAILABILITY_REPORTED = False
+        names = {t.name for t in _resolve_bound_tools({"current_task": "x"},
+                                                      {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})}
+        assert "browser_navigate" in names
+        assert capsys.readouterr().out.count("[tools] binding") == 0
+    finally:
+        bt.invalidate_cli_cache()
+        cg._TOOL_AVAILABILITY_REPORTED = False
+
+
+def test_env_block_states_browser_unavailability_as_host_fact(tmp_path, monkeypatch):
+    """hermes paints toolset availability; the model-facing carrier here is
+    the env block. The fact fires only when the CLI is actually missing —
+    state, never task wording."""
+    from src.prompts.hermes.environment import build_environment_hints
+    import src.tools.browser_tools as bt
+
+    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(tmp_path / "nope"))
+    bt.invalidate_cli_cache()
+    try:
+        hints = build_environment_hints(cwd=None)
+        assert "Browser tools: NOT available" in hints
+        assert "npm install -g agent-browser" in hints
+    finally:
+        bt.invalidate_cli_cache()
+    # available stack: no availability line at all
+    monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+    bt.invalidate_cli_cache()
+    try:
+        hints = build_environment_hints(cwd=None)
+        assert "Browser tools: NOT available" not in hints
+    finally:
+        bt.invalidate_cli_cache()

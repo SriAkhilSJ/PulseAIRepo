@@ -476,3 +476,20 @@ def test_browser_cards_render_hermes_visible_testing_evidence():
     css = _text("browser", "media", "pulseAI.css")
     assert ".pulseai-browser-screenshot" in css
     assert "var(--vscode-panel-border" in css
+
+
+def test_raw_tool_call_markup_collapses_never_paints_as_prose():
+    """Field 2026-09-07 1:34 PM: a model leaked its native tool-call dialect
+    (<dots_function_call>/<exec>/<command>) into the transcript as chat text.
+    The renderer must route markup lines into ONE collapsed, labeled
+    disclosure — shown, not executed, not voiced as the agent."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "RAW_TOOL_MARKUP" in renderer
+    assert "dots_function_call" in renderer
+    assert "Unparsed tool-call markup (model dialect, not executed)" in renderer
+    assert "pulseai-raw-call" in renderer
+    # the details element is the collapse (user can still inspect the raw text)
+    assert "element('details'" in renderer
+    css = _text("browser", "media", "pulseAI.css")
+    assert ".pulseai-raw-call" in css
+    assert "var(--vscode-panel-border" in css

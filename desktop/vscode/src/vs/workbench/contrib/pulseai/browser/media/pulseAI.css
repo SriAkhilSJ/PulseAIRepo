@@ -343,6 +343,9 @@
 .pulseai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: var(--pulseai-text-micro); text-transform: uppercase; }
 .pulseai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
 .pulseai-browser-screenshot { display: block; max-width: 100%; max-height: 320px; margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
+.pulseai-raw-call { margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
+.pulseai-raw-call summary { padding: 4px 6px; cursor: pointer; opacity: 0.85; }
+.pulseai-raw-call-pre { margin: 0; padding: 4px 8px; max-height: 160px; overflow: auto; }
 .pulseai-child-tool-list { display: grid; gap: 4px; margin-top: 6px; }
 .pulseai-child-tool-list > div { display: flex; align-items: center; gap: 6px; font-size: var(--pulseai-text-meta); color: var(--vscode-descriptionForeground); }
 .pulseai-code-preview, .pulseai-diff-preview { font-size: var(--pulseai-text-body); line-height: 1.4; }

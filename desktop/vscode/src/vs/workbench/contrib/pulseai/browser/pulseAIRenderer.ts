@@ -228,13 +228,44 @@ function mdInline(target: HTMLElement, text: string): void {
 	}
 }
 
+// Some endpoint models leak their NATIVE tool-call dialect into CONTENT
+// instead of emitting API tool_calls (field 2026-09-07 1:34 PM:
+// <dots_function_call><exec><command>... painted as chat prose). The engine
+// correctly declines to execute unparseable text; the renderer's job is to
+// not PAINT it as the agent's voice. Hermes' equivalents are the toolset
+// availability paint and the unverified verdict — the raw dialect itself is
+// model-specific, so it is shown collapsed and labeled, never parsed.
+const RAW_TOOL_MARKUP = /^\s*<\/?\s*(?:dots_function_call|exec|invoke|command|tool_call|function_call)\b/i;
+
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'pulseai-assistant-copy pulseai-md');
 	if (slot) { root.dataset.slot = slot; }
 	let list: HTMLUListElement | null = null;
 	let code: HTMLPreElement | null = null;
+	let rawBlock: HTMLDetailsElement | null = null;
+	let rawPre: HTMLPreElement | null = null;
 	for (const raw of text.split(/\r?\n/)) {
 		const line = raw.replace(/\s+$/, '');
+		if (code) {
+			if (line.trim() === '```') { code = null; }
+			else { code.append(document.createTextNode(raw + '\n')); }
+			continue;
+		}
+		if (RAW_TOOL_MARKUP.test(line)) {
+			// Collapse consecutive markup lines into ONE labeled disclosure.
+			if (!rawBlock) {
+				rawBlock = element('details', 'pulseai-raw-call') as HTMLDetailsElement;
+				rawBlock.append(element('summary', undefined, 'Unparsed tool-call markup (model dialect, not executed)'));
+				rawPre = element('pre', 'pulseai-raw-call-pre') as HTMLPreElement;
+				rawBlock.append(rawPre);
+				root.append(rawBlock);
+				list = null;
+			}
+			rawPre!.append(document.createTextNode(raw + '\n'));
+			continue;
+		}
+		rawBlock = null;
+		rawPre = null;
 		if (code) {
 			if (line.trim() === '```') { code = null; }
 			else { code.append(document.createTextNode(raw + '\n')); }
