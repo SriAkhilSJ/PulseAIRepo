@@ -201,3 +201,73 @@ def test_chat_turn_still_stamps_nothing_with_streaming_flag_present(_no_memory):
     }
     out = chat_graph.finalize_node(dict(state), {"configurable": {}})
     assert out["messages"] == []
+
+
+def test_buffered_answer_is_flushed_to_the_transcript():
+    """Field 2026-09-06: a 14s answer painted NOTHING — the endpoint buffered
+    the whole completion, zero token events fired, and text reaches the UI
+    only via chunk frames. Hermes' transport discipline: the transcript must
+    show the answer regardless of delivery mode."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs import chat_graph as cg
+
+    events: list[tuple[str, dict]] = []
+    original = cg.event_bus.emit
+    cg.event_bus.emit = lambda kind, payload=None: (
+        events.append((kind, payload or {})), original(kind, payload))[1]
+    try:
+        pump = cg._AgentTokenPump("flush-t")
+        result = AIMessage(content="Here are your files: index.html, src/")
+        assert cg._flush_unstreamed_answer(pump, result, "flush-t") is True
+        chunks = [p for kind, p in events if kind == "message.agent.chunk"]
+        assert chunks == [{"chunk": "Here are your files: index.html, src/", "thread_id": "flush-t"}]
+    finally:
+        cg.event_bus.emit = original
+
+
+def test_streamed_answer_is_never_flushed_twice():
+    """Any streamed answer text disables the flush — no duplicated transcript."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs import chat_graph as cg
+
+    events: list[tuple[str, dict]] = []
+    original = cg.event_bus.emit
+    cg.event_bus.emit = lambda kind, payload=None: (
+        events.append((kind, payload or {})), original(kind, payload))[1]
+    try:
+        pump = cg._AgentTokenPump("stream-t")
+        for piece in ("Here ", "are ", "your files."):
+            pump.on_llm_new_token(piece)
+        result = AIMessage(content="Here are your files.")
+        assert cg._flush_unstreamed_answer(pump, result, "stream-t") is False
+        assert len([p for kind, p in events if kind == "message.agent.chunk"]) == 3
+    finally:
+        cg.event_bus.emit = original
+
+
+def test_reasoning_only_stream_still_flushes_the_answer():
+    """A reasoning-content stream with a buffered answer must flush the text:
+    the transcript paints the ANSWER, not just the Thinking block."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs import chat_graph as cg
+
+    class _Chunk:
+        additional_kwargs = {"reasoning_content": "thinking..."}
+
+    events: list[tuple[str, dict]] = []
+    original = cg.event_bus.emit
+    cg.event_bus.emit = lambda kind, payload=None: (
+        events.append((kind, payload or {})), original(kind, payload))[1]
+    try:
+        pump = cg._AgentTokenPump("reasoning-t")
+        pump.on_llm_new_token("", chunk=_Chunk())
+        assert pump.text_chars == 0, "reasoning must not count as answer text"
+        result = AIMessage(content="The actual answer.")
+        assert cg._flush_unstreamed_answer(pump, result, "reasoning-t") is True
+        chunks = [p for kind, p in events if kind == "message.agent.chunk"]
+        assert chunks and chunks[0]["chunk"] == "The actual answer."
+    finally:
+        cg.event_bus.emit = original

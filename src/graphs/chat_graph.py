@@ -1449,6 +1449,45 @@ def _mark_auth_dead(provider: str, model: str, exc: BaseException) -> bool:
 from langchain_core.callbacks import BaseCallbackHandler
 
 
+def _result_answer_text(result: Any) -> str:
+    """The answer text of an AIMessage-ish result (str content, or a content
+    block list's text parts). Tolerant by design — diagnostics never raise."""
+    content = getattr(result, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "".join(parts)
+    return ""
+
+
+def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: str) -> bool:
+    """Hermes transport discipline: the transcript must show the answer
+    regardless of how the endpoint delivered it. An endpoint that buffered
+    the whole completion (field 2026-09-06: 14s answer, zero chunks, EMPTY
+    transcript) emits no token events, so the text rode no frame at all.
+    Flush the full answer as ONE chunk frame on the exact streaming path —
+    never when any answer text already streamed (duplication guard)."""
+    if pump.text_chars > 0:
+        return False
+    text = _result_answer_text(result)
+    if not text.strip():
+        return False
+    try:
+        event_bus.emit("message.agent.chunk", {
+            "chunk": text,
+            "thread_id": thread_id,
+        })
+        return True
+    except Exception:
+        return False  # a dead bus must not kill a live turn
+
+
 class _AgentTokenPump(BaseCallbackHandler):
     """Forward the agent node's tokens to the event bus as live deltas.
 
@@ -1480,6 +1519,12 @@ class _AgentTokenPump(BaseCallbackHandler):
         self.first_token_s: float | None = None
         self.token_count = 0
         self.char_count = 0
+        # Answer-text chars only (reasoning excluded): a buffered endpoint
+        # leaves this at 0, which is the flush signal in
+        # _invoke_with_token_pump (field 2026-09-06: a 14s answer painted
+        # NOTHING because the endpoint buffered the whole completion —
+        # text reached the transcript only via streamed chunks).
+        self.text_chars = 0
 
     def _emit_reasoning(self, piece: str) -> None:
         """Forward a reasoning delta as the ACCUMULATED text.
@@ -1544,6 +1589,7 @@ class _AgentTokenPump(BaseCallbackHandler):
         if not piece:
             return
         self.streamed = True
+        self.text_chars += len(piece)
         self._mark(piece)
         try:
             event_bus.emit("message.agent.chunk", {
@@ -1600,8 +1646,11 @@ def _invoke_with_token_pump(
                 flush=True,
             )
         else:
+            flushed = _flush_unstreamed_answer(pump, result, thread_id)
+            note = " — answer flushed to the UI as one frame" if flushed else ""
             print(
-                f"[ai_node] {route} answered in {total:.1f}s (non-streaming response)",
+                f"[ai_node] {route} answered in {total:.1f}s "
+                f"(non-streaming response{note})",
                 flush=True,
             )
     except Exception:
