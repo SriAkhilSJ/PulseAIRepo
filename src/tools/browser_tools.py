@@ -28,13 +28,26 @@ NOT ported (hermes has them; pulse lacks the plumbing — stated, not
 silently dropped): browser_vision (needs an aux vision-model call — pulse
 has no image-carrying message pipeline yet), cloud providers
 (Browserbase/browser-use), Camofox, CDP supervisor, Lightpanda engine
-fallback, real-profile Chrome, session recording. The SSRF page-guard is
+fallback, real-profile Chrome. The SSRF page-guard is
 a cloud-mode protection in hermes and fails open for local backends; the
 local floors (secret URLs, metadata endpoints) ARE kept.
 
 Replaces browser_mcp.py (puppeteer-MCP lab backend with a hardcoded
 Administrator-path server directory — never hermes' implementation, and
 unspawnable on any machine but the lab's).
+
+There are exactly TWO window options — headed or headless — picked by env,
+read PER CALL (standing rule):
+    PULSEAI_BROWSER_HEADED = headed | on | true | 1 | yes    -> visible window
+    PULSEAI_BROWSER_HEADED = headless | off | false | 0 | no -> no window
+Unset falls back to hermes' own knob (AGENT_BROWSER_HEADED=true|1|yes,
+hermes browser_tool_cloud._is_headed_mode), then to the pulse default
+HEADED. Hermes' own default is headless; PULSEAI_BROWSER_HEADED=headless
+restores it. An unrecognized value states itself on stderr once and takes
+the default — a silent typo must not silently flip the owner's
+visible-testing posture. PULSEAI_BROWSER_RECORD uses the same word
+families (on/off), default ON (hermes browser.record_sessions, default
+off, _maybe_start_recording).
 
 `PULSEAI_AGENT_BROWSER` — explicit path override for the CLI, read PER
 CALL (standing rule). `PULSEAI_BROWSER_INACTIVITY_TIMEOUT` — session idle
@@ -224,18 +237,40 @@ def _inactivity_timeout_s() -> int:
 # ---------------------------------------------------------------------------
 # Visible testing — hermes headed flag + record start/stop, owner-defaulted on
 # ---------------------------------------------------------------------------
-_ON_WORDS = {"on", "1", "true", "yes", "enabled"}
-_OFF_WORDS = {"off", "0", "false", "no", "disabled"}
+_ON_WORDS = {"headed", "on", "1", "true", "yes", "enabled"}
+_OFF_WORDS = {"headless", "off", "0", "false", "no", "disabled"}
+# hermes' own env knob (browser_tool_cloud._is_headed_mode): only turns ON —
+# hermes computes `config OR env in (true,1,yes)` with default False.
+_HERMES_HEADED_WORDS = {"true", "1", "yes"}
+_unrecognized_headed_warned: set[str] = set()
 
 
 def headed_mode() -> bool:
-    """hermes browser_tool_cloud._is_headed_mode, env-shaped: the browser
-    window opens VISIBLE by default (owner 2026-09-07: 'in front of users
-    eyes'); PULSEAI_BROWSER_HEADED=off restores hermes' headless default."""
+    """The window option — headed (visible) or headless — from env.
+
+    PULSEAI_BROWSER_HEADED accepts the two option names and their on/off
+    aliases (module docstring table). Unset -> hermes' AGENT_BROWSER_HEADED
+    (true/1/yes). Unset there too -> pulse default HEADED (owner 2026-09-07:
+    'in front of users eyes'); PULSEAI_BROWSER_HEADED=headless restores
+    hermes' headless posture. An unrecognized value is stated once on
+    stderr and takes the default."""
     raw = os.environ.get("PULSEAI_BROWSER_HEADED", "").strip().lower()
-    if raw in _OFF_WORDS:
-        return False
-    if raw in _ON_WORDS:
+    if raw:
+        if raw in _OFF_WORDS:
+            return False
+        if raw in _ON_WORDS:
+            return True
+        if raw not in _unrecognized_headed_warned:
+            _unrecognized_headed_warned.add(raw)
+            print(
+                f"[browser] PULSEAI_BROWSER_HEADED={raw!r} is not a window "
+                "option (headed|headless, on|off, true|false, 1|0, yes|no) "
+                "— using the default (headed).",
+                flush=True,
+            )
+        return True
+    hermes_raw = os.environ.get("AGENT_BROWSER_HEADED", "").strip().lower()
+    if hermes_raw in _HERMES_HEADED_WORDS:
         return True
     return True
 

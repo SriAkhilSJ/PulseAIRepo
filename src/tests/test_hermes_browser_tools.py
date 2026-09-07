@@ -553,3 +553,46 @@ def test_cmd_dialect_block_names_temp_and_backgrounding_truth():
     assert "%TEMP%" in hints
     assert "start_terminal" in hints
     assert "`( cmd & )`" in hints
+
+
+def test_window_option_is_two_valued_exactly_as_hermes_shapes_it(monkeypatch):
+    """Owner 2026-09-07: 'two options headed and headless — env like on or
+    off'. Both option names and the on/off families resolve; off wins as an
+    explicit value, not as an absence."""
+    for on_value in ("headed", "on", "true", "1", "yes"):
+        monkeypatch.setenv("PULSEAI_BROWSER_HEADED", on_value)
+        assert bt.headed_mode() is True, on_value
+        assert "--headed" in bt.build_session_args("s")
+    for off_value in ("headless", "off", "false", "0", "no"):
+        monkeypatch.setenv("PULSEAI_BROWSER_HEADED", off_value)
+        assert bt.headed_mode() is False, off_value
+        assert "--headed" not in bt.build_session_args("s")
+
+
+def test_hermes_env_knob_aliases_in(monkeypatch):
+    """Unset PULSEAI_BROWSER_HEADED falls back to hermes' own knob
+    (AGENT_BROWSER_HEADED=true|1|yes — hermes browser_tool_cloud)."""
+    monkeypatch.delenv("PULSEAI_BROWSER_HEADED", raising=False)
+    monkeypatch.setenv("AGENT_BROWSER_HEADED", "1")
+    assert bt.headed_mode() is True
+    # hermes' env never turns OFF: any other value falls to the pulse default
+    monkeypatch.setenv("AGENT_BROWSER_HEADED", "garbage")
+    assert bt.headed_mode() is True
+
+
+def test_pulse_knob_beats_hermes_knob(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_HEADED", "headless")
+    monkeypatch.setenv("AGENT_BROWSER_HEADED", "true")
+    assert bt.headed_mode() is False
+
+
+def test_unrecognized_value_defaults_headed_and_states_itself(monkeypatch, capsys):
+    monkeypatch.setenv("PULSEAI_BROWSER_HEADED", "sorta-visible")
+    assert bt.headed_mode() is True  # owner posture survives a typo
+    bt.headed_mode()
+    out = capsys.readouterr().out
+    assert "PULSEAI_BROWSER_HEADED='sorta-visible'" in out
+    assert "headed|headless" in out
+    # stated ONCE (hermes warn-once discipline, hermes_cli.plugin_compat)
+    bt.headed_mode()
+    assert capsys.readouterr().out.count("sorta-visible") == 0
