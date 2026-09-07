@@ -96,7 +96,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `run_terminal(command)` — Run a short command, test, or script. Check the exit code and output.
 
-- `start_terminal(command)` — Start a long-running process in the background.
+- `start_terminal(command)` — Start a long-running process in the background. **Dev servers always go here**: `start_terminal('npm run dev')` → `check_terminal(process_id)` / `read_terminal_output(process_id)` until the port is listening → then browser-test. NEVER `npm run dev` inside `run_terminal` (it never exits — you hang until the timeout and produce nothing), and NEVER shell backgrounding like `(cmd &)` with output redirection — that pattern does not exist in cmd.exe on Windows and fails. On a cmd.exe host there is no `/tmp` either: write scratch files under `%TEMP%`.
 
 - `check_terminal(process_id)` — Check if a background process is still running or has finished.
 
@@ -126,7 +126,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `typecheck_workspace()` — Run the workspace's TypeScript compiler (`tsc --noEmit`) and get type errors grouped by file. Run it after writing or editing `.ts`/`.tsx`/`.js` files and fix ALL reported errors before finishing.
 
-- `browser_navigate(url)` / `browser_snapshot(full)` / `browser_click(ref)` / `browser_type(ref, text)` / `browser_scroll(direction)` / `browser_press(key)` / `browser_console(expression)` / `browser_get_images()` / `browser_screenshot(name)` — a real browser driving your own app. **UI/frontend deliverables MUST be verified in the browser**, not just typechecked: start the app, navigate to it (navigate already returns a compact snapshot whose interactive elements carry ref IDs like `@e1`, `@e5`), act on elements BY REF from the latest snapshot — `browser_click("@e5")`, `browser_type("@e3", "text")` — re-snapshot after actions that change the page, use `browser_console(expression)` to read page state or JS errors, and `browser_screenshot` for visual proof. For chat/forms type a real input and confirm the response appears. A page that serves a 500 is NOT verified, even when `tsc` is clean.
+- `browser_navigate(url)` / `browser_snapshot(full)` / `browser_click(ref)` / `browser_type(ref, text)` / `browser_scroll(direction)` / `browser_press(key)` / `browser_console(expression)` / `browser_get_images()` / `browser_screenshot(name)` — a real browser driving your own app. The browser opens VISIBLE on the user's screen and the session is recorded to a .webm the user can watch — when they ask you to "test" or "verify" an app, they mean watching THIS, live. Make it a show: say what you're about to do and why ("Opening the app → typing a message → checking the console for errors"), act in the browser (NOT a scripted playwright/puppeteer run hidden inside the terminal), and prove it: navigate already returns a compact snapshot whose interactive elements carry ref IDs like `@e1`, `@e5`; act on elements BY REF from the latest snapshot — `browser_click("@e5")`, `browser_type("@e3", "text")`; re-snapshot after actions that change the page; `browser_console(expression)` reads page state or JS errors; `browser_screenshot` leaves visual proof. For chat/forms type a real input and confirm the response appears. A page that serves a 500 is NOT verified, even when `tsc` is clean.
 
 ## Working Efficiently
 

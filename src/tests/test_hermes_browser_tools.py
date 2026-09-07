@@ -28,11 +28,18 @@ HERMES_BROWSER_NAMES = [
 
 @pytest.fixture(autouse=True)
 def _fresh_resolution_state(monkeypatch):
-    """Every test starts with cold CLI resolution and no env override."""
+    """Every test starts with cold CLI resolution and no env override.
+    Recording defaults OFF for this module (navigate-mechanics tests must
+    stay orthogonal); the visible-testing tests re-enable it explicitly."""
     bt.invalidate_cli_cache()
     monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "off")
+    with bt._recording_lock:
+        bt._RECORDING_SESSIONS.clear()
     yield
     bt.invalidate_cli_cache()
+    with bt._recording_lock:
+        bt._RECORDING_SESSIONS.clear()
 
 
 def _cfg(thread: str = "t1", workspace: str = ".") -> dict:
@@ -403,3 +410,146 @@ def test_verify_pipeline_reads_the_hermes_backend_only():
     assert 'from src.tools.browser_tools import' in source
     # hermes eval surface: expression goes through browser_console
     assert '"expression"' in source
+
+
+# ---------------------------------------------------------------------------
+# Visible testing — hermes headed flag + record start/stop (owner 2026-09-07:
+# Antigravity-style, "in front of users eyes")
+# ---------------------------------------------------------------------------
+
+def test_headed_defaults_on_and_flag_rides_the_session_args():
+    # owner default: visible window; hermes knob shape, pulse default
+    assert bt.headed_mode() is True
+    args = bt.build_session_args("pulseai-t")
+    assert args == ["--session", "pulseai-t", "--headed"]
+
+
+def test_headed_env_off_restores_hermes_posture(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_HEADED", "off")
+    assert bt.headed_mode() is False
+    assert bt.build_session_args("pulseai-t") == ["--session", "pulseai-t"]
+
+
+def test_recording_starts_once_per_session_and_announces_path(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    commands: list[tuple[str, list[str]]] = []
+
+    def fake_run(session, command, args=None, timeout=None):
+        commands.append((command, list(args or [])))
+        if command == "record":
+            return {"success": True, "data": {}}
+        if command == "open":
+            return {"success": True, "data": {"title": "App", "url": "http://localhost:3000"}}
+        return {"success": True, "data": {"snapshot": "[button] Send @e1", "refs": {"e1": {}}}}
+
+    monkeypatch.setattr(bt, "run_browser_command", fake_run)
+    out = json.loads(bt.browser_navigate.invoke({"url": "http://localhost:3000"}, config=_cfg()))
+    assert out["success"] is True
+    # record start BEFORE open (hermes :731 order), .webm target named
+    assert commands[0][0] == "record" and commands[0][1][0] == "start"
+    assert commands[0][1][1].endswith(".webm")
+    assert commands[1] == ("open", ["http://localhost:3000"])
+    # the receipt is user-visible on the navigate card
+    assert "recording" in out and out["recording"].endswith(".webm")
+    # second navigate in the same session: no second `record start`
+    bt.browser_navigate.invoke({"url": "http://localhost:3000/other"}, config=_cfg())
+    starts = [c for c, a in commands if c == "record" and a and a[0] == "start"]
+    assert len(starts) == 1  # hermes _recording_sessions guard
+
+
+def test_recording_off_restores_hermes_posture(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "off")
+    seen: list[str] = []
+
+    def fake_run(session, command, args=None, timeout=None):
+        seen.append(command)
+        return {"success": True, "data": {"title": "App", "url": "http://localhost:3000"}}
+
+    monkeypatch.setattr(bt, "run_browser_command", fake_run)
+    out = json.loads(bt.browser_navigate.invoke({"url": "http://localhost:3000"}, config=_cfg()))
+    assert "record" not in seen
+    assert "recording" not in out
+
+
+def test_stop_recording_saves_webm_and_clears_state(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    monkeypatch.setattr(bt, "run_browser_command", lambda s, c, a=None, timeout=None: (
+        {"success": True, "data": {}} if c == "record" and a[0] == "start"
+        else {"success": True, "data": {"path": "C:\\recordings\\session.webm"}}
+        if c == "record" else {"success": True, "data": {}}))
+    assert bt.maybe_start_recording("pulseai-t1") is not None
+    saved = bt.stop_browser_recording("pulseai-t1")
+    assert saved == "C:\\recordings\\session.webm"
+    # state cleared: a second stop is a no-op (hermes discard-in-finally shape)
+    assert bt.stop_browser_recording("pulseai-t1") is None
+
+
+def test_stop_for_thread_maps_thread_to_session(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    seen: dict = {}
+
+    def fake_run(session, command, args=None, timeout=None):
+        seen["session"] = session
+        if command == "record" and a0(args) == "start":
+            return {"success": True, "data": {}}
+        return {"success": True, "data": {"path": "r.webm"}}
+
+    def a0(args):
+        return (args or [""])[0]
+
+    monkeypatch.setattr(bt, "run_browser_command", fake_run)
+    bt.maybe_start_recording(bt._session_name("turn-9"))
+    assert bt.stop_browser_recording_for_thread("turn-9") == "r.webm"
+    assert seen["session"] == "pulseai-turn-9"
+
+
+def test_record_failure_never_blocks_navigation(monkeypatch):
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    def fake_run(session, command, args=None, timeout=None):
+        if command == "record":
+            return {"success": False, "error": "recording unsupported"}
+        if command == "open":
+            return {"success": True, "data": {"title": "App", "url": "http://localhost:3000"}}
+        return {"success": True, "data": {"snapshot": "s", "refs": {}}}
+
+    monkeypatch.setattr(bt, "run_browser_command", fake_run)
+    out = json.loads(bt.browser_navigate.invoke({"url": "http://localhost:3000"}, config=_cfg()))
+    assert out["success"] is True and "recording" not in out  # hermes: debug noise only
+
+
+def test_navigate_description_teaches_visible_testing_over_terminal_scripts():
+    navigate = next(t for t in BROWSER_TOOLS if t.name == "browser_navigate")
+    assert "VISIBLE" in navigate.description
+    assert "recorded" in navigate.description
+    assert "playwright" in navigate.description.lower()
+
+
+def test_persona_and_turn_end_teach_pin_the_visible_loop():
+    """Architecture pin: the visible-testing loop is taught in the persona, the
+    dev-server recipe names start_terminal (the field fumble), and chat_graph
+    saves the recording at turn end (hermes save-before-close position)."""
+    import src.prompts.claude_persona as persona
+    import src.graphs.chat_graph as cg
+    p_src = Path(persona.__file__).read_text(encoding="utf-8")
+    g_src = Path(cg.__file__).read_text(encoding="utf-8")
+    assert "VISIBLE on the user's screen" in p_src
+    assert "start_terminal" in p_src and "NEVER `npm run dev` inside" in p_src
+    assert "stop_browser_recording_for_thread" in g_src
+
+
+def test_cmd_dialect_block_names_temp_and_backgrounding_truth():
+    """Field fumble 2026-09-07: `/tmp/next_dev.log` and `( cmd & )` were emitted
+    on a cmd.exe host. The env block must state both truths."""
+    from src.prompts.hermes import environment as env
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(env, "is_windows", lambda: True)
+    try:
+        monkeypatch.setattr(
+            "src.runtime.windows_shell.windows_bash_available", lambda: False)
+        hints = env.build_environment_hints(cwd=None)
+    finally:
+        monkeypatch.undo()
+    assert "%TEMP%" in hints
+    assert "start_terminal" in hints
+    assert "`( cmd & )`" in hints

@@ -4307,6 +4307,17 @@ def stream_agent(
                             })
 
         print("[turn] stream loop ended", flush=True)
+        # hermes saves the browser recording in cleanup_browser ("saves the
+        # file before close"); the turn end is pulse's closest equivalent —
+        # the .webm is the visible-testing artifact (owner 2026-09-07,
+        # Antigravity-style walkthroughs). Best-effort: never blocks idle.
+        try:
+            from src.tools.browser_tools import stop_browser_recording_for_thread
+            _saved = stop_browser_recording_for_thread(thread_id)
+            if _saved:
+                print(f"[turn] browser recording saved: {_saved}", flush=True)
+        except Exception as _rec_exc:
+            print(f"[turn] browser recording save skipped: {type(_rec_exc).__name__}: {_rec_exc}", flush=True)
         event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # D38: post-run bounded background self-curation (memory review on the
         # aux model). Never blocks the response — state is snapshotted from the

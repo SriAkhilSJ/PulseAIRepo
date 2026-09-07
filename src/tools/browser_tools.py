@@ -50,6 +50,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -220,6 +221,93 @@ def _inactivity_timeout_s() -> int:
     return max(val, _MIN_INACTIVITY_S)
 
 
+# ---------------------------------------------------------------------------
+# Visible testing — hermes headed flag + record start/stop, owner-defaulted on
+# ---------------------------------------------------------------------------
+_ON_WORDS = {"on", "1", "true", "yes", "enabled"}
+_OFF_WORDS = {"off", "0", "false", "no", "disabled"}
+
+
+def headed_mode() -> bool:
+    """hermes browser_tool_cloud._is_headed_mode, env-shaped: the browser
+    window opens VISIBLE by default (owner 2026-09-07: 'in front of users
+    eyes'); PULSEAI_BROWSER_HEADED=off restores hermes' headless default."""
+    raw = os.environ.get("PULSEAI_BROWSER_HEADED", "").strip().lower()
+    if raw in _OFF_WORDS:
+        return False
+    if raw in _ON_WORDS:
+        return True
+    return True
+
+
+_recording_lock = threading.Lock()
+_RECORDING_SESSIONS: set[str] = set()  # hermes _recording_sessions shape
+
+
+def recording_enabled() -> bool:
+    """hermes gates on browser.record_sessions (default False); pulse defaults
+    ON per the owner's visible-testing direction. PULSEAI_BROWSER_RECORD=off
+    restores hermes' posture."""
+    raw = os.environ.get("PULSEAI_BROWSER_RECORD", "").strip().lower()
+    if raw in _OFF_WORDS:
+        return False
+    if raw in _ON_WORDS:
+        return True
+    return True
+
+
+def recordings_dir() -> Path:
+    """hermes: <hermes_home>/browser_recordings, cleaned at 72h. Pulse: under
+    the home dot-dir, with an env override for desktop installs."""
+    override = os.environ.get("PULSEAI_BROWSER_RECORDINGS_DIR", "").strip()
+    base = Path(override) if override else Path.home() / ".pulseai" / "browser_recordings"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _recording_path(session: str) -> Path:
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    return recordings_dir() / f"session_{stamp}_{session[-16:]}.webm"
+
+
+def maybe_start_recording(session: str) -> Optional[str]:
+    """hermes _maybe_start_recording: `record start <path>` once per session,
+    first navigate; failures are debug noise, never tool errors."""
+    with _recording_lock:
+        if session in _RECORDING_SESSIONS:
+            return None
+    if not recording_enabled():
+        return None
+    path = _recording_path(session)
+    result = run_browser_command(session, "record", ["start", str(path)])
+    if not result.get("success"):
+        return None
+    with _recording_lock:
+        _RECORDING_SESSIONS.add(session)
+    return str(path)
+
+
+def stop_browser_recording(session: str) -> Optional[str]:
+    """hermes _maybe_stop_recording: `record stop`, save the .webm, return the
+    saved path (None when nothing was recording)."""
+    with _recording_lock:
+        if session not in _RECORDING_SESSIONS:
+            return None
+    result = run_browser_command(session, "record", ["stop"])
+    with _recording_lock:
+        _RECORDING_SESSIONS.discard(session)
+    if not result.get("success"):
+        return None
+    return str((result.get("data", {}) or {}).get("path", "")) or None
+
+
+def stop_browser_recording_for_thread(thread_id: str) -> Optional[str]:
+    """Turn-end hook (chat_graph): save the recording for this turn's session.
+    hermes stops in cleanup_browser ('saves the file before close'); the turn
+    end is pulse's closest equivalent of session close."""
+    return stop_browser_recording(_session_name(thread_id))
+
+
 def _command_env(session_name: str) -> Dict[str, str]:
     env = dict(os.environ)
     env["AGENT_BROWSER_SOCKET_DIR"] = _session_socket_dir(session_name)
@@ -239,6 +327,16 @@ def _open_timeout(*, first_open: bool) -> int:
     generic timeout on slow hosts (hermes MIN_OPEN_TIMEOUT family)."""
     base = _command_timeout()
     return max(base, MIN_FIRST_OPEN_TIMEOUT if first_open else MIN_OPEN_TIMEOUT)
+
+
+def build_session_args(session: str) -> List[str]:
+    """hermes browser_tool_session (:589-591): local sessions ride
+    `--session <name>`, plus `--headed` when the window should be visible
+    (hermes _is_headed_mode; pulse default ON — owner visible-testing)."""
+    backend_args = ["--session", session]
+    if headed_mode():
+        backend_args.append("--headed")
+    return backend_args
 
 
 def _interpret_output(command: str, stdout: str, stderr: str, returncode: int) -> Dict[str, Any]:
@@ -280,7 +378,7 @@ def run_browser_command(
         return {"success": False, "error": str(exc)}
     cmd_parts = [
         *_agent_browser_argv(browser_cmd),
-        "--session", session, "--json", command, *args,
+        *build_session_args(session), "--json", command, *args,
     ]
     try:
         proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -384,11 +482,12 @@ def _session_from_config(config: RunnableConfig) -> str:
 # ---------------------------------------------------------------------------
 @tool
 def browser_navigate(url: str, config: RunnableConfig = None) -> str:
-    """Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. For simple information retrieval, prefer web_search or web_fetch (faster, cheaper). For plain-text endpoints — URLs ending in .md, .txt, .json, .yaml, .yml, .csv, .xml, raw.githubusercontent.com, or any documented API endpoint — prefer curl via the terminal tool or web_fetch; the browser stack is overkill and much slower for these. Use browser tools when you need to interact with a page (click, fill forms, dynamic content) or to verify that a web app you built actually renders and works. Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating."""
+    """Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. The browser opens VISIBLE on the user's screen and the session is recorded to a .webm — when the user asks to 'test', 'verify', or 'try' an app, THIS is what they want to watch: these browser tools, live, not a scripted playwright/puppeteer run hidden inside the terminal. For simple information retrieval, prefer web_search or web_fetch (faster, cheaper). For plain-text endpoints — URLs ending in .md, .txt, .json, .yaml, .yml, .csv, .xml, raw.githubusercontent.com, or any documented API endpoint — prefer curl via the terminal tool or web_fetch; the browser stack is overkill and much slower for these. Use browser tools when you need to interact with a page (click, fill forms, dynamic content) or to verify that a web app you built actually renders and works. Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating."""
     session = _session_from_config(config)
     policy_error = _url_policy_error(url)
     if policy_error is not None:
         return _dumps(policy_error)
+    recording_path = maybe_start_recording(session)
     result = run_browser_command(session, "open", [url], timeout=_open_timeout(first_open=True))
     if not result.get("success"):
         return _failed_response(result, "Navigation failed")
@@ -400,6 +499,10 @@ def browser_navigate(url: str, config: RunnableConfig = None) -> str:
         run_browser_command(session, "open", ["about:blank"], timeout=10)
         return _dumps(redirect_block)
     response: Dict[str, Any] = {"success": True, "url": final_url, "title": title}
+    if recording_path:
+        # The receipt is the show: the user can watch the window now and the
+        # .webm afterwards; the model can name it in its report.
+        response["recording"] = recording_path
     title_lower = (title or "").lower()
     if any(pattern in title_lower for pattern in _BOT_DETECTION_TITLE_PATTERNS):
         response["bot_detection_warning"] = (

@@ -136,8 +136,10 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
                 "equivalents (dir, findstr, type). PowerShell cmdlets "
                 "(Get-ChildItem, Select-Object) are NOT commands here either: "
                 "cmd.exe cannot run them — prefix real PowerShell with "
-                "`powershell -NoProfile -Command \"...\"`. Do not emit a "
-                "shape the shell cannot run."
+                "`powershell -NoProfile -Command \"...\"`. Shell backgrounding "
+                "(`( cmd & )`) and `/tmp` do not exist here either: long-running "
+                "processes go through the start_terminal tool, and scratch "
+                "files go under %TEMP%. Do not emit a shape the shell cannot run."
             )
     elif _is_wsl():
         parts.append(
