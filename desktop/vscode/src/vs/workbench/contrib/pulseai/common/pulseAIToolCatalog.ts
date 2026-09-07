@@ -69,14 +69,19 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 	web_search: tool('Search web', 'web', 'search'),
 	web_fetch: tool('Fetch page', 'web', 'globe'),
 
+	// The hermes browser surface (src/tools/browser_tools.py). The retired
+	// puppeteer-era entries (hover/select/evaluate) are gone; console carries
+	// the eval-expression surface now.
 	browser_navigate: tool('Navigate', 'browser', 'globe', 'running'),
 	browser_snapshot: tool('Browser snapshot', 'browser', 'globe'),
 	browser_screenshot: tool('Screenshot', 'browser', 'file-media'),
 	browser_click: tool('Click', 'browser', 'globe'),
 	browser_type: tool('Type', 'browser', 'globe'),
-	browser_hover: tool('Hover', 'browser', 'globe'),
-	browser_select: tool('Select', 'browser', 'globe'),
-	browser_evaluate: tool('Evaluate in browser', 'browser', 'globe'),
+	browser_scroll: tool('Scroll', 'browser', 'globe'),
+	browser_back: tool('Browser back', 'browser', 'globe'),
+	browser_press: tool('Press key', 'browser', 'globe'),
+	browser_console: tool('Browser console', 'browser', 'globe'),
+	browser_get_images: tool('Get images', 'browser', 'file-media'),
 
 	delegate_to_subagent: tool('Delegate', 'subagent', 'rocket', 'running'),
 	delegate_to_subagent_batch: tool('Delegate batch', 'subagent', 'rocket', 'running'),

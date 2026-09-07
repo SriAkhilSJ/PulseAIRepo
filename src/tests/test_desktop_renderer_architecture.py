@@ -493,3 +493,17 @@ def test_raw_tool_call_markup_collapses_never_paints_as_prose():
     css = _text("browser", "media", "pulseAI.css")
     assert ".pulseai-raw-call" in css
     assert "var(--vscode-panel-border" in css
+
+
+def test_tool_catalog_carries_the_full_hermes_browser_surface():
+    """UI setup check: every hermes browser tool gets a browser-family card;
+    the retired puppeteer-era ghosts must not return."""
+    catalog = _text("common", "pulseAIToolCatalog.ts")
+    for name in (
+        "browser_navigate", "browser_snapshot", "browser_screenshot",
+        "browser_click", "browser_type", "browser_scroll", "browser_back",
+        "browser_press", "browser_console", "browser_get_images",
+    ):
+        assert f"{name}: tool(" in catalog, name
+    for ghost in ("browser_hover", "browser_select", "browser_evaluate"):
+        assert f"{ghost}: tool(" not in catalog, ghost
