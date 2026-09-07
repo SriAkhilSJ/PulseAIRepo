@@ -664,3 +664,45 @@ def test_full_snapshot_stores_under_the_pulse_home_for_read_file_paging(monkeypa
     stored = fake_home / ".pulseai" / "browser" / "snapshots" / "last-full-snapshot.txt"
     assert stored.exists()
     assert "read_file" in fields["snapshot"]
+
+
+# ---------------------------------------------------------------------------
+# Navigate URL normalization — hermes' normalize step position; the pulse
+# field shapes Chrome silently blanks (bare host:port, Windows paths)
+# ---------------------------------------------------------------------------
+
+def test_normalize_repairs_the_field_url_shapes(monkeypatch):
+    n = bt.normalize_browser_url
+    # platform-neutral repairs
+    assert n("localhost:3000") == "http://localhost:3000"
+    assert n("127.0.0.1:8080") == "http://127.0.0.1:8080"
+    assert n("example.com") == "http://example.com"
+    assert n("example.com/app") == "http://example.com/app"
+    assert n("https://example.com") == "https://example.com"
+    assert n("https:// docs.example") == "https://docs.example"  # hermes' repair
+    assert n("about:blank") == "about:blank"
+    # drive repairs are Windows-only (on POSIX, /d/app is a real path)
+    monkeypatch.setattr(bt.os, "name", "nt")
+    assert n("d:\\TestPulseAI\\app\\index.html") == "file:///d:/TestPulseAI/app/index.html"
+    assert n("D:/TestPulseAI/app/index.html") == "file:///d:/TestPulseAI/app/index.html"
+    assert n("/d/TestPulseAI/app/index.html") == "file:///d:/TestPulseAI/app/index.html"
+    monkeypatch.setattr(bt.os, "name", "posix")
+    assert n("/d/TestPulseAI/app/index.html") == "/d/TestPulseAI/app/index.html"
+
+
+def test_navigate_runs_the_normalize_before_open(monkeypatch):
+    captured: dict = {}
+
+    def fake_run(session, command, args=None, timeout=None):
+        if command == "record":
+            return {"success": False, "error": "off"}  # recording off path
+        if command == "open":
+            captured["url"] = (args or [""])[0]
+            return {"success": True, "data": {"title": "t", "url": captured["url"]}}
+        return {"success": True, "data": {"snapshot": "s", "refs": {}}}
+
+    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "off")
+    monkeypatch.setattr(bt, "run_browser_command", fake_run)
+    out = json.loads(bt.browser_navigate.invoke({"url": "localhost:3000"}, config=_cfg()))
+    assert captured["url"] == "http://localhost:3000"
+    assert out["url"] == "http://localhost:3000"

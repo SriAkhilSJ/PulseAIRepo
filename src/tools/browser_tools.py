@@ -502,6 +502,36 @@ def _url_policy_error(url: str) -> Optional[Dict[str, Any]]:
     return _secret_url_error(url) or _always_blocked_url_error(url)
 
 
+# hermes runs a normalize step on every navigate URL (url_safety.
+# normalize_url_for_request — whitespace repair, IRI->URI). Pulse's field
+# adds two model-emitted shapes that Chrome silently blanks: a bare
+# host:port ("localhost:3000" parses as scheme "localhost:") and Windows
+# paths ("d:\app\index.html", git-bash "/d/app/index.html"). Same
+# position, same purpose — repair the input, never guess at intent.
+def normalize_browser_url(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return raw
+    # hermes: repair model-emitted whitespace after the scheme separator
+    raw = re.sub(r"^([A-Za-z][A-Za-z0-9+.-]*://)\s+", r"\1", raw)
+    if "://" in raw:
+        return raw  # has a scheme (https://, file://, about:) — pass through
+    # Windows host only: on POSIX, /d/app is a real path, not a drive.
+    if os.name == "nt":
+        # git-bash absolute path: /d/app/index.html -> file:///d:/app/index.html
+        m = re.match(r"^/([a-z])/(.+)$", raw, re.IGNORECASE)
+        if m:
+            return f"file:///{m.group(1).lower()}:/{m.group(2)}"
+    # Windows drive path: d:\app\index.html or d:/app/index.html
+        m = re.match(r"^([a-z]):[/\\](.+)$", raw, re.IGNORECASE)
+        if m:
+            return f"file:///{m.group(1).lower()}:/{m.group(2).replace(chr(92), '/')}"
+    # bare host[:port][/path] -> http://
+    if re.match(r"^[a-z0-9][a-z0-9.-]*(:\d+)?(/.*)?$", raw, re.IGNORECASE):
+        return f"http://{raw}"
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # Shared response shaping — hermes browser_tool
 # ---------------------------------------------------------------------------
@@ -573,6 +603,7 @@ def _session_from_config(config: RunnableConfig) -> str:
 def browser_navigate(url: str, config: RunnableConfig = None) -> str:
     """Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. The browser opens VISIBLE on the user's screen and the session is recorded to a .webm — when the user asks to 'test', 'verify', or 'try' an app, THIS is what they want to watch: these browser tools, live, not a scripted playwright/puppeteer run hidden inside the terminal. For simple information retrieval, prefer web_search or web_fetch (faster, cheaper). For plain-text endpoints — URLs ending in .md, .txt, .json, .yaml, .yml, .csv, .xml, raw.githubusercontent.com, or any documented API endpoint — prefer curl via the terminal tool or web_fetch; the browser stack is overkill and much slower for these. Use browser tools when you need to interact with a page (click, fill forms, dynamic content) or to verify that a web app you built actually renders and works. Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating."""
     session = _session_from_config(config)
+    url = normalize_browser_url(url)
     policy_error = _url_policy_error(url)
     if policy_error is not None:
         return _dumps(policy_error)
