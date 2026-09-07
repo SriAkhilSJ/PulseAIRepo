@@ -554,6 +554,9 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             "web_search", "web_fetch",
             "verify_ui_workspace", "verify_ui_routes",
             "display_pulse_task",
+            # The agent's eyes — hermes never hides browser tools, and an
+            # autonomous build that cannot watch its own app is blind.
+            *(t.name for t in BROWSER_TOOLS),
         }
         names = [name for name in names if name in autonomous_tools]
     # A verifier with no project cannot produce evidence. Hiding it is stronger
@@ -565,9 +568,16 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         names = [name for name in names if name != "typecheck_workspace"]
     resolved_names = list(names)
 
-    from src.runtime.execution_phases import derive_execution_phase, filter_tool_names
+    from src.runtime.execution_phases import derive_execution_phase
     phase = derive_execution_phase(dict(state))
-    names = filter_tool_names(resolved_names, phase)
+    # Hermes discipline (288-run core_tool_deferral battery, PR #97979; field
+    # proof 2026-09-07): the phase NEVER removes tools — a plan step reading
+    # "Run the build..." stripped the browser tools and todo_list mid-turn and
+    # the model reported "we cannot actually launch a browser". Phases steer
+    # through guidance (phase_guidance, below); the ONE narrowing is the
+    # per-turn capability waist above. (Keyword phases now carry allowed=None;
+    # only the state-driven phases below still bound an allowlist.)
+    names = resolved_names
     empty_autonomous_delivery = (
         autonomous
         and _requires_file_delivery(state)
