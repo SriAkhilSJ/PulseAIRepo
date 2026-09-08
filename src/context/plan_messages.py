@@ -38,61 +38,6 @@ def build_planner_messages(task: str, planner_prompt: str) -> list[BaseMessage]:
     ]
 
 
-def build_replanner_messages(
-    task: str,
-    plan: list[dict],
-    failed_steps: list[str],
-    planner_prompt: str,
-    prior_attempts: list[dict] | None = None,
-) -> list[BaseMessage]:
-    """
-    Build messages for the replanner node.
-    This includes the original task, completed work, failures,
-    and lessons from past attempts.
-    """
-    completed = [
-        step["description"]
-        for step in plan
-        if step.get("status") == "completed"
-    ]
-
-    remaining = [
-        step["description"]
-        for step in plan
-        if step.get("status") != "completed"
-    ]
-
-    lines = [
-        f"Original task:\n{task}\n",
-        "Already completed:",
-    ]
-    for step in completed:
-        lines.append(f"  - {step}")
-
-    lines.append("\nRemaining or blocked work:")
-    for step in remaining:
-        lines.append(f"  - {step}")
-
-    lines.append("\nFailures:")
-    for failure in failed_steps[-3:]:
-        lines.append(f"  - {failure}")
-
-    # Add lessons from past attempts
-    if prior_attempts:
-        lines.append("\n=== LESSONS FROM PAST ATTEMPTS ===")
-        for attempt in prior_attempts[-2:]:
-            lines.append(f"  - {attempt.get('lesson', 'No lesson recorded')}")
-
-    lines.append("\nCreate a revised plan for ONLY the remaining work.")
-    lines.append("Do not repeat completed work.")
-    lines.append("Learn from past failures and choose a different approach.")
-
-    return [
-        SystemMessage(content=wrap_planner_prompt(planner_prompt)),
-        HumanMessage(content="\n".join(lines)),
-    ]
-
-
 def build_reviser_messages(
     task: str,
     plan: list[dict],

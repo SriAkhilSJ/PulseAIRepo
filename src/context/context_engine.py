@@ -2254,19 +2254,6 @@ class ContextEngine(BaseContextEngine):
         """P10: plan_messages.build_planner_messages (planner node)."""
         return plan_messages.build_planner_messages(task, planner_prompt)
 
-    def build_replanner_messages(
-        self,
-        task: str,
-        plan: list[dict],
-        failed_steps: list[str],
-        planner_prompt: str,
-        prior_attempts: list[dict] | None = None,
-    ) -> list[BaseMessage]:
-        """P10: plan_messages.build_replanner_messages (replanner node)."""
-        return plan_messages.build_replanner_messages(
-            task, plan, failed_steps, planner_prompt, prior_attempts
-        )
-
     def build_reviser_messages(
         self,
         task: str,

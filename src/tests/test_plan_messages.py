@@ -32,11 +32,10 @@ def test_wrap_planner_prompt_preserves_original_and_appends_rules():
     assert "usually 3-8 steps." in out
 
 
-def test_all_three_builders_use_wrapped_system_prompt():
+def test_all_builders_use_wrapped_system_prompt():
     plan = [{"id": 1, "description": "step one", "status": "pending"}]
     for msgs in (
         plan_messages.build_planner_messages(TASK, PROMPT),
-        plan_messages.build_replanner_messages(TASK, plan, ["boom"], PROMPT),
         plan_messages.build_reviser_messages(TASK, plan, "make it shorter", PROMPT),
     ):
         assert isinstance(msgs[0], SystemMessage)
@@ -56,67 +55,6 @@ def test_build_planner_messages_is_prompt_plus_task():
 
 # ---------------------------------------------------------------------------
 # Replanner
-# ---------------------------------------------------------------------------
-
-def test_replanner_separates_completed_from_remaining():
-    plan = [
-        {"id": 1, "description": "reproduce", "status": "completed"},
-        {"id": 2, "description": "fix the bug", "status": "pending"},
-        {"id": 3, "description": "add a test", "status": "pending"},
-    ]
-    msgs = plan_messages.build_replanner_messages(
-        TASK, plan, ["boom"], PROMPT
-    )
-    brief = msgs[1].content
-    assert brief.startswith(f"Original task:\n{TASK}")
-    completed_section = brief.split("Already completed:")[1].split("Remaining or blocked work:")[0]
-    remaining_section = brief.split("Remaining or blocked work:")[1].split("Failures:")[0]
-    assert "  - reproduce" in completed_section
-    assert "fix the bug" not in completed_section
-    assert "  - fix the bug" in remaining_section
-    assert "  - add a test" in remaining_section
-
-
-def test_replanner_caps_failures_at_last_three():
-    failed = ["f1", "f2", "f3", "f4", "f5"]
-    brief = plan_messages.build_replanner_messages(
-        TASK, [], failed, PROMPT
-    )[1].content
-    failures_section = brief.split("Failures:")[1].split("\n\n")[0]
-    for f in ("f1", "f2"):
-        assert f not in failures_section, f"{f} should be capped out"
-    for f in ("f3", "f4", "f5"):
-        assert f in failures_section
-
-
-def test_replanner_lessons_capped_at_last_two():
-    attempts = [
-        {"lesson": "first lesson"},
-        {"lesson": "second lesson"},
-        {"lesson": "third lesson"},
-    ]
-    brief = plan_messages.build_replanner_messages(
-        TASK, [], ["boom"], PROMPT, prior_attempts=attempts
-    )[1].content
-    assert "=== LESSONS FROM PAST ATTEMPTS ===" in brief
-    lessons = brief.split("=== LESSONS FROM PAST ATTEMPTS ===")[1]
-    assert "first lesson" not in lessons
-    assert "second lesson" in lessons
-    assert "third lesson" in lessons
-
-
-def test_replanner_omits_lessons_section_without_attempts():
-    brief = plan_messages.build_replanner_messages(
-        TASK, [], ["boom"], PROMPT
-    )[1].content
-    assert "LESSONS FROM PAST" not in brief
-    # the closing instructions are always present
-    assert "Create a revised plan for ONLY the remaining work." in brief
-    assert "Do not repeat completed work." in brief
-
-
-# ---------------------------------------------------------------------------
-# Reviser
 # ---------------------------------------------------------------------------
 
 def test_reviser_includes_full_plan_and_request():
@@ -158,13 +96,6 @@ def test_engine_plan_builders_delegate_to_module():
 
     assert eng.build_planner_messages(TASK, PROMPT) == \
         plan_messages.build_planner_messages(TASK, PROMPT)
-    assert eng.build_replanner_messages(TASK, plan, failed, PROMPT) == \
-        plan_messages.build_replanner_messages(TASK, plan, failed, PROMPT)
-    assert eng.build_replanner_messages(
-        TASK, plan, failed, PROMPT, prior_attempts=[{"lesson": "L"}]
-    ) == plan_messages.build_replanner_messages(
-        TASK, plan, failed, PROMPT, prior_attempts=[{"lesson": "L"}]
-    )
     assert eng.build_reviser_messages(TASK, plan, "rev", PROMPT) == \
         plan_messages.build_reviser_messages(TASK, plan, "rev", PROMPT)
     assert ContextEngine._planner_prompt(PROMPT) == \
