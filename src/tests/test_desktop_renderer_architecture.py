@@ -507,3 +507,57 @@ def test_tool_catalog_carries_the_full_hermes_browser_surface():
         assert f"{name}: tool(" in catalog, name
     for ghost in ("browser_hover", "browser_select", "browser_evaluate"):
         assert f"{ghost}: tool(" not in catalog, ghost
+
+
+def test_cards_parse_string_results_and_web_urls_never_open_editors():
+    """Field log 2026-09-08 (engine de0dbbae on the owner machine): (a) the
+    navigate card painted em-dashes because tool_call_end frames carry the
+    result RAW — browser_tools ships json.dumps envelopes as strings — while
+    the cards read keys off a parsed object; (b) the old lab-era card revealed
+    the navigate URL and the textmodel resolver refused it ('Unable to resolve
+    resource http://localhost:3000/')."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    workbench = _text("browser", "pulseAIWorkbenchService.ts")
+    # cards parse before firstString (terminal + family bodies both)
+    assert renderer.count("resultRecord(tool.result)") >= 2
+    assert "JSON.parse(value)" in renderer
+    # web URLs open externally (hermes: a URL opens in the user's browser)
+    assert "uri.scheme === 'http'" in workbench
+    assert "openExternal: true" in workbench
+    # the lab-era reveal-on-URL chrome stays retired
+    assert "'Open browser'" not in renderer
+    assert "'Viewport'" not in renderer
+
+
+def test_workbench_carries_a_freshness_stamp_next_to_the_engine_chip():
+    """Field round 2026-09-08: the owner's engine rebuilt to de0dbbae while
+    the compiled workbench stayed base-era (lab-era cards on screen) — and
+    nothing could tell, because the only build chip proves the PYTHON engine.
+    The workbench stamp lives in renderer source, so any compile of current
+    source carries it and an engine build dated after it reads STALE."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "const PULSEAI_UI_STAMP = '" in renderer
+    assert "ui ${PULSEAI_UI_STAMP}" in renderer
+    assert "STALE" in renderer
+    assert "Workbench UI build" in renderer
+
+
+def test_stall_watchdog_is_inactivity_based_not_wall_clock():
+    """Field log 2026-09-08: 'turn STALL watchdog fired after 600s with no
+    terminal frame' killed a turn the owner watched work (311.6s non-streaming
+    LLM + 264.9s browser_navigate + 108.7s context build) and the UI showed a
+    dead run while the agent kept going. Hermes' liveness is activity-based
+    (agent/activity_tracking.py) — the bridge must measure SILENCE and must
+    not double-deliver the terminal frame after a watchdog release."""
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    watchdog = (ROOT / "src" / "bridge" / "turn_watchdog.py").read_text(encoding="utf-8")
+    # the forwarder relays ARE liveness (touch per own-session event)
+    assert "liveness.touch()" in bridge
+    assert "TurnLiveness" in bridge
+    # observation binding + progress invalidation (hermes shape)
+    assert "real progress invalidates the stall observation" in watchdog
+    assert "observed = liveness.generation()" in watchdog
+    # no wall-clock-only trigger and no stale message
+    assert "with no terminal frame" not in bridge
+    # exactly-once terminal delivery after a watchdog release
+    assert "late terminal frame suppressed" in bridge

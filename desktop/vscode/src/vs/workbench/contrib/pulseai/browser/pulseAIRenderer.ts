@@ -236,6 +236,13 @@ function mdInline(target: HTMLElement, text: string): void {
 // availability paint and the unverified verdict — the raw dialect itself is
 // model-specific, so it is shown collapsed and labeled, never parsed.
 const RAW_TOOL_MARKUP = /^\s*<\/?\s*(?:dots_function_call|exec|invoke|command|tool_call|function_call)\b/i;
+// Workbench freshness stamp — bump with EVERY workbench UI round. The engine
+// chip proves the PYTHON engine only; field round 2026-09-08 ran engine
+// de0dbbae on a base-era compiled workbench (lab-era browser cards, reveal-
+// URL ERRs) and nothing on screen could tell. This constant lives in this
+// source file, so any compile of current source carries it while a stale
+// out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
+const PULSEAI_UI_STAMP = '2026-09-08';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'pulseai-assistant-copy pulseai-md');
@@ -427,6 +434,17 @@ function firstString(source: unknown, keys: readonly string[]): string | undefin
 	return undefined;
 }
 
+function resultRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
+	// The tool_call_end frame carries `result` RAW (bridge _project_event):
+	// structured tools ship json.dumps envelopes as strings, other paths may
+	// deliver parsed objects. Cards read keys off the parsed shape — without
+	// this, navigate/console/click render em-dashes even on a healthy run.
+	if (typeof value === 'string') {
+		try { return record(JSON.parse(value)); } catch { return undefined; }
+	}
+	return record(value);
+}
+
 function displayTarget(tool: PulseAIToolView): string {
 	return firstString(tool.arguments, ['path', 'file_path', 'resource', 'command', 'query', 'url', 'goal', 'target']) ?? tool.name;
 }
@@ -504,7 +522,7 @@ function expandableOutput(content: HTMLElement): HTMLElement {
 
 function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement {
 	const args = record(tool.arguments);
-	const result = record(tool.result);
+	const result = resultRecord(tool.result);
 	const command = firstString(args, ['command', 'script']) ?? 'Command details unavailable';
 	const output = resultOutput(tool);
 	const exitSource = typeof tool.result === 'string' ? tool.result : '';
@@ -551,7 +569,7 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		return terminalBody(tool, host);
 	}
 	const args = record(tool.arguments);
-	const result = record(tool.result);
+	const result = resultRecord(tool.result);
 	const body = element('div', `pulseai-tool-body pulseai-family-${presentation.family}`);
 	body.dataset.rendererFamily = presentation.family;
 	const target = displayTarget(tool);
@@ -828,10 +846,23 @@ function engineStatus(model: PulseAIRenderModel): HTMLElement {
 	const state = model.engineState;
 	const tone = state === 'ready' ? 'ready' : state === 'starting' ? 'running' : state === 'crashed' || state === 'degraded' ? 'failed' : 'idle';
 	const chip = element('span', `pulseai-engine-status is-${tone}`, element('span', 'pulseai-status-dot'), state === 'ready' ? 'Pulse ready' : `Engine ${state}`);
+	let engineTitle = '';
 	if (model.engineBuild && model.engineBuild !== 'unknown') {
 		const short = model.engineBuild.split(/\s+/)[0];
 		chip.append(element('span', 'pulseai-engine-build', short));
-		chip.title = `Engine build: ${model.engineBuild}`;
+		engineTitle = `Engine build: ${model.engineBuild}`;
+	}
+	// Freshness stamp next to the engine hash (see PULSEAI_UI_STAMP): the
+	// engine chip alone could not catch the 2026-09-08 field round where the
+	// engine rebuilt but the workbench JS did not. An engine build dated
+	// AFTER this stamp means the compiled workbench predates the engine.
+	const engineDate = /\b\d{4}-\d{2}-\d{2}\b/.exec(model.engineBuild ?? '')?.[0];
+	const stale = !!engineDate && engineDate > PULSEAI_UI_STAMP;
+	chip.append(element('span', 'pulseai-engine-build', `ui ${PULSEAI_UI_STAMP}${stale ? ' STALE' : ''}`));
+	const uiTitle = `Workbench UI build: ${PULSEAI_UI_STAMP}`;
+	chip.title = engineTitle ? `${uiTitle} · ${engineTitle}` : uiTitle;
+	if (stale) {
+		chip.title = `Workbench UI build ${PULSEAI_UI_STAMP} is OLDER than the engine build (${model.engineBuild}) — the engine rebuilt, the desktop workbench did not. Recompile the desktop app to pick up the current UI.`;
 	}
 	return chip;
 }

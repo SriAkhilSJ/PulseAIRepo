@@ -17,6 +17,7 @@ import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.j
 import { URI } from '../../../../base/common/uri.js';
 import { ICommandDetectionCapability, ITerminalCommand, TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IMarker, IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from '../../../../platform/workspace/common/workspaceTrust.js';
@@ -143,6 +144,7 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 		@ITaskService private readonly taskService: ITaskService,
 		@ITerminalService private readonly terminalService: ITerminalService,
 		@IBulkEditService private readonly bulkEditService: IBulkEditService,
+		@IOpenerService private readonly openerService: IOpenerService,
 		@IWorkspaceTrustManagementService private readonly trustManagementService: IWorkspaceTrustManagementService,
 		@IWorkspaceTrustRequestService private readonly trustRequestService: IWorkspaceTrustRequestService,
 	) {
@@ -277,8 +279,18 @@ export class PulseAIWorkbenchService extends Disposable implements IPulseAIWorkb
 	}
 
 	async openResource(resource: string, selection?: PulseAIRange): Promise<void> {
+		const uri = URI.parse(resource);
+		// Web URLs are not text-model resources: the textmodel resolver
+		// refuses them ("Unable to resolve resource http://localhost:3000/",
+		// owner log 2026-09-08 — the old navigate card revealed the URL and
+		// the editor paged in an error). Hermes-equivalent behavior: a URL
+		// opens in the user's browser, never a text editor pane.
+		if (!selection && (uri.scheme === 'http' || uri.scheme === 'https')) {
+			await this.openerService.open(uri, { openExternal: true });
+			return;
+		}
 		await this.editorService.openEditor({
-			resource: URI.parse(resource),
+			resource: uri,
 			options: selection ? {
 				selection: {
 					startLineNumber: selection.startLine,
