@@ -37,9 +37,12 @@ def test_windows_block_cmd_fallback_still_honest(monkeypatch):
     block = env.build_environment_hints()
 
     assert "through bash" not in block, "the bash hint leaked into the cmd block"
-    assert "Terminal dialect:" in block
-    assert "cmd" in block
-    assert "powershell -NoProfile -Command" in block
+    # hermes-grade honesty: the fallback shell is NAMED and its syntax
+    # taught (field 2026-09-08: one-line dialect names left the model
+    # guessing, mixing POSIX into cmd)
+    assert "runs commands through cmd.exe" in block
+    assert "NOT bash" in block
+    assert "MSYS paths (`/d/...`) will NOT work" in block
 
 
 def test_windows_cmd_fallback_guides_cmd_equivalents(monkeypatch):

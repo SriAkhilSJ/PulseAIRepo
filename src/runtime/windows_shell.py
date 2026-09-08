@@ -24,6 +24,8 @@ _IS_WINDOWS = platform.system() == "Windows"
 
 # Standard Git-for-Windows installs (hermes' setup expects git-bash on
 # Windows; every machine that clones the repo has at least one of these).
+# %LOCALAPPDATA%\Programs\Git is the user-scope installer (no admin) —
+# hermes _windows_bash_candidates probes it too.
 _CANDIDATE_PATHS = (
     r"C:\Program Files\Git\bin\bash.exe",
     r"C:\Program Files\Git\usr\bin\bash.exe",
@@ -52,8 +54,16 @@ def windows_bash(override: str = "") -> str | None:
     if not _IS_WINDOWS:
         _probe_cache = None
         return None
+    lad = os.environ.get("LOCALAPPDATA", "")
+    # user-scope Git install (hermes _windows_bash_candidates parity);
+    # PATH last — hermes: which() may return WSL's bash, which fails
+    # silently on Windows paths.
+    candidates = [*_CANDIDATE_PATHS]
+    if lad:
+        candidates.append(os.path.join(lad, "Programs", "Git", "bin", "bash.exe"))
+    candidates.append("bash.exe")
     found: str | None = None
-    for candidate in (*_CANDIDATE_PATHS, "bash.exe"):
+    for candidate in candidates:
         found = _probe_path(candidate)
         if found:
             break

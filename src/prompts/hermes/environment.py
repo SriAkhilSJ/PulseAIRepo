@@ -94,7 +94,43 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
             "C:\\Users\\<user>\\, never the hostname."
         )
 
-    parts.append(f"Terminal dialect: {terminal_dialect()}.")
+    if is_windows():
+        from src.runtime.windows_shell import windows_bash_available
+        if windows_bash_available():
+            # hermes agent/prompt_builder.py:_WINDOWS_BASH_SHELL_HINT — the
+            # dialect must be TAUGHT, not named (field 2026-09-08: with only
+            # "Terminal dialect: bash ..." the model mixed `D:\...` and
+            # `/d/...` across calls in one turn because it was guessing).
+            parts.append(
+                "Shell: on this Windows host your `terminal` tool (alias of "
+                "`run_terminal`) runs commands through bash (git-bash / "
+                "MSYS), NOT PowerShell or cmd.exe. Use POSIX shell syntax "
+                "(`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside "
+                "terminal calls. MSYS-style paths like `/d/TestPulseAI/...` "
+                "work alongside native `D:\\TestPulseAI\\...` paths for bash "
+                "builtins (`cd`, `echo`, redirection). PowerShell builtins "
+                "(`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT "
+                "work — use their POSIX equivalents (`ls`, `$FOO`, `grep`). "
+                "Path arguments for NATIVE Windows programs (git, rg, node, "
+                "npm, python, ...) are NOT translated by MSYS: pass them "
+                "`D:/TestPulseAI/x`-style forward-slash native paths, and "
+                "prefer a temp dir inside the workspace over `/tmp` when a "
+                "native tool must read the file."
+            )
+        else:
+            shell = (os.environ.get("COMSPEC") or "").lower()
+            shell_name = ("PowerShell" if ("pwsh" in shell or "powershell" in shell)
+                          else "cmd.exe")
+            parts.append(
+                f"Shell: on this Windows host your `terminal` tool (alias of "
+                f"`run_terminal`) runs commands through {shell_name} — NOT "
+                "bash. POSIX syntax (`ls`, `grep`, `|`, `$HOME`, `2>/dev/null`) "
+                "and MSYS paths (`/d/...`) will NOT work. Use cmd.exe syntax "
+                "(`dir`, `findstr`, `set`, `%VAR%`, `2>nul`) or native "
+                "forward-slash paths (`D:/folder/file`) for tools."
+            )
+    else:
+        parts.append(f"Terminal dialect: {terminal_dialect()}.")
 
     # hermes paints toolset availability at load (agent_init :1080-1088);
     # the model-facing carrier here is the env block. Browser-stack absence
