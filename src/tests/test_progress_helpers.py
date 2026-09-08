@@ -66,6 +66,17 @@ def test_d9_classify_terminal_rules():
     assert ph.classify_tool_outcome("run_terminal", bad) == ph.OUTCOME_FAILED
     # no exit-code line at all is a failure for run_terminal
     assert ph.classify_tool_outcome("run_terminal", "done") == ph.OUTCOME_FAILED
+    # the `terminal` alias shares run_terminal's verdict rules (field
+    # 2026-09-08 44ed3687: the guard's refusal printed as success because
+    # the alias name missed this branch)
+    assert ph.classify_tool_outcome("terminal", ok) == ph.OUTCOME_SUCCESS
+    assert ph.classify_tool_outcome("terminal", bad) == ph.OUTCOME_FAILED
+    refusal = (
+        "run_terminal refused: Foreground command uses '&' backgrounding - "
+        "this shell cannot run it that way. Re-send WITHOUT the '&' as "
+        'start_terminal(command="<cmd>").'
+    )
+    assert ph.classify_tool_outcome("terminal", refusal) == ph.OUTCOME_FAILED
     assert ph.classify_tool_outcome(
         "check_terminal", "status: running") == ph.OUTCOME_SKIP
     assert ph.classify_tool_outcome(
@@ -205,6 +216,14 @@ def test_d9_success_labels_and_events():
     assert label == "Ran command successfully: make"
     label, _ = ph.success_step_label("custom_tool", {}, "t")
     assert label == "Completed tool: custom_tool"
+    # repeats must stay distinguishable (field 2026-09-08 44ed3687: the
+    # second read_terminal_output's receipt vanished under the first)
+    label, _ = ph.success_step_label(
+        "read_terminal_output", {"process_id": "cd5e1ab7"}, "t")
+    assert label == "Completed tool: read_terminal_output (process_id=cd5e1ab7)"
+    label, _ = ph.success_step_label(
+        "web_fetch", {"url": "http://localhost:3004", "max_chars": 500}, "t")
+    assert label == "Completed tool: web_fetch (url=http://localhost:3004)"
 
 
 def test_d9_recovery_clears_only_same_command():

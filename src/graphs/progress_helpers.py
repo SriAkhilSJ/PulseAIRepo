@@ -233,7 +233,13 @@ def classify_tool_outcome(tool_name: str, result: str) -> str:
         failed = not result.lstrip().startswith("✅")
     elif tool_name in {"verify_ui_workspace", "verify_ui_routes"}:
         failed = not result.lstrip().startswith("✅")
-    elif tool_name == "run_terminal":
+    elif tool_name in ("run_terminal", "terminal"):
+        # `terminal` is bound as the verbatim alias of run_terminal (hermes
+        # tool-name parity) — same tool, so the SAME verdict rules. Field
+        # 2026-09-08 (44ed3687): the guard refused the alias's `npm run dev`
+        # and the receipt printed "✅ Ran command successfully" — a refusal
+        # carried no "exit code: 0" envelope, and the alias name missed the
+        # run_terminal branch. The refusal is NOT a success.
         if "exit code: 0" not in result_lower:
             failed = True
     elif tool_name == "check_terminal":
@@ -258,7 +264,7 @@ def make_trace_entry(tool_name: str, tool_args: dict, result: str, failed: bool)
 
 def tool_memory_anchor(tool_args: dict) -> str:
     """First present anchor in the legacy precedence order."""
-    for key in ("path", "command", "query", "process_id"):
+    for key in ("path", "command", "query", "process_id", "url"):
         val = tool_args.get(key)
         if val:
             return f"{key}={val}"
@@ -479,7 +485,14 @@ def success_step_label(tool_name: str, tool_args: dict,
         label = (f"Stopped terminal process: "
                  f"{tool_args.get('process_id', 'unknown')}")
     else:
+        # Distinguish repeats: a bare tool name dedupes identical labels
+        # (field 2026-09-08: the second read_terminal_output's receipt
+        # vanished under the first). Anchor with the call's distinguishing
+        # argument — path/command/query/process_id/url.
+        anchor = tool_memory_anchor(tool_args)
         label = f"Completed tool: {tool_name}"
+        if anchor:
+            label = f"{label} ({anchor})"
 
     return label, events
 
