@@ -31,8 +31,10 @@ def test_plan_update_tool_reads_and_replaces_like_hermes_todo():
     # exactly one step is "the one you are doing now"
     assert payload["summary"]["in_progress"] == 1
     assert payload["steps"][0]["status"] == "in_progress"
-    assert payload["steps"][0]["id"] == 1
+    # hermes' validate output carries no id (ids are the graph layer's projection)
+    assert "id" not in payload["steps"][0]
     assert payload["steps"][1]["description"] == "run it once"
+    assert payload["steps"][1]["status"] == "pending"
 
     read = json.loads(plan_update.func())
     assert read["summary"]["total"] == 0

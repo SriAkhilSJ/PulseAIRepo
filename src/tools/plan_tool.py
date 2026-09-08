@@ -24,9 +24,72 @@ from langchain_core.tools import tool
 from src.models.plan_models import steps_to_dicts
 
 
+VALID_STATUSES = {"pending", "in_progress", "completed", "failed"}
+# hermes todo_tool.py caps, verbatim: unbounded list content would defeat the
+# compression it rides through.
+MAX_TODO_CONTENT_CHARS = 4000
+MAX_TODO_ITEMS = 256
+_TRUNCATION_MARKER = "… [truncated]"
+
+
+def _cap_description(description: str) -> str:
+    """hermes _cap_content, verbatim: truncate keeping the head + marker."""
+    if len(description) > MAX_TODO_CONTENT_CHARS:
+        return description[:MAX_TODO_CONTENT_CHARS - len(_TRUNCATION_MARKER)] + _TRUNCATION_MARKER
+    return description
+
+
+def _validate_step(step: Any) -> dict:
+    """hermes _validate, on pulse's vocab (description/content): normalize one
+    step to {id, description, status} with placeholders when missing."""
+    if isinstance(step, str):
+        # hermes' parse layer: a bare string is a legitimate step; its text
+        # becomes the description (todo_tool parse, not the invalid path).
+        text = step.strip()
+        return {"description": _cap_description(text) if text else "(no description)",
+                "status": "pending"}
+    if not isinstance(step, dict):
+        return {"description": "(invalid step)", "status": "pending"}
+    description = str(step.get("description") or step.get("content") or "").strip()
+    status = str(step.get("status", "pending")).strip().lower()
+    return {
+        "description": _cap_description(description) if description else "(no description)",
+        "status": status if status in VALID_STATUSES else "pending",
+    }
+
+
+def _dedupe_by_description(steps: list) -> list:
+    """hermes _dedupe_by_id (pulse steps are id-less until projection): keep
+    the LAST occurrence of a duplicate description, in its position."""
+    last_index: dict = {}
+    for i, step in enumerate(steps):
+        if isinstance(step, str):
+            key = step.strip()
+        elif isinstance(step, dict):
+            key = str(step.get("description") or step.get("content") or "").strip()
+        else:
+            key = f"__invalid_{i}"
+        last_index[key or "?"] = i
+    return [steps[i] for i in sorted(last_index.values())]
+
+
+def _normalize_order(steps: list) -> list:
+    """hermes _normalize_order: lift the in_progress step ahead of earlier
+    pending placeholders so the active step leads."""
+    statuses = [s.get("status") for s in steps]
+    if "in_progress" not in statuses:
+        return steps
+    active_index = statuses.index("in_progress")
+    if "pending" not in statuses[:active_index]:
+        return steps
+    normalized = steps.copy()
+    normalized.insert(statuses.index("pending"), normalized.pop(active_index))
+    return normalized
+
+
 @tool
 def plan_update(
-    steps: "list[dict[str, Any]] | str | None" = None,
+    steps: "list | str | None" = None,
 ) -> str:
     """Read or replace the task list for the current turn.
 
@@ -64,7 +127,13 @@ def plan_update(
             ensure_ascii=False,
         )
 
-    normalized = steps_to_dicts(steps)
+    # hermes todo_tool write path (verbatim semantics, pulse vocab):
+    # _fresh_items = validate -> dedupe -> order; then the cap keeps the
+    # priority head.
+    normalized = [
+        _validate_step(s) for s in _dedupe_by_description(steps)
+    ]
+    normalized = _normalize_order(normalized)[:MAX_TODO_ITEMS]
     if not any(step.get("status") == "in_progress" for step in normalized):
         # Mirror start_next_plan_step: exactly one step is "the one you are doing now".
         for step in normalized:
