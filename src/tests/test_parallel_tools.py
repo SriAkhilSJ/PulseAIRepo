@@ -279,7 +279,11 @@ def test_unknown_tool_falls_through_toolnode_canonical(
     assert len(msgs) == 2
     err = [m for m in msgs if m.name == "mystery"][0]
     assert err.status == "error"
-    assert "not a valid tool" in err.content and "mystery" in err.content
+    # hermes turn_tool_validation: the error carries the catalog so the
+    # model can self-correct (field 2026-09-08: unknown names flailed to
+    # "Ended unverified" under the terse text).
+    assert "Tool 'mystery' does not exist" in err.content
+    assert "Available tools:" in err.content
     ok = [m for m in msgs if m.name == "slow_a"][0]
     assert ok.status != "error" and ok.content == "slow_a:1"
 
@@ -527,7 +531,7 @@ def test_unknown_singleton_emits_tool_result_event(tmp_path, monkeypatch):
         msgs = [m for m in out["messages"] if isinstance(m, ToolMessage)]
         assert len(msgs) == 1, "unknown singleton must pair exactly one ToolMessage"
         assert msgs[0].status == "error"
-        assert "not a valid tool" in msgs[0].content, "canonical ToolNode text preserved"
+        assert "Tool 'mystery' does not exist" in msgs[0].content, "hermes catalog error"
     finally:
         event_bus.unsubscribe(q)
     ends = []
@@ -562,7 +566,8 @@ def test_mixed_batch_known_calls_stay_durable(tmp_path, monkeypatch):
     msgs = [m for m in out["messages"] if isinstance(m, ToolMessage)]
     assert [m.name for m in msgs] == ["slow_a", "mystery"], "input order preserved"
     assert msgs[0].content == "slow_a:1" and msgs[0].status != "error"
-    assert msgs[1].status == "error" and "not a valid tool" in msgs[1].content
+    assert msgs[1].status == "error"
+    assert "Tool 'mystery' does not exist" in msgs[1].content
 
 
 def test_auth_dead_provider_circuit_breaker():

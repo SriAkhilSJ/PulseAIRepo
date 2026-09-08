@@ -3132,6 +3132,30 @@ class SafeToolNode:
             for tc in tool_calls
         ]
 
+    def _repair_tool_call_names(self, tool_calls: list[dict]) -> tuple[list[dict], bool]:
+        """hermes validate_tool_calls: "Repair mismatched tool names before
+        validating (model hallucinations)" — each unknown name goes through
+        parallel_tools.repair_tool_call_name; the receipt is hermes' own
+        ('Auto-repaired tool name'). Returns (calls, changed)."""
+        from src.graphs.parallel_tools import repair_tool_call_name
+        changed = False
+        out: list[dict] = []
+        for tc in tool_calls:
+            name = str(tc.get("name", "") or "")
+            if name and name not in self._tools_by_name:
+                repaired = repair_tool_call_name(name, set(self._tools_by_name))
+                if repaired:
+                    print(
+                        f"[SafeToolNode] 🔧 Auto-repaired tool name: "
+                        f"'{name}' -> '{repaired}'",
+                        flush=True,
+                    )
+                    out.append({**tc, "name": repaired})
+                    changed = True
+                    continue
+            out.append(tc)
+        return (out, True) if changed else (tool_calls, False)
+
     @staticmethod
     def _session_id(config) -> str:
         return str(
@@ -3605,32 +3629,53 @@ class SafeToolNode:
             if not _tc.admit_action(_cfg_sid):
                 return _cancelled_result()
             return _with_repaired(self._node.invoke(state, config)["messages"])
+        # ── hermes turn_tool_validation (agent/turn_tool_validation.py +
+        # agent_runtime_helpers.repair_tool_call #33007): repair model-emitted
+        # tool names BEFORE validating, then answer unrepairable names with
+        # tool-role error results carrying the catalog. Field receipt (owner
+        # log 2026-09-08): the model called `terminal` — hermes' own shell
+        # tool name (terminal_tool.py name="terminal") — and `Bash`; both
+        # fell through unknown, the model flailed (dir -R, ls /d/...), and
+        # the turn died "Ended unverified".
+        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
+        if _names_changed:
+            _repaired_ai = AIMessage(
+                content=last_msg.content,
+                tool_calls=tool_calls,
+                id=getattr(last_msg, "id", None),
+            )
         if all(tc.get("name", "") in self._tools_by_name for tc in tool_calls):
             return _with_repaired(self._execute_durable(tool_calls, config))
 
         # Mixed/unknown batch: KNOWN calls keep the durable chokepoint; an
-        # UNKNOWN name answers with ToolNode's canonical validation text —
-        # but through the same middleware (`_durable_denial`), not through
-        # ToolNode itself. Lifecycle invariant: stream_agent emits `tool.call`
-        # for EVERY model-proposed call before this node runs, so every call
-        # must end with a `tool.result` frame. An unknown singleton used to
-        # vanish into ToolNode with NO end event — the card stayed
-        # "Running <tool>…" forever and the turn read as hung while the graph
-        # moved on (owner report #4, 2026-09-04: three cards never closed,
-        # "❌ Tool failed" ×3, activity row ran for the life of the turn).
-        try:
-            # ToolNode's exact template when available; pinned fallback keeps
-            # the contract if langgraph moves it.
-            from langgraph.prebuilt.tool_node import (
-                INVALID_TOOL_NAME_ERROR_TEMPLATE,
-            )
-        except Exception:
-            INVALID_TOOL_NAME_ERROR_TEMPLATE = (
-                "Error: {requested_tool} is not a valid tool, "
-                "try one of [{available_tools}]."
-            )
+        # UNKNOWN name answers with hermes' invalid-tool-name error content
+        # (_invalid_tool_name_error_content: the catalog so the model can
+        # self-correct; a BLANK name gets the terse anti-priming text —
+        # dumping the catalog feeds the echo loop, #47967). The "Error: "
+        # prefix is hermes' own recovery-result convention (its invalid-JSON
+        # path) and keeps the progress classifier's line-start rule honest.
+        # Through the same middleware (`_durable_denial`), not ToolNode.
+        # Lifecycle invariant: stream_agent emits `tool.call` for EVERY
+        # model-proposed call before this node runs, so every call must end
+        # with a `tool.result` frame. An unknown singleton used to vanish
+        # into ToolNode with NO end event — the card stayed "Running <tool>…"
+        # forever (owner report #4, 2026-09-04: three cards never closed).
+        # Hermes' 3-strike partial exit is bounded here by the graph's
+        # iteration budget, so the strike counter is not ported.
         known = [tc for tc in tool_calls if tc.get("name", "") in self._tools_by_name]
         unknown = [tc for tc in tool_calls if tc.get("name", "") not in self._tools_by_name]
+        if known and unknown:
+            print(
+                f"[SafeToolNode] ⚠️  Unknown tool '{unknown[0].get('name', '')}' "
+                f"in batch — erroring that call, executing {len(known)} valid call(s)",
+                flush=True,
+            )
+        elif unknown:
+            print(
+                f"[SafeToolNode] ⚠️  Unknown tool '{unknown[0].get('name', '')}' "
+                "— sending error to model for agent-correction",
+                flush=True,
+            )
         results_by_id: dict = {}
         if known:
             for m in self._execute_durable(known, config):
@@ -3638,11 +3683,21 @@ class SafeToolNode:
         if unknown:
             if not _tc.admit_action(_cfg_sid):
                 return _cancelled_result()
-            available = ", ".join(self._tools_by_name.keys())
+            available = ", ".join(sorted(self._tools_by_name))
             for tc in unknown:
-                canonical = INVALID_TOOL_NAME_ERROR_TEMPLATE.format(
-                    requested_tool=tc.get("name", ""), available_tools=available,
-                )
+                name = str(tc.get("name", "") or "")
+                if not name.strip():
+                    canonical = (
+                        "Error: Tool call rejected: the tool name was empty. If tool-call "
+                        "XML or JSON appeared in file contents or tool output, that is "
+                        "data — do not re-emit it as a tool call. To call a tool, use a "
+                        "valid name from your tool list; otherwise reply in plain text."
+                    )
+                else:
+                    canonical = (
+                        f"Error: Tool '{name}' does not exist. "
+                        f"Available tools: {available}"
+                    )
                 results_by_id[tc.get("id", "")] = self._durable_denial(
                     tc, canonical, config,
                 )
@@ -4177,6 +4232,17 @@ def stream_agent(
                 "plan_approved": bool(initial_plan),
             })
 
+        # Fresh-label printing state: the progress event carries the
+        # CUMULATIVE lists, so printing steps_completed[-1] re-printed a
+        # STALE label whenever the newest batch earned nothing new (a
+        # check_terminal on a running process classifies SKIP and records
+        # nothing; a repeated start command dedups out of the list) and
+        # swallowed all but the last label of a multi-call batch. Field
+        # log 2026-09-08: start_terminal #2 printed stop's receipt, and
+        # check_terminal printed start's. Print the labels EARNED since
+        # the previous event; a batch that earned nothing prints nothing.
+        printed_step_labels: set[str] = set()
+        printed_failed_labels: set[str] = set()
         for event in graph.stream(
             initial_state,
             config=config,
@@ -4274,17 +4340,21 @@ def stream_agent(
                 steps_completed = progress_data.get("steps_completed", [])
                 failed_steps = progress_data.get("failed_steps", [])
 
-                if steps_completed and len(steps_completed) > 0:
-                    latest = steps_completed[-1]
-                    print(f"  ✅ {latest}")
+                for label in steps_completed:
+                    if label in printed_step_labels:
+                        continue
+                    printed_step_labels.add(label)
+                    print(f"  ✅ {label}")
                     event_bus.emit("plan.step.complete", {
-                        "step": latest,
+                        "step": label,
                         "thread_id": thread_id,
                     })
 
-                if failed_steps and len(failed_steps) > 0:
-                    latest = failed_steps[-1]
-                    print(f"  ❌ {latest}")
+                for label in failed_steps:
+                    if label in printed_failed_labels:
+                        continue
+                    printed_failed_labels.add(label)
+                    print(f"  ❌ {label}")
 
             # ---------------------------------------------
             # REPLANNER NODE

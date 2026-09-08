@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import contextvars
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
@@ -270,6 +271,65 @@ def repair_tool_call_ids(tool_calls: list[dict]) -> tuple[list[dict], bool]:
     if not changed:
         return tool_calls, False
     return repaired, True
+
+
+def repair_tool_call_name(tool_name: str, valid_names: set[str]) -> Optional[str]:
+    """hermes agent_runtime_helpers.repair_tool_call (#33007): repair a
+    mismatched tool name (case, separators, CamelCase, ``_tool`` suffixes
+    twice so ``TodoTool_tool`` reduces fully, then fuzzy match) before
+    aborting. Returns the repaired name if in valid_names, else None.
+
+    Field receipt (owner log 2026-09-08): the model emitted `terminal` —
+    hermes' own shell tool name (terminal_tool.py:1358 `name="terminal"`) —
+    into pulse's `run_terminal`-named toolset, then `Bash`, and both fell
+    through to ToolNode's terse unknown-name error; the turn flailed and
+    died unverified. Same repair, same position (before validation).
+    """
+    from difflib import get_close_matches
+    if not tool_name:
+        return None
+    # VolcEngine api/plan leaks XML attribute fragments into tool_use.name
+    # (`terminal" parameter="command" ...`); trim at the first quote/angle
+    # bracket. Do NOT split on whitespace: "write file" must reach `_norm`
+    # -> "write_file" (hermes test_space_to_underscore).
+    for _xml_sep in ('"', "'", "<", ">"):
+        _idx = tool_name.find(_xml_sep)
+        if _idx > 0:
+            tool_name = tool_name[:_idx]
+    if not tool_name:
+        return None
+
+    _norm = lambda s: s.lower().replace("-", "_").replace(" ", "_")  # noqa: E731
+    _camel_snake = lambda s: re.sub(r"(?<!^)(?=[A-Z])", "_", s).lower()  # noqa: E731
+
+    def _strip_tool_suffix(s: str):
+        lc = s.lower()
+        return next(
+            (s[: -len(sfx)].rstrip("_-")
+             for sfx in ("_tool", "-tool", "tool") if lc.endswith(sfx)),
+            None,
+        )
+
+    # Cheap fast-paths first.
+    lowered = tool_name.lower()
+    if lowered in valid_names:
+        return lowered
+    normalized = _norm(tool_name)
+    if normalized in valid_names:
+        return normalized
+    cands: set[str] = {tool_name, lowered, normalized, _camel_snake(tool_name)}
+    for _ in range(2):  # strip trailing tool-suffix up to twice (TodoTool_tool)
+        extra: set[str] = set()
+        for c in cands:
+            stripped = _strip_tool_suffix(c)
+            if stripped:
+                extra.update((stripped, _norm(stripped), _camel_snake(stripped)))
+        cands |= extra
+    for c in cands:
+        if c and c in valid_names:
+            return c
+    matches = get_close_matches(lowered, valid_names, n=1, cutoff=0.7)
+    return matches[0] if matches else None
 
 
 # ---------------------------------------------------------------------------
