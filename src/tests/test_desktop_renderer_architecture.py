@@ -84,7 +84,7 @@ def test_native_and_lab_catalogs_cover_the_same_36_tools():
         )
     native = _catalog_names(_text("common", "pulseAIToolCatalog.ts"))
     lab = _catalog_names((UI / "runtime" / "toolCatalog.ts").read_text(encoding="utf-8"))
-    assert len(native) == 36
+    assert len(native) == 37
     assert native == lab
 
 
@@ -561,3 +561,18 @@ def test_stall_watchdog_is_inactivity_based_not_wall_clock():
     assert "with no terminal frame" not in bridge
     # exactly-once terminal delivery after a watchdog release
     assert "late terminal frame suppressed" in bridge
+
+
+def test_catalog_resolves_clarify_and_derives_hermes_generic_titles():
+    """hermes names its ask tool `clarify` (CLARIFY_SCHEMA) and titles unknown
+    tools via titleForTool (fallback-model.ts) -- `plan_update` reads
+    `Plan Update`, never a flat `Tool`. The native catalog does both."""
+    catalog = _text("common", "pulseAIToolCatalog.ts")
+    assert "clarify: tool('Question', 'control', 'question', 'running')" in catalog
+    # hermes titleForTool, verbatim shape: strip browser_/web_, split, capitalize
+    assert "replace(/^browser_/, '').replace(/^web_/, '')" in catalog
+    assert "map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')" in catalog
+    assert "tool('Tool', 'generic', GENERIC_ICON)" in catalog  # empty-name fallback only
+    # the webview already ran this rule; the two surfaces must not diverge
+    webview = (ROOT / "pulse-webview" / "src" / "hermes-ui" / "model" / "fallback-model.ts").read_text(encoding="utf-8")
+    assert "replace(/^browser_/, '').replace(/^web_/, '')" in webview

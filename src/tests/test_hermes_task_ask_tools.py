@@ -258,3 +258,20 @@ def test_one_ask_tool_only():
     assert "clarify" in names
     from src.tools.toolsets import _CORE_TOOLS
     assert "ask_user" not in _CORE_TOOLS and "clarify" in _CORE_TOOLS
+
+
+def test_clarify_schema_describes_questions_like_hermes():
+    """hermes CLARIFY_SCHEMA describes the questions array; the provider sees
+    the same teaching here. No schema-level minItems/maxItems: hermes validates
+    in the handler (an empty array must fall through to the single-question
+    path, not die in pydantic)."""
+    from src.tools.clarify_tool import clarify
+
+    qs = clarify.args_schema.model_json_schema()["properties"]["questions"]
+    assert qs["description"] == (
+        "The question(s). Each: question text (options excluded), "
+        "optional choices (recommended first; omit for free-text), "
+        "optional multi_select. Responses come back in question "
+        "order with the question text echoed."
+    )
+    assert "minItems" not in qs and "maxItems" not in qs

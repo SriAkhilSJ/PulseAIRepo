@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from pydantic import Field
 
 MAX_CHOICES = 4  # the UI always appends an "Other (type your answer)" row
 MAX_QUESTIONS = 5  # independent questions per batch call
@@ -255,7 +256,15 @@ def _run_batch(normalized: list[dict], callback, *, session_id: str, timeout: fl
 
 @tool
 def clarify(
-    questions: list[dict[str, Any]] | None = None,
+    questions: Annotated[
+        "list[dict[str, Any]] | None",
+        Field(description=(
+            "The question(s). Each: question text (options excluded), "
+            "optional choices (recommended first; omit for free-text), "
+            "optional multi_select. Responses come back in question "
+            "order with the question text echoed."
+        )),
+    ] = None,
     question: str = "",
     choices: list[str] | None = None,
     multi_select: bool = False,

@@ -41,6 +41,10 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 	think: tool('Think', 'control', 'brain', 'running'),
 	verify: tool('Verify', 'verification', 'check', 'running'),
 	ask_user: tool('Question', 'control', 'question', 'running'),
+	// The ask tool's runtime name is `clarify` (hermes CLARIFY_SCHEMA); the
+	// ask_user row above is the same tool's legacy meta. A settled clarify
+	// batch (answered or replayed) must still read as a Question card.
+	clarify: tool('Question', 'control', 'question', 'running'),
 	session_search: tool('Search sessions', 'session', 'history'),
 
 	read_file: tool('Read', 'file-read', 'file'),
@@ -87,8 +91,16 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 	delegate_to_subagent_batch: tool('Delegate batch', 'subagent', 'rocket', 'running'),
 };
 
-const GENERIC = tool('Tool', 'generic', 'tools');
+const GENERIC_ICON = 'tools';
 export function pulseAIToolPresentation(name: string | undefined): PulseAIToolPresentation {
-	if (!name) { return GENERIC; }
-	return PULSE_AI_TOOL_CATALOG[name] ?? GENERIC;
+	if (!name) { return tool('Tool', 'generic', GENERIC_ICON); }
+	const known = PULSE_AI_TOOL_CATALOG[name];
+	if (known) { return known; }
+	// Hermes titleForTool (fallback-model.ts): unknown tools take the
+	// title-cased name -- `plan_update` reads `Plan Update`, never a flat
+	// `Tool`. Same rule the webview's toolMeta fallback already runs.
+	const normalized = name.replace(/^browser_/, '').replace(/^web_/, '');
+	const title = normalized.split('_').filter(Boolean)
+		.map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ') || name;
+	return tool(title, 'generic', GENERIC_ICON);
 }
