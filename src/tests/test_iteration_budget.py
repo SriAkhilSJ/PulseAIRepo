@@ -42,10 +42,16 @@ def _message_state(last, **extra):
 
 
 def test_should_continue_finalizes_when_exhausted(monkeypatch):
+    """Hermes loop law (agent/iteration_budget.py + turn_iteration_prep.py:108
+    'the budget-crossing request completes first'): a pending BOUND tool call
+    executes even at the cap — field 2026-09-08 dropped the model's
+    start_terminal (the dev server the whole task was for) and finalized.
+    The budget still concludes the run: the NEXT call is the unbound grace
+    call (see the text-only finalize pins in test_budget_crossing_dispatch)."""
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "1")
     last = AIMessage(content="", tool_calls=[{"id": "c1", "name": "read_file", "args": {}}])
     state = _message_state(last, iteration_used=1)
-    assert cg.should_continue(state) == "finalize"
+    assert cg.should_continue(state) == "tools"
 
 
 def test_should_continue_still_routes_tools_when_under_budget(monkeypatch):

@@ -464,7 +464,9 @@ def success_step_label(tool_name: str, tool_args: dict,
                  f" inside {tool_args.get('path', '.')}")
     elif tool_name == "list_files":
         label = f"Listed files: {tool_args.get('path', '.')}"
-    elif tool_name == "run_terminal":
+    elif tool_name in ("run_terminal", "terminal"):
+        # `terminal` is bound as the verbatim alias of run_terminal (hermes
+        # tool-name parity) — its receipt gets the same human label.
         label = (f"Ran command successfully: "
                  f"{tool_args.get('command', 'unknown command')}")
     elif tool_name == "start_terminal":

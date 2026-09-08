@@ -842,9 +842,12 @@ def ai_node(
     # D40: iteration budget. Once exhausted, tools are hidden and the model
     # may only produce text (the hermes grace call). The FIRST exhausted call
     # carries the grace nudge; a model that keeps hallucinating tool calls
-    # still cannot — no tools are bound — and should_continue finalizes the
-    # text. iteration_used increments on BOTH paths so budget accounting is
-    # monotonic.
+    # still cannot — no tools are bound — and the catalog rejection answers
+    # any echoed name for one bounded lap before should_continue finalizes
+    # the text. iteration_used increments on BOTH paths so budget accounting
+    # is monotonic. Pending REAL calls from the budget-crossing request are
+    # dispatched first (gates.should_continue — hermes loop law), so the
+    # grace call always follows executed work instead of replacing it.
     iteration_used = int(state.get("iteration_used", 0))
     budget_exhausted = _budget_exhausted(state)
     grace_done = bool(state.get("grace_done", 0))

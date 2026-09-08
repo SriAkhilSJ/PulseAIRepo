@@ -483,10 +483,28 @@ def should_continue(state: AgentState):
         if _repetition or _no_tool_streak >= NO_TOOL_TURN_LIMIT:
             return "finalize"
 
+    # ── Hermes loop law: pending tool calls execute, even at the cap ──
+    # Hermes IterationBudget.consume() (agent/iteration_budget.py) gates the
+    # NEXT MODEL CALL, never the execution of tool calls the model already
+    # emitted; turn_iteration_prep.py:108 states it verbatim: "Fires at the
+    # top of the NEXT iteration, so the budget-crossing request completes
+    # first." Field receipt (owner log 2026-09-08, engine 9dc843ef): the ai
+    # call entered with tools bound one request under the budget, its own
+    # result pushed iteration_used to the cap, and THIS router finalized —
+    # the model's bound start_terminal call (the dev server the whole task
+    # was for) was dropped un-executed: no spawn, no receipt, the card stuck
+    # "Running" forever, and the final text promised a browser check that
+    # never ran. Dispatch FIRST; the budget then concludes the turn the
+    # designed way — ai_node re-enters unbound, the grace nudge fires, the
+    # text answer finalizes. One bounded grace lap; the valve is intact.
+    if getattr(last_message, "tool_calls", None):
+        return "tools"
+
     # D40: once the ai iteration budget is spent, this run must conclude.
-    # The grace call produced a text answer (or a tool_call the no-tools
-    # binding prevented) — finalize it instead of re-entering gates that
-    # would push the model to work it can no longer do.
+    # The grace call produced a text answer — finalize it instead of
+    # re-entering gates that would push the model to work it can no longer
+    # do. (Pending tool calls never reach this point: they were dispatched
+    # above, hermes-style.)
     # R3-4: even on the budget-exhausted grace route, "Finished" with a
     # NAMED deliverable that does not exist (or code that was never
     # verified) is blocked once — bounded by the nudge budgets so the
@@ -501,9 +519,6 @@ def should_continue(state: AgentState):
                 and verification_status(state) != PASSED):
             return "finish_gate"
         return "finalize"
-
-    if getattr(last_message, "tool_calls", None):
-        return "tools"
 
     # Finish gate: an execution task that ends with NO deliverable-producing
     # tool call is an early stop, not completion (probe/scratchpad calls like
