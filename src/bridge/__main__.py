@@ -38,6 +38,7 @@ from src.bridge.protocol import (
     CLIENT_METHODS, EXECUTION_MODES, ProtocolError, check_client_hello, decode_line,
     encode, error_frame, hello,
 )
+from src.bridge.turn_watchdog import TurnLiveness, run_stall_watchdog
 from src.runtime.identity import TurnIdentity, normalize_id
 
 ENGINE_VERSION = "0.2.0-runtime"
@@ -256,8 +257,36 @@ class BridgeServer:
     def _project_stored_events(cls, events: list[dict]) -> list[dict]:
         return [projected for event in events if (projected := cls._project_stored_event(event))]
 
+    def _emit_stall_release(self, identity: TurnIdentity, force_ended: threading.Event,
+                            budget: float) -> None:
+        """Watchdog release: one honest receipt, then a synthetic turn_done.
+
+        Only reachable when a full budget window passed with zero relayed
+        engine events (see turn_watchdog.run_stall_watchdog), i.e. the turn
+        is silent, not merely slow.
+        """
+        force_ended.set()
+        print(
+            f"[bridge] turn STALL watchdog fired after {budget:.0f}s "
+            "with no engine activity - releasing the session",
+            file=sys.stderr, flush=True,
+        )
+        self.emit({
+            "type": "runtime_degraded", **identity.event_fields(),
+            "reason": f"turn stalled: no engine activity for {budget:.0f}s (watchdog)",
+        })
+        self.emit({
+            "type": "turn_done", **identity.event_fields(),
+            "message": (
+                f"The engine produced no activity for {budget:.0f}s, so the "
+                "watchdog ended the turn. The reply above is what the engine "
+                "produced; send another message to continue."
+            ),
+            "completed": False, "cancelled": False, "stub": False,
+        })
+
     def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event,
-                        own_sid: str | None = None) -> None:
+                        own_sid: str | None = None, liveness: TurnLiveness | None = None) -> None:
         """Forward event-bus events to protocol frames; never dies silently.
 
         Events naming a DIFFERENT session are dropped (concurrent-turn
@@ -286,6 +315,12 @@ class BridgeServer:
                     if (event_session is not None and event_session != own_sid
                             and not is_llm_status):
                         continue
+                if liveness is not None:
+                    # Hermes activity_tracking discipline: relayed engine
+                    # output IS liveness — provider status, tool frames,
+                    # approval waits, context receipts. Cross-session events
+                    # dropped above never touch this turn's stall clock.
+                    liveness.touch()
                 frame = self._project_event(event, identity)
                 if frame:
                     self.emit(frame)
@@ -345,40 +380,44 @@ class BridgeServer:
         # Hermes run-watchdog discipline: the UI must never wait on a turn
         # forever. Owner field proof (2026-09-04): the graph finished its last
         # node but the turn never ended - "Working" hung until the user pressed
-        # Stop. If no terminal frame lands within the budget, the bridge emits
-        # one itself (stall receipt) so the session is RELEASED even while the
-        # stuck thread stays stuck. PULSEAI_TURN_STALL_TIMEOUT_S, 0 = off.
+        # Stop. The bridge emits the terminal frame itself (stall receipt) so
+        # the session is RELEASED even while the stuck thread stays stuck.
+        # PULSEAI_TURN_STALL_TIMEOUT_S, 0 = off.
+        #
+        # FIELD FIX (owner log 2026-09-08): the first watchdog fired on a LIVE
+        # turn — it timed TOTAL wall time from turn start, and a turn the
+        # owner watched working (311.6s non-streaming LLM answer, 264.9s
+        # browser_navigate, 108.7s context build) blew straight past 600s:
+        # "run stopped but agent is still in job". Hermes' liveness watchdog
+        # is activity-based (agent/activity_tracking.py: a stall observation
+        # binds to a generation; real progress invalidates it), so the budget
+        # now measures SILENCE: every own-session event the forwarder relays
+        # touches the liveness generation and re-arms the window. A turn that
+        # only looks slow never fires; a truly silent one still releases.
         _terminal = threading.Event()
+        _force_ended = threading.Event()
+        _liveness = TurnLiveness()
 
-        def _stall_watchdog() -> None:
-            raw = os.environ.get("PULSEAI_TURN_STALL_TIMEOUT_S", "").strip()
-            try:
-                budget = float(raw) if raw else 600.0
-            except (TypeError, ValueError):
-                budget = 600.0
-            budget = max(0.0, min(budget, 3600.0))
-            if budget <= 0:
-                return
-            if not _terminal.wait(budget):
-                wall = _time.monotonic() - _turn_t0
+        def _emit_terminal(frame: dict) -> None:
+            # Exactly-once terminal delivery: after the watchdog released the
+            # session, an engine thread finishing late must not emit a second
+            # terminal frame (the field UI showed a dead run still working).
+            if _force_ended.is_set():
                 print(
-                    f"[bridge] turn STALL watchdog fired after {wall:.0f}s "
-                    "with no terminal frame - releasing the session",
+                    "[bridge] watchdog already released this turn; "
+                    "late terminal frame suppressed",
                     file=sys.stderr, flush=True,
                 )
-                self.emit({
-                    "type": "runtime_degraded", **identity.event_fields(),
-                    "reason": f"turn stalled {wall:.0f}s after the last engine activity (watchdog)",
-                })
-                self.emit({
-                    "type": "turn_done", **identity.event_fields(),
-                    "message": (
-                        "This turn stalled and was ended by the watchdog. "
-                        "The reply above is what the engine produced; send "
-                        "another message to continue."
-                    ),
-                    "completed": False, "cancelled": False, "stub": False,
-                })
+                return
+            self.emit(frame)
+
+        def _stall_watchdog() -> None:
+            run_stall_watchdog(
+                terminal=_terminal,
+                liveness=_liveness,
+                budget_env=os.environ.get("PULSEAI_TURN_STALL_TIMEOUT_S", "").strip(),
+                fire=lambda budget: self._emit_stall_release(identity, _force_ended, budget),
+            )
 
         threading.Thread(target=_stall_watchdog, name="pulseai-turn-watchdog", daemon=True).start()
         # Establish active ownership before publishing turn_started. Once the
@@ -430,7 +469,7 @@ class BridgeServer:
             q = event_bus.subscribe(thread_id=None)
             done = threading.Event()
             forwarder = threading.Thread(
-                target=self._forward_events, args=(q, identity, done, sid),
+                target=self._forward_events, args=(q, identity, done, sid, _liveness),
                 name=f"bridge-events-{sid}", daemon=True,
             )
             forwarder.start()
@@ -490,7 +529,7 @@ class BridgeServer:
                         })
                 task_completed = bool(getattr(result, "completed", True))
                 _terminal.set()
-                self.emit({
+                _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
                     "message": str(result),
                     "completed": task_completed and not cancelled,
@@ -507,14 +546,14 @@ class BridgeServer:
                 # attribution and must produce one terminal cancelled receipt.
                 if turn_controls.cancelled(sid):
                     _terminal.set()
-                    self.emit({
+                    _emit_terminal({
                         "type": "turn_done", **identity.event_fields(),
                         "message": "Operation cancelled by the user.",
                         "completed": False, "cancelled": True, "stub": False,
                     })
                 else:
                     _terminal.set()
-                    self.emit({
+                    _emit_terminal({
                         "type": "turn_failed", **identity.event_fields(),
                         "error": str(exc), "completed": False,
                     })
