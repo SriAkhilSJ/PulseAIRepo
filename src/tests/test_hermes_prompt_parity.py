@@ -683,3 +683,33 @@ def test_cache_plan_route_gate_is_derived_and_dumpable(tmp_path):
     )
     first = json.loads(off.stdout.splitlines()[0])
     assert (first["enabled"], first["reason"], first["stats_markers"]) == (False, "opt-in", 0)
+
+
+def test_browser_vs_fetch_routing_is_taugth_on_both_tools():
+    """Field 2026-09-08 (engine 44ed3687): the user asked for browser testing;
+    the model verified the running app with web_fetch — the server's HTML,
+    no JS — because the web tool's description never said what it cannot see
+    or when the browser is the tool. Hermes teaches the routing on BOTH
+    sides (verified in source): browser_navigate's description routes
+    info-retrieval to web tools ("prefer web_search or web_extract"), and
+    web_extract's description routes failures back ("If a URL fails or
+    times out, use the browser tool instead"). Pulse already had the
+    browser-side routing; this pins the web side (and the capability truth:
+    web_fetch never runs the page's JavaScript). Capability statements only
+    — no task lexicons, the model decides with correct facts."""
+    from src.tools.web_tools import web_fetch
+    from src.tools.browser_tools import browser_navigate
+
+    def _text(tool):
+        # langchain @tool moves the docstring into .description
+        return (getattr(tool, "description", None) or tool.__doc__ or "").lower()
+
+    web_doc = _text(web_fetch)
+    browser_doc = _text(browser_navigate)
+    # hermes' failure pivot, ported to the web tool
+    assert "use the browser tool instead" in web_doc
+    # the capability truth that makes the pivot rational (not a rule)
+    assert "javascript never runs" in web_doc
+    # browser side carries both halves of the routing
+    assert "prefer web_search or web_fetch" in browser_doc
+    assert "verify that a web app" in browser_doc

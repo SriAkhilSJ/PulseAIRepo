@@ -229,6 +229,12 @@ def web_fetch(url: str, max_chars: int = 12_000) -> str:
 
     Use this after web_search when a result looks useful. It returns the page
     title/URL plus cleaned text, truncated to max_chars to protect context.
+    This is the server's HTML text only — the page's JavaScript never runs,
+    so JS-rendered apps and client-side routes come back empty or partial.
+    If a URL fails or times out, use the browser tool instead (hermes
+    web_extract contract). To interact with a page, or to verify that a web
+    app you built actually renders and works for the user, use the browser
+    tools (browser_navigate) — that is what they exist for.
     """
     max_chars = max(1_000, min(max_chars, 30_000))
 
