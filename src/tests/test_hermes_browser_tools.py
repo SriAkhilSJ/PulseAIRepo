@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from src.tools import browser_tools as bt
 from src.tools.browser_tools import BROWSER_TOOLS, _dumps, run_browser_command
@@ -274,8 +275,13 @@ def test_scroll_sends_hermes_pixel_argument(monkeypatch):
     out = json.loads(bt.browser_scroll.invoke({"direction": "down"}, config=_cfg()))
     assert captured["args"] == ["down", "500"]
     assert out == {"success": True, "scrolled": "down"}
-    bad = json.loads(bt.browser_scroll.invoke({"direction": "sideways"}, config=_cfg()))
-    assert bad["success"] is False and "Use 'up' or 'down'" in bad["error"]
+    # hermes carries enum ["up","down"] in the schema itself, so a bad
+    # direction is rejected by pydantic before the body ever runs.
+    with pytest.raises(ValidationError):
+        bt.browser_scroll.invoke({"direction": "sideways"}, config=_cfg())
+    schema = bt.browser_scroll.args_schema.model_json_schema()
+    assert schema["properties"]["direction"].get("enum") == ["up", "down"]
+    assert schema["properties"]["direction"].get("description") == "Direction to scroll"
 
 
 def test_console_messages_and_errors_shape(monkeypatch):
@@ -706,3 +712,30 @@ def test_navigate_runs_the_normalize_before_open(monkeypatch):
     out = json.loads(bt.browser_navigate.invoke({"url": "localhost:3000"}, config=_cfg()))
     assert captured["url"] == "http://localhost:3000"
     assert out["url"] == "http://localhost:3000"
+
+
+def test_arg_descriptions_are_hermes_registry_verbatim():
+    """hermes BROWSER_TOOL_SCHEMAS describe every argument; the provider sees
+    the same teaching here. Verified against tools/browser_tool.py:435-570."""
+    expected = {
+        "browser_navigate": {"url": "The URL to navigate to (e.g., 'https://example.com')"},
+        "browser_snapshot": {"full": "If true, returns complete page content. If false (default), returns compact view with interactive elements only."},
+        "browser_click": {"ref": "The element reference from the snapshot (e.g., '@e5', '@e12')"},
+        "browser_type": {
+            "ref": "The element reference from the snapshot (e.g., '@e3')",
+            "text": "The text to type into the field",
+        },
+        "browser_scroll": {"direction": "Direction to scroll"},
+        "browser_press": {"key": "Key to press (e.g., 'Enter', 'Tab', 'Escape', 'ArrowDown')"},
+        "browser_console": {
+            "clear": "If true, clear the message buffers after reading",
+            "expression": "JavaScript expression to evaluate in the page context. Runs in the browser like DevTools console \u2014 full access to DOM, window, document. Return values are serialized to JSON. Example: 'document.title' or 'document.querySelectorAll(\"a\").length'",
+        },
+    }
+    for tool_name, args in expected.items():
+        schema = getattr(bt, tool_name).args_schema.model_json_schema()
+        props = schema.get("properties", {})
+        for arg_name, description in args.items():
+            assert props.get(arg_name, {}).get("description") == description, (
+                f"{tool_name}.{arg_name} must carry hermes' registry description verbatim"
+            )

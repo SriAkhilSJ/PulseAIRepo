@@ -65,10 +65,11 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
+from pydantic import Field
 
 # ---------------------------------------------------------------------------
 # hermes constants (tools/browser_tool.py)
@@ -600,7 +601,10 @@ def _session_from_config(config: RunnableConfig) -> str:
 # per the port rule: the block never names a tool the runtime lacks.
 # ---------------------------------------------------------------------------
 @tool
-def browser_navigate(url: str, config: RunnableConfig = None) -> str:
+def browser_navigate(
+    url: Annotated[str, Field(description="The URL to navigate to (e.g., 'https://example.com')")],
+    config: RunnableConfig = None,
+) -> str:
     """Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. The browser opens VISIBLE on the user's screen and the session is recorded to a .webm — when the user asks to 'test', 'verify', or 'try' an app, THIS is what they want to watch: these browser tools, live, not a scripted playwright/puppeteer run hidden inside the terminal. For simple information retrieval, prefer web_search or web_fetch (faster, cheaper). For plain-text endpoints — URLs ending in .md, .txt, .json, .yaml, .yml, .csv, .xml, raw.githubusercontent.com, or any documented API endpoint — prefer curl via the terminal tool or web_fetch; the browser stack is overkill and much slower for these. Use browser tools when you need to interact with a page (click, fill forms, dynamic content) or to verify that a web app you built actually renders and works. Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating."""
     session = _session_from_config(config)
     url = normalize_browser_url(url)
@@ -636,7 +640,10 @@ def browser_navigate(url: str, config: RunnableConfig = None) -> str:
 
 
 @tool
-def browser_snapshot(full: bool = False, config: RunnableConfig = None) -> str:
+def browser_snapshot(
+    full: Annotated[bool, Field(description="If true, returns complete page content. If false (default), returns compact view with interactive elements only.")] = False,
+    config: RunnableConfig = None,
+) -> str:
     """Get a text-based snapshot of the current page's accessibility tree. Returns interactive elements with ref IDs (like @e1, @e2) for browser_click and browser_type. full=false (default): compact view with interactive elements. full=true: complete page content. Snapshots over 15000 chars are truncated; when that happens the complete snapshot is saved to a file and the output includes its path so you can page through the rest with read_file. Requires browser_navigate first. Note: browser_navigate already returns a compact snapshot — use this to refresh after interactions that change the page, or with full=true for complete content."""
     session = _session_from_config(config)
     result = run_browser_command(session, "snapshot", [] if full else ["-c"])
@@ -646,7 +653,10 @@ def browser_snapshot(full: bool = False, config: RunnableConfig = None) -> str:
 
 
 @tool
-def browser_click(ref: str, config: RunnableConfig = None) -> str:
+def browser_click(
+    ref: Annotated[str, Field(description="The element reference from the snapshot (e.g., '@e5', '@e12')")],
+    config: RunnableConfig = None,
+) -> str:
     """Click on an element identified by its ref ID from the snapshot (e.g., '@e5'). The ref IDs are shown in square brackets in the snapshot output. Requires browser_navigate and browser_snapshot to be called first."""
     session = _session_from_config(config)
     ref = _at_ref(ref)
@@ -655,7 +665,11 @@ def browser_click(ref: str, config: RunnableConfig = None) -> str:
 
 
 @tool
-def browser_type(ref: str, text: str, config: RunnableConfig = None) -> str:
+def browser_type(
+    ref: Annotated[str, Field(description="The element reference from the snapshot (e.g., '@e3')")],
+    text: Annotated[str, Field(description="The text to type into the field")],
+    config: RunnableConfig = None,
+) -> str:
     """Type text into an input field identified by its ref ID. Clears the field first, then types the new text. Requires browser_navigate and browser_snapshot to be called first."""
     session = _session_from_config(config)
     ref = _at_ref(ref)
@@ -666,10 +680,13 @@ def browser_type(ref: str, text: str, config: RunnableConfig = None) -> str:
 
 
 @tool
-def browser_scroll(direction: str, config: RunnableConfig = None) -> str:
+def browser_scroll(
+    direction: Annotated[Literal["up", "down"], Field(description="Direction to scroll")],
+    config: RunnableConfig = None,
+) -> str:
     """Scroll the page in a direction. Use this to reveal more content that may be below or above the current viewport. Requires browser_navigate to be called first."""
-    if direction not in {"up", "down"}:
-        return _dumps(_err(f"Invalid direction '{direction}'. Use 'up' or 'down'."))
+    # hermes validates direction in the SCHEMA (enum ["up","down"]); the body
+    # trusts it -- a bad direction dies in pydantic, never here.
     session = _session_from_config(config)
     result = run_browser_command(session, "scroll", [direction, str(_SCROLL_PIXELS)])
     return _tool_response(result, {"scrolled": direction}, f"Failed to scroll {direction}")
@@ -685,7 +702,10 @@ def browser_back(config: RunnableConfig = None) -> str:
 
 
 @tool
-def browser_press(key: str, config: RunnableConfig = None) -> str:
+def browser_press(
+    key: Annotated[str, Field(description="Key to press (e.g., 'Enter', 'Tab', 'Escape', 'ArrowDown')")],
+    config: RunnableConfig = None,
+) -> str:
     """Press a keyboard key. Useful for submitting forms (Enter), navigating (Tab), or keyboard shortcuts. Requires browser_navigate to be called first."""
     session = _session_from_config(config)
     result = run_browser_command(session, "press", [key])
@@ -693,7 +713,11 @@ def browser_press(key: str, config: RunnableConfig = None) -> str:
 
 
 @tool
-def browser_console(clear: bool = False, expression: str = "", config: RunnableConfig = None) -> str:
+def browser_console(
+    clear: Annotated[bool, Field(description="If true, clear the message buffers after reading")] = False,
+    expression: Annotated[str, Field(description="JavaScript expression to evaluate in the page context. Runs in the browser like DevTools console — full access to DOM, window, document. Return values are serialized to JSON. Example: 'document.title' or 'document.querySelectorAll(\"a\").length'")] = "",
+    config: RunnableConfig = None,
+) -> str:
     """Get browser console output and JavaScript errors from the current page. Returns console.log/warn/error/info messages and uncaught JS exceptions. Use this to detect silent JavaScript errors, failed API calls, and application warnings. Requires browser_navigate to be called first. When 'expression' is provided, evaluates JavaScript in the page context and returns the result — use this for DOM inspection, reading page state, or extracting data programmatically."""
     session = _session_from_config(config)
     if expression:
