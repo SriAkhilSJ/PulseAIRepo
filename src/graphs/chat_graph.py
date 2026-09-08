@@ -2998,15 +2998,37 @@ def replanner_node(
 
     usages: list[TokenUsage] = []
 
-    task_plan = create_replan(
-        task=current_task,
-        plan=old_plan,
-        failed_steps=failed_steps,
-        provider=_cfg(configurable, "provider", LLM_PROVIDER),
-        model=_cfg(configurable, "model", LLM_MODEL),
-        prior_attempts=state.get("prior_attempts", []),  # NEW: Pass learning memory
-        usage_list=usages,
-    )
+    # A planning failure must never kill the turn (planner_node learned this
+    # after lab run 10; the replanner missed the same guard). Field log
+    # 2026-09-08 (engine 60a72ee6): the model had done 20+ tool calls when a
+    # triggered replan got back a response with no numbered lines —
+    # create_replan raised ValueError("Planner did not return a valid
+    # numbered plan.") straight through the graph and the whole turn died
+    # ("Run failed", 391.7s of work gone). Hermes' shape: a planning write
+    # never raises into the loop (todo_tool returns a tool_error), so on any
+    # planner failure keep the CURRENT plan and continue — the model still
+    # sees the failed step in context and adapts, exactly like the
+    # replan-count give-up path above.
+    try:
+        task_plan = create_replan(
+            task=current_task,
+            plan=old_plan,
+            failed_steps=failed_steps,
+            provider=_cfg(configurable, "provider", LLM_PROVIDER),
+            model=_cfg(configurable, "model", LLM_MODEL),
+            prior_attempts=state.get("prior_attempts", []),  # NEW: Pass learning memory
+            usage_list=usages,
+        )
+    except Exception as exc:
+        print(
+            f"[replanner] plan LLM failed ({type(exc).__name__}: {exc!r}) - "
+            "keeping the current plan and continuing",
+            flush=True,
+        )
+        return {
+            "replan_needed": False,
+            "token_usage": _merge_token_usage(state.get("token_usage", {}), usages),
+        }
 
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),

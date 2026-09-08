@@ -25,7 +25,9 @@ from src.models.plan_models import steps_to_dicts
 
 
 @tool
-def plan_update(steps: list[dict[str, Any]] | None = None) -> str:
+def plan_update(
+    steps: "list[dict[str, Any]] | str | None" = None,
+) -> str:
     """Read or replace the task list for the current turn.
 
     Only use this when the task genuinely needs two or more separate steps: an edit that must be
@@ -42,6 +44,25 @@ def plan_update(steps: list[dict[str, Any]] | None = None) -> str:
 
     if steps is None:
         return json.dumps({"steps": [], "summary": {"total": 0}}, ensure_ascii=False)
+
+    # hermes tools/todo_tool.py (verbatim tolerance): "LLMs sometimes send a
+    # JSON string instead of a list" — parse before judging. Field log
+    # 2026-09-08 (engine 60a72ee6): the model sent exactly that shape and
+    # the tool failed; progress_node's _plan_tool_steps already tolerates
+    # it, the tool itself did not.
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except (json.JSONDecodeError, TypeError):
+            return json.dumps(
+                {"error": "steps must be a list of objects, got unparseable string"},
+                ensure_ascii=False,
+            )
+    if not isinstance(steps, list):
+        return json.dumps(
+            {"error": f"steps must be a list, got {type(steps).__name__}"},
+            ensure_ascii=False,
+        )
 
     normalized = steps_to_dicts(steps)
     if not any(step.get("status") == "in_progress" for step in normalized):
