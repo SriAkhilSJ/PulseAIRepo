@@ -128,10 +128,12 @@ def test_non_windows_blocks_unchanged(monkeypatch):
 def test_foreground_timeout_contract():
     """Hermes terminal contract (tools/terminal_tool.py:943-957), ported:
     model-owned timeout — coerced from strings (models send '30000'),
-    rejected when non-positive, capped at the foreground max with the
-    background pivot. The owner's 'terminal ran life long' was a 30000s
-    request the engine silently ignored into a 300s wait — and a repo-wide
-    recursive listing that should never have been attempted."""
+    rejected when non-positive. Over-cap is NOT a rejection here: hermes
+    :966-971 PROMOTES it to a tracked background spawn ("454 refusals in
+    one run, every one re-sent") — run_terminal owns that branch, pinned
+    by test_foreground_promotion.py. The owner's 'terminal ran life long'
+    was a 30000s request the engine silently ignored into a 300s wait —
+    and a repo-wide recursive listing that should never have been attempted."""
     from src.tools.terminal_tools import _foreground_timeout
 
     # model's explicit timeout is honored (string-safe)
@@ -144,23 +146,29 @@ def test_foreground_timeout_contract():
     # non-positive rejected
     eff, rejection = _foreground_timeout("0")
     assert eff == 0 and "positive number of seconds" in rejection
-    # over-cap rejected with the background pivot (hermes wording)
+    # over-cap passes THROUGH — the caller promotes (hermes :966-971)
     eff, rejection = _foreground_timeout(30000)
-    assert eff == 0
-    assert "exceeds the maximum" in rejection and "start_terminal" in rejection
+    assert eff == 30000 and rejection is None
 
 
 def test_foreground_timeout_cap_env(monkeypatch):
-    from src.tools.terminal_tools import _foreground_timeout
+    """The cap moved with hermes' promotion (terminal_tool.py:966-971): the
+    validator passes over-cap through and run_terminal compares against
+    _foreground_max_timeout() — an env-lowered cap changes the PROMOTION
+    threshold; it is no longer a rejection."""
+    from src.tools.terminal_tools import (
+        _foreground_max_timeout,
+        _foreground_timeout,
+    )
 
     monkeypatch.setenv("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "120")
-    eff, rejection = _foreground_timeout(121)
-    assert eff == 0 and "exceeds the maximum of 120s" in rejection
-    assert _foreground_timeout(120) == (120, None)
+    assert _foreground_max_timeout() == 120
+    assert _foreground_timeout(121) == (121, None)  # caller promotes
+    assert _foreground_timeout(120) == (120, None)  # at-cap stays foreground
     # cap sanity floor: 30s minimum even if env says something silly
     monkeypatch.setenv("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "1")
-    eff, rejection = _foreground_timeout(31)
-    assert eff == 0 and "exceeds the maximum of 30s" in rejection
+    assert _foreground_max_timeout() == 30
+    assert _foreground_timeout(31) == (31, None)
 
 
 def test_hermes_terminal_name_alias_executes(tmp_path):

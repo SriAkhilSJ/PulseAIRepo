@@ -186,13 +186,12 @@ def read_terminal_output(
         f"{output}"
     )
 
-@tool
-def start_terminal(
-    command: str,
-    config: RunnableConfig
-) -> str:
-    """Start a long-running terminal command in the active workspace."""
-
+def _spawn_tracked_background(command: str, config: RunnableConfig) -> str:
+    """The tracked-background spawn start_terminal serves (hermes
+    terminal_tool.py:1216-1229: the foreground->background promotion uses
+    the SAME spawn path as the background tool). Returns the spawn receipt;
+    a _hardline_refusal passes through unchanged (hermes attaches the
+    promoted note only to a successful spawn)."""
     workspace = config["configurable"]["workspace"]
 
     _bg_floor = _hardline_refusal(command)
@@ -250,6 +249,14 @@ def start_terminal(
     )
 
 @tool
+def start_terminal(
+    command: str,
+    config: RunnableConfig
+) -> str:
+    """Start a long-running terminal command in the active workspace."""
+    return _spawn_tracked_background(command, config)
+
+@tool
 def terminal(
     command: str,
     config: RunnableConfig,
@@ -262,8 +269,8 @@ def terminal(
     hermes emit the tool name `terminal` — the unknown-name rejection
     ended a listing turn as "Tool failed: terminal". This alias makes the
     hermes name EXECUTE with run_terminal's full contract: timeout
-    honored (default 300s, foreground max 600s, above-cap rejected with a
-    start_terminal pivot), cmd.exe dialect on Windows.
+    honored (default 300s, foreground max 600s, above-cap promoted to a
+    tracked background process), cmd.exe dialect on Windows.
 
     Do NOT use cat/head/tail (use read_file), grep/rg/find/ls
     (use list_files or search_code), sed/awk (use edit_file), or
@@ -545,15 +552,25 @@ def _looks_mutating(command: str) -> bool:
     return first not in _READONLY_FIRST_TOKENS
 
 
+def _foreground_max_timeout() -> int:
+    """hermes TERMINAL_MAX_FOREGROUND_TIMEOUT (terminal_tool.py:74, default
+    600), read PER CALL, clamped to the 30..3600 band."""
+    try:
+        raw_max = os.environ.get("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "")
+        max_cap = int(raw_max) if raw_max else FOREGROUND_MAX_TIMEOUT_DEFAULT
+    except (TypeError, ValueError):
+        max_cap = FOREGROUND_MAX_TIMEOUT_DEFAULT
+    return max(30, min(max_cap, 3600))
+
+
 def _foreground_timeout(value) -> tuple[int, str | None]:
     """Hermes terminal contract (tools/terminal_tool.py:943-957), ported:
     the MODEL owns foreground timeout — honored, coerced (models send
-    strings), rejected when non-positive, and CAPPED: a foreground call
-    above the max is rejected with the background pivot, never accepted
-    into a multi-hour wait (owner field case: timeout=30000s read as
-    'life long'). Env default still sizes ordinary runs; the env floor
-    NEVER lowers below the explicit request's absence... i.e. env default
-    applies only when the model passed nothing.
+    strings), rejected when non-positive. The CAP is not a rejection here:
+    hermes :966-971 PROMOTES an over-cap request to a tracked background
+    process (454-refusal receipt) — run_terminal owns that decision.
+    Env default still sizes ordinary runs; the env default applies only
+    when the model passed nothing.
     Returns (effective_seconds, rejection_message_or_None).
     """
     raw_env = os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "300")
@@ -561,12 +578,6 @@ def _foreground_timeout(value) -> tuple[int, str | None]:
         default = int(raw_env)
     except (TypeError, ValueError):
         default = 300
-    try:
-        raw_max = os.environ.get("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "")
-        max_cap = int(raw_max) if raw_max else FOREGROUND_MAX_TIMEOUT_DEFAULT
-    except (TypeError, ValueError):
-        max_cap = FOREGROUND_MAX_TIMEOUT_DEFAULT
-    max_cap = max(30, min(max_cap, 3600))
 
     if value is None or (isinstance(value, str) and not value.strip()):
         return max(1, default), None
@@ -577,13 +588,6 @@ def _foreground_timeout(value) -> tuple[int, str | None]:
     if requested <= 0:
         return 0, (
             f"timeout must be a positive number of seconds (got {requested})."
-        )
-    if requested > max_cap:
-        return 0, (
-            f"Foreground timeout {requested}s exceeds the maximum of "
-            f"{max_cap}s. Do NOT retry foreground with a larger timeout — "
-            "use start_terminal (background) and read_terminal_output/"
-            "check_terminal instead."
         )
     return requested, None
 
@@ -605,8 +609,11 @@ def run_terminal(
     Hermes timeout contract: max seconds to wait (default 300,
     foreground max 600). Returns the moment the command finishes — set
     a generous timeout for long tasks; you will NOT wait unnecessarily.
-    A foreground timeout above 600s is REJECTED — use start_terminal
-    (background) for longer commands.
+    A foreground timeout above the 600s cap is PROMOTED (hermes
+    terminal_tool.py:966-971 — refusing only bought a mechanical retry):
+    the command starts as a tracked background process instead. The
+    receipt carries the process_id — poll it with check_terminal, do NOT
+    re-run the command.
 
     Do NOT use cat/head/tail (use read_file), grep/rg/find/ls
     (use list_files or search_code), sed/awk (use edit_file), or
@@ -622,9 +629,9 @@ def run_terminal(
     workspace = config["configurable"]["workspace"]
 
     # Hermes terminal contract (tools/terminal_tool.py): the model's
-    # timeout is HONORED — coerced, validated, capped. Silently ignoring
-    # it (the old behavior) taught the model nothing and read as
-    # "life long" when it asked for 30000s.
+    # timeout is HONORED — coerced, validated. Silently ignoring it (the
+    # old behavior) taught the model nothing and read as "life long" when
+    # it asked for 30000s.
     timeout, timeout_rejection = _foreground_timeout(timeout)
     if timeout_rejection:
         return f"⛔ run_terminal rejected: {timeout_rejection}"
@@ -632,10 +639,34 @@ def run_terminal(
     # Hermes foreground/background guard (terminal_tool.py :965 — the guard
     # fires BEFORE the deadline math): a command the foreground transport
     # cannot serve is refused in zero seconds with the exact re-send, not
-    # after burning the whole timeout.
+    # after burning the whole timeout. Hermes order matters (:956-971):
+    # this guidance STAYS A REFUSAL even over-cap — `&`/nohup/server
+    # commands need the command itself rewritten, which the tool cannot
+    # do safely — so the check precedes the promotion branch.
     _fb_guidance = _foreground_background_guidance(command)
     if _fb_guidance:
         return f"⛔ run_terminal refused: {_fb_guidance}"
+
+    # Hermes promotion (terminal_tool.py:966-971 + _PROMOTED_NOTE_POLL_ONLY):
+    # an over-cap foreground timeout is a bounded job the caller wants to
+    # wait for (test suites, builds). Refusing it only bought a mechanical
+    # retry — "454 refusals in one run, every one re-sent lower/split/
+    # background". Start it through the SAME tracked-background spawn the
+    # start_terminal tool serves and tell the caller in the result.
+    if timeout > _foreground_max_timeout():
+        spawn = _spawn_tracked_background(command, config)
+        if not spawn.startswith("Process started."):
+            return spawn  # _hardline_refusal pass-through: note only on success
+        return (
+            f"{spawn}\n"
+            f"Requested foreground timeout {timeout}s exceeds the "
+            f"{_foreground_max_timeout()}s cap, so this command was started "
+            "as a tracked background process instead of being refused. "
+            "Do NOT re-run it. This session cannot receive completion "
+            "notifications, so poll it with check_terminal (pass the "
+            "Process ID above, wait_seconds as needed) and read its output "
+            "with read_terminal_output until it exits."
+        )
 
     # R3-1 POSIX-dialect guard — cmd.exe-fallback ONLY. Hermes' Windows
     # backend runs bash (git-bash/MSYS): there, POSIX IS the dialect and the
