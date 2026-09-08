@@ -301,30 +301,6 @@ def create_plan(
     return plan
 
 
-def create_replan(
-    task: str,
-    plan: list[dict],
-    failed_steps: list[str],
-    provider: str,
-    model: str,
-    prior_attempts: list[dict] | None = None,
-    usage_list: list | None = None,
-) -> TaskPlan:
-    """
-    Create a new plan when the old one failed.
-    Now includes lessons from past attempts!
-    """
-    messages = plan_context_engine.build_replanner_messages(
-        task=task,
-        plan=plan,
-        failed_steps=failed_steps,
-        planner_prompt=PLANNER_PROMPT,
-        prior_attempts=prior_attempts,
-    )
-
-    return _execute_plan_llm(messages, provider, model, task, usage_list=usage_list)
-
-
 def revise_plan(
     task: str,
     plan: list[dict],
@@ -489,77 +465,6 @@ def check_ambiguity(
         return None
         
     return result
-
-def should_replan(
-    task: str,
-    plan: list[dict],
-    failure: str,
-    provider: str,
-    model: str,
-    usage_list: list | None = None,
-) -> bool:
-    """Decide whether a failure invalidates the plan (REPLAN) or can be recovered within the plan (KEEP)."""
-    llm = get_llm(
-        provider=provider,
-        model=model,
-    )
-
-    plan_lines = []
-    for step in plan:
-        plan_lines.append(
-            f"{step.get('id', '')}. [{step.get('status', '')}] {step.get('description', '')}"
-        )
-    plan_text = "\n".join(plan_lines)
-
-    messages = [
-        SystemMessage(
-            content=(
-                "Decide whether an existing execution plan should be kept "
-                "or replaced after a failure.\n\n"
-
-                "Return exactly one word: KEEP or REPLAN.\n\n"
-
-                "KEEP when:\n"
-                "- The overall strategy is still valid.\n"
-                "- The failure is a local implementation/runtime problem.\n"
-                "- The same planned approach can continue after a fix.\n"
-                "- Examples: syntax errors, wrong paths, ordinary test failures, "
-                "incorrect arguments, or recoverable command failures.\n\n"
-
-                "REPLAN when:\n"
-                "- The planned approach itself is no longer viable.\n"
-                "- A required dependency, service, resource, API, file, or "
-                "capability is unavailable and the task requires another approach.\n"
-                "- Continuing the remaining plan would repeat or depend on the "
-                "invalid assumption.\n"
-                "- The strategy must change rather than merely fixing its "
-                "implementation.\n\n"
-
-                "Important distinction:\n"
-                "If the implementation failed but the strategy remains valid, KEEP.\n"
-                "If the strategy's required assumption is false and another "
-                "strategy is required, REPLAN.\n\n"
-
-                "Do not propose a solution. Return only KEEP or REPLAN."
-            )
-        ),
-        HumanMessage(
-            content=(
-                f"Task:\n{task}\n\n"
-                f"Current plan:\n{plan_text}\n\n"
-                f"Recent failure:\n{failure}"
-            )
-        ),
-    ]
-
-    response = _invoke_and_track(llm, messages, model, usage_list)
-    decision = _extract_decision(response.content)
-
-    if decision == "REPLAN":
-        return True
-
-    return False
-
 
 def start_next_plan_step(
     plan: list[dict],

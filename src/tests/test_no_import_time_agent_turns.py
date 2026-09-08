@@ -94,7 +94,6 @@ KNOWN_IMPORT_TIME_TURNS = {
     "test_plan_cancel.py",
     "test_plan_mode.py",
     "test_plan_revision.py",
-    "test_replan_recovery.py",
 }
 
 

@@ -193,7 +193,7 @@ class TestConcurrency:
 class TestNodeWiring:
     def test_feedback_nodes_receive_config(self):
         for node in (chat_graph.ai_node, chat_graph.finalize_node,
-                     chat_graph.recovery_limit_node, chat_graph.replanner_node):
+                     chat_graph.recovery_limit_node):
             assert "config" in inspect.signature(node).parameters, (
                 f"{node.__name__} cannot reach a session key — signature lacks config"
             )

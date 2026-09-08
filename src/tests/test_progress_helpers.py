@@ -164,39 +164,6 @@ def test_d9_build_failure_terminal_variants():
     assert up["recovery_attempts_inc"] == 1 and up["recovery_mode"] is True
 
 
-def test_d9_maybe_replan(monkeypatch):
-    needed, usages = ph.maybe_replan("t", [], "f", "p", "m")
-    assert needed is False and usages == []
-
-    def _must_not_call(**kwargs):
-        raise AssertionError("deterministic local failure must not call the LLM")
-
-    monkeypatch.setattr(ph, "should_replan", _must_not_call)
-    plan = [{"step": 1}]
-    for failure in (
-        "Tool failed: PHASE POLICY DENIED run_terminal",
-        "Command failed: curl\n⛔ BLOCKED (safety policy)",
-        "run_terminal uses POSIX-only shell on Windows",
-    ):
-        assert ph.maybe_replan("build", plan, failure, "p", "m") == (False, [])
-
-    captured = {}
-
-    def _fake(task, plan, failure, provider, model, usage_list):
-        captured.update(task=task, failure=failure, provider=provider, model=model)
-        usage_list.append("U1")
-        return True
-
-    monkeypatch.setattr(ph, "should_replan", _fake)
-    needed, usages = ph.maybe_replan("fix auth", [{"step": 1}], "boom", "groq", "llama")
-    assert needed is True and usages == ["U1"]
-    assert captured["failure"] == "boom" and captured["provider"] == "groq"
-
-
-# ---------------------------------------------------------------------
-# success labels / events / recovery clearing
-# ---------------------------------------------------------------------
-
 def test_d9_success_labels_and_events():
     label, events = ph.success_step_label("write_file",
                                           {"path": "a.py", "content": "l1\nl2"}, "tc1")
@@ -473,7 +440,7 @@ def test_next_after_progress_plan_complete_gives_one_wrap_nudge():
     first hit routes to finish_gate (wrap nudge), the second (model kept
     tooling) to the bounded shortcut."""
     base = dict(
-        recovery_mode=False, recovery_attempts=0, replan_needed=False,
+        recovery_mode=False, recovery_attempts=0,
         env_failures=0, pivot_count=0,
     )
     assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=0, **base) == "finish_gate"

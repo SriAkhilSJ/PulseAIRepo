@@ -34,9 +34,6 @@ collect_ignore = [
     "test_plan_mode.py",
     "test_plan_revision.py",
     "test_planner_manual.py",
-    "test_replan_graph.py",
-    "test_replan_recovery.py",
-    "test_replanner_manual.py",
 ]
 
 

@@ -88,7 +88,6 @@ def _drop_tool_pairs(messages: list) -> list:
 
 from src.agents.planner import (
     create_plan,
-    create_replan,
     revise_plan,
     should_create_plan,
     start_next_plan_step,
@@ -2385,7 +2384,7 @@ def progress_node(
     recovery_mode = state.get("recovery_mode", False)
     tool_failures = state.get("tool_failures", 0)
     recovery_command = state.get("recovery_command")
-    replan_needed = state.get("replan_needed", False)
+    replan_needed = False  # hermes: no engine re-plan consult exists
     env_failures = state.get("env_failures", 0)
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
     command_retries = dict(state.get("command_retries", {}))
@@ -2467,24 +2466,12 @@ def progress_node(
             # replanning (the plan isn't wrong, the environment is) and let
             # the recovery loop route to a strategy pivot instead of
             # retry-until-recovery-limit.
-            # ── Pre-LLM cancellation gate (progress replan) ─────
-            # maybe_replan consults the LLM (should_replan); after a Stop the
-            # failure bookkeeping above still lands, but the replan LLM must
-            # not be paid for.
-            _sid_pg = str(config["configurable"].get("thread_id") or "default")
-            from src.runtime.turn_control import turn_controls as _tc_pg
-            if not updates["env_failure"] and not _tc_pg.cancelled(_sid_pg):
-                needed, usages = ph.maybe_replan(
-                    task=state.get("current_task", ""),
-                    plan=plan,
-                    failure=failure,
-                    provider=config["configurable"]["provider"],
-                    model=config["configurable"]["model"],
-                )
-                if usages:
-                    replan_needed = needed
-                    for usage in usages:
-                        total_usage = total_usage + usage
+            # Hermes pipeline shape (verified: hermes has NO replanner
+            # component and no plan-LLM consult anywhere in the loop — the
+            # model adapts from the failure receipt in context, exactly as
+            # it adapts to every other tool result). Pulse's should_replan
+            # LLM consult is REMOVED with this round: a failure is just an
+            # observation handed back to the model.
             continue
 
         # ---------------- success ----------------
@@ -2634,7 +2621,6 @@ def after_progress(state: AgentState) -> str:
     route = ph.next_after_progress(
         recovery_mode=state.get("recovery_mode", False),
         recovery_attempts=state.get("recovery_attempts", 0),
-        replan_needed=state.get("replan_needed", False),
         plan_complete=is_plan_complete(state),
         env_failures=state.get("env_failures", 0),
         pivot_count=state.get("pivot_count", 0),
@@ -2956,150 +2942,6 @@ def plan_reviser_node(
 # REPLANNER NODE
 # =========================================================
 
-def replanner_node(
-    state: AgentState,
-    config: RunnableConfig,
-):
-    if not state.get("replan_needed", False):
-        return {}
-
-    replan_count = state.get("replan_count", 0)
-
-    if replan_count >= 2:
-        # Give-up: plan was unrecoverable even after 2 replans.
-        # Record failure feedback so the learning loop sees negative samples.
-        try:
-            get_context_engine(config).record_feedback(
-                success=False, task=state.get("current_task", "")
-            )
-        except Exception:
-            pass  # Feedback is best-effort; never block the graph
-        return {
-            "replan_needed": False,
-        }
-
-    current_task = state.get("current_task", "")
-    old_plan = state.get("plan", [])
-    failed_steps = state.get("failed_steps", [])
-
-    configurable = config["configurable"]
-
-    # ── Pre-LLM cancellation gate (replanner) ─────────────────
-    # create_replan invokes the LLM; a Stop must short-circuit before it.
-    session_id_rp = str(configurable.get("thread_id") or "default")
-    from src.runtime.turn_control import turn_controls as _tc_rp
-    if _tc_rp.cancelled(session_id_rp):
-        return {
-            "messages": [AIMessage(
-                content="Operation cancelled by the user.",
-                additional_kwargs={"pulse_cancelled": True},
-            )],
-        }
-
-    usages: list[TokenUsage] = []
-
-    # A planning failure must never kill the turn (planner_node learned this
-    # after lab run 10; the replanner missed the same guard). Field log
-    # 2026-09-08 (engine 60a72ee6): the model had done 20+ tool calls when a
-    # triggered replan got back a response with no numbered lines —
-    # create_replan raised ValueError("Planner did not return a valid
-    # numbered plan.") straight through the graph and the whole turn died
-    # ("Run failed", 391.7s of work gone). Hermes' shape: a planning write
-    # never raises into the loop (todo_tool returns a tool_error), so on any
-    # planner failure keep the CURRENT plan and continue — the model still
-    # sees the failed step in context and adapts, exactly like the
-    # replan-count give-up path above.
-    try:
-        task_plan = create_replan(
-            task=current_task,
-            plan=old_plan,
-            failed_steps=failed_steps,
-            provider=_cfg(configurable, "provider", LLM_PROVIDER),
-            model=_cfg(configurable, "model", LLM_MODEL),
-            prior_attempts=state.get("prior_attempts", []),  # NEW: Pass learning memory
-            usage_list=usages,
-        )
-    except Exception as exc:
-        print(
-            f"[replanner] plan LLM failed ({type(exc).__name__}: {exc!r}) - "
-            "keeping the current plan and continuing",
-            flush=True,
-        )
-        return {
-            "replan_needed": False,
-            "token_usage": _merge_token_usage(state.get("token_usage", {}), usages),
-        }
-
-    token_usage = _merge_token_usage(
-        state.get("token_usage", {}),
-        usages,
-    )
-
-    # Preserve completed steps.
-    completed = [
-        step.copy()
-        for step in old_plan
-        if step.get("status") == "completed"
-    ]
-
-    new_steps = steps_to_dicts(task_plan.steps)
-
-    # Give the new steps IDs after the preserved steps.
-    next_id = len(completed) + 1
-
-    for step in new_steps:
-        step["id"] = next_id
-        step["status"] = "pending"
-        next_id += 1
-
-    new_steps = start_next_plan_step(new_steps)
-
-    # Summarize this failed attempt for future learning (short-term)
-    latest_failure = failed_steps[-1] if failed_steps else "Unknown failure"
-    attempt_summary = {
-        "strategy_summary": f"Plan with {len(old_plan)} steps failed at step {len(completed) + 1}",
-        "failure_reason": latest_failure,
-        "lesson": f"Original approach failed. Switching to new strategy with {len(new_steps)} steps.",
-    }
-
-    # Store in LONG-TERM memory (cross-session learning).
-    # Guarded: memory_manager is None in degraded-boot environments.
-    if memory_manager:
-        memory_manager.store_replan_lesson(
-            task=current_task,
-            old_plan=old_plan,
-            failure=latest_failure,
-            new_strategy=f"New plan with {len(new_steps)} steps",
-        )
-
-    # Also store a reflection about this failure
-    from src.context.reflection_engine import ReflectionEngine
-    ReflectionEngine().reflect(
-        task=f"{current_task} [REPLAN]",
-        steps_completed=[f"Original plan failed: {latest_failure}"],
-        failed_steps=[latest_failure],
-        plan=old_plan,
-    )
-
-    prior_attempts = list(state.get("prior_attempts", []))
-    prior_attempts.append(attempt_summary)
-
-    return {
-        "plan": completed + new_steps,
-        "replan_needed": False,
-        "replan_count": replan_count + 1,
-        "prior_attempts": prior_attempts,  # NEW: Save lessons learned
-        "token_usage": token_usage,
-    }
-
-
-# =========================================================
-# GRAPH
-# =========================================================
-
-# Wrap ToolNode with safety guard
-from src.context.safety_guard import SafetyGuard
-
 def _denied_command(tc) -> str:
     """Compact command echo for denial ToolMessages — the model adapts by
     seeing WHAT was denied, not just a policy adjective (hermes denial
@@ -3107,6 +2949,10 @@ def _denied_command(tc) -> str:
     args = tc.get("args") or {}
     command = args.get("command") if isinstance(args, dict) else None
     return f"\nDenied command: {command}" if command else ""
+
+
+# Wrap ToolNode with safety guard
+from src.context.safety_guard import SafetyGuard
 
 
 class SafeToolNode:
@@ -3777,11 +3623,6 @@ builder.add_node(
 )
 
 builder.add_node(
-    "replanner",
-    replanner_node,
-)
-
-builder.add_node(
     "recovery_limit",
     recovery_limit_node,
 )
@@ -3913,17 +3754,11 @@ builder.add_conditional_edges(
     after_progress,
     {
         "ai": "ai",
-        "replanner": "replanner",
         "recovery_limit": "recovery_limit",
         "finalize": "finalize",
         "pivot": "pivot",
         "finish_gate": "finish_gate",
     },
-)
-
-builder.add_edge(
-    "replanner",
-    "ai",
 )
 
 builder.add_edge(
@@ -4384,8 +4219,6 @@ def stream_agent(
             # ---------------------------------------------
             # REPLANNER NODE
             # ---------------------------------------------
-            if "replanner" in event:
-                print("\n🔄 Replanning... adjusting strategy based on what we learned.")
 
             # ---------------------------------------------
             # RECOVERY LIMIT

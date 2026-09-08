@@ -50,30 +50,21 @@ def test_plan_update_wrong_type_never_reaches_the_loop():
         _invoke(42)
 
 
-def test_replanner_degrades_when_the_plan_llm_fails(monkeypatch, tmp_path):
-    """The field crash: ValueError('Planner did not return a valid numbered
-    plan.') from create_replan killed the whole turn. The node must catch
-    ANY planner failure, keep the current plan, and continue."""
+def test_engine_replan_component_no_longer_exists():
+    """Hermes pipeline shape (verified in hermes source: no replanner
+    component, no plan-LLM consult in the loop — the model adapts from
+    failure receipts). Pulse's create_replan engine, should_replan
+    consult, replanner node, and its route are removed with this round:
+    a failure is handed back to the model like any other observation, so
+    the 'Planner did not return a valid numbered plan' crash class is
+    structurally impossible."""
+    import inspect
     import src.graphs.chat_graph as cg
-
-    def _boom(**kwargs):
-        raise ValueError("Planner did not return a valid numbered plan.")
-
-    monkeypatch.setattr(cg, "create_replan", _boom)
-    state = {
-        "replan_needed": True,
-        "replan_count": 0,
-        "current_task": "browser test and fixx",
-        "plan": [{"id": 1, "description": "inspect", "status": "completed"}],
-        "failed_steps": ["Ran command failed: npm run build"],
-        "prior_attempts": [],
-        "token_usage": {},
-    }
-    config = {"configurable": {
-        "thread_id": "replanner-degrade-test",
-        "workspace": str(tmp_path),
-        "provider": "custom", "model": "fake",
-    }}
-    result = cg.replanner_node(state, config)
-    assert result["replan_needed"] is False, "continue with the current plan"
-    assert cg.__dict__.get("create_replan") is not None
+    import src.graphs.progress_helpers as ph
+    assert not hasattr(cg, "replanner_node")
+    assert not hasattr(cg, "create_replan")
+    assert not hasattr(ph, "maybe_replan")
+    na_source = inspect.getsource(ph.next_after_progress)
+    assert '"replanner"' not in na_source and "return \"replanner\"" not in na_source
+    source = inspect.getsource(cg)
+    assert "maybe_replan" not in source

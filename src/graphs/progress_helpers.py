@@ -38,7 +38,7 @@ from typing import Any, Optional
 
 from langchain_core.messages import ToolMessage
 
-from src.agents.planner import should_replan, update_plan_from_tool
+from src.agents.planner import update_plan_from_tool
 
 # Shown to the model after any tool result (kept byte-identical to the
 # pre-D9 inline string).
@@ -113,7 +113,6 @@ def classify_env_failure(result: str) -> bool:
 def next_after_progress(
     recovery_mode: bool,
     recovery_attempts: int,
-    replan_needed: bool,
     plan_complete: bool,
     env_failures: int,
     pivot_count: int,
@@ -139,8 +138,8 @@ def next_after_progress(
         if env_failures >= 2 and pivot_count < MAX_PIVOTS:
             return "pivot"
         return "recovery_limit"
-    if replan_needed:
-        return "replanner"
+    # (replanner route REMOVED with the engine re-plan consult — hermes has
+    # no re-planning component; the model adapts from failure receipts.)
     if plan_complete:
         return "finalize" if plan_wrap_nudges >= 1 else "finish_gate"
     return "ai"
@@ -399,32 +398,6 @@ _DETERMINISTIC_KEEP_MARKERS = (
     "nothing to typecheck",
     "no tsconfig.json",
 )
-
-
-def maybe_replan(task: str, plan: list, failure: str,
-                 provider: str, model: str):
-    """Consult the replanner only when a failure may invalidate the plan.
-
-    Hermes keeps policy/loop decisions deterministic. Paying a second model to
-    answer KEEP after a local policy denial or typed platform mismatch adds no
-    information; Test5-5 burned four calls on that shape. Unknown strategic
-    failures retain the existing model review.
-    """
-    if not plan:
-        return False, []
-    lowered = str(failure).lower()
-    if any(marker in lowered for marker in _DETERMINISTIC_KEEP_MARKERS):
-        return False, []
-    usages: list = []
-    needed = should_replan(
-        task=task,
-        plan=plan,
-        failure=failure,
-        provider=provider,
-        model=model,
-        usage_list=usages,
-    )
-    return needed, usages
 
 
 def success_step_label(tool_name: str, tool_args: dict,

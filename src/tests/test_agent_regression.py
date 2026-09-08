@@ -5,8 +5,6 @@ import sys
 TESTS = [
     # Planning / replanning
     "src.tests.test_planner_manual",
-    "src.tests.test_replanner_manual",
-    "src.tests.test_replan_graph",
 
     # Plan Mode
     "src.tests.test_plan_mode",

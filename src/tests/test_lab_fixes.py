@@ -451,7 +451,7 @@ def test_progress_conditional_edges_include_finish_gate():
     mapping = {}
     for spec in branch.values():
         mapping.update(getattr(spec, "ends", {}) or {})
-    for key in ("ai", "replanner", "recovery_limit", "finalize", "pivot", "finish_gate"):
+    for key in ("ai", "recovery_limit", "finalize", "pivot", "finish_gate"):
         assert key in mapping, f"progress mapping missing {key}"
         assert mapping[key] in nodes, f"progress mapping target {mapping[key]} is not a node"
 
