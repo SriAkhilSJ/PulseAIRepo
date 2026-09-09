@@ -2174,6 +2174,12 @@ function renderAgent(root: HTMLElement, model: PulseAIRenderModel, host: PulseAI
 		element('span', 'pulseai-agent-header-title', 'Pulse Agent'),
 		button('Manager', 'pulseai-agent-manager-button', () => host.openManager(), 'organization'),
 	);
+	// Field run 2026-09-09 (owner: "Ur claim failed"): the STALE chip lived
+	// only in the Manager titlebar, so an Agent-pane session ran a pre-
+	// fef8cdb2/74d146bd workbench against a current engine — every card-
+	// format fix invisible — with NO warning where the user was looking.
+	// The chip rides the Agent header too (next to the Manager button).
+	header.append(engineStatus(model));
 	shell.append(header);
 	shell.append(...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen));
 	shell.append(composer(model, host, false));

@@ -193,3 +193,34 @@ def test_tool_call_text_in_summary_is_never_executed(monkeypatch):
     out = cg.ai_node(_state(), _config())
     assert out["messages"][0].content == farewell, "markup stays prose (hermes shows it raw)"
     assert not out["messages"][0].tool_calls
+
+
+def test_model_wall_is_accounted_per_thread(monkeypatch):
+    """Field 2026-09-09: wall=360.0s while logged model+tool time summed to
+    ~92s and nothing could say where the rest went. Model-request wall is
+    now accumulated per thread and the bridge receipt splits it."""
+    import time as _time
+
+    from src.graphs import chat_graph as cg
+
+    class _SlowLLM:
+        model = "m"
+        def bind_tools(self, tools):
+            return self
+        def invoke(self, messages, **kwargs):
+            _time.sleep(0.01)
+            return AIMessage(content="ok")
+
+    monkeypatch.setattr(cg, "_TURN_MODEL_WALL", {})
+    cg._invoke_with_token_pump(_SlowLLM(), [], "acct-thread", "groq", "m")
+    cg._invoke_with_token_pump(_SlowLLM(), [], "acct-thread", "groq", "m")
+    assert cg.turn_model_wall("acct-thread") > 0.0
+    assert cg.turn_model_wall("other-thread") == 0.0
+
+
+def test_bridge_receipt_splits_model_vs_non_model_wall():
+    from pathlib import Path
+
+    bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "turn_model_wall" in bridge
+    assert "non-model" in bridge, "the receipt must name where non-model wall lives"

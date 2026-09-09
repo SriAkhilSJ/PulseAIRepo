@@ -1587,6 +1587,16 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 # the historical single end-chunk -- nothing is lost either way.
 # ---------------------------------------------------------------------------
 _TURN_LAST_CALL_STREAMED: dict[str, bool] = {}
+# Cumulative model-request wall time per thread (hermes turn_usage
+ # discipline: the turn receipt must ACCOUNT, not just total — field run
+ # 2026-09-09: wall=360.0s while logged model+tool time summed to ~92s and
+ # nothing on screen could say where the other 268s went).
+_TURN_MODEL_WALL: dict[str, float] = {}
+
+
+def turn_model_wall(thread_id: str) -> float:
+    """Total seconds this thread's turn has spent inside model requests."""
+    return _TURN_MODEL_WALL.get(thread_id, 0.0)
 
 # Auth-dead providers (hermes-style circuit breaker): a 401 never heals
 # mid-session, yet the router kept re-proposing the dead provider on EVERY
@@ -1883,14 +1893,22 @@ def _invoke_with_token_pump(
     "non-streaming" = streaming got disabled upstream.
     """
     pump = _AgentTokenPump(thread_id, strip_tool_blocks=strip_tool_blocks)
+    _model_t0 = time.monotonic()
     try:
         result = call_llm.invoke(messages, config={"callbacks": [pump]})
     except TypeError:
         result = call_llm.invoke(messages)
     except Exception:
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+        # Failed requests cost wall time too — account before re-raising.
+        _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
+            time.monotonic() - _model_t0
+        )
         raise
     _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+    _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
+        time.monotonic() - _model_t0
+    )
     # Any held-back display text (partial-tag tail, or an unterminated block
     # that repair will NOT consume) flushes before the receipt line.
     pump.flush_tail()

@@ -535,9 +535,18 @@ class BridgeServer:
                     "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
                 })
+                _model_wall = 0.0
+                try:
+                    from src.graphs.chat_graph import turn_model_wall
+                    _model_wall = turn_model_wall(session_id)
+                except Exception:
+                    pass  # accounting never breaks the receipt
+                _other = max(0.0, (_time.monotonic() - _turn_t0) - _model_wall)
                 print(
                     f"[bridge] turn end: completed={task_completed and not cancelled} "
-                    f"cancelled={cancelled} wall={_time.monotonic() - _turn_t0:.1f}s",
+                    f"cancelled={cancelled} wall={_time.monotonic() - _turn_t0:.1f}s "
+                    f"(model {_model_wall:.1f}s, non-model {_other:.1f}s — tools, "
+                    "finalize, review, transport gaps live there)",
                     file=_sys.stderr, flush=True,
                 )
             except Exception as exc:
