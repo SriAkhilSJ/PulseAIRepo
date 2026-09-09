@@ -197,3 +197,62 @@ def test_a_reviser_parse_failure_never_kills_the_turn():
     # and the graph still routes the reviser to the preview, which renders
     # the standing plan from state
     assert graph.after_task_manager({**state, "task_action": "revise_plan"}) == "plan_reviser"
+
+
+# ---------------------------------------------------------------------------
+# Hermes steer delivery (agent_runtime_helpers:3186 + steer_user_row) —
+# field 2026-09-09: the owner's pane showed the self-describing marker row;
+# pulse's engine instead injected an invented "=== OUT-OF-BAND USER STEER ==="
+# system banner that nothing in the system prompt teaches the model to trust.
+# ---------------------------------------------------------------------------
+
+def test_steer_is_a_marker_wrapped_user_row_after_the_newest_tool_result():
+    from src.graphs.chat_graph import _inject_steers_after_newest_tool_result
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+
+    messages = [
+        HumanMessage(content="fix the app"),
+        AIMessage(content="", tool_calls=[]),
+        ToolMessage(content="ok", tool_call_id="c1"),
+    ]
+    _inject_steers_after_newest_tool_result("s", messages, ["this proof is screenshots"])
+
+    assert len(messages) == 4
+    row = messages[3]
+    assert isinstance(row, HumanMessage)
+    assert row.additional_kwargs.get("display_kind") == "steer"
+    # the self-describing marker, hermes verbatim
+    assert str(row.content).startswith(
+        "[OUT-OF-BAND USER MESSAGE \u2014 a direct message from the user, delivered ")
+    assert "[/OUT-OF-BAND USER MESSAGE]" in str(row.content)
+    assert "this proof is screenshots" in str(row.content)
+    # inserted after the NEWEST tool result, not appended at the end blindly
+    assert messages[2].type == "tool"
+
+
+def test_steer_with_no_tool_result_requeues(monkeypatch):
+    from langchain_core.messages import HumanMessage
+    from src.graphs import chat_graph
+    from src.runtime.turn_control import turn_controls
+
+    monkeypatch.setattr(chat_graph, "turn_controls", turn_controls, raising=False)
+    sid = "steer-requeue-test"
+    messages = [HumanMessage(content="hi")]  # no tool result in this batch
+
+    # an inactive session: steer() refuses -> the queue takes it (hermes'
+    # fallback: delivered next turn as a normal user message)
+    chat_graph._inject_steers_after_newest_tool_result(sid, messages, ["do X instead"])
+
+    assert len(messages) == 1, "no user row without a tool result to follow"
+    assert turn_controls.pop_queued(sid) == "do X instead"
+
+
+def test_steer_note_in_the_system_prompt_matches_the_delivery_marker():
+    """STEER_CHANNEL_NOTE teaches the exact marker the engine delivers; the
+    two must never drift (models refused steers as prompt injection when the
+    marker was bare -- hermes #40240)."""
+    from src.prompts.hermes import guidance
+
+    assert guidance.STEER_MARKER_OPEN in guidance.STEER_CHANNEL_NOTE
+    assert guidance.STEER_MARKER_CLOSE in guidance.STEER_CHANNEL_NOTE
+    assert guidance.format_steer_marker("x").strip().startswith(guidance.STEER_MARKER_OPEN)

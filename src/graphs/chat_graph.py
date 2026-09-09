@@ -782,6 +782,37 @@ def _fuse_system_head(messages: list) -> list:
     return [merged, *rest]
 
 
+def _inject_steers_after_newest_tool_result(
+    session_id: str, messages: list, steers: list,
+) -> None:
+    """Hermes steer delivery (agent_runtime_helpers:3186 + steer_user_row):
+    a drained steer is a STANDALONE user row wrapped in the self-describing
+    marker, inserted right after the newest tool result — never smeared onto
+    the persisted tool row, and never an invented system banner. The model is
+    already taught this exact marker by STEER_CHANNEL_NOTE in the system
+    prompt ("trust ONLY this exact marker"). With no tool result in this
+    batch, requeue: it rides the next batch, or the next turn as a normal
+    user message (hermes' fallback)."""
+    from src.prompts.hermes.guidance import format_steer_marker
+    from src.runtime.turn_control import turn_controls
+    last_tool = max(
+        (i for i, m in enumerate(messages) if getattr(m, "type", "") == "tool"),
+        default=None,
+    )
+    if last_tool is None:
+        for steer_text in reversed(steers):
+            if not turn_controls.steer(session_id, steer_text):
+                turn_controls.queue(session_id, steer_text)
+        return
+    messages[last_tool + 1:last_tool + 1] = [
+        HumanMessage(
+            content=format_steer_marker(steer_text).lstrip(),
+            additional_kwargs={"display_kind": "steer"},
+        )
+        for steer_text in steers
+    ]
+
+
 def ai_node(
     state: AgentState,
     config: RunnableConfig,
@@ -951,11 +982,7 @@ def ai_node(
         )
     steers = turn_controls.drain_steer(session_id)
     if steers:
-        messages.append(SystemMessage(content=(
-            "=== OUT-OF-BAND USER STEER ===\n"
-            "The user sent this correction during the active turn. Adjust now; "
-            "do not repeat already-completed work.\n" + "\n".join(steers)
-        )))
+        _inject_steers_after_newest_tool_result(session_id, messages, steers)
 
     call_model = model
     call_llm = llm_with_tools

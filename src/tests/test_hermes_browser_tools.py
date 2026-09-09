@@ -739,3 +739,169 @@ def test_arg_descriptions_are_hermes_registry_verbatim():
             assert props.get(arg_name, {}).get("description") == description, (
                 f"{tool_name}.{arg_name} must carry hermes' registry description verbatim"
             )
+
+
+# ---------------------------------------------------------------------------
+# hermes browser_tool_session spawn/timeout/first-nav parity (field
+# 2026-09-09: every browser_navigate burned ~250s — pipes never see EOF
+# until the timeout, console-handle leaks killed the daemon grandchild,
+# and every navigate paid the 120s first-open floor).
+# ---------------------------------------------------------------------------
+
+class _FakeProc:
+    def __init__(self, returncode=0, hang=False, stdout_path=None, payload=""):
+        self.returncode = returncode
+        self._hang = hang
+        self._stdout_path = stdout_path
+        self._payload = payload
+        self.killed = False
+
+    def wait(self, timeout=None):
+        if self._hang and not self.killed:
+            raise subprocess.TimeoutExpired(cmd="agent-browser", timeout=timeout)
+        if self._stdout_path:
+            from pathlib import Path as _P
+            _P(self._stdout_path).write_text(self._payload, encoding="utf-8")
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+
+def _module_source():
+    from pathlib import Path as _P
+    text = _P(bt.__file__).read_text(encoding="utf-8")
+    start = text.index("def _popen_agent_browser(")
+    end = text.index("def _read_command_output_files(")
+    return {"popen": text[start:end]}
+
+
+def test_spawn_redirects_to_temp_files_never_pipes(monkeypatch, tmp_path):
+    """hermes _popen_agent_browser: the CLI forks a daemon that inherits its
+    fds, so pipes never see EOF until the timeout — stdout/stderr go to temp
+    files and stdin is DEVNULL."""
+    import json as _json
+    captured = {}
+
+    def fake_popen(argv, env, socket_dir, tag):
+        captured["argv"] = argv
+        captured["stdout_fd"] = None
+        proc = _FakeProc(stdout_path=str(tmp_path / f"_stdout_{tag}"),
+                         payload=_json.dumps({"success": True, "data": {}}))
+        return proc
+
+    monkeypatch.setattr(bt, "find_agent_browser", lambda: "/fake/agent-browser")
+    monkeypatch.setattr(bt, "_session_socket_dir", lambda s: str(tmp_path))
+    monkeypatch.setattr(bt, "_popen_agent_browser", fake_popen)
+
+    out = bt.run_browser_command("sess", "snapshot", ["-c"], timeout=10)
+    assert out.get("success") is True
+    assert "/fake/agent-browser" in captured["argv"]
+
+    # the real spawn helper never asks for pipes (read from the file: the
+    # name is monkeypatched above)
+    import inspect
+    body = inspect.getsource(bt._popen_agent_browser.__wrapped__) if hasattr(
+        bt._popen_agent_browser, "__wrapped__") else _module_source()["popen"]
+    assert "stdout=fds[0]" in body and "stderr=fds[1]" in body
+    assert "stdin=subprocess.DEVNULL" in body
+    assert "PIPE" not in body
+    assert "STARTF_USESTDHANDLES" in body and "_CREATE_NO_WINDOW" in body
+
+
+def test_command_timeout_tree_kills_daemon_and_keeps_cli_cache(monkeypatch, tmp_path):
+    """hermes _spawn_and_collect + _handle_browser_command_timeout: on timeout
+    the CLI is killed, the daemon (unresponsive on Windows) is tree-killed via
+    its pid file and the socket dir evicted. The CLI cache STAYS — a wedged
+    page is not a vanished binary (pulse's old blanket invalidate was an
+    invention that re-probed after every failure)."""
+    calls = {"handle": 0, "resolve": 0}
+    monkeypatch.setattr(bt, "find_agent_browser",
+                        lambda: calls.__setitem__("resolve", calls["resolve"] + 1) or "/fake/agent-browser")
+    monkeypatch.setattr(bt, "_session_socket_dir", lambda s: str(tmp_path))
+    monkeypatch.setattr(bt, "_handle_command_timeout",
+                        lambda s, d: calls.__setitem__("handle", calls["handle"] + 1))
+    proc = _FakeProc(hang=True)
+    monkeypatch.setattr(bt, "_popen_agent_browser", lambda *a, **k: proc)
+
+    out = bt.run_browser_command("sess", "open", ["http://x"], timeout=1)
+    assert out["success"] is False and "timed out after 1s" in out["error"]
+    assert proc.killed is True
+    assert calls["handle"] == 1
+    assert calls["resolve"] == 1, "a wedged command must not invalidate the CLI cache"
+
+
+def test_handle_command_timeout_kills_pid_and_evicts_state(monkeypatch, tmp_path):
+    """hermes _discard path: read <session>.pid, tree-kill, remove the socket
+    dir, forget the session's first-nav + recording flags."""
+    (tmp_path / "pulseai-sess.pid").write_text("4242", encoding="utf-8")
+    (tmp_path / "x.sock").write_text("", encoding="utf-8")
+    killed = {}
+    monkeypatch.setattr(bt, "_kill_process_tree", lambda pid: killed.__setitem__("pid", pid) or True)
+    monkeypatch.setattr(bt, "_daemon_responsive", lambda d, probe_timeout_s=1.0: False)
+    bt._FIRST_NAV_SEEN.add("pulseai-sess")
+    bt._RECORDING_SESSIONS.add("pulseai-sess")
+    try:
+        bt._handle_command_timeout("pulseai-sess", str(tmp_path))
+        assert killed["pid"] == 4242
+        assert not tmp_path.exists()
+        assert "pulseai-sess" not in bt._FIRST_NAV_SEEN
+        assert "pulseai-sess" not in bt._RECORDING_SESSIONS
+    finally:
+        bt._FIRST_NAV_SEEN.discard("pulseai-sess")
+        bt._RECORDING_SESSIONS.discard("pulseai-sess")
+
+
+def test_a_live_posix_daemon_survives_a_command_timeout(monkeypatch, tmp_path):
+    """hermes: daemon alive (socket accepts) -> only the COMMAND wedged; tree-
+    killing it would be overkill and slow."""
+    killed = {}
+    monkeypatch.setattr(bt, "_kill_process_tree", lambda pid: killed.__setitem__("pid", pid))
+    monkeypatch.setattr(bt, "_daemon_responsive", lambda d, probe_timeout_s=1.0: True)
+    bt._handle_command_timeout("sess", str(tmp_path))
+    assert "pid" not in killed
+    assert tmp_path.exists()
+
+
+def test_repeat_navigations_pay_the_warm_open_floor(monkeypatch):
+    """hermes browser_navigate: only the session's FIRST open gets the 120s
+    cold floor (MIN_FIRST_OPEN_TIMEOUT); later ones run warm at the 60s floor
+    (MIN_OPEN_TIMEOUT). Field 2026-09-09: pulse hardcoded first_open=True, so
+    every navigate budgeted 120s."""
+    seen_timeouts = []
+
+    def fake_run(session, command, args=None, timeout=None):
+        if command == "open":
+            seen_timeouts.append(timeout)
+        return {"success": True, "data": {"title": "t", "url": args[0] if args else ""}}
+
+    monkeypatch.setattr(bt, "run_browser_command", fake_run)
+    monkeypatch.setattr(bt, "maybe_start_recording", lambda s: None)
+    # module state is process-wide: start from a cold session (restored after)
+    monkeypatch.setattr(bt, "_FIRST_NAV_SEEN", set())
+    cfg = _cfg()
+    bt.browser_navigate.invoke({"url": "http://localhost:3000"}, config=cfg)
+    bt.browser_navigate.invoke({"url": "http://localhost:3000"}, config=cfg)
+    assert seen_timeouts[0] == bt._open_timeout(first_open=True)
+    assert seen_timeouts[1] == bt._open_timeout(first_open=False)
+    assert seen_timeouts[0] >= bt.MIN_FIRST_OPEN_TIMEOUT > bt.MIN_OPEN_TIMEOUT
+    assert seen_timeouts[1] == max(bt.DEFAULT_COMMAND_TIMEOUT, bt.MIN_OPEN_TIMEOUT)
+
+
+def test_rc_nonzero_keeps_the_resolved_cli(monkeypatch, tmp_path):
+    """hermes caches the resolution once; a nonzero command rc is a normal
+    failure, not a vanished binary — the cache must survive it."""
+    monkeypatch.setattr(bt, "_session_socket_dir", lambda s: str(tmp_path))
+    monkeypatch.setattr(bt, "_cached_cli", "/fake/agent-browser")
+
+    def fake_popen(argv, env, socket_dir, tag):
+        p = _FakeProc(returncode=1)
+        from pathlib import Path as _P
+        _P(socket_dir, f"_stderr_{tag}").write_text("page error", encoding="utf-8")
+        return p
+
+    monkeypatch.setattr(bt, "_popen_agent_browser", fake_popen)
+    out = bt.run_browser_command("sess", "snapshot", timeout=10)
+    assert out["success"] is False
+    bt.run_browser_command("sess", "snapshot", timeout=10)
+    assert bt._cached_cli == "/fake/agent-browser", (
+        "a normal command failure must not wipe the CLI resolution")

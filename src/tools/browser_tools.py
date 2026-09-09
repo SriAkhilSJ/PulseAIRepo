@@ -81,6 +81,10 @@ DEFAULT_COMMAND_TIMEOUT = 30
 MIN_OPEN_TIMEOUT = 60
 MIN_FIRST_OPEN_TIMEOUT = 120
 
+# hermes hermes_cli/_subprocess_compat: hide the child's console without
+# detaching it (no flash, Ctrl+C and job teardown still propagate).
+_CREATE_NO_WINDOW = 0x08000000
+
 DEFAULT_SNAPSHOT_THRESHOLD = 15_000
 MIN_SNAPSHOT_THRESHOLD = 1_000
 MAX_STORED_SNAPSHOT_CHARS = 2_000_000
@@ -441,6 +445,146 @@ def _interpret_output(command: str, stdout: str, stderr: str, returncode: int) -
     return {"success": True, "data": parsed if isinstance(parsed, dict) else {"result": parsed}}
 
 
+def _popen_agent_browser(argv: List[str], env: Dict[str, str], socket_dir: str, tag: str):
+    """hermes browser_tool_session._popen_agent_browser, verbatim shape.
+
+    Temp files, not pipes: the CLI forks a daemon that inherits its fds, so
+    pipes never see EOF until the timeout. Windows: CREATE_NO_WINDOW only
+    (CREATE_NEW_PROCESS_GROUP cancels asyncio's running task on 3.11),
+    STARTF_USESTDHANDLES + close_fds so the child gets ONLY our three handles
+    (leaked console handles kill the Rust daemon grandchild)."""
+    fds = [os.open(os.path.join(socket_dir, f"_{slot}_{tag}"),
+                   os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+           for slot in ("stdout", "stderr")]
+    try:
+        extra: Dict[str, Any] = {}
+        if os.name == "nt":
+            _si = subprocess.STARTUPINFO()
+            _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
+            extra = {"creationflags": _CREATE_NO_WINDOW, "close_fds": True,
+                     "startupinfo": _si}
+        return subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            argv, stdout=fds[0], stderr=fds[1], stdin=subprocess.DEVNULL,
+            env=env, **extra)
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def _read_command_output_files(stdout_path: str, stderr_path: str) -> tuple:
+    """hermes _read_command_output_files: best-effort reads of the temp files."""
+    out = err = ""
+    try:
+        out = Path(stdout_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    try:
+        err = Path(stderr_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    return out, err
+
+
+def _unlink_command_output_files(*paths: str) -> None:
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def _read_daemon_pid(socket_dir: str, session: str) -> Optional[int]:
+    """hermes _read_browser_daemon_pid: best-effort read of <session>.pid."""
+    try:
+        return int((Path(socket_dir) / f"{session}.pid").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _daemon_responsive(socket_dir: str, probe_timeout_s: float = 1.0) -> bool:
+    """hermes _browser_daemon_responsive: a connect to the daemon's unix control
+    socket proves the accept loop is alive. Windows named pipes can't be probed
+    -> report unresponsive (tree-kill + respawn is the safe recovery)."""
+    if os.name == "nt":
+        return False
+    import socket as socket_mod
+    if not hasattr(socket_mod, "AF_UNIX"):
+        return False
+    try:
+        entries = os.listdir(socket_dir)
+    except OSError:
+        return False
+    for entry in (e for e in entries if e.endswith(".sock")):
+        try:
+            with socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM) as s:
+                s.settimeout(probe_timeout_s)
+                s.connect(os.path.join(socket_dir, entry))
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _kill_process_tree(pid: int) -> bool:
+    """hermes agent/deadline.kill_process_tree, portable core. Windows:
+    `taskkill /F /T` (tree-kill; terminating only the daemon PID leaks the
+    Chromium tree). POSIX: best-effort child kill via psutil when present,
+    then the pid itself."""
+    if os.name == "nt":
+        try:
+            proc = subprocess.run(  # noqa: S603 - fixed argv
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=15, check=False,
+                creationflags=_CREATE_NO_WINDOW,
+            )
+            return proc.returncode == 0
+        except Exception:
+            return False
+    try:
+        import psutil  # type: ignore
+        try:
+            children = psutil.Process(pid).children(recursive=True)
+        except psutil.Error:
+            children = []
+        for child in children:
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+    except Exception:
+        pass
+    try:
+        os.kill(pid, 9)
+        return True
+    except OSError:
+        return False
+
+
+def _handle_command_timeout(session: str, socket_dir: str) -> None:
+    """hermes _handle_browser_command_timeout (local shape). The command wedged
+    page/CDP-side or the daemon is wedged/dead; on Windows the liveness probe
+    cannot attach to named pipes, so unresponsive -> tree-kill + evict is the
+    safe recovery (hermes' own Windows branch). A live POSIX daemon is left
+    alone: only the command died, and killing it would be overkill and slow."""
+    if _daemon_responsive(socket_dir):
+        return
+    pid = _read_daemon_pid(socket_dir, session)
+    if pid is not None:
+        _kill_process_tree(pid)
+    shutil.rmtree(socket_dir, ignore_errors=True)
+    # the daemon is gone: the session state goes with it (hermes evicts the
+    # session record; pulse's session is stateless, so just the flags)
+    with _recording_lock:
+        _RECORDING_SESSIONS.discard(session)
+        _FIRST_NAV_SEEN.discard(session)
+
+
+# Per-session first-navigation flag (hermes keeps `_first_nav` on the session
+# record; pulse's session is a name, so the flag lives here and dies with the
+# daemon in _handle_command_timeout).
+_FIRST_NAV_SEEN: set = set()
+
+
 def run_browser_command(
     session: str,
     command: str,
@@ -459,24 +603,31 @@ def run_browser_command(
         *_agent_browser_argv(browser_cmd),
         *build_session_args(session), "--json", command, *args,
     ]
+    socket_dir = _session_socket_dir(session)
+    stdout_path = os.path.join(socket_dir, f"_stdout_{command}")
+    stderr_path = os.path.join(socket_dir, f"_stderr_{command}")
     try:
-        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            cmd_parts, capture_output=True, text=True, timeout=timeout,
-            shell=False, env=_command_env(session),
-        )
+        proc = _popen_agent_browser(
+            cmd_parts, _command_env(session), socket_dir, command)
+    except OSError as exc:
+        return {"success": False, "error": f"Failed to launch agent-browser: {exc}"}
+    try:
+        proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        invalidate_cli_cache()
+        proc.kill()
+        proc.wait()
+        stdout, stderr = _read_command_output_files(stdout_path, stderr_path)
+        _unlink_command_output_files(stdout_path, stderr_path)
+        # hermes: recover session state after a command timeout (daemon probe
+        # -> tree-kill + evict when wedged). The CLI cache stays: a wedged
+        # page is not a vanished binary.
+        _handle_command_timeout(session, socket_dir)
         return {"success": False,
                 "error": f"Browser command '{command}' timed out after {timeout}s. "
                          "The daemon may be wedged; retry once, then report to the user."}
-    except OSError as exc:
-        invalidate_cli_cache()
-        return {"success": False, "error": f"Failed to launch agent-browser: {exc}"}
-    if proc.returncode != 0:
-        # A nonzero rc from a previously-cached path can mean the binary vanished
-        # (npm re-link) — drop the cache so the next call re-resolves (hermes).
-        invalidate_cli_cache()
-    return _interpret_output(command, proc.stdout or "", proc.stderr or "", proc.returncode)
+    stdout, stderr = _read_command_output_files(stdout_path, stderr_path)
+    _unlink_command_output_files(stdout_path, stderr_path)
+    return _interpret_output(command, stdout, stderr, proc.returncode)
 
 
 # ---------------------------------------------------------------------------
@@ -611,8 +762,19 @@ def browser_navigate(
     policy_error = _url_policy_error(url)
     if policy_error is not None:
         return _dumps(policy_error)
+    # hermes browser_navigate: only the session's FIRST navigation pays the
+    # 120s cold first-open floor; every later navigation runs warm with the
+    # 60s floor (hermes `_first_nav` on the session record). The recording
+    # start keeps pulse's own once-per-recording-era guard (turn-scoped:
+    # stop_browser_recording re-arms it, the owner's visible-testing
+    # contract). _handle_command_timeout forgets the flag together with the
+    # daemon it tree-killed, so a fresh daemon is cold again — hermes' rule.
+    is_first_nav = session not in _FIRST_NAV_SEEN
     recording_path = maybe_start_recording(session)
-    result = run_browser_command(session, "open", [url], timeout=_open_timeout(first_open=True))
+    result = run_browser_command(session, "open", [url],
+                                 timeout=_open_timeout(first_open=is_first_nav))
+    if result.get("success"):
+        _FIRST_NAV_SEEN.add(session)
     if not result.get("success"):
         return _failed_response(result, "Navigation failed")
     data = result.get("data", {}) or {}
@@ -766,11 +928,14 @@ def browser_get_images(config: RunnableConfig = None) -> str:
 
 @tool
 def browser_screenshot(name: str = "page", config: RunnableConfig = None) -> str:
-    """Capture a screenshot of the current page and save it to <workspace>/screenshots/<name>.png, with a visual-quality receipt. Use after browser_snapshot to leave visual proof of what rendered. Requires browser_navigate to be called first.
+    """Take a screenshot of the current page so you can inspect it visually and show the user what actually rendered. Use this when you need to understand what the page looks like — especially visual verification, complex layouts, styling problems, or cases where the text snapshot misses important visual information — and whenever the user asks for screenshots as proof. Saves to <workspace>/screenshots/<name>.png with a visual-quality receipt. Requires browser_navigate to be called first.
 
     Not a hermes SCHEMA — hermes reaches this agent-browser command only
     inside browser_vision (`screenshot [--full] <path>`, hermes
-    _capture_vision_screenshot). Pulse keeps it as its own tool because the
+    _capture_vision_screenshot); the description above is hermes
+    browser_vision's teaching adapted to this tool (the auxiliary
+    vision-model fallback sentence is pulse's browser_vision counterpart
+    that does not exist here). Pulse keeps it as its own tool because the
     deterministic verify_ui_* pipeline consumes the quality receipt; the
     backend is hermes' exactly (agent-browser screenshot command).
     """
