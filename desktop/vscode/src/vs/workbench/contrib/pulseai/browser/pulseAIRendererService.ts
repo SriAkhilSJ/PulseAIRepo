@@ -23,6 +23,7 @@ import {
 	PulseAIRenderHost,
 	PulseAIRenderModel,
 	PulseAIRenderMount,
+	PulseAIPlanStepView,
 	PulseAIToolState,
 	PulseAIToolView,
 	PulseAITurnPart,
@@ -49,6 +50,22 @@ function planText(step: unknown): string {
 		if (typeof record?.[key] === 'string') { return record[key] as string; }
 	}
 	return 'Plan step';
+}
+
+
+const PLAN_STATUSES: readonly string[] = ['pending', 'in_progress', 'completed', 'failed'];
+
+function planStepView(step: unknown): PulseAIPlanStepView {
+	const raw = (typeof step === 'object' && step !== null)
+		? (step as Record<string, unknown>).status
+		: undefined;
+	const status = typeof raw === 'string' ? raw : '';
+	return {
+		text: planText(step),
+		status: (PLAN_STATUSES.includes(status)
+			? status
+			: 'pending') as PulseAIPlanStepView['status'],
+	};
 }
 
 function stringField(source: unknown, keys: readonly string[]): string | undefined {
@@ -108,7 +125,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	private turnEndedAt: number | undefined;
 	private approval: PulseAIRenderModel['approval'];
 	private subAgents = new Map<string, PulseAISubAgentView>();
-	private plan: readonly string[] = [];
+	private plan: readonly PulseAIPlanStepView[] = [];
 	private verification: string | undefined;
 	private telemetry: PulseAIRenderModel['telemetry'] = {};
 	private error: string | undefined;
@@ -834,7 +851,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 			this.reasoning = frame.text;
 			this.reasoningFrameCount += 1;
 		} else if (frame.type === 'plan_updated') {
-			this.plan = frame.steps.map(planText);
+			this.plan = frame.steps.map(planStepView);
 		} else if (frame.type === 'tool_call_start') {
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
 			this.pushToolPart(frame.tool_id);

@@ -19,6 +19,15 @@ import {
 
 export type PulseAIToolState = 'queued' | 'running' | 'passed' | 'approval' | 'failed';
 
+/** One plan step as the model wrote it: text plus its OWN status. Hermes'
+ *  TodoPanel and the desktop composer status both render each item's real
+ *  state (`[x] [>] [ ]` glyphs); flattening plan_updated to strings threw
+ *  that away and the strip guessed "active" from the row index. */
+export interface PulseAIPlanStepView {
+	readonly text: string;
+	readonly status: 'pending' | 'in_progress' | 'completed' | 'failed';
+}
+
 export interface PulseAIToolView {
 	readonly id: string;
 	readonly name: string;
@@ -117,7 +126,7 @@ export interface PulseAIRenderModel {
 	};
 	/** Live hermes todo_list state ({todos, revision} — reconciles atomically). */
 	readonly todos: readonly PulseTodoItem[];
-	readonly plan: readonly string[];
+	readonly plan: readonly PulseAIPlanStepView[];
 	readonly verification?: string;
 	readonly telemetry: { readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number };
 	readonly capabilitySummary: { readonly available: number; readonly total: number; readonly blocked: number };
@@ -146,7 +155,7 @@ export interface PulseAIRenderModel {
 		readonly tools: readonly PulseAIToolView[];
 		readonly subAgents: readonly PulseAISubAgentView[];
 		readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
-		readonly plan: readonly string[];
+		readonly plan: readonly PulseAIPlanStepView[];
 	}[];
 }
 
@@ -867,8 +876,22 @@ function engineStatus(model: PulseAIRenderModel): HTMLElement {
 	return chip;
 }
 
+/** Hermes' todo tone rules (ui-tui todoTone / desktop composer-status): the
+ *  row's own status drives the glyph -- the strip never guesses from the
+ *  row index again. */
+function planStepGlyph(status: PulseAIPlanStepView['status']): HTMLElement {
+	if (status === 'in_progress') { return element('span', 'pulseai-mini-spinner'); }
+	if (status === 'completed') { return icon('pass-filled'); }
+	if (status === 'failed') { return icon('circle-slash'); }
+	const ring = element('span', 'pulseai-todo-ring');
+	ring.setAttribute('aria-hidden', 'true');
+	return ring;
+}
+
 function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggle: (open: boolean) => void): HTMLElement | undefined {
 	if (!model.plan.length) { return undefined; }
+	const done = model.plan.filter(s => s.status === 'completed').length;
+	const anyActive = model.plan.some(s => s.status === 'in_progress');
 	const details = element('details', 'pulseai-plan-strip') as HTMLDetailsElement;
 	details.dataset.component = 'plan-strip';
 	details.open = open ?? model.running;
@@ -876,15 +899,15 @@ function planStrip(model: PulseAIRenderModel, open: boolean | undefined, onToggl
 	const summary = element('summary', 'pulseai-plan-strip-summary',
 		icon('list-ordered'),
 		element('strong', undefined, 'Plan'),
-		element('span', undefined, `${model.plan.length} steps`),
-		model.running ? element('span', 'pulseai-plan-strip-state', element('span', 'pulseai-mini-spinner'), 'In progress') : undefined,
+		element('span', undefined, `${done}/${model.plan.length}`),
+		model.running && anyActive ? element('span', 'pulseai-plan-strip-state', element('span', 'pulseai-mini-spinner'), 'In progress') : undefined,
 		icon('chevron-down'),
 	);
 	const list = element('ol', 'pulseai-plan-strip-list');
-	for (const [index, step] of model.plan.entries()) {
-		list.append(element('li', index === 0 && model.running ? 'is-active' : undefined,
-			index === 0 && model.running ? element('span', 'pulseai-mini-spinner') : icon('circle-outline'),
-			element('span', undefined, step),
+	for (const step of model.plan) {
+		list.append(element('li', `is-${step.status}`,
+			planStepGlyph(step.status),
+			element('span', undefined, step.text),
 		));
 	}
 	details.append(summary, list);
@@ -2014,7 +2037,7 @@ function inspector(model: PulseAIRenderModel): HTMLElement {
 	pane.append(element('header', 'pulseai-manager-pane-head', element('div', undefined, element('span', 'pulseai-eyebrow', 'LIVE EVIDENCE'), element('h2', undefined, 'Run inspector'))));
 	const plan = element('section', 'pulseai-inspector-section', element('div', 'pulseai-inspector-title', element('span', undefined, 'Plan'), element('strong', undefined, `${model.plan.length} steps`)));
 	const list = element('ol', 'pulseai-plan-list');
-	for (const [index, step] of model.plan.entries()) { list.append(element('li', index === 0 ? 'is-active' : undefined, index === 0 ? element('span', 'pulseai-mini-spinner') : icon('circle-outline'), element('span', undefined, step))); }
+	for (const step of model.plan) { list.append(element('li', `is-${step.status}`, planStepGlyph(step.status), element('span', undefined, step.text))); }
 	if (!model.plan.length) { list.append(element('li', 'is-muted', icon('circle-outline'), element('span', undefined, 'Plan appears when the run starts'))); }
 	plan.append(list);
 	const evidence = element('section', 'pulseai-inspector-section', element('div', 'pulseai-inspector-title', element('span', undefined, 'Verification'), element('strong', undefined, model.verification ?? 'Not started')),

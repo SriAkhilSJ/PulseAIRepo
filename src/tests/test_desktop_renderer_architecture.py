@@ -576,3 +576,26 @@ def test_catalog_resolves_clarify_and_derives_hermes_generic_titles():
     # the webview already ran this rule; the two surfaces must not diverge
     webview = (ROOT / "pulse-webview" / "src" / "hermes-ui" / "model" / "fallback-model.ts").read_text(encoding="utf-8")
     assert "replace(/^browser_/, '').replace(/^web_/, '')" in webview
+
+
+def test_plan_strip_renders_each_steps_own_status():
+    """Hermes renders every todo/plan item's real state (ui-tui todoTone,
+    desktop composer-status todoStatus). Pulse's strip flattened plan_updated
+    to strings and guessed 'active' from the row index -- step 3 spun while
+    step 1 ran. The frame now carries per-step status and the strip/inspector
+    render it."""
+    service = _text("browser", "pulseAIRendererService.ts")
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    # the service parses {text, status} out of the frame (status vocabulary
+    # is pulse's wire vocab: failed, not cancelled)
+    assert "PulseAIPlanStepView" in service and "PulseAIPlanStepView" in renderer
+    assert "'pending' | 'in_progress' | 'completed' | 'failed'" in renderer
+    assert "frame.steps.map(planStepView)" in service
+    # per-status glyphs; the index guess is gone from both surfaces
+    assert "planStepGlyph" in renderer
+    assert "status === 'in_progress') { return element('span', 'pulseai-mini-spinner')" in renderer
+    assert "status === 'completed') { return icon('pass-filled')" in renderer
+    assert "index === 0 && model.running" not in renderer
+    assert "index === 0 ? 'is-active'" not in renderer
+    # the header counts like hermes' Todo header (done/total)
+    assert "`${done}/${model.plan.length}`" in renderer
