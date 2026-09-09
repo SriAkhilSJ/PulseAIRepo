@@ -233,6 +233,17 @@ def classify_tool_outcome(tool_name: str, result: str) -> str:
     elif tool_name in {"verify_ui_workspace", "verify_ui_routes"}:
         failed = not result.lstrip().startswith("✅")
     elif tool_name in ("run_terminal", "terminal"):
+        # A promoted foreground call (over-cap timeout) returns the tracked-
+        # background spawn receipt: no verdict exists yet — the process is
+        # running under a process id and check_terminal is the verdict
+        # channel. Same law as check_terminal's "status: running" below.
+        # Field 2026-09-08: `npm run build` with timeout 120000 promoted and
+        # printed "Process started. / Process ID: …", and this branch painted
+        # it ❌ failed 0.0s in — arming recovery for a live process.
+        if (result.lstrip().startswith("Process started.")
+                and "process id:" in result_lower
+                and "exit code:" not in result_lower):
+            return OUTCOME_SKIP
         # `terminal` is bound as the verbatim alias of run_terminal (hermes
         # tool-name parity) — same tool, so the SAME verdict rules. Field
         # 2026-09-08 (44ed3687): the guard refused the alias's `npm run dev`

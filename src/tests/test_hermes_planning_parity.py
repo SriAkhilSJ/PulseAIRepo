@@ -169,3 +169,31 @@ def test_plan_mode_mirrors_the_saved_plan_into_the_inspector():
     assert "After saving the plan file" in prompt, "file first, then mirror -- not two competing lists"
     assert prompt.startswith("[/plan — plan mode]"), "the upstream-shaped head stays intact"
     assert ".hermes" not in prompt, "local paths only; corpus text is adapted, not edited"
+
+
+def test_a_reviser_parse_failure_never_kills_the_turn():
+    """Field 2026-09-08: "Planner did not return a valid numbered plan."
+    ended a run as "Run failed" via plan_reviser_node. A revision the
+    parser cannot read is an observation: the current plan stands, the
+    turn completes."""
+    graph = _graph()
+
+    def _explode(*args, **kwargs):
+        raise ValueError("Planner did not return a valid numbered plan.")
+
+    graph.revise_plan = _explode
+    state = _state("make the first step faster", "plan")
+    state["plan"] = [{"id": 1, "description": "write hello.py", "status": "pending"}]
+    state["plan_created"] = True
+
+    out = graph.plan_reviser_node(state, _CONFIG)
+
+    # no raise; the plan state is untouched (no revision-count bump either)
+    assert "plan" not in out and "plan_revision_count" not in out
+    assert "token_usage" in out
+    text = str(out["messages"][0].content)
+    assert "stands unchanged" in text
+
+    # and the graph still routes the reviser to the preview, which renders
+    # the standing plan from state
+    assert graph.after_task_manager({**state, "task_action": "revise_plan"}) == "plan_reviser"

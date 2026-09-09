@@ -87,9 +87,7 @@ def _drop_tool_pairs(messages: list) -> list:
 
 
 from src.agents.planner import (
-    create_plan,
     revise_plan,
-    should_create_plan,
     start_next_plan_step,
     finalize_plan,
     check_ambiguity,
@@ -2694,8 +2692,9 @@ def planner_node(
     configurable = config["configurable"]
 
     # ── Pre-LLM cancellation gate (planner) ───────────────────
-    # planning calls the LLM (should_create_plan / create_plan); a Stop that
-    # fired before this node must never pay for a new model invocation.
+    # The advisory planning chain is gone (plan mode is a prompt, not an
+    # engine), so this node no longer pays for a model call -- the gate
+    # stays because a Stop must still short-circuit the node outright.
     session_id_pl = str(configurable.get("thread_id") or "default")
     from src.runtime.turn_control import turn_controls as _tc_pl
     if _tc_pl.cancelled(session_id_pl):
@@ -2903,14 +2902,33 @@ def plan_reviser_node(
 
     usages: list[TokenUsage] = []
 
-    revised = revise_plan(
-        task=state.get("plan_goal", state.get("current_task", "")),
-        plan=current_plan,
-        revision=state.get("latest_instruction", ""),
-        provider=_cfg(configurable, "provider", LLM_PROVIDER),
-        model=_cfg(configurable, "model", LLM_MODEL),
-        usage_list=usages,
-    )
+    try:
+        revised = revise_plan(
+            task=state.get("plan_goal", state.get("current_task", "")),
+            plan=current_plan,
+            revision=state.get("latest_instruction", ""),
+            provider=_cfg(configurable, "provider", LLM_PROVIDER),
+            model=_cfg(configurable, "model", LLM_MODEL),
+            usage_list=usages,
+        )
+    except ValueError:
+        # A revision the parser cannot read is an observation, not a crash
+        # (field 2026-09-08: "Planner did not return a valid numbered plan."
+        # ended the run as "Run failed"). The current plan stands unchanged;
+        # the model adapts from what is on the floor, exactly as hermes does
+        # with every other unparseable plan-shaped answer.
+        return {
+            "messages": [AIMessage(content=(
+                "The plan revision didn't come back as a usable step list, "
+                "so the current plan stands unchanged. Re-state the change "
+                "against a specific step, or proceed and adjust the plan "
+                "yourself as you work."
+            ))],
+            "token_usage": _merge_token_usage(
+                state.get("token_usage", {}),
+                usages,
+            ),
+        }
 
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
@@ -2937,10 +2955,6 @@ def plan_reviser_node(
 
 
 
-
-# =========================================================
-# REPLANNER NODE
-# =========================================================
 
 def _denied_command(tc) -> str:
     """Compact command echo for denial ToolMessages — the model adapts by

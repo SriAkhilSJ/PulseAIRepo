@@ -83,6 +83,27 @@ def test_d9_classify_terminal_rules():
         "check_terminal", "status: completed\nexit code: 0") == ph.OUTCOME_SUCCESS
     assert ph.classify_tool_outcome(
         "check_terminal", "status: completed\nexit code: 2") == ph.OUTCOME_FAILED
+    # a promoted over-cap foreground call returns the tracked-background
+    # spawn receipt: no verdict exists yet, so it is a SKIP -- not the
+    # ❌ failed the pre-promotion rule painted (field 2026-09-08:
+    # `npm run build`, timeout 120000, ❌ at 0.0s, completed successfully
+    # when the model polled it).
+    promoted = (
+        "Process started.\n"
+        "Process ID: 7e9d9ef5\n"
+        "Command: npm run build\n"
+        "Requested foreground timeout 120000s exceeds the 600s cap, so this "
+        "command was started as a tracked background process instead of "
+        "being refused."
+    )
+    assert ph.classify_tool_outcome("terminal", promoted) == ph.OUTCOME_SKIP
+    assert ph.classify_tool_outcome("run_terminal", promoted) == ph.OUTCOME_SKIP
+    # refusals still fail: they begin with the ⛔ marker, never the receipt
+    assert ph.classify_tool_outcome(
+        "terminal", "⛔ run_terminal refused: no") == ph.OUTCOME_FAILED
+    # and a receipt that already carries a verdict still classifies by it
+    assert ph.classify_tool_outcome(
+        "terminal", "Process started.\nProcess ID: x\nexit code: 1") == ph.OUTCOME_FAILED
     # generic markers on any other tool
     assert ph.classify_tool_outcome("read_file", "error: not found") == ph.OUTCOME_FAILED
     assert ph.classify_tool_outcome("read_file", "Traceback (most recent") == ph.OUTCOME_FAILED
