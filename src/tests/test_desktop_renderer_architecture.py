@@ -285,11 +285,11 @@ def test_file_write_rows_report_counted_values_not_placeholders():
     # Diff lines are per-line nodes so green/red can exist at all -- the old
     # single <pre> could only be tinted as one block -- and the clamp is bounded for
     # paint while saying what it hid.
-    assert "pulseai-diff-line" in renderer
+    assert "pulseai-diff-row" in renderer
     assert "is-truncated" in renderer
     css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-diff-line.is-added" in css
-    assert ".pulseai-diff-line.is-removed" in css
+    assert ".pulseai-diff-row.is-add" in css
+    assert ".pulseai-diff-row.is-remove" in css
 
 
 @pytest.mark.xfail(
@@ -616,3 +616,89 @@ def test_catalog_resolves_hermes_primary_tool_names():
     assert "run_terminal: tool('Terminal', 'terminal', 'terminal', 'always')" in catalog
     assert "search_code: tool('Search code', 'search', 'search')" in catalog
     assert "web_fetch: tool('Fetch page', 'web', 'globe')" in catalog
+
+
+# ── hermes card-format ports (owner 2026-09-09: "resolve the gaps fully —
+#    mimic exact wireframes") ──────────────────────────────────────────────
+
+
+def test_ansi_terminal_output_ported():
+    """hermes lib/ansi.ts + terminal-output.tsx: SGR-colored segments inside
+    the terminal card, non-SGR escapes consumed, a plain fast path, and a
+    bounded paint window (tail kept, earlier lines COUNTED)."""
+    module = _text("browser", "pulseaiCardFormat.ts")
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    # the parser: SGR only, other CSI consumed, segments merged by style
+    assert "export function parseAnsi" in module
+    assert "OTHER_ESCAPE_RE" in module and "CSI_RE" in module
+    assert "38: 'black'" not in module  # FG table is the 30-37/90-97 set
+    assert "export function hasAnsiCodes" in module
+    assert "export function stripAnsi" in module
+    # the wire: terminal body goes through the windowed ANSI painter
+    assert "terminalOutputContent(" in renderer
+    assert "windowedTailLines(text, TERMINAL_PAINT_LINE_LIMIT)" in renderer
+    assert "hasAnsiCodes(body)" in renderer  # plain text never pays for parsing
+    assert "TERMINAL_PAINT_LINE_LIMIT = 400" in renderer
+    assert "'pulseai-terminal-earlier'" in renderer  # hidden lines are COUNTED
+
+
+def test_hermes_diff_grammar_ported():
+    """hermes diff-lines.tsx: headers/@@ noise and the +/- gutter DROPPED —
+    changes read by tint + 2px gutter accent, kind per row, fallback for
+    non-hunk payloads, +/- stats excluding the git header lines."""
+    module = _text("browser", "pulseaiCardFormat.ts")
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "export function stripDiffFileHeaders" in module
+    assert "'diff --git'" in module and "'+++ '" in module  # header prefixes
+    assert "@@" in module and "/@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@/" in module
+    assert "export function parseDiff" in module
+    assert "export function countDiffLineStats" in module
+    assert "starts with '+++' exclusion" not in module  # honesty: real check below
+    assert "line.startsWith('+++')" in module
+    # the renderer paints hermes' grammar: gutter accent rows, no +/- glyphs
+    assert "pulseai-diff-row is-${line.kind}" in renderer or "pulseai-diff-row" in renderer
+    assert "parseDiff(diff || '')" in renderer
+    css = _text("browser", "media", "pulseAI.css")
+    assert ".pulseai-diff-row.is-add" in css
+    assert "border-left: 2px solid transparent" in css
+    assert "max-height: 12rem" in css  # hermes DIFF_BOX max-h-[12rem]
+
+
+def test_changed_files_rollup_ported():
+    """hermes changed-files.ts + changed-files-card.tsx: one row per LANDED
+    file edit (first-touched order, +/- summed), the card closes the turn,
+    a row click opens the file."""
+    module = _text("browser", "pulseaiCardFormat.ts")
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    assert "export function deriveChangedFiles" in module
+    assert "['write_file', 'edit_file', 'copy_file']" in module
+    assert "tool.state !== 'passed' && tool.state !== 'completed'" in module, (
+        "running/failed edits changed nothing and must not count"
+    )
+    assert "changedFilesCard(" in renderer
+    assert "lane.append(changed);" in renderer, "the rollup closes the CURRENT turn"
+    assert "turnFiles.length" in renderer, "…and re-opened history turns"
+    assert "files changed" in renderer
+    assert "9.375rem" in css  # hermes MAX_ROWS_HEIGHT (~5 rows)
+    assert "pulseai-diff-count" in css
+
+
+def test_markdown_block_grammar_ported():
+    """hermes markdown-text: ordered lists, quotes, tables, and real links —
+    the 'well intended output' surface, not one paragraph blob."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    css = _text("browser", "media", "pulseAI.css")
+    assert "pulseai-md-ol" in renderer and "pulseai-md-quote" in renderer
+    assert "pulseai-md-table" in renderer
+    assert "a.target = '_blank'" in renderer
+    assert "a.rel = 'noopener noreferrer'" in renderer
+    assert ".pulseai-md .pulseai-md-table th" in css
+    assert ".pulseai-md .pulseai-md-link" in css
+
+
+def test_ui_stamp_bumped_for_the_card_format_round():
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "const PULSEAI_UI_STAMP = '2026-09-09';" in renderer, (
+        "a stale out/ must be flaggable against this UI round"
+    )

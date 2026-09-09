@@ -8,6 +8,7 @@ import type { PulseClarifyQuestion, PulseExecutionMode, PulseTodoItem } from '..
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import type { PulseAISessionRow } from '../common/pulseAISessionProjection.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
+	import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, windowedTailLines } from './pulseaiCardFormat.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './pulseAIRunSummary.js';
 import { renderToolIcon } from './pulseAIIcons.js';
 import {
@@ -223,7 +224,26 @@ function icon(name: string): HTMLElement {
 // ---------------------------------------------------------------------------
 
 function mdInline(target: HTMLElement, text: string): void {
-	for (const part of text.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/)) {
+	for (const part of text.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|<https?:\/\/[^>\s]+>)/)) {
+		if (!part) { continue; }
+		const linkMd = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
+		if (linkMd) {
+			const a = element('a', 'pulseai-md-link', linkMd[1]) as HTMLAnchorElement;
+			a.href = linkMd[2];
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			target.append(a);
+			continue;
+		}
+		if (/^<https?:\/\/[^>\s]+>$/.test(part)) {
+			const url = part.slice(1, -1);
+			const a = element('a', 'pulseai-md-link', url) as HTMLAnchorElement;
+			a.href = url;
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			target.append(a);
+			continue;
+		}
 		if (!part) { continue; }
 		if (part.length > 4 && part.indexOf('**') === 0 && part.lastIndexOf('**') === part.length - 2) {
 			target.append(element('strong', undefined, part.slice(2, -2)));
@@ -251,7 +271,7 @@ const RAW_TOOL_MARKUP = /^\s*<\/?\s*(?:dots_function_call|exec|invoke|command|to
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const PULSEAI_UI_STAMP = '2026-09-08';
+const PULSEAI_UI_STAMP = '2026-09-09';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'pulseai-assistant-copy pulseai-md');
@@ -307,13 +327,57 @@ function markdownCopy(text: string, slot?: string): HTMLElement {
 		}
 		const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
 		if (bullet) {
-			if (!list) { list = element('ul', 'pulseai-md-ul') as HTMLUListElement; root.append(list); }
+			if (!list || list.tagName !== 'UL') { list = element('ul', 'pulseai-md-ul') as HTMLUListElement; root.append(list); }
 			const li = element('li') as HTMLLIElement;
 			mdInline(li, bullet[1]);
 			list.append(li);
 			continue;
 		}
-		if (!line.trim()) { list = null; continue; }
+		const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+		if (ordered) {
+			// hermes markdown-text: ordered lists keep their own element so a
+			// numbered "1. 2. 3." answer doesn't collapse into one paragraph.
+			if (!list || list.tagName !== 'OL') { list = element('ol', 'pulseai-md-ol') as HTMLOListElement; root.append(list); }
+			const li = element('li') as HTMLLIElement;
+			mdInline(li, ordered[1]);
+			list.append(li);
+			continue;
+		}
+		const quote = /^>\s?(.*)$/.exec(line);
+		if (quote) {
+			// hermes compact-markdown: a quote is its own quiet block.
+			list = null;
+			const q = element('blockquote', 'pulseai-md-quote');
+			mdInline(q, quote[1]);
+			root.append(q);
+			continue;
+		}
+		if (/^\s*\|.*\|\s*$/.test(line) && line.includes('|', 1)) {
+			// hermes markdown-table: a pipe-table body renders as a real table.
+			const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+			if (cells.every(c => /^:?-{2,}:?$/.test(c))) { continue; } // separator row
+			let table = root.querySelector<HTMLTableElement>('table.pulseai-md-table:last-of-type');
+			if (!table || table.dataset.closed === 'true') {
+				table = element('table', 'pulseai-md-table') as HTMLTableElement;
+				table.dataset.closed = 'false';
+				root.append(table);
+			}
+			const tr = element('tr') as HTMLTableRowElement;
+			const kind = table.rows.length === 0 ? 'th' : 'td';
+			for (const cell of cells) {
+				const td = element(kind) as HTMLTableCellElement;
+				mdInline(td, cell);
+				tr.append(td);
+			}
+			table.append(tr);
+			continue;
+		}
+		if (!line.trim()) {
+			list = null;
+			// a blank line closes an open table (hermes table scope)
+			for (const t of root.querySelectorAll('table.pulseai-md-table')) { (t as HTMLTableElement).dataset.closed = 'true'; }
+			continue;
+		}
 		list = null;
 		const para = element('div', 'pulseai-md-p');
 		mdInline(para, line);
@@ -550,7 +614,7 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	const body = element('div', 'pulseai-tool-body pulseai-terminal-body');
 		body.append(
 			element('div', 'pulseai-terminal-command', element('span', 'pulseai-terminal-prompt', '$'), element('code', undefined, command)),
-			expandableOutput(element('pre', 'pulseai-terminal-output', output || (tool.state === 'running' ? 'Waiting for output...' : 'No captured output'))),
+			expandableOutput(terminalOutputContent(output, tool.state === 'running')),
 			// One meta line (hermes scaffold grammar): state word + exit code
 			// + duration, plain text — the colored glyph in the header already
 			// carries the state, so no second PASSED pill here.
@@ -1152,6 +1216,29 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 			const iconName = turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 			lane.append(element('div', `pulseai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label)));
 		}
+		// same closing rollup for past turns (first-touched order, +/- summed)
+		const turnFiles = deriveChangedFiles(turn.tools);
+		if (turnFiles.length) {
+			const card = element('div', 'pulseai-changed-files');
+			card.dataset.component = 'changed-files';
+			card.append(element('div', 'pulseai-changed-files-head',
+				element('span', undefined, `${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'} changed`)));
+			const rows = element('div', 'pulseai-changed-files-rows');
+			for (const file of turnFiles) {
+				const row = element('div', 'pulseai-changed-file-row is-activatable',
+					icon('file'),
+					element('span', 'pulseai-changed-file-name', file.name),
+					element('span', 'pulseai-diff-count',
+						element('span', 'is-added', `+${file.added}`),
+						element('span', 'is-removed', `−${file.removed}`)));
+				row.title = file.path;
+				const target = file.path;
+				row.addEventListener('click', () => host.revealFile(target));
+				rows.append(row);
+			}
+			card.append(rows);
+			lane.append(card);
+		}
 	}
 	// Current turn (breathing when running)
 	if (model.userMessage) {
@@ -1199,6 +1286,9 @@ function transcript(model: PulseAIRenderModel, host: PulseAIRenderHost, openTool
 		const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
 		lane.append(element('div', `pulseai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
 	}
+	// hermes changed-files-card: the turn-closing "N files changed" rollup.
+	const changed = changedFilesCard(model, host);
+	if (changed) { lane.append(changed); }
 	if (model.voiceHeard) {
 		const heard = model.voiceHeard;
 		if (heard.ok) {
@@ -1872,23 +1962,81 @@ export function diffStats(diff: string | undefined): PulseAIDiffStats | undefine
 /** Lines are clamped for *paint*, never for correctness -- the count says what is hidden. */
 const DIFF_PREVIEW_LINE_LIMIT = 40;
 
+// hermes diff-lines.tsx wireframe, ported: file-headers + `@@` hunk noise and
+// the +/- gutter are DROPPED -- changes read by tint + a 2px gutter accent,
+// rows flush to the card edges, the box scrolls like a code block.
 function diffPreview(diff: string): HTMLElement {
-	const wrap = element('pre', 'pulseai-tool-pre pulseai-diff-preview');
-	const lines = (diff || '').split('\n');
-	for (const line of lines.slice(0, DIFF_PREVIEW_LINE_LIMIT)) {
-		wrap.append(element('div', `pulseai-diff-line ${diffLineClass(line)}`, line.length ? line : ' '));
+	const wrap = element('div', 'pulseai-diff-body');
+	const parsed = parseDiff(diff || '');
+	const shown = parsed.slice(0, DIFF_PREVIEW_LINE_LIMIT);
+	for (const line of shown) {
+		const row = element('span', `pulseai-diff-row is-${line.kind}`, line.text.length ? line.text : ' ');
+		if (line.newNo !== undefined) { row.dataset.newNo = String(line.newNo); }
+		if (line.oldNo !== undefined) { row.dataset.oldNo = String(line.oldNo); }
+		wrap.append(row);
 	}
-	if (lines.length > DIFF_PREVIEW_LINE_LIMIT) {
-		wrap.append(element('div', 'pulseai-diff-line is-truncated', `… ${lines.length - DIFF_PREVIEW_LINE_LIMIT} more line(s) — 'Open native diff' shows all of it`));
+	if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
+		wrap.append(element('div', 'pulseai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s) — 'Open native diff' shows all of it`));
 	}
 	return wrap;
 }
 
-function diffLineClass(line: string): string {
-	if (line.startsWith('@@') || line.startsWith('+++') || line.startsWith('---')) { return 'is-meta'; }
-	if (line.startsWith('+')) { return 'is-added'; }
-	if (line.startsWith('-')) { return 'is-removed'; }
-	return 'is-context';
+// hermes terminal-output.tsx + lib/ansi.ts: bounded tail (paint, not
+// correctness) with SGR-colored segments; plain text when there is no ANSI.
+const TERMINAL_PAINT_LINE_LIMIT = 400;
+
+function terminalOutputContent(output: string, running: boolean): HTMLElement {
+	const pre = element('pre', 'pulseai-terminal-output');
+	const text = output || (running ? 'Waiting for output...' : 'No captured output');
+	const windowed = windowedTailLines(text, TERMINAL_PAINT_LINE_LIMIT);
+	if (windowed.hidden > 0) {
+		pre.append(element('div', 'pulseai-terminal-earlier', `… ${windowed.hidden} earlier line(s) — full history stays in the run log`));
+	}
+	const body = windowed.lines.join('\n');
+	if (!hasAnsiCodes(body)) {
+		pre.append(document.createTextNode(body));
+		return pre;
+	}
+	let line: HTMLElement | undefined;
+	for (const segment of parseAnsi(body)) {
+		if (!line) { line = element('span', 'pulseai-ansi-line'); pre.append(line); }
+		const span = element('span', segment.fg ? `pulseai-ansi-${segment.fg}` : undefined, segment.text);
+		if (segment.bold) { span.classList.add('is-bold'); }
+		// hermes ansi segments carry embedded \n — split into rows
+		const parts = segment.text.split('\n');
+		for (let i = 0; i < parts.length; i += 1) {
+			if (i > 0) { line = element('span', 'pulseai-ansi-line'); pre.append(line); }
+			if (parts[i]) { line.append(element('span', segment.fg ? `pulseai-ansi-${segment.fg}` : undefined, parts[i])); }
+		}
+	}
+	return pre;
+}
+
+// hermes changed-files-card.tsx: the turn-closing "N files changed" rollup —
+// one row per LANDED file edit, +/- summed, click opens the file. Wears the
+// shared widget chrome so it reads as the transcript's other inline widgets.
+function changedFilesCard(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLElement | undefined {
+	const files = deriveChangedFiles(model.tools);
+	if (!files.length) { return undefined; }
+	const card = element('div', 'pulseai-changed-files');
+	card.dataset.component = 'changed-files';
+	card.append(element('div', 'pulseai-changed-files-head',
+		element('span', undefined, `${files.length} file${files.length === 1 ? '' : 's'} changed`)));
+	const rows = element('div', 'pulseai-changed-files-rows');
+	for (const file of files) {
+		const row = element('div', 'pulseai-changed-file-row');
+		row.append(icon('file'),
+			element('span', 'pulseai-changed-file-name', file.name),
+			element('span', 'pulseai-diff-count',
+				element('span', 'is-added', `+${file.added}`),
+				element('span', 'is-removed', `−${file.removed}`)));
+		row.title = file.path;
+		row.classList.add('is-activatable');
+		row.addEventListener('click', () => host.revealFile(file.path));
+		rows.append(row);
+	}
+	card.append(rows);
+	return card;
 }
 
 const executionModes: readonly { readonly id: PulseExecutionMode; readonly label: string; readonly description: string; readonly icon: string }[] = [

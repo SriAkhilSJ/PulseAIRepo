@@ -1580,3 +1580,117 @@
 .pulseai-assistant-message [data-conversation-scaffold]:is(:hover, :has(:focus-visible)) {
 	opacity: 1;
 }
+
+/* ── hermes diff-lines.tsx wireframe (ported 2026-09-09) ──
+   File-headers/@@ noise and the +/- gutter are dropped; changes read by tint
+   + a 2px left gutter accent, rows flush to the card edges (the box bleeds
+   out of the card padding like hermes' -mx-1.5 -mb-1.5), internal scroll
+   like a code block, overscroll handed back to the page. */
+.pulseai-diff-body {
+	--pulseai-diff-add-background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent);
+	--pulseai-diff-remove-background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent);
+	--pulseai-diff-add-foreground: var(--vscode-diffEditor-insertedTextForeground, #3fb950);
+	--pulseai-diff-remove-foreground: var(--vscode-diffEditor-removedTextForeground, #f85149);
+	display: block;
+	max-height: 12rem;
+	margin: 4px 0 0 0;
+	overflow: auto;
+	overscroll-behavior-x: contain;
+	font-family: var(--pulseai-font-mono);
+	font-size: var(--pulseai-conv-code-size);
+	line-height: 1.5;
+	color: var(--vscode-descriptionForeground);
+}
+.pulseai-diff-row {
+	display: block;
+	min-width: max-content;
+	white-space: pre;
+	border-left: 2px solid transparent;
+	padding: 0 10px;
+}
+.pulseai-diff-row.is-add { background: var(--pulseai-diff-add-background); border-left-color: var(--pulseai-diff-add-foreground); color: var(--pulseai-diff-add-foreground); }
+.pulseai-diff-row.is-remove { background: var(--pulseai-diff-remove-background); border-left-color: var(--pulseai-diff-remove-foreground); color: var(--pulseai-diff-remove-foreground); }
+.pulseai-diff-row.is-context { color: var(--vscode-editor-foreground); }
+.pulseai-diff-row.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
+
+/* ── hermes lib/ansi.ts palette (ported 2026-09-09) ──
+   Tuned for legibility against the card surface; pure ANSI black/white are
+   not painted (they disappear into the surface) — they map to the muted
+   zinc pair exactly as hermes' TAILWIND_BY_COLOR does. */
+.pulseai-terminal-earlier { color: var(--vscode-descriptionForeground); font-style: italic; border-bottom: 1px dashed var(--vscode-widget-border, #4444); }
+.pulseai-ansi-line { display: block; min-width: max-content; }
+.pulseai-ansi-black { color: var(--vscode-descriptionForeground); }
+.pulseai-ansi-red { color: var(--vscode-terminal-ansiRed, #f85149); }
+.pulseai-ansi-green { color: var(--vscode-terminal-ansiGreen, #3fb950); }
+.pulseai-ansi-yellow { color: var(--vscode-terminal-ansiYellow, #d29922); }
+.pulseai-ansi-blue { color: var(--vscode-terminal-ansiBlue, #58a6ff); }
+.pulseai-ansi-magenta { color: var(--vscode-terminal-ansiMagenta, #bc8cff); }
+.pulseai-ansi-cyan { color: var(--vscode-terminal-ansiCyan, #39c5cf); }
+.pulseai-ansi-white { color: var(--vscode-foreground); opacity: 0.85; }
+.pulseai-ansi-bright-black { color: var(--vscode-descriptionForeground); }
+.pulseai-ansi-bright-red { color: var(--vscode-terminal-ansiBrightRed, #ff7b72); }
+.pulseai-ansi-bright-green { color: var(--vscode-terminal-ansiBrightGreen, #7ee787); }
+.pulseai-ansi-bright-yellow { color: var(--vscode-terminal-ansiBrightYellow, #e3b341); }
+.pulseai-ansi-bright-blue { color: var(--vscode-terminal-ansiBrightBlue, #79c0ff); }
+.pulseai-ansi-bright-magenta { color: var(--vscode-terminal-ansiBrightMagenta, #d2a8ff); }
+.pulseai-ansi-bright-cyan { color: var(--vscode-terminal-ansiBrightCyan, #67e8f9); }
+.pulseai-ansi-bright-white { color: var(--vscode-editor-foreground); }
+.pulseai-ansi-line .is-bold { font-weight: 700; }
+
+/* ── hermes changed-files-card.tsx (ported 2026-09-09) ──
+   The turn-closing "N files changed" rollup: widget chrome shared with the
+   transcript's other inline cards, ~5 rows tall before it scrolls. */
+.pulseai-changed-files {
+	margin-top: 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--vscode-widget-border, #4444);
+	border-radius: 8px;
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-changed-files-head {
+	display: flex; align-items: center; gap: 8px;
+	color: var(--vscode-foreground); font-size: var(--pulseai-text-body);
+}
+.pulseai-changed-files-rows {
+	display: flex; flex-direction: column;
+	max-height: 9.375rem; overflow: auto; margin-top: 4px;
+}
+.pulseai-changed-file-row {
+	display: flex; align-items: center; gap: 8px;
+	padding: 2px 6px; border-radius: 6px;
+	color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-body);
+}
+.pulseai-changed-file-row.is-activatable { cursor: pointer; }
+.pulseai-changed-file-row.is-activatable:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-changed-file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-diff-count { display: inline-flex; gap: 6px; font-family: var(--pulseai-font-mono); font-size: var(--pulseai-text-micro); }
+.pulseai-diff-count .is-added { color: var(--vscode-diffEditor-insertedTextForeground, #3fb950); }
+.pulseai-diff-count .is-removed { color: var(--vscode-diffEditor-removedTextForeground, #f85149); }
+
+/* ── hermes markdown-text additions (ported 2026-09-09) ── */
+.pulseai-md .pulseai-md-ol { margin: 2px 0; padding-left: 22px; display: flex; flex-direction: column; gap: 2px; }
+.pulseai-md .pulseai-md-quote {
+	margin: 4px 0; padding: 2px 10px;
+	border-left: 3px solid var(--vscode-widget-border, #6666);
+	color: var(--vscode-descriptionForeground);
+}
+.pulseai-md .pulseai-md-table {
+	border-collapse: collapse; margin: 6px 0;
+	font-size: var(--pulseai-text-body); max-width: 100%;
+	display: block; overflow-x: auto;
+}
+.pulseai-md .pulseai-md-table th,
+.pulseai-md .pulseai-md-table td {
+	border: 1px solid var(--vscode-widget-border, #4444);
+	padding: 3px 8px; text-align: left; white-space: nowrap;
+}
+.pulseai-md .pulseai-md-table th { background: var(--vscode-sideBar-background); font-weight: 600; }
+.pulseai-md .pulseai-md-link { color: var(--vscode-textLink-foreground); text-decoration: none; }
+.pulseai-md .pulseai-md-link:hover { text-decoration: underline; }
+
+/* ── hermes disclosure-row affordance (ported 2026-09-09) ──
+   The trailing slot (duration) stays IN FLOW and always visible — the title
+   reserves space for it instead of painting underneath it (hermes
+   disclosure-row.tsx trailing contract). Row hover keeps the resting-dim
+   lift already ported above; no invented caret is added. */
+.pulseai-tool-row > summary .pulseai-tool-duration { opacity: 0.9; }
