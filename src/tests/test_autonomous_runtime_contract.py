@@ -188,6 +188,15 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
     monkeypatch.setattr(chat_graph, "get_llm", lambda **kwargs: FakeBoundLLM())
     monkeypatch.setattr(chat_graph, "memory_manager", None)
     monkeypatch.setattr(platform, "system", lambda: "Windows")
+    # Field host truth (2026-09-09 @7a7111b9): Windows WITH git-bash — the
+    # terminal spawns /usr/bin/bash, so the banner must teach POSIX, never
+    # the old "Windows cmd.exe. NEVER use ls" decree (the model obeyed it
+    # and fed `cd /d` / Get-ChildItem into bash; both failed).
+    from src.prompts.hermes import environment as _env
+    monkeypatch.setattr(_env, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        "src.runtime.windows_shell.windows_bash_available", lambda: True
+    )
     task = "Build and create a complete interactive web app"
     config = {
         "configurable": {
@@ -226,7 +235,8 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
     ]
     assert len([m for m in captured["messages"] if m.type == "system"]) == 1
     system_block = captured["messages"][0]
-    assert "Windows cmd.exe" in system_block.content
+    assert "runs commands through bash (git-bash / MSYS)" in system_block.content
+    assert "Windows cmd.exe" not in system_block.content
     assert system_block.response_metadata.get("fused_system_blocks", 1) >= 3
     assert captured["messages"][-1].content == task
     assert result["iteration_used"] == 1

@@ -947,21 +947,21 @@ def ai_node(
         "Unattended side effects (file overwrites, deletions, dangerous shell commands) are guarded by SafetyGuard/clarify. For any destructive or irreversible change, call clarify to confirm before proceeding.",
     )
 
-    # State the actual shell contract before the model guesses. The terminal
-    # tool uses shell=True, which is cmd.exe on the founder's Windows runtime;
-    # Test5-5 wasted its first execution calls discovering that ls/pwd/find do
-    # not exist. Keep this dynamic so Linux/macOS behavior is unchanged.
-    import platform as _platform
-    _os_name = _platform.system() or os.name
-    if _os_name == "Windows":
+    # State the actual shell contract before the model guesses — through the
+    # SAME detection the environment block uses (windows_bash_available), so
+    # the two carriers can never contradict each other again. Field
+    # 2026-09-09 @7a7111b9: this banner hardcoded "Windows cmd.exe. NEVER
+    # use ls" on a git-bash host (tool receipts: /usr/bin/bash) while the
+    # environment block taught POSIX; the model obeyed the banner —
+    # `cd /d "..."` and `Get-ChildItem … | Select-Object` straight into bash,
+    # both failed. hermes teaches the shell only via its environment block;
+    # pulse keeps this banner as the trim-proof copy of the SAME text.
+    from src.prompts.hermes.environment import windows_terminal_banner
+    _terminal_banner = windows_terminal_banner()
+    if _terminal_banner:
         _insert_system_prefix(
             messages,
-            "=== ACTIVE TERMINAL PLATFORM ===\n"
-            "Windows cmd.exe. NEVER use POSIX commands such as ls, pwd, find, "
-            "head, grep, cat, rm, cp, mv, touch, chmod, or /tmp paths. Use "
-            "dir, cd, where, type, findstr, copy, move, del, or an explicit "
-            "PowerShell -NoProfile -Command invocation. Prefer native file "
-            "tools over shell inspection.",
+            "=== ACTIVE TERMINAL PLATFORM ===\n" + _terminal_banner,
         )
 
     if (
@@ -1080,7 +1080,14 @@ def ai_node(
     # model path. Keep the active-session binding at the turn boundary; clearing
     # it here would make later planner/classifier requests uninterruptible.
     try:
-        result = _invoke_with_token_pump(call_llm, messages, session_id, provider, model)
+        # The repair/cleaned-text gate needs to know whether THIS call bound
+        # tools: the grace/ask path invokes the unbound `llm`, everything
+        # else a tools-bound callable.
+        tools_bound = call_llm is not llm
+        result = _invoke_with_token_pump(
+            call_llm, messages, session_id, provider, model,
+            strip_tool_blocks=tools_bound,
+        )
     except Exception as exc:
         # A Stop that fired while the request was in flight wins over provider
         # failover: never launch a base-provider request after cancellation.
@@ -1154,7 +1161,14 @@ def ai_node(
         if budget_exhausted:
             call_llm = llm
         try:
-            result = _invoke_with_token_pump(call_llm, messages, session_id, provider, model)
+            # The repair gate needs to know whether THIS call bound tools: the
+            # grace/ask path invokes the unbound `llm`, everything else a
+            # tools-bound callable (see repair_text_tool_calls `allow`).
+            tools_bound = call_llm is not llm
+            result = _invoke_with_token_pump(
+                call_llm, messages, session_id, provider, model,
+                strip_tool_blocks=tools_bound,
+            )
         except TurnCancelledError:
             return {
                 "messages": [AIMessage(
@@ -1187,9 +1201,13 @@ def ai_node(
 
     # Hermes-pattern repair: some models emit tool calls as TEXT
     # (<tool_call>NAME<arg_key>...<arg_value>...) instead of structured
-    # tool_calls. Parse them so the loop can execute instead of stalling.
+    # tool_calls. Parse them so the loop can execute instead of stalling —
+    # but ONLY when this call actually bound tools. On the grace/ask call
+    # (`call_llm is llm`) the dialect text stays prose and the turn
+    # finalizes: hermes' grace law (no tools bound → no actions), field
+    # 2026-09-09 @7a7111b9 — post-grace phantom executions otherwise.
     from src.graphs.parallel_tools import repair_text_tool_calls
-    result = repair_text_tool_calls(result)
+    result = repair_text_tool_calls(result, allow=tools_bound)
 
     # Hermes refuses to dispatch tool arguments from a token-limited response.
     # Preserve the assistant/tool pairing, but mark the message so SafeToolNode
@@ -1530,6 +1548,13 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
     text = _result_answer_text(result)
     if not text.strip():
         return False
+    if pump.strip_tool_blocks:
+        # Same cleaned-text contract as the live stream: blocks the repair
+        # layer will consume must not paint the transcript here either —
+        # this flush reads the PRE-repair content.
+        text = pump._filter_piece(text)
+        if not text.strip():
+            return False
     try:
         event_bus.emit("message.agent.chunk", {
             "chunk": text,
@@ -1538,6 +1563,16 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
         return True
     except Exception:
         return False  # a dead bus must not kill a live turn
+
+
+# hermes agent/acp_openai_bridge.py:20 — the taught text-dialect block that
+# the repair layer consumes out of a response before display.
+_TOOL_BLOCK_OPEN = "<tool_call>"
+_TOOL_BLOCK_CLOSE = "</tool_call>"
+# Unterminated-block safety valve: past this much swallowed stream text with
+# no close tag, the span flushes as display text (a block that size is not a
+# tool call; hermes' non-greedy regex would not match it either).
+_TOOL_BLOCK_SWALLOW_LIMIT = 65_536
 
 
 class _AgentTokenPump(BaseCallbackHandler):
@@ -1559,10 +1594,25 @@ class _AgentTokenPump(BaseCallbackHandler):
 
     run_inline = True
 
-    def __init__(self, thread_id: str):
+    def __init__(self, thread_id: str, strip_tool_blocks: bool = False):
         self._thread_id = thread_id
         self.streamed = False
         self._reasoning_acc = ""
+        # hermes ACP display contract (field 2026-09-09 @7a7111b9, shots 1-2):
+        # when the parser consumes a <tool_call> block out of a response, the
+        # UI must show cleaned_text — the raw markup never renders (hermes
+        # agent/acp_openai_bridge.py: extract_tool_calls_from_text returns
+        # ``(tool_calls, cleaned_text)`` and only cleaned_text is displayed).
+        # The repair layer runs AFTER the full response, but the pump streams
+        # DURING it, so the filter lives here: complete
+        # <tool_call>…</tool_call> spans are swallowed from the live chunk
+        # stream. Only armed when the call bound tools (the repaired blocks
+        # are really consumed); on grace/ask calls the text is the model's
+        # own unbound prose and displays as-is, exactly like hermes.
+        self.strip_tool_blocks = strip_tool_blocks
+        self._carry = ""
+        self._in_tool_block = False
+        self._swallowed = 0
         # Response receipt (owner run 2026-09-04: a 2:08 "Waiting on the
         # model" spinner had NO telemetry — silence vs slow generation vs
         # tokens-arriving-but-not-rendered were indistinguishable). One
@@ -1641,8 +1691,72 @@ class _AgentTokenPump(BaseCallbackHandler):
         if not piece:
             return
         self.streamed = True
-        self.text_chars += len(piece)
         self._mark(piece)
+        if self.strip_tool_blocks:
+            piece = self._filter_piece(piece)
+        if piece:
+            self._emit_text(piece)
+
+    def _filter_piece(self, piece: str) -> str:
+        """Swallow complete <tool_call>…</tool_call> spans from the stream,
+        holding back only possible partial-tag tails at piece boundaries
+        (`<tool_call>` is 11 chars, `</tool_call>` is 12 — a 10-char holdback
+        covers any split). An UNTERMINATED block is not consumable (hermes'
+        block regex would not match it either), so past a bounded swallow
+        limit it flushes as ordinary text."""
+        self._carry += piece
+        out: list[str] = []
+        while True:
+            if self._in_tool_block:
+                end = self._carry.find(_TOOL_BLOCK_CLOSE)
+                if end != -1:
+                    self._carry = self._carry[end + len(_TOOL_BLOCK_CLOSE):]
+                    self._in_tool_block = False
+                    self._swallowed = 0
+                    continue
+                hold = len(_TOOL_BLOCK_CLOSE) - 1
+                if len(self._carry) > hold:
+                    self._swallowed += len(self._carry) - hold
+                    if self._swallowed > _TOOL_BLOCK_SWALLOW_LIMIT:
+                        # unterminated: re-emit the open tag we swallowed so
+                        # the display shows the stream as it arrived.
+                        out.append(_TOOL_BLOCK_OPEN + self._carry)
+                        self._carry = ""
+                        self._in_tool_block = False
+                        self._swallowed = 0
+                        break
+                    self._carry = self._carry[-hold:]
+                break
+            start = self._carry.find(_TOOL_BLOCK_OPEN)
+            if start != -1:
+                out.append(self._carry[:start])
+                self._carry = self._carry[start + len(_TOOL_BLOCK_OPEN):]
+                self._in_tool_block = True
+                self._swallowed = 0
+                continue
+            hold = len(_TOOL_BLOCK_OPEN) - 1
+            if len(self._carry) > hold:
+                out.append(self._carry[:-hold])
+                self._carry = self._carry[-hold:]
+            break
+        return "".join(out)
+
+    def flush_tail(self) -> str:
+        """End-of-stream: anything still held was NOT a consumed block (an
+        unclosed <tool_call> is not parseable — the repair layer ignores it,
+        hermes' block regex would not match it either), so it displays as
+        text. Bounded: the holdback is at most one partial-tag length.
+        Returns what was flushed (tests assert on it; callers ignore)."""
+        flushed = ""
+        if self._carry:
+            flushed = self._carry
+            self._emit_text(flushed)
+            self._carry = ""
+        self._in_tool_block = False
+        return flushed
+
+    def _emit_text(self, piece: str) -> None:
+        self.text_chars += len(piece)
         try:
             event_bus.emit("message.agent.chunk", {
                 "chunk": piece,
@@ -1654,6 +1768,7 @@ class _AgentTokenPump(BaseCallbackHandler):
 
 def _invoke_with_token_pump(
     call_llm, messages, thread_id: str, provider: str = "", model: str = "",
+    strip_tool_blocks: bool = False,
 ):
     """Agent-node invoke with the live token pump attached (best-effort).
 
@@ -1662,6 +1777,10 @@ def _invoke_with_token_pump(
     through -- so only THIS call streams. Providers that reject the config
     kwarg (defensive) fall back to a plain invoke with no pump.
 
+    `strip_tool_blocks` arms the pump's cleaned-text filter for calls whose
+    <tool_call> text blocks the repair layer will consume (tools bound);
+    hermes' ACP bridge displays cleaned_text, never the raw markup.
+
     On completion, one receipt line: total wall time, first-token latency
     and whether anything actually streamed. The owner's "Waiting on the
     model 2:08" (2026-09-04) was unattributable — this line makes the next
@@ -1669,7 +1788,7 @@ def _invoke_with_token_pump(
     first token ~120 s = endpoint slow/silent (stall budget owns it);
     "non-streaming" = streaming got disabled upstream.
     """
-    pump = _AgentTokenPump(thread_id)
+    pump = _AgentTokenPump(thread_id, strip_tool_blocks=strip_tool_blocks)
     try:
         result = call_llm.invoke(messages, config={"callbacks": [pump]})
     except TypeError:
@@ -1678,6 +1797,9 @@ def _invoke_with_token_pump(
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
         raise
     _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+    # Any held-back display text (partial-tag tail, or an unterminated block
+    # that repair will NOT consume) flushes before the receipt line.
+    pump.flush_tail()
     try:
         route = f"{provider}/{model}" if provider else "llm"
         total = time.monotonic() - pump._t0

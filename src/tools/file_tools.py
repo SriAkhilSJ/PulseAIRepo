@@ -541,8 +541,15 @@ def search_code(
                     else safe_path.parent
                 )
 
+                # hermes tools/file_operations_search.py caps EACH match's
+                # content at 500 chars (:234/:241, SearchMatch(content=...[:500])).
+                # Field 2026-09-09 @7a7111b9: `search_code '*'` matched a line
+                # of a ~1.9MB single-line minified bundle (passes the 2MB file
+                # filter) and the whole line rode the result — the bridge
+                # dropped the 1,719,559-byte PulseAI frame and the UI showed
+                # nothing for the step. Cap per match, exactly like hermes.
                 results.append(
-                    f"{relative_path}:{line_number}: {line.strip()}"
+                    f"{relative_path}:{line_number}: {line.strip()[:500]}"
                 )
 
     if not results:

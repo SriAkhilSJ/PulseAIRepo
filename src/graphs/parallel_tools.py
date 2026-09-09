@@ -394,10 +394,24 @@ def parse_text_tool_calls(content: str) -> list[dict]:
     return calls
 
 
-def repair_text_tool_calls(message):
+def repair_text_tool_calls(message, allow: bool = True):
     """Return a new AIMessage with parsed tool_calls if `message` is an
     AIMessage carrying <tool_call> text but no structured tool_calls.
-    Otherwise returns the message unchanged."""
+    Otherwise returns the message unchanged.
+
+    `allow=False` (field 2026-09-09 @7a7111b9): the call was made with NO
+    tools bound — the D40 budget-grace call or ask mode. Hermes' grace law
+    is that a model which keeps hallucinating tool calls still cannot act:
+    no tools are bound, echoed names get catalog-rejected for one bounded
+    lap, then the loop finalizes on text. The unconditional repair broke
+    that law — post-grace the model's TEXT tool calls were parsed and
+    EXECUTED (Get-ChildItem, `dir -R`, read_file, search_code — the run's
+    ❌❌❌ tail), turning the budget stop into a zombie that kept paying
+    provider calls. When disallowed the dialect text stays prose and
+    should_continue finalizes the turn.
+    """
+    if not allow:
+        return message
     if not isinstance(message, AIMessage):
         return message
     if getattr(message, "tool_calls", None):

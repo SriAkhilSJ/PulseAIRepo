@@ -198,3 +198,65 @@ def test_hermes_terminal_alias_in_execution_toolset():
 
     assert "terminal" in _EXECUTION_TOOLS
     assert "run_terminal" in _EXECUTION_TOOLS
+
+
+# ── Runtime banner shares the environment block's ONE truth ────────────────
+# Field run 2026-09-09 @7a7111b9: the banner hardcoded "Windows cmd.exe.
+# NEVER use ls" on a git-bash host (tool receipts: /usr/bin/bash) while the
+# environment block taught POSIX — the model obeyed the banner and issued
+# `cd /d "..."` / `Get-ChildItem … | Select-Object` into bash, both failed.
+# The banner must be the SAME text, keyed by the SAME detection.
+
+
+def test_banner_teaches_bash_when_bash_spawns(monkeypatch):
+    from src.prompts.hermes import environment as env
+
+    monkeypatch.setattr(env, "is_windows", lambda: True)
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: True)
+
+    banner = env.windows_terminal_banner()
+
+    assert "runs commands through bash (git-bash / MSYS)" in banner
+    assert "Get-ChildItem" in banner and "will NOT work" in banner
+    # the field lie, pinned dead: no cmd.exe decree on a bash host
+    assert "NEVER use POSIX" not in banner
+    assert "Windows cmd.exe" not in banner
+
+
+def test_banner_teaches_cmd_on_cmd_fallback(monkeypatch):
+    from src.prompts.hermes import environment as env
+
+    monkeypatch.setattr(env, "is_windows", lambda: True)
+    monkeypatch.setattr("src.runtime.windows_shell.windows_bash_available", lambda: False)
+
+    banner = env.windows_terminal_banner()
+
+    assert "runs commands through cmd.exe" in banner
+    assert "NOT bash" in banner
+    assert "runs commands through bash" not in banner
+
+
+def test_banner_empty_off_windows(monkeypatch):
+    from src.prompts.hermes import environment as env
+
+    monkeypatch.setattr(env, "is_windows", lambda: False)
+    assert env.windows_terminal_banner() == ""
+
+
+def test_banner_and_env_block_are_the_same_text(monkeypatch):
+    """One truth, two carriers: the trim-proof banner must carry the same
+    dialect teaching the environment block carries."""
+    from src.prompts.hermes import environment as env
+
+    for bash_available in (True, False):
+        monkeypatch.setattr(env, "is_windows", lambda: True)
+        monkeypatch.setattr(
+            "src.runtime.windows_shell.windows_bash_available",
+            lambda: bash_available,
+        )
+        banner = env.windows_terminal_banner()
+        block = env.build_environment_hints()
+        assert banner in block, (
+            f"banner text diverged from the environment block "
+            f"(bash_available={bash_available})"
+        )

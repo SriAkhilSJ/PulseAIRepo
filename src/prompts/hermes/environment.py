@@ -23,6 +23,60 @@ logger = logging.getLogger(__name__)
 
 _POSIX_ONLY_VERBS = "ls, pwd, find, head, tail, grep, cat"
 
+# ── Single-source shell teachings (field 2026-09-09 @7a7111b9) ────────────
+# The environment block AND the runtime banner (chat_graph) must never
+# disagree: that run's banner claimed "Windows cmd.exe. NEVER use ls" on a
+# git-bash host (receipts: /usr/bin/bash) while this block taught POSIX in
+# the same prompt — the model obeyed the banner and issued Get-ChildItem /
+# `cd /d "..."` into bash (both failed). One text, both carriers.
+_WINDOWS_BASH_TERMINAL_TEACHING = (
+    "Shell: on this Windows host your `terminal` tool (alias of "
+    "`run_terminal`) runs commands through bash (git-bash / "
+    "MSYS), NOT PowerShell or cmd.exe. Use POSIX shell syntax "
+    "(`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside "
+    "terminal calls. MSYS-style paths like `/d/TestPulseAI/...` "
+    "work alongside native `D:\\TestPulseAI\\...` paths for bash "
+    "builtins (`cd`, `echo`, redirection). PowerShell builtins "
+    "(`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT "
+    "work — use their POSIX equivalents (`ls`, `$FOO`, `grep`). "
+    "Path arguments for NATIVE Windows programs (git, rg, node, "
+    "npm, python, ...) are NOT translated by MSYS: pass them "
+    "`D:/TestPulseAI/x`-style forward-slash native paths, and "
+    "prefer a temp dir inside the workspace over `/tmp` when a "
+    "native tool must read the file."
+)
+
+
+def _windows_cmd_terminal_teaching() -> str:
+    shell = (os.environ.get("COMSPEC") or "").lower()
+    shell_name = ("PowerShell" if ("pwsh" in shell or "powershell" in shell)
+                  else "cmd.exe")
+    return (
+        f"Shell: on this Windows host your `terminal` tool (alias of "
+        f"`run_terminal`) runs commands through {shell_name} — NOT "
+        "bash. POSIX syntax (`ls`, `grep`, `|`, `$HOME`, `2>/dev/null`) "
+        "and MSYS paths (`/d/...`) will NOT work. Use cmd.exe syntax "
+        "(`dir`, `findstr`, `set`, `%VAR%`, `2>nul`) or native "
+        "forward-slash paths (`D:/folder/file`) for tools."
+    )
+
+
+def windows_terminal_banner() -> str:
+    """The dialect teaching for the runtime banner — the SAME truth the
+    environment block carries, keyed by the same `windows_bash_available()`
+    detection. Returns "" off-Windows (no banner is inserted there).
+
+    The banner rides `_insert_system_prefix` AFTER context assembly, so it
+    survives layer trims that could drop the environment block; that is why
+    both carriers exist — and why they must share this one text.
+    """
+    if not is_windows():
+        return ""
+    from src.runtime.windows_shell import windows_bash_available
+    if windows_bash_available():
+        return _WINDOWS_BASH_TERMINAL_TEACHING
+    return _windows_cmd_terminal_teaching()
+
 
 def _is_wsl() -> bool:
     try:
@@ -101,34 +155,9 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
             # dialect must be TAUGHT, not named (field 2026-09-08: with only
             # "Terminal dialect: bash ..." the model mixed `D:\...` and
             # `/d/...` across calls in one turn because it was guessing).
-            parts.append(
-                "Shell: on this Windows host your `terminal` tool (alias of "
-                "`run_terminal`) runs commands through bash (git-bash / "
-                "MSYS), NOT PowerShell or cmd.exe. Use POSIX shell syntax "
-                "(`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside "
-                "terminal calls. MSYS-style paths like `/d/TestPulseAI/...` "
-                "work alongside native `D:\\TestPulseAI\\...` paths for bash "
-                "builtins (`cd`, `echo`, redirection). PowerShell builtins "
-                "(`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT "
-                "work — use their POSIX equivalents (`ls`, `$FOO`, `grep`). "
-                "Path arguments for NATIVE Windows programs (git, rg, node, "
-                "npm, python, ...) are NOT translated by MSYS: pass them "
-                "`D:/TestPulseAI/x`-style forward-slash native paths, and "
-                "prefer a temp dir inside the workspace over `/tmp` when a "
-                "native tool must read the file."
-            )
+            parts.append(_WINDOWS_BASH_TERMINAL_TEACHING)
         else:
-            shell = (os.environ.get("COMSPEC") or "").lower()
-            shell_name = ("PowerShell" if ("pwsh" in shell or "powershell" in shell)
-                          else "cmd.exe")
-            parts.append(
-                f"Shell: on this Windows host your `terminal` tool (alias of "
-                f"`run_terminal`) runs commands through {shell_name} — NOT "
-                "bash. POSIX syntax (`ls`, `grep`, `|`, `$HOME`, `2>/dev/null`) "
-                "and MSYS paths (`/d/...`) will NOT work. Use cmd.exe syntax "
-                "(`dir`, `findstr`, `set`, `%VAR%`, `2>nul`) or native "
-                "forward-slash paths (`D:/folder/file`) for tools."
-            )
+            parts.append(_windows_cmd_terminal_teaching())
     else:
         parts.append(f"Terminal dialect: {terminal_dialect()}.")
 
@@ -273,4 +302,5 @@ __all__ = [
     "mode_hint",
     "resolve_platform_hint",
     "terminal_dialect",
+    "windows_terminal_banner",
 ]
