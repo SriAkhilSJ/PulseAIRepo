@@ -49,6 +49,12 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 
 	read_file: tool('Read', 'file-read', 'file'),
 	list_files: tool('List files', 'file-read', 'list'),
+	// Hermes-name primaries (engine commit b75cd4c6: the model binds and
+	// calls `search_files`/`terminal`/`web_extract`) MUST resolve the same
+	// families as their legacy pulse aliases — otherwise the field's most
+	// common calls render as generic cards (no terminal body, no exit chip,
+	// no diff/search treatment).
+	search_files: tool('Search files', 'search', 'search'),
 	search_code: tool('Search code', 'search', 'search'),
 	discover_host_capabilities: tool('Discover editor capabilities', 'search', 'symbol-method'),
 	invoke_host_capability: tool('Use editor intelligence', 'search', 'zap'),
@@ -56,6 +62,7 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 	edit_file: tool('Edit', 'file-write', 'edit', 'preference'),
 	copy_file: tool('Copy file', 'file-write', 'copy', 'preference'),
 
+	terminal: tool('Terminal', 'terminal', 'terminal', 'always'),
 	run_terminal: tool('Terminal', 'terminal', 'terminal', 'always'),
 	execute_code: tool('Execute code', 'code', 'terminal', 'running'),
 	start_terminal: tool('Start process', 'process', 'terminal', 'running'),
@@ -71,6 +78,7 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 	scaffold_nextjs: tool('Scaffold Next.js', 'scaffold', 'add', 'running'),
 
 	web_search: tool('Search web', 'web', 'search'),
+	web_extract: tool('Extract page', 'web', 'globe'),
 	web_fetch: tool('Fetch page', 'web', 'globe'),
 
 	// The hermes browser surface (src/tools/browser_tools.py). The retired

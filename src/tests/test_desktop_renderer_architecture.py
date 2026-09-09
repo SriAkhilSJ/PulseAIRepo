@@ -599,3 +599,20 @@ def test_plan_strip_renders_each_steps_own_status():
     assert "index === 0 ? 'is-active'" not in renderer
     # the header counts like hermes' Todo header (done/total)
     assert "`${done}/${model.plan.length}`" in renderer
+
+
+def test_catalog_resolves_hermes_primary_tool_names():
+    """Engine commit b75cd4c6: pulse binds and the model calls hermes' names
+    (terminal, search_files, web_extract). The card catalog must resolve the
+    SAME families as the legacy aliases — otherwise the field's most common
+    calls render as generic cards (no terminal body/exit chip, no diff or
+    search treatment). Both spellings resolve, forever."""
+    catalog = _text("common", "pulseAIToolCatalog.ts")
+    # primaries present with real families (not the generic fallback)
+    assert "terminal: tool('Terminal', 'terminal', 'terminal', 'always')" in catalog
+    assert "search_files: tool('Search files', 'search', 'search')" in catalog
+    assert "web_extract: tool('Extract page', 'web', 'globe')" in catalog
+    # legacy aliases keep their entries (they still execute as aliases)
+    assert "run_terminal: tool('Terminal', 'terminal', 'terminal', 'always')" in catalog
+    assert "search_code: tool('Search code', 'search', 'search')" in catalog
+    assert "web_fetch: tool('Fetch page', 'web', 'globe')" in catalog
