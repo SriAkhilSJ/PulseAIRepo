@@ -257,13 +257,16 @@ def start_terminal(
     return _spawn_tracked_background(command, config)
 
 @tool
-def terminal(
+def run_terminal(
     command: str,
     config: RunnableConfig,
     timeout: int | str | None = None,
 ) -> str:
     """
-    Execute shell commands in the active workspace (alias of run_terminal).
+    Legacy pulse name of `terminal` (hermes tool-name parity, 2026-09-09;
+    the 2026-09-05 alias direction flipped). Executes the full terminal
+    contract: timeout honored (default 300s, foreground max 600s,
+    above-cap promoted to a tracked background process).
 
     Hermes tool-name parity (field run 2026-09-05): models trained on
     hermes emit the tool name `terminal` — the unknown-name rejection
@@ -273,12 +276,12 @@ def terminal(
     tracked background process), cmd.exe dialect on Windows.
 
     Do NOT use cat/head/tail (use read_file), grep/rg/find/ls
-    (use list_files or search_code), sed/awk (use edit_file), or
+    (use list_files or search_files), sed/awk (use edit_file), or
     echo/heredoc file creation (use write_file). Reserve the terminal
     for: builds, installs, git, processes, scripts, network, package
     managers — anything that needs a shell.
     """
-    return run_terminal.func(command, config, timeout)
+    return terminal.func(command, config, timeout)
 
 
 def _limit_terminal_output(
@@ -593,13 +596,17 @@ def _foreground_timeout(value) -> tuple[int, str | None]:
 
 
 @tool
-def run_terminal(
+def terminal(
     command: str,
     config: RunnableConfig,
     timeout: int | str | None = None,
 ) -> str:
     """
     Run a short terminal command inside the active workspace (shell).
+
+    Hermes tool-name parity (2026-09-09): hermes binds this tool as
+    `terminal` (tools/terminal_tool.py); `run_terminal` was pulse's
+    invention and remains bound below as the legacy alias.
 
     USE for quick commands: python scripts, tests, checks, environment
     inspection, verifying generated code. Inspect non-zero exit codes.
@@ -634,7 +641,7 @@ def run_terminal(
     # it asked for 30000s.
     timeout, timeout_rejection = _foreground_timeout(timeout)
     if timeout_rejection:
-        return f"⛔ run_terminal rejected: {timeout_rejection}"
+        return f"⛔ terminal rejected: {timeout_rejection}"
 
     # Hermes foreground/background guard (terminal_tool.py :965 — the guard
     # fires BEFORE the deadline math): a command the foreground transport

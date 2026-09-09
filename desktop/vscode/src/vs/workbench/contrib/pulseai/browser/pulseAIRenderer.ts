@@ -543,7 +543,7 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 		// envelopes carry their own marker instead.
 		const sentinel = /Exit code: (-?\d+)\s*$/.exec(exitSource);
 		if (sentinel) { exit = sentinel[1]; }
-		else if (exitSource.includes('run_terminal timed out')) { exit = 'timeout'; }
+		else if (exitSource.includes('terminal timed out') || exitSource.includes('run_terminal timed out')) { exit = 'timeout'; }
 	}
 	exit ??= (tool.state === 'running' ? 'running' : 'unknown');
 	const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';

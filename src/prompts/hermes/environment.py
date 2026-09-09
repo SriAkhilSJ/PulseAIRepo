@@ -30,8 +30,8 @@ _POSIX_ONLY_VERBS = "ls, pwd, find, head, tail, grep, cat"
 # the same prompt — the model obeyed the banner and issued Get-ChildItem /
 # `cd /d "..."` into bash (both failed). One text, both carriers.
 _WINDOWS_BASH_TERMINAL_TEACHING = (
-    "Shell: on this Windows host your `terminal` tool (alias of "
-    "`run_terminal`) runs commands through bash (git-bash / "
+    "Shell: on this Windows host your `terminal` tool runs commands "
+    "through bash (git-bash / "
     "MSYS), NOT PowerShell or cmd.exe. Use POSIX shell syntax "
     "(`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside "
     "terminal calls. MSYS-style paths like `/d/TestPulseAI/...` "
@@ -52,8 +52,8 @@ def _windows_cmd_terminal_teaching() -> str:
     shell_name = ("PowerShell" if ("pwsh" in shell or "powershell" in shell)
                   else "cmd.exe")
     return (
-        f"Shell: on this Windows host your `terminal` tool (alias of "
-        f"`run_terminal`) runs commands through {shell_name} — NOT "
+        f"Shell: on this Windows host your `terminal` tool runs commands "
+        f"through {shell_name} — NOT "
         "bash. POSIX syntax (`ls`, `grep`, `|`, `$HOME`, `2>/dev/null`) "
         "and MSYS paths (`/d/...`) will NOT work. Use cmd.exe syntax "
         "(`dir`, `findstr`, `set`, `%VAR%`, `2>nul`) or native "

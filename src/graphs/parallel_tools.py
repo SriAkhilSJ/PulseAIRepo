@@ -65,7 +65,8 @@ from typing import Any, Optional
 from langchain_core.messages import AIMessage, ToolMessage
 
 FILE_PATH_TOOLS = frozenset({
-    "read_file", "list_files", "search_code", "write_file", "edit_file",
+    "read_file", "list_files", "search_files", "search_code",
+    "write_file", "edit_file",
 })
 MUTATING_TOOLS = frozenset({"write_file", "edit_file"})
 WILDCARD_TOOLS = frozenset({

@@ -249,10 +249,13 @@ def test_execution_guidance_override_wins_over_auto():
 
 def test_execution_guidance_drops_dangling_web_reference():
     """Upstream: no web tools ⇒ the web_search line is removed, not left dangling."""
-    no_web = _view(valid_tool_names={"read_file", "run_terminal"})
+    no_web = _view(valid_tool_names={"read_file", "terminal"})
     body = guidance.execution_guidance_text(no_web.valid_tool_names)
     assert "use web_search" not in body
-    assert "(search_code, read_file, etc.)" in body
+    # hermes prompt_builder.py:476 verbatim — names are hermes' own since the
+    # 2026-09-09 tool-name parity pass (RENAME_MAP is empty; no rewording).
+    assert "(search_files, read_file, etc.)" in body
+    assert "search_code" not in body
     assert "use web_search" in guidance.execution_guidance_text({"web_search"})
 
 
@@ -697,21 +700,24 @@ def test_browser_vs_fetch_routing_is_taugth_on_both_tools():
     browser-side routing; this pins the web side (and the capability truth:
     web_fetch never runs the page's JavaScript). Capability statements only
     — no task lexicons, the model decides with correct facts."""
-    from src.tools.web_tools import web_fetch
+    from src.tools.web_tools import web_extract, web_fetch
     from src.tools.browser_tools import browser_navigate
 
     def _text(tool):
         # langchain @tool moves the docstring into .description
         return (getattr(tool, "description", None) or tool.__doc__ or "").lower()
 
-    web_doc = _text(web_fetch)
+    # hermes binds the web extractor as `web_extract` — the routing teaching
+    # lives on the primary; the legacy alias points at the same contract.
+    web_doc = _text(web_extract)
+    assert "legacy pulse name" in _text(web_fetch)
     browser_doc = _text(browser_navigate)
     # hermes' failure pivot, ported to the web tool
     assert "use the browser tool instead" in web_doc
     # the capability truth that makes the pivot rational (not a rule)
     assert "javascript never runs" in web_doc
     # browser side carries both halves of the routing
-    assert "prefer web_search or web_fetch" in browser_doc
+    assert "prefer web_search or web_extract" in browser_doc
     assert "verify that a web app" in browser_doc
 
 

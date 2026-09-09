@@ -56,19 +56,16 @@ BRAND_MAP: Dict[str, str] = {
     "Hermes": "Pulse",
 }
 
-#: Hermes tool identifiers → the real name of the tool in Pulse's registry
-#: (``src/tools/``). Every entry was checked against the registry; nothing maps
-#: to a tool Pulse does not have. Tools upstream names and Pulse genuinely
-#: lacks are handled by *gating* (see ``system_prompt``), not by rewording.
-RENAME_MAP: Dict[str, str] = {
-    "search_files": "search_code",
-    "delegate_task": "delegate_to_subagent",
-    "web_extract": "web_fetch",
-    "use terminal": "use run_terminal",
-    "the terminal tool": "the run_terminal tool",
-    "terminal/execute_code": "run_terminal/execute_code",
-    "`terminal`": "`run_terminal`",
-}
+#: Hermes tool identifiers → the real name of the tool in Pulse's registry.
+#: EMPTY since 2026-09-09 (owner: "tool name used in Pulse is same <Prompt
+#: Engineering>"): pulse's tools now BIND under hermes' own names
+#: (search_files, web_extract, terminal — each keeping the old pulse name
+#: as a bound legacy alias), so hermes' prompt text is used VERBATIM and
+#: nothing is reworded. Tools hermes names and pulse genuinely lacks
+#: (process_manage, patch, delegate_task, browser_screenshots' vision
+#: surface) are handled by *gating*/follow-up ports — never by renaming
+#: hermes' text to invented names.
+RENAME_MAP: Dict[str, str] = {}
 
 
 def localize(text: str) -> str:
@@ -234,8 +231,8 @@ def execution_guidance_text(valid_tool_names: Optional[Iterable[str]] = None) ->
             "- Current facts (weather, news, versions) → use web_search\n", ""
         )
         text = text.replace(
-            "(search_code, web_search, read_file, etc.)",
-            "(search_code, read_file, etc.)",
+            "(search_files, web_search, read_file, etc.)",
+            "(search_files, read_file, etc.)",
         )
     return text
 

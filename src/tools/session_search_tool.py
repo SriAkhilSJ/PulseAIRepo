@@ -197,7 +197,7 @@ def session_search(
     USE when the user references earlier work ("how did we fix...",
     "continue what we did last week") or you need facts from a prior
     session not in the current context. NOT for this session (already in
-    context) or for code/files (use search_code/read_file).
+    context) or for code/files (use search_files/read_file).
 
     MODES (auto from args): (1) DISCOVERY — pass query: top past sessions
     with matching snippets; (2) SCROLL — pass session_id +

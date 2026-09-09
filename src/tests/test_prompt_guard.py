@@ -193,9 +193,10 @@ def test_d36_grounding_absent_from_legacy():
 
 
 def test_d36_mandatory_tool_use_lists_concrete_tools():
-    """The block must name the actual PulseAI tools (no phantom tools)."""
+    """The block must name the actual PulseAI tools (no phantom tools) —
+    hermes' names since the 2026-09-09 tool-name parity pass."""
     p = system_persona()
-    for tool in ("run_terminal", "read_file", "search_code", "web_search", "execute_code"):
+    for tool in ("terminal", "read_file", "search_files", "web_search", "execute_code"):
         assert tool in p, f"grounding block must name real tool {tool!r}"
 
 

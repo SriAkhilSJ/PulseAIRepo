@@ -21,12 +21,12 @@ from their version, all verified before writing:
   worker threads; ``signal.alarm`` is main-thread-only. A line-level trace
   hook enforces the wall-clock budget in ANY thread. Honest limit: a single
   pathological C-level expression (``10**10**9``) runs no Python lines and
-  can overshoot until it finishes; ``run_terminal`` is additionally
+  can overshoot until it finishes; ``terminal`` is additionally
   time-boxed by running it on a bounded daemon thread.
 * **SafetyGuard is re-checked per inner call.** The graph-level guard only
   inspects top-level tool args by tool NAME (SafetyGuard.check_tool_call),
   so script text sails past it. Every inner call of write_file (overwrite),
-  edit_file (critical path) and run_terminal/start_terminal (dangerous
+  edit_file (critical path) and terminal/start_terminal (dangerous
   command) is re-validated; unsafe ops are DENIED with guidance (auto-deny,
   hermes delegate_tool.py worker-thread policy) because a script cannot
   surface the human approval prompt.
@@ -69,11 +69,13 @@ from src.context.safety_guard import SafetyGuard
 from src.tools.file_tools import (
     read_file,
     list_files,
+    search_files,
     search_code,
     write_file,
     edit_file,
 )
 from src.tools.terminal_tools import (
+    terminal,
     run_terminal,
     start_terminal,
     check_terminal,
@@ -82,7 +84,7 @@ from src.tools.terminal_tools import (
     cleanup_terminal_processes,
     read_terminal_output,
 )
-from src.tools.web_tools import web_search, web_fetch
+from src.tools.web_tools import web_search, web_fetch, web_extract
 
 # ---------------------------------------------------------------------------
 # Budgets (hermes: 300s / 50 calls / 50KB stdout -- verified §29)
@@ -324,6 +326,7 @@ class _InnerCallDispatcher:
     _GUARDED_KEY = {
         "write_file": "path",
         "edit_file": "path",
+        "terminal": "command",
         "run_terminal": "command",
         "start_terminal": "command",
     }
@@ -358,7 +361,7 @@ class _InnerCallDispatcher:
             "A script cannot ask the human for approval. Ask the user first, "
             f"then run {name} as a normal tool call so they can confirm.\n"
             "PIVOT (do not retry this): to download/install anything use "
-            "run_terminal('npm install <pkg>') or web_fetch(url) + "
+            "terminal('npm install <pkg>') or web_extract([url]) + "
             "write_file(path, content) - never urllib/subprocess/open() here."
         )
 
@@ -402,7 +405,7 @@ class _InnerCallDispatcher:
             # run_terminal is the one unbounded inner call (subprocess.run
             # with no timeout). Give it only the script's remaining budget
             # on a daemon thread so a hung command cannot outlive the script.
-            if name == "run_terminal":
+            if name in ("terminal", "run_terminal"):
                 box: dict[str, Any] = {}
 
                 def _run() -> None:
@@ -440,6 +443,9 @@ class _InnerCallDispatcher:
                 "read_file", read_file, {"path": path}, True),
             "list_files": lambda path=".": self._dispatch(
                 "list_files", list_files, {"path": path}, True),
+            "search_files": lambda pattern, path=".", query="": self._dispatch(
+                "search_files", search_files,
+                {"pattern": pattern, "path": path, "query": query}, True),
             "search_code": lambda query, path=".": self._dispatch(
                 "search_code", search_code, {"query": query, "path": path}, True),
             "write_file": lambda path, content: self._dispatch(
@@ -448,6 +454,8 @@ class _InnerCallDispatcher:
                 "edit_file", edit_file,
                 {"path": path, "old_text": old_text, "new_text": new_text}, True),
             # Terminal tools
+            "terminal": lambda command: self._dispatch(
+                "terminal", terminal, {"command": command}, True),
             "run_terminal": lambda command: self._dispatch(
                 "run_terminal", run_terminal, {"command": command}, True),
             "start_terminal": lambda command: self._dispatch(
@@ -467,6 +475,9 @@ class _InnerCallDispatcher:
             # Web tools
             "web_search": lambda query, max_results=5: self._dispatch(
                 "web_search", web_search, {"query": query, "max_results": max_results}, False),
+            "web_extract": lambda urls, char_limit=None: self._dispatch(
+                "web_extract", web_extract,
+                {"urls": urls, "char_limit": char_limit}, False),
             "web_fetch": lambda url, max_chars=12_000: self._dispatch(
                 "web_fetch", web_fetch, {"url": url, "max_chars": max_chars}, False),
         }
@@ -574,7 +585,7 @@ def execute_code(code: str, config: RunnableConfig) -> str:
 
     Callable inside the script (same behavior as the tools):
     read_file, list_files, search_code, write_file (blocked if the file
-    exists), edit_file, run_terminal, start_terminal, check_terminal,
+    exists), edit_file, terminal, start_terminal, check_terminal,
     stop_terminal, list_terminal_processes, cleanup_terminal_processes,
     read_terminal_output, web_search, web_fetch.
 
@@ -583,7 +594,7 @@ def execute_code(code: str, config: RunnableConfig) -> str:
     open/eval/exec/getattr or dunder attributes; budgets: 120s wall clock,
     50 tool calls, 50KB printed output; errors return as strings - inspect
     and adapt; ALWAYS print() your final result (only printed text is
-    returned). Example: read_file, search_code, run_terminal, then print a
+    returned). Example: read_file, search_files, terminal, then print a
     filtered summary.
 
     THIS SCRIPT CANNOT import subprocess/urllib, open sockets, or write

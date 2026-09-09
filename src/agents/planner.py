@@ -488,7 +488,7 @@ def start_next_plan_step(
     return updated
 
 
-_READ_TOOLS = frozenset({"list_files", "read_file", "search_code", "session_search"})
+_READ_TOOLS = frozenset({"list_files", "read_file", "search_files", "search_code", "session_search"})
 _WRITE_TOOLS = frozenset({"write_file", "edit_file"})
 
 
@@ -556,7 +556,7 @@ def _receipt_name(tool_name: str) -> tuple[str, ...]:
         names.append("__read__")
     if tool_name in _WRITE_TOOLS:
         names.append("__file_mutation__")
-    if tool_name in {"run_terminal", "scaffold_nextjs"}:
+    if tool_name in {"terminal", "run_terminal", "scaffold_nextjs"}:
         names.append("__install__")
     return tuple(names)
 
@@ -608,7 +608,7 @@ def update_plan_from_tool(
         compatible = (
             (tool_name in _READ_TOOLS and any(w in description for w in ("inspect", "read", "find", "search", "review")))
             or (tool_name in _WRITE_TOOLS and any(w in description for w in ("create", "write", "edit", "modify", "implement", "add", "update", "fix")))
-            or (tool_name in {"run_terminal", "check_terminal"} and any(w in description for w in ("run", "execute", "test", "check")))
+            or (tool_name in {"terminal", "run_terminal", "check_terminal"} and any(w in description for w in ("run", "execute", "test", "check")))
             or (tool_name == "verify" and "verify" in description)
         )
         if not compatible:

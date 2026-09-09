@@ -384,7 +384,7 @@ def read_fingerprint(tool_name: str, tool_args: dict, result: str) -> Optional[s
     returning the same fact while the model misinterprets it. Include the
     result digest so a changed file/listing is a genuinely new observation.
     """
-    if tool_name not in {"list_files", "read_file", "search_code"}:
+    if tool_name not in {"list_files", "read_file", "search_files", "search_code"}:
         return None
     import hashlib
     import json
@@ -449,8 +449,8 @@ def success_step_label(tool_name: str, tool_args: dict,
             "messageId": tool_call_id,
             "files": [dest],
         }))
-    elif tool_name == "search_code":
-        label = (f"Searched for '{tool_args.get('query', '')}'"
+    elif tool_name in ("search_files", "search_code"):
+        label = (f"Searched for '{tool_args.get('pattern') or tool_args.get('query', '')}'"
                  f" inside {tool_args.get('path', '.')}")
     elif tool_name == "list_files":
         label = f"Listed files: {tool_args.get('path', '.')}"

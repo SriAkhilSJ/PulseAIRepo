@@ -31,7 +31,7 @@ _CORE_TOOLS: tuple[str, ...] = (
 )
 
 _WORKSPACE_READ_TOOLS: tuple[str, ...] = (
-    "read_file", "list_files", "search_code",
+    "read_file", "list_files", "search_files", "search_code",
     "discover_host_capabilities", "invoke_host_capability",
 )
 _WORKSPACE_WRITE_TOOLS: tuple[str, ...] = (
@@ -46,7 +46,7 @@ _VERIFICATION_TOOLS: tuple[str, ...] = ("typecheck_workspace",)
 _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
     "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
 )
-_RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch")
+_RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",
 )

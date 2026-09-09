@@ -31,8 +31,8 @@ SKILL_DIR = ".pulseai/skills"  # upstream writes through skill_manage
 #: the enumeration is replaced by Pulse's real registry (same bullet shape, same
 #: purpose) and the remaining aliases map onto real tools.
 _PULSE_REFERENCE_BULLET = (
-    "- Reference Pulse tools by name in backticks: `run_terminal`, `read_file`,\n"
-    "  `write_file`, `search_code`, `edit_file`, `web_fetch`, `web_search`,\n"
+    "- Reference Pulse tools by name in backticks: `terminal`, `read_file`,\n"
+    "  `write_file`, `search_files`, `edit_file`, `web_extract`, `web_search`,\n"
     "  `browser_navigate`, `browser_snapshot`, `delegate_to_subagent`, `execute_code`.\n"
 )
 
@@ -179,8 +179,8 @@ def build_learn_prompt(
         + _LEARN_REQUEST_FRAME
         + "Do this:\n"
         "1. Inventory every source the user named, using the tools you already "
-        "have — `read_file`/`search_code` for local files or directories, "
-        "`web_fetch` for URLs, the current conversation history if they "
+        "have — `read_file`/`search_files` for local files or directories, "
+        "`web_extract` for URLs, the current conversation history if they "
         "referred to something you just did, and the text they pasted as-is. "
         "Gather a small source now. For a large source, inspect enough to map "
         "its chapters or major topics, but do not load the whole corpus into "

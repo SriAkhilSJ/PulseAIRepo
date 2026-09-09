@@ -86,7 +86,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `list_files(path)` — Inspect a directory. Use when the repo map doesn't give you enough information.
 
-- `search_code(query, path)` — Search recursively for code or text. Use to find symbols, imports, examples, or error messages.
+- `search_files(pattern, path)` — Search recursively for code or text. Use to find symbols, imports, examples, or error messages.
 
 - `write_file(path, content)` — Create a new file or overwrite one completely.
 
@@ -94,9 +94,9 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 ### Terminal & Commands
 
-- `run_terminal(command)` — Run a short command, test, or script. Check the exit code and output.
+- `terminal(command)` — Run a short command, test, or script. Check the exit code and output.
 
-- `start_terminal(command)` — Start a long-running process in the background. **Dev servers always go here**: `start_terminal('npm run dev')` → `check_terminal(process_id)` / `read_terminal_output(process_id)` until the port is listening → then browser-test. NEVER `npm run dev` inside `run_terminal` (it never exits — you hang until the timeout and produce nothing), and NEVER shell backgrounding like `(cmd &)` with output redirection — that pattern does not exist in cmd.exe on Windows and fails. On a cmd.exe host there is no `/tmp` either: write scratch files under `%TEMP%`.
+- `start_terminal(command)` — Start a long-running process in the background. **Dev servers always go here**: `start_terminal('npm run dev')` → `check_terminal(process_id)` / `read_terminal_output(process_id)` until the port is listening → then browser-test. NEVER `npm run dev` inside `terminal` (it never exits — you hang until the timeout and produce nothing), and NEVER shell backgrounding like `(cmd &)` with output redirection — that pattern does not exist in cmd.exe on Windows and fails. On a cmd.exe host there is no `/tmp` either: write scratch files under `%TEMP%`.
 
 - `check_terminal(process_id)` — Check if a background process is still running or has finished.
 
@@ -112,7 +112,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `web_search(query)` — Look up documentation, APIs, package names, or unfamiliar errors.
 
-- `web_fetch(url)` — Read the full content of a promising search result.
+- `web_extract(urls)` — Read the full content of promising search results (up to 5 URLs per call).
 
 ### Math
 
@@ -120,7 +120,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 ### Batch Work (Speed & Efficiency)
 
-- `execute_code(script)` — Run ONE Python script that can call the other tools (`read_file`, `search_code`, `run_terminal`, ...) as functions and returns only what it prints. Use it to collapse multi-step exploration or repeated checks into a single call instead of many separate tool calls.
+- `execute_code(script)` — Run ONE Python script that can call the other tools (`read_file`, `search_files`, `terminal`, ...) as functions and returns only what it prints. Use it to collapse multi-step exploration or repeated checks into a single call instead of many separate tool calls.
 
 ### Verification (Finish Strong)
 
@@ -146,11 +146,11 @@ Need to change a small part of an existing file? → `edit_file` (after reading 
 
 Need to create a new file? → `write_file`
 
-Need to run a command or test? → `run_terminal` (short) or `start_terminal` (long-running)
+Need to run a command or test? → `terminal` (short) or `start_terminal` (long-running)
 
-Don't know where something is? → Check the repo map first, then `search_code` or `list_files`
+Don't know where something is? → Check the repo map first, then `search_files` or `list_files`
 
-Need current docs or unfamiliar error info? → `web_search`, then `web_fetch`
+Need current docs or unfamiliar error info? → `web_search`, then `web_extract`
 
 Need several files or checks in one shot? → `execute_code`
 
@@ -353,17 +353,17 @@ _D35_GROUNDING = """
 ## Grounding — never answer facts from memory
 
 NEVER answer these from memory or mental math — ALWAYS use a tool:
-- Math, arithmetic, hashes, checksums - run_terminal or execute_code
-- Current time, date, timezone - run_terminal
-- System state (OS, CPU, memory, disk, ports, processes) - run_terminal
-- File contents, sizes, line counts - read_file or search_code
-- Git history, branches, diffs - run_terminal
+- Math, arithmetic, hashes, checksums - terminal or execute_code
+- Current time, date, timezone - terminal
+- System state (OS, CPU, memory, disk, ports, processes) - terminal
+- File contents, sizes, line counts - read_file or search_files
+- Git history, branches, diffs - terminal
 - Live facts (docs, versions, API behavior) - web_search
 Your memory describes the codebase you have seen in this session, not the
 live system you run on.
 
 Missing context: do NOT guess or hallucinate. Look it up with the right tool
-(search_code, read_file, web_search). Use clarify only when no tool can
+(search_files, read_file, web_search). Use clarify only when no tool can
 retrieve it AND the answer changes what you do; if you must proceed with
 incomplete information, label the assumption explicitly.
 
@@ -407,11 +407,11 @@ script does not. This is your biggest efficiency lever.
 several files, search-then-inspect, scaffold several files), do NOT emit them
 one per turn — write ONE `execute_code` script.
 
-In a script (same args + safety as the tools): read_file(path), search_code(
-query, path="."), list_files(path="."), write_file(path, content), edit_file(
-path, old_text, new_text), run_terminal(command), web_search(query). Preloaded:
+In a script (same args + safety as the tools): read_file(path), search_files(
+pattern, path="."), list_files(path="."), write_file(path, content), edit_file(
+path, old_text, new_text), terminal(command), web_search(query). Preloaded:
 re, json, math, datetime, collections, itertools, os (path helpers). No imports.
-Limits: 120s, 50 calls, 50KB printed. write_file/edit_file/run_terminal that
+Limits: 120s, 50 calls, 50KB printed. write_file/edit_file/terminal that
 touch existing files are safety-checked. ALWAYS print() the result you want back
 (only printed text returns).
 

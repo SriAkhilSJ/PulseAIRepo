@@ -205,13 +205,13 @@ def read_file(
 ) -> str:
     """
     Read a text file and return its contents. Use for known files where
-    accuracy matters. For searching, use search_code; for directories, use
+    accuracy matters. For searching, use search_files; for directories, use
     list_files. Respects line ranges when given.
 
     PATHS: accepts Windows ("D:/proj/file.txt"), git-bash ("/d/proj/file.txt"),
     and workspace-relative ("src/app.py") forms. NEVER guess a path: if you
     have not seen the exact name in a listing or search result, call
-    list_files / search_code first — a guessed name is a wasted call.
+    list_files / search_files first — a guessed name is a wasted call.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -306,7 +306,7 @@ def list_files(
 
     WHEN NOT TO USE:
     - Do not recursively list the entire repo unless necessary.
-    - Prefer the repo map or search_code when looking for known symbols.
+    - Prefer the repo map or search_files when looking for known symbols.
 
     Args:
         path: Optional path INSIDE the workspace to list. Omit or pass "." for
@@ -463,14 +463,23 @@ def copy_file(
     return f"Copied: {src} -> {dst} ({safe_dst.stat().st_size} bytes)"
 
 @tool
-def search_code(
-    query: str,
+def search_files(
+    pattern: str,
     path: str,
-    config: RunnableConfig
+    config: RunnableConfig,
+    query: str = "",
 ) -> str:
     """
     Search for text within files inside the current workspace. Use this
     instead of grep / rg / findstr / Select-String in the terminal.
+
+    Hermes tool-name parity (2026-09-09): hermes binds this tool as
+    `search_files` (tools/file_tools.py:1279) and its prompt text teaches
+    `search_files` (prompt_builder.py:460) — pulse's old `search_code`
+    name was an invention its guidance RENAME_MAP papered over. `pattern`
+    is hermes' argument name; `query` remains as the legacy pulse alias.
+    Literal substring match, case-insensitive (hermes' regex/glob/output
+    modes are a separate port — this schema does not advertise them).
 
     WHEN TO USE:
     - To find functions, classes, imports, config keys, errors, or examples.
@@ -481,6 +490,7 @@ def search_code(
     - Do not use for reading a known file; use read_file.
     - Do not search the whole repo with vague queries if the repo map points to a file.
     """
+    needle = (pattern or query or "").strip()
 
     workspace = config["configurable"]["workspace"]
 
@@ -534,7 +544,7 @@ def search_code(
             content.splitlines(),
             start=1
         ):
-            if query.lower() in line.lower():
+            if needle.lower() in line.lower():
 
                 relative_path = file_path.relative_to(
                     safe_path if safe_path.is_dir()
@@ -561,6 +571,19 @@ def search_code(
 
     return "\n".join(results)
     # Keep your EXISTING search logic below this point.
+
+
+@tool
+def search_code(
+    query: str,
+    path: str,
+    config: RunnableConfig
+) -> str:
+    """
+    Legacy pulse name of `search_files` (hermes tool-name parity,
+    2026-09-09). Executes the full search_files contract.
+    """
+    return search_files.func(query, path, config)
 def _fuzzy_find_block(
     original: str, old_text: str, threshold: float = 0.88
 ) -> tuple[int, int] | None:

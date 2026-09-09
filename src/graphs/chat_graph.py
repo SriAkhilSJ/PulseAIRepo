@@ -100,6 +100,7 @@ from src.graphs import progress_helpers as ph
 from src.tools.file_tools import (
     read_file,
     list_files,
+    search_files,
     search_code,
     write_file,
     edit_file,
@@ -118,7 +119,7 @@ from src.tools.terminal_tools import (
     cleanup_terminal_processes,
     read_terminal_output
 )
-from src.tools.web_tools import web_search, web_fetch
+from src.tools.web_tools import web_search, web_fetch, web_extract
 # #8 (external review): fault-tolerant browser-tool import. The optional
 # stack must never break engine boot — if it is missing the browser tools
 # are simply unbound (the D5 fake-verification hole is documented in the
@@ -208,7 +209,7 @@ def verify(
     Verify the result of the previous meaningful action.
 
     WHEN TO USE:
-    - After read_file, write_file, edit_file, run_terminal, search_code, web_search, or web_fetch.
+    - After read_file, write_file, edit_file, terminal, search_files, web_search, or web_extract.
     - Before moving to the next plan step after a tool result.
     - When deciding whether to continue, retry, fix, or replan.
 
@@ -394,6 +395,7 @@ tools = [
     # File tools
     read_file,
     list_files,
+    search_files,
     search_code,
     write_file,
     edit_file,
@@ -411,6 +413,7 @@ tools = [
     # Web tools
     web_search,
     web_fetch,
+    web_extract,
 
     # Programmatic tool calling: ONE scripted call can chain the tools
     # above and return only printed output (D18, hermes PTC pattern).
@@ -625,12 +628,13 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         # discovering a concrete failure. Once a check fails, re-open narrow
         # inspect/repair tools so the receipt can drive a targeted correction.
         first_check_tools = {
-            "run_terminal", "start_terminal", "check_terminal",
+            "terminal", "run_terminal", "start_terminal", "check_terminal",
             "read_terminal_output", "stop_terminal", "typecheck_workspace",
             "verify_ui_workspace", "verify_ui_routes",
         }
         repair_tools = first_check_tools | {
-            "read_file", "search_code", "write_file", "edit_file", "copy_file",
+            "read_file", "search_files", "search_code", "write_file",
+            "edit_file", "copy_file",
         }
         verification_attempted = _ran_verification(state)
         verification_tools = repair_tools if verification_attempted else first_check_tools

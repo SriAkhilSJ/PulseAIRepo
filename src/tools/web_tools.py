@@ -223,24 +223,43 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 
 @tool
-def web_fetch(url: str, max_chars: int = 12_000) -> str:
+def web_extract(
+    urls: list[str],
+    max_chars: int = 12_000,
+    char_limit: int | None = None,
+    url: str = "",
+) -> str:
     """
-    Fetch and summarize the readable text from a web page.
+    Extract content from web page URLs. Returns the page title/URL plus
+    cleaned text, truncated to protect context.
 
-    Use this after web_search when a result looks useful. It returns the page
-    title/URL plus cleaned text, truncated to max_chars to protect context.
-    This is the server's HTML text only — the page's JavaScript never runs,
-    so JS-rendered apps and client-side routes come back empty or partial.
-    If a URL fails or times out, use the browser tool instead (hermes
-    web_extract contract). To interact with a page, or to verify that a web
-    app you built actually renders and works for the user, use the browser
-    tools (browser_navigate) — that is what they exist for.
+    Hermes tool-name parity (2026-09-09): hermes binds this tool as
+    `web_extract` (tools/web_tools.py:475) with a `urls` list (max 5 per
+    call) and `char_limit`; pulse's old `web_fetch`/`url` shape was an
+    invention its guidance RENAME_MAP papered over. `urls` and `char_limit`
+    are hermes' argument names; the scalar `url` remains as the legacy
+    pulse alias. This is the server's HTML text only — the page's
+    JavaScript never runs, so JS-rendered apps come back empty or partial.
+    If a URL fails or times out, use the browser tool instead. To interact
+    with a page, or to verify that a web app you built actually renders
+    and works for the user, use the browser tools (browser_navigate).
     """
-    max_chars = max(1_000, min(max_chars, 30_000))
+    items: list[str] = list(urls or [])[:5]  # hermes WEB_EXTRACT_SCHEMA maxItems
+    if url and url not in items:
+        items.append(url)
+    if not items:
+        return "web_extract error: pass at least one URL in `urls`."
+    if char_limit is not None:
+        max_chars = char_limit
+    blocks = [_fetch_one(u, max(1_000, min(max_chars, 30_000))) for u in items]
+    return "\n\n-----\n\n".join(blocks)
 
+
+def _fetch_one(url: str, max_chars: int) -> str:
+    """One URL through the fetch+extract pipeline (shared by web_extract)."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
-        return f"web_fetch error: only http/https URLs are supported: {url}"
+        return f"web_extract error: only http/https URLs are supported: {url}"
 
     try:
         response = httpx.get(
@@ -251,7 +270,7 @@ def web_fetch(url: str, max_chars: int = 12_000) -> str:
         )
         response.raise_for_status()
     except Exception as error:
-        return f"web_fetch error for URL {url!r}: {error}"
+        return f"web_extract error for URL {url!r}: {error}"
 
     content_type = response.headers.get("content-type", "")
     text = response.text
@@ -273,3 +292,12 @@ def web_fetch(url: str, max_chars: int = 12_000) -> str:
         f"Content-Type: {content_type}\n\n"
         f"{readable}"
     )
+
+
+@tool
+def web_fetch(url: str, max_chars: int = 12_000) -> str:
+    """
+    Legacy pulse name of `web_extract` (hermes tool-name parity,
+    2026-09-09). Executes the full web_extract contract for one URL.
+    """
+    return web_extract.func([url], max_chars)

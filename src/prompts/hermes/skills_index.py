@@ -269,9 +269,9 @@ def build_skills_system_prompt(
             seen.add(name)
             index_lines.append(f"    - {name}: {desc}" if desc else f"    - {name}")
 
-    basic_tools = "web_search or run_terminal"
+    basic_tools = "web_search or terminal"
     if tools is not None and "web_search" not in tools:
-        basic_tools = "run_terminal"
+        basic_tools = "terminal"
 
     has_skill_view = bool(tools) and "skill_view" in (tools or set())
     if has_skill_view:
@@ -329,9 +329,9 @@ def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
         desc = str(skill.get("description", "")).strip()
         index_lines.append(f"    - {name}: {desc}" if desc else f"    - {name}")
 
-    basic_tools = "web_search or run_terminal"
+    basic_tools = "web_search or terminal"
     if tools is not None and "web_search" not in tools:
-        basic_tools = "run_terminal"
+        basic_tools = "terminal"
     result = (
         "## Skills\n"
         + _injected_load_sentence(basic_tools)

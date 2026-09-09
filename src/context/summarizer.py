@@ -109,11 +109,11 @@ class SmartSummarizer:
             return self._summarize_file_content(lines, total_lines, total_chars)
 
         # ---- TERMINAL OUTPUT ----
-        if tool_name in {"run_terminal", "check_terminal", "read_terminal_output"}:
+        if tool_name in {"terminal", "run_terminal", "check_terminal", "read_terminal_output"}:
             return self._summarize_terminal_output(lines, total_lines, content)
 
         # ---- SEARCH RESULTS ----
-        if tool_name == "search_code":
+        if tool_name in ("search_files", "search_code"):
             return self._summarize_search_results(lines, total_lines)
 
         # ---- LIST FILES ----
