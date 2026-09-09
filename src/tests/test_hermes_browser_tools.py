@@ -824,7 +824,11 @@ def test_command_timeout_tree_kills_daemon_and_keeps_cli_cache(monkeypatch, tmp_
     monkeypatch.setattr(bt, "_popen_agent_browser", lambda *a, **k: proc)
 
     out = bt.run_browser_command("sess", "open", ["http://x"], timeout=1)
-    assert out["success"] is False and "timed out after 1s" in out["error"]
+    assert out["success"] is False
+    # hermes _format_browser_timeout_error: the captured daemon detail rides
+    # the error, and a local `open` timeout carries the chromium hint
+    assert "Command timed out after 1 seconds" in out["error"]
+    assert "Chromium may be" in out["error"] or "daemon may still be starting" in out["error"]
     assert proc.killed is True
     assert calls["handle"] == 1
     assert calls["resolve"] == 1, "a wedged command must not invalidate the CLI cache"
@@ -905,3 +909,76 @@ def test_rc_nonzero_keeps_the_resolved_cli(monkeypatch, tmp_path):
     bt.run_browser_command("sess", "snapshot", timeout=10)
     assert bt._cached_cli == "/fake/agent-browser", (
         "a normal command failure must not wipe the CLI resolution")
+
+
+# ---------------------------------------------------------------------------
+# hermes browser_tool_snapshot parity: force-redaction of browser-originated
+# data, screenshot-path recovery from prose, URL-decoded secret refusal.
+# ---------------------------------------------------------------------------
+
+def test_browser_outputs_are_force_redacted():
+    """hermes applies _redact_browser_output to snapshots, console text, eval
+    results, and image lists — page-rendered secrets are a model boundary."""
+    from src.tools.browser_tools import _redact_browser_output, _snapshot_fields
+
+    dirty = "token ghp_AAAAAAAAAAAAAAAAAAAA in page text"
+    cleaned = _redact_browser_output(dirty)
+    assert "ghp_AAAAAAAAAAAAAAAAAAAA" not in cleaned
+    nested = _redact_browser_output({"a": [dirty], "b": {"c": dirty}})
+    assert "ghp_AAAAAAAAAAAAAAAAAAAA" not in str(nested)
+
+    fields = _snapshot_fields({"data": {"snapshot": dirty, "refs": {"e1": "@"}}})
+    assert "ghp_AAAAAAAAAAAAAAAAAAAA" not in fields["snapshot"]
+
+    # clean text passes through byte-identical
+    assert _redact_browser_output("plain page text") == "plain page text"
+
+
+def test_navigate_refuses_url_encoded_secrets():
+    """hermes _secret_url_error: the check runs on the raw URL AND the
+    URL-decoded one (catching %2D tricks)."""
+    secret = "ghp_" + "A" * 20
+    encoded = "".join(
+        c if c.isalnum() else f"%{ord(c):02X}" for c in secret)
+    out = bt.browser_navigate.invoke({"url": f"https://x.com/?token={encoded}"}, config=_cfg())
+    assert "Blocked" in out and "API key or token" in out
+
+
+def test_screenshot_prose_output_recovers_the_saved_file(monkeypatch, tmp_path):
+    """hermes: a screenshot that answers in prose still saved its file — the
+    path is recovered from the text and verified on disk before success."""
+    saved = tmp_path / "shot.png"
+    saved.write_bytes(b"\x89PNG")
+    prose = f"Screenshot saved to {saved.as_posix()}\n"
+
+    monkeypatch.setattr(bt, "_session_socket_dir", lambda s: str(tmp_path))
+    monkeypatch.setattr(bt, "_cached_cli", "/fake/agent-browser")
+
+    def fake_popen(argv, env, socket_dir, tag):
+        p = _FakeProc(returncode=0)
+        from pathlib import Path as _P
+        _P(socket_dir, f"_stdout_{tag}").write_text(prose, encoding="utf-8")
+        return p
+
+    monkeypatch.setattr(bt, "_popen_agent_browser", fake_popen)
+    out = bt.run_browser_command("sess", "screenshot", ["--full", "x"], timeout=10)
+    assert out["success"] is True
+    assert out["data"]["path"] == saved.as_posix()
+
+
+def test_open_timeout_error_carries_daemon_detail(monkeypatch, tmp_path):
+    """hermes _format_browser_timeout_error: captured stderr/stdout detail is
+    part of the error so the model knows WHAT hung."""
+    monkeypatch.setattr(bt, "_session_socket_dir", lambda s: str(tmp_path))
+    monkeypatch.setattr(bt, "_cached_cli", "/fake/agent-browser")
+    monkeypatch.setattr(bt, "_handle_command_timeout", lambda s, d: None)
+
+    def fake_popen(argv, env, socket_dir, tag):
+        p = _FakeProc(hang=True)
+        from pathlib import Path as _P
+        _P(socket_dir, f"_stderr_{tag}").write_text("waiting for page load", encoding="utf-8")
+        return p
+
+    monkeypatch.setattr(bt, "_popen_agent_browser", fake_popen)
+    out = bt.run_browser_command("sess", "open", ["http://x"], timeout=1)
+    assert "waiting for page load" in out["error"]

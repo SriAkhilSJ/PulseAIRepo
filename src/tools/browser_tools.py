@@ -90,6 +90,28 @@ MIN_SNAPSHOT_THRESHOLD = 1_000
 MAX_STORED_SNAPSHOT_CHARS = 2_000_000
 _EMPTY_OK_COMMANDS = frozenset({"close", "record"})  # hermes :119
 
+# hermes browser_tool_snapshot._SCREENSHOT_PATH_PATTERNS, verbatim: recover a
+# saved screenshot path from prose output (agent-browser versions that answer
+# in text instead of JSON).
+_SCREENSHOT_PATH_PATTERNS = (
+    r"Screenshot saved to ['\"](?P<path>/[^'\"]+?\.png)['\"]",
+    r"Screenshot saved to (?P<path>/\S+?\.png)(?:\s|$)",
+    r"(?P<path>/\S+?\.png)(?:\s|$)",
+)
+
+
+def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
+    """hermes _extract_screenshot_path_from_text, verbatim."""
+    if not text:
+        return None
+    for pattern in _SCREENSHOT_PATH_PATTERNS:
+        match = re.search(pattern, text)
+        if match:
+            path = match.group("path").strip().strip("'\"")
+            if path:
+                return path
+    return None
+
 _SCROLL_PIXELS = 500
 DEFAULT_SESSION_INACTIVITY_TIMEOUT = 120  # hermes browser.inactivity_timeout default
 _MIN_INACTIVITY_S = 30  # hermes floor: no instant reaping
@@ -438,6 +460,13 @@ def _interpret_output(command: str, stdout: str, stderr: str, returncode: int) -
         parsed = json.loads(stdout_text)
     except json.JSONDecodeError:
         raw = stdout_text[:2000]
+        # hermes: a screenshot that answers in prose still saved a file —
+        # recover the path and verify it exists before reporting success.
+        if command == "screenshot":
+            combined = "\n".join(p for p in (stdout_text, (stderr or "").strip()) if p)
+            recovered = _extract_screenshot_path_from_text(combined)
+            if recovered and Path(recovered).exists():
+                return {"success": True, "data": {"path": recovered, "raw": raw}}
         return {"success": False,
                 "error": f"Non-JSON output from agent-browser for '{command}': {raw}"}
     if isinstance(parsed, dict) and "success" in parsed:
@@ -491,6 +520,27 @@ def _unlink_command_output_files(*paths: str) -> None:
             os.unlink(p)
         except OSError:
             pass
+
+
+_CHROMIUM_INSTALL_HINT = ("npx agent-browser install --with-deps")
+
+
+def _format_browser_timeout_error(command: str, timeout: int, stdout: str, stderr: str) -> str:
+    """hermes _format_browser_timeout_error (local shape): an actionable
+    timeout message from the daemon's captured output."""
+    parts = [f"Command timed out after {timeout} seconds"]
+    detail = (stderr or stdout or "").strip()
+    if detail:
+        parts.append(detail[:1500])
+    if "sandbox" in f"{stderr}\n{stdout}".lower():
+        parts.append("Chromium sandbox launch failed. Set AGENT_BROWSER_ARGS="
+                     "'--no-sandbox,--disable-dev-shm-usage' in your environment, "
+                     "or run: " + _CHROMIUM_INSTALL_HINT)
+    elif command == "open":
+        parts.append("The browser daemon may still be starting, or Chromium may be "
+                     "missing system libraries. Install/repair with: "
+                     + _CHROMIUM_INSTALL_HINT)
+    return "\n".join(parts)
 
 
 def _read_daemon_pid(socket_dir: str, session: str) -> Optional[int]:
@@ -623,8 +673,7 @@ def run_browser_command(
         # page is not a vanished binary.
         _handle_command_timeout(session, socket_dir)
         return {"success": False,
-                "error": f"Browser command '{command}' timed out after {timeout}s. "
-                         "The daemon may be wedged; retry once, then report to the user."}
+                "error": _format_browser_timeout_error(command, timeout, stdout, stderr)}
     stdout, stderr = _read_command_output_files(stdout_path, stderr_path)
     _unlink_command_output_files(stdout_path, stderr_path)
     return _interpret_output(command, stdout, stderr, proc.returncode)
@@ -634,7 +683,11 @@ def run_browser_command(
 # URL floors — hermes browser_tool._secret_url_error / _is_always_blocked_url
 # ---------------------------------------------------------------------------
 def _secret_url_error(url: str) -> Optional[Dict[str, Any]]:
-    if _SECRET_PREFIX_RE.search(url):
+    # hermes _secret_url_error: refuse URLs embedding an API key/token raw
+    # AND URL-decoded (catching "%2D" tricks) — a prompt injection could
+    # otherwise exfiltrate secrets via the URL.
+    import urllib.parse
+    if _SECRET_PREFIX_RE.search(url) or _SECRET_PREFIX_RE.search(urllib.parse.unquote(url)):
         return _err("Blocked: URL contains what appears to be an API key or token. "
                     "Secrets must not be sent in URLs.")
     return None
@@ -697,6 +750,24 @@ def _snapshot_threshold() -> int:
         return DEFAULT_SNAPSHOT_THRESHOLD
 
 
+def _redact_browser_output(value: Any) -> Any:
+    """hermes browser_tool_snapshot._redact_browser_output, verbatim shape:
+    force-redact secrets in browser-originated data (snapshots, console, eval
+    results can carry page-rendered keys/cookies/tokens). Tool output is a
+    model boundary, so this applies even when global log redaction is off."""
+    from src.utils.redact import redact_sensitive_text
+
+    if isinstance(value, str):
+        return redact_sensitive_text(value, force=True)
+    if isinstance(value, list):
+        return [_redact_browser_output(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_browser_output(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _redact_browser_output(item) for key, item in value.items()}
+    return value
+
+
 def _snapshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
     """`snapshot` + `element_count`; oversized snapshots truncate at line
     boundaries and the full tree is stored for read_file paging (hermes)."""
@@ -723,7 +794,8 @@ def _snapshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
             + (f" Full snapshot saved to {full_path} — page through it with read_file."
                if full_path else "]")
         )
-    return {"snapshot": snapshot_text, "element_count": len(refs) if refs else 0}
+    return {"snapshot": _redact_browser_output(snapshot_text),
+            "element_count": len(refs) if refs else 0}
 
 
 def _failed_response(result: Dict[str, Any], default_error: str) -> str:
@@ -891,17 +963,18 @@ def browser_console(
             parsed = json.loads(raw) if isinstance(raw, str) else raw
         except (json.JSONDecodeError, ValueError):
             parsed = raw
-        return _dumps({"success": True, "result": parsed,
+        return _dumps({"success": True, "result": _redact_browser_output(parsed),
                        "result_type": type(parsed).__name__})
     clear_args = ["--clear"] if clear else []
     console_result = run_browser_command(session, "console", clear_args)
     errors_result = run_browser_command(session, "errors", clear_args)
     messages = [
-        {"type": msg.get("type", "log"), "text": msg.get("text", ""), "source": "console"}
+        {"type": msg.get("type", "log"),
+         "text": _redact_browser_output(msg.get("text", "")), "source": "console"}
         for msg in ((console_result.get("data", {}) or {}).get("messages", []) or [])
     ] if console_result.get("success") else []
     errors = [
-        {"message": err.get("message", ""), "source": "exception"}
+        {"message": _redact_browser_output(err.get("message", "")), "source": "exception"}
         for err in ((errors_result.get("data", {}) or {}).get("errors", []) or [])
     ] if errors_result.get("success") else []
     return _dumps({
@@ -920,7 +993,8 @@ def browser_get_images(config: RunnableConfig = None) -> str:
     raw = (result.get("data", {}) or {}).get("result", "[]")
     try:
         images = json.loads(raw) if isinstance(raw, str) else raw
-        return _dumps({"success": True, "images": images, "count": len(images)})
+        return _dumps({"success": True, "images": _redact_browser_output(images),
+                       "count": len(images)})
     except json.JSONDecodeError:
         return _dumps({"success": True, "images": [], "count": 0,
                        "warning": "Could not parse image data"})
