@@ -27,6 +27,19 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
+def _gate_setting(name: str) -> Any:
+    """hermes reads agent.tool_use_enforcement / agent.execution_guidance from
+    config.yaml as bool / word / list / "auto"; pulse's config surface is the
+    environment, so a comma-separated value is the env transport for
+    upstream's YAML list. Read per call (the standing env rule)."""
+    raw = str(os.environ.get(name, "") or "").strip()
+    if not raw:
+        return "auto"
+    if "," in raw:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    return raw
+
+
 def resolve_valid_tool_names(task: str = "", config: Any = None) -> Set[str]:
     """The session's tool surface — Pulse's narrow waist, not the whole registry.
 
@@ -88,7 +101,9 @@ class PulsePromptView:
     # ── block gating (upstream config.yaml keys, Pulse env vars) ───────────
     task_completion_guidance: bool = True
     parallel_tool_call_guidance: bool = True
-    execution_guidance: Any = "auto"          # "auto" | True | False | substring list
+    tool_use_enforcement: Any = "auto"        # upstream agent.tool_use_enforcement
+    execution_guidance: Any = "auto"          # upstream agent.execution_guidance
+    # both: "auto" | true-word | false-word | comma-separated substring list
     memory_enabled: bool = False
     user_profile_enabled: bool = False
     steer_enabled: bool = True
@@ -271,7 +286,8 @@ def view_from_config(
         skip_context_files=bool(cfg("skip_context_files", False)),
         task_completion_guidance=_env_flag("PULSEAI_TASK_COMPLETION_GUIDANCE", True),
         parallel_tool_call_guidance=_env_flag("PULSEAI_PARALLEL_TOOL_GUIDANCE", True),
-        execution_guidance=os.environ.get("PULSEAI_EXECUTION_GUIDANCE", "auto") or "auto",
+        tool_use_enforcement=_gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT"),
+        execution_guidance=_gate_setting("PULSEAI_EXECUTION_GUIDANCE"),
         memory_enabled=_env_flag("PULSEAI_MEMORY_GUIDANCE", False),
         user_profile_enabled=_env_flag("PULSEAI_USER_PROFILE_GUIDANCE", False),
         steer_enabled=_env_flag("PULSEAI_STEER_NOTE", True),

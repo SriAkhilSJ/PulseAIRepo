@@ -43,18 +43,25 @@ def _skill_view_available(view: PulsePromptView) -> bool:
     return "skill_view" in (view.valid_tool_names or set())
 
 
-def _execution_guidance_allowed(view: PulsePromptView) -> bool:
-    """``auto`` matches the upstream model-family list; True/False force it;
-    a list is a user-supplied substring set."""
-    setting = view.execution_guidance
-    if isinstance(setting, bool):
+# hermes agent/system_prompt.py:37, verbatim.
+_GATE_WORDS = {**dict.fromkeys(("true", "always", "yes", "on"), True),
+               **dict.fromkeys(("false", "never", "no", "off"), False)}
+
+
+def _model_gate(setting: Any, model: Optional[str], default_models) -> bool:
+    """hermes agent/system_prompt.py:_model_gate, verbatim. Resolve a config
+    gate: True/"true"-ish -> on, False/"false"-ish -> off, list ->
+    case-insensitive model-substring match, anything else ("auto") -> match
+    against *default_models*. An unknown word is NOT truthy-on: it falls
+    through to the auto model match, exactly as upstream."""
+    if setting is True or setting is False:
         return setting
-    if isinstance(setting, (list, tuple, set, frozenset)):
-        model = (view.model or "").lower()
-        return any(str(pattern).lower() in model for pattern in setting)
-    if str(setting).strip().lower() in {"", "auto"}:
-        return guidance.needs_execution_guidance(view.model)
-    return str(setting).strip().lower() not in {"0", "false", "no", "off"}
+    if isinstance(setting, str) and setting.lower() in _GATE_WORDS:
+        return _GATE_WORDS[setting.lower()]
+    model_lower = (model or "").lower()
+    if isinstance(setting, list):
+        return any(p.lower() in model_lower for p in setting if isinstance(p, str))
+    return any(p in model_lower for p in default_models)
 
 
 def _memory_block(view: PulsePromptView, target: str) -> str:
@@ -157,12 +164,21 @@ def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[st
     if view.steer_enabled and _has_tools(view) and guidance.STEER_CHANNEL_NOTE:
         stable_parts.append(guidance.STEER_CHANNEL_NOTE)
 
-    # 6. Per-model operational guidance.
-    if guidance.needs_tool_use_enforcement(view.model):
+    # 6. Per-model operational guidance — hermes system_prompt.py:514-523,
+    #    verbatim shape: agent.tool_use_enforcement / agent.execution_guidance
+    #    ("auto" default) match the hardcoded model lists; true/false force;
+    #    a list gives custom model-name substrings. Execution guidance is an
+    #    independent gate so DeepSeek/Kimi/Qwen-class models get it even with
+    #    enforcement off. Pulse's config surface is the environment
+    #    (PULSEAI_TOOL_USE_ENFORCEMENT / PULSEAI_EXECUTION_GUIDANCE); a
+    #    comma-separated value is the env transport for upstream's YAML list.
+    if _model_gate(view.tool_use_enforcement, view.model,
+                   guidance.TOOL_USE_ENFORCEMENT_MODELS):
         stable_parts.append(guidance.TOOL_USE_ENFORCEMENT_GUIDANCE)
         if guidance.is_google_model(view.model):
             stable_parts.append(guidance.GOOGLE_MODEL_OPERATIONAL_GUIDANCE)
-    if _execution_guidance_allowed(view):
+    if _model_gate(view.execution_guidance, view.model,
+                   guidance.EXECUTION_GUIDANCE_MODELS):
         stable_parts.append(guidance.execution_guidance_text(view.valid_tool_names))
 
     # 7. Environment hints + execution-mode posture + platform hint overrides.

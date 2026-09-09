@@ -713,3 +713,85 @@ def test_browser_vs_fetch_routing_is_taugth_on_both_tools():
     # browser side carries both halves of the routing
     assert "prefer web_search or web_fetch" in browser_doc
     assert "verify that a web app" in browser_doc
+
+
+def test_model_gate_is_hermes_verbatim():
+    """hermes agent/system_prompt.py:_model_gate — bool forces, gate words
+    force, a list is a custom substring set, and an UNKNOWN WORD IS NOT
+    TRUTHY-ON: it falls through to the auto model-substring match. The old
+    pulse gate treated any non-false word as on — upstream does not."""
+    from src.prompts.hermes.system_prompt import _GATE_WORDS, _model_gate
+
+    assert _GATE_WORDS == {
+        "true": True, "always": True, "yes": True, "on": True,
+        "false": False, "never": False, "no": False, "off": False,
+    }
+    assert _model_gate(True, "claude-x", ("gpt",)) is True
+    assert _model_gate(False, "qwen-x", ("qwen",)) is False
+    assert _model_gate("always", "claude-x", ("gpt",)) is True
+    assert _model_gate("never", "qwen-x", ("qwen",)) is False
+    assert _model_gate(["best-chat"], "auto/best-chat", ()) is True
+    assert _model_gate(["other"], "auto/best-chat", ()) is False
+    # the auto leg, and the unknown-word fallthrough into it
+    assert _model_gate("auto", "qwen-x", ("gpt", "qwen")) is True
+    assert _model_gate("auto", "claude-x", ("gpt", "qwen")) is False
+    assert _model_gate("maybe", "auto/best-chat", ("gpt", "qwen")) is False
+
+
+def test_tool_use_enforcement_gate_covers_the_unknown_model_family():
+    """Field 2026-09-08: `auto/best-chat` matches no upstream family, so the
+    auto gate shipped no Tool-use enforcement — and the model ended the turn
+    with a diagnosis instead of the fix. hermes' answer is the config key
+    (agent.tool_use_enforcement); pulse's surface is the env. Forced on, the
+    unknown model gets the block; comma-separated is the env transport for
+    upstream's YAML list."""
+    import os
+    from src.prompts.hermes import view as view_mod
+    from src.prompts.hermes.system_prompt import build_system_prompt
+    from src.prompts.hermes.view import PulsePromptView
+
+    base = dict(cwd=".", valid_tool_names=("run_terminal", "edit_file"))
+    unknown = PulsePromptView(model="auto/best-chat", **base)
+    assert "Tool-use enforcement" not in build_system_prompt(unknown, use_cache=False)
+
+    forced = PulsePromptView(model="auto/best-chat", tool_use_enforcement=True, **base)
+    assert "Never end your turn with a promise of future action" in (
+        build_system_prompt(forced, use_cache=False))
+
+    listed = PulsePromptView(model="auto/best-chat", tool_use_enforcement=["best-chat"], **base)
+    assert "Tool-use enforcement" in build_system_prompt(listed, use_cache=False)
+
+    # the env transport: bool word forces, comma list restricts
+    monkey = __import__("pytest").MonkeyPatch()
+    monkey.setenv("PULSEAI_TOOL_USE_ENFORCEMENT", "true")
+    try:
+        assert view_mod._gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT") == "true"
+    finally:
+        monkey.undo()
+    monkey.setenv("PULSEAI_TOOL_USE_ENFORCEMENT", "gpt, best-chat")
+    try:
+        assert view_mod._gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT") == ["gpt", "best-chat"]
+    finally:
+        monkey.undo()
+    monkey.delenv("PULSEAI_TOOL_USE_ENFORCEMENT", raising=False)
+    try:
+        assert view_mod._gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT") == "auto"
+    finally:
+        monkey.undo()
+
+
+def test_execution_discipline_gate_stays_independent():
+    """hermes: execution guidance has its own gate so DeepSeek/Kimi/Qwen-class
+    models get it even with enforcement off — and a forced-on unknown model
+    (the field's `auto/best-chat`) gets the Execution discipline block."""
+    from src.prompts.hermes.system_prompt import build_system_prompt
+    from src.prompts.hermes.view import PulsePromptView
+
+    base = dict(cwd=".", valid_tool_names=("run_terminal", "edit_file"))
+    forced = PulsePromptView(
+        model="auto/best-chat", execution_guidance=True,
+        tool_use_enforcement=False, **base)
+    prompt = build_system_prompt(forced, use_cache=False)
+    assert "Execution discipline" in prompt
+    assert "Keep calling tools until" in prompt
+    assert "Tool-use enforcement" not in prompt
