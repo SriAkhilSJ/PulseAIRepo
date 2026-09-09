@@ -26,13 +26,21 @@ from src.graphs.state import AgentState
 _ITERATION_BUDGET_DEFAULT = 30
 _ITERATION_BUDGET_CLAMP = 50
 
-_GRACE_NUDGE = (
-    "[System: The agent iteration budget for this run is exhausted. Do NOT "
-    "call any more tools. Provide your final answer now: summarize what was "
-    "accomplished, what remains unfinished or blocked, and stop. If the task "
-    "needs another pass, say so plainly and report the current state so the "
-    "user can continue.]"
+# hermes agent/context_compressor.py:261 MAX_ITERATIONS_SUMMARY_REQUEST —
+# VERBATIM. handle_max_iterations (agent/chat_completion_helpers.py:2119)
+# appends it as a USER message on the FULL history and the summary call
+# carries NO tools key (_iteration_summary_chat_kwargs :2025; the codex
+# attempt literally pops "tools" :2070). Field 2026-09-09 @b75cd4c6: the old
+# pulse grace (system nudge + _drop_tool_pairs) amnesia'd the model into
+# "I'll start by exploring..." + a raw text tool_call AFTER 111s of real
+# work — the owner's screenshot. The model must SEE its work to summarize it.
+_MAX_ITERATIONS_SUMMARY_REQUEST = (
+    "You've reached the maximum number of tool-calling iterations allowed. "
+    "Please provide a final response summarizing what you've found and "
+    "accomplished so far, without calling any more tools."
 )
+# Legacy name (gates.py comment references it); same text.
+_GRACE_NUDGE = _MAX_ITERATIONS_SUMMARY_REQUEST
 
 
 def _iteration_budget() -> int:

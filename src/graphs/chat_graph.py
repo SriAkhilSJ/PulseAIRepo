@@ -86,6 +86,49 @@ def _drop_tool_pairs(messages: list) -> list:
     return out
 
 
+# hermes :1934 — the honest final answer when the summary came back empty twice.
+_EMPTY_SUMMARY_RESPONSE = (
+    "I reached the iteration limit and couldn't generate a summary."
+)
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _is_tool_messages_rejection(exc: Exception) -> bool:
+    """The D40 provider 400: tool traffic present but no tools declared."""
+    text = str(exc).lower()
+    return "tool" in text and (
+        "no tools" in text
+        or "without tools" in text
+        or "tools provided" in text
+        or "tool message" in text
+    )
+
+
+def _summary_text_from(result: Any) -> str:
+    """Answer text of a summary response, <think> blocks stripped
+    (hermes :2132-2133)."""
+    text = result.content if isinstance(result.content, str) else ""
+    if not text:
+        extracted = _result_answer_text(result)
+        text = extracted or ""
+    if "<think>" in text:
+        text = _THINK_BLOCK_RE.sub("", text).strip()
+    return text.strip()
+
+
+def _finalize_iteration_summary(result: Any, reinvoke) -> Any:
+    """hermes handle_max_iterations tail (:2126-2138): one retry on an empty
+    summary; still empty -> the honest fallback text. The summary IS the
+    turn's final assistant message."""
+    text = _summary_text_from(result)
+    if not text:
+        result = reinvoke()
+        text = _summary_text_from(result)
+    if not text:
+        text = _EMPTY_SUMMARY_RESPONSE
+    return AIMessage(content=text, id=getattr(result, "id", None))
+
+
 from src.agents.planner import (
     revise_plan,
     start_next_plan_step,
@@ -153,7 +196,7 @@ from src.dashboard.event_bus import event_bus
 # P0-D: state, budget, and gate machinery extracted to focused modules.
 from src.graphs.state import AgentState, ExecutionMode, TaskDecision
 from src.graphs.budget import (
-    _GRACE_NUDGE,
+    _MAX_ITERATIONS_SUMMARY_REQUEST,
     _iteration_budget,
     _recursion_limit,
     _budget_exhausted,
@@ -883,6 +926,9 @@ def ai_node(
     iteration_used = int(state.get("iteration_used", 0))
     budget_exhausted = _budget_exhausted(state)
     grace_done = bool(state.get("grace_done", 0))
+    # True when THIS call is the first budget-exhausted request: hermes'
+    # iteration-summary call (full history + user request + no tools).
+    grace_summary_lap1 = False
 
     # Use the Context Engine to build clean, organized messages.
     # Session-scoped: this thread's thread_id selects an isolated engine
@@ -1001,16 +1047,31 @@ def ai_node(
                 max_tokens=max(512, min(delivery_cap, 8192))
             )
     if budget_exhausted:
-        call_llm = llm  # unhidden tools: the model cannot make more calls
+        call_llm = llm  # summary call: NO tools (hermes _iteration_summary_chat_kwargs)
         if not grace_done:
-            messages = [SystemMessage(content=_GRACE_NUDGE)] + messages
-        # D40 (lab retest 2026-08-13): the grace call binds NO tools, but
-        # the raw history still ends in an AIMessage(tool_calls) +
-        # ToolMessage tail. OpenAI-compat providers reject "Tool messages
-        # found but no tools provided" with a 400 — the harness paid for
-        # a full budget run (54 calls) and died on the FAREWELL call.
-        # Drop tool pairs so the no-tools request is a clean text chat.
-        messages = _drop_tool_pairs(messages)
+            # hermes handle_max_iterations (chat_completion_helpers.py:2101):
+            # the summary request rides as a USER message appended to the
+            # FULL history — never a system nudge, never a stripped
+            # transcript. Field 2026-09-09 @b75cd4c6: the old grace dropped
+            # every tool pair, the model amnesia'd to "I'll start by
+            # exploring..." + a raw text tool_call after 111s of real work,
+            # and the turn finalized "completed" on that nonsense.
+            grace_summary_lap1 = True
+            print(
+                f"[grace] Reached maximum iterations ({_iteration_budget()}). "
+                "Requesting summary...",
+                flush=True,
+            )
+            messages = messages + [
+                HumanMessage(content=_MAX_ITERATIONS_SUMMARY_REQUEST)
+            ]
+        else:
+            # Lap 2+: hermes never sees one (handle_max_iterations RETURNS
+            # the summary and the loop ends). Pulse's graph routes the
+            # summary through the model once more, so this bounded lap keeps
+            # the D40 pairs-drop: a clean text-only request the provider
+            # accepts, no tools to act with.
+            messages = _drop_tool_pairs(messages)
 
     # Hermes todo pipeline (tools/todo_tool.py format_for_injection): the
     # session's ACTIVE task list rides every model call, so the list survives
@@ -1083,11 +1144,11 @@ def ai_node(
     # RetryLLMProxy.invoke() owns request-scoped abort registration for every
     # model path. Keep the active-session binding at the turn boundary; clearing
     # it here would make later planner/classifier requests uninterruptible.
+    # The repair/cleaned-text gate needs to know whether THIS call bound
+    # tools: the grace/ask path invokes the unbound `llm`, everything
+    # else a tools-bound callable.
+    tools_bound = call_llm is not llm
     try:
-        # The repair/cleaned-text gate needs to know whether THIS call bound
-        # tools: the grace/ask path invokes the unbound `llm`, everything
-        # else a tools-bound callable.
-        tools_bound = call_llm is not llm
         result = _invoke_with_token_pump(
             call_llm, messages, session_id, provider, model,
             strip_tool_blocks=tools_bound,
@@ -1107,80 +1168,97 @@ def ai_node(
                 )],
                 "iteration_used": int(state.get("iteration_used", 0)),
             }
-        if (provider, model) == (base_provider, base_model):
-            raise
-        print(
-            f"[ai_node] provider failover {provider}/{model} -> "
-            f"{base_provider}/{base_model} ({type(exc).__name__})"
-        )
-        if _mark_auth_dead(provider, model, exc):
+        if grace_summary_lap1 and _is_tool_messages_rejection(exc):
+            # hermes sends the iteration summary with the FULL history and no
+            # tools key (its providers accept tool traffic unbound,
+            # chat_completion_helpers.py:1937-2025). This provider didn't —
+            # the D40 400 ("Tool messages found but no tools provided").
+            # Retry ONCE text-only so the turn still ends with a real
+            # summary instead of dying on its farewell call.
             print(
-                f"[ai_node] {provider}/{model} marked AUTH-DEAD for this "
-                "process; future turns skip straight to failover"
+                "[grace] provider rejected the full-history summary request "
+                f"({type(exc).__name__}); retrying text-only (D40 fallback)",
+                flush=True,
             )
-            # Hermes honesty discipline: a dead credential is the OWNER's
-            # actionable fact, not console noise. One surface per process,
-            # on the degraded channel the panel already renders.
+            result = _invoke_with_token_pump(
+                call_llm, _drop_tool_pairs(messages), session_id,
+                provider, model, strip_tool_blocks=tools_bound,
+            )
+        elif (provider, model) == (base_provider, base_model):
+            raise
+        else:
+            print(
+                f"[ai_node] provider failover {provider}/{model} -> "
+                f"{base_provider}/{base_model} ({type(exc).__name__})"
+            )
+            if _mark_auth_dead(provider, model, exc):
+                print(
+                    f"[ai_node] {provider}/{model} marked AUTH-DEAD for this "
+                    "process; future turns skip straight to failover"
+                )
+                # Hermes honesty discipline: a dead credential is the OWNER's
+                # actionable fact, not console noise. One surface per process,
+                # on the degraded channel the panel already renders.
+                try:
+                    from src.dashboard.event_bus import event_bus as _eb
+                    _eb.emit("runtime.degraded", {
+                        "thread_id": session_id,
+                        "component": "llm_credentials",
+                        "reason": (
+                            f"{provider} rejected the API key "
+                            f"({type(exc).__name__}) — fix the {provider.upper()}"
+                            f"_API_KEY in settings; using "
+                            f"{base_provider}/{base_model} for this session."
+                        ),
+                    })
+                except Exception:
+                    pass  # diagnostics never break the turn
+            provider, model = base_provider, base_model
             try:
-                from src.dashboard.event_bus import event_bus as _eb
-                _eb.emit("runtime.degraded", {
-                    "thread_id": session_id,
-                    "component": "llm_credentials",
-                    "reason": (
-                        f"{provider} rejected the API key "
-                        f"({type(exc).__name__}) — fix the {provider.upper()}"
-                        f"_API_KEY in settings; using "
-                        f"{base_provider}/{base_model} for this session."
-                    ),
-                })
+                from src.agents.cost_router import cost_router as _cr
+                _route = getattr(_cr, "_last_route", None)
+                if isinstance(_route, dict):
+                    _cr._last_route = {**_route, "provider": provider, "model": model, "failed_over": True}
             except Exception:
                 pass  # diagnostics never break the turn
-        provider, model = base_provider, base_model
-        try:
-            from src.agents.cost_router import cost_router as _cr
-            _route = getattr(_cr, "_last_route", None)
-            if isinstance(_route, dict):
-                _cr._last_route = {**_route, "provider": provider, "model": model, "failed_over": True}
-        except Exception:
-            pass  # diagnostics never break the turn
-        llm = get_llm(provider=provider, model=model)
-        llm_with_tools = (
-            llm if execution_mode == "ask"
-            else llm.bind_tools(_resolve_bound_tools(state, config))
-        )
-        from src.context.cache_preservation import redecorate_for_failover
-        messages, _d37_info = redecorate_for_failover(messages)
-        call_model = model
-        call_llm = llm_with_tools
-        if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
-            try:
-                delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
-            except (TypeError, ValueError):
-                delivery_cap = 4096
-            bind_generation = getattr(llm_with_tools, "bind", None)
-            if callable(bind_generation):
-                call_llm = bind_generation(
-                    max_tokens=max(512, min(delivery_cap, 8192))
-                )
-        if budget_exhausted:
-            call_llm = llm
-        try:
-            # The repair gate needs to know whether THIS call bound tools: the
-            # grace/ask path invokes the unbound `llm`, everything else a
-            # tools-bound callable (see repair_text_tool_calls `allow`).
-            tools_bound = call_llm is not llm
-            result = _invoke_with_token_pump(
-                call_llm, messages, session_id, provider, model,
-                strip_tool_blocks=tools_bound,
+            llm = get_llm(provider=provider, model=model)
+            llm_with_tools = (
+                llm if execution_mode == "ask"
+                else llm.bind_tools(_resolve_bound_tools(state, config))
             )
-        except TurnCancelledError:
-            return {
-                "messages": [AIMessage(
-                    content="Operation cancelled by the user.",
-                    additional_kwargs={"pulse_cancelled": True},
-                )],
-                "iteration_used": int(state.get("iteration_used", 0)),
-            }
+            from src.context.cache_preservation import redecorate_for_failover
+            messages, _d37_info = redecorate_for_failover(messages)
+            call_model = model
+            call_llm = llm_with_tools
+            if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
+                try:
+                    delivery_cap = int(os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "4096"))
+                except (TypeError, ValueError):
+                    delivery_cap = 4096
+                bind_generation = getattr(llm_with_tools, "bind", None)
+                if callable(bind_generation):
+                    call_llm = bind_generation(
+                        max_tokens=max(512, min(delivery_cap, 8192))
+                    )
+            if budget_exhausted:
+                call_llm = llm
+            try:
+                # The repair gate needs to know whether THIS call bound tools: the
+                # grace/ask path invokes the unbound `llm`, everything else a
+                # tools-bound callable (see repair_text_tool_calls `allow`).
+                tools_bound = call_llm is not llm
+                result = _invoke_with_token_pump(
+                    call_llm, messages, session_id, provider, model,
+                    strip_tool_blocks=tools_bound,
+                )
+            except TurnCancelledError:
+                return {
+                    "messages": [AIMessage(
+                        content="Operation cancelled by the user.",
+                        additional_kwargs={"pulse_cancelled": True},
+                    )],
+                    "iteration_used": int(state.get("iteration_used", 0)),
+                }
 
     # ── Post-LLM cancellation gate ──────────────────────────────
     # Check immediately after every blocking LLM invocation. If the
@@ -1212,6 +1290,18 @@ def ai_node(
     # 2026-09-09 @7a7111b9 — post-grace phantom executions otherwise.
     from src.graphs.parallel_tools import repair_text_tool_calls
     result = repair_text_tool_calls(result, allow=tools_bound)
+
+    # hermes handle_max_iterations tail: the summary response is the turn's
+    # FINAL answer — <think> stripped, one retry when empty, honest fallback
+    # text. No tool_calls can ride it (repair is disarmed; no tools bound).
+    if grace_summary_lap1:
+        result = _finalize_iteration_summary(
+            result,
+            lambda: _invoke_with_token_pump(
+                call_llm, messages, session_id, provider, model,
+                strip_tool_blocks=tools_bound,
+            ),
+        )
 
     # Hermes refuses to dispatch tool arguments from a token-limited response.
     # Preserve the assistant/tool pairing, but mark the message so SafeToolNode
