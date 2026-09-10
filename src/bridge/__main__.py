@@ -1071,6 +1071,58 @@ class BridgeServer:
                     f"{root / 'desktop' / 'vscode'} — then fully quit and reopen the app.",
                     file=sys.stderr, flush=True,
                 )
+                # Diagnosis (field 2026-09-10 x2: the owner's checkout hashed
+                # differently from the sandbox for an on-disk reason the
+                # aggregate could not name). The shipped per-file manifest
+                # turns the mismatch into named files: DIFFERENT content,
+                # MISSING from the tree, or EXTRA on disk (untracked editor
+                # droppings inside the contrib tree count too).
+                try:
+                    manifest_file = out_file.parent / "SOURCES_MANIFEST.json"
+                    if not manifest_file.exists():
+                        return
+                    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+                    expected = manifest.get("files") or {}
+                    vscode_root = root / "desktop" / "vscode"
+                    on_disk = {
+                        f.relative_to(vscode_root).as_posix(): hashlib.sha256(
+                            f.read_bytes().replace(b"\r\n", b"\n")
+                        ).hexdigest()
+                        for f in src_dir.rglob("*") if f.is_file()
+                    }
+                    different = [
+                        rel for rel, want in sorted(expected.items())
+                        if rel in on_disk and on_disk[rel] != want
+                    ]
+                    missing = sorted(set(expected) - set(on_disk))
+                    extra = sorted(set(on_disk) - set(expected))
+                    lines = []
+                    if different:
+                        lines.append("modified: " + ", ".join(different[:5])
+                                     + (f" (+{len(different) - 5} more)" if len(different) > 5 else ""))
+                    if missing:
+                        lines.append("missing: " + ", ".join(missing[:5]))
+                    if extra:
+                        lines.append("extra on disk: " + ", ".join(extra[:5]))
+                    if lines:
+                        print(
+                            "[bridge] STALE diagnosis (per-file manifest): "
+                            + "; ".join(lines)
+                            + " — compare with `git status -- desktop/vscode/src/vs/"
+                            "workbench/contrib/pulseai` and restore with "
+                            "`git checkout -- <file>` (or delete the extra file).",
+                            file=sys.stderr, flush=True,
+                        )
+                    else:
+                        print(
+                            "[bridge] STALE diagnosis: every manifest file matches — "
+                            "the drift is in tree membership or the emitter itself; "
+                            "re-run `node scripts/emit-pulseai-bundle.mjs` in "
+                            "desktop/vscode and reopen.",
+                            file=sys.stderr, flush=True,
+                        )
+                except Exception:
+                    pass  # diagnosis is best-effort; the STALE verdict stands
                 return
             # Fallback: the panel carries BUILD_INFO.json naming the commit it
             # was emitted from. "Contained in this engine's HEAD" = current —

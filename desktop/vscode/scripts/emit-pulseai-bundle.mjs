@@ -113,6 +113,21 @@ hash.update(emitterRel).update('\0')
 const SOURCES_HASH = hash.digest('hex');
 fs.writeFileSync(path.join(OUT_ROOT, 'browser', 'SOURCES_HASH'), SOURCES_HASH + '\n');
 
+// Per-file manifest for DIAGNOSIS only (the aggregate above stays the
+// verdict). Field 2026-09-10: a Windows checkout still hashed differently
+// from the sandbox for an on-disk reason nobody could see — the engine now
+// diffs against this manifest and NAMES the differing/missing/extra files
+// in the STALE banner, so the next mismatch is a one-look fix
+// (`git status` / `git checkout -- <file>`), not a mystery.
+const manifest = { sourcesHash: SOURCES_HASH, files: {} };
+for (const f of collectFiles(SRC_ROOT, []).map(relOf).sort()) {
+	manifest.files[f] = crypto.createHash('sha256')
+		.update(normalizeEol(fs.readFileSync(path.join(FORK, f)))).digest('hex');
+}
+fs.writeFileSync(
+	path.join(OUT_ROOT, 'browser', 'SOURCES_MANIFEST.json'),
+	JSON.stringify(manifest, null, '\t') + '\n');
+
 // Emit-time DI assertion (field 2026-09-10: a bundle whose parameter
 // decorators were dropped loaded fine, then EVERY injected service was
 // undefined — blank pane, contributions dead, Copilot took over; nothing

@@ -1074,8 +1074,12 @@ def ai_node(
                 ]
             else:
                 from src.graphs.budget import _budget_trip_reason
+                # Queue item (field 2026-09-09 x2 + 2026-09-10): the prefix
+                # blamed "maximum iterations" even when the TOKEN leg tripped;
+                # the bracket detail already names both legs, so the prefix
+                # must stay leg-neutral.
                 print(
-                    f"[grace] Reached maximum iterations ({_iteration_budget()}) "
+                    f"[grace] Run budget reached "
                     f"[{_budget_trip_reason(state)}]. Requesting summary...",
                     flush=True,
                 )
@@ -1128,8 +1132,15 @@ def ai_node(
             for _r, _count in sorted(_roles.items(), key=lambda kv: -kv[1])
         )
         print(
+            # "messages only" honesty (queue item E, field 2026-09-10: a run
+            # logged ~18.5k/call yet billed 628k over 15 calls — the estimate
+            # counts messages; the provider ALSO bills the bound tool schemas
+            # on every call, and TokenTracker records the provider's own
+            # usage when it reports one. Estimate and billing are different
+            # quantities; the label must say so.)
             f"[ai_node] request ~{_req_chars // 4 / 1000:.1f}k tokens "
-            f"({len(messages)} messages: {_role_bits}) -> {provider}/{model}",
+            f"(messages only — bound tools bill on top; "
+            f"{len(messages)} messages: {_role_bits}) -> {provider}/{model}",
             flush=True,
         )
     except Exception:

@@ -320,3 +320,13 @@ def test_ending_stamp_truncates_at_word_boundaries():
     graph = (Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
     assert 'rfind(" ")' in graph, "word-boundary cut"
     assert "\\u2026" in graph or "…" in graph
+
+
+def test_grace_prefix_is_leg_neutral():
+    """Field 2026-09-10: '[grace] Reached maximum iterations (30)' printed
+    while the bracket said 'tripped: tokens' — the prefix blamed the wrong
+    leg. The prefix is now leg-neutral; the bracket keeps naming both legs
+    with real numbers."""
+    source = open("src/graphs/chat_graph.py", encoding="utf-8").read()
+    assert 'f"[grace] Run budget reached "' in source
+    assert 'Reached maximum iterations ({_iteration_budget()})' not in source

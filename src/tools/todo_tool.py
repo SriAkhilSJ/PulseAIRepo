@@ -158,6 +158,14 @@ class TodoStore:
     @staticmethod
     def _validate(item: dict[str, Any]) -> dict[str, str]:
         """Normalize one item to ``{id, content, status, parent?}`` (placeholders when missing)."""
+        # args_schema hand-off defense (field 2026-09-10): a validated
+        # pydantic item is a well-formed item, not an invalid one — dump it
+        # before the dict check condemns it to "(invalid item)".
+        if isinstance(item, BaseModel):
+            try:
+                item = item.model_dump(exclude_none=True)
+            except Exception:
+                pass
         if not isinstance(item, dict):
             return {"id": "?", "content": "(invalid item)", "status": "pending"}
         item_id = str(item.get("id", "")).strip() or "?"
@@ -301,6 +309,17 @@ List order is priority. Only ONE item in_progress at a time. Break large phases 
         session_id = str((config or {}).get("configurable", {}).get("thread_id") or "default")
     except Exception:
         pass
+    # args_schema validation hands us _TodoItem MODELS, not the dicts the
+    # store validates. Field 2026-09-10 (engine cfa4d421): all four items —
+    # well-formed in the wire call — became "(invalid item)" rows because
+    # TodoStore._validate (isinstance dict) rejected every model object.
+    # hermes' provider layer delivers plain dicts; restore that wire shape
+    # at the boundary before the store sees anything.
+    if todos is not None:
+        todos = [
+            item.model_dump(exclude_none=True) if isinstance(item, BaseModel) else item
+            for item in todos
+        ]
     result = todo_tool(todos=todos, merge=merge, session_id=session_id)
     try:
         payload = json.loads(result)

@@ -1,6 +1,7 @@
 """Structural pins for the shared native Pulse Agent / Manager renderer."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -1006,3 +1007,27 @@ def test_scaffold_card_shows_the_calls_own_fields_not_inventions():
     renderer = _text("browser", "pulseAIRenderer.ts")
     assert "Python 3.14" not in renderer
     assert "scaffoldFields" in renderer
+
+
+def test_shipped_manifest_lets_the_engine_name_stale_files():
+    """Field 2026-09-10 (second STALE report): the owner's checkout still
+    hashed differently from the sandbox for an on-disk reason the aggregate
+    could not name. The emitter now ships a per-file manifest next to
+    SOURCES_HASH (diagnosis only — the aggregate stays the verdict), and the
+    engine's STALE branch diffs it and NAMES modified/missing/extra files
+    with the restore command."""
+    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    assert "SOURCES_MANIFEST.json" in emitter
+    assert "sourcesHash" in emitter and "normalizeEol" in emitter
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "SOURCES_MANIFEST.json" in bridge
+    assert "STALE diagnosis (per-file manifest)" in bridge
+    assert "extra on disk" in bridge and "git checkout -- <file>" in bridge
+    manifest = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai"
+                / "browser" / "SOURCES_MANIFEST.json")
+    assert manifest.exists()
+    parsed = json.loads(manifest.read_text(encoding="utf-8"))
+    assert parsed.get("sourcesHash") == (FORK / "out" / "vs" / "workbench"
+                                         / "contrib" / "pulseai" / "browser"
+                                         / "SOURCES_HASH").read_text(encoding="utf-8").strip()
+    assert isinstance(parsed.get("files"), dict) and parsed["files"]
