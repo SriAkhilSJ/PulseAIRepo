@@ -430,8 +430,13 @@ def test_after_progress_plan_complete_verified_finalizes():
     }
     # First plan-complete hit: wrap nudge, not a mid-work cut.
     assert after_progress(state) == "finish_gate"
-    # Model kept tooling past the wrap nudge: the shortcut finalizes.
+    # Model kept tooling past the wrap nudge: lap 2 routes to the toolless
+    # summary (field 2026-09-10: a bare finalize here decapitated the turn —
+    # last act a tool call, no closing answer). Only a THIRD plan-complete
+    # hit, with the summary lap spent, may end bare.
     state["plan_wrap_nudges"] = 1
+    assert after_progress(state) == "finish_gate"
+    state["plan_wrap_nudges"] = 2
     assert after_progress(state) == "finalize"
 
 
@@ -475,8 +480,11 @@ def test_after_progress_verify_budget_exhausted_allows_finalize():
     }
     # verify budget spent but the wrap nudge not yet given: one grace shot
     assert after_progress(state) == "finish_gate"
-    # wrap nudge spent: the router concludes
+    # wrap lap 1 spent: one more shot (the toolless summary lap)
     state["plan_wrap_nudges"] = 1
+    assert after_progress(state) == "finish_gate"
+    # summary lap spent: the router concludes
+    state["plan_wrap_nudges"] = 2
     assert after_progress(state) == "finalize"
 
 

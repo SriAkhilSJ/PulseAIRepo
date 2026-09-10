@@ -259,3 +259,49 @@ def test_grace_print_names_both_budget_legs_and_the_tripped_one():
 
     source = (Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
     assert "_budget_trip_reason(state)" in source, "the grace print must carry the diagnostics"
+
+
+def test_plan_wrap_cut_guarantees_a_closing_answer_lap():
+    """Field 2026-09-10 ("stoped in middle"): the model called plan_update
+    with merge=True, the tool SILENTLY ignored it and replaced the whole
+    list, the shrunken list read complete, and the plan-complete shortcut
+    finalized with the model's last act a TOOL CALL — no closing answer ever
+    streamed. Law: a cut turn gets hermes handle_max_iterations' shape —
+    one toolless summary call (wrap lap 2), never a bare end."""
+    from pathlib import Path
+
+    from src.graphs.budget import _PLAN_WRAP_SUMMARY_REQUEST
+    assert "task list is complete" in _PLAN_WRAP_SUMMARY_REQUEST
+
+    ph = (Path(__file__).resolve().parents[1] / "graphs" / "progress_helpers.py").read_text(encoding="utf-8")
+    assert '"finalize" if plan_wrap_nudges >= 2' in ph, "one extra bounded wrap lap before the shortcut"
+
+    gates = (Path(__file__).resolve().parents[1] / "graphs" / "gates.py").read_text(encoding="utf-8")
+    assert '"wrap_summary": 1' in gates, "wrap lap 2 requests the toolless summary"
+
+    graph = (Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    assert "wrap_summary = bool(state.get(\"wrap_summary\"))" in graph
+    assert "_PLAN_WRAP_SUMMARY_REQUEST" in graph, "ai_node appends the plan-wrap summary request toolless"
+
+
+def test_plan_update_refuses_merge_loudly_instead_of_silently_replacing():
+    """Field 2026-09-10: plan_update silently IGNORED merge=True (a habit
+    from hermes' id-keyed todo_list), the model believed steps were merged
+    while the list was wholesale-replaced, three unfinished steps vanished,
+    and the shrunken list read complete. The tool now refuses loudly and its
+    schema says there is no merge mode."""
+    import json as _json
+    from pathlib import Path
+
+    from src.tools.plan_tool import plan_update
+
+    refused = plan_update.invoke({"steps": [{"description": "x", "status": "pending"}], "merge": True})
+    payload = _json.loads(refused)
+    assert "error" in payload and "no merge mode" in payload["error"]
+    assert "FULL list" in payload["error"]
+
+    clean = _json.loads(plan_update.invoke({"steps": [{"description": "x", "status": "pending"}]}))
+    assert "error" not in clean
+
+    source = (Path(__file__).resolve().parents[1] / "tools" / "plan_tool.py").read_text(encoding="utf-8")
+    assert "There is NO merge mode" in source, "the schema must teach replace-only"

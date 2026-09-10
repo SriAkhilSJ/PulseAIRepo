@@ -1,5 +1,5 @@
 {
-  "commit": "b31d9ac827c277ce428eec89f7784a4d4268288f",
-  "builtAt": "2026-09-10T07:35:10Z",
+  "commit": "36bf31df9a810f4b4cb56c1c70677469dd03150a",
+  "builtAt": "2026-09-10T14:03:34Z",
   "note": "commit the compiled pulseai panel was emitted from (scripts/emit-pulseai-bundle.mjs); the engine checks this commit is contained in its own build"
 }

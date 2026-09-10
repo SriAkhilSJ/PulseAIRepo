@@ -141,7 +141,13 @@ def next_after_progress(
     # (replanner route REMOVED with the engine re-plan consult — hermes has
     # no re-planning component; the model adapts from failure receipts.)
     if plan_complete:
-        return "finalize" if plan_wrap_nudges >= 1 else "finish_gate"
+        # Field 2026-09-10: the model KEPT TOOLING past wrap lap 1 (the law's
+        # own "only if it keeps tooling past that" clause) and the shortcut
+        # then finalized with its last act a tool call — no closing answer
+        # ever streamed. Wrap lap 2 is the hermes handle_max_iterations
+        # shape: one toolless summary call (ai_node's wrap_summary path),
+        # then the shortcut may end the turn.
+        return "finalize" if plan_wrap_nudges >= 2 else "finish_gate"
     return "ai"
 
 _TRACE_RESULT_TAIL = 1000

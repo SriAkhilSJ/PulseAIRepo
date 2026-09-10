@@ -90,6 +90,7 @@ def _normalize_order(steps: list) -> list:
 @tool
 def plan_update(
     steps: "list | str | None" = None,
+    merge: bool = False,
 ) -> str:
     """Read or replace the task list for the current turn.
 
@@ -100,10 +101,28 @@ def plan_update(
 
     Call with `steps` to replace the whole list; each step is
     `{"description": "...", "status": "pending|in_progress|completed|failed"}`.
+    There is NO merge mode: always resend the FULL list, including the steps you want to keep.
     Mark at most one step `in_progress` -- that is the step you are doing now. Call again after
     finishing a step so the list reflects reality; never mark a step completed before its evidence
     exists. Call with no arguments to read the current list.
     """
+    # Field 2026-09-10: the model passed merge=True (a habit from the
+    # id-keyed hermes todo_list). Silently ignoring it made the model BELIEVE
+    # steps were merged while the list was wholesale-REPLACED — three
+    # unfinished steps vanished, the shrunken list read "complete", and the
+    # plan-complete shortcut cut the turn mid-work. Refuse loudly instead.
+    if merge:
+        return json.dumps(
+            {
+                "error": (
+                    "plan_update has no merge mode: the list is replace-only "
+                    "(steps are description-keyed, there are no ids to merge "
+                    "by). Resend the FULL list including every step you want "
+                    "to keep, with updated statuses."
+                )
+            },
+            ensure_ascii=False,
+        )
 
     if steps is None:
         return json.dumps({"steps": [], "summary": {"total": 0}}, ensure_ascii=False)

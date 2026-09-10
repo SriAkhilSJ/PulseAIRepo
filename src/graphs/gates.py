@@ -798,9 +798,20 @@ def finish_gate_node(state: AgentState) -> dict:
     # Bounded: after_progress finalizes the second time plan-complete hits.
     plan = state.get("plan") or []
     if plan and all(step.get("status") == "completed" for step in plan):
+        nudges = state.get("plan_wrap_nudges", 0)
+        if nudges >= 1:
+            # Field 2026-09-10: the model tooling past lap 1 used to be
+            # decapitated by the shortcut (last act a tool call, no closing
+            # answer). Lap 2 is hermes handle_max_iterations' shape: ai_node
+            # hides the tools and appends the summary request — a guaranteed
+            # closing text lap. No second nudge here; the flag carries it.
+            return {
+                "plan_wrap_nudges": nudges + 1,
+                "wrap_summary": 1,
+            }
         return {
             "messages": [SystemMessage(content=_PLAN_WRAP_NUDGE)],
-            "plan_wrap_nudges": state.get("plan_wrap_nudges", 0) + 1,
+            "plan_wrap_nudges": nudges + 1,
         }
     nudge = _FINISH_NUDGE
     if _looks_like_copy_task(state.get("current_task", "")) and not _wrote_code_files(state):

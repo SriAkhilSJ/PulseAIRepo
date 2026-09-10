@@ -465,7 +465,12 @@ def test_next_after_progress_plan_complete_gives_one_wrap_nudge():
         env_failures=0, pivot_count=0,
     )
     assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=0, **base) == "finish_gate"
-    assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=1, **base) == "finalize"
+    # Field 2026-09-10 ("stoped in middle"): the model KEPT TOOLING past lap 1
+    # and the shortcut decapitated the turn (last act a tool call, no closing
+    # answer). Lap 2 is the hermes handle_max_iterations shape — a toolless
+    # summary lap (ai_node wrap_summary) — and only a THIRD hit may end bare.
+    assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=1, **base) == "finish_gate"
+    assert ph.next_after_progress(plan_complete=True, plan_wrap_nudges=2, **base) == "finalize"
     # plan not complete: unchanged
     assert ph.next_after_progress(plan_complete=False, plan_wrap_nudges=0, **base) == "ai"
 

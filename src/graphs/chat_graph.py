@@ -1046,7 +1046,12 @@ def ai_node(
             call_llm = bind_generation(
                 max_tokens=max(512, min(delivery_cap, 8192))
             )
-    if budget_exhausted:
+    # Field 2026-09-10: the plan-complete wrap cut shares the grace call's
+    # shape — wrap lap 2 sets wrap_summary (gates.finish_gate_node) and this
+    # lap runs toolless with the summary request, so a cut turn ALWAYS gets
+    # a closing answer instead of ending on a bare tool card.
+    wrap_summary = bool(state.get("wrap_summary"))
+    if budget_exhausted or wrap_summary:
         call_llm = llm  # summary call: NO tools (hermes _iteration_summary_chat_kwargs)
         if not grace_done:
             # hermes handle_max_iterations (chat_completion_helpers.py:2101):
@@ -1057,15 +1062,26 @@ def ai_node(
             # exploring..." + a raw text tool_call after 111s of real work,
             # and the turn finalized "completed" on that nonsense.
             grace_summary_lap1 = True
-            from src.graphs.budget import _budget_trip_reason
-            print(
-                f"[grace] Reached maximum iterations ({_iteration_budget()}) "
-                f"[{_budget_trip_reason(state)}]. Requesting summary...",
-                flush=True,
-            )
-            messages = messages + [
-                HumanMessage(content=_MAX_ITERATIONS_SUMMARY_REQUEST)
-            ]
+            if wrap_summary and not budget_exhausted:
+                from src.graphs.budget import _PLAN_WRAP_SUMMARY_REQUEST
+                print(
+                    "[grace] Task list complete but no closing answer was "
+                    "delivered — requesting the final summary (toolless).",
+                    flush=True,
+                )
+                messages = messages + [
+                    HumanMessage(content=_PLAN_WRAP_SUMMARY_REQUEST)
+                ]
+            else:
+                from src.graphs.budget import _budget_trip_reason
+                print(
+                    f"[grace] Reached maximum iterations ({_iteration_budget()}) "
+                    f"[{_budget_trip_reason(state)}]. Requesting summary...",
+                    flush=True,
+                )
+                messages = messages + [
+                    HumanMessage(content=_MAX_ITERATIONS_SUMMARY_REQUEST)
+                ]
         else:
             # Lap 2+: hermes never sees one (handle_max_iterations RETURNS
             # the summary and the loop ends). Pulse's graph routes the
@@ -4260,6 +4276,7 @@ def invoke_agent(
                 "grace_done": 0,
                 "incomplete_response_retries": 0,
                 "plan_wrap_nudges": 0,
+                "wrap_summary": 0,
                 "turn_token_usage": _zero_token_usage(),
             },
             config=config,
@@ -4358,6 +4375,7 @@ def stream_agent(
             "grace_done": 0,
             "incomplete_response_retries": 0,
             "plan_wrap_nudges": 0,
+                "wrap_summary": 0,
             "turn_token_usage": _zero_token_usage(),
         }
         if initial_plan is not None:

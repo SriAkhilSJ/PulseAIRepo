@@ -94,7 +94,7 @@ const RAW_TOOL_MARKUP = /^\s*<\/?\s*(?:dots_function_call|exec|invoke|command|to
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const PULSEAI_UI_STAMP = '2026-09-09';
+const PULSEAI_UI_STAMP = '2026-09-10';
 function markdownCopy(text, slot) {
     const root = element('div', 'pulseai-assistant-copy pulseai-md');
     if (slot) {
@@ -450,6 +450,70 @@ function expandableOutput(content) {
     });
     return wrap;
 }
+// hermes status-row.tsx todo glyphs, ported: pending = dashed ring,
+// in_progress = live dot, completed = pass-filled, failed = error,
+// cancelled = circle-slash. Rows speak the WRITTEN list, never arg JSON.
+function planListBody(result, args) {
+    const wrap = element('div', 'pulseai-plan-list');
+    const rows = planStepsFrom(result, args);
+    if (!rows.length) {
+        wrap.append(element('div', 'pulseai-plan-empty', 'No task list written'));
+        return wrap;
+    }
+    for (const step of rows) {
+        const status = step.status;
+        const row = element('div', `pulseai-plan-row is-${status}`);
+        const glyph = element('span', 'pulseai-plan-glyph');
+        if (status === 'completed') {
+            glyph.append(icon('pass-filled'));
+        }
+        else if (status === 'failed') {
+            glyph.append(icon('error'));
+        }
+        else if (status === 'cancelled') {
+            glyph.append(icon('circle-slash'));
+        }
+        // pending (dashed ring) and in_progress (live dot) are pure CSS
+        row.append(glyph, element('span', 'pulseai-plan-text', step.description));
+        wrap.append(row);
+    }
+    return wrap;
+}
+function planStepsFrom(result, args) {
+    const raw = (result && planStepsOf(result, 'steps'))
+        ?? planStepsOf(result, 'todos')
+        ?? planStepsOf(args, 'steps')
+        ?? planStepsOf(args, 'todos')
+        ?? [];
+    const rows = [];
+    for (const item of raw) {
+        if (!item || typeof item !== 'object') {
+            continue;
+        }
+        const rec = item;
+        const description = String(rec.description ?? rec.content ?? '').trim();
+        if (!description) {
+            continue;
+        }
+        rows.push({ description, status: String(rec.status ?? 'pending') });
+    }
+    return rows;
+}
+function planStepsOf(source, key) {
+    if (!source) {
+        return undefined;
+    }
+    let raw = source[key];
+    if (typeof raw === 'string') {
+        try {
+            raw = JSON.parse(raw);
+        }
+        catch {
+            return undefined;
+        }
+    }
+    return Array.isArray(raw) ? raw : undefined;
+}
 function terminalBody(tool, host) {
     const args = record(tool.arguments);
     const result = resultRecord(tool.result);
@@ -626,6 +690,15 @@ function familyBody(tool, host) {
             ]));
             body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 400)));
         }
+    }
+    else if (presentation.family === 'plan') {
+        // Field 2026-09-10: the body painted the raw {"steps":[...]} argument
+        // JSON. hermes hoists todo parts into a status panel whose rows are
+        // glyph+text (status-row.tsx: dashed ring pending, live dot
+        // in_progress, pass-filled done, circle-slash cancelled) — the card
+        // body ports those rows from the WRITTEN state (the tool result's
+        // normalized list) with the call args as fallback.
+        body.append(planListBody(resultRecord(tool.result), args));
     }
     else if (presentation.family === 'session') {
         body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));

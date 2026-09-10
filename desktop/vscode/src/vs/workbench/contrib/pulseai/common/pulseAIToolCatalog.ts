@@ -5,6 +5,7 @@
 
 export type PulseAIToolRendererFamily =
 	| 'control'
+	| 'plan'
 	| 'file-read'
 	| 'file-write'
 	| 'search'
@@ -97,6 +98,15 @@ export const PULSE_AI_TOOL_CATALOG: Readonly<Record<string, PulseAIToolPresentat
 
 	delegate_to_subagent: tool('Delegate', 'subagent', 'rocket', 'running'),
 	delegate_to_subagent_batch: tool('Delegate batch', 'subagent', 'rocket', 'running'),
+
+	// The model's task list (field 2026-09-10: the card body painted the raw
+	// {"steps":[...]} argument JSON). hermes hoists todo parts out of the
+	// transcript into a status panel whose rows are glyph+text — the card
+	// body ports those rows: dashed ring pending, live dot in_progress,
+	// pass-filled done. todo_list is hermes' wire name (id-keyed, merge);
+	// plan_update is the pulse-vocab sibling (description-keyed, replace-only).
+	plan_update: tool('Plan Update', 'plan', 'list-ordered', 'running'),
+	todo_list: tool('Todo list', 'plan', 'list-ordered', 'running'),
 };
 
 const GENERIC_ICON = 'tools';

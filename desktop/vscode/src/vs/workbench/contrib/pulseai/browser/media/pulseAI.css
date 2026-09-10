@@ -1694,3 +1694,26 @@
    disclosure-row.tsx trailing contract). Row hover keeps the resting-dim
    lift already ported above; no invented caret is added. */
 .pulseai-tool-row > summary .pulseai-tool-duration { opacity: 0.9; }
+
+/* ── plan/todo list rows (hermes composer status-row port) ─────────────── */
+.pulseai-plan-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.pulseai-plan-empty { opacity: .6; font-size: var(--pulseai-text-body); padding: 2px 0; }
+.pulseai-plan-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.pulseai-plan-glyph { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; flex: none; }
+.pulseai-plan-glyph .codicon { font-size: var(--pulseai-conv-size); }
+.pulseai-plan-row.is-completed .pulseai-plan-glyph { color: var(--vscode-charts-green, #3fb950); }
+.pulseai-plan-row.is-failed .pulseai-plan-glyph { color: var(--vscode-charts-red, #f85149); }
+.pulseai-plan-row.is-cancelled .pulseai-plan-glyph { color: var(--vscode-descriptionForeground); opacity: .6; }
+.pulseai-plan-row.is-pending .pulseai-plan-glyph::before {
+	content: ''; width: 10px; height: 10px; border-radius: 50%;
+	border: 1px dashed var(--vscode-descriptionForeground, #888);
+	box-sizing: border-box;
+}
+.pulseai-plan-row.is-in_progress .pulseai-plan-glyph::before {
+	content: ''; width: 8px; height: 8px; border-radius: 50%;
+	background: var(--vscode-charts-green, #3fb950);
+	animation: pulseai-plan-live 1.2s ease-in-out infinite;
+}
+@keyframes pulseai-plan-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.pulseai-plan-text { font-size: var(--pulseai-conv-tool-size); line-height: 1.45; }
+.pulseai-plan-row.is-completed .pulseai-plan-text { color: var(--vscode-descriptionForeground); }

@@ -700,7 +700,7 @@ def test_markdown_block_grammar_ported():
 
 def test_ui_stamp_bumped_for_the_card_format_round():
     renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "const PULSEAI_UI_STAMP = '2026-09-09';" in renderer, (
+    assert "const PULSEAI_UI_STAMP = '2026-09-10';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -809,3 +809,24 @@ def test_bundle_import_audit_script_is_tracked_and_green_shape():
     audit = (FORK / "scripts" / "audit-pulseai-bundle.mjs").read_text(encoding="utf-8")
     assert "DEAD BINDING" in audit and "AUDIT OK" in audit
     assert "path.join(FORK, 'out')" in audit, "cross-slice targets must resolve out/ -> src/ (only the pulseai slice is compiled here)"
+
+
+def test_plan_card_renders_a_task_list_never_arg_json():
+    """Field 2026-09-10 ("plan is in json"): plan_update/todo_list resolved
+    the generic family and the card body painted the raw {"steps":[...]}
+    argument JSON. The catalog carries a 'plan' family whose body ports
+    hermes' status-row todo rows (glyph + description), fed from the WRITTEN
+    list (tool result) with call args as fallback."""
+    catalog = _text("common", "pulseAIToolCatalog.ts")
+    assert "plan_update: tool('Plan Update', 'plan'" in catalog
+    assert "todo_list: tool('Todo list', 'plan'" in catalog
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "function planListBody" in renderer
+    assert "pulseai-plan-row is-" in renderer
+    for glyph in ("pass-filled", "circle-slash"):  # hermes status-row glyphs
+        assert glyph in renderer
+    css = _text("browser", "media", "pulseAI.css")
+    assert ".pulseai-plan-row.is-pending .pulseai-plan-glyph::before" in css
+    assert "dashed" in css
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js").read_text(encoding="utf-8")
+    assert "pulseai-plan-row" in bundle, "the shipped panel carries the plan card"

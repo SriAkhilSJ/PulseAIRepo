@@ -39,6 +39,15 @@ _MAX_ITERATIONS_SUMMARY_REQUEST = (
     "Please provide a final response summarizing what you've found and "
     "accomplished so far, without calling any more tools."
 )
+# The plan-complete wrap cut (field 2026-09-10): the model kept tooling past
+# the wrap nudge and the shortcut finalized with its last act a TOOL CALL —
+# no closing answer ever streamed ("stopped in middle"). The second wrap hit
+# now runs hermes handle_max_iterations' SHAPE — one toolless summary call —
+# with wording that names the real trigger, not the iteration budget.
+_PLAN_WRAP_SUMMARY_REQUEST = (
+    "Your task list is complete. Please provide a final response summarizing "
+    "what you've accomplished and found so far, without calling any more tools."
+)
 # Legacy name (gates.py comment references it); same text.
 _GRACE_NUDGE = _MAX_ITERATIONS_SUMMARY_REQUEST
 
