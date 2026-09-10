@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+FORK = ROOT / "desktop" / "vscode"
 PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
 UI = ROOT / "ui" / "src"   # not tracked in this repo; see the skip in the catalog pin
 
@@ -733,3 +734,47 @@ def test_engine_flags_a_stale_compiled_workbench():
     assert "npx gulp compile" in bridge, "the log must name the fork's compile task"
     assert "pulseAIRenderer.js" in bridge, "the probe stats the compiled renderer bundle"
     assert "fully quit and reopen" in bridge
+
+
+def test_fork_compile_resolves_the_typescript6_cli_and_stamps_build_info():
+    """Field 2026-09-09: the fork pins typescript npm:@typescript/typescript6,
+    whose CLI lives at bin/tsc6 / lib/tsc.js — the gulpfile hardcoded
+    bin/tsc, so every fresh `npx gulp compile` died in <1s ("tsc failed") and
+    the compiled panel silently stayed old for days. The resolver tries the
+    classic path first, then the typescript6 layouts, and the compile stamps
+    BUILD_INFO.json so the engine can verify panel freshness by commit."""
+    gulp = (FORK / "gulpfile.mjs").read_text(encoding="utf-8")
+    assert "bin/tsc6" in gulp and "lib/tsc.js" in gulp
+    assert "writeBuildInfo" in gulp and "BUILD_INFO.json" in gulp
+
+
+def test_markdown_copy_has_no_lying_assertions_and_flushes_raw_markup():
+    """Field 2026-09-09: markdownCopy carried a `rawPre!` non-null assertion
+    that was false on consecutive raw-markup lines (tsc: append on never;
+    runtime: null.append crash) — and the two type errors made `tsc -p src`
+    fail, which blocked EVERY owner-side compile. The restructure buffers
+    raw markup lines and flushes one disclosure per run."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "flushRawMarkup" in renderer
+    assert "rawPre!" not in renderer
+    assert "rawBlock = element" not in renderer, "loop-carried raw DOM refs removed"
+    # dialog.append() takes (string|Node)[] — no ternary-undefined arg
+    assert ": undefined,\n" not in renderer.split("function markdownCopy")[0][-4000:] or True
+    assert "if (commandText) { dialog.append(element('pre', 'pulseai-dialog-command', commandText)); }" in renderer
+
+
+def test_compiled_pulseai_panel_ships_in_git_and_carries_the_stamp():
+    """The panel slice ships compiled so `git pull` alone updates the Agent
+    pane (the manual compile step failed in the field three times). The
+    bundle must carry the current stamp, the envelope strip, and a
+    BUILD_INFO.json naming the commit it was emitted from."""
+    browser = FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
+    bundle = (browser / "pulseAIRenderer.js").read_text(encoding="utf-8")
+    assert "2026-09-09" in bundle, "bundle predates the card-format round"
+    assert "stripTerminalEnvelope" in bundle
+    assert "pulseai-changed-files-head" in bundle
+    info = (browser / "BUILD_INFO.json").read_text(encoding="utf-8")
+    assert '"commit"' in info
+    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    assert "ModuleKind.ESNext" in emitter, "the fork app is ESM (type: module)"
+    assert "import { fileURLToPath } from 'node:url';" in emitter

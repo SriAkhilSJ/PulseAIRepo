@@ -994,6 +994,8 @@ class BridgeServer:
         stale, and the log says exactly what to run. Best effort: never
         fatal, one line."""
         try:
+            import json
+            import subprocess
             from pathlib import Path
             root = Path(__file__).resolve().parents[2]
             src_dir = root / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
@@ -1001,7 +1003,6 @@ class BridgeServer:
             srcs = list(src_dir.rglob("*.ts")) if src_dir.is_dir() else []
             if not srcs:
                 return  # unusual layout (packaged engine without the fork tree) — nothing to compare
-            newest_src = max(src_m.stat().st_mtime for src_m in srcs if src_m.stat().st_mtime is not None)
             if not out_file.exists():
                 print(
                     "[bridge] desktop UI: no compiled workbench at "
@@ -1011,15 +1012,45 @@ class BridgeServer:
                     file=sys.stderr, flush=True,
                 )
                 return
+            # Preferred: the panel carries BUILD_INFO.json naming the commit it
+            # was emitted from. "Contained in this engine's HEAD" = current —
+            # exact, no mtime jitter. (Field 2026-09-09: mtime ordering lies
+            # after a checkout; commits do not.)
+            info_file = out_file.parent / "BUILD_INFO.json"
+            if info_file.exists():
+                bundle_commit = str(json.loads(info_file.read_text(encoding="utf-8")).get("commit", "")).strip()
+                if bundle_commit and bundle_commit != "unknown":
+                    proc = subprocess.run(
+                        ["git", "merge-base", "--is-ancestor", bundle_commit, "HEAD"],
+                        capture_output=True, text=True, timeout=5, cwd=str(root),
+                    )
+                    short = bundle_commit[:8]
+                    if proc.returncode == 0:
+                        print(
+                            f"[bridge] desktop UI: compiled workbench built from {short} — "
+                            "contained in this engine build; panel is current",
+                            file=sys.stderr, flush=True,
+                        )
+                        return
+                    print(
+                        f"[bridge] DESKTOP WORKBENCH STALE: the compiled panel was built from {short}, "
+                        f"which is NOT contained in this engine build ({self._engine_build().split()[0] if self._engine_build() != 'unknown' else 'unknown'}) — "
+                        "the Agent pane will render OLD cards no matter what the engine runs. "
+                        "Fix: `git pull` (the repo ships a current compiled panel), or "
+                        f"`npx gulp compile` in {root / 'desktop' / 'vscode'} — then fully quit and reopen the app.",
+                        file=sys.stderr, flush=True,
+                    )
+                    return
+                # fall through to mtime when the stamp is unusable
             import time as _t
+            newest_src = max(src_m.stat().st_mtime for src_m in srcs if src_m.stat().st_mtime is not None)
             slack = 10.0  # checkout/compile timestamp jitter
             if newest_src > out_file.stat().st_mtime + slack:
                 fmt = lambda ts: _t.strftime("%Y-%m-%d %H:%M", _t.localtime(ts))
                 print(
-                    "[bridge] DESKTOP WORKBENCH STALE: pulseai UI sources changed "
+                    "[bridge] DESKTOP WORKBENCH STALE (mtimes): pulseai UI sources changed "
                     f"({fmt(newest_src)}) but the compiled panel ({fmt(out_file.stat().st_mtime)}) "
-                    "predates them — the Agent pane will render OLD cards no matter "
-                    "what the engine runs. Fix: `npx gulp compile` in "
+                    "predates them — run `npx gulp compile` in "
                     f"{root / 'desktop' / 'vscode'}, then fully quit and reopen the app.",
                     file=sys.stderr, flush=True,
                 )

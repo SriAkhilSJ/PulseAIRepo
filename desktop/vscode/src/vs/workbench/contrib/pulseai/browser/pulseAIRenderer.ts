@@ -278,8 +278,23 @@ function markdownCopy(text: string, slot?: string): HTMLElement {
 	if (slot) { root.dataset.slot = slot; }
 	let list: HTMLUListElement | null = null;
 	let code: HTMLPreElement | null = null;
-	let rawBlock: HTMLDetailsElement | null = null;
-	let rawPre: HTMLPreElement | null = null;
+	// Consecutive raw tool-markup lines collapse into ONE labeled disclosure.
+	// They are buffered and flushed on the next non-markup line (or at the
+	// end of the text) — the old loop-carried rawBlock/rawPre pair hit a TS
+	// circular-narrowing error (append on never) AND could crash at runtime
+	// on a consecutive markup line (stale pre reference).
+	const rawLines: string[] = [];
+	const flushRawMarkup = () => {
+		if (!rawLines.length) { return; }
+		const details = element('details', 'pulseai-raw-call');
+		details.append(element('summary', undefined, 'Unparsed tool-call markup (model dialect, not executed)'));
+		const pre = element('pre', 'pulseai-raw-call-pre');
+		pre.append(document.createTextNode(`${rawLines.join('\n')}\n`));
+		details.append(pre);
+		root.append(details);
+		rawLines.length = 0;
+		list = null;
+	};
 	for (const raw of text.split(/\r?\n/)) {
 		const line = raw.replace(/\s+$/, '');
 		if (code) {
@@ -288,27 +303,12 @@ function markdownCopy(text: string, slot?: string): HTMLElement {
 			continue;
 		}
 		if (RAW_TOOL_MARKUP.test(line)) {
-			// Collapse consecutive markup lines into ONE labeled disclosure.
-			if (!rawBlock) {
-				rawBlock = element('details', 'pulseai-raw-call') as HTMLDetailsElement;
-				rawBlock.append(element('summary', undefined, 'Unparsed tool-call markup (model dialect, not executed)'));
-				rawPre = element('pre', 'pulseai-raw-call-pre') as HTMLPreElement;
-				rawBlock.append(rawPre);
-				root.append(rawBlock);
-				list = null;
-			}
-			rawPre!.append(document.createTextNode(raw + '\n'));
+			rawLines.push(raw);
 			continue;
 		}
-		rawBlock = null;
-		rawPre = null;
-		if (code) {
-			if (line.trim() === '```') { code = null; }
-			else { code.append(document.createTextNode(raw + '\n')); }
-			continue;
-		}
+		flushRawMarkup();
 		if (line.trim() === '```') {
-			code = element('pre', 'pulseai-md-pre') as HTMLPreElement;
+			code = element('pre', 'pulseai-md-pre');
 			root.append(code);
 			continue;
 		}
@@ -383,6 +383,7 @@ function markdownCopy(text: string, slot?: string): HTMLElement {
 		mdInline(para, line);
 		root.append(para);
 	}
+	flushRawMarkup();
 	return root;
 }
 
@@ -1506,8 +1507,10 @@ function approvalDock(model: PulseAIRenderModel, host: PulseAIRenderHost): HTMLE
 	dialog.append(
 		element('h3', undefined, 'Always allow this?'),
 		element('p', 'pulseai-dialog-copy', `Pulse will stop asking before running ${pulseAIToolPresentation(approval.name).title} for the rest of this session. Secret paths and git-ignored files are still asked every time.`),
-		commandText ? element('pre', 'pulseai-dialog-command', commandText) : undefined,
 	);
+	// append() takes (string | Node)[] — a ternary undefined arg is a type
+	// error, so the optional command preview appends conditionally.
+	if (commandText) { dialog.append(element('pre', 'pulseai-dialog-command', commandText)); }
 	const dialogButtons = element('div', 'pulseai-dialog-actions');
 	dialogButtons.append(
 		button('Cancel', 'pulseai-button pulseai-button-secondary', () => overlay.classList.remove('is-open')),

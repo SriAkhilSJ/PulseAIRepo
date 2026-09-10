@@ -42,8 +42,19 @@ function ensureNodeModules() {
 
 function runTsc() {
 	pulseLog('typescript -> out/ (this takes MINUTES; do not abort on silence)');
-	const tscBin = path.join(FORK_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
-	const result = spawnSync(process.execPath, [tscBin, '-p', SRC], {
+	// The pinned CLI package is npm:@typescript/typescript6, which ships its
+	// binary as bin/tsc6 + lib/tsc.js — the classic bin/tsc path only exists
+	// on the classic layout. Field 2026-09-09: with a fresh npm ci every
+	// compile died in <1s ("tsc failed (exit 1)") and the compiled panel
+	// silently stayed old for days. Resolve whatever the installed package
+	// actually provides.
+	const tsPkg = path.join(FORK_ROOT, 'node_modules', 'typescript');
+	const tscRel = ['bin/tsc', 'bin/tsc6', 'lib/tsc.js'].find((rel) => fs.existsSync(path.join(tsPkg, rel)));
+	if (!tscRel) {
+		throw new Error('[pulseai-compile] no tsc CLI found in node_modules/typescript — run npm install in desktop/vscode first');
+	}
+	pulseLog(`using node_modules/typescript/${tscRel}`);
+	const result = spawnSync(process.execPath, [path.join(tsPkg, tscRel), '-p', SRC], {
 		stdio: 'inherit',
 		cwd: FORK_ROOT,
 	});
@@ -74,10 +85,27 @@ function copyResources() {
 	});
 }
 
+function writeBuildInfo() {
+	// Stamp the compiled panel with the commit it was built from. The engine
+	// reads this file to tell the owner, in the log they already read, whether
+	// the compiled panel is current — no mtime jitter, no guessing.
+	const dir = path.join(OUT, 'vs', 'workbench', 'contrib', 'pulseai', 'browser');
+	let commit = 'unknown';
+	try {
+		const proc = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: FORK_ROOT, encoding: 'utf8' });
+		if (proc.status === 0) { commit = proc.stdout.trim(); }
+	} catch {
+		// not a git checkout — stamp the time only
+	}
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, 'BUILD_INFO.json'), `${JSON.stringify({ commit, builtAt: new Date().toISOString() }, null, 2)}\n`);
+}
+
 export async function compile() {
 	ensureNodeModules();
 	runTsc();
 	await copyResources();
+	writeBuildInfo();
 	pulseLog('done: out/ is ready — fully quit the app and reopen it');
 }
 

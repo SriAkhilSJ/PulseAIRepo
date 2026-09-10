@@ -1,0 +1,1696 @@
+/* Shared first-party Pulse renderer. Dense, flat, and entirely theme-token driven. */
+.pulseai-view,
+.pulseai-render-root {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+}
+
+.pulseai-render-root {
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+	font-family: var(--pulseai-font-ui);
+	font-size: inherit;
+	overflow: hidden;
+}
+
+.pulseai-render-root *,
+.pulseai-render-root *::before,
+.pulseai-render-root *::after { box-sizing: border-box; }
+
+.pulseai-render-root button,
+.pulseai-render-root select,
+.pulseai-render-root textarea {
+	color: inherit;
+	font: inherit;
+}
+
+.pulseai-render-root button { cursor: pointer; }
+
+.pulseai-agent-shell {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	width: 100%;
+	overflow: hidden;
+	background: var(--vscode-sideBar-background);
+}
+
+.pulseai-agent-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+	flex-shrink: 0;
+}
+
+.pulseai-agent-header-title {
+	font-size: var(--pulseai-text-body);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: var(--pulseai-track-caps);
+	color: var(--vscode-descriptionForeground);
+}
+
+.pulseai-agent-manager-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 8px;
+	border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-panel-border));
+	border-radius: 3px;
+	background: var(--vscode-button-secondaryBackground, transparent);
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	font-size: var(--pulseai-text-body);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.pulseai-agent-manager-button:hover {
+	background: var(--vscode-button-secondaryHoverBackground, var(--vscode-editorWidget-background));
+}
+
+.pulseai-manager-titlebar,
+.pulseai-manager-tabs,
+.pulseai-manager-pane-head {
+	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+}
+
+.pulseai-brand-mark { width: 21px; height: 21px; flex: none; }
+.pulseai-brand-mark rect { fill: var(--vscode-editorWidget-background); stroke: color-mix(in srgb, var(--pulseai-accent) 42%, var(--vscode-panel-border)); }
+.pulseai-brand-mark path { fill: none; stroke: var(--pulseai-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pulseai-brand-mark circle { fill: var(--pulseai-agent); }
+
+.pulseai-engine-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-meta);
+	white-space: nowrap;
+}
+
+.pulseai-status-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--vscode-descriptionForeground);
+	flex: none;
+}
+
+.pulseai-engine-status.is-ready .pulseai-status-dot,
+.pulseai-status-dot.is-ready { background: var(--pulseai-verified); }
+.pulseai-engine-status.is-running .pulseai-status-dot,
+.pulseai-status-dot.is-running { background: var(--pulseai-running); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pulseai-running) 18%, transparent); }
+.pulseai-engine-status.is-failed .pulseai-status-dot { background: var(--pulseai-failed); }
+
+.pulseai-plan-strip {
+	border-bottom: 1px solid var(--vscode-panel-border, transparent);
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 92%, var(--pulseai-accent));
+}
+.pulseai-plan-strip-summary {
+	display: grid;
+	grid-template-columns: 14px auto 1fr auto 12px;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 4px 10px;
+	list-style: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-meta);
+	cursor: pointer;
+}
+.pulseai-plan-strip-summary::-webkit-details-marker { display: none; }
+.pulseai-plan-strip-summary:hover { background: var(--vscode-list-hoverBackground); }
+.pulseai-plan-strip-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-plan-strip-summary strong { color: var(--vscode-foreground); font-size: var(--pulseai-text-body); }
+.pulseai-plan-strip-summary > .codicon-chevron-down { transition: transform 120ms ease; }
+.pulseai-plan-strip:not([open]) .pulseai-plan-strip-summary > .codicon-chevron-down { transform: rotate(-90deg); }
+.pulseai-plan-strip-state { display: inline-flex; align-items: center; gap: 5px; color: var(--pulseai-running); }
+.pulseai-plan-strip-list { display: grid; gap: 5px; margin: 0; padding: 2px 12px 9px 30px; list-style: none; }
+.pulseai-plan-strip-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); line-height: 1.35; }
+.pulseai-plan-strip-list li.is-active { color: var(--vscode-foreground); }
+
+.pulseai-agent-shell > .pulseai-transcript-scroll { flex: 1 1 auto; }
+
+.pulseai-transcript-scroll {
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+.pulseai-transcript-lane {
+	width: min(86%, 44rem);
+	box-sizing: border-box;
+	min-width: 0;
+	margin: 0 auto;
+	padding: 14px 0 24px;
+	display: flex;
+	flex-direction: column;
+	gap: var(--pulseai-turn-block-gap);
+	overflow-wrap: anywhere;
+}
+
+.pulseai-user-message {
+	margin: 0;
+	padding: 6px 10px;
+	border: 1px solid var(--pulseai-bubble-border);
+	border-radius: var(--pulseai-radius-turn);
+	background: var(--pulseai-bubble-bg);
+	font-size: var(--pulseai-conv-size);
+	line-height: var(--pulseai-conv-line);
+	width: fit-content;
+	max-width: 100%;
+	white-space: pre-wrap;
+}
+
+.pulseai-assistant-message {
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--pulseai-turn-block-gap);
+}
+
+.pulseai-assistant-label { display: none; }
+
+.pulseai-stream-label {
+	margin-left: auto;
+	color: var(--pulseai-running);
+	font-size: var(--pulseai-text-meta);
+	font-weight: normal;
+}
+
+.pulseai-assistant-copy {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	font-size: var(--pulseai-conv-size);
+	line-height: var(--pulseai-conv-line);
+	white-space: pre-wrap;
+}
+
+.pulseai-reasoning {
+	margin: 3px 0 5px 19px;
+	padding-left: 8px;
+	border-left: 1px solid var(--vscode-panel-border);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body);
+	line-height: 1.4;
+}
+
+.pulseai-tool-list {
+	margin: 0;
+	border-top: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--pulseai-scaffold-gap);
+}
+.pulseai-section-heading { display: none; }
+.pulseai-section-count {
+	display: grid;
+	place-items: center;
+	min-width: 17px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 8px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: var(--pulseai-text-micro);
+	letter-spacing: 0;
+}
+
+.pulseai-tool-row {
+	border-bottom: 0;
+	background: transparent;
+}
+
+.pulseai-tool-row[open] { background: transparent; }
+.pulseai-manager-main .pulseai-tool-row[open] { background: transparent; }
+
+.pulseai-tool-summary {
+	display: grid;
+	grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto auto 12px;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 1px 0;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+	overflow: hidden;
+	color: var(--pulseai-scaffold-text);
+	font-size: var(--pulseai-conv-tool-size);
+	line-height: var(--pulseai-conv-line);
+	transition: color 120ms ease;
+}
+
+.pulseai-tool-summary::-webkit-details-marker { display: none; }
+.pulseai-tool-summary:hover { background: transparent; color: var(--vscode-foreground); }
+.pulseai-tool-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-tool-row[open] .pulseai-tool-summary > .codicon-chevron-right { transform: rotate(90deg); }
+.pulseai-tool-row.is-passed .pulseai-tool-summary > :first-child { color: var(--pulseai-verified); }
+.pulseai-tool-row.is-failed .pulseai-tool-summary > :first-child { color: var(--pulseai-failed); }
+.pulseai-tool-row.is-approval .pulseai-tool-summary > :first-child { color: var(--pulseai-approval); }
+.pulseai-tool-row.is-running .pulseai-tool-summary > :first-child { color: var(--pulseai-running); }
+
+.pulseai-tool-summary strong { min-width: 0; overflow: hidden; font-weight: 400; white-space: nowrap; }
+.pulseai-tool-summary > .codicon-chevron-right { opacity: 0; transition: opacity 150ms ease; }
+.pulseai-tool-row:hover > .pulseai-tool-summary > .codicon-chevron-right,
+.pulseai-tool-row[open] .pulseai-tool-summary > .codicon-chevron-right,
+.pulseai-tool-summary:focus-visible > .codicon-chevron-right { opacity: 0.8; }
+.pulseai-tool-target { min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
+
+.pulseai-tool-state {
+	padding: 1px 4px;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-micro);
+	line-height: 14px;
+	text-transform: uppercase;
+}
+.pulseai-tool-state.is-running { color: var(--pulseai-running); }
+.pulseai-tool-state.is-passed { color: var(--pulseai-verified); }
+.pulseai-tool-state.is-failed { color: var(--pulseai-failed); }
+.pulseai-tool-state.is-approval { color: var(--pulseai-approval); }
+
+.pulseai-mini-spinner {
+	display: inline-block;
+	width: 11px;
+	height: 11px;
+	border: 1px solid color-mix(in srgb, var(--pulseai-running) 25%, transparent);
+	border-top-color: var(--pulseai-running);
+	border-radius: 50%;
+	animation: pulseai-spin 850ms linear infinite;
+}
+@keyframes pulseai-spin { to { transform: rotate(360deg); } }
+
+/* ---- Pending label sweep (`pulse-shimmer`, hermes-agent thread) ----
+   Hermes sweeps the GLYPHS with a clipped gradient at 2.4s linear; the fork used to slide a
+   translucent bar over the text, which reads as a loading bar rather than a live label. Same
+   technique as the webview stylesheet, on theme tokens instead of literals. */
+.pulseai-shimmer {
+	background: linear-gradient(90deg, var(--vscode-descriptionForeground) 0%, var(--vscode-foreground) 45%, var(--vscode-descriptionForeground) 90%);
+	background-size: 300% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: pulseai-sweep 2.4s linear infinite;
+}
+@keyframes pulseai-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* ---- Breathing Edge (Kilo pattern: gradient pulse at streaming text bottom) ---- */
+.pulseai-breathing-edge {
+	position: relative;
+}
+.pulseai-breathing-edge::after {
+	content: '';
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 20px;
+	background: linear-gradient(to bottom, transparent, var(--vscode-sideBar-background));
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 100ms ease;
+}
+.pulseai-breathing-edge.is-streaming::after {
+	opacity: 0.6;
+	animation: pulseai-edge-breathe 1.2s ease-in-out infinite;
+}
+@keyframes pulseai-edge-breathe {
+	0%, 100% { opacity: 0.4; }
+	50% { opacity: 0.8; }
+}
+
+/* ---- Tool fields (Kilo Fields pattern, black/blue only) ---- */
+.pulseai-tool-fields { display: grid; gap: 4px; padding-top: 6px; }
+.pulseai-tool-field-row { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 8px; font-size: var(--pulseai-text-meta); }
+.pulseai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: var(--pulseai-text-micro); letter-spacing: var(--pulseai-track-caps); }
+.pulseai-tool-field-val { color: var(--vscode-foreground); font-family: var(--pulseai-font-mono); font-size: var(--pulseai-text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-search-results { display: grid; gap: 4px; margin-top: 6px; }
+.pulseai-search-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
+.pulseai-tool-checks { display: grid; gap: 6px; padding: 6px 0; }
+.pulseai-tool-checks > div { display: flex; align-items: center; gap: 6px; font-size: var(--pulseai-text-meta); color: var(--vscode-descriptionForeground); }
+.pulseai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: var(--pulseai-text-micro); text-transform: uppercase; }
+.pulseai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
+.pulseai-browser-screenshot { display: block; max-width: 100%; max-height: 320px; margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
+.pulseai-raw-call { margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-size: var(--pulseai-text-meta); }
+.pulseai-raw-call summary { padding: 4px 6px; cursor: pointer; opacity: 0.85; }
+.pulseai-raw-call-pre { margin: 0; padding: 4px 8px; max-height: 160px; overflow: auto; }
+.pulseai-child-tool-list { display: grid; gap: 4px; margin-top: 6px; }
+.pulseai-child-tool-list > div { display: flex; align-items: center; gap: 6px; font-size: var(--pulseai-text-meta); color: var(--vscode-descriptionForeground); }
+.pulseai-code-preview, .pulseai-diff-preview { font-size: var(--pulseai-text-body); line-height: 1.4; }
+
+.pulseai-tool-body {
+	padding: 6px 8px 8px;
+	border-top: 0;
+	background: var(--pulseai-codecard-bg);
+	border-radius: var(--pulseai-radius-code);
+}
+
+.pulseai-tool-field { padding-top: 6px; }
+.pulseai-tool-field-label { display: block; margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); text-transform: uppercase; }
+
+.pulseai-tool-pre,
+.pulseai-terminal-output {
+	max-height: 220px;
+	margin: 0;
+	padding: 2px 0;
+	overflow: auto;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-editor-foreground);
+	font-family: var(--pulseai-font-mono);
+	font-size: var(--pulseai-conv-code-size);
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.pulseai-terminal-command {
+	display: flex;
+	gap: 7px;
+	padding: 2px 0;
+	background: transparent;
+	font-family: var(--pulseai-font-mono);
+	font-size: var(--pulseai-conv-code-size);
+	line-height: 1.45;
+}
+.pulseai-terminal-prompt { color: var(--pulseai-scaffold-meta); }
+.pulseai-terminal-command code { overflow-wrap: anywhere; }
+/* Hermes terminal-output.tsx (mechanism 8): max-h-16 — a 4rem window on the
+ * output, not the tall panel this used to be; monospace does not wrap
+ * lines horizontally, whitespace: pre); meta-size text. boundedText keeps
+ * the tail, so the window + tail-jump reads the live end of the stream. */
+.pulseai-terminal-output {
+	max-height: var(--pulseai-terminal-max-h);
+	border-top: 0;
+	white-space: pre;
+	font-size: var(--pulseai-conv-code-size);
+	line-height: 1.5;
+}
+.pulseai-terminal-result { display: flex; align-items: center; gap: 9px; padding-top: 4px; color: var(--pulseai-scaffold-meta); font-size: var(--pulseai-conv-meta-size); }
+
+.pulseai-tool-actions { display: flex; align-items: center; gap: 5px; padding-top: 5px; }
+.pulseai-turn-receipt {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	padding: 6px 10px;
+	border: 1px solid color-mix(in srgb, var(--pulseai-failed) 35%, transparent);
+	border-radius: var(--pulseai-radius-turn);
+	background: color-mix(in srgb, var(--pulseai-failed) 7%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-conv-meta-size);
+}
+.pulseai-turn-receipt.is-cancelled {
+	border-color: var(--pulseai-bubble-border);
+	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+}
+.pulseai-turn-receipt.is-completed > .codicon { color: var(--pulseai-verified); }
+.pulseai-turn-receipt.is-cancelled > .codicon { color: var(--pulseai-approval); }
+.pulseai-turn-receipt.is-failed > .codicon { color: var(--pulseai-failed); }
+.pulseai-link-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 4px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-textLink-foreground);
+	font-size: var(--pulseai-text-meta);
+}
+.pulseai-link-button:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+
+.pulseai-error-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--pulseai-failed);
+	background: var(--vscode-inputValidation-errorBackground);
+	color: var(--vscode-inputValidation-errorForeground);
+	line-height: 1.35;
+}
+.pulseai-error-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
+/* ---- Context status row (compaction progress / overflow warning) ----
+   Same lane discipline as the error row, quieter: an info status is a whisper
+   (no error chrome), a warning keeps the warning border without claiming the
+   turn failed — it warns about the NEXT model call. */
+.pulseai-context-status-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--vscode-charts-blue, var(--pulseai-failed));
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.35;
+}
+.pulseai-context-status-row.is-warning {
+	border-left-color: var(--vscode-editorWarning-foreground, var(--pulseai-failed));
+	color: var(--vscode-editorWarning-foreground, inherit);
+}
+.pulseai-context-status-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
+/* ---- Tail activity row: Hermes' scaffold line ----
+   What the agent leaves at the tail of a live turn: a breathing square, the named wait under the
+   sweep, and the seconds it has been waiting. `data-slot` carries upstream's own names
+   (`aui_response-loading` before the tail message produces anything, `aui_turn-activity` after),
+   so a selector written against the webview finds the same thing in the pane. */
+.pulseai-scaffold-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 22px;
+	padding: 3px 10px;
+	font-size: var(--pulseai-text-body);
+	color: var(--vscode-descriptionForeground);
+}
+.pulseai-scaffold-pulse {
+	display: inline-block;
+	flex-shrink: 0;
+	inline-size: 0.75rem;
+	block-size: 0.75rem;
+	border-radius: 2px;
+	background: currentColor;
+	animation: pulseai-breathe 1.6s ease-in-out infinite;
+}
+@keyframes pulseai-breathe {
+	0%, 100% { opacity: 0.25; }
+	50% { opacity: 1; }
+}
+.pulseai-scaffold-hint { font-weight: 500; }
+.pulseai-scaffold-meta { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- Thinking, behind a row (upstream DisclosureRow affordance) ----
+   No leading chevron and no full-width slab: the hit target is a content-sized pill around the
+   label, and the caret lives to its right -- on hover, and while the row is open. The fork uses a
+   native `details` disclosure rather than the webview's measure-then-clamp ExpandableBlock, since
+   the renderer has no ResizeObserver plumbing; the affordance is the same, the clamp is not. */
+.pulseai-thought-row { display: block; }
+.pulseai-disclosure-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 1px 0;
+	border: 0;
+	background: none;
+	color: var(--pulseai-scaffold-text);
+	font-size: var(--pulseai-conv-tool-size);
+	line-height: var(--pulseai-conv-line);
+	list-style: none;
+	cursor: pointer;
+	transition: color 120ms ease;
+}
+.pulseai-disclosure-row::-webkit-details-marker { display: none; }
+.pulseai-disclosure-stack {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 6px;
+	margin-left: -6px;
+	border-radius: 4px;
+	transition: background-color 120ms ease;
+}
+.pulseai-disclosure-row:hover { color: var(--vscode-foreground); }
+.pulseai-disclosure-row:hover .pulseai-disclosure-stack { background: transparent; }
+.pulseai-disclosure-stack strong { color: inherit; font-weight: 400; }
+.pulseai-disclosure-caret { opacity: 0; font-size: var(--pulseai-text-micro); transition: opacity 120ms ease; }
+.pulseai-disclosure-row:hover .pulseai-disclosure-caret,
+.pulseai-thought-row[open] .pulseai-disclosure-caret { opacity: 0.75; }
+.pulseai-thought-body { padding: 2px 10px 6px 26px; }
+.pulseai-thought-body p {
+	margin: 0;
+	color: var(--pulseai-scaffold-text);
+	font-size: var(--pulseai-conv-size);
+	line-height: var(--pulseai-conv-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Solid SVG glyphs (pulseAIIcons.ts) sit on the text baseline like the font they replace. */
+.pulseai-tool-summary svg,
+.pulseai-scaffold-status svg,
+.pulseai-disclosure-row svg { flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+	.pulseai-shimmer,
+	.pulseai-scaffold-pulse,
+	.pulseai-breathing-edge.is-streaming::after { animation: none; }
+}
+@media (max-width: 420px) {
+	.pulseai-scaffold-status { padding-inline: 8px; }
+	.pulseai-scaffold-meta { display: none; }
+}
+
+.pulseai-approval-dock {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	min-width: 0;
+	padding: 7px 9px;
+	border-top: 1px solid var(--pulseai-approval);
+	background: color-mix(in srgb, var(--pulseai-approval) 9%, var(--vscode-sideBar-background));
+}
+.pulseai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
+.pulseai-approval-copy > .codicon { margin-top: 2px; color: var(--pulseai-approval); }
+.pulseai-approval-copy div { display: grid; min-width: 0; }
+.pulseai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
+
+/* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
+.pulseai-approval-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.pulseai-approval-pill {
+	position: relative;
+	display: inline-flex;
+	align-items: stretch;
+	height: 24px;
+	overflow: visible;
+	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
+	color: var(--vscode-focusBorder);
+}
+.pulseai-approval-run {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 100%; padding: 0 8px; border: none; border-radius: 5px 0 0 5px;
+	background: transparent; color: inherit; font-size: var(--pulseai-text-body-lg); font-weight: 500;
+	cursor: pointer;
+}
+.pulseai-approval-run:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
+.pulseai-approval-divider { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent); }
+.pulseai-approval-more {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 20px; height: 100%; padding: 0; border: none; border-radius: 0 5px 5px 0;
+	background: transparent; color: inherit; cursor: pointer;
+}
+.pulseai-approval-more:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
+.pulseai-approval-menu {
+	display: none;
+	position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
+	min-width: 176px; padding: 4px;
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, rgba(128,128,128,.35)));
+	border-radius: 6px;
+	background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+	box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+.pulseai-approval-menu.is-open { display: grid; gap: 1px; }
+.pulseai-approval-menu-item {
+	display: flex; align-items: center; gap: 7px;
+	height: 26px; padding: 0 8px; border: none; border-radius: 4px;
+	background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	font-size: var(--pulseai-text-body-lg); text-align: left; cursor: pointer;
+}
+.pulseai-approval-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.2)); }
+.pulseai-approval-menu-item.is-destructive { color: var(--vscode-errorForeground); }
+.pulseai-approval-menu-item .codicon { font-size: var(--pulseai-text-title); }
+.pulseai-approval-reject {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body-lg); cursor: pointer;
+}
+.pulseai-approval-reject:hover { color: var(--vscode-foreground); }
+.pulseai-approval-review {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body-lg); cursor: pointer;
+}
+.pulseai-approval-review:hover { color: var(--vscode-foreground); }
+.pulseai-approval-kbd { font-size: var(--pulseai-text-micro); opacity: .6; }
+.pulseai-approval-command-toggle {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-body-lg); cursor: pointer;
+}
+.pulseai-approval-command-toggle:hover { color: var(--vscode-foreground); }
+.pulseai-approval-command {
+	display: none;
+	width: 100%; max-height: 160px; overflow: auto;
+	margin: 6px 0 0; padding: 6px 10px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 6px;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--pulseai-text-body-lg); line-height: 1.45;
+	white-space: pre-wrap; word-break: break-word;
+}
+.pulseai-approval-command.is-open { display: block; }
+.pulseai-dialog-overlay {
+	display: none;
+	position: fixed; inset: 0; z-index: 100;
+	align-items: center; justify-content: center;
+	background: rgba(0,0,0,.45);
+}
+.pulseai-dialog-overlay.is-open { display: flex; }
+.pulseai-dialog {
+	width: min(420px, calc(100vw - 48px));
+	padding: 16px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.35));
+	border-radius: 8px;
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	box-shadow: 0 8px 28px rgba(0,0,0,.5);
+}
+.pulseai-dialog h3 { margin: 0 0 8px; font-size: var(--pulseai-text-title); font-weight: 600; }
+.pulseai-dialog-copy { margin: 0 0 10px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-body-lg); line-height: 1.5; }
+.pulseai-dialog-command {
+	max-height: 120px; overflow: auto; margin: 0 0 10px; padding: 6px 10px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3)); border-radius: 6px;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--pulseai-text-body-lg);
+	white-space: pre-wrap; word-break: break-word;
+}
+.pulseai-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Hermes clarify card (the ask tool) ── */
+.pulseai-clarify-card {
+	display: grid; gap: 8px;
+	margin: 6px 0;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 88%, transparent);
+	font-size: var(--pulseai-text-body, 13px);
+}
+.pulseai-clarify-form { border-color: color-mix(in srgb, var(--vscode-focusBorder) 40%, transparent); }
+.pulseai-clarify-block { display: grid; gap: 6px; }
+.pulseai-clarify-q { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; line-height: 1.45; }
+.pulseai-clarify-q > .codicon, .pulseai-clarify-q > svg { margin-top: 2px; flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+.pulseai-clarify-choices { display: grid; gap: 1px; }
+.pulseai-clarify-choice, .pulseai-clarify-other {
+	display: flex; width: 100%; align-items: flex-start; gap: 8px;
+	padding: 5px 6px; border: none; border-radius: 4px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: inherit; text-align: left; cursor: pointer;
+}
+.pulseai-clarify-choice:hover, .pulseai-clarify-other:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-clarify-choice.is-selected { color: var(--vscode-foreground); }
+.pulseai-clarify-choice.is-active, .pulseai-clarify-other.is-active { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-clarify-choice-label { flex: 1 1 auto; overflow-wrap: anywhere; }
+.pulseai-clarify-recommended { color: var(--vscode-descriptionForeground); }
+.pulseai-key-badge {
+	display: inline-flex; align-items: center; justify-content: center;
+	min-width: 18px; height: 18px; padding: 0 4px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.4)); border-radius: 4px;
+	font-size: var(--pulseai-text-micro); color: var(--vscode-descriptionForeground);
+	margin-top: 1px;
+}
+.pulseai-key-badge.is-selected {
+	border-color: var(--vscode-button-background);
+	background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+}
+.pulseai-clarify-other-input {
+	flex: 1 1 auto; min-height: 0; resize: none;
+	border: none; background: transparent; color: var(--vscode-foreground);
+	font: inherit; outline: none;
+}
+.pulseai-clarify-open { padding: 6px; border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3)); border-radius: 6px; }
+.pulseai-clarify-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.pulseai-clarify-submit[disabled] { opacity: .5; cursor: not-allowed; }
+.pulseai-clarify-a { display: flex; align-items: flex-start; gap: 8px; color: var(--vscode-descriptionForeground); }
+.pulseai-clarify-a.is-error { color: var(--vscode-errorForeground); }
+.pulseai-clarify-a.is-skipped { font-style: italic; color: var(--vscode-descriptionForeground); opacity: .8; }
+.pulseai-clarify-a-badge {
+	display: inline-flex; align-items: center; justify-content: center;
+	min-width: 18px; height: 18px; padding: 0 4px; margin-top: 1px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.4)); border-radius: 50%;
+	font-size: var(--pulseai-text-micro);
+}
+.pulseai-clarify-late { display: grid; gap: 1px; }
+.pulseai-clarify-late-hint { margin: 2px 0 0; padding: 0 6px; font-size: var(--pulseai-text-body); color: var(--vscode-descriptionForeground); }
+
+/* ── Hermes todo panel (the task tool) ── */
+.pulseai-todo-stack { display: grid; gap: 4px; }
+.pulseai-todo-list { display: grid; gap: 1px; }
+.pulseai-todo-row {
+	display: flex; align-items: center; gap: 8px;
+	min-height: 20px; padding: 1px 8px;
+	font-size: var(--pulseai-text-meta, 12px); color: var(--vscode-foreground);
+}
+.pulseai-todo-row.is-completed .pulseai-todo-content { color: var(--vscode-descriptionForeground); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--vscode-descriptionForeground) 60%, transparent); }
+.pulseai-todo-row.is-completed > .codicon, .pulseai-todo-row.is-completed > svg { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.pulseai-todo-row.is-cancelled { color: var(--vscode-descriptionForeground); opacity: .6; }
+.pulseai-todo-ring {
+	box-sizing: border-box; width: 11px; height: 11px; flex-shrink: 0;
+	border: 1px dashed var(--vscode-descriptionForeground);
+	border-radius: 50%; opacity: .65;
+}
+.pulseai-todo-row .pulseai-mini-spinner { width: 11px; height: 11px; flex-shrink: 0; }
+
+.pulseai-button {
+	height: 24px;
+	padding: 0 9px;
+	border: 1px solid transparent;
+}
+.pulseai-button-primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.pulseai-button-primary:hover { background: var(--vscode-button-hoverBackground); }
+.pulseai-button-secondary { border-color: var(--vscode-button-secondaryBackground); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+
+.pulseai-composer {
+	padding: 9px 10px 7px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-composer-box {
+	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+	border-radius: 7px;
+	background: var(--vscode-input-background);
+	box-shadow: 0 3px 12px var(--vscode-widget-shadow);
+	overflow: hidden;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.pulseai-composer-box:focus-within {
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent), 0 4px 14px var(--vscode-widget-shadow);
+}
+.pulseai-composer-input {
+	display: block;
+	width: 100%;
+	min-height: 30px;
+	max-height: 130px;
+	padding: 8px 9px 4px;
+	resize: vertical;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	line-height: 1.4;
+}
+.pulseai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+.pulseai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; }
+.pulseai-composer-left { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 160px; }
+
+.pulseai-mode-picker { position: relative; min-width: 0; }
+.pulseai-mode-summary {
+	display: inline-flex;
+	align-items: center;
+	gap: .4em;
+	height: 24px;
+	padding: 0 .6em;
+	border-radius: 5px;
+	list-style: none;
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+	font-size: inherit;
+	cursor: pointer;
+	user-select: none;
+}
+.pulseai-mode-summary::-webkit-details-marker { display: none; }
+.pulseai-mode-summary:hover { background: var(--vscode-toolbar-hoverBackground); }
+.pulseai-mode-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.pulseai-mode-summary[aria-disabled='true'] { cursor: default; opacity: .65; }
+.pulseai-mode-summary > .codicon:last-child { color: var(--vscode-descriptionForeground); font-size: .85em; }
+.pulseai-mode-picker[open] .pulseai-mode-summary > .codicon:last-child { transform: rotate(180deg); }
+.pulseai-mode-menu {
+	position: absolute;
+	z-index: 40;
+	bottom: calc(100% + 6px);
+	left: 0;
+	display: grid;
+	width: min(250px, calc(100vw - 24px));
+	padding: 4px;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+	border-radius: 6px;
+	background: var(--vscode-menu-background);
+	color: var(--vscode-menu-foreground);
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+}
+.pulseai-mode-option {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) 16px;
+	align-items: center;
+	gap: .5em;
+	width: 100%;
+	min-height: 38px;
+	padding: .35em .55em;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+}
+.pulseai-mode-option:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+.pulseai-mode-option:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.pulseai-mode-option.is-selected { background: var(--vscode-list-inactiveSelectionBackground); }
+.pulseai-mode-option-copy { display: grid; min-width: 0; gap: 1px; }
+.pulseai-mode-option-copy strong { font-size: 1em; font-weight: 500; }
+.pulseai-mode-option-copy small { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .86em; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-mode-option:hover small { color: inherit; }
+.pulseai-mode-option > .codicon-check { color: var(--vscode-testing-iconPassed); }
+
+.pulseai-composer-pill,
+.pulseai-composer-select {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 0 auto;
+	height: 21px;
+	padding: 0 7px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-meta);
+	cursor: pointer;
+}
+.pulseai-composer-pill:hover,
+.pulseai-composer-select:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-composer-select { width: 92px; min-width: 0; flex: 0 0 auto; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-at-sign { color: var(--pulseai-accent); font-weight: 700; margin-right: 3px; }
+.pulseai-send-button {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font-size: 1.1em;
+	cursor: pointer;
+}
+.pulseai-send-button:hover { filter: brightness(1.08); }
+.pulseai-send-button.pulseai-send-stop {
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	outline: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+}
+.pulseai-send-button.pulseai-send-stop:hover { color: var(--vscode-foreground); }
+.pulseai-composer-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 5px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); }
+.pulseai-icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	height: 21px;
+	padding: 0 5px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--pulseai-text-meta);
+}
+.pulseai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+
+/* Pulse Manager occupies an editor tab, leaving source editors and the global menu intact. */
+.pulseai-manager-editor {
+	display: block;
+	container-name: pulseai-manager-editor;
+	container-type: inline-size;
+}
+.pulseai-manager-shell {
+	display: grid;
+	grid-template-columns: minmax(160px, 18%) minmax(0, 1fr) minmax(200px, 22%);
+	height: 100%;
+	min-width: 0;
+	background: var(--vscode-editor-background);
+}
+.pulseai-manager-sidebar,
+.pulseai-manager-inspector,
+.pulseai-manager-main { min-width: 0; min-height: 0; }
+.pulseai-manager-sidebar {
+	display: grid;
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
+	border-right: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-manager-inspector {
+	overflow: auto;
+	border-left: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-manager-main {
+	display: grid;
+	grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+
+.pulseai-manager-pane-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 48px;
+	padding: 7px 10px;
+}
+.pulseai-manager-pane-head h2 { margin: 1px 0 0; font-size: var(--pulseai-text-title); font-weight: 600; }
+.pulseai-eyebrow { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); letter-spacing: var(--pulseai-track-caps); }
+
+.pulseai-manager-search {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 29px;
+	margin: 7px;
+	padding: 0 7px;
+	border: 1px solid var(--vscode-input-border, transparent);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-placeholderForeground);
+}
+.pulseai-workspace-group { overflow: auto; }
+.pulseai-workspace-title { display: flex; align-items: center; gap: 5px; height: 27px; padding: 0 8px; font-size: var(--pulseai-text-body); }
+.pulseai-workspace-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-session-row {
+	display: grid;
+	grid-template-columns: 8px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	padding: 7px 8px 7px 20px;
+	border: 0;
+	border-left: 2px solid transparent;
+	background: transparent;
+	text-align: left;
+}
+.pulseai-session-row:hover { background: var(--vscode-list-hoverBackground); }
+.pulseai-session-row.is-active { border-left-color: var(--pulseai-accent); background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.pulseai-session-row > div { display: grid; min-width: 0; gap: 2px; }
+.pulseai-session-row strong,
+.pulseai-session-row div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-session-row div span,
+.pulseai-session-state { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); }
+.pulseai-manager-sidebar-footer { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
+
+.pulseai-manager-titlebar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-height: 56px;
+	padding: 7px 12px;
+}
+.pulseai-manager-breadcrumb { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
+.pulseai-manager-titlebar h1 { max-width: 680px; margin: 3px 0 0; overflow: hidden; font-size: var(--pulseai-text-page); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-manager-tabs { display: flex; height: 32px; padding-left: 7px; }
+.pulseai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-body); }
+.pulseai-manager-tabs button:hover { color: var(--vscode-foreground); }
+.pulseai-manager-tabs button.is-active { border-bottom-color: var(--pulseai-accent); color: var(--vscode-foreground); }
+.pulseai-manager-main .pulseai-transcript-lane { max-width: 860px; padding: 18px clamp(18px, 4vw, 42px) 24px; }
+.pulseai-manager-main .pulseai-composer { padding: 8px 16px 10px; background: var(--vscode-editor-background); }
+.pulseai-manager-main .pulseai-composer-input { min-height: 58px; }
+
+.pulseai-inspector-section { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.pulseai-inspector-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; font-size: var(--pulseai-text-meta); text-transform: uppercase; }
+.pulseai-inspector-title strong { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); font-weight: 500; }
+.pulseai-plan-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pulseai-plan-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); line-height: 1.35; }
+.pulseai-plan-list li.is-active { color: var(--vscode-foreground); }
+.pulseai-plan-list li.is-muted { opacity: .75; }
+.pulseai-evidence-row { display: flex; align-items: flex-start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); line-height: 1.35; }
+.pulseai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); }
+.pulseai-usage-grid strong { color: var(--vscode-foreground); font-weight: 500; }
+
+/* Viewport queries are a fallback; container queries are authoritative because
+ * editor width also changes when Explorer and the auxiliary Agent view are open. */
+@media (max-width: 880px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
+	.pulseai-manager-inspector { display: none; }
+}
+
+@media (max-width: 610px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(0, 1fr); }
+	.pulseai-manager-sidebar { display: none; }
+}
+
+@container pulseai-manager-editor (max-width: 880px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
+	.pulseai-manager-inspector { display: none; }
+}
+
+@container pulseai-manager-editor (max-width: 610px) {
+	.pulseai-manager-shell { grid-template-columns: minmax(0, 1fr); }
+	.pulseai-manager-sidebar { display: none; }
+}
+
+@media (max-width: 420px) {
+	.pulseai-plan-strip-state,
+	.pulseai-working-detail { display: none; }
+	.pulseai-tool-summary { grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto 12px; }
+	.pulseai-tool-duration { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pulseai-mini-spinner { animation: none; }
+	.pulseai-plan-strip-summary > .codicon-chevron-down,
+	.pulseai-composer-box { transition: none; }
+}
+
+/* ---- Copilot hiding (visual layer) ----
+ * The context-key layer in pulseAIHideCopilot.ts handles the watermark and
+ * onboarding surfaces. These rules hide the remaining Copilot chrome that
+ * persists because the entitlement service's async update cycle or the
+ * agent registration re-asserts context keys after our BlockStartup pass.
+ *
+ * Targets:
+ *   1. Status bar Copilot entry (#chat.statusBarEntry)
+ *   2. Title-bar "Open in Agents" widget (.open-in-agents-titlebar-widget)
+ *   3. Title-bar "Sign In" button (Copilot sign-in affordance)
+ *   4. Auxiliary-bar Copilot Chat icon (activity-workbench-view-extension-copilot-chat-*)
+ *   5. Copilot sparkle codicon in any toolbar/title bar
+ */
+#chat\.statusBarEntry,
+.activitybar [class*="activity-workbench-view-extension-copilot-chat"],
+.open-in-agents-titlebar-widget,
+.agent-status-input-area,
+.codicon-copilot,
+.codicon-chat-sparkle,
+[class*="titlebar"] .codicon-copilot,
+[class*="titlebar"] .codicon-chat-sparkle {
+	display: none !important;
+}
+
+/* ---- Sub-Agent List ---- */
+.pulseai-subagent-list {
+	margin: 13px 0 7px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+}
+.pulseai-subagent-row {
+	display: grid;
+	grid-template-columns: 13px minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 6px;
+	padding: 5px 0;
+	border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 50%, transparent);
+	font-size: var(--pulseai-text-meta);
+}
+.pulseai-subagent-row.is-running { background: color-mix(in srgb, var(--pulseai-running) 5%, transparent); }
+.pulseai-subagent-row.is-completed { background: color-mix(in srgb, var(--pulseai-verified) 5%, transparent); }
+.pulseai-subagent-row.is-failed { background: color-mix(in srgb, var(--pulseai-failed) 5%, transparent); }
+.pulseai-subagent-goal {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pulseai-subagent-state {
+	padding: 1px 4px;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	font-size: var(--pulseai-text-micro);
+	text-transform: uppercase;
+}
+.pulseai-subagent-state.is-running { color: var(--pulseai-running); }
+.pulseai-subagent-state.is-completed { color: var(--pulseai-verified); }
+.pulseai-subagent-state.is-failed { color: var(--pulseai-failed); }
+.pulseai-subagent-state.is-cancelled { color: var(--pulseai-approval); }
+.pulseai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-micro); }
+.pulseai-subagent-result {
+	grid-column: 1 / -1;
+	margin-top: 4px;
+}
+.pulseai-subagent-result pre {
+	max-height: 120px;
+	margin: 0;
+	padding: 5px 7px;
+	overflow: auto;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-textCodeBlock-background);
+	font-family: var(--pulseai-font-mono);
+	font-size: var(--vscode-editor-font-size, 11px);
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* ---- Inline Completion Ghost Text ---- */
+.pulseai-inline-suggestion {
+	color: var(--vscode-editorGhostText-foreground, var(--vscode-editor-inactiveSelectionBackground));
+	background: var(--vscode-editorGhostText-background, transparent);
+	text-decoration: none;
+}
+
+/* ---- Next Edit Suggestion Lightbulb ---- */
+.pulseai-next-edit-gutter {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: var(--pulseai-accent);
+	color: var(--vscode-editor-background);
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+	font-size: var(--pulseai-text-micro);
+}
+
+/* --- permission handling: allow / allow-for-session / deny, colour-coded by
+   meaning, on theme tokens so every product theme stays legible --- */
+.pulseai-button-allow {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.pulseai-button-allow:hover { background: var(--vscode-button-hoverBackground); }
+.pulseai-button-allow > .codicon { color: var(--vscode-testing-iconPassed, #3fb950); }
+.pulseai-button-allow-session > .codicon,
+.pulseai-button-deny > .codicon { color: var(--vscode-testing-iconFailed, #f85149); }
+.pulseai-button-deny {
+	border: 1px solid color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 55%, transparent);
+}
+.pulseai-button-deny:hover {
+	background: color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 16%, transparent);
+}
+.pulseai-button-allow-session:hover {
+	background: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) 14%, transparent);
+}
+
+/* --- diff lines: green/red from the editor's own diff tokens, so the pane and the
+   native diff editor cannot disagree about what an added line looks like --- */
+.pulseai-diff-line { padding: 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pulseai-diff-line.is-added { background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent); }
+.pulseai-diff-line.is-removed { background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent); }
+.pulseai-diff-line.is-meta { color: var(--vscode-descriptionForeground); }
+.pulseai-diff-line.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
+
+/* --- the optional webview pane: configurable host + an honest "not answering" state --- */
+.pulseai-webview-slot { position: relative; }
+.pulseai-webview-unreachable {
+	position: absolute;
+	inset: auto 8px 8px 8px;
+	display: grid;
+	gap: 6px;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-inputValidation-infoBorder, transparent);
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+	font-size: var(--pulseai-text-body);
+}
+.pulseai-webview-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.pulseai-webview-unreachable .pulseai-button { justify-self: start; }
+
+/* --- designed empty state for the native Agent view (mirrors the ported webview's
+   `empty-state.tsx`, so the two surfaces of one agent cannot look unrelated) --- */
+.pulseai-empty-state {
+	display: grid;
+	gap: 10px;
+	padding: 18px 12px 12px;
+	align-content: center;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+.pulseai-empty-copy { margin: 0; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-copy); line-height: 1.5; }
+.pulseai-starter-grid { display: grid; gap: 6px; }
+.pulseai-starter-prompt {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 7px 9px;
+	text-align: left;
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 5px;
+	background: var(--vscode-list-hoverBackground, transparent);
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	font-size: var(--pulseai-text-copy);
+	width: 100%;
+}
+.pulseai-starter-prompt:hover { border-color: var(--vscode-focusBorder); }
+.pulseai-starter-prompt > .codicon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
+@media (max-width: 420px) { .pulseai-empty-state { padding: 12px 8px 8px; } }
+
+/* --- activity runs in the right panel: one summary line per run of activity, cards
+   for anything that draws its own surface (mirrors the CopilotKit webview) --- */
+.pulseai-tool-run {
+	border: 0;
+	border-radius: 0;
+	margin: 0;
+	background: transparent;
+	overflow: visible;
+}
+.pulseai-tool-run-summary {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 1px 0;
+	cursor: pointer;
+	list-style: none;
+	font-size: var(--pulseai-conv-tool-size);
+	line-height: var(--pulseai-conv-line);
+	color: var(--pulseai-scaffold-text);
+}
+.pulseai-tool-run-summary::-webkit-details-marker { display: none; }
+.pulseai-tool-run-summary:hover { background: transparent; color: var(--vscode-foreground); }
+.pulseai-tool-run.is-live .pulseai-tool-run-summary { color: var(--vscode-foreground); }
+.pulseai-tool-run-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-tool-run-count {
+	margin-left: auto;
+	flex-shrink: 0;
+	padding: 0;
+	background: transparent;
+	color: var(--pulseai-scaffold-meta);
+	font-size: var(--pulseai-conv-meta-size);
+}
+.pulseai-tool-run-body { border-top: 0; padding: 2px 0 0; display: flex; flex-direction: column; gap: var(--pulseai-scaffold-gap); }
+.pulseai-tool-run-body .pulseai-tool-row { border: 0; padding-left: 0; }
+@media (max-width: 420px) { .pulseai-tool-run-summary { font-size: var(--pulseai-text-body); } }
+
+/* --- one surface at a time in a narrow auxiliary bar --- */
+.pulseai-view-tabs { display: flex; gap: 4px; padding: 4px 6px 0; flex-shrink: 0; }
+.pulseai-view-tabs.is-hidden { display: none; }
+.pulseai-view-tab {
+	flex: 0 1 auto;
+	padding: 3px 9px;
+	font-size: var(--pulseai-text-body);
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-bottom: 0;
+	border-radius: 4px 4px 0 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+}
+.pulseai-view-tab.is-active {
+	color: var(--vscode-foreground);
+	background: var(--vscode-sideBar-background);
+	border-color: var(--vscode-focusBorder);
+}
+.pulseai-view-tab:disabled { opacity: .5; cursor: default; }
+.pulseai-view > .pulseai-render-root { min-height: 0; }
+
+/* --- manager session rows: the fork's attention rules, Pulse's skin.
+ * Upstream pulses needs-input on a 2s glyph cycle and a 3s row accent, and goes quiet while the
+ * row is selected/hovered (chat/browser/agentSessions/media/agentsessionsviewer.css:29-40); the
+ * reduced-motion branch keeps a static tint instead of a blink. Same rules, our selectors. */
+.pulseai-status-dot.is-waiting { background: var(--vscode-charts-yellow, #d7ba7d); }
+.pulseai-status-dot.is-failed { background: var(--vscode-errorForeground, #f14c4c); }
+.pulseai-status-dot.is-idle { background: var(--vscode-descriptionForeground); }
+.pulseai-session-detail { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-session-row:disabled, .pulseai-session-row.is-empty { cursor: default; opacity: 1; }
+.pulseai-session-row.is-empty > div > strong { color: var(--vscode-foreground); }
+.pulseai-session-row.is-attention { background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground, #3a3d41) 8%, transparent); }
+.pulseai-session-row.is-needs-input .pulseai-status-dot.is-waiting { animation: pulseai-needs-input 2s ease-in-out infinite; }
+.pulseai-session-row.is-needs-input.is-active .pulseai-status-dot.is-waiting,
+.pulseai-session-row.is-needs-input:hover .pulseai-status-dot.is-waiting { animation: none; }
+@keyframes pulseai-needs-input { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+	.pulseai-session-row.is-needs-input .pulseai-status-dot.is-waiting { animation: none; }
+	.pulseai-session-row.is-needs-input { background: color-mix(in srgb, var(--vscode-list-hoverBackground, #3a3d41) 8%, transparent); }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Transcript markdown (pulseai-md): the assistant copy is rendered as real
+ * markdown via DOM in pulseAIRenderer.ts. Keep these rules theme-driven --
+ * every color comes from a VS Code theme variable so the map never fights
+ * the user's theme.
+ * ------------------------------------------------------------------------- */
+.pulseai-md { font-size: var(--pulseai-conv-size); line-height: var(--pulseai-conv-line); }
+.pulseai-md .pulseai-md-p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pulseai-md .pulseai-md-p + .pulseai-md-p { margin-top: var(--pulseai-paragraph-gap); }
+.pulseai-md .pulseai-md-h { font-weight: 600; margin: var(--pulseai-paragraph-gap) 0 2px 0; }
+.pulseai-md .pulseai-md-h1,
+.pulseai-md .pulseai-md-h2 { font-size: 1.05em; }
+.pulseai-md .pulseai-md-h3,
+.pulseai-md .pulseai-md-h4 { font-size: 1.05em; }
+.pulseai-md .pulseai-md-h5,
+.pulseai-md .pulseai-md-h6 { font-size: 1em; color: var(--vscode-descriptionForeground); }
+.pulseai-md .pulseai-md-ul { margin: 2px 0 0 0; padding-left: 20px; }
+.pulseai-md .pulseai-md-ul li { margin: 1px 0; }
+.pulseai-md .pulseai-md-hr { border: none; border-top: 1px solid var(--vscode-editorWidget-border, rgba(128,128,128,.35)); margin: 8px 0; }
+.pulseai-md .pulseai-md-code {
+	font-family: var(--monaco-monospace-font, monospace);
+	font-size: 0.95em;
+	background: var(--vscode-textCodeBlock-background);
+	color: var(--vscode-textPreformat-foreground, inherit);
+	padding: 1px 4px;
+	border-radius: 3px;
+}
+.pulseai-md .pulseai-md-pre {
+	margin: 4px 0 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--pulseai-radius-code);
+	background: var(--pulseai-codecard-bg);
+	font-family: var(--pulseai-font-mono);
+	font-size: var(--pulseai-conv-code-size);
+	line-height: 1.45;
+}
+.pulseai-md .pulseai-md-pre,
+.pulseai-md .pulseai-md-code { user-select: text; }
+
+
+/* ---------------------------------------------------------------------------
+ * Hermes-port: message actions + activity row (pulseAIRenderer.ts).
+ * - .pulseai-icon-action: the copy control is an ICON button (codicon copy,
+ *   check-flash on success) -- never a naked text line.
+ * - .pulseai-activity-row: the ONE tail row while a turn runs -- pulse dot +
+ *   wait hint + live elapsed seconds (updated in place by the 1s ticker).
+ * ------------------------------------------------------------------------- */
+.pulseai-message-actions { display: flex; gap: 4px; margin-top: 2px; }
+.pulseai-icon-action {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 22px; height: 22px; padding: 0;
+	background: transparent; border: none; border-radius: 4px;
+	color: var(--vscode-foreground); opacity: .55; cursor: pointer;
+}
+.pulseai-icon-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+.pulseai-icon-action .codicon { font-size: var(--pulseai-icon-md); }
+.pulseai-activity-row { gap: 6px; }
+.pulseai-activity-dot {
+	width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto;
+	background: currentColor; animation: pulseai-opacity-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulseai-opacity-pulse { 0%, 100% { opacity: .15; } 50% { opacity: .85; } }
+/* Hermes dot grammar (session-status-dot.tsx): stalled = alive but SILENT.
+ * Same accent, hollow, no motion — "filled means producing, hollow means open
+ * but quiet". The row text carries the fact; the dot only changes shape. */
+.pulseai-activity-row.is-stalled .pulseai-activity-dot {
+	animation: none; background: transparent;
+	box-shadow: inset 0 0 0 1.5px currentColor; opacity: .85;
+}
+/* Hermes expandable-block.tsx: collapsed cap 7.5rem + bottom fade + one
+ * chevron; expanded caps at 40dvh and scrolls. Fits -> no chrome. */
+.pulseai-expandable { position: relative; }
+.pulseai-expandable-clip { overflow-y: auto; overflow-x: auto; }
+.pulseai-expandable.is-collapsed .pulseai-expandable-clip { max-height: 7.5rem; overflow: hidden; }
+.pulseai-expandable:not(.is-collapsed) .pulseai-expandable-clip { max-height: 40dvh; }
+.pulseai-expandable.is-fits .pulseai-expandable-fade { display: none; }
+.pulseai-expandable-fade {
+	position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+	display: flex; justify-content: flex-end; align-items: flex-end;
+	background: linear-gradient(to top, var(--vscode-editor-background, rgba(0,0,0,.35)) 10%, transparent);
+	pointer-events: none;
+}
+.pulseai-expandable-toggle {
+	pointer-events: auto; border: none; background: transparent;
+	color: var(--vscode-foreground); opacity: .7; cursor: pointer;
+	padding: 2px 6px; display: flex; align-items: center;
+}
+.pulseai-expandable-toggle:hover { opacity: 1; }
+.pulseai-expandable:not(.is-collapsed) .pulseai-expandable-toggle { transform: rotate(180deg); }
+/* Collapsed arguments drawer on generic tool cards (think & friends): the
+ * prose is the content; the raw call arguments are an audit trail. */
+.pulseai-tool-args-details { margin-top: 6px; }
+.pulseai-tool-args-summary {
+	cursor: pointer; opacity: .55; font-size: var(--pulseai-text-body); user-select: none;
+}
+.pulseai-tool-args-summary:hover { opacity: .85; }
+.pulseai-tool-args-details[open] .pulseai-tool-args-summary { opacity: .85; }
+/* The anatomy inspector: what the live request is made of, role + head per
+ * message. Quiet by default — a collapsed one-line summary; opens into a
+ * monospace list. Colors and fonts come from theme vars; no invented values. */
+.pulseai-llm-anatomy { margin: 2px 0 0 14px; }
+.pulseai-llm-anatomy-summary {
+	cursor: pointer; list-style: none; opacity: .55; font-size: var(--pulseai-text-meta);
+	user-select: none; color: var(--vscode-descriptionForeground);
+}
+.pulseai-llm-anatomy-summary:hover { opacity: .85; }
+.pulseai-llm-anatomy-list {
+	margin-top: 4px; display: grid; gap: 2px; max-height: 40dvh; overflow: auto;
+}
+.pulseai-llm-anatomy-row {
+	display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 6px;
+	font-size: var(--pulseai-text-meta); line-height: 1.4; align-items: baseline;
+}
+.pulseai-llm-anatomy-role {
+	color: var(--vscode-descriptionForeground); text-transform: uppercase;
+	font-size: var(--pulseai-text-micro); letter-spacing: var(--pulseai-track-caps); text-align: right;
+}
+.pulseai-llm-anatomy-head {
+	font-family: var(--pulseai-font-mono); color: var(--vscode-descriptionForeground);
+	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pulseai-elapsed { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }
+
+
+/* ===========================================================================
+ * Hermes transcript skin (apps/desktop/src/styles.css) — ported verbatim as
+ * RATIOS, not colors: every token is color-mix over the live VS Code theme
+ * variables, so nothing is hardcoded and the skin follows the user's theme.
+ *
+ * What makes it read as hermes:
+ *   1. ONE quiet color for all scaffolding (thinking headers, tool rows,
+ *      activity) at 64% foreground — the prose alone speaks at ~94%.
+ *   2. Tool rows are borderless dim LINES, not framed cards; expanding one is
+ *      the only moment it gains a surface.
+ *   3. The user's message is the only tinted bubble (accent-seeded mix).
+ *   4. No per-message brand label on a settled reply — the answer is the
+ *      reply; "Working" appears only while the turn is live.
+ *   5. Hermes rhythm: 12px between turn blocks, 6px between tool rows,
+ *      13px/18px prose, 11px scaffold text.
+ * All rules are scoped `.pulseai-transcript-lane :where(...)` — zero-specificity
+ * heads, so existing manager-surface rules keep winning where they disagree.
+ * ------------------------------------------------------------------------ */
+
+.pulseai-transcript-scroll {
+	--pulseai-h-text: color-mix(in srgb, var(--vscode-editor-foreground) 94%, transparent);
+	--pulseai-h-body: color-mix(in srgb, var(--vscode-editor-foreground) 74%, transparent);
+	--pulseai-h-quiet: color-mix(in srgb, var(--vscode-editor-foreground) 54%, transparent);
+	--pulseai-h-scaffold: color-mix(in srgb, var(--vscode-editor-foreground) 64%, transparent);
+	--pulseai-h-meta: color-mix(in srgb, var(--vscode-editor-foreground) 44%, transparent);
+	--pulseai-h-stroke: color-mix(in srgb, var(--vscode-panel-border) 60%, transparent);
+	--pulseai-h-bubble: color-mix(in srgb, var(--vscode-focusBorder) 9%, var(--vscode-editor-background));
+	--pulseai-h-bubble-edge: color-mix(in srgb, var(--vscode-focusBorder) 16%, transparent);
+	--pulseai-h-turn-gap: 12px;
+	--pulseai-h-scaffold-gap: 4px;
+	--pulseai-h-tool-row-gap: 6px;
+	--pulseai-h-prose-size: 13px;
+	--pulseai-h-prose-line: 18px;
+	--pulseai-h-scaffold-size: 11px;
+	--pulseai-h-meta-size: 10px;
+	--pulseai-h-code-size: 12px;
+	--pulseai-h-radius: 12px;
+}
+
+/* --- rhythm ------------------------------------------------------------- */
+.pulseai-transcript-lane :where(.pulseai-user-message) {
+	margin: 0 0 var(--pulseai-h-turn-gap) auto;
+	max-width: 86%;
+	width: fit-content;
+	padding: 6px 12px;
+	border: 1px solid var(--pulseai-h-bubble-edge);
+	border-radius: var(--pulseai-h-radius);
+	background: var(--pulseai-h-bubble);
+	color: var(--pulseai-h-text);
+	font-size: var(--pulseai-h-prose-size);
+	line-height: var(--pulseai-h-prose-line);
+}
+.pulseai-transcript-lane :where(.pulseai-assistant-message) {
+	margin: 0 0 var(--pulseai-h-turn-gap);
+	color: var(--pulseai-h-text);
+	font-size: var(--pulseai-h-prose-size);
+	line-height: var(--pulseai-h-prose-line);
+}
+/* The brand label is a live indicator, not a letterhead: hermes shows no
+   per-message header on a settled reply. */
+.pulseai-transcript-lane :where(.pulseai-assistant-message:not(.is-streaming)) :where(.pulseai-assistant-label) {
+	display: none;
+}
+.pulseai-transcript-lane :where(.pulseai-assistant-message.is-streaming) :where(.pulseai-assistant-label) {
+	height: 16px;
+	font-size: var(--pulseai-h-scaffold-size);
+	color: var(--pulseai-h-scaffold);
+}
+
+/* --- one scaffold voice -------------------------------------------------- */
+.pulseai-transcript-lane :where(.pulseai-tool-list) {
+	margin: var(--pulseai-h-scaffold-gap) 0;
+	border-top: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--pulseai-h-tool-row-gap);
+}
+.pulseai-transcript-lane :where(.pulseai-section-heading) { display: none; }
+.pulseai-transcript-lane :where(.pulseai-tool-row) {
+	border-bottom: 0;
+	font-size: var(--pulseai-h-scaffold-size);
+	color: var(--pulseai-h-scaffold);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-row[open]) {
+	border: 1px solid var(--pulseai-h-stroke);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 45%, transparent);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-summary) {
+	min-height: 22px;
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-run) { font-size: var(--pulseai-h-scaffold-size); }
+.pulseai-transcript-lane :where(.pulseai-tool-run-summary) {
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-tool-run-body) { border-top: 1px solid var(--pulseai-h-stroke); }
+.pulseai-transcript-lane :where(.pulseai-thought-row) {
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-disclosure-row) { color: var(--pulseai-h-scaffold); }
+.pulseai-transcript-lane :where(.pulseai-thought-body) {
+	color: var(--pulseai-h-quiet);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-scaffold-status) {
+	color: var(--pulseai-h-scaffold);
+	font-size: var(--pulseai-h-scaffold-size);
+}
+.pulseai-transcript-lane :where(.pulseai-scaffold-meta),
+.pulseai-transcript-lane :where(.pulseai-tool-duration) {
+	color: var(--pulseai-h-meta);
+	font-size: var(--pulseai-h-meta-size);
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- prose --------------------------------------------------------------- */
+.pulseai-transcript-lane :where(.pulseai-assistant-copy) {
+	margin: 2px 0 0;
+	color: var(--pulseai-h-text);
+	font-size: var(--pulseai-h-prose-size);
+	line-height: var(--pulseai-h-prose-line);
+}
+.pulseai-transcript-lane :where(.pulseai-md .pulseai-md-p) {
+	margin: 0 0 0.7rem;
+	line-height: var(--pulseai-h-prose-line);
+}
+.pulseai-transcript-lane :where(.pulseai-md .pulseai-md-p:last-child) { margin-bottom: 0; }
+.pulseai-transcript-lane :where(.pulseai-md .pulseai-md-code) {
+	border-radius: 4px;
+	font-size: var(--pulseai-h-code-size);
+}
+
+.pulseai-engine-build {
+	margin-left: 6px;
+	padding-left: 6px;
+	border-left: 1px solid var(--vscode-panel-border, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--monaco-monospace-font, monospace);
+	font-size: var(--pulseai-text-micro);
+	opacity: 0.8;
+}
+
+/* Hermes thought rows carry no status glyph — keep the grid cell so the
+ * label column stays aligned with neighboring tool rows. */
+.pulseai-glyph-spacer { width: 14px; height: 1px; }
+
+/* ── Hermes scaffold resting fade (styles.css, verbatim mechanics) ──
+   Every scaffold block (tool row, run group, thought row) rests dimmed;
+   prose stays primary. Lift on hover or KEYBOARD focus only — :focus-within
+   also matches the focus a mouse click leaves on the disclosure toggle,
+   which kept a row lit after you clicked to collapse it. */
+.pulseai-assistant-message [data-conversation-scaffold] {
+	opacity: 0.67;
+	transition: opacity 120ms ease-out;
+}
+.pulseai-assistant-message [data-conversation-scaffold]:is(:hover, :has(:focus-visible)) {
+	opacity: 1;
+}
+
+/* ── hermes diff-lines.tsx wireframe (ported 2026-09-09) ──
+   File-headers/@@ noise and the +/- gutter are dropped; changes read by tint
+   + a 2px left gutter accent, rows flush to the card edges (the box bleeds
+   out of the card padding like hermes' -mx-1.5 -mb-1.5), internal scroll
+   like a code block, overscroll handed back to the page. */
+.pulseai-diff-body {
+	--pulseai-diff-add-background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent);
+	--pulseai-diff-remove-background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent);
+	--pulseai-diff-add-foreground: var(--vscode-diffEditor-insertedTextForeground, #3fb950);
+	--pulseai-diff-remove-foreground: var(--vscode-diffEditor-removedTextForeground, #f85149);
+	display: block;
+	max-height: 12rem;
+	margin: 4px 0 0 0;
+	overflow: auto;
+	overscroll-behavior-x: contain;
+	font-family: var(--pulseai-font-mono);
+	font-size: var(--pulseai-conv-code-size);
+	line-height: 1.5;
+	color: var(--vscode-descriptionForeground);
+}
+.pulseai-diff-row {
+	display: block;
+	min-width: max-content;
+	white-space: pre;
+	border-left: 2px solid transparent;
+	padding: 0 10px;
+}
+.pulseai-diff-row.is-add { background: var(--pulseai-diff-add-background); border-left-color: var(--pulseai-diff-add-foreground); color: var(--pulseai-diff-add-foreground); }
+.pulseai-diff-row.is-remove { background: var(--pulseai-diff-remove-background); border-left-color: var(--pulseai-diff-remove-foreground); color: var(--pulseai-diff-remove-foreground); }
+.pulseai-diff-row.is-context { color: var(--vscode-editor-foreground); }
+.pulseai-diff-row.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
+
+/* ── hermes lib/ansi.ts palette (ported 2026-09-09) ──
+   Tuned for legibility against the card surface; pure ANSI black/white are
+   not painted (they disappear into the surface) — they map to the muted
+   zinc pair exactly as hermes' TAILWIND_BY_COLOR does. */
+.pulseai-terminal-earlier { color: var(--vscode-descriptionForeground); font-style: italic; border-bottom: 1px dashed var(--vscode-widget-border, #4444); }
+.pulseai-ansi-line { display: block; min-width: max-content; }
+.pulseai-ansi-black { color: var(--vscode-descriptionForeground); }
+.pulseai-ansi-red { color: var(--vscode-terminal-ansiRed, #f85149); }
+.pulseai-ansi-green { color: var(--vscode-terminal-ansiGreen, #3fb950); }
+.pulseai-ansi-yellow { color: var(--vscode-terminal-ansiYellow, #d29922); }
+.pulseai-ansi-blue { color: var(--vscode-terminal-ansiBlue, #58a6ff); }
+.pulseai-ansi-magenta { color: var(--vscode-terminal-ansiMagenta, #bc8cff); }
+.pulseai-ansi-cyan { color: var(--vscode-terminal-ansiCyan, #39c5cf); }
+.pulseai-ansi-white { color: var(--vscode-foreground); opacity: 0.85; }
+.pulseai-ansi-bright-black { color: var(--vscode-descriptionForeground); }
+.pulseai-ansi-bright-red { color: var(--vscode-terminal-ansiBrightRed, #ff7b72); }
+.pulseai-ansi-bright-green { color: var(--vscode-terminal-ansiBrightGreen, #7ee787); }
+.pulseai-ansi-bright-yellow { color: var(--vscode-terminal-ansiBrightYellow, #e3b341); }
+.pulseai-ansi-bright-blue { color: var(--vscode-terminal-ansiBrightBlue, #79c0ff); }
+.pulseai-ansi-bright-magenta { color: var(--vscode-terminal-ansiBrightMagenta, #d2a8ff); }
+.pulseai-ansi-bright-cyan { color: var(--vscode-terminal-ansiBrightCyan, #67e8f9); }
+.pulseai-ansi-bright-white { color: var(--vscode-editor-foreground); }
+.pulseai-ansi-line .is-bold { font-weight: 700; }
+
+/* ── hermes changed-files-card.tsx (ported 2026-09-09) ──
+   The turn-closing "N files changed" rollup: widget chrome shared with the
+   transcript's other inline cards, ~5 rows tall before it scrolls. */
+.pulseai-changed-files {
+	margin-top: 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--vscode-widget-border, #4444);
+	border-radius: 8px;
+	background: var(--vscode-sideBar-background);
+}
+.pulseai-changed-files-head {
+	display: flex; align-items: center; gap: 8px;
+	color: var(--vscode-foreground); font-size: var(--pulseai-text-body);
+}
+.pulseai-changed-files-rows {
+	display: flex; flex-direction: column;
+	max-height: 9.375rem; overflow: auto; margin-top: 4px;
+}
+.pulseai-changed-file-row {
+	display: flex; align-items: center; gap: 8px;
+	padding: 2px 6px; border-radius: 6px;
+	color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-body);
+}
+.pulseai-changed-file-row.is-activatable { cursor: pointer; }
+.pulseai-changed-file-row.is-activatable:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.pulseai-changed-file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-diff-count { display: inline-flex; gap: 6px; font-family: var(--pulseai-font-mono); font-size: var(--pulseai-text-micro); }
+.pulseai-diff-count .is-added { color: var(--vscode-diffEditor-insertedTextForeground, #3fb950); }
+.pulseai-diff-count .is-removed { color: var(--vscode-diffEditor-removedTextForeground, #f85149); }
+
+/* ── hermes markdown-text additions (ported 2026-09-09) ── */
+.pulseai-md .pulseai-md-ol { margin: 2px 0; padding-left: 22px; display: flex; flex-direction: column; gap: 2px; }
+.pulseai-md .pulseai-md-quote {
+	margin: 4px 0; padding: 2px 10px;
+	border-left: 3px solid var(--vscode-widget-border, #6666);
+	color: var(--vscode-descriptionForeground);
+}
+.pulseai-md .pulseai-md-table {
+	border-collapse: collapse; margin: 6px 0;
+	font-size: var(--pulseai-text-body); max-width: 100%;
+	display: block; overflow-x: auto;
+}
+.pulseai-md .pulseai-md-table th,
+.pulseai-md .pulseai-md-table td {
+	border: 1px solid var(--vscode-widget-border, #4444);
+	padding: 3px 8px; text-align: left; white-space: nowrap;
+}
+.pulseai-md .pulseai-md-table th { background: var(--vscode-sideBar-background); font-weight: 600; }
+.pulseai-md .pulseai-md-link { color: var(--vscode-textLink-foreground); text-decoration: none; }
+.pulseai-md .pulseai-md-link:hover { text-decoration: underline; }
+
+/* ── hermes disclosure-row affordance (ported 2026-09-09) ──
+   The trailing slot (duration) stays IN FLOW and always visible — the title
+   reserves space for it instead of painting underneath it (hermes
+   disclosure-row.tsx trailing contract). Row hover keeps the resting-dim
+   lift already ported above; no invented caret is added. */
+.pulseai-tool-row > summary .pulseai-tool-duration { opacity: 0.9; }

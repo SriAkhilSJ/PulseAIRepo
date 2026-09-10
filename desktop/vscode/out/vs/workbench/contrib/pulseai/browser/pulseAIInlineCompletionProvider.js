@@ -1,0 +1,65 @@
+/*---------------------------------------------------------------------------------------------
+ * PulseAI inline completion provider — ghost text suggestions via bridge protocol.
+ *--------------------------------------------------------------------------------------------*/
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Range } from '../../../../editor/common/core/range.js';
+import { IPulseAIEngineService } from '../common/pulseAIEngineService.js';
+export class PulseAIInlineCompletionProvider extends Disposable {
+    constructor(engineService) {
+        super();
+        this.engineService = engineService;
+        this.requestCounter = 0;
+        this.pending = new Map();
+        this._register(this.engineService.onDidReceiveFrame(frame => this.handleFrame(frame)));
+    }
+    handleFrame(frame) {
+        if (frame.type !== 'inline_completion_result') {
+            return;
+        }
+        const result = frame;
+        const completions = result.completions ?? [];
+        const items = completions.map((c) => ({
+            insertText: c.text ?? '',
+            range: new Range((c.range_start_line ?? 0) + 1, (c.range_start_column ?? 0) + 1, (c.range_end_line ?? 0) + 1, (c.range_end_column ?? 0) + 1),
+        }));
+        for (const [, pending] of this.pending) {
+            pending.resolve(items);
+            break;
+        }
+        this.pending.clear();
+    }
+    requestCompletions(model, position) {
+        const uri = model.uri.toString();
+        const prefix = this.getPrefix(model, position);
+        const suffix = this.getSuffix(model, position);
+        this.engineService.send({
+            type: 'inline_completion',
+            request_id: `req-${++this.requestCounter}`,
+            resource: uri,
+            language_id: model.getLanguageId(),
+            line: position.lineNumber - 1,
+            column: position.column - 1,
+            prefix, suffix,
+        });
+    }
+    getPrefix(model, position) {
+        const lines = [];
+        const startLine = Math.max(1, position.lineNumber - 30);
+        for (let i = startLine; i <= position.lineNumber; i++) {
+            lines.push(i === position.lineNumber
+                ? model.getLineContent(i).substring(0, position.column - 1)
+                : model.getLineContent(i));
+        }
+        return lines.join('\n');
+    }
+    getSuffix(model, position) {
+        const lines = [];
+        const endLine = Math.min(model.getLineCount(), position.lineNumber + 15);
+        for (let i = position.lineNumber; i <= endLine; i++) {
+            lines.push(i === position.lineNumber
+                ? model.getLineContent(i).substring(position.column - 1)
+                : model.getLineContent(i));
+        }
+        return lines.join('\n');
+    }
+}

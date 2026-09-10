@@ -1,0 +1,152 @@
+/*---------------------------------------------------------------------------------------------
+ * Desktop workbench client for the PulseAI utility-process/Python sidecar chain.
+ *--------------------------------------------------------------------------------------------*/
+import { Emitter } from '../../../../base/common/event.js';
+import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { env } from '../../../../base/common/process.js';
+import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { IUtilityProcessWorkerWorkbenchService } from '../../../services/utilityProcess/electron-browser/utilityProcessWorkerWorkbenchService.js';
+import { PulseAIEngineState, resolvePulseAIEngineRoot, } from '../common/pulseAIEngineService.js';
+import { PULSE_AI_PROTOCOL_VERSION } from '../common/pulseAIProtocol.generated.js';
+import { PULSE_AI_WORKER_CHANNEL, PULSE_AI_WORKER_MODULE_ID, } from '../common/pulseAIWorkerService.js';
+// Cold-start tolerant (2026-09-05 field: after pulling new engine code the
+// bridge's first Python import recompiles caches and can exceed any tight
+// budget — the 8s timeout killed the engine with zero stderr, because the
+// sidecar was still IMPORTING, not hanging). Still bounded; the second
+// start is warm and fast either way.
+const HANDSHAKE_TIMEOUT_MS = 45_000;
+export class PulseAIEngineService extends Disposable {
+    get state() { return this._state; }
+    constructor(utilityProcessService, configurationService, logService) {
+        super();
+        this.utilityProcessService = utilityProcessService;
+        this.configurationService = configurationService;
+        this.logService = logService;
+        this._state = PulseAIEngineState.Stopped;
+        this._onDidChangeState = this._register(new Emitter());
+        this.onDidChangeState = this._onDidChangeState.event;
+        this._onDidReceiveFrame = this._register(new Emitter());
+        this.onDidReceiveFrame = this._onDidReceiveFrame.event;
+        this.worker = this._register(new MutableDisposable());
+        this.session = this._register(new DisposableStore());
+    }
+    async start(workspace) {
+        if (!workspace?.trim()) {
+            throw new Error('PulseAI session requires an opened workspace folder');
+        }
+        await this.stop();
+        this.setState(PulseAIEngineState.Starting);
+        try {
+            const worker = await this.utilityProcessService.createWorker({
+                moduleId: PULSE_AI_WORKER_MODULE_ID,
+                type: 'pulseAIEngine',
+                name: 'pulseai-engine',
+            });
+            this.worker.value = worker;
+            const processService = ProxyChannel.toService(worker.client.getChannel(PULSE_AI_WORKER_CHANNEL));
+            this.processService = processService;
+            this.session.add(processService.onDidReceiveFrame(line => this.acceptFrame(line)));
+            this.session.add(processService.onDidWriteStderr(line => this.logService.warn(`[PulseAI Engine] ${line}`)));
+            this.session.add(processService.onDidChangeState(change => {
+                if (change.state === 'crashed') {
+                    this.setState(PulseAIEngineState.Crashed);
+                    this.handshakeReject?.(new Error(change.detail ?? 'PulseAI sidecar crashed'));
+                }
+            }));
+            void worker.onDidTerminate.then(({ reason }) => {
+                if (this.worker.value === worker && this._state !== PulseAIEngineState.Stopped) {
+                    this.logService.error(`[PulseAI Engine] utility process terminated: ${reason?.code}/${reason?.signal}`);
+                    this.setState(PulseAIEngineState.Crashed);
+                }
+            });
+            // P0: the session workspace and the engine package are DIFFERENT.
+            // workspace binds the session; the engine root is where
+            // `python -m src.bridge` lives. pulseai.engineRoot and
+            // PULSEAI_ENGINE_ROOT are checked first. As a dev convenience,
+            // if the workspace itself contains src/bridge it is used as the engine root.
+            const engineRoot = resolvePulseAIEngineRoot(this.configurationService.getValue('pulseai.engineRoot'), env['PULSEAI_ENGINE_ROOT'], workspace);
+            const pythonPath = this.configurationService.getValue('pulseai.pythonPath')?.trim() || undefined;
+            await processService.start({ engineRoot, pythonPath });
+            const handshake = new Promise((resolve, reject) => {
+                this.handshakeResolve = resolve;
+                this.handshakeReject = reject;
+            });
+            await processService.send(JSON.stringify({ type: 'hello', protocol: PULSE_AI_PROTOCOL_VERSION }));
+            await Promise.race([
+                handshake,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('PulseAI bridge handshake timed out')), HANDSHAKE_TIMEOUT_MS)),
+            ]);
+        }
+        catch (error) {
+            // The renderer dev console is where the user reads — a crashed
+            // engine with no reason in that console is undebuggable (field
+            // 2026-09-05: "send button not working", zero log lines).
+            this.logService.error(`[PulseAI Engine] start failed: ${error instanceof Error ? error.message : String(error)}`);
+            await this.releaseWorker();
+            this.setState(PulseAIEngineState.Crashed);
+            throw error;
+        }
+    }
+    send(frame) {
+        if (this._state !== PulseAIEngineState.Ready || !this.processService) {
+            throw new Error(`PulseAI engine cannot send while ${this._state}`);
+        }
+        void this.processService.send(JSON.stringify(frame)).catch(error => {
+            this.logService.error('[PulseAI Engine] failed to send bridge frame', error);
+            this.setState(PulseAIEngineState.Degraded);
+        });
+    }
+    async stop() {
+        await this.releaseWorker();
+        this.setState(PulseAIEngineState.Stopped);
+    }
+    async releaseWorker() {
+        this.handshakeResolve = undefined;
+        this.handshakeReject = undefined;
+        const service = this.processService;
+        this.processService = undefined;
+        this.session.clear();
+        if (service) {
+            try {
+                await service.stop();
+            }
+            catch (error) {
+                this.logService.warn('[PulseAI Engine] stop failed', error);
+            }
+        }
+        this.worker.clear();
+    }
+    acceptFrame(line) {
+        try {
+            const frame = JSON.parse(line);
+            if (!frame || typeof frame !== 'object' || typeof frame.type !== 'string') {
+                throw new Error('bridge frame is missing a string type');
+            }
+            if (frame.type === 'hello') {
+                if (frame.protocol !== PULSE_AI_PROTOCOL_VERSION) {
+                    throw new Error(`PulseAI protocol mismatch: expected ${PULSE_AI_PROTOCOL_VERSION}, got ${frame.protocol}`);
+                }
+                this.setState(PulseAIEngineState.Ready);
+                this.handshakeResolve?.();
+                this.handshakeResolve = undefined;
+                this.handshakeReject = undefined;
+            }
+            this._onDidReceiveFrame.fire(frame);
+        }
+        catch (error) {
+            const failure = error instanceof Error ? error : new Error(String(error));
+            this.logService.error('[PulseAI Engine] invalid bridge frame', failure);
+            this.handshakeReject?.(failure);
+            this.setState(PulseAIEngineState.Degraded);
+        }
+    }
+    setState(state) {
+        if (this._state === state) {
+            return;
+        }
+        this._state = state;
+        this._onDidChangeState.fire(state);
+    }
+}
