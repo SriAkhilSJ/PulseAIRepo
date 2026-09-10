@@ -407,6 +407,10 @@ def write_file(
         from src.tools.shadow_checkpoints import checkpoint_before_mutation
         checkpoint_before_mutation(workspace, f"write_file: {path}")
 
+        original = (
+            safe_path.read_text(encoding="utf-8")
+            if safe_path.exists() else ""
+        )
         safe_path.write_text(
             content,
             encoding="utf-8"
@@ -419,7 +423,36 @@ def write_file(
     invalidate_repo_map(workspace)
     _record_workspace_edit(config, workspace, [str(safe_path)])
 
-    return f"File written: {path}"
+    # Field 2026-09-10: the bare "File written: <path>" receipt left the
+    # changed-files card counting +0 -0 for real writes (nothing to parse)
+    # and told the model nothing about the size of what it just landed.
+    # edit_file already returns a diff preview; the write receipt gets the
+    # same shape plus an exact counts line the UI parses.
+    from src.utils.diff_utils import compute_unified_diff
+    diff = compute_unified_diff(original, content, str(safe_path))
+    added = sum(
+        1
+        for chunk in diff["chunks"]
+        for line in chunk["lines"]
+        if line["type"] == "added"
+    )
+    removed = sum(
+        1
+        for chunk in diff["chunks"]
+        for line in chunk["lines"]
+        if line["type"] == "removed"
+    )
+    marker = {"added": "+", "removed": "-", "context": " "}
+    preview_lines = [
+        f"{marker[line['type']]}{line['text'].rstrip()}"
+        for chunk in diff["chunks"]
+        for line in chunk["lines"]
+    ][:12]
+    preview = "\n".join(preview_lines)
+    receipt = f"File written: {path} (lines added: {added}, removed: {removed})"
+    if preview:
+        receipt += f"\n\nDiff preview:\n{preview}"
+    return receipt
 
 @tool
 def copy_file(
@@ -1119,5 +1152,22 @@ def edit_file(
     })
 
     note = " (fuzzy match — verify the result)" if match_mode == "fuzzy" else ""
+    # Exact counts line: the preview is capped, the CARD counts must not be.
+    added = sum(
+        1
+        for chunk in diff["chunks"]
+        for line in chunk["lines"]
+        if line["type"] == "added"
+    )
+    removed = sum(
+        1
+        for chunk in diff["chunks"]
+        for line in chunk["lines"]
+        if line["type"] == "removed"
+    )
     preview = "\n".join(preview_lines[:12])
-    return f"✅ Edited {path}{note}\n\nDiff preview:\n{preview}"
+    return (
+        f"✅ Edited {path}{note} "
+        f"(lines added: {added}, removed: {removed})\n\n"
+        f"Diff preview:\n{preview}"
+    )

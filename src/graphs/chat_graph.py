@@ -1483,7 +1483,13 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # must say so plainly (D9 honesty), because the model's own answer may
     # claim success.
     lines: list[str] = []
-    task_display = current_task[:70] if current_task else "Task"
+    # Word-boundary truncation (field 2026-09-10: "don't rea" — the 70-char
+    # cut landed mid-word and the stamp read like corruption).
+    task_display = current_task if current_task else "Task"
+    if len(task_display) > 70:
+        cut = task_display[:70]
+        task_display = cut[:cut.rfind(" ")] if " " in cut[20:] else cut
+        task_display = task_display.rstrip(" \t-,.;:!?") + "\u2026"
     did_work = bool(steps_completed or failed_steps or unverified)
     print(
         "[turn] finalize entered: "

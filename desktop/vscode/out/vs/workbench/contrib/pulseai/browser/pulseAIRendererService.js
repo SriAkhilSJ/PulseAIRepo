@@ -1072,6 +1072,16 @@ let PulseAIRendererService = class PulseAIRendererService extends Disposable {
         // the owner's "died after a tool call" (2026-09-04 log, Reveal
         // location). Hermes display-path.ts: copy/reveal/IPC always carry
         // the real absolute path; display formatting is paint only.
+        // Git-bash drive notation (field 2026-09-10: the model works in the
+        // bash shell, so tool args and card rows carry `/d/TestPulseAI/...`;
+        // URI.file() reads that as a rootless path on the current drive ->
+        // "The editor could not be opened because the file was not found"
+        // while the file exists — the owner clicked the changed-file row and
+        // got the dead editor). Convert to the real drive path first.
+        const gitBash = /^\/([a-z])\/(.*)$/i.exec(resource);
+        if (gitBash) {
+            return URI.file(`${gitBash[1].toUpperCase()}:/${gitBash[2]}`);
+        }
         if (/^(?:[a-z]:[\\/]|[\\/])/i.test(resource)) {
             return URI.file(resource);
         }

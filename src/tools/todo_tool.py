@@ -15,6 +15,10 @@ projects, so the desktop panel reconciles atomically on ``{todos, revision}``.
 
 from __future__ import annotations
 
+from typing import Literal
+
+from pydantic import BaseModel
+
 import json
 import threading
 from typing import Any
@@ -266,7 +270,25 @@ def todo_tool(
     )
 
 
-@tool
+class _TodoItem(BaseModel):
+    """hermes TODO_SCHEMA items, verbatim requirements: id, content and
+    status are REQUIRED (field 2026-09-10: with untyped dict items the model
+    sent id-only status patches on the REPLACE path and the store validated
+    them into "(no description)" rows — the owner's card showed a list of
+    placeholders. hermes prevents this at the schema level)."""
+
+    id: str
+    content: str
+    status: Literal["pending", "in_progress", "completed", "cancelled"]
+    parent: str | None = None
+
+
+class _TodoListArgs(BaseModel):
+    todos: list[_TodoItem] | None = None
+    merge: bool = False
+
+
+@tool(args_schema=_TodoListArgs)
 def todo_list(
     todos: list[dict[str, Any]] | None = None,
     merge: bool = False,

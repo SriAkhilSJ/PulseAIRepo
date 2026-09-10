@@ -893,3 +893,66 @@ def test_tool_batch_pairing_invariant_fabricates_missing_results():
     graph = (ROOT / "src" / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
     assert "PAIRING BUG" in graph
     assert "did NOT verifiably execute" in graph
+
+
+def test_git_bash_paths_reveal_to_real_windows_drives():
+    """Field 2026-09-10: the model works in the bash shell, so tool args and
+    changed-file rows carry `/d/TestPulseAI/...` — URI.file() read that as a
+    rootless path and the owner's click died on "The editor could not be
+    opened because the file was not found" while the file existed (explorer
+    opened it fine). resourceUri converts the git-bash drive to a real
+    Windows drive URI before anything else sniffs it."""
+    service = _text("browser", "pulseAIRendererService.ts")
+    assert "gitBash" in service and "Git-bash drive notation" in service
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRendererService.js").read_text(encoding="utf-8")
+    assert "toUpperCase" in bundle, "shipped service converts /d/ -> D:/"
+
+
+def test_write_receipts_carry_exact_line_counts_for_the_card():
+    """Field 2026-09-10: write_file returned a bare "File written: <path>" —
+    nothing to count — and the changed-files card showed +0 -0 for REAL
+    writes. write_file now returns edit_file's shape (counts line + bounded
+    diff preview) and deriveChangedFiles parses the exact counts line first
+    (the preview is capped; the counts must not be)."""
+    tools = (ROOT / "src" / "tools" / "file_tools.py").read_text(encoding="utf-8")
+    assert "lines added: {added}, removed: {removed}" in tools
+    fmt = _text("browser", "pulseaiCardFormat.ts")
+    assert "lines added:" in fmt and "removed:" in fmt
+
+
+def test_todo_items_require_hermes_fields_and_rows_fall_back_to_ids():
+    """Field 2026-09-10 ("todo list 🤯"): with untyped dict items the model
+    sent id-only status patches on the REPLACE path and the store validated
+    them into "(no description)" rows. hermes TODO_SCHEMA requires
+    ["id", "content", "status"] per item — pulse's todo_list now carries the
+    same required fields (pydantic args_schema), and the card renders an
+    id-only row as "Item <id>", never the raw placeholder."""
+    import json as _json
+
+    from src.tools.todo_tool import todo_list
+
+    schema = todo_list.args_schema.model_json_schema()
+    item = schema["$defs"]["_TodoItem"]
+    assert sorted(item["required"]) == ["content", "id", "status"]
+    try:
+        todo_list.invoke({"todos": [{"id": "x", "status": "pending"}]})
+        raise SystemExit("id-only patch must be rejected")
+    except Exception:
+        pass  # pydantic ValidationError is the fix working
+
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "Item ${id}" in renderer
+    code_only = "\n".join(
+        line for line in renderer.splitlines() if not line.strip().startswith("//")
+    )
+    assert '(no description)' not in code_only.split("function planStepsFrom")[1].split("function terminalBody")[0]
+
+
+def test_scaffold_card_shows_the_calls_own_fields_not_inventions():
+    """Field 2026-09-10: the scaffold/code family body hardcoded
+    RUNTIME "Python 3.14" on a Next.js scaffolding call — invented text.
+    The card shows the call's own location/template fields plus the honest
+    state, nothing else."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "Python 3.14" not in renderer
+    assert "scaffoldFields" in renderer

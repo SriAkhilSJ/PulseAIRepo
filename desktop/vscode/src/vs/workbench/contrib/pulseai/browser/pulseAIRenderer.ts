@@ -634,7 +634,14 @@ function planStepsFrom(result: Readonly<Record<string, unknown>> | undefined, ar
 		if (!item || typeof item !== 'object') { continue; }
 		const rec = item as Record<string, unknown>;
 		const description = String(rec.description ?? rec.content ?? '').trim();
-		if (!description) { continue; }
+		// hermes items are id-keyed; an id-only row (schema-forbidden but
+		// seen in the field) reads as "Item <id>", never "(no description)".
+		if (!description) {
+			const id = String(rec.id ?? '').trim();
+			if (!id) { continue; }
+			rows.push({ description: `Item ${id}`, status: String(rec.status ?? 'pending') });
+			continue;
+		}
 		rows.push({ description, status: String(rec.status ?? 'pending') });
 	}
 	return rows;
@@ -830,8 +837,18 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		body.append(element('div', 'pulseai-child-tool-list', element('div', undefined, icon('check'), element('span', undefined, 'Search code'), element('code', undefined, '3 matches'))));
 		body.append(element('div', 'pulseai-tool-actions', button('Open sub-agent tab', 'pulseai-link-button', () => void 0, 'organization'), button('Cancel', 'pulseai-link-button', () => void 0, 'debug-stop')));
 	} else if (presentation.family === 'code' || presentation.family === 'scaffold') {
-		body.append(toolFields([['Runtime', 'Python 3.14'], ['Status', stateLabel(tool.state)]]));
-		body.append(element('pre', 'pulseai-tool-pre pulseai-terminal-output', boundedText(result ?? tool.arguments, 600).slice(0, 700)));
+		// Field 2026-09-10: this body hardcoded a fake RUNTIME value —
+		// invented text on a JS scaffolding call. The card shows the call's
+		// OWN fields and the honest state, nothing else.
+		const scaffoldFields: (readonly [string, string])[] = [];
+		const targetPath = firstString(args, ['path', 'project_path', 'projectPath', 'directory', 'dir']);
+		if (targetPath) { scaffoldFields.push(['Location', targetPath]); }
+		const template = firstString(args, ['template', 'framework', 'stack']);
+		if (template) { scaffoldFields.push(['Template', template]); }
+		scaffoldFields.push(['Status', stateLabel(tool.state)]);
+		body.append(toolFields(scaffoldFields));
+		const detail = result ?? boundedText(tool.arguments, 400);
+		if (detail) { body.append(element('pre', 'pulseai-tool-pre pulseai-terminal-output', boundedText(detail, 600).slice(0, 700))); }
 	} else {
 		// Generic families: a STRING result is model prose (think reasoning,
 		// salvage notes). Render it through the same markdown pass as

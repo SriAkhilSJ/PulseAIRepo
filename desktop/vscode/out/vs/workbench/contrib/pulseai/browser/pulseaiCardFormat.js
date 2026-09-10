@@ -234,15 +234,27 @@ export function deriveChangedFiles(tools) {
         if (tool.state !== 'passed' && tool.state !== 'completed') {
             continue;
         }
-        const diff = resultDiffString(tool.result);
-        if (!diff) {
-            continue;
-        }
         const path = resultPathString(tool.arguments, tool.result);
         if (!path) {
             continue;
         }
-        const stats = countDiffLineStats(diff);
+        // Exact counts first: the engine receipt carries
+        // "(lines added: N, removed: M)" — the bounded diff PREVIEW in the
+        // same result would undercount a large change (field 2026-09-10:
+        // the old bare "File written: <path>" receipt counted +0 -0).
+        const text = typeof tool.result === 'string' ? tool.result : '';
+        const receiptStats = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(text);
+        let stats;
+        if (receiptStats) {
+            stats = { added: Number(receiptStats[1]), removed: Number(receiptStats[2]) };
+        }
+        else {
+            const diff = resultDiffString(tool.result);
+            if (!diff) {
+                continue;
+            }
+            stats = countDiffLineStats(diff);
+        }
         const existing = byPath.get(path);
         if (existing) {
             existing.added += stats.added;

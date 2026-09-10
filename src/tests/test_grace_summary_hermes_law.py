@@ -309,3 +309,14 @@ def test_plan_update_refuses_merge_loudly_instead_of_silently_replacing():
 
     source = (Path(__file__).resolve().parents[1] / "tools" / "plan_tool.py").read_text(encoding="utf-8")
     assert "There is NO merge mode" in source, "the schema must teach replace-only"
+
+
+def test_ending_stamp_truncates_at_word_boundaries():
+    """Field 2026-09-10: "Ended unverified: ... and don't rea" — the 70-char
+    cut landed mid-word and read like corruption. The stamp cuts at the
+    last word boundary and appends an ellipsis."""
+    from pathlib import Path
+
+    graph = (Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    assert 'rfind(" ")' in graph, "word-boundary cut"
+    assert "\\u2026" in graph or "…" in graph
