@@ -69,7 +69,14 @@ def _recursion_limit() -> int:
     return max(200, _iteration_budget() * 4 + 40)
 
 
-_TOKEN_BUDGET_DEFAULT = 120_000
+# Field 2026-09-10: the 120k default cut a HEALTHY turn at iteration 8/30
+# (grace receipt: "tokens 137,198/120,000, tripped: tokens" — the model was
+# mid-fix with a plan still open). chars/4 request estimates ran ~4-8k per
+# call but real provider billing runs 2-3x that once tool schemas and long
+# completions count, so a full 30-iteration turn costs ~500k real tokens on
+# a ~1M-token window. 600k lets the iteration budget bind first, as
+# intended. AGENT_TOKEN_BUDGET=0 still disables the cap entirely.
+_TOKEN_BUDGET_DEFAULT = 600_000
 _TOKEN_BUDGET_CLAMP = 2_000_000
 # This does not increase the cap. It marks the final bounded slice as
 # verification/repair capacity so delivery and output-limit continuations do

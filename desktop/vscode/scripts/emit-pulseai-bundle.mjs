@@ -16,6 +16,7 @@
 import ts from '../node_modules/typescript/lib/typescript.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const FORK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +72,35 @@ function emit(dir) {
 	}
 }
 emit(SRC_ROOT);
+
+// Sources hash: sha256 over EVERYTHING under the contrib tree (ts + css +
+// media — CSS changes the UI too) plus this script, in a deterministic
+// order. BUILD_INFO carries it and the ENGINE recomputes it from the pulled
+// sources: match = the shipped bundle was emitted from exactly these
+// sources; mismatch = STALE. Exact, no git ancestry guesswork (field
+// 2026-09-10: the commit stamp captured a rolled-back HEAD and the
+// ancestor check passed by luck), no mtime jitter.
+function collectFiles(dir, out) {
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		const src = path.join(dir, entry.name);
+		if (entry.isDirectory()) { collectFiles(src, out); continue; }
+		out.push(src);
+	}
+	return out;
+}
+// The engine recomputes this hash in Python — the recipe must match
+// BYTE-FOR-BYTE: sort by the relative POSIX path in plain codepoint
+// order (default string sort), feed rel + NUL + bytes + NUL.
+const hash = crypto.createHash('sha256');
+const relOf = (f) => path.relative(FORK, f).split(path.sep).join('/');
+for (const f of collectFiles(SRC_ROOT, []).map(relOf).sort()) {
+	hash.update(f).update('\0').update(fs.readFileSync(path.join(FORK, f))).update('\0');
+}
+const emitterRel = relOf(path.join(FORK, 'scripts', 'emit-pulseai-bundle.mjs'));
+hash.update(emitterRel).update('\0')
+	.update(fs.readFileSync(path.join(FORK, 'scripts', 'emit-pulseai-bundle.mjs'))).update('\0');
+const SOURCES_HASH = hash.digest('hex');
+fs.writeFileSync(path.join(OUT_ROOT, 'browser', 'SOURCES_HASH'), SOURCES_HASH + '\n');
 
 // Emit-time DI assertion (field 2026-09-10: a bundle whose parameter
 // decorators were dropped loaded fine, then EVERY injected service was

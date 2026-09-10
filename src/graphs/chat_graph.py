@@ -3491,6 +3491,33 @@ class SafeToolNode:
             )
 
         def _with_repaired(msg_list: list) -> dict:
+            # Pairing invariant (field 2026-09-10: a write batch returned ZERO
+            # ToolMessages for a non-empty tool_calls list — the graph kept
+            # flowing on an unpaired call while the UI card showed an error).
+            # hermes' pairing law: EVERY proposed call gets a terminal result.
+            # Any path whose result count misses a call id is a BUG: name it
+            # in the log and fabricate the paired error so the model and the
+            # transcript both see the truth.
+            expected = [str(tc.get("id") or "") for tc in (tool_calls or [])]
+            got = {str(getattr(m, "tool_call_id", "") or "") for m in (msg_list or [])}
+            missing = [tc for tc, tid in zip(tool_calls or [], expected) if tid and tid not in got]
+            if missing:
+                print(
+                    f"[SafeToolNode] PAIRING BUG: {len(missing)} of {len(expected)} "
+                    "tool call(s) got NO result from this path ("
+                    + ", ".join(str(tc.get('name', '?')) for tc in missing)
+                    + ") — fabricating paired error result(s); the batch path is "
+                    "losing results and must be fixed.",
+                    flush=True,
+                )
+                for tc in missing:
+                    msg_list = list(msg_list) + [self._durable_denial(
+                        tc,
+                        f"Error: `{tc.get('name', '')}` produced NO terminal result "
+                        "(internal pairing bug); the call did NOT verifiably execute. "
+                        "Re-check the effect (e.g. read the file) before relying on it.",
+                        config,
+                    )]
             if _repaired_ai is None:
                 return {"messages": msg_list}
             return {"messages": [_repaired_ai, *msg_list]}

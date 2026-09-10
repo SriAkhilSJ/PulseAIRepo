@@ -1012,7 +1012,60 @@ class BridgeServer:
                     file=sys.stderr, flush=True,
                 )
                 return
-            # Preferred: the panel carries BUILD_INFO.json naming the commit it
+            # Preferred, exact: the shipped panel carries SOURCES_HASH — a
+            # sha256 over the contrib sources the emitter consumed — and the
+            # engine recomputes it from the pulled working tree. Match =
+            # current; mismatch = STALE. (Field 2026-09-10: the commit stamp
+            # had captured a rolled-back HEAD and the ancestor check passed
+            # by luck — ancestry proves "not from the future", never "built
+            # from THESE sources". A content hash does both, no git needed,
+            # no mtime jitter.)
+            import hashlib
+            def _sources_hash():
+                # Mirrors scripts/emit-pulseai-bundle.mjs BYTE-FOR-BYTE:
+                # repo-relative-to-desktop/vscode POSIX paths in codepoint
+                # order, feeding rel + NUL + bytes + NUL, emitter last.
+                h = hashlib.sha256()
+                vscode_root = root / "desktop" / "vscode"
+                files = sorted(
+                    f for f in src_dir.rglob("*") if f.is_file()
+                )
+                # hashlib.update() returns None (unlike the JS emitter's
+                # chainable crypto.update) — no call chaining here.
+                for f in files:
+                    rel = f.relative_to(vscode_root).as_posix()
+                    h.update(rel.encode("utf-8"))
+                    h.update(b"\0")
+                    h.update(f.read_bytes())
+                    h.update(b"\0")
+                emitter = vscode_root / "scripts" / "emit-pulseai-bundle.mjs"
+                h.update(emitter.relative_to(vscode_root).as_posix().encode("utf-8"))
+                h.update(b"\0")
+                h.update(emitter.read_bytes())
+                h.update(b"\0")
+                return h.hexdigest()
+            hash_file = out_file.parent / "SOURCES_HASH"
+            if hash_file.exists():
+                shipped = hash_file.read_text(encoding="utf-8").strip()
+                current = _sources_hash()
+                if shipped == current:
+                    print(
+                        "[bridge] desktop UI: compiled workbench matches the pulled "
+                        "pulseai sources (sha256) — panel is current",
+                        file=sys.stderr, flush=True,
+                    )
+                    return
+                print(
+                    "[bridge] DESKTOP WORKBENCH STALE: the shipped panel was emitted "
+                    "from DIFFERENT pulseai sources than this checkout (sha256 "
+                    f"{shipped[:12]}… != {current[:12]}…) — the Agent pane will render "
+                    "OLD cards no matter what the engine runs. Fix: `git pull` (the "
+                    f"repo ships a current compiled panel), or `npx gulp compile` in "
+                    f"{root / 'desktop' / 'vscode'} — then fully quit and reopen the app.",
+                    file=sys.stderr, flush=True,
+                )
+                return
+            # Fallback: the panel carries BUILD_INFO.json naming the commit it
             # was emitted from. "Contained in this engine's HEAD" = current —
             # exact, no mtime jitter. (Field 2026-09-09: mtime ordering lies
             # after a checkout; commits do not.)

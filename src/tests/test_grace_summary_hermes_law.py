@@ -237,7 +237,7 @@ def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
     assert "turn_model_wall(session_id)" not in bridge
 
 
-def test_grace_print_names_both_budget_legs_and_the_tripped_one():
+def test_grace_print_names_both_budget_legs_and_the_tripped_one(monkeypatch):
     """Field 2026-09-09 x2: two turns ended in the grace after ~9-11 visible
     model calls while the print blamed "maximum iterations (30)" — one
     message covered BOTH legs (iterations and tokens), so nobody could tell
@@ -248,12 +248,16 @@ def test_grace_print_names_both_budget_legs_and_the_tripped_one():
     iters = _budget_trip_reason({"iteration_used": 30})
     assert "iterations 30/" in iters and "tripped: iterations" in iters
 
+    import pytest
+
+    # env is read per call: pin a small cap so the token leg is the tripped one
+    monkeypatch.setenv("AGENT_TOKEN_BUDGET", "120000")
     tokens = _budget_trip_reason({
         "iteration_used": 9,
         "turn_token_usage": {"total_tokens": 121_000},
     })
     assert "iterations 9/" in tokens
-    assert "tokens 121,000/" in tokens and "tripped: tokens" in tokens
+    assert "tokens 121,000/120,000" in tokens and "tripped: tokens" in tokens
 
     from pathlib import Path
 

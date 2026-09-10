@@ -770,7 +770,7 @@ def test_compiled_pulseai_panel_ships_in_git_and_carries_the_stamp():
     BUILD_INFO.json naming the commit it was emitted from."""
     browser = FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
     bundle = (browser / "pulseAIRenderer.js").read_text(encoding="utf-8")
-    assert "2026-09-09" in bundle, "bundle predates the card-format round"
+    assert "2026-09-10" in bundle, "bundle predates the current UI round"
     assert "stripTerminalEnvelope" in bundle
     assert "pulseai-changed-files-head" in bundle
     info = (browser / "BUILD_INFO.json").read_text(encoding="utf-8")
@@ -830,3 +830,66 @@ def test_plan_card_renders_a_task_list_never_arg_json():
     assert "dashed" in css
     bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js").read_text(encoding="utf-8")
     assert "pulseai-plan-row" in bundle, "the shipped panel carries the plan card"
+
+
+def test_grace_summary_collapses_the_json_tool_call_dialect():
+    """Field 2026-09-10: with the toolless summary request, the model kept
+    "calling" tools TEXTUALLY — the answer carried raw
+    {"action": "terminal", ...} JSON painted into the transcript. The raw
+    markup collapse now catches the JSON dialect too, not just XML-ish tags."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert '\"action\"' in renderer or '\\"action\\\"' in renderer or '"action"' in renderer
+    assert "RAW_TOOL_MARKUP" in renderer
+    # the regex alternative for the JSON dialect
+    import re as _re
+    m = _re.search(r"RAW_TOOL_MARKUP = (.+);", renderer)
+    assert m and '"(?:action|tool|tool_call|function)"' in m.group(1)
+
+
+def test_bundle_freshness_is_a_source_content_hash_not_ancestry():
+    """Field 2026-09-10: the BUILD_INFO commit had captured a rolled-back
+    HEAD and the ancestor check passed by luck — ancestry proves "not from
+    the future", never "built from THESE sources". The emitter now writes a
+    sha256 over the exact contrib sources (+ the emitter itself), and the
+    engine recomputes it from the pulled tree: match = current, mismatch =
+    STALE. Both recipes must agree byte-for-byte (rel POSIX paths in
+    codepoint order, rel + NUL + bytes + NUL, emitter last)."""
+    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    assert "SOURCES_HASH" in emitter and "createHash" in emitter
+    assert "sort()" in emitter and "localeCompare" not in emitter, "codepoint order, not locale"
+    shipped = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "SOURCES_HASH")
+    assert shipped.exists() and len(shipped.read_text(encoding="utf-8").strip()) == 64
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "SOURCES_HASH" in bridge and "_sources_hash" in bridge
+    assert "matches the pulled " in bridge and "sha256" in bridge
+    # hashlib.update() returns None — the Python recipe must not chain it
+    assert ").update(" not in bridge.split("def _sources_hash")[1].split("return h.hexdigest")[0]
+
+
+def test_token_budget_default_leaves_iterations_as_the_binding_cap():
+    """Field 2026-09-10: the 120k default cut a healthy turn at iteration
+    8/30 (receipt: tokens 137,198/120,000, tripped: tokens) — real billing
+    runs 2-3x the chars/4 request estimate once tool schemas and long
+    completions count. The default now lets the iteration budget bind
+    first; AGENT_TOKEN_BUDGET=0 still disables."""
+    import os
+
+    from src.graphs.budget import _token_budget
+
+    saved = os.environ.pop("AGENT_TOKEN_BUDGET", None)
+    try:
+        assert _token_budget() == 600_000
+    finally:
+        if saved is not None:
+            os.environ["AGENT_TOKEN_BUDGET"] = saved
+
+
+def test_tool_batch_pairing_invariant_fabricates_missing_results():
+    """Field 2026-09-10: a write batch returned ZERO ToolMessages for a
+    non-empty tool_calls list (log: "0 tool result(s) ready") while the UI
+    card showed an error — the graph flowed on unpaired calls. The
+    _with_repaired choke point now detects the miss, logs PAIRING BUG, and
+    fabricates one paired error per missing call (hermes' pairing law)."""
+    graph = (ROOT / "src" / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    assert "PAIRING BUG" in graph
+    assert "did NOT verifiably execute" in graph

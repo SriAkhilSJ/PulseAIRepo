@@ -87,7 +87,12 @@ function mdInline(target, text) {
 // not PAINT it as the agent's voice. Hermes' equivalents are the toolset
 // availability paint and the unverified verdict — the raw dialect itself is
 // model-specific, so it is shown collapsed and labeled, never parsed.
-const RAW_TOOL_MARKUP = /^\s*<\/?\s*(?:dots_function_call|exec|invoke|command|tool_call|function_call)\b/i;
+// Two model dialects land as raw text: XML-ish tool tags and (field
+// 2026-09-10, the grace summary) single-line JSON objects keyed by
+// "action"/"tool" — the model kept "calling" tools textually after the
+// toolless summary request. Both collapse into the labeled disclosure
+// instead of painting raw JSON into the answer.
+const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command|tool_call|function_call)\b|\{\s*"(?:action|tool|tool_call|function)"\s*:)/i;
 // Workbench freshness stamp — bump with EVERY workbench UI round. The engine
 // chip proves the PYTHON engine only; field round 2026-09-08 ran engine
 // de0dbbae on a base-era compiled workbench (lab-era browser cards, reveal-
