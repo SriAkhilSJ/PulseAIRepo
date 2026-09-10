@@ -39,7 +39,10 @@ def test_repair_parses_text_dialect_when_tools_bound():
     out = repair_text_tool_calls(msg, allow=True)
     assert out.tool_calls and out.tool_calls[0]["name"] == "terminal"
     assert out.tool_calls[0]["args"] == {"command": "ls -la"}
-    assert out.content == ""
+    # hermes extract_tool_calls_from_text: consumed blocks never render;
+    # surrounding PROSE STAYS (field 2026-09-10 alignment).
+    assert "<tool_call>" not in out.content
+    assert "I'll check the files now." in out.content
 
 
 def test_repair_disarmed_on_no_tools_call_keeps_prose():
@@ -137,3 +140,94 @@ def test_pump_flush_tail_releases_only_the_holdback():
     tail = pump.flush_tail()
     assert tail == "b"  # the held partial-tag candidate
     assert pump.flush_tail() == ""  # nothing held after the flush
+
+
+# ── 3. Field 2026-09-10: the run ended "Ended unverified" with three
+#      terminal calls lying in the transcript as RAW TEXT ───────────────────
+
+
+OWNER_FIELD_TEXT = """Let me proceed with browser testing and proof screenshot.
+<tool_call>terminal
+<arg_key>command</arg_key>
+<arg_value>cd /d/TestPulseAI/test5 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3000</arg_value>
+</tool_call>
+<tool_call>terminal
+<arg_key>command</arg_key>
+<arg_value>cd /d/TestPulseAI/test5 && ls -la components/ui/ | head -30</arg_value>
+</tool_call>
+<tool_call>terminal
+<arg_key>command</arg_key>
+<arg_value>which npx && node --version</arg_value>
+</tool_call>"""
+
+
+def test_owner_field_shape_parses_to_three_calls():
+    out = repair_text_tool_calls(AIMessage(content=OWNER_FIELD_TEXT), allow=True)
+    assert len(out.tool_calls) == 3
+    assert all(tc["name"] == "terminal" for tc in out.tool_calls)
+    assert out.tool_calls[0]["args"]["command"].startswith("cd /d/TestPulseAI/test5 && curl")
+    assert "<tool_call>" not in out.content
+    assert "Let me proceed with browser testing" in out.content
+
+
+def test_hermes_json_body_dialect_parses():
+    """hermes acp_openai_bridge TOOL_CALL_BLOCK_RE: <tool_call>{json}</tool_call>."""
+    text = ('Before.\n<tool_call>{"name": "terminal", "arguments": '
+            '{"command": "ls", "timeout": 10}}</tool_call>\nAfter.')
+    out = repair_text_tool_calls(AIMessage(content=text), allow=True)
+    assert out.tool_calls[0]["name"] == "terminal"
+    assert out.tool_calls[0]["args"] == {"command": "ls", "timeout": 10}
+    assert "Before." in out.content and "After." in out.content
+
+
+def test_hermes_openai_envelope_dialect_keeps_provided_id():
+    text = ('<tool_call>\n{"id": "call_abc", "type": "function", '
+            '"function": {"name": "read_file", "arguments": "{\\"path\\": \\"a.ts\\"}"}}\n</tool_call>')
+    out = repair_text_tool_calls(AIMessage(content=text), allow=True)
+    assert out.tool_calls[0]["name"] == "read_file"
+    assert out.tool_calls[0]["id"] == "call_abc"
+    assert out.tool_calls[0]["args"] == {"path": "a.ts"}
+
+
+def test_mixed_emission_appends_leftovers_and_dedupes():
+    """Field 2026-09-10 loss channel: structured calls AND text blocks in ONE
+    message — the text blocks used to stay prose and their actions never
+    ran. hermes' bridge extracts from text regardless; parsed blocks dedupe
+    against the structured set and leftovers append."""
+    mixed = AIMessage(
+        content=("Running checks.\n"
+                 "<tool_call>terminal\n<arg_key>command</arg_key>\n"
+                 "<arg_value>ls -la</arg_value>\n</tool_call>\n"
+                 "<tool_call>terminal\n<arg_key>command</arg_key>\n"
+                 "<arg_value>cat package.json</arg_value>\n</tool_call>"),
+        tool_calls=[{"name": "terminal", "args": {"command": "ls -la"}, "id": "native1"}],
+    )
+    out = repair_text_tool_calls(mixed, allow=True)
+    assert len(out.tool_calls) == 2                      # dupe dropped, leftover appended
+    assert out.tool_calls[0]["id"] == "native1"
+    assert out.tool_calls[1]["args"] == {"command": "cat package.json"}
+    assert "<tool_call>" not in out.content
+    assert "Running checks." in out.content
+
+
+def test_mixed_all_duplicates_still_strips_blocks():
+    mixed = AIMessage(
+        content="note\n<tool_call>terminal\n<arg_key>command</arg_key>\n<arg_value>ls</arg_value>\n</tool_call>",
+        tool_calls=[{"name": "terminal", "args": {"command": "ls"}, "id": "n1"}],
+    )
+    out = repair_text_tool_calls(mixed, allow=True)
+    assert [tc["id"] for tc in out.tool_calls] == ["n1"]  # nothing appended
+    assert "<tool_call>" not in out.content
+
+
+def test_grace_law_untouched_for_all_dialects():
+    for text in (OWNER_FIELD_TEXT,
+                 '<tool_call>{"name": "terminal", "arguments": {"command": "ls"}}</tool_call>'):
+        msg = AIMessage(content=text)
+        assert repair_text_tool_calls(msg, allow=False) is msg
+
+
+def test_garbage_block_stays_prose():
+    text = "<tool_call>not a dialect just words</tool_call>"
+    msg = AIMessage(content=text)
+    assert repair_text_tool_calls(msg, allow=True) is msg

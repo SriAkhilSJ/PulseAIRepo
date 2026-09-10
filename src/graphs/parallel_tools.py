@@ -365,7 +365,15 @@ def _coerce_arg_value(raw: str):
 
 
 def parse_text_tool_calls(content: str) -> list[dict]:
-    """Parse sarvam-style <tool_call> text into structured tool-call dicts."""
+    """Parse text-dialect <tool_call> blocks into structured tool-call dicts.
+
+    Two dialects (field 2026-09-10: a custom-tier model leaked both):
+    - sarvam-style: ``<tool_call>NAME <arg_key>k</arg_key> <arg_value>v</arg_value></tool_call>``
+    - hermes' ACP bridge dialect (agent/acp_openai_bridge.py
+      TOOL_CALL_BLOCK_RE): ``<tool_call>{"name": ..., "arguments": {...}|"..."}</tool_call>``.
+    Blocks matching neither shape are skipped; the caller decides whether
+    the text may EXECUTE (repair_text_tool_calls' grace law).
+    """
     if not isinstance(content, str) or "<tool_call>" not in content:
         return []
     import hashlib
@@ -383,6 +391,39 @@ def parse_text_tool_calls(content: str) -> list[dict]:
         name = name_lines[-1].strip() if name_lines else ""
         if not name:
             continue
+        if not first_tag:
+            # hermes _parse_tool_call shape: the block body is JSON — either
+            # {"name": ..., "arguments": {...}} or the full OpenAI
+            # {"id","type","function":{"name","arguments"}} envelope.
+            try:
+                obj = _tc_json.loads(name_blob if not name_lines or len(name_lines) > 1
+                                     else "".join(name_lines))
+            except Exception:
+                continue  # neither dialect: stays prose
+            fn = obj.get("function") if isinstance(obj, dict) else None
+            if not isinstance(fn, dict):
+                fn = obj if isinstance(obj, dict) else None
+            if not isinstance(fn, dict):
+                continue
+            fn_name = fn.get("name")
+            if not isinstance(fn_name, str) or not fn_name.strip():
+                continue
+            name = fn_name.strip()
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = _tc_json.loads(args)
+                except Exception:
+                    args = {"__raw_arguments__": args}
+            if not isinstance(args, dict):
+                args = {"__raw_arguments__": args}
+            provided_id = obj.get("id") if isinstance(obj, dict) else None
+            cid = (provided_id.strip() if isinstance(provided_id, str) and provided_id.strip()
+                   else "call_txt_" + hashlib.sha256(
+                       f"{name}:{_tc_json.dumps(args, sort_keys=True)}:{len(calls)}".encode()
+                   ).hexdigest()[:12])
+            calls.append({"name": name, "args": args, "id": cid})
+            continue
         pairs = _tc_re.findall(
             r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>",
             block, _tc_re.DOTALL,
@@ -393,6 +434,24 @@ def parse_text_tool_calls(content: str) -> list[dict]:
         ).hexdigest()[:12]
         calls.append({"name": name, "args": args, "id": cid})
     return calls
+
+
+def _strip_consumed_blocks(content: str) -> str:
+    """hermes extract_tool_calls_from_text's cleanup: consumed <tool_call>
+    blocks are removed from the displayed text; surrounding prose stays."""
+    parts: list[str] = []
+    cursor = 0
+    while True:
+        start = content.find("<tool_call>", cursor)
+        if start == -1:
+            parts.append(content[cursor:])
+            break
+        end = content.find("</tool_call>", start)
+        if end == -1:  # unterminated block: consume to the end (it never renders)
+            break
+        parts.append(content[cursor:start])
+        cursor = end + len("</tool_call>")
+    return "\n".join(p.strip() for p in parts if p and p.strip()).strip()
 
 
 def repair_text_tool_calls(message, allow: bool = True):
@@ -410,12 +469,18 @@ def repair_text_tool_calls(message, allow: bool = True):
     ❌❌❌ tail), turning the budget stop into a zombie that kept paying
     provider calls. When disallowed the dialect text stays prose and
     should_continue finalizes the turn.
+
+    Mixed emission (field 2026-09-10: structured calls AND text blocks in
+    one message — the text blocks previously stayed as displayed prose and
+    their actions never ran): hermes' bridge extracts from the text
+    regardless; parsed blocks dedupe against the structured set by
+    (name, args) and the leftovers APPEND. Consumed blocks are stripped
+    from the displayed content either way (hermes: the raw markup never
+    renders); surrounding prose is kept, hermes-cleaned-text style.
     """
     if not allow:
         return message
     if not isinstance(message, AIMessage):
-        return message
-    if getattr(message, "tool_calls", None):
         return message
     content = getattr(message, "content", "")
     if not isinstance(content, str) or "<tool_call>" not in content:
@@ -423,7 +488,28 @@ def repair_text_tool_calls(message, allow: bool = True):
     parsed = parse_text_tool_calls(content)
     if not parsed:
         return message
-    return AIMessage(content="", tool_calls=parsed, id=getattr(message, "id", None))
+    cleaned = _strip_consumed_blocks(content)
+    structured = list(getattr(message, "tool_calls", None) or [])
+    if structured:
+        def _key(call: dict) -> tuple:
+            args = call.get("args", call.get("arguments", {}))
+            try:
+                normalized = _tc_json.dumps(args, sort_keys=True, default=str)
+            except Exception:
+                normalized = str(args)
+            return (str(call.get("name", "")), normalized)
+
+        existing = {_key(tc) for tc in structured}
+        leftovers = [tc for tc in parsed if _key(tc) not in existing]
+        if not leftovers:
+            return message.model_copy(update={"content": cleaned}) if hasattr(message, "model_copy") else message
+        return AIMessage(
+            content=cleaned,
+            tool_calls=[*structured, *leftovers],
+            id=getattr(message, "id", None),
+            additional_kwargs=getattr(message, "additional_kwargs", {}) or {},
+        )
+    return AIMessage(content=cleaned, tool_calls=parsed, id=getattr(message, "id", None))
 
 
 def run_durable_batch_sequential(
