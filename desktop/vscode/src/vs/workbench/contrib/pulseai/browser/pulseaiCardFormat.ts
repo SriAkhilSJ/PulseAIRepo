@@ -268,3 +268,30 @@ export function windowedTailLines(text: string, max = 400): PulseWindowedLines {
 	if (lines.length <= max) { return { lines, hidden: 0 }; }
 	return { lines: lines.slice(lines.length - max), hidden: lines.length - max };
 }
+
+// ── terminal envelope: engine's result text vs hermes' card ─────────────────
+// src/tools/terminal_tools.py composes the result as
+//   ["STDOUT:\n<s>"] + ["\nSTDERR:\n<e>"] + "\nExit code: N"
+// hermes' terminal-output card receives raw output only — the marker lines
+// are pulse's engine envelope and must never surface in the card (field
+// 2026-09-09: the stale panel painted the raw envelope, and even the new
+// card would have shown "STDOUT:" as body text). The Exit-code trailer is
+// NOT dropped here: terminalBody parses it for the status row first.
+
+/** True when the text carries the engine's terminal envelope signature. */
+export function hasTerminalEnvelope(text: string): boolean {
+	return /^STDOUT:\s*$/m.test(text ?? '') && /^Exit code: -?\d+\s*$/m.test(text ?? '');
+}
+
+/** Drop the engine's STDOUT:/STDERR: marker lines, keep the output itself. */
+export function stripTerminalEnvelope(text: string): string {
+	const lines = (text ?? '').split('\n');
+	if (!lines.length) { return text ?? ''; }
+	const enveloped = hasTerminalEnvelope(text);
+	const keep = lines.filter((line, i) => {
+		if (i === 0 && line.trimEnd() === 'STDOUT:') { return false; }
+		if (enveloped && line.trimEnd() === 'STDERR:') { return false; }
+		return true;
+	});
+	return keep.join('\n');
+}

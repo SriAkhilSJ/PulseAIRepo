@@ -538,7 +538,11 @@ class BridgeServer:
                 _model_wall = 0.0
                 try:
                     from src.graphs.chat_graph import turn_model_wall
-                    _model_wall = turn_model_wall(session_id)
+                    # Field 2026-09-09: this read used `session_id`, a name
+                    # that does not exist in this scope (the bridge thread id
+                    # is `sid`) — NameError, swallowed, "model 0.0s" forever
+                    # while the model visibly consumed minutes.
+                    _model_wall = turn_model_wall(sid)
                 except Exception:
                     pass  # accounting never breaks the receipt
                 _other = max(0.0, (_time.monotonic() - _turn_t0) - _model_wall)
@@ -976,6 +980,53 @@ class BridgeServer:
         log says so itself: every session starts with the engine's commit.
         """
         print(f"[bridge] engine build: {self._engine_build()}", file=sys.stderr, flush=True)
+        self._log_workbench_freshness()
+
+    @staticmethod
+    def _log_workbench_freshness() -> None:
+        """Field 2026-09-09, twice ("Ur claim failed"): the engine restarts
+        current after `git pull`, but the desktop panel runs COMPILED JS from
+        `desktop/vscode/out/` and keeps rendering old cards until someone
+        runs the fork's compile task. The stamp chip that flags this lives
+        INSIDE the workbench — a stale workbench never shows it. The engine
+        is the only surface guaranteed current, so it compares mtimes:
+        pulled UI sources newer than the compiled bundle -> the panel is
+        stale, and the log says exactly what to run. Best effort: never
+        fatal, one line."""
+        try:
+            from pathlib import Path
+            root = Path(__file__).resolve().parents[2]
+            src_dir = root / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+            out_file = root / "desktop" / "vscode" / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js"
+            srcs = list(src_dir.rglob("*.ts")) if src_dir.is_dir() else []
+            if not srcs:
+                return  # unusual layout (packaged engine without the fork tree) — nothing to compare
+            newest_src = max(src_m.stat().st_mtime for src_m in srcs if src_m.stat().st_mtime is not None)
+            if not out_file.exists():
+                print(
+                    "[bridge] desktop UI: no compiled workbench at "
+                    f"{out_file} — the Agent pane cannot pick up UI fixes until "
+                    "`npx gulp compile` runs in desktop/vscode (then fully quit "
+                    "and reopen the app)",
+                    file=sys.stderr, flush=True,
+                )
+                return
+            import time as _t
+            slack = 10.0  # checkout/compile timestamp jitter
+            if newest_src > out_file.stat().st_mtime + slack:
+                fmt = lambda ts: _t.strftime("%Y-%m-%d %H:%M", _t.localtime(ts))
+                print(
+                    "[bridge] DESKTOP WORKBENCH STALE: pulseai UI sources changed "
+                    f"({fmt(newest_src)}) but the compiled panel ({fmt(out_file.stat().st_mtime)}) "
+                    "predates them — the Agent pane will render OLD cards no matter "
+                    "what the engine runs. Fix: `npx gulp compile` in "
+                    f"{root / 'desktop' / 'vscode'}, then fully quit and reopen the app.",
+                    file=sys.stderr, flush=True,
+                )
+            else:
+                print("[bridge] desktop UI: compiled workbench is newer than the newest pulseai source — panel is current", file=sys.stderr, flush=True)
+        except Exception as exc:
+            print(f"[bridge] desktop UI freshness check skipped ({exc})", file=sys.stderr, flush=True)
 
     def run(self) -> int:
         self._apply_memory_policy()

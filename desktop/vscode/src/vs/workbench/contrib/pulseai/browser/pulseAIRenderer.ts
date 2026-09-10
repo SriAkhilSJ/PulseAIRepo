@@ -8,7 +8,7 @@ import type { PulseClarifyQuestion, PulseExecutionMode, PulseTodoItem } from '..
 import type { PulseAISurface } from '../common/pulseAIRendererService.js';
 import type { PulseAISessionRow } from '../common/pulseAISessionProjection.js';
 import { pulseAIToolPresentation } from '../common/pulseAIToolCatalog.js';
-	import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, windowedTailLines } from './pulseaiCardFormat.js';
+	import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './pulseaiCardFormat.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './pulseAIRunSummary.js';
 import { renderToolIcon } from './pulseAIIcons.js';
 import {
@@ -597,7 +597,10 @@ function terminalBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLEleme
 	const args = record(tool.arguments);
 	const result = resultRecord(tool.result);
 	const command = firstString(args, ['command', 'script']) ?? 'Command details unavailable';
-	const output = resultOutput(tool);
+	// The engine wraps terminal results in a STDOUT:/STDERR: envelope; hermes'
+	// card shows the raw output. The Exit-code trailer is parsed from the RAW
+	// text above (exitSource) before this strip.
+	const output = stripTerminalEnvelope(resultOutput(tool));
 	const exitSource = typeof tool.result === 'string' ? tool.result : '';
 	let exit = firstString(result, ['exitCode', 'exit_code', 'status', 'code']);
 	if (exit === undefined && exitSource) {

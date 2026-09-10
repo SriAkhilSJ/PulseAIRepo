@@ -702,3 +702,34 @@ def test_ui_stamp_bumped_for_the_card_format_round():
     assert "const PULSEAI_UI_STAMP = '2026-09-09';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
+
+
+def test_terminal_envelope_never_surfaces_in_the_card():
+    """Field 2026-09-09: the engine wraps terminal results in a
+    STDOUT:/STDERR:/Exit-code envelope (terminal_tools.py). The stale panel
+    painted the raw envelope; even the new card would have leaked the
+    markers as body text. Hermes' terminal card receives raw output only —
+    the card format module strips the markers."""
+    fmt = _text("browser", "pulseaiCardFormat.ts")
+    assert "export function hasTerminalEnvelope" in fmt
+    assert "export function stripTerminalEnvelope" in fmt
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "stripTerminalEnvelope(resultOutput(tool))" in renderer, (
+        "terminalBody must render the stripped body, not the raw envelope"
+    )
+    # the Exit-code trailer survives the strip: the status row parses it
+    assert "Exit code: (-?\\d+)" in renderer
+
+
+def test_engine_flags_a_stale_compiled_workbench():
+    """Field 2026-09-09 x2: the engine restarts current after pull but the
+    desktop panel runs compiled out/ JS — a workbench-side stamp chip cannot
+    warn about a stale workbench (it is not in it). The engine compares
+    source vs compiled mtimes and prints the exact fix into the log the
+    owner already reads."""
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "_log_workbench_freshness" in bridge
+    assert "DESKTOP WORKBENCH STALE" in bridge
+    assert "npx gulp compile" in bridge, "the log must name the fork's compile task"
+    assert "pulseAIRenderer.js" in bridge, "the probe stats the compiled renderer bundle"
+    assert "fully quit and reopen" in bridge

@@ -224,3 +224,14 @@ def test_bridge_receipt_splits_model_vs_non_model_wall():
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
     assert "turn_model_wall" in bridge
     assert "non-model" in bridge, "the receipt must name where non-model wall lives"
+
+
+def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
+    """Field 2026-09-09: the receipt read turn_model_wall(session_id) but the
+    bridge scope names the thread `sid` — NameError, swallowed, and the log
+    printed "model 0.0s" while the model visibly consumed minutes."""
+    from pathlib import Path
+
+    bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "turn_model_wall(sid)" in bridge
+    assert "turn_model_wall(session_id)" not in bridge
