@@ -778,3 +778,34 @@ def test_compiled_pulseai_panel_ships_in_git_and_carries_the_stamp():
     emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
     assert "ModuleKind.ESNext" in emitter, "the fork app is ESM (type: module)"
     assert "import { fileURLToPath } from 'node:url';" in emitter
+
+
+def test_bundle_emitter_inherits_the_fork_tsconfig_di_decorators():
+    """Field 2026-09-10: the scoped emitter hand-picked compiler options and
+    dropped `experimentalDecorators: true` — every DI-injected class in the
+    shipped bundle emitted with the wrong decorator transform, vscode's
+    InstantiationService could not read the parameter metadata, and the pane
+    died at construction (blank PULSE pane, Copilot chat took over). The
+    emitter must parse the fork's real src/tsconfig.json chain and REFUSE to
+    run without experimentalDecorators."""
+    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    assert "getParsedCommandLineOfConfigFile" in emitter, "options come from the project tsconfig, never hand-picked"
+    assert "experimentalDecorators" in emitter and "refusing to run" in emitter
+    assert "ModuleKind.ESNext" in emitter, "transpileModule under nodenext emits CommonJS the ESM workbench cannot load"
+    assert "refusing to ship" in emitter, "emit-time assertion: DI-decorating sources must emit __param"
+    browser = FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
+    bundle = (browser / "pulseAIViewPane.js").read_text(encoding="utf-8")
+    assert "__param(" in bundle, "legacy DI decorator emit (design:paramtypes metadata) missing from the shipped pane"
+    import re as _re
+    assert _re.search(r"^import \{? ?", bundle, _re.M), "shipped pane must be an ES module (line-anchored import statements)"
+    for js in browser.glob("*.js"):
+        assert "require(" not in js.read_text(encoding="utf-8"), f"{js.name} regressed to CommonJS"
+
+
+def test_bundle_import_audit_script_is_tracked_and_green_shape():
+    """The audit proves every named import in the shipped bundle resolves to
+    a runtime export (ESM named-import failures kill the contribution chain
+    at instantiation)."""
+    audit = (FORK / "scripts" / "audit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    assert "DEAD BINDING" in audit and "AUDIT OK" in audit
+    assert "path.join(FORK, 'out')" in audit, "cross-slice targets must resolve out/ -> src/ (only the pulseai slice is compiled here)"

@@ -7,6 +7,15 @@
  * commands, the attention dot, the needs-input pulse. Nothing here paints a pixel, so nothing
  * here can look like anyone's product but Pulse's.
  *--------------------------------------------------------------------------------------------*/
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
@@ -25,7 +34,7 @@ function toChatSessionStatus(statusName) {
         default: return undefined;
     }
 }
-export class PulseAISessionController extends Disposable {
+let PulseAISessionController = class PulseAISessionController extends Disposable {
     static { this.ID = 'workbench.contrib.pulseAISessionController'; }
     constructor(sessionStore, chatSessionsService) {
         super();
@@ -84,7 +93,12 @@ export class PulseAISessionController extends Disposable {
         }
         return found ? map : undefined;
     }
-}
+};
+PulseAISessionController = __decorate([
+    __param(0, IPulseAISessionStore),
+    __param(1, IChatSessionsService)
+], PulseAISessionController);
+export { PulseAISessionController };
 /**
  * One opener for both surfaces. `openSessionByResource()` asks registered participants first and
  * only falls through to the chat editor path, so a click on a Pulse row inside the workbench's

@@ -1,27 +1,54 @@
-// Scoped emitter: transpiles ONLY the pulseai contrib subtree with the
-import { fileURLToPath } from 'node:url';
-// fork's compiler options. Rationale: the full `tsc -p src` program needs
-// >3GB heap (OOMs on modest machines/sandboxes), and the field has been
-// stuck on a Sept-5 panel for days. The pulseai subtree is `import type`-
-// disciplined, so per-file emit preserves semantics: type-only imports are
-// erased by syntax, value imports are kept verbatim (ESM, "type": module).
+// Scoped emitter: transpiles ONLY the pulseai contrib subtree for shipping
+// inside git (a plain `git pull` updates the Agent pane with NO local
+// compile step — field 2026-09-09: three rounds of UI fixes never reached
+// the owner because the manual compile kept failing silently).
+//
+// Compiler options are parsed from the fork's REAL src/tsconfig.json chain
+// (extends tsconfig.base.json) — NOT hand-picked. Round-1 lesson: omitting
+// `experimentalDecorators: true` made every DI-injected class emit with the
+// wrong decorator transform; vscode's InstantiationService could not read
+// the parameter metadata and the pane died at construction (blank panel in
+// the field). The full `tsc -p src` program needs >3GB heap and OOMs on
+// modest machines, hence per-file transpile — but options come from the
+// project, always. The pulseai subtree is `import type`-disciplined, so
+// per-file emit preserves semantics; the emitted files are ESM (fork is
+// "type": module).
 import ts from '../node_modules/typescript/lib/typescript.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const FORK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_ROOT = path.join(FORK, 'src', 'vs', 'workbench', 'contrib', 'pulseai');
 const OUT_ROOT = path.join(FORK, 'out', 'vs', 'workbench', 'contrib', 'pulseai');
 
+const configPath = path.join(FORK, 'src', 'tsconfig.json');
+const parsed = ts.getParsedCommandLineOfConfigFile(
+	configPath,
+	{ noEmit: false, declaration: false, sourceMap: false, rootDir: path.join(FORK, 'src') },
+	{
+		...ts.sys,
+		getCurrentDirectory: () => path.dirname(configPath),
+	},
+);
+if (!parsed) { throw new Error(`[emit] cannot parse ${configPath}`); }
+// The workbench loader consumes these files as ES modules (fork is
+// "type": module); the project's nodenext setting makes per-file
+// transpileModule emit CommonJS (field round-3 regression), so the module
+// kind is forced ESM while EVERYTHING else stays exactly as the project
+// sets it.
 const compilerOptions = {
+	...parsed.options,
 	module: ts.ModuleKind.ESNext,
-	target: ts.ScriptTarget.ES2024,
-	esModuleInterop: true,
-	preserveConstEnums: true,
-	removeComments: false,
-	useDefineForClassFields: false,
-	sourceMap: false,
+	// pairs with the forced module kind; resolution is irrelevant for
+	// transpile (specifiers emit verbatim) — this only silences the
+	// nodenext-pairing diagnostic.
+	moduleResolution: ts.ModuleResolutionKind.Bundler,
 };
+if (compilerOptions.experimentalDecorators !== true) {
+	throw new Error('[emit] refusing to run: the fork tsconfig must set experimentalDecorators (DI parameter decorators)');
+}
+console.log(`[emit] compiler options inherited from src/tsconfig.json (target ${ts.ScriptTarget[compilerOptions.target]}, experimentalDecorators=${!!compilerOptions.experimentalDecorators})`);
 
 let count = 0;
 function emit(dir) {
@@ -32,10 +59,9 @@ function emit(dir) {
 		const rel = path.relative(SRC_ROOT, src);
 		const out = path.join(OUT_ROOT, rel.replace(/\.ts$/, '.js'));
 		fs.mkdirSync(path.dirname(out), { recursive: true });
-		const text = fs.readFileSync(src, 'utf8');
-		const res = ts.transpileModule(text, {
+		const res = ts.transpileModule(fs.readFileSync(src, 'utf8'), {
 			compilerOptions,
-			fileName: src, // pins the nodenext module format via package.json "type"
+			fileName: src,
 			reportDiagnostics: true,
 		});
 		const diags = (res.diagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '));
@@ -45,4 +71,32 @@ function emit(dir) {
 	}
 }
 emit(SRC_ROOT);
-console.log(`emitted ${count} file(s)`);
+
+// Emit-time DI assertion (field 2026-09-10: a bundle whose parameter
+// decorators were dropped loaded fine, then EVERY injected service was
+// undefined — blank pane, contributions dead, Copilot took over; nothing
+// in syntax or imports could see it). Any source file that decorates
+// constructor parameters MUST emit legacy __param applications.
+const diSources = [];
+(function scan(dir) {
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		const src = path.join(dir, entry.name);
+		if (entry.isDirectory()) { scan(src); continue; }
+		if (!entry.name.endsWith('.ts')) { continue; }
+		if (/^\s*@[A-Za-z_$][\w$]*\s+(?:(?:private|public|protected|readonly)\s+)*[\w$]+\s*:/m.test(fs.readFileSync(src, 'utf8'))) {
+			diSources.push(src);
+		}
+	}
+})(SRC_ROOT);
+let diFailures = 0;
+for (const src of diSources) {
+	const out = path.join(OUT_ROOT, path.relative(SRC_ROOT, src).replace(/\.ts$/, '.js'));
+	const js = fs.readFileSync(out, 'utf8');
+	if (!js.includes('__param(')) {
+		console.error(`[emit] FATAL DI: ${path.relative(SRC_ROOT, src)} decorates constructor parameters but ${path.relative(OUT_ROOT, out)} has no __param applications`);
+		diFailures += 1;
+	}
+}
+if (diFailures) { throw new Error(`[emit] refusing to ship: ${diFailures} file(s) lost their DI parameter decorators`); }
+console.log(`[emit] DI check ok (${diSources.length} DI-injected file(s) carry __param)`);
+console.log(`[emit] wrote ${count} file(s)`);

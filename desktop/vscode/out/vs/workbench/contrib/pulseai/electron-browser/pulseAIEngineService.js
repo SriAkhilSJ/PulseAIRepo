@@ -1,6 +1,15 @@
 /*---------------------------------------------------------------------------------------------
  * Desktop workbench client for the PulseAI utility-process/Python sidecar chain.
  *--------------------------------------------------------------------------------------------*/
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { env } from '../../../../base/common/process.js';
@@ -17,7 +26,7 @@ import { PULSE_AI_WORKER_CHANNEL, PULSE_AI_WORKER_MODULE_ID, } from '../common/p
 // sidecar was still IMPORTING, not hanging). Still bounded; the second
 // start is warm and fast either way.
 const HANDSHAKE_TIMEOUT_MS = 45_000;
-export class PulseAIEngineService extends Disposable {
+let PulseAIEngineService = class PulseAIEngineService extends Disposable {
     get state() { return this._state; }
     constructor(utilityProcessService, configurationService, logService) {
         super();
@@ -149,4 +158,10 @@ export class PulseAIEngineService extends Disposable {
         this._state = state;
         this._onDidChangeState.fire(state);
     }
-}
+};
+PulseAIEngineService = __decorate([
+    __param(0, IUtilityProcessWorkerWorkbenchService),
+    __param(1, IConfigurationService),
+    __param(2, ILogService)
+], PulseAIEngineService);
+export { PulseAIEngineService };

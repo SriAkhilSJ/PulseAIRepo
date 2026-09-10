@@ -1,6 +1,15 @@
 /*---------------------------------------------------------------------------------------------
  * Native first-party Pulse Agent view. The portable renderer mounts into `pulseai-render-root`.
  *--------------------------------------------------------------------------------------------*/
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 import * as DOM from '../../../../base/browser/dom.js';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
@@ -34,7 +43,7 @@ function paragraph(text) {
     node.textContent = text;
     return node;
 }
-export class PulseAIViewPane extends ViewPane {
+let PulseAIViewPane = class PulseAIViewPane extends ViewPane {
     constructor(options, keybindingService, contextMenuService, pulseConfigurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, pulseThemeService, hoverService, pulseAIRendererService) {
         super(options, keybindingService, contextMenuService, pulseConfigurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, pulseThemeService, hoverService);
         this.pulseConfigurationService = pulseConfigurationService;
@@ -179,4 +188,17 @@ export class PulseAIViewPane extends ViewPane {
         this.pulseBody.style.width = `${width}px`;
         this.pulseBody.style.height = `${height}px`;
     }
-}
+};
+PulseAIViewPane = __decorate([
+    __param(1, IKeybindingService),
+    __param(2, IContextMenuService),
+    __param(3, IConfigurationService),
+    __param(4, IContextKeyService),
+    __param(5, IViewDescriptorService),
+    __param(6, IInstantiationService),
+    __param(7, IOpenerService),
+    __param(8, IThemeService),
+    __param(9, IHoverService),
+    __param(10, IPulseAIRendererService)
+], PulseAIViewPane);
+export { PulseAIViewPane };

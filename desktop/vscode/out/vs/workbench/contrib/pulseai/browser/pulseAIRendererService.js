@@ -1,6 +1,15 @@
 /*---------------------------------------------------------------------------------------------
  * One shared event model and host adapter for the compact Agent view and Pulse Manager.
  *--------------------------------------------------------------------------------------------*/
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -69,7 +78,7 @@ function stringField(source, keys) {
     }
     return undefined;
 }
-export class PulseAIRendererService extends Disposable {
+let PulseAIRendererService = class PulseAIRendererService extends Disposable {
     constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore) {
         super();
         this.engineService = engineService;
@@ -1071,4 +1080,15 @@ export class PulseAIRendererService extends Disposable {
         }
         return folder ? URI.joinPath(folder.uri, resource) : URI.file(resource);
     }
-}
+};
+PulseAIRendererService = __decorate([
+    __param(0, IPulseAIEngineService),
+    __param(1, IPulseAIWorkbenchService),
+    __param(2, IWorkspaceContextService),
+    __param(3, IConfigurationService),
+    __param(4, ICommandService),
+    __param(5, IClipboardService),
+    __param(6, IAuxiliaryWindowService),
+    __param(7, IPulseAISessionStore)
+], PulseAIRendererService);
+export { PulseAIRendererService };

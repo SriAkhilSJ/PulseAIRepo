@@ -1,6 +1,15 @@
 /*---------------------------------------------------------------------------------------------
  * Phase-A Code OSS sensor adapter. All internal service imports terminate here.
  *--------------------------------------------------------------------------------------------*/
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 import { isCodeEditor, isDiffEditor } from '../../../../editor/browser/editorBrowser.js';
 import { IBulkEditService, ResourceTextEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { Position } from '../../../../editor/common/core/position.js';
@@ -90,7 +99,7 @@ function diagnostic(marker) {
         })),
     };
 }
-export class PulseAIWorkbenchService extends Disposable {
+let PulseAIWorkbenchService = class PulseAIWorkbenchService extends Disposable {
     constructor(editorService, textFileService, markerService, languageFeaturesService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService) {
         super();
         this.editorService = editorService;
@@ -639,4 +648,26 @@ export class PulseAIWorkbenchService extends Disposable {
             children: value.children?.map(child => this.symbol(child)),
         };
     }
-}
+};
+PulseAIWorkbenchService = __decorate([
+    __param(0, IEditorService),
+    __param(1, ITextFileService),
+    __param(2, IMarkerService),
+    __param(3, ILanguageFeaturesService),
+    __param(4, ILanguageService),
+    __param(5, IModelService),
+    __param(6, ITextModelService),
+    __param(7, IInstantiationService),
+    __param(8, IWorkspaceContextService),
+    __param(9, ISearchService),
+    __param(10, ISCMService),
+    __param(11, ITestService),
+    __param(12, ITestResultService),
+    __param(13, ITaskService),
+    __param(14, ITerminalService),
+    __param(15, IBulkEditService),
+    __param(16, IOpenerService),
+    __param(17, IWorkspaceTrustManagementService),
+    __param(18, IWorkspaceTrustRequestService)
+], PulseAIWorkbenchService);
+export { PulseAIWorkbenchService };
