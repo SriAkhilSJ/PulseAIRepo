@@ -603,9 +603,13 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     # Test5-5 paid three model/replan cycles for typecheck_workspace on an
     # empty directory. (Workspace STATE, not task words.)
     from pathlib import Path
+    from src.tools.file_tools import find_typecheck_project_root
     workspace = Path(config.get("configurable", {}).get("workspace", "."))
-    if not (workspace / "tsconfig.json").exists():
-        hidden_receipts.append("typecheck_workspace (no tsconfig.json in the workspace)")
+    if find_typecheck_project_root(workspace) is None:
+        hidden_receipts.append(
+            "typecheck_workspace (no tsconfig.json in the workspace or its "
+            "immediate project folders)"
+        )
         names = [name for name in names if name != "typecheck_workspace"]
     # hermes agent_init._load_tools paints availability once at load ("Loaded
     # N tools" + "⚠️ Some tools may not work due to missing requirements").

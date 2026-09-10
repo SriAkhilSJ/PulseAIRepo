@@ -885,6 +885,57 @@ def _record_explicit_verification(
         pass
 
 
+_TSCONFIG_SCAN_SKIP_DIRS = frozenset({
+    ".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build",
+    "target", ".next", ".turbo", "vendor",
+})
+_TSCONFIG_SCAN_MAX_ENTRIES = 500
+
+
+def find_typecheck_project_root(workspace: str | Path) -> Path | None:
+    """The directory whose tsconfig.json a workspace typecheck must run in.
+
+    The workspace root wins (pulse's original contract). Otherwise ONE
+    bounded level of immediate subdirectories is probed — hermes
+    coding_context.py's discovery bound ("root and its immediate subdirs",
+    skip-list, entries cap): _CODE_SCAN_SKIP_DIRS / _CODE_SCAN_MAX_ENTRIES
+    ported verbatim. Pulse needs the downward probe because its session
+    workspace sits ABOVE the project in the field (root D:\\TestPulseAI,
+    project test5/ — engine 94051109 bound typecheck_workspace out of the
+    toolset for every such task, and the whole verification-gate family
+    degraded with it). Ties: a folder that also has package.json wins,
+    then plain sort order. None => genuinely no TypeScript project.
+    """
+    ws = Path(workspace)
+    if (ws / "tsconfig.json").is_file():
+        return ws
+    preferred: list[Path] = []
+    plain: list[Path] = []
+    seen = 0
+    try:
+        entries = sorted(ws.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        seen += 1
+        if seen > _TSCONFIG_SCAN_MAX_ENTRIES:
+            break
+        try:
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            if entry.name in _TSCONFIG_SCAN_SKIP_DIRS:
+                continue
+            if (entry / "tsconfig.json").is_file():
+                (preferred if (entry / "package.json").is_file() else plain).append(entry)
+        except OSError:
+            continue
+    if preferred:
+        return sorted(preferred)[0]
+    if plain:
+        return sorted(plain)[0]
+    return None
+
+
 @tool
 def typecheck_workspace(config: RunnableConfig) -> str:
     """Run the workspace's own TypeScript compiler (tsconfig-aware) in
@@ -927,11 +978,16 @@ def typecheck_workspace(config: RunnableConfig) -> str:
     except Exception:
         pass
 
-    if not (workspace_path / "tsconfig.json").exists():
+    # G (field 2026-09-10): the project may live ONE level below the session
+    # workspace (root D:\TestPulseAI, project test5/). Bounded hermes-style
+    # discovery; None means genuinely no TypeScript project anywhere close.
+    project_root = find_typecheck_project_root(workspace_path)
+    if project_root is None:
         message = (
-            "ℹ️ typecheck_workspace: no tsconfig.json in the workspace — "
-            "TypeScript isn't set up here, so there is nothing to typecheck. "
-            "(If you expected a TS project, verify your setup.)"
+            "ℹ️ typecheck_workspace: no tsconfig.json at the workspace root "
+            "or in its immediate project folders — TypeScript isn't set up "
+            "here, so there is nothing to typecheck. (If you expected a TS "
+            "project, verify your setup.)"
         )
         try:
             session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
@@ -943,13 +999,19 @@ def typecheck_workspace(config: RunnableConfig) -> str:
             pass
         return message
 
-    tsc_js = workspace_path / "node_modules" / "typescript" / "bin" / "tsc"
+    project_label = (
+        project_root.relative_to(workspace_path).as_posix()
+        if project_root != workspace_path else ""
+    )
+    where = f" (project: {project_label}/)" if project_label else ""
+    tsc_js = project_root / "node_modules" / "typescript" / "bin" / "tsc"
     node = shutil.which("node")
     if node is None or not tsc_js.exists():
         message = (
-            "ℹ️ typecheck_workspace: typescript is not installed in this "
-            "workspace (node_modules/typescript missing) — skipped. Install "
-            "typescript if you want tsc-level verification."
+            f"ℹ️ typecheck_workspace{where}: typescript is not installed in "
+            f"{'that project' if project_label else 'this workspace'} "
+            "(node_modules/typescript missing) — skipped. Install typescript "
+            "if you want tsc-level verification."
         )
         try:
             session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
@@ -964,18 +1026,20 @@ def typecheck_workspace(config: RunnableConfig) -> str:
     try:
         proc = subprocess.run(
             [node, str(tsc_js), "--noEmit"],
-            cwd=str(workspace_path),
+            cwd=str(project_root),
             capture_output=True, text=True, timeout=180,
         )
     except subprocess.TimeoutExpired:
         return (
-            "⚠️ typecheck_workspace timed out after 180s — check for a hung "
-            "process and retry."
+            f"⚠️ typecheck_workspace{where} timed out after 180s — check for "
+            "a hung process and retry."
         )
 
     output = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode == 0 or not output.strip():
-        message = "✅ typecheck_workspace: tsc --noEmit passed with 0 errors."
+        message = (
+            f"✅ typecheck_workspace{where}: tsc --noEmit passed with 0 errors."
+        )
         _record_explicit_verification(config, workspace, ok=True, output=message)
         return message
 
@@ -992,7 +1056,7 @@ def typecheck_workspace(config: RunnableConfig) -> str:
     if not errors:
         tail = output.strip().splitlines()[-8:]
         message = (
-            "⚠️ typecheck_workspace: tsc reported issues (unparsed output):\n"
+            f"⚠️ typecheck_workspace{where}: tsc reported issues (unparsed output):\n"
             + "\n".join(tail)
         )
         _record_explicit_verification(config, workspace, ok=False, output=message)
@@ -1003,7 +1067,7 @@ def typecheck_workspace(config: RunnableConfig) -> str:
         by_file.setdefault(fname, []).append(f"{line}:{code}: {msg}")
 
     parts = [
-        f"❌ typecheck_workspace: {len(errors)} type error(s) found. "
+        f"❌ typecheck_workspace{where}: {len(errors)} type error(s) found. "
         f"Fix ALL of them before finishing:"
     ]
     shown_total = 0
