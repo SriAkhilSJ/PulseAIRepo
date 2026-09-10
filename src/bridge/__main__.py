@@ -1034,13 +1034,25 @@ class BridgeServer:
                 # no longer can.
                 h = hashlib.sha256()
                 vscode_root = root / "desktop" / "vscode"
+                # Feed order = the REL STRING codepoint sort, never a
+                # Path-object sort. Field 2026-09-10 (owner saw aa68b244…
+                # != shipped f5b8d974… on every boot over a PRISTINE tree):
+                # this used to be `sorted(<Path objects>)`, and on Windows
+                # PurePath comparison is case-insensitive (os.path.normcase)
+                # — so `pulseAI…` vs `pulseai…` siblings ordered opposite to
+                # the JS emitter's codepoint string sort, the hash inputs
+                # fed in a different order, and a byte-identical checkout
+                # hashed to a different digest. The STALE banner fired on a
+                # current panel; unreproducible on Linux, where both sorts
+                # coincide. Sorting the same strings the emitter sorts makes
+                # the two recipes agree BY CONSTRUCTION on every OS.
                 files = sorted(
-                    f for f in src_dir.rglob("*") if f.is_file()
+                    (f.relative_to(vscode_root).as_posix(), f)
+                    for f in src_dir.rglob("*") if f.is_file()
                 )
                 # hashlib.update() returns None (unlike the JS emitter's
                 # chainable crypto.update) — no call chaining here.
-                for f in files:
-                    rel = f.relative_to(vscode_root).as_posix()
+                for rel, f in files:
                     h.update(rel.encode("utf-8"))
                     h.update(b"\0")
                     h.update(f.read_bytes().replace(b"\r\n", b"\n"))

@@ -917,6 +917,86 @@ def test_hash_recipe_identical_under_crlf(tmp_path):
     assert recipe(tree) == lf
 
 
+def _exec_engine_sources_hash():
+    """Extract the engine's nested _sources_hash from the bridge source and
+    exec it as a standalone function(src_dir, root) — the REAL recipe under
+    test, not a hand-copied twin. The raw lines are already uniformly
+    indented (16/20 spaces), which is a legal body for a def at column 0:
+    no dedent, just keep them. The body closes over the freshness check's
+    `root` (it derives vscode_root from it), so root is a parameter here."""
+    import hashlib
+
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    raw = bridge.split("def _sources_hash")[1].split("\n", 1)[1]
+    body = raw.split("return h.hexdigest()")[0] + "return h.hexdigest()\n"
+    namespace = {"hashlib": hashlib}
+    exec("def _sources_hash(src_dir, root):\n" + body, namespace)
+    return namespace["_sources_hash"]
+
+
+def test_hash_feed_order_is_codepoint_strings_not_path_objects(tmp_path):
+    """Field 2026-09-10 (owner aa68b244… != shipped f5b8d974… on every boot
+    over a pristine tree): the engine used to sort Path OBJECTS, and on
+    Windows PurePath comparison is case-insensitive (os.path.normcase) —
+    so `pulseAI…` vs `pulseai…` siblings fed the hash in a different order
+    than the JS emitter's codepoint string sort used at emit time. A
+    byte-identical checkout hashed to a different digest and the STALE
+    banner fired on a current panel; invisible on Linux, where both sorts
+    coincide. The recipe must sort the rel STRINGS (codepoint), agreeing
+    with the emitter by construction: two name families that sort
+    differently under casefolding / parts-comparison pin the rule."""
+    import hashlib
+
+    vscode_root = tmp_path / "desktop" / "vscode"
+    contrib = vscode_root / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+    (contrib / "browser" / "pulseai").mkdir(parents=True)
+    (vscode_root / "scripts").mkdir()
+    # casefold flips this pair (codepoint: B < a; casefold: a < b)
+    (contrib / "B.txt").write_bytes(b"B\n")
+    (contrib / "a.txt").write_bytes(b"a\n")
+    # a file named like its sibling directory flips parts-vs-string order
+    # (parts: pulseai/ first; strings: pulseai.ts first, '.' < '/')
+    (contrib / "browser" / "pulseai.ts").write_bytes(b"x\n")
+    (contrib / "browser" / "pulseai" / "inner.ts").write_bytes(b"y\n")
+    (vscode_root / "scripts" / "emit-pulseai-bundle.mjs").write_bytes(b"// emitter\n")
+
+    got = _exec_engine_sources_hash()(contrib, tmp_path)
+
+    h = hashlib.sha256()
+    prefix = "src/vs/workbench/contrib/pulseai/"
+    rels = sorted(
+        [prefix + "B.txt", prefix + "a.txt",
+         prefix + "browser/pulseai.ts", prefix + "browser/pulseai/inner.ts"]
+    )
+    for rel in rels:
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update((vscode_root / rel).read_bytes().replace(b"\r\n", b"\n"))
+        h.update(b"\0")
+    h.update(b"scripts/emit-pulseai-bundle.mjs")
+    h.update(b"\0")
+    h.update(
+        (vscode_root / "scripts" / "emit-pulseai-bundle.mjs")
+        .read_bytes()
+        .replace(b"\r\n", b"\n")
+    )
+    h.update(b"\0")
+    assert got == h.hexdigest()
+
+
+def test_engine_hash_matches_the_shipped_panel_on_this_repo():
+    """End-to-end on the real tree: the engine's recompute equals the
+    shipped SOURCES_HASH — the banner reads current here, and on the
+    owner's Windows checkout too (field 2026-09-10: the very hash pair
+    f5b8d974… / aa68b244… that the Path-sort bug produced is now impossible;
+    whatever ships later must keep both recipes moving together)."""
+    got = _exec_engine_sources_hash()(PULSE, ROOT)
+    shipped = (
+        FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "SOURCES_HASH"
+    ).read_text(encoding="utf-8").strip()
+    assert got == shipped
+
+
 def test_token_budget_default_leaves_iterations_as_the_binding_cap():
     """Field 2026-09-10: the 120k default cut a healthy turn at iteration
     8/30 (receipt: tokens 137,198/120,000, tripped: tokens) — real billing
