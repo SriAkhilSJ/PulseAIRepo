@@ -1024,7 +1024,14 @@ class BridgeServer:
             def _sources_hash():
                 # Mirrors scripts/emit-pulseai-bundle.mjs BYTE-FOR-BYTE:
                 # repo-relative-to-desktop/vscode POSIX paths in codepoint
-                # order, feeding rel + NUL + bytes + NUL, emitter last.
+                # order, feeding rel + NUL + line-ending-normalized bytes
+                # + NUL, emitter last. Normalization is CRLF -> LF at the
+                # byte level: a Windows checkout keeps CRLF copies of files
+                # a pull never rewrote (eol=lf applies only at checkout of
+                # changed files), and the raw-byte hash differed per
+                # machine (field 2026-09-10: STALE banner on a current
+                # panel). Content still flips the hash; checkout state
+                # no longer can.
                 h = hashlib.sha256()
                 vscode_root = root / "desktop" / "vscode"
                 files = sorted(
@@ -1036,12 +1043,12 @@ class BridgeServer:
                     rel = f.relative_to(vscode_root).as_posix()
                     h.update(rel.encode("utf-8"))
                     h.update(b"\0")
-                    h.update(f.read_bytes())
+                    h.update(f.read_bytes().replace(b"\r\n", b"\n"))
                     h.update(b"\0")
                 emitter = vscode_root / "scripts" / "emit-pulseai-bundle.mjs"
                 h.update(emitter.relative_to(vscode_root).as_posix().encode("utf-8"))
                 h.update(b"\0")
-                h.update(emitter.read_bytes())
+                h.update(emitter.read_bytes().replace(b"\r\n", b"\n"))
                 h.update(b"\0")
                 return h.hexdigest()
             hash_file = out_file.parent / "SOURCES_HASH"

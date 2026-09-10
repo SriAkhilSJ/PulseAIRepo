@@ -90,15 +90,26 @@ function collectFiles(dir, out) {
 }
 // The engine recomputes this hash in Python — the recipe must match
 // BYTE-FOR-BYTE: sort by the relative POSIX path in plain codepoint
-// order (default string sort), feed rel + NUL + bytes + NUL.
+// order (default string sort), feed rel + NUL + line-ending-normalized
+// bytes + NUL. Normalization: CRLF -> LF at the BYTE level (latin1
+// round-trips any byte sequence losslessly, utf8 would corrupt the
+// binary assets). Field 2026-09-10: the owner's Windows checkout keeps
+// CRLF copies of files a pull never rewrote (.gitattributes eol=lf only
+// applies to files git actually checks out), so raw bytes hashed
+// differently per machine and the exact-freshness banner cried STALE on
+// a current panel. Content changes still flip the hash — only checkout
+// line-ending state stops mattering.
+function normalizeEol(buf) {
+  return Buffer.from(buf.toString('latin1').replace(/\r\n/g, '\n'), 'latin1');
+}
 const hash = crypto.createHash('sha256');
 const relOf = (f) => path.relative(FORK, f).split(path.sep).join('/');
 for (const f of collectFiles(SRC_ROOT, []).map(relOf).sort()) {
-	hash.update(f).update('\0').update(fs.readFileSync(path.join(FORK, f))).update('\0');
+	hash.update(f).update('\0').update(normalizeEol(fs.readFileSync(path.join(FORK, f)))).update('\0');
 }
 const emitterRel = relOf(path.join(FORK, 'scripts', 'emit-pulseai-bundle.mjs'));
 hash.update(emitterRel).update('\0')
-	.update(fs.readFileSync(path.join(FORK, 'scripts', 'emit-pulseai-bundle.mjs'))).update('\0');
+	.update(normalizeEol(fs.readFileSync(path.join(FORK, 'scripts', 'emit-pulseai-bundle.mjs')))).update('\0');
 const SOURCES_HASH = hash.digest('hex');
 fs.writeFileSync(path.join(OUT_ROOT, 'browser', 'SOURCES_HASH'), SOURCES_HASH + '\n');
 

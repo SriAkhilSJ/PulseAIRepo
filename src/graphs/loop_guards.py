@@ -23,6 +23,7 @@ what the user might have meant), both bounded:
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # After this many consecutive no-tool assistant replies the turn concludes.
@@ -55,6 +56,34 @@ def consecutive_no_tool_ai_messages(messages: list[Any]) -> int:
         # human / tool / system boundaries end the streak
         return streak
     return streak
+
+
+# --- stall guard (hermes agent/agent_runtime_helpers.py, verbatim) --------
+# "Said-continue-but-stopped": no tool calls, but the SHORT reply TAILS with
+# an announced next action ("Next, I'll install the dependencies and create
+# the component"). The model announced work and stopped — hermes re-prompts
+# it to act instead of ending the turn mid-plan. Field 2026-09-10 (engine
+# 72e271c6): after 13 read-only observations the model replied with an
+# announced-next-action text and the turn finalized mid-plan (3 of 4 plan
+# steps unstarted, nothing delivered).
+_TRAILING_CONTINUE_INTENT_RE = re.compile(
+    r"(?:\blet me now\b|\bi(?:['\u2019])?ll now\b|\bi will now\b"
+    r"|\bnow i(?:['\u2019]ll| will)\b|\bnext[,:] i\b)"
+    r"[^.!?\n]{0,100}[.:\u2026]?\s*$", re.IGNORECASE,
+)
+
+# Content longer than this is a substantive reply, not a dangling ack.
+_TRAILING_CONTINUE_INTENT_MAX_CHARS = 400
+
+
+def trailing_continue_intent(text: str) -> bool:
+    """Whether ``text`` is a short reply ENDING on an announced next action
+    (stall-guard re-prompt trigger). Verbatim port: search window is the last
+    160 chars; replies over 400 chars are substantive answers, never acks."""
+    t = (text or "").strip()
+    if not t or len(t) > _TRAILING_CONTINUE_INTENT_MAX_CHARS:
+        return False
+    return bool(_TRAILING_CONTINUE_INTENT_RE.search(t[-160:]))
 
 
 def is_repetition_dominated(text: str) -> bool:

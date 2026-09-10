@@ -39,6 +39,7 @@ _EXECUTION_TASK_MARKERS = (
 )
 
 _FINISH_NUDGE_BUDGET = 2  # max early-finish nudges before finalize is allowed
+_STALL_CONTINUATION_BUDGET = 2  # hermes stall guard: codex_ack_continuations < 2
 _INCOMPLETE_RESPONSE_RETRY_BUDGET = 3
 
 _INCOMPLETE_RESPONSE_NUDGE = (
@@ -46,6 +47,13 @@ _INCOMPLETE_RESPONSE_NUDGE = (
     "response. Continue from a clean boundary without repeating prior work. "
     "Keep the next response small. If a tool action was intended, reissue one "
     "complete, valid tool call; no partial tool call was executed.]"
+)
+
+# hermes conversation_loop.py::_CODEX_ACK_CONTINUATION_NUDGE, verbatim — the
+# stall guard's re-prompt row.
+_STALL_CONTINUATION_NUDGE = (
+    "[System: Continue now. Execute the required tool calls and only send your "
+    "final answer after completing the task.]"
 )
 
 _FINISH_NUDGE = (
@@ -474,6 +482,7 @@ def should_continue(state: AgentState):
         NO_TOOL_TURN_LIMIT,
         consecutive_no_tool_ai_messages,
         is_repetition_dominated,
+        trailing_continue_intent,
     )
     if not getattr(last_message, "tool_calls", None):
         _no_tool_streak = consecutive_no_tool_ai_messages(state.get("messages", []))
@@ -482,6 +491,21 @@ def should_continue(state: AgentState):
         )
         if _repetition or _no_tool_streak >= NO_TOOL_TURN_LIMIT:
             return "finalize"
+        # ── Hermes stall guard (agent/turn_final_response.py, verbatim) ──
+        # "Said-continue-but-stopped": no tool calls, but the short reply
+        # TAILS with an announced next action — the model announced work
+        # and stopped. Hermes re-prompts it to ACT, bounded 2/turn
+        # (codex_ack_continuations < 2). Field 2026-09-10: after 13
+        # read-only observations the model announced its next step in text
+        # and the turn finalized mid-plan. Off on budget-exhausted laps:
+        # the grace lap runs UNBOUND — no tools left to act with (same
+        # condition as the incomplete-response gate above).
+        if (
+            state.get("stall_continuations", 0) < _STALL_CONTINUATION_BUDGET
+            and not _budget_exhausted(state)
+            and trailing_continue_intent(str(getattr(last_message, "content", "") or ""))
+        ):
+            return "finish_gate"
 
     # ── Hermes loop law: pending tool calls execute, even at the cap ──
     # Hermes IterationBudget.consume() (agent/iteration_budget.py) gates the
@@ -757,9 +781,31 @@ def finish_gate_node(state: AgentState) -> dict:
     """
     # Output-limit recovery is mechanical, not an early-finish judgment. It
     # has its own retry counter and does not spend the generic finish budget.
-    last = state.get("messages", [])[-1] if state.get("messages") else None
+    last = state.get("messages", [])[-1] if state.get("messages", []) else None
     if bool(getattr(last, "additional_kwargs", {}).get("pulse_incomplete_response")):
         return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE)]}
+
+    # Hermes stall guard (turn_final_response.py): the toolless reply ended on
+    # an announced next action. The assistant reply already sits in the
+    # transcript as interim (ai_node returned it); the nudge is hermes'
+    # _CODEX_ACK_CONTINUATION_NUDGE verbatim. Bounded by the router's
+    # stall_continuations check (hermes codex_ack_continuations < 2).
+    from src.graphs.loop_guards import trailing_continue_intent
+
+    if (
+        not getattr(last, "tool_calls", None)
+        and state.get("stall_continuations", 0) < _STALL_CONTINUATION_BUDGET
+        and trailing_continue_intent(str(getattr(last, "content", "") or ""))
+    ):
+        print(
+            "[StallGuard] turn ending on trailing continue-intent with no tool "
+            f"calls — re-prompting to act ({state.get('stall_continuations', 0) + 1}/2)",
+            flush=True,
+        )
+        return {
+            "messages": [SystemMessage(content=_STALL_CONTINUATION_NUDGE)],
+            "stall_continuations": state.get("stall_continuations", 0) + 1,
+        }
 
     # E2-1 first: a named deliverable missing on disk is the dominant
     # signal. Even when OTHER code files were written, the task's own

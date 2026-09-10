@@ -866,6 +866,56 @@ def test_bundle_freshness_is_a_source_content_hash_not_ancestry():
     assert ").update(" not in bridge.split("def _sources_hash")[1].split("return h.hexdigest")[0]
 
 
+def test_bundle_hash_is_stable_under_windows_crlf_checkout():
+    """Field 2026-09-10: the owner's Windows checkout kept CRLF copies of
+    files a pull never rewrote (eol=lf applies only when git actually
+    (re)writes a file), so the raw-byte hash differed per machine (sandbox
+    ac7bedac… != owner 6ebfe76a…) and the exact-freshness banner cried STALE
+    on a current panel. Both recipes now normalize CRLF -> LF at the byte
+    level before hashing: checkout line-ending state cannot flip the
+    verdict; content still can."""
+    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    assert "normalizeEol" in emitter and "latin1" in emitter
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    recipe = bridge.split("def _sources_hash")[1].split("return h.hexdigest")[0]
+    assert 'replace(b"\\r\\n", b"\\n")' in recipe
+
+
+def test_hash_recipe_identical_under_crlf(tmp_path):
+    """The normalization recipe is checkout-independent: CRLF-ifying every
+    file (what an autocrlf checkout produces) leaves the hash unchanged —
+    including for binary assets, where a utf8 decode would corrupt bytes."""
+    import hashlib
+
+    tree = tmp_path / "contrib"
+    (tree / "browser").mkdir(parents=True)
+    # repo blobs are pure-LF text (checked: no \r anywhere in the contrib
+    # tree) plus binary assets; a Windows checkout may flip every LF to
+    # CRLF on disk. The escaped "\\n" inside the string must survive too.
+    (tree / "browser" / "a.ts").write_bytes(b"export const x = 1;\nconst s = \"a\\nb\";\n")
+    (tree / "browser" / "b.css").write_bytes(b".a { color: red }\n.b {}\n")
+    (tree / "browser" / "logo.ttf").write_bytes(b"\x00\x01\r\n\x02\x00\xff")
+
+    def recipe(src_root):
+        h = hashlib.sha256()
+        for f in sorted(f for f in src_root.rglob("*") if f.is_file()):
+            h.update(f.relative_to(src_root).as_posix().encode("utf-8"))
+            h.update(b"\0")
+            h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+            h.update(b"\0")
+        return h.hexdigest()
+
+    lf = recipe(tree)
+    # A real autocrlf checkout converts only files git deems TEXT (NUL-byte
+    # heuristic): binaries like the codicon .ttf keep their blob bytes —
+    # including any 0d0a they already contain — and BOTH recipes normalize
+    # those bytes identically, so they stay pinned.
+    for f in tree.rglob("*"):
+        if f.is_file() and f.suffix in {".ts", ".css"}:
+            f.write_bytes(f.read_bytes().replace(b"\n", b"\r\n"))
+    assert recipe(tree) == lf
+
+
 def test_token_budget_default_leaves_iterations_as_the_binding_cap():
     """Field 2026-09-10: the 120k default cut a healthy turn at iteration
     8/30 (receipt: tokens 137,198/120,000, tripped: tokens) — real billing
