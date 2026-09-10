@@ -722,7 +722,7 @@ function familyBody(tool, host) {
         body.append(element('div', 'pulseai-tool-actions', button('Open sub-agent tab', 'pulseai-link-button', () => void 0, 'organization'), button('Cancel', 'pulseai-link-button', () => void 0, 'debug-stop')));
     }
     else if (presentation.family === 'code' || presentation.family === 'scaffold') {
-        // Field 2026-09-10: this body hardcoded RUNTIME "Python 3.14" —
+        // Field 2026-09-10: this body hardcoded a fake RUNTIME value —
         // invented text on a JS scaffolding call. The card shows the call's
         // OWN fields and the honest state, nothing else.
         const scaffoldFields = [];
