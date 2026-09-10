@@ -330,3 +330,90 @@ def test_grace_prefix_is_leg_neutral():
     source = open("src/graphs/chat_graph.py", encoding="utf-8").read()
     assert 'f"[grace] Run budget reached "' in source
     assert 'Reached maximum iterations ({_iteration_budget()})' not in source
+
+
+# ── F close (2026-09-10): the summary is the turn's LAST model call ────────
+
+
+def _router_state(grace_done=0, wrap_summary=0, finish_nudges=0, verify_nudges=0,
+                  iteration_used=999):
+    from langchain_core.messages import AIMessage
+    return {
+        "messages": [AIMessage(content="Summary of what was done.")],
+        "current_task": "build the thing",
+        "iteration_used": iteration_used,
+        "finish_nudges": finish_nudges,
+        "verify_nudges": verify_nudges,
+        "grace_done": grace_done,
+        "wrap_summary": wrap_summary,
+        "workspace": "/nonexistent-ws",
+    }
+
+
+def test_post_grace_reply_finalizes_even_with_missing_deliverables():
+    """The grace summary already ran (grace_done=1). R3-4's post-grace
+    deliverable nudge ordered work from a TOOLLESS lap — paid laps that
+    could never place the file. hermes RETURNS the summary; so does the
+    router now."""
+    from src.graphs.gates import should_continue
+
+    state = _router_state(grace_done=1, finish_nudges=0)
+    state["current_task"] = "create src/components/ui/hero.tsx and verify"
+    assert should_continue(state) == "finalize"
+
+
+def test_post_grace_reply_finalizes_even_when_verification_missing():
+    from langchain_core.messages import AIMessage, HumanMessage
+    from src.graphs.gates import should_continue
+
+    state = _router_state(grace_done=1, verify_nudges=0)
+    state["current_task"] = "build app and test it"
+    state["messages"] = [
+        HumanMessage(content="build app and test it"),
+        AIMessage(content="wrote main.py", tool_calls=[]),
+        AIMessage(content="Summary of what was done."),
+    ]
+    assert should_continue(state) == "finalize"
+
+
+def test_budget_exhausted_before_grace_still_nudges_once():
+    """R3-4 stays for the lap BEFORE the summary: exhausted, no closing
+    answer yet (grace_done=0), named deliverable missing -> the bounded
+    finish nudge still fires."""
+    from src.graphs.gates import should_continue
+
+    state = _router_state(grace_done=0, finish_nudges=0)
+    state["current_task"] = "create src/components/ui/hero.tsx"
+    assert should_continue(state) == "finish_gate"
+
+
+def test_wrap_summary_reply_finalizes():
+    """The plan-complete wrap lap's answer ends the turn (same ONE-summary
+    law); without this the router could re-enter the finish/verify gates
+    after the wrap answer."""
+    from src.graphs.gates import should_continue
+
+    state = _router_state(grace_done=0, wrap_summary=1, iteration_used=3)
+    state["current_task"] = "build app and test it"
+    assert should_continue(state) == "finalize"
+
+
+def test_wrap_summary_with_pending_tools_still_dispatches():
+    """Hermes loop law keeps priority: pending tool calls execute even on a
+    wrap-marked state (never observed — the wrap lap is toolless — but the
+    dispatch-first law must not regress)."""
+    from langchain_core.messages import AIMessage
+    from src.graphs.gates import should_continue
+
+    state = _router_state(grace_done=0, wrap_summary=1, iteration_used=3)
+    state["messages"] = [AIMessage(
+        content="",
+        tool_calls=[{"id": "c1", "name": "read_file", "args": {"path": "a"}}],
+    )]
+    assert should_continue(state) == "tools"
+
+
+def test_grace_and_wrap_laws_pinned_in_source():
+    source = open("src/graphs/gates.py", encoding="utf-8").read()
+    assert 'if state.get("grace_done", 0):\n            return "finalize"' in source
+    assert 'if state.get("wrap_summary") and not getattr(last_message, "tool_calls", None):' in source

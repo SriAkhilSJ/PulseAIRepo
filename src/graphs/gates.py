@@ -524,17 +524,29 @@ def should_continue(state: AgentState):
     if getattr(last_message, "tool_calls", None):
         return "tools"
 
+    # F close (wrap leg): the plan-complete wrap lap produced the closing
+    # answer — the turn ends on it (same law as the grace summary: ONE
+    # toolless summary call, then RETURN; wrap_summary stays set until the
+    # turn teardown). Without this the router could re-enter the
+    # finish/verify gates after the wrap answer and pay more toolless laps.
+    if state.get("wrap_summary") and not getattr(last_message, "tool_calls", None):
+        return "finalize"
+
     # D40: once the ai iteration budget is spent, this run must conclude.
     # The grace call produced a text answer — finalize it instead of
     # re-entering gates that would push the model to work it can no longer
     # do. (Pending tool calls never reach this point: they were dispatched
     # above, hermes-style.)
-    # R3-4: even on the budget-exhausted grace route, "Finished" with a
-    # NAMED deliverable that does not exist (or code that was never
-    # verified) is blocked once — bounded by the nudge budgets so the
-    # run still concludes rather than looping on a grace path that has
-    # no tools to do the work.
+    # F close (field 2026-09-09→10): the grace summary already ran when
+    # grace_done is set — hermes _handle_max_iterations RETURNS the summary
+    # and the loop ends there. R3-4's post-grace nudges ordered work from a
+    # TOOLLESS lap (no tools can place deliverables or run checks), so they
+    # could only burn paid toolless laps until their budgets expired. The
+    # closing answer is the turn's LAST model call. The same law closes the
+    # plan-complete wrap lap: wrap_summary's toolless answer ends the turn.
     if _budget_exhausted(state):
+        if state.get("grace_done", 0):
+            return "finalize"
         if (state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
                 and _deliverables_missing_on_disk(state, state.get("workspace", "."))):
             return "finish_gate"
