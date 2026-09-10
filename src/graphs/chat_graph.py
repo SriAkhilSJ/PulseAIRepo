@@ -1057,9 +1057,10 @@ def ai_node(
             # exploring..." + a raw text tool_call after 111s of real work,
             # and the turn finalized "completed" on that nonsense.
             grace_summary_lap1 = True
+            from src.graphs.budget import _budget_trip_reason
             print(
-                f"[grace] Reached maximum iterations ({_iteration_budget()}). "
-                "Requesting summary...",
+                f"[grace] Reached maximum iterations ({_iteration_budget()}) "
+                f"[{_budget_trip_reason(state)}]. Requesting summary...",
                 flush=True,
             )
             messages = messages + [

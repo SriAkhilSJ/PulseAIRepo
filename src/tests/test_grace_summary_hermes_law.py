@@ -235,3 +235,27 @@ def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
     assert "turn_model_wall(sid)" in bridge
     assert "turn_model_wall(session_id)" not in bridge
+
+
+def test_grace_print_names_both_budget_legs_and_the_tripped_one():
+    """Field 2026-09-09 x2: two turns ended in the grace after ~9-11 visible
+    model calls while the print blamed "maximum iterations (30)" — one
+    message covered BOTH legs (iterations and tokens), so nobody could tell
+    what cut the run. The grace line now carries both counters and names the
+    tripped leg: the next field log diagnoses itself."""
+    from src.graphs.budget import _budget_trip_reason
+
+    iters = _budget_trip_reason({"iteration_used": 30})
+    assert "iterations 30/" in iters and "tripped: iterations" in iters
+
+    tokens = _budget_trip_reason({
+        "iteration_used": 9,
+        "turn_token_usage": {"total_tokens": 121_000},
+    })
+    assert "iterations 9/" in tokens
+    assert "tokens 121,000/" in tokens and "tripped: tokens" in tokens
+
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    assert "_budget_trip_reason(state)" in source, "the grace print must carry the diagnostics"

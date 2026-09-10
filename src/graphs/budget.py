@@ -127,6 +127,32 @@ def _verification_reserve_reached(state: AgentState) -> bool:
     return iteration_near or token_near
 
 
+def _budget_trip_reason(state: AgentState) -> str:
+    """Both budget legs with their REAL numbers, and which one tripped.
+
+    Field 2026-09-09 x2: two turns ended in the grace after ~9-11 visible
+    model calls while the print blamed "maximum iterations (30)" — the same
+    message covers BOTH legs (iterations and tokens), so a token-cap trip
+    masquerades as an iteration end and nobody could tell what cut the run.
+    Same discipline as the bridge wall receipt: the next grace line must
+    diagnose itself.
+    """
+    used = int(state.get("iteration_used", 0))
+    budget = _iteration_budget()
+    cap = _token_budget()
+    usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
+    total = int(usage.get("total_tokens", 0) or 0)
+    parts = [f"iterations {used}/{budget}"]
+    parts.append(f"tokens {total:,}/{cap:,}" if cap is not None else "tokens uncapped")
+    if used >= budget:
+        parts.append("tripped: iterations")
+    elif cap is not None and total >= cap:
+        parts.append("tripped: tokens")
+    else:
+        parts.append("tripped: unknown leg")
+    return ", ".join(parts)
+
+
 def _budget_exhausted(state: AgentState) -> bool:
     used = int(state.get("iteration_used", 0))
     if used >= _iteration_budget():
