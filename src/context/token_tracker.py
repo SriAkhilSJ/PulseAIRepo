@@ -64,6 +64,7 @@ class TokenUsage:
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
     calls_made: int = 0
+    cached_tokens: int = 0  # provider-reported prompt-cache hits (Law 1 visibility)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "TokenUsage":
@@ -76,6 +77,7 @@ class TokenUsage:
             total_tokens=data.get("total_tokens", 0),
             estimated_cost_usd=data.get("estimated_cost_usd", 0.0),
             calls_made=data.get("calls_made", 0),
+            cached_tokens=data.get("cached_tokens", 0),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,6 +87,7 @@ class TokenUsage:
             "total_tokens": self.total_tokens,
             "estimated_cost_usd": round(self.estimated_cost_usd, 6),
             "calls_made": self.calls_made,
+            "cached_tokens": self.cached_tokens,
         }
 
     def __add__(self, other: "TokenUsage") -> "TokenUsage":
@@ -94,6 +97,7 @@ class TokenUsage:
             total_tokens=self.total_tokens + other.total_tokens,
             estimated_cost_usd=self.estimated_cost_usd + other.estimated_cost_usd,
             calls_made=self.calls_made + other.calls_made,
+            cached_tokens=self.cached_tokens + other.cached_tokens,
         )
 
 
@@ -120,11 +124,13 @@ class TokenTracker:
 
         if isinstance(response, BaseMessage):
             completion_tokens = TokenTracker._count_output_tokens(response, model)
-            actual_prompt, actual_completion = TokenTracker._extract_usage_metadata(response)
+            actual_prompt, actual_completion, actual_cached = (
+                TokenTracker._extract_usage_metadata(response)
+            )
         else:
             # Structured output (Pydantic model) — estimate from string.
             completion_tokens = TokenTracker._count_string_tokens(str(response), model)
-            actual_prompt, actual_completion = None, None
+            actual_prompt, actual_completion, actual_cached = None, None, None
 
         # Override with real provider metadata if available.
         if actual_prompt is not None:
@@ -141,6 +147,7 @@ class TokenTracker:
             total_tokens=total,
             estimated_cost_usd=cost,
             calls_made=1,
+            cached_tokens=actual_cached or 0,
         )
 
     @staticmethod
@@ -217,23 +224,44 @@ class TokenTracker:
         return len(encoder.encode(text))
 
     @staticmethod
-    def _extract_usage_metadata(response: BaseMessage) -> tuple[int | None, int | None]:
+    def _extract_usage_metadata(response: BaseMessage) -> tuple[int | None, int | None, int | None]:
         """
         Some providers (OpenAI, Groq) return actual token counts.
-        Try to extract them from the response.
+        Try to extract them from the response. The third value is the
+        provider-reported PROMPT-CACHE hit count (Law 1 visibility):
+        LangChain's standard ``input_token_details.cache_read`` — where
+        OpenAI's ``prompt_tokens_details.cached_tokens`` and Anthropic
+        cache reads both land — with the raw OpenAI shape in
+        ``additional_kwargs`` as fallback. None when the provider
+        reported no cache information.
         """
         if not isinstance(response, AIMessage):
-            return None, None
+            return None, None, None
 
         meta = getattr(response, "usage_metadata", None)
         if not meta:
-            return None, None
+            return None, None, None
 
         # LangChain standard format.
         input_tokens = meta.get("input_tokens") or meta.get("prompt_tokens")
         output_tokens = meta.get("output_tokens") or meta.get("completion_tokens")
 
-        return input_tokens, output_tokens
+        cached = 0
+        try:
+            details = meta.get("input_token_details") or {}
+            cached = int(details.get("cache_read") or 0)
+        except (TypeError, ValueError):
+            cached = 0
+        if not cached:
+            try:
+                raw = (getattr(response, "additional_kwargs", {}) or {}).get(
+                    "prompt_tokens_details"
+                ) or {}
+                cached = int(raw.get("cached_tokens") or 0)
+            except (TypeError, ValueError):
+                cached = 0
+
+        return input_tokens, output_tokens, (cached or None)
 
     @staticmethod
     def _calculate_cost(prompt: int, completion: int, model: str) -> float:

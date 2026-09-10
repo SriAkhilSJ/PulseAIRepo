@@ -1371,6 +1371,18 @@ def ai_node(
     except Exception:
         pass
 
+    # Law-1 visibility: when the provider reports prompt-cache hits, SAY so —
+    # a custom tier re-bills all bound tool schemas per call unless its
+    # automatic prefix caching engages; this line is how anyone can SEE
+    # whether it does. Silent when the provider reports no cache data.
+    if call_usage.cached_tokens > 0 and call_usage.prompt_tokens > 0:
+        pct = round(100 * call_usage.cached_tokens / call_usage.prompt_tokens)
+        print(
+            f"[ai_node] prompt cache: {call_usage.cached_tokens:,} of "
+            f"{call_usage.prompt_tokens:,} prompt tokens served from cache ({pct}%)",
+            flush=True,
+        )
+
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
         [call_usage],
