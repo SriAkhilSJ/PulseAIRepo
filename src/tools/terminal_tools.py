@@ -389,6 +389,22 @@ def check_terminal(
     return result
 
 
+def _failure_hint(command: str, returncode: int, output: str, exit_note) -> str | None:
+    """hermes tools/terminal_tool_result.py::_failure_hint, verbatim shape: on
+    rc=0, warn when a pipeline tail / `|| echo` may mask an upstream failure
+    and the output carries strong failure indicators (advisory only — the exit
+    code itself is NEVER rewritten); on rc!=0, one recovery hint from
+    tools/terminal_hints.py. ``exit_note`` stays None until pulse ports
+    hermes' ``_interpret_exit_code`` semantics table."""
+    from src.tools.terminal_hints import annotate_failure, annotate_masked_success
+
+    if returncode == 0:
+        return annotate_masked_success(command, output)
+    if not exit_note:
+        return annotate_failure(command, returncode, output)
+    return None
+
+
 def _record_verification_result(
     config: RunnableConfig, workspace: str, command: str, exit_code: int, output: str
 ) -> None:
@@ -627,6 +643,10 @@ def terminal(
     echo/heredoc file creation (use write_file). Reserve the terminal
     for: builds, installs, git, processes, scripts, network, package
     managers — anything that needs a shell.
+    Output is auto-truncated — never pipe through tail/head to shorten
+    it. (hermes terminal_tool.py's sentence names the spill file its
+    full-text save produces; pulse has not yet ported that spill, so
+    only the truthful half of the sentence is bound here.)
 
     DO NOT use for long-running installs/builds/servers (use
     start_terminal) or for reading known files (use read_file). Never run
@@ -821,6 +841,14 @@ def terminal(
         _record_verification_result(
             config, workspace, command, process.returncode, final_output
         )
+        # hermes finalize_foreground_result (tools/terminal_tool_result.py):
+        # the hint is computed from the same output the model sees and is
+        # advisory only — the exit code above is NEVER rewritten. Field
+        # 2026-09-10: `npm run build 2>&1 | tail -40` on a broken build
+        # reports tail's exit 0 and the model read the run as Passed.
+        hint = _failure_hint(command, process.returncode, final_output, None)
+        if hint:
+            final_output = f"{final_output}\n\nhint: {hint}"
         return final_output
 
     except subprocess.TimeoutExpired:

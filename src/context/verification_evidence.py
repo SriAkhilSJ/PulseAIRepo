@@ -7,6 +7,7 @@ import shlex
 import sqlite3
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,102 @@ _VERIFY_RE = re.compile(
     re.IGNORECASE,
 )
 _TARGET_RE = re.compile(r"(?:^|\s)([^\s]+(?:::\S+|\.(?:py|ts|tsx|js|jsx|rs|go)))")
+
+
+# hermes agent/verification_evidence.py port (2026-09-10): a piped/`||`ed/
+# backgrounded command's exit code says NOTHING about the classified segment
+# inside it. Field 2026-09-10: `cd /d/TestPulseAI/test5 && npm run build 2>&1
+# | tail -40` on a broken build reports tail's exit 0 and the ledger recorded
+# the build as verification-PASSED. hermes gates every evidence match on
+# _exit_status_is_attributable; without it the "Ended verified" gate is fooled
+# by the same pipe that fools the model.
+@dataclass(frozen=True)
+class _ShellSegment:
+    tokens: list[str]
+    following_operator: str | None = None
+
+
+def _split_shell_segments(command: str, *, posix: bool = True) -> list[_ShellSegment]:
+    """Tokenize top-level shell commands while preserving their control operators.
+
+    Returns ``[]`` for anything unparseable (unbalanced quotes, empty segment,
+    trailing operator other than ``;``) so callers never match a partial parse.
+    """
+    raw_segments: list[tuple[str, str | None]] = []
+    start = 0
+    quote: str | None = None
+    escaped = False
+    index = 0
+
+    while index < len(command):
+        char = command[index]
+        if escaped or (char == "\\" and quote != "'"):
+            escaped = not escaped  # consume the escaped char / start an escape
+            index += 1
+            continue
+
+        if quote or char in "'\"":
+            quote = None if char == quote else (quote or char)  # close / stay / open
+            index += 1
+            continue
+
+        operator = None
+        if command.startswith(("&&", "||", "|&"), index):
+            operator = command[index:index + 2]
+        elif char == "\n":
+            operator = ";"
+        elif char in ";|" or (
+            char == "&"
+            and (index == 0 or command[index - 1] not in "<>")
+            and not command.startswith(("&>", "&>>"), index)
+        ):
+            operator = char
+
+        if operator is None:
+            index += 1
+            continue
+
+        raw = command[start:index].strip()
+        if not raw:
+            return []
+        raw_segments.append((raw, operator))
+        index += 1 if char == "\n" else len(operator)
+        start = index
+
+    if quote or escaped:
+        return []
+    trailing = command[start:].strip()
+    if trailing:
+        raw_segments.append((trailing, None))
+    elif raw_segments and raw_segments[-1][1] != ";":
+        return []
+
+    try:
+        segments = [_ShellSegment(shlex.split(raw, posix=posix), operator) for raw, operator in raw_segments]
+    except ValueError:
+        return []
+    return segments if all(s.tokens for s in segments) else []
+
+
+def _exit_status_is_attributable(segments: list[_ShellSegment], match_index: int, exit_code: int) -> bool:
+    """Whether the shell's status proves the matched segment's own status.
+
+    Only the last ``;``-separated sequence reports its status; backgrounding,
+    pipes and ``||`` hide it; an ``&&`` chain proves each member only on success.
+    """
+    if not segments or not 0 <= match_index < len(segments) or any(s.following_operator == "&" for s in segments):
+        return False
+
+    sequence_start = max(
+        (i + 1 for i, s in enumerate(segments[:-1]) if s.following_operator == ";"), default=0
+    )
+    if match_index < sequence_start:
+        return False
+
+    operators = {segment.following_operator for segment in segments[sequence_start:-1]}
+    if operators & {"|", "|&", "||"}:
+        return False
+    return not operators or (int(exit_code) == 0 and operators == {"&&"})
 
 
 class VerificationLedger:
@@ -67,6 +164,19 @@ class VerificationLedger:
     ) -> dict | None:
         classification = self.classify(command)
         if classification is None:
+            return None
+        # hermes _find_canonical_match law: the matched segment's own status
+        # must be PROVABLE from the shell's exit code. `npm run build 2>&1 |
+        # tail -40` reports tail's 0, not the build's — an unattributable run
+        # records NO evidence (the ledger keeps its previous state; it never
+        # guesses). Fail-closed: a command the segment splitter cannot parse
+        # records nothing either.
+        segments = _split_shell_segments(command or "")
+        match_index = next(
+            (i for i, segment in enumerate(segments) if self.classify(" ".join(segment.tokens))),
+            None,
+        )
+        if match_index is None or not _exit_status_is_attributable(segments, match_index, int(exit_code)):
             return None
         kind, scope = classification
         status = "passed" if int(exit_code) == 0 else "failed"
