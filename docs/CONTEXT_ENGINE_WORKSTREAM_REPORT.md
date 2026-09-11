@@ -1,8 +1,9 @@
 # Context Engine Workstream Report — P3 → P10
 
-**Date:** 2026-08-31
-**Branch:** `arena/01a053f3-pulseairepo` → `main` (merged via PR #12, merge commit `7af80443`)
+**Date:** 2026-09-11
+**Branch:** `arena/01a06408-pulseairepo` (merged to `main` at `bf696a61`)
 **Scope:** The "best context engine, every event running safely" workstream — Hermes/OpenClaude parity, event-safety state machines, feedback learning, the stale-proof history pipeline, the pure layer policy, and pinned never-encode ambiguity detection.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
