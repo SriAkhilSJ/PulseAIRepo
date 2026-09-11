@@ -1,9 +1,11 @@
 # Attempt 11 Completion-Integrity Repair
 
-Date: 2026-08-25
+Date: 2026-09-11
 
 Scope: deterministic source repair after independent review of live Test-5
 Attempt 11. No provider request was made.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Failures addressed
 
