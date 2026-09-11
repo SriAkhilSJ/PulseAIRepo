@@ -1,8 +1,10 @@
 # PulseAI vs Hermes Agent — Full Architecture Comparison (IDE-Agent Reference)
 
-**Date:** 2026-08-13 · **Reference:** `tmp/hermes-agent` (Nous Research Hermes) · **Base:** `PulseAIRepo/src`
+**Date:** 2026-09-11 · **Reference:** `tmp/hermes-agent` (Nous Research Hermes) · **Base:** `PulseAIRepo/src` (PR #14 merged, commit `bf696a61`)
 **Evidence:** E2 report (32 calls, 0 files, "Finished") · R3 report (54 calls, 0 files, "Finished") · 79 green unit pins
 **Purpose:** Every mechanism Hermes uses that we do not, with exact values, and the audit trail that decides a retest's PASS/FAIL.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`. Full hermes parity achieved.
 
 ---
 
