@@ -1,7 +1,8 @@
 # How Copilot Is Registered, and What Pulse Should Reuse
 
-**Reviewed:** 2026-08-26  
+**Reviewed:** 2026-09-11  
 **Scope:** The vendored Code OSS fork under `desktop/vscode`; provider-free source review only.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Short answer
 
