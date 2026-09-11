@@ -14,6 +14,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
     AIMessage,
+    RemoveMessage,
 )
 from typing import Literal,cast,Any
 # pyrefly: ignore [missing-import]
@@ -1449,12 +1450,26 @@ def ai_node(
 
 
 def finalize_node(state: AgentState, config: RunnableConfig):
+    # hermes turn_truncation.py: "Unanswered continue nudges made every later
+    # turn re-truncate: drop the trail." Recovery nudges are REQUEST-scoped
+    # rows for the turn they recover — once the turn ends they must not sit
+    # in the transcript shaping every later request (each repeated imperative
+    # row biases the next completion toward exactly those imperatives; field
+    # 2026-09-10: the degenerate turn looped on the nudges' leading word).
+    # Every nudge is tagged at creation (gates.py pulse_nudge); finalize
+    # removes all of them, so nothing but real work survives the turn.
+    _sweep = [
+        RemoveMessage(id=m.id)
+        for m in (state.get("messages") or [])
+        if getattr(m, "additional_kwargs", {}).get("pulse_nudge")
+        and getattr(m, "id", None)
+    ]
     last = state.get("messages", [])[-1] if state.get("messages") else None
     if bool(getattr(last, "additional_kwargs", {}).get("pulse_cancelled")):
         return {
             "task_completed": False,
             "task_status": "cancelled",
-            "messages": [AIMessage(content="Operation cancelled by the user.")],
+            "messages": [AIMessage(content="Operation cancelled by the user."), *_sweep],
         }
 
     plan = finalize_plan(
@@ -1656,7 +1671,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             else "failed" if trailing_failed
             else "completed"
         ),
-        "messages": [AIMessage(content="\n".join(lines))] if lines else [],
+        "messages": ([AIMessage(content="\n".join(lines))] if lines else []) + _sweep,
     }
 
 

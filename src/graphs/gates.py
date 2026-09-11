@@ -809,7 +809,7 @@ def finish_gate_node(state: AgentState) -> dict:
     if bool(getattr(last, "additional_kwargs", {}).get("pulse_repetition_dominated")):
         return {}
     if bool(getattr(last, "additional_kwargs", {}).get("pulse_incomplete_response")):
-        return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE)]}
+        return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE, additional_kwargs={"pulse_nudge": True})]}
 
     # Hermes stall guard (turn_final_response.py): the toolless reply ended on
     # an announced next action. The assistant reply already sits in the
@@ -829,7 +829,7 @@ def finish_gate_node(state: AgentState) -> dict:
             flush=True,
         )
         return {
-            "messages": [SystemMessage(content=_STALL_CONTINUATION_NUDGE)],
+            "messages": [SystemMessage(content=_STALL_CONTINUATION_NUDGE, additional_kwargs={"pulse_nudge": True})],
             "stall_continuations": state.get("stall_continuations", 0) + 1,
         }
 
@@ -844,7 +844,7 @@ def finish_gate_node(state: AgentState) -> dict:
         )
         nudge = _ARTIFACT_NUDGE if artifact_only else _COPY_NUDGE
         return {
-            "messages": [SystemMessage(content=nudge)],
+            "messages": [SystemMessage(content=nudge, additional_kwargs={"pulse_nudge": True})],
             "finish_nudges": state.get("finish_nudges", 0) + 1,
         }
     if _wrote_code_files(state) and (
@@ -861,7 +861,7 @@ def finish_gate_node(state: AgentState) -> dict:
                 + "]"
             )
         return {
-            "messages": [SystemMessage(content=nudge)],
+            "messages": [SystemMessage(content=nudge, additional_kwargs={"pulse_nudge": True})],
             "verify_nudges": state.get("verify_nudges", 0) + 1,
         }
     # Hermes loop law (field 2026-09-05): the plan completed but the model
@@ -882,13 +882,13 @@ def finish_gate_node(state: AgentState) -> dict:
                 "wrap_summary": 1,
             }
         return {
-            "messages": [SystemMessage(content=_PLAN_WRAP_NUDGE)],
+            "messages": [SystemMessage(content=_PLAN_WRAP_NUDGE, additional_kwargs={"pulse_nudge": True})],
             "plan_wrap_nudges": nudges + 1,
         }
     nudge = _FINISH_NUDGE
     if _looks_like_copy_task(state.get("current_task", "")) and not _wrote_code_files(state):
         nudge = _COPY_NUDGE
     return {
-        "messages": [SystemMessage(content=nudge)],
+        "messages": [SystemMessage(content=nudge, additional_kwargs={"pulse_nudge": True})],
         "finish_nudges": state.get("finish_nudges", 0) + 1,
     }
