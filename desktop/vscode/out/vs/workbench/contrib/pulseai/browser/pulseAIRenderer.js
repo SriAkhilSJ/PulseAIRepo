@@ -99,7 +99,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const PULSEAI_UI_STAMP = '2026-09-10';
+const PULSEAI_UI_STAMP = '2026-09-11';
 function markdownCopy(text, slot) {
     const root = element('div', 'pulseai-assistant-copy pulseai-md');
     if (slot) {
@@ -458,13 +458,37 @@ function expandableOutput(content) {
 // hermes status-row.tsx todo glyphs, ported: pending = dashed ring,
 // in_progress = live dot, completed = pass-filled, failed = error,
 // cancelled = circle-slash. Rows speak the WRITTEN list, never arg JSON.
-function planListBody(result, args) {
-    const wrap = element('div', 'pulseai-plan-list');
+//
+// User disclosure choices survive re-renders — the same law toolRow's
+// openTools set serves one level up, here keyed by the owning tool id.
+const openPlanLists = new Set();
+// hermes TodoPanel (ui-tui/src/components/todoPanel.tsx) ported: the plan
+// body is a LABELED DISCLOSURE, not a permanently-painted list (field
+// 2026-09-11, "Dropdown menu needed for plan card": a 12-item list filled
+// the pane). Header = chevron + bold Todo + (done/total) + the incomplete
+// hint, verbatim. Default state is hermes turnStore.ts policy: a COMPLETE
+// list collapses (todoCollapsedByDefault), an incomplete one stays open —
+// done/cancelled reads completed/failed here, Pulse's wire vocabulary
+// (status-row port). The user's toggle then wins and survives re-renders.
+function planListBody(tool, result, args) {
     const rows = planStepsFrom(result, args);
     if (!rows.length) {
-        wrap.append(element('div', 'pulseai-plan-empty', 'No task list written'));
-        return wrap;
+        const empty = element('div', 'pulseai-plan-list');
+        empty.append(element('div', 'pulseai-plan-empty', 'No task list written'));
+        return empty;
     }
+    const done = rows.filter(s => s.status === 'completed').length;
+    const pendingCount = rows.filter(s => s.status === 'in_progress' || s.status === 'pending').length;
+    // hermes isTodoDone (liveProgress.ts): every item completed or cancelled;
+    // failed is this wire's other terminal state.
+    const complete = rows.every(s => s.status === 'completed' || s.status === 'failed');
+    const details = element('details', `pulseai-plan-details ${complete ? 'is-complete' : 'is-incomplete'}`);
+    details.open = openPlanLists.has(tool.id) || !complete;
+    details.addEventListener('toggle', () => details.open ? openPlanLists.add(tool.id) : openPlanLists.delete(tool.id));
+    details.append(element('summary', 'pulseai-plan-head', element('span', 'pulseai-plan-chevron', icon('chevron-down')), element('strong', 'pulseai-plan-title', 'Todo'), element('span', 'pulseai-plan-count', `(${done}/${rows.length})`), !complete && pendingCount > 0
+        ? element('span', 'pulseai-plan-hint', ` · incomplete · ${pendingCount} still ${pendingCount === 1 ? 'pending' : 'pending/in_progress'}`)
+        : undefined));
+    const wrap = element('div', 'pulseai-plan-list');
     for (const step of rows) {
         const status = step.status;
         const row = element('div', `pulseai-plan-row is-${status}`);
@@ -482,7 +506,8 @@ function planListBody(result, args) {
         row.append(glyph, element('span', 'pulseai-plan-text', step.description));
         wrap.append(row);
     }
-    return wrap;
+    details.append(wrap);
+    return details;
 }
 function planStepsFrom(result, args) {
     const raw = (result && planStepsOf(result, 'steps'))
@@ -710,7 +735,7 @@ function familyBody(tool, host) {
         // in_progress, pass-filled done, circle-slash cancelled) — the card
         // body ports those rows from the WRITTEN state (the tool result's
         // normalized list) with the call args as fallback.
-        body.append(planListBody(resultRecord(tool.result), args));
+        body.append(planListBody(tool, resultRecord(tool.result), args));
     }
     else if (presentation.family === 'session') {
         body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));

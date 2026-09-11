@@ -1703,6 +1703,20 @@
 .pulseai-plan-glyph .codicon { font-size: var(--pulseai-conv-size); }
 .pulseai-plan-row.is-completed .pulseai-plan-glyph { color: var(--vscode-charts-green, #3fb950); }
 .pulseai-plan-row.is-failed .pulseai-plan-glyph { color: var(--vscode-charts-red, #f85149); }
+/* hermes TodoPanel disclosure (field 2026-09-11): the plan body collapses
+   under a labeled head instead of filling the pane. Closed chevron points
+   right (hermes' "▸ "), open points down ("▾ ") — via rotation. */
+.pulseai-plan-details { margin: 2px 0; }
+.pulseai-plan-head { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; list-style: none; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); user-select: none; }
+.pulseai-plan-head::-webkit-details-marker { display: none; }
+.pulseai-plan-head:hover .pulseai-plan-title { color: var(--vscode-foreground); }
+.pulseai-plan-chevron { display: inline-flex; flex: none; transform: rotate(-90deg); transition: transform 120ms ease; }
+.pulseai-plan-chevron .codicon { font-size: var(--pulseai-conv-size); }
+.pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-chevron { transform: rotate(0deg); }
+.pulseai-plan-title { color: var(--vscode-foreground); }
+.pulseai-plan-count { opacity: .8; }
+.pulseai-plan-hint { opacity: .7; }
+.pulseai-plan-details .pulseai-plan-list { padding-left: 18px; }
 .pulseai-plan-row.is-cancelled .pulseai-plan-glyph { color: var(--vscode-descriptionForeground); opacity: .6; }
 .pulseai-plan-row.is-pending .pulseai-plan-glyph::before {
 	content: ''; width: 10px; height: 10px; border-radius: 50%;
