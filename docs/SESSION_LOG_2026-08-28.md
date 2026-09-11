@@ -1,5 +1,7 @@
 # PulseAI Desktop — Session Log (2026-08-28)
 
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+
 ## What was done
 
 ### 1. Fixed 13 TypeScript compile errors
