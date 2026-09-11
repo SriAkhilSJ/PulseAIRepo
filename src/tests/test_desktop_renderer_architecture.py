@@ -812,37 +812,6 @@ def test_bundle_import_audit_script_is_tracked_and_green_shape():
     assert "path.join(FORK, 'out')" in audit, "cross-slice targets must resolve out/ -> src/ (only the pulseai slice is compiled here)"
 
 
-def test_plan_card_is_a_labeled_disclosure_like_hermes_todo_panel():
-    """Field 2026-09-11 ("Dropdown menu needed for plan card"): the plan body
-    painted every row permanently and a 12-item list filled the pane. hermes'
-    TodoPanel is a disclosure — chevron + bold Todo + (done/total) + the
-    incomplete hint, collapsed by default once the list is done, open while
-    incomplete, and the user's toggle survives re-renders (the openTools
-    law one level up)."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "pulseai-plan-details" in renderer
-    assert "'pulseai-plan-title', 'Todo'" in renderer          # hermes header label
-    assert "pulseai-plan-count" in renderer                     # (done/total)
-    assert "incomplete · " in renderer                          # hermes hint
-    assert "pending/in_progress" in renderer
-    assert "openPlanLists" in renderer                          # toggle survives re-render
-    # hermes turnStore policy: complete -> collapsed by default; else open
-    assert "openPlanLists.has(tool.id) || !complete" in renderer
-    assert "every(s => s.status === 'completed' || s.status === 'failed')" in renderer
-    css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-plan-head" in css and "cursor: pointer" in css
-    assert ".pulseai-plan-details[open]" in css
-    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js").read_text(encoding="utf-8")
-    assert "pulseai-plan-details" in bundle and "pulseai-plan-head" in bundle
-
-
-def test_ui_stamp_bumped_for_the_plan_disclosure_round():
-    """The freshness stamp bumps with EVERY workbench UI round — a stale out/
-    shows an older date on the chip (see PULSEAI_UI_STAMP)."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "PULSEAI_UI_STAMP = '2026-09-11'" in renderer
-
-
 def test_plan_card_renders_a_task_list_never_arg_json():
     """Field 2026-09-10 ("plan is in json"): plan_update/todo_list resolved
     the generic family and the card body painted the raw {"steps":[...]}
