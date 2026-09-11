@@ -1,8 +1,9 @@
 # Fork Rebranding — Code OSS → PulseAI IDE
 
-**Owner:** Interface agent · **Date:** 2026-08-23
+**Owner:** Interface agent · **Date:** 2026-09-11
 **Scope:** everything a user *sees* that says "Code OSS" / "Visual Studio Code" / looks upstream.
 **Status:** identity + icons complete (earlier sessions); **theme shipped this session**; gaps in §4.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
