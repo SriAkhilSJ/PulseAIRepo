@@ -2,6 +2,7 @@
 
 **Status:** COMPLETE — ready for founder-supplied API-key live evaluation  
 **Rule satisfied:** no live Retest-3 was run during architecture work.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## P0 — load-bearing runtime invariants
 
