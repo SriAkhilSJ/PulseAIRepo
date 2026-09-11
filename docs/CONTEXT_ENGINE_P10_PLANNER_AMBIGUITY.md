@@ -1,8 +1,9 @@
 # Context Engine P10 — Planner-Message & Ambiguity-Detection Extraction (Fifth Modularization Cut)
 
-**Date:** 2026-08-31
+**Date:** 2026-09-11
 **Scope:** `src/context/plan_messages.py` (new), `src/context/ambiguity.py` (new), `src/context/context_engine.py` (both extracted), new `src/tests/test_plan_messages.py` (10 contracts) + `src/tests/test_ambiguity.py` (8 contracts)
 **Sources:** `docs/CONTEXT_ENGINE_P9_LAYER_POLICY.md` (extraction template + surface-preservation rule)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What moved
 
