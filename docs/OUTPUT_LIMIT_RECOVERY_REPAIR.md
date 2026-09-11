@@ -1,7 +1,9 @@
 # Deterministic Output-Limit Recovery Repair
 
-Date: 2026-08-25  
+Date: 2026-09-11  
 Scope: provider-free repair after Test-5 Attempt 10
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Status and limits
 
