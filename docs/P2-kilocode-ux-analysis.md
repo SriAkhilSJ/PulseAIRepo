@@ -1,6 +1,7 @@
 # 🎨 P2 UX Analysis — Kilo Code's agent UI, read end-to-end
 
 **Source read:** `Kilo-Org/kilocode` @ `001fb21` — whole tree mapped (9,167 files, 41-package monorepo), then the actual source of the UX layer: 41 chat components, the permission model, the snapshot system, and the VS Code integration manifest. Every design claim below cites a real file. Nothing here is from memory.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
