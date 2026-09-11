@@ -1,6 +1,7 @@
 # PulseAI Context Engine — Bench (Hermes Deps + PulseAI vs Hermes)
 
-**Date:** 2026-08-30 — live bench from `D:\pulseAIagent\PulseAIRepo` venv (separate from `D:\hermes`).
+**Date:** 2026-09-11 — live bench from `D:\pulseAIagent\PulseAIRepo` venv (separate from `D:\hermes`).
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. Hermes Dependencies — Setup
 
