@@ -1,10 +1,11 @@
 # Test 5 Attempt 8 — desktop evidence review
 
-**Date:** 2026-08-25  
+**Date:** 2026-09-11  
 **Evidence commit:** `6586d7afab1558274353dd34256f1783503b83c1`  
 **Run:** `test5-8-desktop`  
 **Workspace:** `C:\test5-ws-attempt8`  
 **Evidence:** `bench-results/test5-8-desktop/`
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Verified verdict
 
