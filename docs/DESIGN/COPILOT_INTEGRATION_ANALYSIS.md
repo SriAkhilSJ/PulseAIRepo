@@ -1,9 +1,10 @@
 # How Copilot Chat Is Integrated Into the Fork — and What Pulse Must Copy
 
-**Author:** Interface agent · **Date:** 2026-08-23
+**Author:** Interface agent · **Date:** 2026-09-11
 **Method:** direct source analysis of `desktop/vscode/src/vs/workbench/contrib/chat/`
 (21 MB, 1014 TS files) against `contrib/pulseai/`.
 **Status:** Research complete. Actions listed in §6 are NOT yet implemented.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 > **Read this before doing any Pulse UI or integration work.** It contains one
 > finding (§3) that changes the design system plan and settles the "13px?"
