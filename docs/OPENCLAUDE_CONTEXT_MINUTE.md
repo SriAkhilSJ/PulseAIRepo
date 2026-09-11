@@ -1,6 +1,7 @@
 # OpenClaude Context Engine — Every Minute Thing
 
 **Repo:** `D:\openclaude` (Gitlawb/openclaude) — audit 2026-08-30. Keywords `context/prompt/memory/compress/token/cache/retrieval` scanned `src/ web/ docs/ vendor/ scripts/`.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 > **Top finding: No explicit RAG/vector/embedding engine exists.** Nearest equivalents: **RepoMap** (tree-sitter PageRank), **knowledgeGraph/conversationArc** (keyword graph), **attachments/memory injection** (CLAUDE.md), **skillSearch** (chunked semantic). `web/` `vendor/` `scripts/` `docs/` contain zero context-engine logic.
 
