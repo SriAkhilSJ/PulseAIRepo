@@ -1,8 +1,10 @@
 # PulseAI — Codebase Architecture Review & Strategic Roadmap
 
 **Reviewer:** Context-engineering analysis, 2026-08-04
-**Repo:** SriAkhilSJ/PulseAIRepo @ `517a771`
+**Repo:** SriAkhilSJ/PulseAIRepo @ `517a771` → PR #14 merged `bf696a61` (2026-09-11)
 **Verdict up front:** The engine is the product. Fork VSCode *last*, not first.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
@@ -14,7 +16,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 | Module | Lines | Role | Maturity |
 |---|---|---|---|
 | `src/graphs/chat_graph.py` | 2,069 | Full agentic loop: task manager → planner → plan preview/approval → AI node → SafeToolNode → progress → finalize/recovery/replan | Solid concept, monolithic file |
-| `src/context/context_engine.py` | 1,239 | 16-layer task-aware context assembly: classification, relevance scoring, dedup, budgeted hierarchical packing, differential cache, feedback loop | Best-in-repo; has fixable bugs |
+| `src/context/context_engine.py` | 1,239 | 32-layer task-aware context assembly: classification, relevance scoring, dedup, budgeted hierarchical packing, differential cache, feedback loop | Best-in-repo; has fixable bugs |
 | `src/context/repo_map.py` | 388 | AST repo map + import graph (verified: handles async/decorators) | Good, capped 1200 tokens |
 | `src/context/vector_memory.py` | 137 | SQLite-persisted vector memory (`~/.pulseai/vector_memory.db`) | Persistent but **linear scan of 500 rows** — not an index |
 | `src/agents/planner.py` | 524 | Plan create/replan/revise/finalize, ambiguity check | Works |
@@ -25,7 +27,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 | `src/tests/` | ~1,000 | 13 regression tests (scripts, not pytest) | Present but not CI-gated |
 
 ### Verified strengths
-- 16-layer context engine with 60/30/10 relevance scoring (task-type prior / semantic sim / recency), embedding dedup at cosine > 0.88, hierarchical budget fit, differential caching. This is meaningfully better than "stuff everything in" OSS scaffolding.
+- 32-layer context engine with 60/30/10 relevance scoring (task-type prior / semantic sim / recency), embedding dedup at cosine > 0.88, hierarchical budget fit, differential caching. This is meaningfully better than "stuff everything in" OSS scaffolding. All 32 hermes parity layers are now ported and merged to `main` (PR #14, commit `bf696a61`).
 - Recovery **and** replanning with separate limits (3 / 2), plus attempt-history lesson injection.
 - Human-in-the-loop approval for destructive tools (`SafeToolNode`).
 - Persistent memory across restarts (JSON memories + SQLite vector store + reflections + skills).
