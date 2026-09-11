@@ -1,5 +1,7 @@
 # Pulse Agent UI adaptation
 
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+
 ## Scope
 
 This increment studies KiloCode at commit `99c621ee78b23c4538bd112bd8235d4722ca5ee9` as an interaction-design reference. It does **not** copy KiloCode branding, provider behavior, framework code, or application architecture. Pulse continues to use its shared, framework-neutral first-party renderer mounted by the existing Agent view and Pulse Manager editor.
