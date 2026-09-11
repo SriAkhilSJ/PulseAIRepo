@@ -1,9 +1,10 @@
 # What PulseAI Should Steal From NousResearch `hermes-agent`
 
-**Date:** 2026-08-06 (regenerated 2026-08-07 after sandbox wipe — all receipts re-verified against a fresh clone)
+**Date:** 2026-09-11 (regenerated 2026-08-07 after sandbox wipe — all receipts re-verified against a fresh clone)
 **Direction:** yours — *"READ AND EXTRACT THE VALUE OF THAT CODEBASE. DON'T BE SCARED OR CONCLUDE BY CODEBASE."*
 **What I did:** cloned their repo (3,848 Python files), read the agent core: context engine, context compressor, conversation compression, iteration budget, curator, LSP manager, code-execution tool, session-search tool, delegate tool.
 **How I ranked what to steal:** your 4 scoreboard metrics — **latency, context quality, token budget, fewer LLM calls**.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 Everything below has a file:line receipt in THEIR tree so anyone can check I didn't make it up. ⚠️ Their `main` moved one receipt between Aug 6 and Aug 7 (the prompt-cache invariant slid from `context_engine.py:229-245` to `:249-263`); noted below.
 
