@@ -446,6 +446,15 @@ def should_continue(state: AgentState):
     if bool(getattr(last_message, "additional_kwargs", {}).get("pulse_cancelled")):
         return "finalize"
 
+    # hermes repetition_guard (#86581): a discarded degenerate fragment ends
+    # the turn — a continuation nudge would only stitch more repeated text.
+    # This check owns the verdict before the incomplete-recovery routing
+    # below can send the fragment back through finish_gate.
+    if bool(getattr(last_message, "additional_kwargs", {}).get(
+        "pulse_repetition_dominated"
+    )):
+        return "finalize"
+
     # A token-limited text response is not a final answer. Tool-bearing
     # incomplete responses route through SafeToolNode for paired rejection;
     # text-only responses receive the bounded finish-gate continuation nudge.
@@ -793,7 +802,12 @@ def finish_gate_node(state: AgentState) -> dict:
     """
     # Output-limit recovery is mechanical, not an early-finish judgment. It
     # has its own retry counter and does not spend the generic finish budget.
+    # hermes repetition_guard: a discarded degenerate fragment gets NO
+    # continuation nudge — continuing would only produce more repeated text;
+    # the router already ends the turn on this flag.
     last = state.get("messages", [])[-1] if state.get("messages", []) else None
+    if bool(getattr(last, "additional_kwargs", {}).get("pulse_repetition_dominated")):
+        return {}
     if bool(getattr(last, "additional_kwargs", {}).get("pulse_incomplete_response")):
         return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE)]}
 

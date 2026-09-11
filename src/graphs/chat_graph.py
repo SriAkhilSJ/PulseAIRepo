@@ -35,6 +35,9 @@ from src.config.settings import LLM_PROVIDER, LLM_MODEL
 from src.llm.factory import (
     get_llm, get_auxiliary_llm, TurnCancelledError, provider_response_info,
 )
+from src.llm.repetition_guard import (
+    REPETITION_DOMINATED_NOTICE, is_degenerate_output,
+)
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
@@ -1347,12 +1350,44 @@ def ai_node(
         extra["pulse_incomplete_response"] = True
         extra["pulse_incomplete_reason"] = completion["finish_reason"]
         extra["pulse_raw_finish_reason"] = completion["raw_finish_reason"]
-        try:
-            result = result.model_copy(update={"additional_kwargs": extra})
-        except AttributeError:
-            result.additional_kwargs = extra
+        # hermes repetition_guard (agent/repetition_guard.py, issue #86581): a
+        # length-cut fragment dominated by verbatim repeats — or, Pulse's
+        # documented extension, one dominating word — is a degenerate loop.
+        # Discard the partial BEFORE the finish-gate continuation nudge can
+        # stitch more of it (hermes incident: a 60k-char turn delivered as 31
+        # Discord messages; Pulse field 2026-09-10: a multilingual salad turn
+        # streamed into the panel). History keeps the notice, never the slop.
+        if is_degenerate_output(str(getattr(result, "content", "") or "")):
+            extra["pulse_repetition_dominated"] = True
+            print(
+                f"[ai_node] repetition-dominated output (finish_reason={completion['finish_reason']}) "
+                "— partial discarded, turn ends",
+                flush=True,
+            )
+            try:
+                result = result.model_copy(
+                    update={"content": REPETITION_DOMINATED_NOTICE, "additional_kwargs": extra}
+                )
+            except AttributeError:
+                result.additional_kwargs = extra
+                result.content = REPETITION_DOMINATED_NOTICE
+        else:
+            try:
+                result = result.model_copy(update={"additional_kwargs": extra})
+            except AttributeError:
+                result.additional_kwargs = extra
     else:
         incomplete_retries = 0
+        # Field instrument, no behavior change: hermes' guard scope is the
+        # length-truncated path. If a STOP-ended response trips the same
+        # predicate, the log says so — that is the datum which decides
+        # (owner-visible, never silently) whether the guard scope must grow.
+        _text = str(getattr(result, "content", "") or "")
+        if len(_text) >= 1500 and is_degenerate_output(_text):
+            print(
+                "[ai_node] repetition-dominance observed on a stop-ended response (informational)",
+                flush=True,
+            )
 
     # =========================================================
     # TRACK TOKEN USAGE
