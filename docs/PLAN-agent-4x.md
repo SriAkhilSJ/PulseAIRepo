@@ -2,6 +2,7 @@
 
 **Direction (founder):** read hermes for the best agent, use the VS Code fork's MCPs/extensions/APIs, and make Test 2 pass in a fundamentally better way — **4x improvement**.
 **Guiding thesis (founder, adopted):** the context engine decides capabilities — never "blame the model." Every failure is missing context (information, policy, or tool) and is ours to own.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
