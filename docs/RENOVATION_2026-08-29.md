@@ -1,6 +1,7 @@
 # Renovation 2026-08-29 — Context Engine, Security, CopilotKit, Desktop
 
 **Scope:** full Hermes alignment + CopilotKit fully (desktop fixed right, single agent) — Latency/Cheapness/Performance/Look/Durability/Security/ UI.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What changed
 
