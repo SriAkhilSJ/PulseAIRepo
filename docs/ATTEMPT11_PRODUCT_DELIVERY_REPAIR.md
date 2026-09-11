@@ -1,10 +1,12 @@
 # Attempt 11 Product-Delivery Boundary Repair
 
-Date: 2026-08-26
+Date: 2026-09-11
 
 Scope: provider-free source repair after the accepted completion-integrity
 revalidation. The historical Attempt-11 workspace and evidence were read only.
 No provider request, probe, desktop turn, cap increase, or product rerun occurred.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Failure boundary
 
