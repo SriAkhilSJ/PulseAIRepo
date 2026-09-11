@@ -1,10 +1,10 @@
 # Desktop Agent Verification — Copilot-Hidden Pulse-Only UI
 
-**Date:** 2026-08-27
-**Branch:** `main` (HEAD: `50f0dc23`)
+**Date:** 2026-09-11
+**Branch:** `main` (HEAD: `bf696a61`)
 **Required implementation ancestor:** `d0843937` (four-mode agent)
 **Required CDP harness ancestor:** `d9cdec27` (mode menu CDP)
-**Open PR:** #9 — do not merge
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
