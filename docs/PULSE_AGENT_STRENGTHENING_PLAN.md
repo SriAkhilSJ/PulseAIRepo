@@ -1,8 +1,9 @@
 # Pulse Autonomous Agent Strengthening Plan
 
 **Status:** Active, provider-free engineering  
-**Last updated:** 2026-08-26  
+**Last updated:** 2026-09-11  
 **Scope:** Preserve Pulse's current architecture, repair reliability first, then connect the strongest relevant capabilities already present in the vendored Code OSS workbench.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## The plan in one minute
 
