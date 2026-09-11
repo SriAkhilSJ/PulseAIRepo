@@ -1,9 +1,10 @@
 # Test 5 Attempt 7 — Arena transport failure
 
-**Date:** 2026-08-25  
+**Date:** 2026-09-11  
 **Run:** `test5-7-arena`  
 **Workspace:** `/home/user/test5-workspace-attempt7`  
 **Evidence:** `bench-results/test5-7-arena/`
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Verdict
 
