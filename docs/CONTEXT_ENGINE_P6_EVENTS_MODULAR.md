@@ -1,8 +1,9 @@
 # Context Engine P6 — Event Safety Contracts + First Modularization Cut
 
-**Date:** 2026-08-30
+**Date:** 2026-09-11
 **Scope:** `src/context/usage_pressure.py` (new), `src/context/context_engine.py` (P3 state machine extracted), `src/context/smart_compressor.py` (pairing fix), `src/dashboard/event_bus.py` (replay-window fix), new `src/tests/test_event_safety.py` (21 behavior contracts)
 **Sources:** `docs/CONTEXT_ENGINE_P3_HERMES_OPENCLAUDE.md` §5 (open follow-ups), `AGENT_STARTUP_REVIEW.md` (Week-3 god-file split; session/event isolation P0), `HERMES_ALIGNMENT_PLAN.md` (P0-E discipline: behavior contracts, not change-detectors)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. Where the workstream stood
 
