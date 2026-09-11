@@ -596,7 +596,14 @@ class RetryLLMProxy:
                         f"{str(error)[:200]}"
                     )
 
-                    if not self._is_retryable(error) or attempt == self._max_attempts - 1:
+                    # Base branch 6a2717bd: a context rejection is TWO
+                    # different problems — an output-cap rejection means the
+                    # prompt fits and asks for too much reply (one retry with
+                    # the provider's own allowance fixes it); a
+                    # prompt-too-long rejection stays non-retryable and the
+                    # window is only ever changed by a number the provider
+                    # printed. _note_context_error records that allowance.
+                    if not (self._note_context_error(error) or self._is_retryable(error)) or attempt == self._max_attempts - 1:
                         raise
 
                     # Wait on the shared abort event instead of time.sleep().
@@ -669,6 +676,9 @@ class RetryLLMProxy:
                         resolve_context_window,
                         usable_window_budget,
                     )
+                    # Identical formula, identical input as the engine's -- one number each side, and
+                    # deliberately not the reply cap: that belongs to the send path, not to how much
+                    # prompt fits.
                     window, _source = resolve_context_window(self.model)
                     self._auto_limit = usable_window_budget(window)
         return self._auto_limit
@@ -762,6 +772,19 @@ class RetryLLMProxy:
             # a different backend for the same configured model id.
             or "unsupported model" in text
         )
+
+    def _note_context_error(self, error: Exception) -> bool:
+        """Ask the provider's own words what to do; True when a resend is the fix.
+
+        All the reasoning -- telling an output-cap rejection from a prompt-too-long one, when to adopt a
+        reported limit, and refusing to guess a window -- lives in src/llm/context_errors.py beside the
+        parsers, where it can be read and tested as one flow.
+        """
+        try:
+            from src.llm.context_errors import handle_context_error
+        except Exception:
+            return False
+        return handle_context_error(self.model, str(error))
 
     @staticmethod
     def _retry_delay(error: Exception, attempt: int) -> float:

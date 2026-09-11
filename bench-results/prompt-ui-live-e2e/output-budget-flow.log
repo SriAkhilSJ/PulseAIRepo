@@ -1,0 +1,56 @@
+==============================================================================
+STEP 1  the probe script, --fresh, against an endpoint publishing 1,048,576 / 512,000
+==============================================================================
+provider       : custom
+model id       : auto/best-chat
+base url       : http://127.0.0.1:46735/v1
+api key        : present
+
+asking         : http://127.0.0.1:46735/v1/models
+answer         : 1 model(s) listed
+first ids       : auto/best-chat
+
+-- what the endpoint reports --
+{
+  "context_length": 1048576,
+  "max_input_tokens": 1048576
+}
+window from metadata: 1,048,576
+reply cap from metadata: 512,000
+
+-- what the engine will use --
+
+==============================================================================
+STEP 2  what the engine spends (real modules, cache warmed by step 1)
+==============================================================================
+window 1,048,576 (source cache) | stated reply cap 512,000 | usable input 996,148
+engine context_budget = 398,459  (usable * 0.4, as ContextEngine computes it)
+OK: the 512,000 output figure is recorded and NOT taxed against the window
+    HEAD's rule would have spent 128,000 tokens of reservation and yielded 786,432 usable -- the number I wrongly reported to the owner
+
+==============================================================================
+STEP 3  what we ASK for on a forced-delivery turn (the hardcoded 8,192 is gone)
+==============================================================================
+PULSEAI_DELIVERY_MAX_TOKENS=  4096 -> now   4,096   (the old code: 4,096)
+PULSEAI_DELIVERY_MAX_TOKENS= 32000 -> now  32,000   (the old code: 8,192)
+PULSEAI_DELIVERY_MAX_TOKENS=600000 -> now 512,000   (the old code: 8,192)
+PULSEAI_DELIVERY_MAX_TOKENS=   100 -> now     512   (the old code:   512)
+unset                                        -> now 4,096   (default request 4,096)
+
+==============================================================================
+STEP 4  a provider rejection: which half changes
+==============================================================================
+>> litellm.BadRequestError: max_tokens: 512000 > context_window: 1048576 ...
+[context] provider left 8,576 tokens for the reply on 'auto/best-chat'; retrying this request with that cap. The context window is unchanged -- it did not shrink.
+   resendable = True; next bind asks for 8,576 tokens instead
+   window still 1,048,576 (unchanged)
+>> This model's maximum context length is 1048576 tokens. However, your p...
+[context] prompt too long and no limit was reported, so nothing is guessed; the window stays at 1,048,576 and compression handles it.
+   resendable = False  (a too-long prompt needs compression, not a resend)
+>> This model's maximum context length is 262144 tokens, please shorten y...
+[context] provider reported a 262,144 window for 'auto/best-chat' (we held 1,048,576); cached for the next build -- this turn is not re-budgeted mid-flight.
+   -> entry the app reads ('custom:auto/best-chat') now says window 262,144 with reply cap 512,000 carried forward
+   -> no orphan key written: ['custom:auto/best-chat']
+   (a message with no number would have changed nothing -- refusing to guess is the rule)
+
+ALL STEPS PASSED
