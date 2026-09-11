@@ -1,6 +1,7 @@
 # PulseAI Context Engine — How Big to Compete With Top
 
 **Goal:** Compete with Hermes (Nous) + OpenClaude (Anthropic) + Copilot. **Current:** Hermes-grade rename done, but still 5 gaps that matter at 400K+ histories. **Size:** 3–4 weeks, 1 engineer, ~2.5k lines changed.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
