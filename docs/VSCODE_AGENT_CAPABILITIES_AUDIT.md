@@ -1,8 +1,9 @@
 # PulseAI IDE — Code OSS Agent Capability Audit
 
-**Date:** 2026-08-15
+**Date:** 2026-09-11
 **Code OSS pin:** `6c27443ce6fdf6ac798c64025d45175e2e23c4b4`
 **Method:** GitHub tree/API + selected raw source files. No Code OSS checkout was created.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 “Secrets” below means underused internal capabilities—not credentials or private data. Pulse must never inspect another extension's secrets.
 
