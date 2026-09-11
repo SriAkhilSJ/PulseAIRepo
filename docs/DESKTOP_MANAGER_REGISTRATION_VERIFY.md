@@ -3,10 +3,11 @@
 **For:** the owner's Windows laptop, real VS Code fork (`PulseAI.exe`) + real Copilot Chat.
 **Entry point:** `DESKTOP_AGENT_INSTRUCTIONS.md` (authorization, budget, evidence push). This file is the appendix:
 the exact PASS lines, the console snippet, and the deliberate gaps.
-**Sandbox status of this slice:** `f7815e473`, pushed to `arena/01a0564d-pulseairepo`. Type-checked and
+**Sandbox status of this slice:** `bf696a61` (PR #14 merged, 2026-09-11). Type-checked and
 behaviour-tested here (see `bench-results/hermes-prompt-ui-copilotkit-verification/pulseai-registration-step1.log`);
 **not built, not painted** — this sandbox has no `yarn install`, no bundler, no chromium. That gap is
 what this document closes. Nothing below is a re-run of what already passed.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 **Budget rule (only 80 credits remain — see the entry point's budget section): run gates A → B → C → D in order and
 STOP at the first failure.**
