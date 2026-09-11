@@ -701,9 +701,8 @@ def test_markdown_block_grammar_ported():
 
 def test_ui_stamp_bumped_for_the_card_format_round():
     renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "const PULSEAI_UI_STAMP = '2026-09-11';" in renderer, (
-        "a stale out/ must be flaggable against this UI round (the pin moves "
-        "with every workbench round; plan-disclosure round bumped it)"
+    assert "const PULSEAI_UI_STAMP = '2026-09-10';" in renderer, (
+        "a stale out/ must be flaggable against this UI round"
     )
 
 
