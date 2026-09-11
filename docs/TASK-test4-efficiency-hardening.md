@@ -1,8 +1,9 @@
 # Test-4 Readiness — Hermes-derived Efficiency and Evidence Hardening
 
-**Date:** 2026-08-14  
+**Date:** 2026-09-11  
 **Status:** Implemented and offline-verified; no live provider used  
 **Live gate:** Wait for a new API key and the user's Test-4 prompt.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Why this pass exists
 
