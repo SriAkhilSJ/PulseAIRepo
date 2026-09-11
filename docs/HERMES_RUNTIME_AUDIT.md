@@ -1,8 +1,9 @@
 # Pulse vs Hermes: Test-5 Runtime-Layer Audit
 
-**Date:** 2026-08-25  
-**Pulse branch:** `arena/01a03741-pulseairepo`  
+**Date:** 2026-09-11  
+**Pulse branch:** `arena/01a06408-pulseairepo` (merged to `main` at `bf696a61`)  
 **Hermes reference:** `NousResearch/hermes-agent@1bbb6e5bce56e721ab685af4cd87df21bbff4d35`
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 > **Attempt-10 supplement:** Current Hermes commit
 > `4032a15ad0d5f55f5c97f3fa59709ca28a992543` was re-reviewed after Pulse
