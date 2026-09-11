@@ -1,10 +1,11 @@
 # Pulse vs Hermes after Test 5 Attempt 10
 
-**Date:** 2026-08-25  
+**Date:** 2026-09-11  
 **Pulse evidence:** `e344bc00e6de2961a2695d4fc7cfa7401ad64c87`  
 **Pulse reviewed source:** `b11f30a6`  
 **Hermes reviewed source:** `4032a15ad0d5f55f5c97f3fa59709ca28a992543`  
 **Provider traffic used for this comparison:** zero
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Executive finding
 
