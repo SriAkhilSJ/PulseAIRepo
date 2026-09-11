@@ -1,6 +1,8 @@
 # Harness v0.1 — Status & Handoff
 
-**Date:** 2026-08-22 · **Scope:** execution lane of the Pulse Reliability Benchmark (PR #7)
+**Date:** 2026-09-11 · **Scope:** execution lane of the Pulse Reliability Benchmark (PR #7)
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Keyless milestone — COMPLETE (2026-08-22)
 
