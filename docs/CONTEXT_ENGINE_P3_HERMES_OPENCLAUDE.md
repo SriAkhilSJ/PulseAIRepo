@@ -1,8 +1,9 @@
 # Context Engine P3 — Hermes + OpenClaude Alignment (Usage-Driven Compaction, Cache-Break Detection, Memory Sanitization)
 
-**Date:** 2026-08-30
+**Date:** 2026-09-11
 **Scope:** `src/context/context_engine.py`, `src/context/prompt_cache_audit.py`, `src/graphs/chat_graph.py` (ai_node), new `src/tests/test_context_engine_parity.py` (20 behavior contracts)
 **Sources:** `docs/HERMES_CONTEXT_MINUTE.md`, `docs/OPENCLAUDE_CONTEXT_MINUTE.md`, `HERMES_VS_PULSEAI_ARCHITECTURE.md`, `HERMES_ALIGNMENT_PLAN.md`, `docs/PULSEAI_CONTEXT_BENCH.md`
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What was true before P3
 
