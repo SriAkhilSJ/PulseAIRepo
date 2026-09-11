@@ -1,10 +1,11 @@
 # Test 5 Attempt 10 — OpenRouter evidence review
 
-**Date:** 2026-08-25  
+**Date:** 2026-09-11  
 **Evidence commit:** `e344bc00e6de2961a2695d4fc7cfa7401ad64c87`  
 **Run:** `test5-10-desktop`  
 **Model:** `stealth/ox-alpha` through OpenRouter  
 **Workspace:** `C:\test5-ws-attempt10`
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Independent verdict
 
