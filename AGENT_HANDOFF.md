@@ -1,7 +1,9 @@
 # Agent Handoff — PulseAI / CopilotKit
 
-Start here. This records the state of the CopilotKit work as of **2026-08-29**, what was
+Start here. This records the state of the CopilotKit work as of **2026-09-11**, what was
 verified, what was fixed, and the traps that will waste your time if you don't know them.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 Read [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) for the full defect-by-defect
 evidence. This file is the orientation layer on top of it.
@@ -20,6 +22,8 @@ Runtime → Python LangGraph agent → A2UI card with real content and a live ac
 
 **Still open:** no live LLM turn has ever been executed. Two independent blockers — see
 [Open items](#open-items).
+
+**Now done:** Full hermes parity achieved. All 32 layers ported and merged to `main`. Tool names, prompt text, plan cards, UI rendering, and provider-fetched output caps all working.
 
 ---
 
@@ -99,16 +103,16 @@ These cost real time to discover. Don't rediscover them.
 7. **24 pytest failures are pre-existing and expected** in a bare environment: 17 from missing
    tree-sitter grammars, 5 from an absent `ui/` directory, 1 in
    `test_autonomous_runtime_contract.py`. Verified identical on pristine `14b8862b`.
-   Don't chase them.
+   Don't chase them. **After PR #14 merge: 1866 passed / 21 skipped / 1 xfailed.**
 
 ---
 
 ## Test commands
 
 ```bash
-cd pulse-webview && npm test        # 9 DOM tests, provider-free (no key, no tokens)
+cd pulse-webview && npm test        # 48 DOM tests, provider-free (no key, no tokens)
 cd pulse-webview && npx tsc -b      # must exit 0
-uv run python -m pytest src/tests -q
+uv run python -m pytest src/tests -q  # 1866 passed / 21 skipped / 1 xfailed (after PR #14 merge)
 ```
 
 The DOM harness (`pulse-webview/src/__tests__/`) mounts the real components with the real catalog
