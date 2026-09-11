@@ -1,6 +1,7 @@
 # UI + Performance of Context Engine
 
 **Scope:** `desktop/vscode/src/vs/workbench/contrib/pulseai` + `pulse-webview` + `src/context/context_engine.py`.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. Desktop UI Rendering Inside Fork
 
