@@ -1,6 +1,7 @@
 # The Context Engine — Explained for a Non‑Technical Person
 
 *A full, minute-step breakdown of the "brain's librarian" inside PulseAI.*
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 Everything below is based on the actual code in `src/context/` (45 modules, ~16,000 lines) — but written so **anyone** can follow it. No coding knowledge needed. Every technical word is translated into everyday language.
 
