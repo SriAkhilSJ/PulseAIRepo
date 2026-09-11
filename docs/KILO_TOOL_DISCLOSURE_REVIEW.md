@@ -1,8 +1,9 @@
 # Kilo Code Tool Rendering Review → PulseAI Decisions
 
-**Reviewed:** 2026-08-15
+**Reviewed:** 2026-09-11
 **Kilo commit:** `c8271ad6f4b9d8a33da2485202af17ab07563c63`
 **Method:** blobless/no-checkout clone; individual source blobs read with `git show`.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## End-to-end files reviewed
 
