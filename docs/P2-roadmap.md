@@ -1,10 +1,10 @@
 # 🗺️ P2 — PulseCode: THE FIXED ROADMAP
 
-**Status: LOCKED. This is a fixed roadmap, not a working one.** The engine era was "measure → fix → strengthen" — that era ended at 437 green. This roadmap is additive and scope-frozen: **scope changes require the founder's explicit sign-off, written here as an amendment. Nobody — including me — may silently widen it.**
+**Status: LOCKED. This is a fixed roadmap, not a working one.** The engine era was "measure → fix → strengthen" — that era ended at 465+ green. This roadmap is additive and scope-frozen: **scope changes require the founder's explicit sign-off, written here as an amendment. Nobody — including me — may silently widen it.**
 
 **The 2-LINE RULE (sacred):** across the whole fork we touch upstream VS Code code in exactly TWO places: ① `product.json` branding fields, ② ONE import line in `src/vs/workbench/workbench.common.main.ts`. Everything else is NEW files inside our own directory. No "improving" VS Code internals. No opportunistic refactors. New upstream bugs we find get *reported or patched*, never rewritten.
 
-Sources audited for this plan: full VS Code OSS tree (`microsoft/vscode` main @ `a2aaf37`, v1.133.0, Node **24.18.0**), Kilo Code UX study (`docs/P2-kilocode-ux-analysis.md`), fork analysis (`docs/P2-vscode-fork-analysis.md`), and the finished PulseAI engine (437 green).
+Sources audited for this plan: full VS Code OSS tree (`microsoft/vscode` main @ `a2aaf37`, v1.133.0, Node **24.18.0**), Kilo Code UX study (`docs/P2-kilocode-ux-analysis.md`), fork analysis (`docs/P2-vscode-fork-analysis.md`), and the finished PulseAI engine (465+ green, PR #14 merged).
 
 ---
 
@@ -23,7 +23,7 @@ Sources audited for this plan: full VS Code OSS tree (`microsoft/vscode` main @ 
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Engine rule: **the engine is completed work — the fork never edits its logic.** The bridge is the only door.
+Engine rule: **the engine is completed work — the fork never edits its logic.** The bridge is the only door. All 32 hermes parity layers are now ported and merged to `main` (PR #14, commit `bf696a61`).
 
 ---
 
