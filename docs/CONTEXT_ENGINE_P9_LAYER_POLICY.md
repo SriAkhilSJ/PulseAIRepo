@@ -1,8 +1,9 @@
 # Context Engine P9 — Layer-Policy Extraction (Fourth Modularization Cut)
 
-**Date:** 2026-08-31
+**Date:** 2026-09-11
 **Scope:** `src/context/task_types.py` (new), `src/context/layer_policy.py` (new), `src/context/context_engine.py` (policy extracted + `TaskType` relocated), new `src/tests/test_layer_policy.py` (16 behavior contracts)
 **Sources:** `docs/CONTEXT_ENGINE_P8_HISTORY_SHAPER.md` (extraction template), `src/tests/test_review_autopsy_fixes.py` (D26/D27 AST contracts that shape the seam)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What moved
 
