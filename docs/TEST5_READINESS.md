@@ -1,8 +1,10 @@
 # Test 5 readiness review
 
-**Reviewed:** 2026-08-25
+**Reviewed:** 2026-09-11
 
-**Integration branch:** `arena/01a03741-pulseairepo`
+**Integration branch:** `arena/01a06408-pulseairepo` (merged to `main` at `bf696a61`)
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 **Current verdict:** Attempt 11 live-validated bounded output-limit recovery and runner liveness, but falsely completed without verification and delivered a non-runnable product; **overall FAIL, not merge-ready, and no retry authorized**
 
