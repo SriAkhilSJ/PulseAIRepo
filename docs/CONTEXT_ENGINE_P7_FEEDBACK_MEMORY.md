@@ -1,8 +1,9 @@
 # Context Engine P7 — Feedback-Learning Extraction (Second Modularization Cut)
 
-**Date:** 2026-08-31
+**Date:** 2026-09-11
 **Scope:** `src/context/feedback_memory.py` (new), `src/context/context_engine.py` (feedback loop extracted), new `src/tests/test_feedback_memory.py` (14 behavior contracts)
 **Sources:** `docs/CONTEXT_ENGINE_P6_EVENTS_MODULAR.md` (extraction template), `src/tests/test_session_engines.py` (the proven data-loss history this store exists to prevent), `AGENT_STARTUP_REVIEW.md` (Week-3 god-file split)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What moved
 
