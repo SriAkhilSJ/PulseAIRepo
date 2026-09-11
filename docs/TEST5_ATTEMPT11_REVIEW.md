@@ -1,10 +1,12 @@
 # Test 5 Attempt 11 — Independent Evidence and Product Review
 
-Date: 2026-08-25
+Date: 2026-09-11
 
 Evidence commit: `989ab85ed36ca5985864cf1b349f996c6111a75c`
 
 Repair under test: `0bb00413f4a03b0172c4f6214018bad156fb1d2a`
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Verdict
 
