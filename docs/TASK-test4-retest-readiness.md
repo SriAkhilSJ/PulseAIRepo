@@ -1,8 +1,9 @@
 # Test-4 Retest Readiness — Phase Enforcement and Provider Freeze Controls
 
-**Date:** 2026-08-14  
+**Date:** 2026-09-11  
 **Status:** Implemented and offline-verified before any new key  
 **Prior live Test-4 verdict:** FAIL (`lab/REPORT_TEST4_FAIL.md`)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Hermes review used for this pass
 
