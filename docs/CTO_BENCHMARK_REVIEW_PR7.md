@@ -1,6 +1,7 @@
 # CTO Review — PR #7 `benchmark/reliability-v1-runner`
 
-**Date:** 2026-08-22 · **Reviewer:** Office of the CTO (acting) · **Scope:** the latest merged commit — the Pulse Reliability Benchmark v1 (contract, evaluator, fixtures, runner)
+**Date:** 2026-09-11 · **Reviewer:** Office of the CTO (acting) · **Scope:** the latest merged commit — the Pulse Reliability Benchmark v1 (contract, evaluator, fixtures, runner)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 > Rule I applied everywhere: **claims are verified by running the artifact, not by reading its README.**
 
