@@ -2,6 +2,7 @@
 
 **Decision date:** 2026-08-15
 **Status:** Founder-approved and implementation-started
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Non-negotiable placement
 
