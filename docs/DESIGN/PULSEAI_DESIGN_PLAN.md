@@ -3,6 +3,7 @@
 **Owner:** Frontend/Interface agent (design surface only)
 **Status:** PLAN — approved scope pending founder sign-off
 **Created:** 2026-08-23
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 **Scope:** `ui/` (UI Lab) + `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/` (production CSS)
 **Out of scope for this agent:** engine (`src/`), bridge protocol, benchmarks, build pipeline, Code OSS fork plumbing.
 
