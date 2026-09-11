@@ -1,7 +1,8 @@
 # PulseAI IDE UI — Execution Plan
 
-**Date:** 2026-08-15
+**Date:** 2026-09-11
 **Status:** Active
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 **Founder constraints:** `/contrib/pulseai/`, no Pulse extension, no activity/token graph, no card-heavy or over-spaced dashboard, canonical vendored fork only under `desktop/vscode/`.
 
 > **Visual design is tracked separately.** This document covers UI *structure and
