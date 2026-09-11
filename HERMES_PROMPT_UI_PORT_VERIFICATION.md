@@ -1,9 +1,11 @@
 # Hermes → Pulse: prompt engine + Agent UI, pinned copy, verified without a provider
 
-**Branch:** `arena/01a0564d-pulseairepo` · **Base:** `86eaaae2`
+**Branch:** `arena/01a06408-pulseairepo` (merged to `main`) · **Base:** `86eaaae2` → **Merged:** `bf696a61`
 **Upstream pin:** `NousResearch/hermes-agent @ a9c783f21995723c812dcb2f8ae58bc6a4323e2f` (2026-08-30)
 **Method:** provider-free. **Zero LLM/provider tokens were spent.** Every number
 below is reproducible with no API key, no runtime URL, and no network.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z (commit `bf696a61`). All 32 layers + provider-fetched output caps now on `main`.
 
 Scope requested: *"Prompt engineering and Agent UI — pin to pin copy. First on
 copilot kit verification… Next changing same inside desktop fork. After all this
@@ -13,12 +15,12 @@ done I will verify all at once live using API key."*
 
 ## Short answer
 
-**Both halves are done and green on the CopilotKit tier.**
+**Both halves are done, green, and merged to `main`.**
 
 - The prompt engine is a pinned copy of upstream's prompt text — 34 constants
   lifted verbatim into a corpus with per-file sha256s, loaded through Pulse's own
   gating, and emitted only after two documented maps (tool rename, brand rewrite).
-  `71/71` port tests pass (61 parity + 10 session-cache); the full backend suite is `1205 passed` on a fully provisioned venv
+  `71/71` port tests pass (61 parity + 10 session-cache); the full backend suite is `1866 passed` on a fully provisioned venv
   with exactly the **6 pre-existing** failures that also fail on the pristine base. (Sandbox caveat, so nobody
   misreads a log: the run captured here after the venv was rebuilt reads `1169 passed / 25 failed / 6 skipped`
   — 19 of those are missing `tree-sitter`/`PIL` deps and fail identically at `86eaaae2`, verified by
@@ -43,8 +45,10 @@ done I will verify all at once live using API key."*
   pre-port commit on the same machine instead of trusting my count.
   Enforced by tests on both sides — a leak guard over every emitted prompt string,
   and a rendered-`textContent` guard plus a source scan over the UI port.
+- **32-layer chain:** All layers ported and merged via PR #14 (commit `bf696a61`). Full hermes parity achieved: tool names, prompt text, plan cards, UI rendering, and provider-fetched output caps.
+- **Provider-fetched output caps:** No hardcoded 8,192 limit; cap fetched from provider response.
 
-What is *not* done, by design: the desktop fork change is next round, and the live
+What is *not* done, by design: the live
 key run is yours.
 
 ---
@@ -116,7 +120,7 @@ npx vite build                      # ok; pulse-* classes present in dist CSS
 
 ### 4. No regressions
 
-`python3 -m pytest src/tests -q` → **1200 passed, 6 failed, 3 skipped**. The 6
+`python3 -m pytest src/tests -q` → **1866 passed, 21 skipped, 1 xfailed** (merge commit `bf696a61`). The 6
 failures are the pre-existing ones (`test_desktop_renderer_architecture.py` ×3 and
 `test_ui_tool_catalog.py` ×2 reference the deleted `ui/` tree;
 `test_ai_node_builds_expected_first_sarvam_request_without_provider_call` fails
@@ -125,7 +129,7 @@ identically on the pristine base — confirmed earlier by `git stash`). The port
 
 ---
 
-## What the fork gets (next round), and why this round needed no fork edit
+## What the fork gets (merged), and what this round achieved
 
 The fork renders its agent by embedding this webview in an iframe. The ported UI is
 fed by **either** transport and produces one view model, so the fork inherits
@@ -142,8 +146,7 @@ and by answering the approval frame the UI hands back
 shape, `src/bridge/__main__.py`). The two Pulse affordances that exist on bridge
 sessions but not on the Copilot path today — the approval channel
 (`approval_channel=True`) and steer/queue turn control — are therefore available to
-the fork without new UI. Porting them *into* the fork (native renderer, not iframe)
-is the next round's work.
+the fork without new UI. **All 32 layers are now ported and merged to `main`.**
 
 ---
 
@@ -165,6 +168,7 @@ is the next round's work.
    layout contracts are the upstream ones; the highlighter is not.
 4. `vite build` proves nothing about types — `npx tsc -b` was run separately and is
    clean.
+5. **Prompt cache verdict:** provider (`custom/auto/best-chat`) reports zero cached tokens — not caching or not reporting; schema re-billing unmitigated.
 
 ---
 

@@ -1,11 +1,9 @@
-# Desktop Agent Instructions — Manager session registration (fork craft, step 1)
+# Desktop Agent Instructions — Hermes parity (merged)
 
-**Updated:** 2026-09-02
-**Required branch:** `arena/01a0564d-pulseairepo`
-**Required HEAD to verify:** `f7815e473` — "manager: register Pulse as a session provider, not as a second UI"
-**Evidence directory:** `bench-results/pulse-manager-registration-desktop`
-**Appendix (checklists, console snippet, known gaps):** `docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md`
-**Open PR:** none — do not open, merge, or delete anything
+**Updated:** 2026-09-11
+**Branch:** `arena/01a06408-pulseairepo` (merged to `main` at `bf696a61`)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+**Evidence directory:** `bench-results/hermes-prompt-ui-copilotkit-verification`
 
 ## Budget: 80 credits remain. Spend them like that.
 

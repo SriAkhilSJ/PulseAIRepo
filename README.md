@@ -41,7 +41,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Session-scoped cancellation, steering, queues, checkpointing, and provider retries.
 - Workspace-safe file and terminal tools with approval and mutation controls.
 - Verification gates for changed code, including syntax, type-check, test, UI evidence, and unresolved local dependency/source-reference checks.
-- Task-aware bounded context assembly (16 layers, the pluggable Hermes-parity `ContextEngine` ABC), repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
+- Task-aware bounded context assembly (32 layers, the pluggable Hermes-parity `ContextEngine` ABC), repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
 - Usage-driven compaction: the engine owns the compaction decision from the provider's ACTUAL token usage (75% of the real window), tightens the history budget toward the lean tail while pressure persists, and re-arms after relaxation.
 - Prompt-cache prefix audit with **cache-break detection** (a regression of the stable prefix — >5% and >~2000 tokens below the session peak — is a latched `runtime.cache_break` receipt naming the offending layer) and a unified `get_status()` telemetry surface.
 - Memory layers sanitize untrusted content (secret redaction + 6k cap) before it reaches the prompt.
@@ -53,6 +53,17 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Multi-provider support for Groq, OpenAI-compatible endpoints, Gemini, and NVIDIA.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
 - Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
+- Hermes parity: tool names, prompt text, plan cards, and UI rendering match hermes desktop app behavior.
+- Provider-fetched output caps (no hardcoded 8,192 limit; cap from provider response).
+- Degenerate response guard (hermes repetition law).
+- Leaked `<tool_call>` text executes across all dialects (XML, JSON, mixed emission).
+- Stall guard: model ending with trailing continue-intent re-prompts (max 2/turn).
+- Post-grace laps guaranteed to end: one summary then finalize.
+- Pipe exit-code masking fixed (annotate_masked_success hints + verification-evidence attribution gate).
+- Todo card: pydantic objects converted to dicts at boundary.
+- STALE banner now names exact modified/extra files via per-file manifest (Windows-stable CRLF hash).
+- Prompt cache visibility: `TokenUsage.cached_tokens` surfaced in engine log.
+- Recovery nudges request-scoped, trail dropped at finalize.
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
@@ -265,6 +276,10 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 - [`docs/ATTEMPT11_COMPLETION_REPAIR.md`](docs/ATTEMPT11_COMPLETION_REPAIR.md) — deterministic completion verdict, event pairing, terminal encoding, and metadata follow-up
 - [`docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md`](docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md) — independent classification of the 142/145 Windows result and follow-up
 - [`docs/TEST4_PASS_FORENSIC.md`](docs/TEST4_PASS_FORENSIC.md) — why Test 4's repaired product passed while its autonomous run remained partial
+- [`HERMES_PROMPT_UI_PORT_VERIFICATION.md`](HERMES_PROMPT_UI_PORT_VERIFICATION.md) — hermes parity audit and 32-layer port verification
+- [`HERMES_VS_PULSEAI_ARCHITECTURE.md`](HERMES_VS_PULSEAI_ARCHITECTURE.md) — hermes vs pulse architecture comparison
+- [`DESKTOP_AGENT_INSTRUCTIONS.md`](DESKTOP_AGENT_INSTRUCTIONS.md) — desktop agent operating instructions
+- [`DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md`](DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md) — live verification prompt for desktop agent
 - [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) — CopilotKit/Pulse agent render verification: defects found, root causes, and evidence
 - [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — start here for a new agent: current state, what was done, what is still open
 - [`CTO_AUDIT_PulseAI.md`](CTO_AUDIT_PulseAI.md) and [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) — historical audits; verify dates before treating recommendations as current
@@ -287,16 +302,16 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 
 ### What's built and verified
 
-The engine has shipped 437+ green tests across 40+ D-rounds. These are not plans — they are running code:
+The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans — they are running code:
 
 | Subsystem | Module | What it does |
 |---|---|---|
 | **Chunk Index** | `src/context/chunk_index.py` | AST extraction (Python + tree-sitter for JS/TS/Go/Rust/Java) → sqlite-vec KNN + FTS5 BM25 → RRF fusion → D13 feature re-rank. Per-workspace DB, WAL mode, background watcher with polling fallback, bounded scan with file-count/byte/elapsed budgets. |
-| **Context Engine** | `src/context/context_engine.py` | 16-layer task-aware assembly (implements the pluggable Hermes-parity `ContextEngine` ABC from `src/context/engine.py`), shared TaskClassifier (regex-only on turn path), per-instance LAYER_RELEVANCE (deep-copied), differential cache with VOLATILE_LAYERS set, session-scoped engines via per-thread-id registry with LRU cap (128) and per-engine API lock. P3: actual-usage-driven compaction (75% threshold of the real window, lean-tail tightening, anti-thrash re-arm), cache-break detection with latched `runtime.cache_break` receipts, sanitized memory layers, unified `get_status()`. P6: the P3 usage-pressure state machine extracted to `src/context/usage_pressure.py` (engine = façade + side effects), first modularization cut toward the startup review's Week-3 split. |
+| **Context Engine** | `src/context/context_engine.py` | 32-layer task-aware assembly (implements the pluggable Hermes-parity `ContextEngine` ABC from `src/context/engine.py`), shared TaskClassifier (regex-only on turn path), per-instance LAYER_RELEVANCE (deep-copied), differential cache with VOLATILE_LAYERS set, session-scoped engines via per-thread-id registry with LRU cap (128) and per-engine API lock. P3: actual-usage-driven compaction (75% threshold of the real window, lean-tail tightening, anti-thrash re-arm), cache-break detection with latched `runtime.cache_break` receipts, sanitized memory layers, unified `get_status()`. P6: the P3 usage-pressure state machine extracted to `src/context/usage_pressure.py` (engine = facade + side effects), first modularization cut toward the startup review's Week-3 split. |
 | **Event Safety** | `src/dashboard/event_bus.py`, `src/tests/test_event_safety.py` | Session-scoped EventBus (live + replay isolation, admin-only global view, unattributed events never reach a session), bounded history (500) + newest-wins replay window (200), dead-subscriber eviction, unique ids; ApprovalQueue fails closed (cross-session resolve rejected, timeout = deny); engine receipts latched once per session with bounded thread-scoped payloads. |
 | **Feedback Memory** | `src/context/feedback_memory.py` | P7 extraction: append-only JSONL feedback store (per-`HOME`, cross-session), legacy migration, debris-tolerant load, in-memory rotation (300→150) + file compaction (2000→1000, newest tail, atomic replace), learned layer-relevance nudges (boost/demote by success rate; unknown layers skipped — pre-extraction this KeyErrored the turn's finalization). Best-effort: never blocks boot or the graph. |
 | **History Shaper** | `src/context/history_shaper.py` | P8 extraction: tool-output summarization, D22 prune-first compaction (protected head/tail, anti-thrash, `PULSEAI_COMPACTION=off` kill switch on the engine's public seam), turn-atomic pairing-safe trim, per-session compaction telemetry. One HistoryCompactor per session shared by the per-turn path and ABC `compress()`. Engine-coupling via getters (model/session/task read live — a mid-session `update_model` can never go stale). |
-| **Layer Policy** | `src/context/layer_policy.py` + `src/context/task_types.py` | P9 extraction: per-task budget allocation, layer attribution (tag → header fallback), relevance scoring (60/30/10, embedding-gated), semantic near-duplicate removal, D23 volatile-tail placement, D19 canonical emission order, score-driven assembly + layer compression (repo-map symbol strip, binary-search convergence). The 16 content builders stay engine-resident (D27 AST contract + live state coupling). No-stale-state rule: every call receives the live model / per-instance relevance dict, so feedback nudges and `update_model` are always seen. |
+| **Layer Policy** | `src/context/layer_policy.py` + `src/context/task_types.py` | P9 extraction: per-task budget allocation, layer attribution (tag → header fallback), relevance scoring (60/30/10, embedding-gated), semantic near-duplicate removal, D23 volatile-tail placement, D19 canonical emission order, score-driven assembly + layer compression (repo-map symbol strip, binary-search convergence). The 32 content builders stay engine-resident (D27 AST contract + live state coupling). No-stale-state rule: every call receives the live model / per-instance relevance dict, so feedback nudges and `update_model` are always seen. |
 | **Planner Messages + Ambiguity** | `src/context/plan_messages.py` + `src/context/ambiguity.py` | P10 extraction: strict-output planner-prompt suffix; planner / replanner (completed-remaining split, failures capped at 3, lessons capped at 2) / reviser node messages; task-ambiguity detection (embedding-gated advanced path over a D2-cached 26-string hint vocabulary + deterministic vague/specific fallback). Hard contract: deadline-bound turns (flag off) never encode — the embedder is never even imported. The live policy flag is fed per call, so a mid-session flip takes effect immediately. |
 | **Model Budgets** | `src/context/model_budgets.py` | Dynamic context-window discovery: env override → on-disk cache (7-day TTL) → static table → live provider probe (2.5s timeout) → stale cache → conservative default. `PROVIDER_SAFE_LIMIT=0` auto mode: engine budget = proxy guard = discovered window − margin. |
 | **Git Context** | `src/context/git_context.py` | Read-only git subprocesses under one aggregate 1s deadline. Branch, status, recent commits, staged/unstaged diffs. Windows taskkill-tree termination. Returns `None` outside repos. Marked VOLATILE (rebuilt every turn). |
@@ -319,6 +334,7 @@ The engine has shipped 437+ green tests across 40+ D-rounds. These are not plans
 - Desktop compile, typecheck-client, valid-layers, syntax: all green
 - Protocol generation check: green
 - UI build + test:ui: green
+- PR #14 merge: 1866 passed / 21 skipped / 1 xfailed (all layers + provider-fetched output caps)
 
 ### What the P2 roadmap covers next
 

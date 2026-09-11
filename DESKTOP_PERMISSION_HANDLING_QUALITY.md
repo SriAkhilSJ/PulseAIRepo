@@ -2,8 +2,10 @@
 
 Scope: how consent works when Pulse writes files **inside the VS Code fork**, plus the state of
 Ask/Plan modes, the Manager surface, and the CopilotKit view. Written against `main` as of
-`9af0009b`+this commit. Every claim names a file and line; anything I could not verify is in
+`bf696a61` (PR #14 merge). Every claim names a file and line; anything I could not verify is in
 "Open" with the reason.
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## The rule
 

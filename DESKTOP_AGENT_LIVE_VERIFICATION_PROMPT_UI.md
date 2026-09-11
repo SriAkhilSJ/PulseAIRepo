@@ -1,14 +1,14 @@
 # Desktop Agent — Live End-to-End Verification: ported Hermes prompt engine + Agent UI
 
-**Branch to verify:** `arena/01a0564d-pulseairepo`. Required ancestor: the port commit **`051510ae`**,
-plus the live-round tooling below (this brief's own commit is newer than the port, so pin by content, not SHA).
+**Branch to verify:** `arena/01a06408-pulseairepo` (merged to `main` at `bf696a61`). 
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 **Host:** Windows / PowerShell, run from the repo root (`cd <repo root>`). The fork lives at
 `desktop\vscode`. `npm run compile` is **expected and allowed** when the Manager view times out — prior
 rounds withdrew the skip-compile rule, and `validate_pulse_ui_cdp.js` cannot find `Pulse Manager` in a stale
 `.build`. So: run the manager-only pass first; on `Timed out waiting for Pulse Manager editor`, run
 `cd desktop\vscode; npm run compile` once, re-run the pass, and record in findings.md whether you compiled.
 Never rebuild `.build` by hand (no `npm run gulp`, no manual copies).
-**Return channel:** commit and push evidence **back to `arena/01a0564d-pulseairepo`**. No merge, no delete,
+**Return channel:** commit and push evidence **back to `arena/01a06408-pulseairepo`**. No merge, no delete,
 no branch switching. I re-verify everything from the pushed artifacts.
 
 ---
