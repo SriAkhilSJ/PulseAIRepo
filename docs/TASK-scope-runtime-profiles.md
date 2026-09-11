@@ -2,6 +2,7 @@
 
 **Status:** IN PROGRESS  
 **Goal:** Keep Scope a broad IDE agent—not coding-only—while giving each task a small, deterministic capability surface.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Why
 
