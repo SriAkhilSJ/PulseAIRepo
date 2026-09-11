@@ -1,6 +1,7 @@
 # Hermes Context Engine — Every Minute Thing
 
 **Source:** `D:\hermes\hermes-agent` — exhaustive file:line audit 2026-08-30. This is the verbatim minute-by-minute inventory to renovate PulseAI.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
