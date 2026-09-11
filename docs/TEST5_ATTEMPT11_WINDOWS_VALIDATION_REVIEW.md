@@ -1,10 +1,12 @@
 # Attempt 11 Completion Repair — Windows Validation Review
 
-Date: 2026-08-25
+Date: 2026-09-11
 
 Evidence commit: `9ea6a078`
 
 Repair tested: `aaeacc26e192db3ce55f8b7c0a5bb4e9d056ad4f`
+
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## Evidence result
 
