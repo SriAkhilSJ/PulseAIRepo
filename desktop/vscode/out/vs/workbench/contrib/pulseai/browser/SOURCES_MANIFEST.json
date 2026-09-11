@@ -1,9 +1,9 @@
 {
-	"sourcesHash": "f5b8d9749c0abe5be3b3739a69ed2f4d6f3f61d88ed51f9d410b7cdac1a93475",
+	"sourcesHash": "af5c326cb2cfc196bdfe16c8d9790e57c8fc25f54c8b520d8a03317cf5db3068",
 	"files": {
 		"src/vs/workbench/contrib/pulseai/README.md": "c99fe05011493a882c046c985e2cc4133c58695a5722a6d6f6c4f08d93c62622",
 		"src/vs/workbench/contrib/pulseai/browser/media/pulseAI-tokens.css": "64a7a616f28251a9f8610326c9bc0162b61c1e8e8cbb6de98f54a66311b573dc",
-		"src/vs/workbench/contrib/pulseai/browser/media/pulseAI.css": "a7dc7df566b699f81fb590356672e05998026cc42284c533f209f94b7223c7ac",
+		"src/vs/workbench/contrib/pulseai/browser/media/pulseAI.css": "838ecf30950b1e421586ab89ab89dd77c69071a80e6c3be5af5570ea680f5478",
 		"src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/assets/codicon-B16ygVZF.ttf": "5f6776631bda8385b36b971795bfb0911354f20a3cc50069d56e03cac6ce80c1",
 		"src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/assets/index-BmshDf6g.css": "2c2ed8f4901393f0d095cd76153a94a4d8eb2d486d69d91f95758017b282e087",
 		"src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/assets/index-WUNB3jv3.js": "f03e2499400320dd78bfcb0418a0fd1235256e15ea8512b32efb7a5bce0db1f1",
@@ -16,7 +16,7 @@
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIManagerEditor.ts": "66d4018cede9714a5ed567a27be24e3981443fe153d297bb69e20db5b0616759",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIManagerInput.ts": "842f1d0bfa71ae524f0ff0cfd51adfdf36e150e7ba38bc5da63f1fef4bac40fb",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAINextEditProvider.ts": "bf1f36c2aeb44343ae8e796c5721aa20906a08dd24ccc802584b0d67a6b480fe",
-		"src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts": "122c2812e6c6c28b07b4b03fb8ff1a92dfe20283d7617c0873e82bef3eb80ff5",
+		"src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts": "a63092422dfc94c32f883d2c343c3cc0405517dad806d9f9b6072f92d381916d",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIRendererService.ts": "f578d8283ad55e1f66446604581e8c225c52d913da66118571c1b4f52bf3709c",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIRunSummary.ts": "2bfdbd44454530b2ef012aa8ffcf776c43e434510934a9931876980d9cbcbbc9",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAISessionController.ts": "79b94b7d18c3ec7f4b089893042f371dad35b83e75b3e309e3c2ae61a6453924",

@@ -276,7 +276,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const PULSEAI_UI_STAMP = '2026-09-10';
+const PULSEAI_UI_STAMP = '2026-09-11';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'pulseai-assistant-copy pulseai-md');
@@ -602,13 +602,39 @@ function expandableOutput(content: HTMLElement): HTMLElement {
 // hermes status-row.tsx todo glyphs, ported: pending = dashed ring,
 // in_progress = live dot, completed = pass-filled, failed = error,
 // cancelled = circle-slash. Rows speak the WRITTEN list, never arg JSON.
-function planListBody(result: Readonly<Record<string, unknown>> | undefined, args: Readonly<Record<string, unknown>> | undefined): HTMLElement {
-	const wrap = element('div', 'pulseai-plan-list');
+//
+// User disclosure choices survive re-renders — the same law toolRow's
+// openTools set serves one level up, here keyed by the owning tool id.
+const openPlanLists = new Set<string>();
+
+// hermes DESKTOP status stack (apps/desktop composer/status-stack +
+// components/chat/status-section.tsx) — NOT the TUI TodoPanel. The desktop
+// chrome: chevron-right caret (rotates 90deg open, 150ms), the `checklist`
+// codicon, the en.ts label `Tasks ${done}/${total}`, the todo group is the
+// ONLY group expanded by default (defaultCollapse = type !== 'todo'), and a
+// spinner rides the header while an item is in_progress/running (hidden
+// once open, pure CSS). Rows keep the status-row glyph grammar.
+function planListBody(tool: PulseAIToolView, result: Readonly<Record<string, unknown>> | undefined, args: Readonly<Record<string, unknown>> | undefined): HTMLElement {
 	const rows = planStepsFrom(result, args);
 	if (!rows.length) {
-		wrap.append(element('div', 'pulseai-plan-empty', 'No task list written'));
-		return wrap;
+		const empty = element('div', 'pulseai-plan-list');
+		empty.append(element('div', 'pulseai-plan-empty', 'No task list written'));
+		return empty;
 	}
+	const done = rows.filter(s => s.status === 'completed').length;
+	const running = rows.some(s => s.status === 'in_progress');
+	const details = element('details', 'pulseai-plan-details') as HTMLDetailsElement;
+	// Desktop defaultCollapse: the todo group is expanded by default; the
+	// user's toggle wins and survives re-renders (openPlanLists).
+	details.open = !openPlanLists.has(tool.id);
+	details.addEventListener('toggle', () => details.open ? openPlanLists.delete(tool.id) : openPlanLists.add(tool.id));
+	details.append(element('summary', 'pulseai-plan-head',
+		element('span', 'pulseai-plan-caret', icon('chevron-right')),
+		element('span', 'pulseai-plan-icon', icon('checklist')),
+		element('span', 'pulseai-plan-title', `Tasks ${done}/${rows.length}`),
+		running ? element('span', 'pulseai-mini-spinner pulseai-plan-spinner') : undefined,
+	));
+	const wrap = element('div', 'pulseai-plan-list');
 	for (const step of rows) {
 		const status = step.status;
 		const row = element('div', `pulseai-plan-row is-${status}`);
@@ -620,7 +646,8 @@ function planListBody(result: Readonly<Record<string, unknown>> | undefined, arg
 		row.append(glyph, element('span', 'pulseai-plan-text', step.description));
 		wrap.append(row);
 	}
-	return wrap;
+	details.append(wrap);
+	return details;
 }
 
 function planStepsFrom(result: Readonly<Record<string, unknown>> | undefined, args: Readonly<Record<string, unknown>> | undefined): readonly { description: string; status: string }[] {
@@ -828,7 +855,7 @@ function familyBody(tool: PulseAIToolView, host: PulseAIRenderHost): HTMLElement
 		// in_progress, pass-filled done, circle-slash cancelled) — the card
 		// body ports those rows from the WRITTEN state (the tool result's
 		// normalized list) with the call args as fallback.
-		body.append(planListBody(resultRecord(tool.result), args));
+		body.append(planListBody(tool, resultRecord(tool.result), args));
 	} else if (presentation.family === 'session') {
 		body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));
 		body.append(element('pre', 'pulseai-tool-pre', boundedText(result ?? tool.arguments, 400)));

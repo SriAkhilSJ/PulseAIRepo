@@ -701,7 +701,7 @@ def test_markdown_block_grammar_ported():
 
 def test_ui_stamp_bumped_for_the_card_format_round():
     renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "const PULSEAI_UI_STAMP = '2026-09-10';" in renderer, (
+    assert "const PULSEAI_UI_STAMP = '2026-09-11';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -810,6 +810,38 @@ def test_bundle_import_audit_script_is_tracked_and_green_shape():
     audit = (FORK / "scripts" / "audit-pulseai-bundle.mjs").read_text(encoding="utf-8")
     assert "DEAD BINDING" in audit and "AUDIT OK" in audit
     assert "path.join(FORK, 'out')" in audit, "cross-slice targets must resolve out/ -> src/ (only the pulseai slice is compiled here)"
+
+
+def test_plan_card_is_a_desktop_status_section_disclosure():
+    """Field 2026-09-11 ("Dropdown menu needed for plan card"; the previous
+    round was REVERTED for porting hermes' TUI TodoPanel instead of the
+    desktop app — the owner's law: ALWAYS see the desktop UI). The plan body
+    is the desktop status-stack chrome, verbatim: chevron-right caret
+    rotating 90deg open, the `checklist` codicon, the en.ts label
+    `Tasks ${done}/${total}`, the todo group expanded BY DEFAULT
+    (defaultCollapse = type !== 'todo'), a header spinner while an item is
+    in_progress (hidden when open), and the user's toggle survives
+    re-renders (openPlanLists)."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "pulseai-plan-details" in renderer
+    assert "icon('chevron-right')" in renderer      # DisclosureCaret glyph
+    assert "icon('checklist')" in renderer          # GROUP_ICON.todo
+    assert "`Tasks ${done}/${rows.length}`" in renderer  # i18n/en.ts todos()
+    assert "!openPlanLists.has(tool.id)" in renderer     # expanded by default
+    assert "pulseai-plan-spinner" in renderer            # running indicator
+    css = _text("browser", "media", "pulseAI.css")
+    assert "transition: transform 150ms" in css
+    assert ".pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-caret { transform: rotate(90deg); }" in css
+    assert ".pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-spinner { display: none; }" in css
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js").read_text(encoding="utf-8")
+    assert "pulseai-plan-details" in bundle and "Tasks ${done}/${rows.length}" in bundle
+
+
+def test_ui_stamp_bumped_for_the_plan_disclosure_round():
+    """The freshness stamp bumps with EVERY workbench UI round — a stale
+    out/ shows an older date on the chip (see PULSEAI_UI_STAMP)."""
+    renderer = _text("browser", "pulseAIRenderer.ts")
+    assert "PULSEAI_UI_STAMP = '2026-09-11'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
