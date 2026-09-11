@@ -1,8 +1,9 @@
 # Context Engine P8 — History-Shaping Extraction (Third Modularization Cut)
 
-**Date:** 2026-08-31
+**Date:** 2026-09-11
 **Scope:** `src/context/history_shaper.py` (new), `src/context/context_engine.py` (history pipeline extracted), new `src/tests/test_history_shaper.py` (10 behavior contracts)
 **Sources:** `docs/CONTEXT_ENGINE_P6_EVENTS_MODULAR.md` + `docs/CONTEXT_ENGINE_P7_FEEDBACK_MEMORY.md` (extraction template + surface-preservation rule), `AGENT_STARTUP_REVIEW.md` (Week-3 god-file split)
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What moved
 
