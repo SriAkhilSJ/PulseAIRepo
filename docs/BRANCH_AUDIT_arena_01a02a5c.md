@@ -1,9 +1,10 @@
 # Branch Audit: `arena/01a02a5c-pulseairepo` → `main`
 
-**Date:** 2026-08-27
+**Date:** 2026-09-11
 **Audited branch:** `arena/01a02a5c-pulseairepo` (tip `00d8ced8`)
-**Against:** `main` (tip `403bce9d` — *"Merge Pulse agent reliability and four-mode desktop UI"*)
+**Against:** `main` (tip `bf696a61` — PR #14 merge, 2026-09-11)
 **Outcome:** **Nothing to cherry-pick — every change on the branch is already present on `main`, and the branch's headline fix is superseded by a strictly better implementation. Branch deleted. Not merged.**
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
 
