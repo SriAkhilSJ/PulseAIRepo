@@ -1669,14 +1669,6 @@ function approvalCommandText(name: string, diff: unknown): string {
 
 const RECOMMENDED_LABEL = '(Recommended)';
 
-function stripRecommended(text: string): string {
-	const stripped = String(text ?? '').trim();
-	if (stripped.toLowerCase().endsWith(RECOMMENDED_LABEL.toLowerCase())) {
-		return stripped.slice(0, -RECOMMENDED_LABEL.length).trim();
-	}
-	return stripped;
-}
-
 interface ClarifyDraft {
 	selected: Map<string, Set<string>>;
 	other: Map<string, string>;
@@ -1748,7 +1740,6 @@ function clarifyChoiceRow(
 	row.dataset.choiceIndex = String(index);
 	row.dataset.qid = qid;
 	row.dataset.choice = bare;
-	const selectedSet = draft.selected.get(qid);
 	row.setAttribute('aria-pressed', String(picked));
 	row.append(keyBadge(letterFor(index), picked));
 	const label = element('span', 'pulseai-clarify-choice-label');
