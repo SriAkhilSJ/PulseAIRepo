@@ -3,9 +3,18 @@
 Mirrors hermes agent/context_engine.py: ContextEngine(ABC) with token-state
 contract, threshold, protect_first/last, sanitize_memory_context, and hooks:
 should_compress, prune_tool_results_only, select_context, on_turn_complete.
+
+Env values are stored in .env — settings.py calls load_dotenv() early, but this
+module also calls it defensively so direct imports (tests, scripts) see .env too.
 """
 
 from __future__ import annotations
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional

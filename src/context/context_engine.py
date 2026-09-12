@@ -495,12 +495,18 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                 base = dict(getattr(self, "model_thresholds", {}) or {})
                 base.update(env_thresholds)
                 self.model_thresholds = base
-            # Also check global threshold percent override
-            from src.context.engine import _env_float
+            # Also check global threshold percent + protect_n overrides (all env-driven)
+            from src.context.engine import _env_float, _env_int
             tp = _env_float("PULSEAI_THRESHOLD_PERCENT", self.threshold_percent)
             if tp != self.threshold_percent:
                 self.threshold_percent = tp
                 self._pressure.threshold_percent = tp
+            pln = _env_int("PULSEAI_PROTECT_LAST_N", self.protect_last_n)
+            if pln != self.protect_last_n:
+                self.protect_last_n = pln
+            pfn = _env_int("PULSEAI_PROTECT_FIRST_N", self.protect_first_n)
+            if pfn != self.protect_first_n:
+                self.protect_first_n = pfn
         except Exception:
             pass
 

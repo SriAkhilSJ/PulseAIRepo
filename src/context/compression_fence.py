@@ -7,7 +7,7 @@ For Pulse IDE (Electron utility process, not gateway), we need a lightweight ver
 - Has idle timeout + total ceiling (env-driven)
 - Supports fallback chain pin via ContextVar (simplified)
 
-Env:
+Env (from .env via settings.py load_dotenv, also loaded defensively here):
 - PULSEAI_COMPRESSION_IDLE_TIMEOUT=120s
 - PULSEAI_COMPRESSION_CEILING=600s
 - PULSEAI_COMPRESSION_FALLBACK_CHAIN=json list or comma-separated models
@@ -15,6 +15,12 @@ Env:
 """
 
 from __future__ import annotations
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 import contextvars
 import os

@@ -3,7 +3,7 @@
 Ported from hermes-agent agent/micro_compaction.py (420 LOC) simplified for IDE.
 Each pass breaks prompt cache once — tradeoff for long sessions.
 
-Env:
+Env (from .env via settings.py load_dotenv, also loaded defensively here):
 - PULSEAI_MICRO_COMPACTION=on to enable
 - PULSEAI_MICRO_COMPACTION_CADENCE=6 (turns per pass)
 - PULSEAI_MICRO_COMPACTION_DEFRAG=2000 (tokens threshold)
@@ -12,6 +12,12 @@ State is kept on ContextEngine: _micro_compact_cursor, _micro_compact_rolling_su
 """
 
 from __future__ import annotations
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 import os
 from typing import Any, Dict, List, Optional
