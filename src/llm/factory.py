@@ -457,7 +457,19 @@ class RetryLLMProxy:
 
             if isinstance(messages_arg, list):
                 from src.llm.request_sanitizer import sanitize_request_messages
-                sanitized = sanitize_request_messages(messages_arg)
+                # Detect whether tools are bound on this runnable — if not,
+                # any tool traffic in the history would 400 on strict providers
+                # (Sarvam: "Tool messages found but no tools provided").
+                # This is the final safety net: even if a caller forgot to
+                # strip, the pre-send path guarantees a valid no-tools request.
+                try:
+                    has_tools = len(_bound_tool_schemas(self._llm)) > 0
+                except Exception:
+                    has_tools = None  # unknown — preserve tool traffic
+                # has_tools=False → strip; True/None → normal sanitization
+                sanitized = sanitize_request_messages(
+                    messages_arg, has_tools=has_tools if has_tools is not None else None
+                )
                 if sanitized is not messages_arg:
                     if args:
                         args = (sanitized,) + args[1:]

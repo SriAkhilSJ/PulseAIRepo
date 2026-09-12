@@ -105,9 +105,17 @@ def test_never_raises_on_adversarial_inputs():
 
 
 class _StubLLM:
-    def __init__(self, model="gpt-4o"):
+    def __init__(self, model="gpt-4o", with_tools=True):
         self.model = model
         self.sent = None
+        # Simulate bound tools so has_tools detection returns True — otherwise
+        # the new has_tools=False safety net would correctly strip tool traffic
+        # for no-tools requests (Sarvam 400 fix), which would make this test
+        # expect the old pre-fix behavior.
+        if with_tools:
+            self.kwargs = {"tools": [{"type": "function", "function": {"name": "read_file"}}]}
+        else:
+            self.kwargs = {}
 
     def invoke(self, *args, **kwargs):
         self.sent = args[0] if args else kwargs.get("messages")
@@ -118,7 +126,7 @@ def test_proxy_invoke_sanitizes_before_underlying_llm(monkeypatch):
     from src.config import settings
     from src.llm import factory as factory_mod
     monkeypatch.setattr(settings, "PROVIDER_SAFE_LIMIT", 1_000_000)
-    llm = _StubLLM()
+    llm = _StubLLM(with_tools=True)
     proxy = RetryLLMProxy(llm)
     # Real, already-sanitized messages: proxy must send them untouched.
     msgs = [
@@ -134,3 +142,21 @@ def test_proxy_invoke_sanitizes_before_underlying_llm(monkeypatch):
     tool_msgs = [m for m in llm.sent if isinstance(m, ToolMessage)]
     assert len(tool_msgs) == 1
     assert tool_msgs[0].content == "UNIQUE CONTENT"
+
+
+def test_proxy_strips_tool_messages_when_no_tools_bound(monkeypatch):
+    """New: when has_tools=False (grace/ask path), tool traffic must be stripped
+    to avoid Sarvam/DeepSeek 400 'Tool messages found but no tools provided'."""
+    from src.config import settings
+    monkeypatch.setattr(settings, "PROVIDER_SAFE_LIMIT", 1_000_000)
+    llm = _StubLLM(with_tools=False)
+    proxy = RetryLLMProxy(llm)
+    msgs = [
+        _aim([{"id": "c1", "name": "read_file", "args": {"path": "a.py"}}]),
+        _tool("c1", "UNIQUE CONTENT"),
+        HumanMessage(content="hi"),
+    ]
+    assert proxy.invoke(msgs) == "ok"
+    # Tool messages stripped, human preserved
+    assert len([m for m in llm.sent if isinstance(m, ToolMessage)]) == 0
+    assert any(getattr(m, "content", "") == "hi" for m in llm.sent)

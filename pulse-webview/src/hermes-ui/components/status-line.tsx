@@ -154,23 +154,76 @@ export function TurnActivityIndicator({ content, messageRunning, run, signals }:
 /** Pulse-only surface (plan_updated / verification_updated / runtime_degraded
  *  frames have no upstream counterpart in this file): the run's plan and its
  *  verification ledger, as scaffold lines, so "done" is always the claim the
- *  checks back rather than a sentence the model wrote about itself. */
+ *  checks back rather than a sentence the model wrote about itself.
+ *
+ *  Plan mode — Hermes desktop parity + collapsable dropdown (user request):
+ *  - Collapsable header with progress count (e.g. "Plan: 3/8 • Turbojet engine")
+ *  - Dropdown caret on right (DisclosureRow style)
+ *  - Expanded: ol with status glyphs (○ pending, ◐ running, ● done, ✕ failed, ⊘ skipped)
+ *  - Matches screenshot: scaffold list with circles, collapsable
+ */
+
+function planGlyph(status: string): string {
+  switch (status) {
+    case 'done': return '✓';
+    case 'running': return '◐';
+    case 'failed': return '✕';
+    case 'skipped': return '⊘';
+    default: return '○';
+  }
+}
+
 export function RunStatusPanel({ run }: { run: PulseRunState }) {
+  const [open, setOpen] = useState(() => {
+    // Auto-open while running, closed when all done (Hermes UX)
+    const hasRunning = run.plan.some(s => s.status === 'running');
+    const allDone = run.plan.length > 0 && run.plan.every(s => s.status === 'done' || s.status === 'skipped');
+    return hasRunning || !allDone;
+  });
+
+  // Keep open when plan updates to running
+  useEffect(() => {
+    if (run.plan.some(s => s.status === 'running')) setOpen(true);
+  }, [run.plan]);
+
   if (run.plan.length === 0 && (run.verification?.length ?? 0) === 0 && !run.degraded) {
     return null;
   }
 
+  const doneCount = run.plan.filter(s => s.status === 'done').length;
+  const totalCount = run.plan.length;
+  const progressLabel = totalCount > 0 ? `${doneCount}/${totalCount}` : '';
+
   return (
-    <div className="pulse-run-status" data-conversation-scaffold="" data-slot="pulse-run-status">
+    <div className="pulse-run-status pulse-run-status--dropdown" data-conversation-scaffold="" data-slot="pulse-run-status">
       {run.plan.length > 0 && (
-        <ol className="pulse-run-status__plan">
-          {run.plan.map((step, index) => (
-            <li className={`pulse-run-status__step pulse-run-status__step--${step.status}`} key={index}>
-              <span>{step.title}</span>
-              {step.detail && <span className={SCAFFOLD_META_CLASS}>{step.detail}</span>}
-            </li>
-          ))}
-        </ol>
+        <div className="pulse-run-status__dropdown">
+          <button
+            aria-expanded={open}
+            className="pulse-run-status__dropdown-header"
+            onClick={() => setOpen(v => !v)}
+            type="button"
+          >
+            <span className="pulse-run-status__dropdown-title">
+              <span className="pulse-run-status__dropdown-icon">▤</span>
+              <span>Plan</span>
+              {progressLabel && <span className="pulse-run-status__dropdown-count">{progressLabel}</span>}
+              {run.planGoal && <span className="pulse-run-status__dropdown-goal" title={run.planGoal}>• {run.planGoal.slice(0, 60)}</span>}
+            </span>
+            <span className="pulse-run-status__dropdown-caret" data-open={open ? 'true' : 'false'}>▾</span>
+          </button>
+          {open && (
+            <ol className="pulse-run-status__plan pulse-run-status__plan--expanded">
+              {run.plan.map((step, index) => (
+                <li className={`pulse-run-status__step pulse-run-status__step--${step.status}`} key={index} title={step.detail || step.title}>
+                  <span className="pulse-run-status__step-glyph">{planGlyph(step.status)}</span>
+                  <span className="pulse-run-status__step-title">{step.title}</span>
+                  {step.detail && <span className={SCAFFOLD_META_CLASS}>{step.detail}</span>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       )}
       {(run.verification?.length ?? 0) > 0 && (
         <div className="pulse-run-status__checks">

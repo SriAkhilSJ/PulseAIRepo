@@ -78,16 +78,47 @@ def _drop_tool_pairs(messages: list) -> list:
     NO-TOOLS request. The grace call binds no tools, so any AIMessage with
     tool_calls and the ToolMessages answering them must not be sent —
     OpenAI-compat providers hard-400 on "Tool messages found but no tools
-    provided". Text-only AIMessages survive (they carry reasoning)."""
-    out: list = []
-    for m in messages:
-        if isinstance(m, ToolMessage):
-            continue
-        tcs = getattr(m, "tool_calls", None)
-        if tcs:
-            continue
-        out.append(m)
-    return out
+    provided". Text-only AIMessages survive (they carry reasoning).
+
+    Hermes parity: sanitize_api_messages 6-step + repair_message_sequence.
+    This is the D40 fallback and the final safety net for strict providers
+    (Sarvam, DeepSeek). It also handles empty tool_calls arrays which strict
+    providers reject.
+    """
+    # Delegate to the canonical implementation in request_sanitizer which now
+    # handles empty tool_calls, nameless calls, stray results, etc.
+    try:
+        from src.llm.request_sanitizer import strip_tool_pairs
+        return strip_tool_pairs(messages)
+    except Exception:
+        # Fallback inline implementation if import fails
+        out: list = []
+        for m in messages:
+            if isinstance(m, ToolMessage):
+                continue
+            tcs = getattr(m, "tool_calls", None)
+            if tcs:
+                # Preserve text content if present, drop tool_calls
+                content = getattr(m, "content", "")
+                text = content if isinstance(content, str) else str(content or "")
+                if text.strip():
+                    try:
+                        out.append(
+                            AIMessage(
+                                content=text,
+                                id=getattr(m, "id", None),
+                                additional_kwargs={
+                                    k: v
+                                    for k, v in (getattr(m, "additional_kwargs", {}) or {}).items()
+                                    if k != "tool_calls"
+                                },
+                            )
+                        )
+                    except Exception:
+                        out.append(AIMessage(content=text))
+                continue
+            out.append(m)
+        return out
 
 
 # hermes :1934 — the honest final answer when the summary came back empty twice.
@@ -123,11 +154,35 @@ def _summary_text_from(result: Any) -> str:
 def _finalize_iteration_summary(result: Any, reinvoke) -> Any:
     """hermes handle_max_iterations tail (:2126-2138): one retry on an empty
     summary; still empty -> the honest fallback text. The summary IS the
-    turn's final assistant message."""
+    turn's final assistant message.
+
+    Fix: reinvoke must also handle strict providers that reject tool messages
+    without tools. The grace path binds no tools, so any reinvoke with full
+    history would 400 again (field 2026-09-12: sarvam-105b 400 after 10.7s
+    successful text-only fallback, because empty summary triggered reinvoke
+    with original tool history). The reinvoke lambda now receives stripped
+    messages via closure, but we also guard here with try/except for tool
+    rejection.
+    """
     text = _summary_text_from(result)
     if not text:
-        result = reinvoke()
-        text = _summary_text_from(result)
+        try:
+            result = reinvoke()
+            text = _summary_text_from(result)
+        except Exception as exc:
+            if _is_tool_messages_rejection(exc):
+                print(
+                    f"[grace] reinvoke also rejected (tool messages without tools): {type(exc).__name__} — using fallback text",
+                    flush=True,
+                )
+                text = ""
+            else:
+                # Re-raise non-tool errors? No, fallback to honest text to avoid killing turn
+                print(
+                    f"[grace] reinvoke failed ({type(exc).__name__}: {str(exc)[:150]}) — using fallback text",
+                    flush=True,
+                )
+                text = ""
     if not text:
         text = _EMPTY_SUMMARY_RESPONSE
     return AIMessage(content=text, id=getattr(result, "id", None))
@@ -1288,17 +1343,34 @@ def ai_node(
                     if _room:
                         allowed = max(512, min(allowed, _room))
                     call_llm = bind_generation(max_tokens=allowed)
-            if budget_exhausted:
+            if budget_exhausted or wrap_summary or execution_mode == "ask":
                 call_llm = llm
+                # Failover must also be no-tools safe — strip tool pairs so
+                # strict providers don't 400 on "Tool messages found but no
+                # tools provided" after redecoration.
+                messages = _drop_tool_pairs(messages)
             try:
                 # The repair gate needs to know whether THIS call bound tools: the
                 # grace/ask path invokes the unbound `llm`, everything else a
                 # tools-bound callable (see repair_text_tool_calls `allow`).
                 tools_bound = call_llm is not llm
-                result = _invoke_with_token_pump(
-                    call_llm, messages, session_id, provider, model,
-                    strip_tool_blocks=tools_bound,
-                )
+                try:
+                    result = _invoke_with_token_pump(
+                        call_llm, messages, session_id, provider, model,
+                        strip_tool_blocks=tools_bound,
+                    )
+                except Exception as _failover_exc:
+                    if _is_tool_messages_rejection(_failover_exc):
+                        print(
+                            f"[failover] tool rejection on failover path ({type(_failover_exc).__name__}); retrying stripped no-tools",
+                            flush=True,
+                        )
+                        result = _invoke_with_token_pump(
+                            llm, _drop_tool_pairs(messages), session_id,
+                            provider, model, strip_tool_blocks=False,
+                        )
+                    else:
+                        raise
             except TurnCancelledError:
                 return {
                     "messages": [AIMessage(
@@ -1343,10 +1415,17 @@ def ai_node(
     # FINAL answer — <think> stripped, one retry when empty, honest fallback
     # text. No tool_calls can ride it (repair is disarmed; no tools bound).
     if grace_summary_lap1:
+        # For strict providers (Sarvam), the reinvoke must also be text-only.
+        # The original lambda used `messages` (full history with tool pairs)
+        # which would 400 again if summary text was empty (field 2026-09-12:
+        # 10.7s text-only fallback succeeded, but empty summary triggered
+        # reinvoke with tool history → 400 → turn FAILED). Use stripped
+        # version for reinvoke as well.
+        _stripped_for_reinvoke = _drop_tool_pairs(messages)
         result = _finalize_iteration_summary(
             result,
             lambda: _invoke_with_token_pump(
-                call_llm, messages, session_id, provider, model,
+                call_llm, _stripped_for_reinvoke, session_id, provider, model,
                 strip_tool_blocks=tools_bound,
             ),
         )
