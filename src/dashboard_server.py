@@ -233,6 +233,48 @@ def status():
         "pending_approvals": approval_queue.get_pending(),
     })
 
+@app.route("/api/context/status")
+def context_status():
+    """Context engine status for a thread — includes breakdown, compaction, pressure."""
+    thread_id = str(request.args.get("thread_id", "web-session")).strip() or "web-session"
+    try:
+        from src.graphs.chat_graph import get_context_engine
+        engine = get_context_engine(thread_id)
+        st = engine.get_status()
+        # Ensure breakdown is computed if not already present
+        if "context_breakdown" not in st:
+            try:
+                from src.context.context_breakdown import breakdown_enabled
+                if breakdown_enabled() or request.args.get("breakdown") == "1":
+                    st["context_breakdown"] = engine.context_breakdown()
+            except Exception:
+                pass
+        return jsonify(st)
+    except Exception as e:
+        return jsonify({"error": str(e), "thread_id": thread_id}), 500
+
+@app.route("/api/context/breakdown")
+def context_breakdown_api():
+    """IDE context breakdown — glyph grid, categories, suggestions."""
+    thread_id = str(request.args.get("thread_id", "web-session")).strip() or "web-session"
+    try:
+        from src.graphs.chat_graph import get_context_engine
+        engine = get_context_engine(thread_id)
+        bd = engine.context_breakdown()
+        return jsonify(bd)
+    except Exception as e:
+        return jsonify({"error": str(e), "thread_id": thread_id}), 500
+
+@app.route("/api/context/micro-compaction")
+def micro_compaction_status():
+    thread_id = str(request.args.get("thread_id", "web-session")).strip() or "web-session"
+    try:
+        from src.graphs.chat_graph import get_context_engine
+        engine = get_context_engine(thread_id)
+        return jsonify(engine.micro_compaction_stats())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/rollback", methods=["POST"])
 def rollback():
     """Reset agent state to a checkpoint."""

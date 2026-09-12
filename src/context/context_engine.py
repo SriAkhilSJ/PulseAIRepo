@@ -39,7 +39,7 @@ from langchain_core.messages import (
 
 from src.context.bounded_scan import ContextBudget
 from src.context.engine import ContextEngine as BaseContextEngine
-from src.context.engine import resolve_model_threshold, sanitize_memory_context
+from src.context.engine import resolve_model_threshold, sanitize_memory_context, load_model_thresholds_from_env, load_proactive_prune_config_from_env
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.task_types import TaskType  # P9: re-exported for existing imports
 from src.context import layer_policy  # P9: scoring/dedup/placement/compression/budget
@@ -57,6 +57,8 @@ from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
 from src.context.embedding_cache import get_embedding_cache
 from src.config.settings import CONTEXT_MODEL
+from src.context.micro_compaction import MicroCompactionMixin
+from src.context.compression_fence import CompressionCommitFence, try_acquire_compression_lock, release_compression_lock
 
 
 # P9: TaskType lives in src/context/task_types.py (imported above and
@@ -195,7 +197,7 @@ def _get_shared_classifier(allow_embedding_compute: bool = False) -> "TaskClassi
     return _SHARED_CLASSIFIER
 
 
-class ContextEngine(BaseContextEngine):
+class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     """
     The Context Engine class.
 
@@ -467,6 +469,50 @@ class ContextEngine(BaseContextEngine):
         # episode-opening flag (read by the pre_api status template).
         self._overflow_warned = False
         self._pressure_fired_this_build = False
+
+        # Proactive prune (Hermes parity): cheap deterministic tool-result prune
+        # at low trigger, independent of full compression. 0 = disabled.
+        # All via env — user requested values store in env.
+        try:
+            cfg = load_proactive_prune_config_from_env()
+            self.proactive_prune_tokens = cfg["tokens"]
+            self.proactive_prune_min_result_chars = cfg["min_chars"]
+            self.proactive_prune_min_reclaim_tokens = cfg["min_reclaim"]
+            # Allow direct env override for min values
+            self.proactive_prune_min_result_chars = int(os.environ.get("PULSEAI_PROACTIVE_PRUNE_MIN_CHARS", str(self.proactive_prune_min_result_chars)) or 8000)
+            self.proactive_prune_min_reclaim_tokens = int(os.environ.get("PULSEAI_PROACTIVE_PRUNE_MIN_RECLAIM", str(self.proactive_prune_min_reclaim_tokens)) or 4096)
+        except Exception:
+            self.proactive_prune_tokens = 0
+            self.proactive_prune_min_result_chars = 8000
+            self.proactive_prune_min_reclaim_tokens = 4096
+        self._proactive_prune_rearm_tokens = 0
+
+        # Model thresholds from env (PULSEAI_MODEL_THRESHOLDS JSON or csv)
+        try:
+            env_thresholds = load_model_thresholds_from_env()
+            if env_thresholds:
+                # Merge class-level + env — env wins
+                base = dict(getattr(self, "model_thresholds", {}) or {})
+                base.update(env_thresholds)
+                self.model_thresholds = base
+            # Also check global threshold percent override
+            from src.context.engine import _env_float
+            tp = _env_float("PULSEAI_THRESHOLD_PERCENT", self.threshold_percent)
+            if tp != self.threshold_percent:
+                self.threshold_percent = tp
+                self._pressure.threshold_percent = tp
+        except Exception:
+            pass
+
+        # Micro-compaction cursor init (from mixin)
+        try:
+            self._reset_micro_compact_cursor_state()
+        except Exception:
+            pass
+
+        # Frozen workspace snapshot — pin per thread_id + cwd for prompt-cache stability
+        self._frozen_workspace_snapshot: Dict[str, str] = {}
+        self._frozen_workspace_cwd: str = ""
 
         # Set only here, at the end of construction: the background metadata probe reads this
         # before touching budget fields, and must not interleave with __init__'s own derived values.
@@ -783,6 +829,115 @@ class ContextEngine(BaseContextEngine):
                 ]
             return result
 
+    def prune_tool_results_only(
+        self, messages: List[Dict[str, Any]], current_tokens: int | None = None
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Deterministic no-LLM tool-result prune gated on proactive_prune_tokens.
+
+        Hermes parity: protects tail by message COUNT only (protect_last_n).
+        Requires reclaim >= proactive_prune_min_reclaim_tokens and full
+        regrowth runway; otherwise returns INPUT object as (messages,0).
+        Ported from hermes-agent ContextCompressor.prune_tool_results_only
+        simplified for IDE (no DB persistence, in-memory rearm only).
+        """
+        if self.proactive_prune_tokens <= 0:
+            return messages, 0
+        if current_tokens is not None and current_tokens < self.proactive_prune_tokens:
+            return messages, 0
+        if len(messages) <= self.protect_last_n + 3 + 1:
+            return messages, 0
+        # Estimate tokens via rough count for rearm gate
+        try:
+            from src.context.model_budgets import estimate_messages_tokens_rough
+            before = estimate_messages_tokens_rough(messages) if all(isinstance(m, dict) for m in messages) else sum(count_tokens([m], self.model) for m in messages)  # type: ignore
+        except Exception:
+            before = len(messages) * 200
+        if before < getattr(self, "_proactive_prune_rearm_tokens", 0):
+            return messages, 0
+
+        # Work on copy for dict path; for BaseMessage path handle separately
+        if messages and not isinstance(messages[0], dict):
+            # BaseMessage path: prune ToolMessage older than protect_last_n
+            result = list(messages)
+            pruned = 0
+            # Find indices of ToolMessages outside protected tail
+            tail_start = max(0, len(result) - self.protect_last_n)
+            for i in range(tail_start):
+                msg = result[i]
+                if isinstance(msg, ToolMessage):
+                    content = str(getattr(msg, "content", "") or "")
+                    if len(content) > self.proactive_prune_min_result_chars:
+                        # Summarize to 1-liner placeholder
+                        result[i] = ToolMessage(
+                            content=f"[{getattr(msg, 'name', 'tool')} output pruned — {len(content):,} chars]",
+                            tool_call_id=getattr(msg, "tool_call_id", ""),
+                            name=getattr(msg, "name", "tool"),
+                        )
+                        pruned += 1
+            if pruned == 0:
+                return messages, 0
+            # Rearm
+            try:
+                after = sum(count_tokens([m], self.model) for m in result)
+                reclaimed = max(0, before - after)
+                if reclaimed < self.proactive_prune_min_reclaim_tokens:
+                    return messages, 0
+                runway = max(reclaimed, self.proactive_prune_tokens, self.proactive_prune_min_reclaim_tokens)
+                self._proactive_prune_rearm_tokens = after + runway
+            except Exception:
+                pass
+            return result, pruned
+
+        # Dict path (Hermes wire format)
+        result = [dict(m) if isinstance(m, dict) else m for m in messages]
+        pruned = 0
+        protect_tail = self.protect_last_n
+        # Collect call_id -> tool name for nicer placeholder
+        call_id_to_tool: Dict[str, str] = {}
+        for msg in result:
+            if msg.get("role") == "assistant":
+                for tc in msg.get("tool_calls") or []:
+                    if isinstance(tc, dict):
+                        fn = tc.get("function", {})
+                        call_id_to_tool[tc.get("id", "")] = fn.get("name", "tool")
+                    else:
+                        try:
+                            call_id_to_tool[getattr(tc, "id", "")] = getattr(getattr(tc, "function", {}), "name", "tool")
+                        except Exception:
+                            pass
+
+        for idx in range(max(0, len(result) - protect_tail - 1)):
+            msg = result[idx]
+            if msg.get("role") != "tool":
+                continue
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                continue
+            if len(content) <= self.proactive_prune_min_result_chars:
+                continue
+            if content.startswith("[") and "chars)" in content and len(content) < 400:
+                continue  # already pruned
+            tool_name = call_id_to_tool.get(msg.get("tool_call_id", ""), msg.get("name", "tool"))
+            result[idx] = {**msg, "content": f"[{tool_name} output pruned — {len(content):,} chars]"}
+            pruned += 1
+
+        if pruned == 0:
+            return messages, 0
+
+        # Hysteresis: require meaningful reclaim
+        try:
+            from src.context.model_budgets import estimate_messages_tokens_rough
+            after = estimate_messages_tokens_rough(result)
+            reclaimed = max(0, before - after)
+            if reclaimed < self.proactive_prune_min_reclaim_tokens:
+                return messages, 0
+            runway = max(reclaimed, self.proactive_prune_tokens, self.proactive_prune_min_reclaim_tokens)
+            self._proactive_prune_rearm_tokens = after + runway
+        except Exception:
+            self._proactive_prune_rearm_tokens = before
+
+        return result, pruned
+
     @staticmethod
     def _wire_dicts_to_messages(dicts: List[Dict[str, Any]]) -> list:
         """Convert Hermes/OpenAI wire dicts ({role,type} + content) to
@@ -1043,6 +1198,7 @@ class ContextEngine(BaseContextEngine):
         self._base_threshold_percent = resolve_model_threshold(
             new_model, getattr(self, "model_thresholds", {}),
             self._config_threshold_percent,
+            provider,
         )
         self.threshold_percent = self._base_threshold_percent
         # The fuel gauge keeps its own copy (UsagePressure is constructed
@@ -1050,23 +1206,14 @@ class ContextEngine(BaseContextEngine):
         # otherwise tighten()/at_threshold() would keep deciding with the
         # stale percent while get_status() reports the new one.
         self._pressure.threshold_percent = self._base_threshold_percent
+        # Proactive prune rearm resets on model switch — runway was for old window
+        self._proactive_prune_rearm_tokens = 0
         if context_length and int(context_length) > 0:
             with self._api_lock:
                 self.model = new_model
                 self._apply_window(int(context_length), "update-model")
         else:
             self.reconfigure_model(new_model)
-
-    def on_turn_complete(
-        self,
-        messages: list,
-        usage: Dict[str, Any] = None,
-        **kwargs: Any,
-    ) -> None:
-        """ABC hook: end-of-turn ingestion. Folds caller-supplied usage
-        into the same actual-usage state as update_from_response."""
-        if usage:
-            self.update_from_response(usage)
 
     def on_session_reset(self) -> None:
         super().on_session_reset()
@@ -1113,6 +1260,13 @@ class ContextEngine(BaseContextEngine):
             "compaction": self.compaction_stats(),
             "prompt_cache": self.cache_audit_stats(),
             "stable_prefix_invalidations": int(getattr(self, "_stable_prefix_invalidations", 0)),
+            "micro_compaction": self.micro_compaction_stats() if hasattr(self, "micro_compaction_stats") else {},
+            "proactive_prune": {
+                "tokens": self.proactive_prune_tokens,
+                "min_chars": self.proactive_prune_min_result_chars,
+                "min_reclaim": self.proactive_prune_min_reclaim_tokens,
+                "rearm_tokens": getattr(self, "_proactive_prune_rearm_tokens", 0),
+            },
         })
         try:  # pyrefly: ignore [missing-import]
             from src.prompts.hermes.session import session_stats
@@ -1127,7 +1281,191 @@ class ContextEngine(BaseContextEngine):
                 }
         except Exception:
             pass
+        # Context breakdown (IDE panel)
+        try:
+            from src.context.context_breakdown import compute_session_context_breakdown, breakdown_enabled
+            if breakdown_enabled():
+                # Build layers dict from cache for breakdown
+                layers_dict = {}
+                for k, v in self._layer_cache.items():
+                    try:
+                        layers_dict[k] = str(getattr(v, "content", "") or "")[:5000]
+                    except Exception:
+                        pass
+                bd = compute_session_context_breakdown(
+                    engine=self,
+                    messages=[],
+                    layers=layers_dict,
+                    system_prompt_text="",
+                )
+                base["context_breakdown"] = bd
+        except Exception:
+            pass
         return base
+
+    # =========================================================
+    # IDE-specific: select_context, on_turn_complete, frozen snapshot
+    # =========================================================
+
+    def select_context(
+        self,
+        request_messages: List[Dict[str, Any]],
+        *,
+        conversation_messages: List[Dict[str, Any]] = None,
+        incoming_message: Dict[str, Any] = None,
+        budget_tokens: int = 0,
+    ) -> List[Dict[str, Any]] | None:
+        """IDE retrieval hook — inject repo_map/chunks per-request based on budget.
+
+        Hermes parity: select_context is called with budget_tokens to inject
+        additional context. For IDE, we use it to provide editor context
+        (dirty files, diagnostics) when PULSEAI_IDE_CONTEXT=on, and to
+        provide repo_map/chunks when budget allows.
+
+        Returns None to use normal layer path, or list of additional messages.
+        """
+        if os.environ.get("PULSEAI_IDE_CONTEXT", "").lower() not in {"1","on","true","yes"}:
+            # Only activate when explicitly enabled — otherwise layer path handles it
+            # But still allow repo_map via budget if PULSEAI_REPO_MAP=on
+            if budget_tokens <= 0:
+                return None
+        # Budget-aware injection: only if we have headroom
+        if budget_tokens > 0 and budget_tokens < 1000:
+            return None  # too small
+
+        extra: List[Dict[str, Any]] = []
+        # Try to build repo_map if enabled and budget > 2k
+        if budget_tokens >= 2000:
+            try:
+                from src.context.repo_map import repo_map_enabled, get_repo_map
+                if repo_map_enabled():
+                    # Use frozen snapshot if available
+                    cwd = str(getattr(self, "_frozen_workspace_cwd", "") or ".")
+                    snap_key = f"{self.thread_id}:{cwd}"
+                    frozen = self._frozen_workspace_snapshot.get(snap_key, "")
+                    if frozen:
+                        extra.append({"role": "system", "content": frozen})
+                    else:
+                        # Build fresh but also freeze
+                        txt = get_repo_map(cwd, max_tokens=800)
+                        if txt:
+                            frozen_content = f"=== CODEBASE STRUCTURE (Repo Map — frozen) ===\n{txt}"
+                            self._frozen_workspace_snapshot[snap_key] = frozen_content
+                            extra.append({"role": "system", "content": frozen_content})
+            except Exception:
+                pass
+
+        # Editor context: dirty files, diagnostics, symbols
+        if os.environ.get("PULSEAI_IDE_CONTEXT", "").lower() in {"1","on","true","yes"}:
+            try:
+                # Check for editor context in env or temp file
+                editor_ctx_path = os.environ.get("PULSEAI_EDITOR_CONTEXT_PATH", "")
+                if editor_ctx_path and os.path.exists(editor_ctx_path):
+                    with open(editor_ctx_path, "r", encoding="utf-8") as f:
+                        data = f.read(8000)
+                        if data.strip():
+                            extra.append({"role": "system", "content": f"=== EDITOR CONTEXT (dirty files, diagnostics) ===\n{data}"})
+            except Exception:
+                pass
+
+        return extra if extra else None
+
+    def on_turn_complete(
+        self,
+        messages: list,
+        usage: Dict[str, Any] = None,
+        **kwargs: Any,
+    ) -> None:
+        """End-of-turn ingestion + indexing for next request.
+
+        - Folds usage into pressure
+        - Indexes completed turns into chunk_index if available (for select_context)
+        - Updates frozen workspace snapshot on cwd change
+        """
+        if usage:
+            self.update_from_response(usage)
+        # Index turn into chunk_index for future retrieval
+        try:
+            if messages:
+                # Extract last user + assistant turn for indexing
+                last_user = None
+                for m in reversed(messages):
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        last_user = m.get("content","")
+                        break
+                    if hasattr(m, "type") and getattr(m, "type") == "human":
+                        last_user = getattr(m, "content","")
+                        break
+                # Best-effort index — never block turn
+                if last_user and len(str(last_user)) > 10:
+                    from src.context.chunk_index import get_chunk_index
+                    idx = get_chunk_index()
+                    # idx.index_text is internal — just touch it if available
+                    if hasattr(idx, "index_turn"):
+                        try:
+                            idx.index_turn(str(last_user), thread_id=self.thread_id)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # Frozen workspace snapshot handling — pin per cwd
+        try:
+            cwd = str(kwargs.get("cwd") or getattr(self, "_frozen_workspace_cwd", "") or ".")
+            if cwd != self._frozen_workspace_cwd:
+                # CWD changed — invalidate frozen snapshot for old cwd, keep new
+                self._frozen_workspace_cwd = cwd
+        except Exception:
+            pass
+
+    def freeze_workspace_snapshot(self, cwd: str, content: str) -> None:
+        """Pin workspace snapshot for prompt-cache stability (Hermes parity)."""
+        try:
+            key = f"{self.thread_id}:{cwd}"
+            self._frozen_workspace_snapshot[key] = content
+            self._frozen_workspace_cwd = cwd
+        except Exception:
+            pass
+
+    def get_frozen_workspace_snapshot(self, cwd: str = "") -> str:
+        cwd = cwd or getattr(self, "_frozen_workspace_cwd", "") or "."
+        key = f"{self.thread_id}:{cwd}"
+        return self._frozen_workspace_snapshot.get(key, "")
+
+    def context_breakdown(self, messages: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
+        """Compute IDE-aware context breakdown for UI."""
+        try:
+            from src.context.context_breakdown import compute_session_context_breakdown
+            layers_dict = {}
+            for k, v in self._layer_cache.items():
+                try:
+                    layers_dict[k] = str(getattr(v, "content", "") or "")[:5000]
+                except Exception:
+                    pass
+            return compute_session_context_breakdown(
+                engine=self,
+                messages=messages or [],
+                layers=layers_dict,
+            )
+        except Exception as e:
+            return {"error": str(e), "categories": []}
+
+    def compress_with_fence(
+        self,
+        messages: List[Dict[str, Any]],
+        current_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> List[Dict[str, Any]]:
+        """Run compress inside CompressionCommitFence (Phase 4 hardening)."""
+        session_id = self.thread_id or "default"
+        def _do():
+            return self.compress(messages, current_tokens=current_tokens, **kwargs)
+        try:
+            from src.context.compression_fence import run_compress_with_fence
+            return run_compress_with_fence(session_id, _do, on_progress=lambda info: self._emit_context_status(info.get("phase","compress"), f"Compression {info.get('phase')}...", **info))
+        except Exception:
+            # Fallback to direct compress if fence fails
+            return self.compress(messages, current_tokens=current_tokens, **kwargs)
 
     # =========================================================
     # MAIN METHOD: Build messages for the AI node
@@ -1196,11 +1534,18 @@ class ContextEngine(BaseContextEngine):
     # Per-model compaction-threshold overrides (Hermes parity, see
     # resolve_model_threshold in src/context/engine.py). Maps model-name
     # substrings to threshold fractions; the LONGEST matching key wins.
+    # Values stored in env PULSEAI_MODEL_THRESHOLDS (JSON or k=v csv) — env wins.
     # Empty by default — every model uses the configured 0.75 until an
     # operator or the bridge populates this (update_model reads
     # getattr(self, "model_thresholds", {}) live, so a mid-session
     # reconfigure always sees the current map).
     model_thresholds: dict[str, float] = {}
+
+    def _load_model_thresholds_from_env(self) -> dict[str, float]:
+        try:
+            return load_model_thresholds_from_env()
+        except Exception:
+            return {}
 
     def build_ai_messages(self, state, system_message):
         """Thread-safe public entry: same-session concurrent turns (the
