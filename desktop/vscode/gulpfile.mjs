@@ -53,8 +53,13 @@ function runTsc() {
 	if (!tscRel) {
 		throw new Error('[pulseai-compile] no tsc CLI found in node_modules/typescript — run npm install in desktop/vscode first');
 	}
-	pulseLog(`using node_modules/typescript/${tscRel}`);
-	const result = spawnSync(process.execPath, [path.join(tsPkg, tscRel), '-p', SRC], {
+	// Layer 33: the parent gulp process has --max-old-space-size=8192 but
+	// that flag does NOT cross a spawn boundary. The tsc child spawned bare
+	// ran on Node's default ~4GB heap and OOM'd (exit 134). Give the child
+	// its own 8GB ceiling, overridable via PULSEAI_TSC_MAX_OLD_SPACE.
+	const tscHeap = process.env.PULSEAI_TSC_MAX_OLD_SPACE || '8192';
+	pulseLog(`using node_modules/typescript/${tscRel} (child heap: --max-old-space-size=${tscHeap})`);
+	const result = spawnSync(process.execPath, [`--max-old-space-size=${tscHeap}`, path.join(tsPkg, tscRel), '-p', SRC], {
 		stdio: 'inherit',
 		cwd: FORK_ROOT,
 	});
