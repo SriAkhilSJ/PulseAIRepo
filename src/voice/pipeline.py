@@ -71,6 +71,7 @@ def _api_key() -> str:
         or os.environ.get("PULSEAI_VOICE_API_KEY")
         or os.environ.get("GROQ_API_KEY")
         or os.environ.get("PULSEAI_API_KEY")
+        or os.environ.get("CUSTOM_API_KEY")
         or ""
     )
 

@@ -1,5 +1,5 @@
 {
-	"sourcesHash": "af5c326cb2cfc196bdfe16c8d9790e57c8fc25f54c8b520d8a03317cf5db3068",
+	"sourcesHash": "5aaef32d5544edc5d2d27b3bd00697ed3d707da0ab66caa2cbfe500cc3551bca",
 	"files": {
 		"src/vs/workbench/contrib/pulseai/README.md": "c99fe05011493a882c046c985e2cc4133c58695a5722a6d6f6c4f08d93c62622",
 		"src/vs/workbench/contrib/pulseai/browser/media/pulseAI-tokens.css": "64a7a616f28251a9f8610326c9bc0162b61c1e8e8cbb6de98f54a66311b573dc",
@@ -16,8 +16,8 @@
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIManagerEditor.ts": "66d4018cede9714a5ed567a27be24e3981443fe153d297bb69e20db5b0616759",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIManagerInput.ts": "842f1d0bfa71ae524f0ff0cfd51adfdf36e150e7ba38bc5da63f1fef4bac40fb",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAINextEditProvider.ts": "bf1f36c2aeb44343ae8e796c5721aa20906a08dd24ccc802584b0d67a6b480fe",
-		"src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts": "a63092422dfc94c32f883d2c343c3cc0405517dad806d9f9b6072f92d381916d",
-		"src/vs/workbench/contrib/pulseai/browser/pulseAIRendererService.ts": "f578d8283ad55e1f66446604581e8c225c52d913da66118571c1b4f52bf3709c",
+		"src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts": "b7eb687f0f05526da56c8e0fbf14691695e483661b7abeba6026891a901a5647",
+		"src/vs/workbench/contrib/pulseai/browser/pulseAIRendererService.ts": "bc493bf5884cadfcdc8aa85d1ef8b04145257ecead7aca8b4dc0befeb510d947",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIRunSummary.ts": "2bfdbd44454530b2ef012aa8ffcf776c43e434510934a9931876980d9cbcbbc9",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAISessionController.ts": "79b94b7d18c3ec7f4b089893042f371dad35b83e75b3e309e3c2ae61a6453924",
 		"src/vs/workbench/contrib/pulseai/browser/pulseAIUnavailableEngineService.ts": "7cb149c8a2ee17a0dc3aa211a5dae46407090aa2317bd348f53561617eed9b0b",

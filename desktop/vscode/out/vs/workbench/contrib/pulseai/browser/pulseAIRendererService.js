@@ -350,6 +350,7 @@ let PulseAIRendererService = class PulseAIRendererService extends Disposable {
             approval: this.approval,
             clarify: this.clarify,
             todos: this.todos,
+            todoRevision: this.todoRevision,
             plan: this.plan,
             verification: this.verification,
             telemetry: this.telemetry,

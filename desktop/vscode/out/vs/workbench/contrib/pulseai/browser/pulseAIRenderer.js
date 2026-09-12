@@ -1518,13 +1518,6 @@ function approvalCommandText(name, diff) {
 // vanishing. Draft state lives OUTSIDE the render (keyed by request id), the
 // same way `openTools` survives re-renders.
 const RECOMMENDED_LABEL = '(Recommended)';
-function stripRecommended(text) {
-    const stripped = String(text ?? '').trim();
-    if (stripped.toLowerCase().endsWith(RECOMMENDED_LABEL.toLowerCase())) {
-        return stripped.slice(0, -RECOMMENDED_LABEL.length).trim();
-    }
-    return stripped;
-}
 const clarifyDrafts = new Map();
 function clarifyDraft(requestId) {
     let draft = clarifyDrafts.get(requestId);
@@ -1581,7 +1574,6 @@ function clarifyChoiceRow(qid, index, choice, multi, draft, requestId, onDirty) 
     row.dataset.choiceIndex = String(index);
     row.dataset.qid = qid;
     row.dataset.choice = bare;
-    const selectedSet = draft.selected.get(qid);
     row.setAttribute('aria-pressed', String(picked));
     row.append(keyBadge(letterFor(index), picked));
     const label = element('span', 'pulseai-clarify-choice-label');

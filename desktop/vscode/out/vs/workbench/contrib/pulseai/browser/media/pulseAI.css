@@ -1703,6 +1703,23 @@
 .pulseai-plan-glyph .codicon { font-size: var(--pulseai-conv-size); }
 .pulseai-plan-row.is-completed .pulseai-plan-glyph { color: var(--vscode-charts-green, #3fb950); }
 .pulseai-plan-row.is-failed .pulseai-plan-glyph { color: var(--vscode-charts-red, #f85149); }
+/* hermes DESKTOP StatusSection (components/chat/status-section.tsx): the
+   plan body sits under a caret+icon+label header. Closed caret points
+   right, open rotates 90deg (DisclosureCaret); the running spinner only
+   shows on a collapsed header. */
+.pulseai-plan-details { margin: 2px 0; }
+.pulseai-plan-head { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; list-style: none; color: var(--vscode-descriptionForeground); font-size: var(--pulseai-text-meta); user-select: none; }
+.pulseai-plan-head::-webkit-details-marker { display: none; }
+.pulseai-plan-head:hover { color: var(--vscode-foreground); }
+.pulseai-plan-caret { display: inline-flex; flex: none; transition: transform 150ms ease; }
+.pulseai-plan-caret .codicon { font-size: var(--pulseai-conv-size); }
+.pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-caret { transform: rotate(90deg); }
+.pulseai-plan-icon { display: inline-flex; flex: none; opacity: .7; }
+.pulseai-plan-icon .codicon { font-size: var(--pulseai-conv-size); }
+.pulseai-plan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulseai-plan-spinner { flex: none; width: 10px; height: 10px; }
+.pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-spinner { display: none; }
+.pulseai-plan-details .pulseai-plan-list { padding-left: 22px; }
 .pulseai-plan-row.is-cancelled .pulseai-plan-glyph { color: var(--vscode-descriptionForeground); opacity: .6; }
 .pulseai-plan-row.is-pending .pulseai-plan-glyph::before {
 	content: ''; width: 10px; height: 10px; border-radius: 50%;
