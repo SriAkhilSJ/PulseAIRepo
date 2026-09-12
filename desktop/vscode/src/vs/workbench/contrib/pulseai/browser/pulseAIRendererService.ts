@@ -102,7 +102,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 	};
 	/** Live hermes todo_list state, reconciled atomically on {todos, revision}. */
 	private todos: readonly PulseTodoItem[] = [];
-	private _todoRevision = 0;
+	private todoRevision = 0;
 	private turnOutcome: PulseAIRenderModel['turnOutcome'] = 'idle';
 	private userMessage: string | undefined;
 	private assistantText = '';
@@ -896,7 +896,7 @@ export class PulseAIRendererService extends Disposable implements IPulseAIRender
 				}
 			}
 			this.todos = items;
-			this._todoRevision = frame.revision;
+			this.todoRevision = frame.revision;
 		} else if (frame.type === 'subagent_updated') {
 			const subagent_id = frame.subagent_id;
 			const existing = this.subAgents.get(subagent_id) ?? { id: subagent_id, state: 'pending' as const };
