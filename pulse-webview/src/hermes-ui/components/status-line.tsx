@@ -181,8 +181,7 @@ export function RunStatusPanel({ run }: { run: PulseRunState }) {
   // If you need it back: set PULSEAI_SHOW_PLAN_PANEL=1 or revert this file.
   const showPlan = (() => {
     try {
-      const v = (typeof process !== 'undefined' ? (process as any).env?.PULSEAI_SHOW_PLAN_PANEL : undefined) 
-        ?? (typeof window !== 'undefined' ? (window as any).__PULSEAI_SHOW_PLAN_PANEL__ : undefined);
+      const v = (typeof window !== 'undefined' ? (window as any).__PULSEAI_SHOW_PLAN_PANEL__ : undefined);
       if (typeof v === 'string') return v.toLowerCase() in { '1': 1, 'true': 1, 'yes': 1, 'on': 1 } as any;
     } catch {}
     return false; // default hidden per user request

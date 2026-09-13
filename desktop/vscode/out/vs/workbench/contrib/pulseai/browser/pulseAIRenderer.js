@@ -2140,10 +2140,11 @@ function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
     // Hermes: the todo panel lives between the transcript and the composer
     // (the composer status stack) — the list rides ABOVE the input, never
     // buried in transcript history.
-    const todos = todoStack(model);
-    if (todos) {
-        nodes.push(todos);
-    }
+    // HIDDEN per user request — duplicates todo tool cards inside chat
+    // const todos = todoStack(model);
+    // if (todos) {
+    //     nodes.push(todos);
+    // }
     return nodes;
 }
 function renderAgent(root, model, host, openTools, planOpen, setPlanOpen, activity) {
