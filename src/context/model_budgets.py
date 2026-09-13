@@ -171,18 +171,20 @@ def usable_window_budget(window: int) -> int:
 #
 # The static table above can't know every model — the repo's own default
 # (e.g. "qwen/..." on Groq) isn't in anyone's hardcoded list. So at runtime
-# we resolve the window through a priority chain:
+# we resolve the window through a priority chain (Hermes parity):
 #
 #   1. LLM_CONTEXT_WINDOW env override          (user always wins)
 #   2. fresh on-disk cache                      (no cold-boot network cost)
-#   3. static table                             (zero network for known models)
-#   4. LIVE provider probe                      (Groq/Gemini/OpenRouter expose it)
-#   5. stale cache, else the conservative default
+#   3. LIVE custom endpoint probe               (active endpoint metadata — Hermes puts this ABOVE hardcoded defaults; a vLLM id "gpt-4" may serve 128k)
+#   4. static table                             (zero network for known models)
+#   5. LIVE public provider probe               (Groq/Gemini/OpenRouter expose context_window, fast)
+#   6. stale cache, else conservative default 8192
 #
 # OpenAI and Anthropic do NOT publish window sizes in their model APIs —
-# for those providers the static table (step 3) is the authoritative source.
-# Probes are read-only GET requests with a hard timeout; every failure
-# degrades to the next rung, never to a crash.
+# for those providers the static table (step 4) is authoritative.
+# Probes are read-only GET with hard timeout + blackhole TTL + failure TTL;
+# every failure degrades to next rung, never crash. Custom probe is 12s (big registry),
+# public probes 2.5s.
 
 # Hermes does not use one number per request, and neither do we now. Captured from
 # agent/model_metadata.py @ 8cab422:
@@ -865,11 +867,11 @@ def resolve_context_window(
     # 2b) A custom endpoint is authoritative about what it serves, so it is asked BEFORE the
     # table -- Hermes puts "active endpoint metadata" above the hardcoded defaults for this reason
     # (a vLLM exposing the id "gpt-4" may well serve 128k, and a table of cloud windows cannot know).
-    if allow_network and endpoint_probe and provider == "custom":
+    if allow_network and provider == "custom":
         # A recent "asked and got nothing" is retried within minutes, not on every construction and not
         # never: Hermes caches a failed verdict for 300s against 3600 for a success, because "server
         # starting up, key being fixed" is a transient state, while a per-turn waterfall is a real cost.
-        if not _failure_is_fresh(cache_key):
+        if not _failure_is_fresh(cache_key) and not _is_blackholed(os.getenv("CUSTOM_BASE_URL", "")):
             limits = probe_endpoint_limits(raw)
             if limits:
                 _failures.pop(cache_key, None)
