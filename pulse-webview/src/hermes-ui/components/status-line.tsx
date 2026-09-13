@@ -174,14 +174,46 @@ function planGlyph(status: string): string {
 }
 
 export function RunStatusPanel({ run }: { run: PulseRunState }) {
+  // User request 2026-09-12: plan checklist makes chat box small, todo list UI
+  // already displays perfectly via tool cards. Hide the scaffold plan panel
+  // entirely to maximize chat composer space. Keep verification/degraded if
+  // needed, but plan list itself is removed.
+  // If you need it back: set PULSEAI_SHOW_PLAN_PANEL=1 or revert this file.
+  const showPlan = (() => {
+    try {
+      const v = (typeof process !== 'undefined' ? (process as any).env?.PULSEAI_SHOW_PLAN_PANEL : undefined) 
+        ?? (typeof window !== 'undefined' ? (window as any).__PULSEAI_SHOW_PLAN_PANEL__ : undefined);
+      if (typeof v === 'string') return v.toLowerCase() in { '1': 1, 'true': 1, 'yes': 1, 'on': 1 } as any;
+    } catch {}
+    return false; // default hidden per user request
+  })();
+
+  if (!showPlan) {
+    if ((run.verification?.length ?? 0) === 0 && !run.degraded) {
+      return null;
+    }
+    return (
+      <div className="pulse-run-status pulse-run-status--dropdown" data-conversation-scaffold="" data-slot="pulse-run-status">
+        {(run.verification?.length ?? 0) > 0 && (
+          <div className="pulse-run-status__checks">
+            {run.verification?.map((check, index) => (
+              <span className={`pulse-run-status__check pulse-run-status__check--${check.status}`} key={index} title={check.detail}>
+                {check.title}
+              </span>
+            ))}
+          </div>
+        )}
+        {run.degraded && <p className="pulse-run-status__degraded">{run.degraded}</p>}
+      </div>
+    );
+  }
+
   const [open, setOpen] = useState(() => {
-    // Auto-open while running, closed when all done (Hermes UX)
     const hasRunning = run.plan.some(s => s.status === 'running');
     const allDone = run.plan.length > 0 && run.plan.every(s => s.status === 'done' || s.status === 'skipped');
     return hasRunning || !allDone;
   });
 
-  // Keep open when plan updates to running
   useEffect(() => {
     if (run.plan.some(s => s.status === 'running')) setOpen(true);
   }, [run.plan]);
