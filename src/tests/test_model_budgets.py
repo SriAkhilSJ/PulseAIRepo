@@ -103,7 +103,7 @@ class TestEngineAutoBudget:
             model="acme/mystery-llm", llm=None, memory_manager=None,
             probe_window=False,
         )
-        assert eng.max_tokens <= 8_192
+        assert eng.max_tokens <= 256_000
         assert eng.context_window_source == "default"
 
 
@@ -239,7 +239,7 @@ class TestDynamicResolution:
         assert (window, source) == (42000, "cache-stale")
 
         window, source = mb.resolve_context_window("acme/never-seen", provider="groq")
-        assert (window, source) == (8_192, "default")
+        assert (window, source) == (256_000, "default")
 
     def test_engine_uses_dynamic_window(self, monkeypatch):
         monkeypatch.setattr(

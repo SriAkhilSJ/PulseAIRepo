@@ -50,7 +50,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Feedback-learning loop (`src/context/feedback_memory.py`): after each task the layers actually sent are attributed to the outcome in an append-only JSONL store (cross-session, O_APPEND-safe, debris-tolerant, legacy-migrated), and layer relevance weights are nudged by observed success rate — best-effort by contract, learning data can never block boot or a turn.
 - Parallel tool execution with conflict detection and deterministic fallback.
 - Lazy, workspace-pinned access to read-only native Code OSS intelligence: editor context, dirty text, diagnostics, symbols, definitions, references, search, SCM, and trust. Mutation/extension/MCP host invocation remains gated for later phases.
-- Multi-provider support for Groq, OpenAI-compatible endpoints, Gemini, and NVIDIA.
+- Multi-provider support for Groq, OpenAI-compatible endpoints (including Velona), Gemini, and NVIDIA.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
 - Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
 - Hermes parity: tool names, prompt text, plan cards, and UI rendering match hermes desktop app behavior.
@@ -123,6 +123,22 @@ LLM_PROVIDER=custom
 LLM_MODEL=your-model-id
 CUSTOM_BASE_URL=https://your-endpoint.example/v1
 CUSTOM_API_KEY=your-key
+```
+
+### Velona (OpenAI-compatible, gateway catalog)
+
+Velona serves OpenAI-compatible chat completions at `https://velona.in/v1` and carries per-model `context_window` metadata at the gateway catalog (`/gateway/v1/models`). The engine auto-detects Velona from the hostname, probes the gateway for context window, and falls back to the static table.
+
+```env
+LLM_PROVIDER=custom
+LLM_MODEL=deepseek/deepseek-v4-flash-0731
+CUSTOM_BASE_URL=https://velona.in/v1
+CUSTOM_API_KEY=key_live_...
+
+# Optional: cheap model for janitor/management calls
+PULSEAI_CHEAP_API_KEY=key_live_...
+PULSEAI_CHEAP_BASE_URL=https://velona.in/v1
+PULSEAI_CHEAP_MODEL=qwen/qwen3.7-flash
 ```
 
 ## Run the bridge
@@ -313,7 +329,7 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 | **History Shaper** | `src/context/history_shaper.py` | P8 extraction: tool-output summarization, D22 prune-first compaction (protected head/tail, anti-thrash, `PULSEAI_COMPACTION=off` kill switch on the engine's public seam), turn-atomic pairing-safe trim, per-session compaction telemetry. One HistoryCompactor per session shared by the per-turn path and ABC `compress()`. Engine-coupling via getters (model/session/task read live — a mid-session `update_model` can never go stale). |
 | **Layer Policy** | `src/context/layer_policy.py` + `src/context/task_types.py` | P9 extraction: per-task budget allocation, layer attribution (tag → header fallback), relevance scoring (60/30/10, embedding-gated), semantic near-duplicate removal, D23 volatile-tail placement, D19 canonical emission order, score-driven assembly + layer compression (repo-map symbol strip, binary-search convergence). The 32 content builders stay engine-resident (D27 AST contract + live state coupling). No-stale-state rule: every call receives the live model / per-instance relevance dict, so feedback nudges and `update_model` are always seen. |
 | **Planner Messages + Ambiguity** | `src/context/plan_messages.py` + `src/context/ambiguity.py` | P10 extraction: strict-output planner-prompt suffix; planner / replanner (completed-remaining split, failures capped at 3, lessons capped at 2) / reviser node messages; task-ambiguity detection (embedding-gated advanced path over a D2-cached 26-string hint vocabulary + deterministic vague/specific fallback). Hard contract: deadline-bound turns (flag off) never encode — the embedder is never even imported. The live policy flag is fed per call, so a mid-session flip takes effect immediately. |
-| **Model Budgets** | `src/context/model_budgets.py` | Dynamic context-window discovery: env override → on-disk cache (7-day TTL) → static table → live provider probe (2.5s timeout) → stale cache → conservative default. `PROVIDER_SAFE_LIMIT=0` auto mode: engine budget = proxy guard = discovered window − margin. |
+| **Model Budgets** | `src/context/model_budgets.py` | Dynamic context-window discovery (Hermes parity ladder): env override → fresh cache → active endpoint `/v1/models` metadata → static table (incl. Velona gateway models) → live provider probe (groq, gemini, openrouter, velona; 2.5s timeout) → stale cache → 256K default fallback (not 8K). Auto-detects Velona from `CUSTOM_BASE_URL` hostname, probes gateway catalog for `context_window`. `PROVIDER_SAFE_LIMIT=0` auto mode: engine budget = proxy guard = discovered window − margin. |
 | **Git Context** | `src/context/git_context.py` | Read-only git subprocesses under one aggregate 1s deadline. Branch, status, recent commits, staged/unstaged diffs. Windows taskkill-tree termination. Returns `None` outside repos. Marked VOLATILE (rebuilt every turn). |
 | **Session Index** | `src/context/session_index.py` | FTS5 over past conversations (LangGraph checkpoints). Watermark-based incremental sync. Source demotion for sub-agents. Compaction summary skip at ingest. |
 | **Import Edges** | `chunk_index._edges_for` | File→file import graph for detective mode. Python via stdlib-ast full dotted-path resolver; JS/TS, Go, Rust, Java via lang_extractors. Edge rows live/die in same transactions as chunk rows. |

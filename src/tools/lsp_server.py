@@ -452,9 +452,18 @@ class LSPServer:
             "id": msg_id,
             "result": result,
         }
-        body = json.dumps(response)
-        sys.stdout.write(f"Content-Length: {len(body)}\r\n\r\n{body}")
-        sys.stdout.flush()
+        body = json.dumps(response, ensure_ascii=False)
+        # On Windows, sys.stdout defaults to charmap encoding which cannot
+        # handle characters like → (U+2192). Write as UTF-8 bytes to avoid
+        # UnicodeEncodeError in the writer thread.
+        raw = f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n{body}"
+        try:
+            sys.stdout.buffer.write(raw.encode("utf-8"))
+            sys.stdout.buffer.flush()
+        except AttributeError:
+            # Fallback for text-mode stdout (non-Windows or mocked)
+            sys.stdout.write(raw)
+            sys.stdout.flush()
 
 
 def main() -> int:

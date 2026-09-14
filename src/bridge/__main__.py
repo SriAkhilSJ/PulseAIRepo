@@ -76,6 +76,14 @@ class BridgeServer:
             sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
         except (AttributeError, OSError):
             pass
+        # On Windows, stdout defaults to the system codepage (charmap/cp1252)
+        # which cannot encode characters like → (U+2192). Reconfigure to UTF-8
+        # so that any text-mode writes (print, etc.) don't crash with
+        # UnicodeEncodeError in the _writerthread.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, OSError):
+            pass
         sys.stdout = sys.stderr
         self.greeted = False
         self.protocol_version: int | None = None

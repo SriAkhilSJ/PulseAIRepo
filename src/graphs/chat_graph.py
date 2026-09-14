@@ -686,6 +686,28 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     autonomous = _is_autonomous_workspace(config)
     resolved_names = list(names)
 
+    # Tool cap: some models (notably DeepSeek) return empty tool_calls when
+    # overwhelmed by 40+ schemas. PULSEAI_MAX_TOOLS=0 disables the cap.
+    _max_env = os.getenv("PULSEAI_MAX_TOOLS", "0").strip()
+    _max_tools = int(_max_env) if _max_env.isdigit() else 0
+    if _max_tools > 0 and len(resolved_names) > _max_tools:
+        # Keep the most important tools (write_file, edit_file, read_file,
+        # list_files, search_files, terminal) at the front, then fill up
+        _priority = [
+            "write_file", "edit_file", "read_file", "list_files",
+            "search_files", "terminal", "copy_file",
+        ]
+        _priority = [n for n in _priority if n in resolved_names]
+        _rest = [n for n in resolved_names if n not in _priority]
+        resolved_names = (_priority + _rest)[:_max_tools]
+        if not _TOOL_AVAILABILITY_REPORTED:
+            _TOOL_AVAILABILITY_REPORTED = True
+            print(
+                f"[tools] binding {len(resolved_names)} tools (cap {_max_tools}; "
+                f"skipped: {len(names) - len(resolved_names)})",
+                flush=True,
+            )
+
     from src.runtime.execution_phases import base_phase
     # Neutral base: phases are STATE-derived only (hermes has no keyword
     # phase machinery — see execution_phases.py). The state-driven phases
@@ -4637,7 +4659,10 @@ def stream_agent(
                 from src.agents.cost_router import cost_router
                 route_info = cost_router.get_last_route_info()
                 if "tier" in route_info.lower():
-                    print(f"\n🧭 {route_info}")
+                    try:
+                        print(f"\n{route_info}")
+                    except UnicodeEncodeError:
+                        print(f"\n{route_info.encode('ascii', 'replace').decode()}")
 
                 # AI requested tools
                 if last_message.tool_calls:

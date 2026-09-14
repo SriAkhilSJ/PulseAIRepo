@@ -391,16 +391,16 @@ def write_file(
             if stale is not None:
                 return stale
 
-        # D28: overwriting a WORKING code file with broken syntax is
-        # refused (new files are exempt — templates/skeletons may be
-        # intentionally incomplete; edit_file's receipt handles refinement).
-        # Test-2 lesson: the receipt covers JS/TS/TSX/JSON, not just Python —
-        # the chat app shipped ~15 syntax bugs through blind writes.
+        # D28: syntax receipt — a broken-grammar edit is refused before it
+        # ever touches disk (multi-language; non-code files unaffected).
         if safe_path.exists() and _is_syntax_checkable(safe_path):
             original_now = safe_path.read_text(encoding="utf-8")
             receipt_error = _syntax_receipt(safe_path, original_now, content)
             if receipt_error is not None:
                 return receipt_error
+
+        # LSP snapshot BEFORE mutating (for delta filtering after write).
+        _lsp_snapshot(safe_path)
 
         # D31: shadow snapshot BEFORE mutating (once per turn per workspace;
         # transparent to the LLM, never raises).
@@ -452,6 +452,11 @@ def write_file(
     receipt = f"File written: {path} (lines added: {added}, removed: {removed})"
     if preview:
         receipt += f"\n\nDiff preview:\n{preview}"
+
+    lsp_diag = _lsp_diagnostics(safe_path, workspace, pre_content=original, post_content=content)
+    if lsp_diag:
+        receipt += f"\n\n{lsp_diag}"
+
     return receipt
 
 @tool
@@ -717,6 +722,46 @@ def _resolve_global_node_modules() -> str | None:
 
 def _is_syntax_checkable(path: Path) -> bool:
     return path.suffix.lower() in _SYNTAX_CHECK_EXTS
+
+
+def _lsp_snapshot(path: Path) -> None:
+    """Snapshot pre-edit LSP state for delta filtering. Call BEFORE writing."""
+    try:
+        from src.lsp import get_service
+        svc = get_service()
+        if svc and svc.enabled_for(path):
+            svc.snapshot_baseline(path)
+    except Exception:
+        pass
+
+
+def _lsp_diagnostics(path: Path, workspace: str, *, pre_content: str = "", post_content: str = "") -> str | None:
+    """Query the LSP server for diagnostics after a file write/edit.
+
+    Returns a diagnostic report string (for the tool result), or None
+    when LSP is disabled, unavailable, or returned no diagnostics.
+    """
+    try:
+        from src.lsp import get_service
+        from src.lsp.reporter import report_for_file
+        from src.lsp.range_shift import build_line_shift
+
+        svc = get_service()
+        if svc is None or not svc.enabled_for(path):
+            return None
+
+        line_shift = None
+        if pre_content and post_content:
+            line_shift = build_line_shift(pre_content, post_content)
+
+        diags = svc.get_diagnostics_sync(str(path), delta=True, line_shift=line_shift)
+        if not diags:
+            return None
+
+        return report_for_file(str(path), diags)
+    except Exception:
+        # LSP failure must never block a write/edit
+        return None
 
 
 def _esbuild_check(code: str, loader: str) -> str | None:
@@ -1173,6 +1218,9 @@ def edit_file(
         if receipt_error is not None:
             return receipt_error
 
+    # LSP snapshot BEFORE mutating (for delta filtering after edit).
+    _lsp_snapshot(safe_path)
+
     # D31: shadow snapshot BEFORE mutating (captures the pre-edit state;
     # placed after the no-change early return so no-op edits cost nothing).
     from src.tools.shadow_checkpoints import checkpoint_before_mutation
@@ -1230,8 +1278,14 @@ def edit_file(
         if line["type"] == "removed"
     )
     preview = "\n".join(preview_lines[:12])
-    return (
+    result = (
         f"✅ Edited {path}{note} "
         f"(lines added: {added}, removed: {removed})\n\n"
         f"Diff preview:\n{preview}"
     )
+
+    lsp_diag = _lsp_diagnostics(safe_path, workspace, pre_content=original, post_content=updated_content)
+    if lsp_diag:
+        result += f"\n\n{lsp_diag}"
+
+    return result

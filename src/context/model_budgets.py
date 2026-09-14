@@ -61,9 +61,21 @@ MODEL_WINDOWS: dict[str, int] = {
     # engine uses the real window instead of the 8k unknown-model default.
     "sarvam-105b": 32_768,
     "sarvam-105b-conversations": 32_768,
+    # Velona-hosted models (gateway catalog verified 2026-09-14)
+    "deepseek-v4-flash-0731": 1_310_720,
+    "deepseek-v4-flash": 1_048_576,
+    "qwen3.7-flash": 1_000_000,
     # Unknown / local / unverified: deliberately small.
     "default": 8_192,
 }
+
+# Hermes parity: generous default + hard floor.
+# Hermes DEFAULT_FALLBACK_CONTEXT = 256K (a modern model that the table
+# doesn't know is almost certainly >= 256K; answering 8K silently cripples
+# the workspace scan and context budget). MINIMUM_CONTEXT_LENGTH = 64K:
+# models below this are rejected at startup in Hermes.
+DEFAULT_FALLBACK_CONTEXT = 256_000
+MINIMUM_CONTEXT_LENGTH = 64_000
 
 # Reserve for the model's reply; never let the input budget eat the whole
 # window, or completions get truncated (or rejected outright).
@@ -708,6 +720,46 @@ def _probe_openrouter(model_name: str) -> int | None:
     return None
 
 
+def _probe_velona(model_name: str) -> int | None:
+    """Velona's gateway catalog carries `context_window` per model.
+
+    The OpenAI-compatible /v1/models does NOT publish context_window,
+    but the gateway endpoint at /gateway/v1/models does.
+    """
+    api_key = _settings_key("VELONA_API_KEY") or _settings_key("CUSTOM_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from src.config.settings import VELONA_BASE_URL
+        base_url = VELONA_BASE_URL or ""
+    except Exception:
+        base_url = os.getenv("VELONA_BASE_URL", "")
+    if not base_url:
+        base_url = os.getenv("CUSTOM_BASE_URL", "")
+    if not base_url:
+        return None
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    gateway_url = f"{parsed.scheme}://{parsed.hostname}/gateway/v1/models"
+    data = _http_get_json(
+        gateway_url,
+        {"Authorization": f"Bearer {api_key}"},
+    )
+    if not data:
+        return None
+    models = data.get("data", {}).get("models", [])
+    if not isinstance(models, list):
+        return None
+    wanted = {model_name.strip().lower(), _normalize(model_name)}
+    for m in models:
+        mid = str(m.get("id", "")).lower()
+        if mid in wanted or mid.endswith("/" + model_name.strip().lower()):
+            window = m.get("context_window")
+            if isinstance(window, int) and window > 0:
+                return window
+    return None
+
+
 # NOTE: `custom` is deliberately NOT listed here. Its catalog is the user's own server and can be
 # slow (measured: 1,572 models, 503 KB, 5.1s), and every caller of resolve_context_window sits on a
 # path somebody is waiting on -- engine construction, history shaping, the pre-send guard. So the
@@ -718,6 +770,7 @@ _PROBES = {
     "gemini": _probe_gemini,
     "google": _probe_gemini,
     "openrouter": _probe_openrouter,
+    "velona": _probe_velona,
 }
 
 
@@ -727,9 +780,10 @@ def _effective_provider(provider: str) -> str:
     OpenRouter is intentionally configured through Pulse's generic
     OpenAI-compatible ``custom`` route. Budget discovery still needs its public
     model catalog rather than the unknown-provider 8k fallback.
+    Velona is also routed through ``custom`` but has its own gateway catalog.
     """
     normalized = provider.strip().lower()
-    if normalized in {"custom", "openai", "openai-compatible"}:
+    if normalized == "custom":
         try:
             from src.config.settings import CUSTOM_BASE_URL
             base_url = CUSTOM_BASE_URL or ""
@@ -742,6 +796,8 @@ def _effective_provider(provider: str) -> str:
             host = ""
         if host == "openrouter.ai" or host.endswith(".openrouter.ai"):
             return "openrouter"
+        if host and "velona" in host:
+            return "velona"
     return normalized
 
 
@@ -830,21 +886,22 @@ def resolve_context_window(
 ) -> tuple[int, str]:
     """Resolve the context window dynamically. Returns (window, source).
 
-    `source` says which rung of the chain answered — "env-override",
-    "cache", "custom-api", "static-table", "<provider>-api", "cache-stale", or "default".
+    Priority order (Hermes parity):
+      1. Env override (LLM_CONTEXT_WINDOW) — user always wins
+      2. Fresh cache — previously discovered, still valid
+      3. Active endpoint /v1/models metadata — the endpoint knows its own
+         limits; a vLLM serving "gpt-4" may well expose 128K, and a table
+         of cloud windows cannot know this. Asked BEFORE the static table.
+      4. Static table — zero-network fallback for known models
+      5. Provider-specific live probe (groq, gemini, openrouter)
+      6. Stale cache — better than nothing
+      7. Default fallback — 256K (Hermes DEFAULT_FALLBACK_CONTEXT), not 8K
 
-    `endpoint_probe` defaults to False on purpose. Asking the user's own server for its whole model
-    registry costs seconds on a router, and the callers here are all blocking paths: engine init,
-    history shaping, and RetryLLMProxy's pre-send guard. A bigger timeout in those places is only a
-    longer freeze -- which is how a healthy localhost endpoint came to be reported as one that
-    "publishes no window". The slow ask belongs to the engine's background warm-up, which writes the
-    cache for the next build. A caller that is explicitly a diagnostic passes True.
+    `source` says which rung answered: "env-override", "cache", "endpoint-api",
+    "static-table", "<provider>-api", "cache-stale", or "default".
     """
     raw = (model_name or "").strip().lower()
     if provider is None:
-        # Go through settings (not raw env): its .env loading AND its
-        # "groq" default must apply here, or an unset env var silently
-        # disables the probe while the LLM factory happily uses Groq.
         try:
             from src.config.settings import LLM_PROVIDER
             provider = LLM_PROVIDER
@@ -853,8 +910,7 @@ def resolve_context_window(
     provider = _effective_provider(provider)
     cache_key = f"{provider}:{raw}"
 
-    # 1) Explicit user override always wins. It states a window, not a reply cap, so the margin stays
-    # the heuristic -- overriding one number must not silently invent the other.
+    # 1) Explicit user override always wins.
     override = os.getenv("LLM_CONTEXT_WINDOW", "").strip()
     if override.isdigit() and int(override) > 0:
         return int(override), "env-override"
@@ -864,40 +920,57 @@ def resolve_context_window(
     if cached and cached[2]:
         return cached[0], "cache"
 
-    # 2b) A custom endpoint is authoritative about what it serves, so it is asked BEFORE the
-    # table -- Hermes puts "active endpoint metadata" above the hardcoded defaults for this reason
-    # (a vLLM exposing the id "gpt-4" may well serve 128k, and a table of cloud windows cannot know).
-    if allow_network and provider == "custom":
-        # A recent "asked and got nothing" is retried within minutes, not on every construction and not
-        # never: Hermes caches a failed verdict for 300s against 3600 for a success, because "server
-        # starting up, key being fixed" is a transient state, while a per-turn waterfall is a real cost.
-        if not _failure_is_fresh(cache_key) and not _is_blackholed(os.getenv("CUSTOM_BASE_URL", "")):
-            limits = probe_endpoint_limits(raw)
-            if limits:
-                _failures.pop(cache_key, None)
-                # Both numbers land in ONE entry: the background thread that finds them later, or a
-                # cold start that asks now, leave the same pair for every reader of this cache key.
-                _write_cache(cache_key, limits[0], limits[1])
-                return limits[0], "custom-api"
+    # 3) Active endpoint /v1/models metadata — the endpoint is authoritative
+    #    about what it serves. Asked BEFORE the static table (Hermes parity:
+    #    "active endpoint metadata above hardcoded defaults"). Applies to
+    #    custom, velona, and any OpenAI-compatible endpoint.
+    if allow_network and provider in ("custom", "velona"):
+        probe_base_url = ""
+        if provider == "velona":
+            try:
+                from src.config.settings import VELONA_BASE_URL
+                probe_base_url = VELONA_BASE_URL or ""
+            except Exception:
+                probe_base_url = os.getenv("VELONA_BASE_URL", "")
+            # Velona may be routed through custom — fall back to CUSTOM_BASE_URL
+            if not probe_base_url:
+                probe_base_url = os.getenv("CUSTOM_BASE_URL", "")
+        else:
+            probe_base_url = os.getenv("CUSTOM_BASE_URL", "")
+        if not _failure_is_fresh(cache_key) and not _is_blackholed(probe_base_url):
+            if provider == "velona":
+                window = _probe_velona(raw)
+                if window is not None:
+                    _failures.pop(cache_key, None)
+                    _write_cache(cache_key, window)
+                    return window, "velona-api"
+            else:
+                limits = probe_endpoint_limits(raw)
+                if limits:
+                    _failures.pop(cache_key, None)
+                    _write_cache(cache_key, limits[0], limits[1])
+                    return limits[0], "custom-api"
             _remember_failure(cache_key)
 
-    # 3) Static table: zero network for models we already know.
+    # 4) Static table: zero network for models we already know.
     table = _table_lookup(model_name)
     if table is not None:
         return table, "static-table"
 
-    # 4) Live provider probe (only for genuinely unknown models).
+    # 5) Live provider probe (groq, gemini, openrouter — only for unknown models).
     if allow_network:
         probe = _PROBES.get(provider)
         if probe is not None:
             window = probe(raw)
             if window is not None:
-                # Public catalogs here answer with a window only; the reply cap stays unknown, which is
-                # the honest state, not a gap to paper over with a made-up number.
                 _write_cache(cache_key, window)
                 return window, f"{provider}-api"
 
-    # 5) Stale cache beats nothing; otherwise conservative default.
+    # 6) Stale cache beats nothing.
     if cached:
         return cached[0], "cache-stale"
-    return MODEL_WINDOWS["default"], "default"
+
+    # 7) Default fallback: 256K (Hermes parity). A modern model that the
+    #    table doesn't know is almost certainly >= 256K; answering 8K
+    #    silently cripples workspace scan and context budget.
+    return DEFAULT_FALLBACK_CONTEXT, "default"
