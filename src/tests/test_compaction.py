@@ -223,7 +223,7 @@ def test_markers_match_session_index_ingest_skip_list():
 # ------------------------------------------------------------- engine glue
 def test_engine_compact_history_kill_switch(engine_setup):
     eng, monkeypatch = engine_setup
-    monkeypatch.setenv("PULSEAI_COMPACTION", "off")
+    monkeypatch.setenv("CRUSORAI_COMPACTION", "off")
     called = {}
     original = eng._trim_history
     def spy(hist, budget):

@@ -3,9 +3,9 @@
  * Live UI stack smoke — browser-free, provider-free, zero credits.
  *
  * Why this exists: the webview's own tests prove the transcript *paints* from a
- * fixture, and `scripts/validate_pulse_ui_cdp.js` proves it paints inside a real
+ * fixture, and `scripts/validate_crusor_ui_cdp.js` proves it paints inside a real
  * VS Code window over CDP. Neither proves the three hops *between* them are up:
- *   engine (src/server.py, AG-UI on :8123)  ->  runtime (pulse-webview/server.ts, :8200)
+ *   engine (src/server.py, AG-UI on :8123)  ->  runtime (crusor-webview/server.ts, :8200)
  *   ->  webview (vite dev / built assets, :5173)
  * A webview that renders a fixture while the runtime cannot see the agent is exactly
  * the "looks fine in tests, blank in the editor" failure. This walks the chain in the
@@ -27,9 +27,9 @@ const arg = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
-const AGENT = arg("agent", process.env.PULSEAI_AGENT_URL || "http://127.0.0.1:8123/");
-const RUNTIME = arg("runtime", process.env.PULSEAI_RUNTIME_URL || "http://127.0.0.1:8200");
-const WEB = arg("web", process.env.PULSEAI_WEB_URL || "http://127.0.0.1:5173");
+const AGENT = arg("agent", process.env.CRUSORAI_AGENT_URL || "http://127.0.0.1:8123/");
+const RUNTIME = arg("runtime", process.env.CRUSORAI_RUNTIME_URL || "http://127.0.0.1:8200");
+const WEB = arg("web", process.env.CRUSORAI_WEB_URL || "http://127.0.0.1:5173");
 const THROUGH_PROXY = arg("via-proxy", "1") !== "0";
 
 const results = [];
@@ -95,18 +95,18 @@ await check(
 
 // 2. The runtime registered that agent (the failure mode the fixture tests cannot see).
 await check(
-  "runtime: /api/copilotkit/info advertises pulse_agent",
+  "runtime: /api/copilotkit/info advertises crusor_agent",
   async () => {
     const res = await get(`${RUNTIME}/api/copilotkit/info`);
     if (!res.ok) throw new Error(`http ${res.status}`);
     const info = await res.json();
     const agents = Object.keys(info.agents || {});
-    if (!agents.includes("pulse_agent")) {
-      throw new Error(`pulse_agent not registered (agents seen: ${agents.join(", ") || "none"})`);
+    if (!agents.includes("crusor_agent")) {
+      throw new Error(`crusor_agent not registered (agents seen: ${agents.join(", ") || "none"})`);
     }
     return `runtime ${info.version}, mode ${info.mode}, agents: ${agents.join(", ")}`;
   },
-  "start the runtime: cd pulse-webview && npm run runtime (it must reach the engine on 8123)"
+  "start the runtime: cd crusor-webview && npm run runtime (it must reach the engine on 8123)"
 );
 
 // 3. The same contract through the webview's own proxy — the path a browser takes.
@@ -117,8 +117,8 @@ await check(
     const res = await get(`${WEB}/api/copilotkit/info`);
     if (!res.ok) throw new Error(`http ${res.status} — the dev proxy is not forwarding`);
     const info = await res.json();
-    if (!Object.keys(info.agents || {}).includes("pulse_agent")) {
-      throw new Error("proxy answered but pulse_agent is missing behind it");
+    if (!Object.keys(info.agents || {}).includes("crusor_agent")) {
+      throw new Error("proxy answered but crusor_agent is missing behind it");
     }
     return "same info through the browser-facing origin";
   },
@@ -133,12 +133,12 @@ await check(
     const res = await get(`${WEB}/src/hermes-ui/styles/hermes-ui.css`);
     if (!res.ok) throw new Error(`http ${res.status} for the stylesheet`);
     const body = await res.text();
-    if (!/transcript|pulseai|hermes/i.test(body)) {
+    if (!/transcript|crusorai|hermes/i.test(body)) {
       throw new Error("200 but the body has no hermes-ui rules — wrong file?");
     }
     return `${body.length} bytes of CSS, ${res.headers.get("content-type")}`;
   },
-  "the dev server must be running from pulse-webview/ (npm run dev)"
+  "the dev server must be running from crusor-webview/ (npm run dev)"
 );
 
 // 5. The app shell itself mounts (entry module compiles and is served).
@@ -153,7 +153,7 @@ await check(
     if (!/App/.test(body)) throw new Error("main.tsx served but does not reference App");
     return "index.html + transformed main.tsx";
   },
-  "npm run dev from pulse-webview/"
+  "npm run dev from crusor-webview/"
 );
 
 const pad = (n) => String(n).padStart(5);

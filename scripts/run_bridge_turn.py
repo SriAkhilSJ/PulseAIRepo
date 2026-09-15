@@ -170,11 +170,11 @@ def main() -> int:
         safe_console_emit(message, console_fallback)
 
     env = dict(os.environ)
-    env.setdefault("PULSEAI_AUTO_APPROVE_WRITES", "1")  # autonomous build: no human to approve
+    env.setdefault("CRUSORAI_AUTO_APPROVE_WRITES", "1")  # autonomous build: no human to approve
     # Tell the bridge/SafeToolNode to auto-approve ordinary workspace edits.
     # The runner also handles a residual safety_request defensively below so
     # protocol drift can never strand the turn waiting for a nonexistent UI.
-    env.setdefault("PULSEAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
+    env.setdefault("CRUSORAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"],

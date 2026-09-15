@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-11
 **Scope:** `src/context/context_engine.py`, `src/context/prompt_cache_audit.py`, `src/graphs/chat_graph.py` (ai_node), new `src/tests/test_context_engine_parity.py` (20 behavior contracts)
-**Sources:** `docs/HERMES_CONTEXT_MINUTE.md`, `docs/OPENCLAUDE_CONTEXT_MINUTE.md`, `HERMES_VS_PULSEAI_ARCHITECTURE.md`, `HERMES_ALIGNMENT_PLAN.md`, `docs/PULSEAI_CONTEXT_BENCH.md`
+**Sources:** `docs/HERMES_CONTEXT_MINUTE.md`, `docs/OPENCLAUDE_CONTEXT_MINUTE.md`, `HERMES_VS_CRUSORAI_ARCHITECTURE.md`, `HERMES_ALIGNMENT_PLAN.md`, `docs/CRUSORAI_CONTEXT_BENCH.md`
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. What was true before P3
@@ -10,7 +10,7 @@
 The 2026-08-29/30 renovation had already landed P1 (lean tail), P2
 (4-breakpoint cache scope + lineage + audit metering), P4 (tool-pair
 guard), and the Hermes-parity `ContextEngine(ABC)` in
-`src/context/engine.py`. The bench (`PULSEAI_CONTEXT_BENCH.md`) closed
+`src/context/engine.py`. The bench (`CRUSORAI_CONTEXT_BENCH.md`) closed
 two of its four gaps (400K tail, per-turn cache reorder).
 
 Three alignment holes remained, all observable in code:
@@ -28,7 +28,7 @@ Three alignment holes remained, all observable in code:
    download is blocked in offline sandboxes). If the estimate lied, the
    request overshot the real window and the provider 400'd. Hermes's
    engine owns the decision from the provider's ACTUAL usage
-   (`threshold_percent=0.75` of the real window); Pulse had no such loop.
+   (`threshold_percent=0.75` of the real window); Crusor had no such loop.
 3. **Cache busting was silent.** `CachePrefixAudit` (D19) measured
    per-turn prefix stability but treated a REGRESSION of the stable
    prefix — the provider cache genuinely losing bytes, the cost
@@ -153,7 +153,7 @@ uv run python -m pytest src/tests/test_context_engine_parity.py \
 
 # full suite (README command)
 uv run python -m pytest src/tests -q \
-  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/pulseai-pytest
+  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/crusorai-pytest
 ```
 
 Results on this machine (Linux / Python 3.11 / bare venv, no
@@ -208,7 +208,7 @@ snapshots):
   honor Anthropic cache-control breakpoints. When a caching provider is
   configured, `get_status()["prompt_cache"]["hit_rate"]` is the
   number to watch (P2's `prompt_cache_plan` already emits markers for
-  allowlisted providers behind `PULSEAI_PROMPT_CACHE`).
+  allowlisted providers behind `CRUSORAI_PROMPT_CACHE`).
 - **The usage-pressure loop is closed-loop only after the first
   response.** Turn 1 still trusts the estimate (there is no actual
   usage yet) — same as Hermes; the discovery chain + `PROVIDER_SAFE_LIMIT`

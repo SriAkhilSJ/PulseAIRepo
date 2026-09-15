@@ -11,7 +11,7 @@ telemetry unit the layered engine applies to conversation history:
   summarization)
 * the ONE-anti-thrash-state contract: per-turn path and ABC compress() share
   a single HistoryCompactor per session
-* the kill switch (PULSEAI_COMPACTION=off) still creates no compactor
+* the kill switch (CRUSORAI_COMPACTION=off) still creates no compactor
 * getters-not-values: the engine's model/session identity are read live, so
   a mid-session reconfigure or per-build thread routing cannot go stale
 
@@ -92,7 +92,7 @@ class TestPipeline:
 
 class TestCompactorSharing:
     def test_compact_off_kill_switch_creates_no_compactor(self, monkeypatch):
-        monkeypatch.setenv("PULSEAI_COMPACTION", "off")
+        monkeypatch.setenv("CRUSORAI_COMPACTION", "off")
         shaper, _ = _shaper()
         out = shaper.compact(_history(), budget=10_000)
         assert isinstance(out, list) and out

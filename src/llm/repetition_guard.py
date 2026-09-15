@@ -13,11 +13,11 @@ trip the hermes check.
 Field 2026-09-10 (owner, build 0a026b11): a `custom/auto/best-chat`
 endpoint degenerated mid-task and the salad streamed into the panel at
 full length. That slop was sampling collapse with VARYING text — the
-hermes verbatim-repeat check alone does not cover it, so Pulse adds ONE
+hermes verbatim-repeat check alone does not cover it, so Crusor adds ONE
 documented extension: word-loop dominance (a single 4+ letter word
 dominating a long fragment). Same conservative dominance shape, numeric
-thresholds via env read per call (PULSEAI_WORD_LOOP_SHARE, 0 disables;
-PULSEAI_WORD_LOOP_MIN_CHARS). No word lists, no lexicons.
+thresholds via env read per call (CRUSORAI_WORD_LOOP_SHARE, 0 disables;
+CRUSORAI_WORD_LOOP_MIN_CHARS). No word lists, no lexicons.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ _MIN_REPEAT_COUNT = 5
 # "Repetition-dominated" = repeated windows cover at least this fraction.
 _DOMINANCE_RATIO = 0.5
 
-# ── Pulse word-loop extension (documented above) ────────────────────────────
+# ── Crusor word-loop extension (documented above) ────────────────────────────
 
 _WORD_MIN_FRAGMENT = 1500
 _WORD_MIN_REPEAT = 12
@@ -89,20 +89,20 @@ def _line_repetition_dominated(text: str, n: int) -> bool:
 def _word_loop_share() -> float:
     """Top-word dominance threshold, read per call (standing env rule)."""
     try:
-        return float(os.environ.get("PULSEAI_WORD_LOOP_SHARE", "0.25"))
+        return float(os.environ.get("CRUSORAI_WORD_LOOP_SHARE", "0.25"))
     except (TypeError, ValueError):
         return 0.25
 
 
 def _word_loop_min_chars() -> int:
     try:
-        return int(os.environ.get("PULSEAI_WORD_LOOP_MIN_CHARS", str(_WORD_MIN_FRAGMENT)))
+        return int(os.environ.get("CRUSORAI_WORD_LOOP_MIN_CHARS", str(_WORD_MIN_FRAGMENT)))
     except (TypeError, ValueError):
         return _WORD_MIN_FRAGMENT
 
 
 def is_word_looped(text: str) -> bool:
-    """Pulse extension: True when one 4+ letter word dominates a long fragment.
+    """Crusor extension: True when one 4+ letter word dominates a long fragment.
 
     Field 2026-09-10: the owner's degenerate run was WORD-anchored collapse
     ("continue"-family filling thousands of chars) with no long VERBATIM
@@ -111,7 +111,7 @@ def is_word_looped(text: str) -> bool:
     Defaults are conservative: fragment >= 1500 chars and >= 50 words, top
     word (4+ letters) covering >= 25% of all words. Real prose is led by
     short function words; a 4+ letter content word never approaches 25%
-    there. PULSEAI_WORD_LOOP_SHARE=0 disables the extension entirely.
+    there. CRUSORAI_WORD_LOOP_SHARE=0 disables the extension entirely.
     """
     if not isinstance(text, str):
         return False
@@ -131,13 +131,13 @@ def is_word_looped(text: str) -> bool:
 
 
 def is_degenerate_output(text: str) -> bool:
-    """The Pulse predicate: hermes' verbatim check OR the word-loop dominance
+    """The Crusor predicate: hermes' verbatim check OR the word-loop dominance
     extension. Consulted only where hermes consults its guard — the
     length-truncated continuation path."""
     return is_repetition_dominated(text) or is_word_looped(text)
 
 
-# hermes turn_truncation.py::_REPETITION_DOMINATED[1], adapted: Pulse has no
+# hermes turn_truncation.py::_REPETITION_DOMINATED[1], adapted: Crusor has no
 # /model slash command, so the advice names the env-config surface instead.
 REPETITION_DOMINATED_NOTICE = (
     "⚠️ **Response Stopped — Repetition Detected**\n\n"

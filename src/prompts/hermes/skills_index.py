@@ -6,8 +6,8 @@ mtime/size manifest), per-skill frontmatter parsing, platform/environment
 gating, category grouping with a names-only demotion tier, and the rendered
 ``<available_skills>`` block.
 
-One Pulse deviation, documented in ``PROVENANCE.md``: upstream tells the model
-to *pull* a skill with ``skill_view(name)``. Pulse has no skill tool — its
+One Crusor deviation, documented in ``PROVENANCE.md``: upstream tells the model
+to *pull* a skill with ``skill_view(name)``. Crusor has no skill tool — its
 runtime injects the bodies of relevant skills (``SkillManager`` feeds
 ``ContextEngine._skills_layer``) — so the load sentence is rendered from
 :data:`SKILLS_POINTER_MODE`, chosen on whether the session's toolset actually
@@ -225,9 +225,9 @@ def build_skills_system_prompt(
     home: Optional[Path] = None,
 ) -> str:
     """Build the compact skill index that rides the front of the volatile band."""
-    from src.prompts.hermes.view import pulse_home
+    from src.prompts.hermes.view import crusor_home
 
-    home = Path(home) if home is not None else pulse_home()
+    home = Path(home) if home is not None else crusor_home()
     skills_dir = Path(skills_dir_override) if skills_dir_override is not None else home / "skills"
     tools = None if available_tools is None else {str(t) for t in available_tools}
     toolsets = None if available_toolsets is None else {str(t) for t in available_toolsets}
@@ -241,7 +241,7 @@ def build_skills_system_prompt(
             return cached
 
     if not skills_dir.exists():
-        # Pulse-managed skills live in SkillManager's store, not a directory
+        # Crusor-managed skills live in SkillManager's store, not a directory
         # tree; render from it when present so the index reflects the real set.
         return _from_skill_manager(tools, demoted, cache_key)
 
@@ -310,7 +310,7 @@ def build_skills_system_prompt(
 
 
 def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
-    """Render the same block from Pulse's ``SkillManager`` store (no dir tree)."""
+    """Render the same block from Crusor's ``SkillManager`` store (no dir tree)."""
     try:  # pyrefly: ignore [missing-import]
         from src.agents.skill_manager import SkillManager
 

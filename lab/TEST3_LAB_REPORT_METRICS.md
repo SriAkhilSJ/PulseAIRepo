@@ -1,7 +1,7 @@
 # Test 3 — Lab Metrics Report
 
 **Date:** 2026-08-14  
-**Agent:** PulseAgent  
+**Agent:** CrusorAgent  
 **Provider/model:** Sarvam custom endpoint / `sarvam-105b-conversations`  
 **Core thread:** `lab-test3-believe-final`  
 **Visual thread:** `lab-test3-believe-visual-proof-2`  

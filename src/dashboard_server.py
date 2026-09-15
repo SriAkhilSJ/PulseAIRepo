@@ -1,5 +1,5 @@
 """
-PulseAI IDE Dashboard Server — Production Streaming Edition
+CrusorAI IDE Dashboard Server — Production Streaming Edition
 ===========================================================
 Run: python src/dashboard_server.py
 Open: http://localhost:8080
@@ -31,12 +31,12 @@ from src.config.settings import LLM_PROVIDER, LLM_MODEL
 app = Flask(__name__)
 _ALLOWED_ORIGINS = [
     origin.strip() for origin in os.environ.get(
-        "PULSEAI_ALLOWED_ORIGINS",
+        "CRUSORAI_ALLOWED_ORIGINS",
         "http://127.0.0.1:8080,http://localhost:8080",
     ).split(",") if origin.strip()
 ]
 CORS(app, resources={r"/api/*": {"origins": _ALLOWED_ORIGINS}})
-_DASHBOARD_TOKEN = os.environ.get("PULSEAI_DASHBOARD_TOKEN", "").strip()
+_DASHBOARD_TOKEN = os.environ.get("CRUSORAI_DASHBOARD_TOKEN", "").strip()
 
 @app.before_request
 def _dashboard_auth():
@@ -366,12 +366,12 @@ def diff_status(diff_id: str):
 
 if __name__ == "__main__":
     print("=" * 55)
-    print("   PulseAI IDE Dashboard — Production Streaming")
+    print("   CrusorAI IDE Dashboard — Production Streaming")
     print("   Open http://localhost:8080 in your browser")
     print("=" * 55)
-    host = os.environ.get("PULSEAI_DASHBOARD_HOST", "127.0.0.1").strip()
+    host = os.environ.get("CRUSORAI_DASHBOARD_HOST", "127.0.0.1").strip()
     if host not in {"127.0.0.1", "localhost", "::1"} and not _DASHBOARD_TOKEN:
         raise RuntimeError(
-            "Refusing non-loopback dashboard bind without PULSEAI_DASHBOARD_TOKEN"
+            "Refusing non-loopback dashboard bind without CRUSORAI_DASHBOARD_TOKEN"
         )
     app.run(host=host, port=8080, debug=False, threaded=True)

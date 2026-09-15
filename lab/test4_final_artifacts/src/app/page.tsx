@@ -7,7 +7,7 @@ export default function IndexPage() {
       <header className="border-b border-stone-800">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
           <Link href="/" className="text-stone-100 tracking-tight">
-            Pulse
+            Crusor
           </Link>
           <nav className="flex items-center gap-6 text-sm tracking-wide text-stone-400">
             {themes.map((t) => (
@@ -70,7 +70,7 @@ export default function IndexPage() {
 
       <footer className="border-t border-stone-800">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
-          <span className="text-xs text-stone-500">© {new Date().getFullYear()} Pulse</span>
+          <span className="text-xs text-stone-500">© {new Date().getFullYear()} Crusor</span>
           <span className="text-xs text-stone-500">All rights reserved.</span>
         </div>
       </footer>

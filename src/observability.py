@@ -3,16 +3,16 @@
 hermes' langfuse plugin (1,801 lines) wraps their turn in OpenTelemetry
 spans: root trace per turn, a generation per LLM call, spans per tool,
 session + metadata attached, background flush, credentials checked at
-construction but dropped at flush. Pulse gets the right-sized, dependency-
+construction but dropped at flush. Crusor gets the right-sized, dependency-
 free core: a JSONL receipt exporter with the SAME shape (one record per
 turn: session, turn, model, token buckets, cost, duration, tool calls,
-error) that any analyzer can ingest — and it is what powers Pulse's own
+error) that any analyzer can ingest — and it is what powers Crusor's own
 cost-per-task story.
 
 Zero hardcoding (the standing rule): everything from env, read per call.
 
-  PULSEAI_OBSERVABILITY       on | off        (default: off)
-  PULSEAI_OBSERVABILITY_PATH  output path     (default: ~/.pulseai/observability/turns.jsonl)
+  CRUSORAI_OBSERVABILITY       on | off        (default: off)
+  CRUSORAI_OBSERVABILITY_PATH  output path     (default: ~/.crusorai/observability/turns.jsonl)
 
 Fail-closed by contract: every failure is swallowed; receipts can never
 break a turn (D17 crash-net idiom, hermes-identical).
@@ -31,16 +31,16 @@ _lock = threading.Lock()
 
 
 def enabled() -> bool:
-    return os.environ.get("PULSEAI_OBSERVABILITY", "off").strip().lower() in {
+    return os.environ.get("CRUSORAI_OBSERVABILITY", "off").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
 
 def sink_path() -> Path:
-    custom = os.environ.get("PULSEAI_OBSERVABILITY_PATH", "").strip()
+    custom = os.environ.get("CRUSORAI_OBSERVABILITY_PATH", "").strip()
     if custom:
         return Path(custom)
-    home = Path(os.path.expanduser("~")) / ".pulseai"
+    home = Path(os.path.expanduser("~")) / ".crusorai"
     return home / "observability" / "turns.jsonl"
 
 

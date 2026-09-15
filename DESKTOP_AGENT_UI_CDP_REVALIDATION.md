@@ -1,4 +1,4 @@
-# Desktop Agent Handoff — Pulse Manager CDP Revalidation
+# Desktop Agent Handoff — Crusor Manager CDP Revalidation
 
 **Branch:** `arena/01a03741-pulseairepo`  
 **Required repair ancestor:** `927d8eb4`  
@@ -8,7 +8,7 @@
 
 ## Why R1 failed
 
-CDP evidence `0662fb4a` is a valid immutable runtime FAIL. The Agent lane passed every runtime check, but Pulse Manager overflowed because its grid had fixed minimum widths totaling 860px. Its existing responsive rules used viewport media queries, while the Manager editor was only 588px wide inside a larger workbench viewport.
+CDP evidence `0662fb4a` is a valid immutable runtime FAIL. The Agent lane passed every runtime check, but Crusor Manager overflowed because its grid had fixed minimum widths totaling 860px. Its existing responsive rules used viewport media queries, while the Manager editor was only 588px wide inside a larger workbench viewport.
 
 Commit `927d8eb4` makes Manager columns intrinsically shrinkable and adds editor-container queries, so layout responds to actual editor width when Explorer and the auxiliary Agent view are open. Commit `f61a6ca2` also normalizes a maximized Electron window before the CDP resize check.
 
@@ -25,7 +25,7 @@ Commit `927d8eb4` makes Manager columns intrinsically shrinkable and adds editor
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\pulseAIagent\PulseAIRepo'
+$repo = 'D:\crusorAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
@@ -38,7 +38,7 @@ $evidence = Join-Path $repo 'bench-results\agent-ui-cdp-desktop-r2'
 if (Test-Path $evidence) { throw 'CDP R2 evidence already exists — STOP' }
 New-Item -ItemType Directory -Path $evidence | Out-Null
 git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
-node --check scripts/validate_pulse_ui_cdp.js 2>&1 | Tee-Object "$evidence\cdp-script-syntax.log"
+node --check scripts/validate_crusor_ui_cdp.js 2>&1 | Tee-Object "$evidence\cdp-script-syntax.log"
 ```
 
 Refresh the compiled output once because CSS changed:
@@ -53,7 +53,7 @@ if ($compileExit -ne 0) { throw 'Compile failed — preserve evidence and STOP' 
 Create a fresh isolated profile and launch CDP:
 
 ```powershell
-$profile = Join-Path $env:TEMP 'pulseai-ui-cdp-r4-profile'
+$profile = Join-Path $env:TEMP 'crusorai-ui-cdp-r4-profile'
 if (Test-Path $profile) { throw 'Profile already exists — STOP; do not reuse it' }
 New-Item -ItemType Directory -Path (Join-Path $profile 'User') -Force | Out-Null
 @'
@@ -65,12 +65,12 @@ New-Item -ItemType Directory -Path (Join-Path $profile 'User') -Force | Out-Null
 '@ | Set-Content (Join-Path $profile 'User\settings.json') -Encoding utf8
 
 if (Get-NetTCPConnection -LocalPort 9222 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 9222 in use — STOP' }
-if (Get-Process PulseAI -ErrorAction SilentlyContinue) { throw 'PulseAI already running — STOP' }
+if (Get-Process CrusorAI -ErrorAction SilentlyContinue) { throw 'CrusorAI already running — STOP' }
 
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_ENGINE_ROOT = $repo
-$env:PULSEAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
-$env:PULSEAI_CDP_PORT = '9222'
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
+$env:CRUSORAI_CDP_PORT = '9222'
 $process = Start-Process `
   -FilePath (Join-Path $repo 'desktop\vscode\scripts\code.bat') `
   -ArgumentList @($repo, "--user-data-dir=$profile", '--remote-debugging-port=9222') `
@@ -88,7 +88,7 @@ if (-not $version) { throw 'CDP unavailable — preserve logs and STOP' }
 $version | ConvertTo-Json -Depth 5 | Set-Content "$evidence\cdp-version.json" -Encoding utf8
 
 cd $repo
-node scripts/validate_pulse_ui_cdp.js $evidence 2>&1 | Tee-Object "$evidence\cdp-ui-console.log"
+node scripts/validate_crusor_ui_cdp.js $evidence 2>&1 | Tee-Object "$evidence\cdp-ui-console.log"
 $cdpExit = $LASTEXITCODE
 ```
 
@@ -105,7 +105,7 @@ Shutdown and clear temporary environment:
 ```powershell
 if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
 Start-Sleep -Seconds 3
-Remove-Item Env:PULSEAI_BRIDGE_RUNNER, Env:PULSEAI_ENGINE_ROOT, Env:PULSEAI_PYTHON_PATH, Env:PULSEAI_CDP_PORT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER, Env:CRUSORAI_ENGINE_ROOT, Env:CRUSORAI_PYTHON_PATH, Env:CRUSORAI_CDP_PORT -ErrorAction SilentlyContinue
 ```
 
 Create `validation-summary.json` and `validation-report.md` with exact compile/CDP exits and observations. Overall PASS requires compile exit 0, CDP exit 0, `cdp-ui-result.json` overall PASS, all five screenshots, and zero provider requests.
@@ -120,7 +120,7 @@ Get-FileHash "$evidence\*" -Algorithm SHA256 -ErrorAction SilentlyContinue |
 git add -- bench-results/agent-ui-cdp-desktop-r2
 git diff --cached --name-only | Set-Content "$evidence\staged-files.txt" -Encoding utf8
 git add -- "$evidence\staged-files.txt"
-git commit -m "Add provider-free Pulse Manager CDP revalidation evidence"
+git commit -m "Add provider-free Crusor Manager CDP revalidation evidence"
 git push origin arena/01a03741-pulseairepo
 ```
 

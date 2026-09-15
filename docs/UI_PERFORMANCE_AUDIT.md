@@ -1,20 +1,20 @@
 # UI + Performance of Context Engine
 
-**Scope:** `desktop/vscode/src/vs/workbench/contrib/pulseai` + `pulse-webview` + `src/context/context_engine.py`.
+**Scope:** `desktop/vscode/src/vs/workbench/contrib/crusorai` + `crusor-webview` + `src/context/context_engine.py`.
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. Desktop UI Rendering Inside Fork
 
-- **Renderer:** `browser/pulseAIRenderer.ts:577` framework-neutral, mounts into `pulseAIViewPane.ts:50` `.pulseai-render-root` `ViewContainerLocation.AuxiliaryBar` `canMoveView:false` single Pulse Agent fixed right. No Electron/Node boundary.
-- **Tool families:** `common/pulseAIToolCatalog.ts` → `familyBody:194` `terminal/file-read/file-write/search/verification/web/browser/session/subagent/code/scaffold` each with bounded output `12k` and `displayTarget` extraction.
-- **State:** `common/pulseAIRendererService.ts` `PulseAIRenderModel` history + tools + subAgents + `turnOutcome` + `telemetry cacheHitRate`.
+- **Renderer:** `browser/crusorAIRenderer.ts:577` framework-neutral, mounts into `crusorAIViewPane.ts:50` `.crusorai-render-root` `ViewContainerLocation.AuxiliaryBar` `canMoveView:false` single Crusor Agent fixed right. No Electron/Node boundary.
+- **Tool families:** `common/crusorAIToolCatalog.ts` → `familyBody:194` `terminal/file-read/file-write/search/verification/web/browser/session/subagent/code/scaffold` each with bounded output `12k` and `displayTarget` extraction.
+- **State:** `common/crusorAIRendererService.ts` `CrusorAIRenderModel` history + tools + subAgents + `turnOutcome` + `telemetry cacheHitRate`.
 - **Performance:** 613 lines, no React, `data-testid` stable, `visible` role handling for Mistral alternation `_template_visible_role:302`.
 
 ## 2. Webview (CopilotKit) UI
 
-- `pulse-webview/src/App.tsx:29` `CopilotKitProvider runtimeUrl="/api/copilotkit" agentId="pulse_agent"` + `a2ui={{catalog}}` + `useAgentContext` workspace bridge → `CopilotChat`.
-- `pulse-webview/server.ts:11` `CopilotRuntime + LangGraphHttpAgent → http://localhost:8123` `8200` with `intelligence` optional + `a2ui injectA2UITool:false`.
-- **Look:** `browser/media/pulseAI.css` tokens, `pulseAI-tokens.css` — workbench-native, no React chrome.
+- `crusor-webview/src/App.tsx:29` `CopilotKitProvider runtimeUrl="/api/copilotkit" agentId="crusor_agent"` + `a2ui={{catalog}}` + `useAgentContext` workspace bridge → `CopilotChat`.
+- `crusor-webview/server.ts:11` `CopilotRuntime + LangGraphHttpAgent → http://localhost:8123` `8200` with `intelligence` optional + `a2ui injectA2UITool:false`.
+- **Look:** `browser/media/crusorAI.css` tokens, `crusorAI-tokens.css` — workbench-native, no React chrome.
 
 ## 3. Context Engine Performance Impact on UI
 
@@ -27,12 +27,12 @@
 
 ```bash
 # UI typecheck + DOM
-npx tsc -b --project pulse-webview/tsconfig.json
-npm run test --prefix pulse-webview  # 9 DOM
+npx tsc -b --project crusor-webview/tsconfig.json
+npm run test --prefix crusor-webview  # 9 DOM
 # Context perf
 uv run python -m pytest src/tests/test_bounded_scan.py -q
 # Live
-curl http://localhost:8200/api/copilotkit/info | findstr pulse_agent
+curl http://localhost:8200/api/copilotkit/info | findstr crusor_agent
 ```
 
-**Next:** P1 lean tail + P2 4-breakpoint + keep tree-sitter vs LSP (Pulse ahead on hybrid). See `PULSEAI_IMPROVEMENT_SCOPE.md`.
+**Next:** P1 lean tail + P2 4-breakpoint + keep tree-sitter vs LSP (Crusor ahead on hybrid). See `CRUSORAI_IMPROVEMENT_SCOPE.md`.

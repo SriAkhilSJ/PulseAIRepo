@@ -1,4 +1,4 @@
-"""Pin-to-pin parity tests for Pulse's ported Hermes prompt engine.
+"""Pin-to-pin parity tests for Crusor's ported Hermes prompt engine.
 
 Provider-free and dependency-light by design: no LLM call, no key, no network.
 These are the tests that let the port be claimed rather than asserted —
@@ -27,7 +27,7 @@ from src.prompts.hermes.context_files import (  # noqa: E402
     strip_yaml_frontmatter,
     truncate_content,
 )
-from src.prompts.hermes.view import PulsePromptView  # noqa: E402
+from src.prompts.hermes.view import CrusorPromptView  # noqa: E402
 
 CORPUS = json.loads((REPO / "src" / "prompts" / "hermes" / "upstream_corpus.json").read_text(encoding="utf-8"))
 CONSTANTS = CORPUS["constants"]
@@ -76,14 +76,14 @@ def test_identity_differs_only_in_the_self_name_sentence():
     """Slot #1 is upstream's replaceable identity slot; the behaviour spec is not."""
     raw = CONSTANTS["prompt_builder"]["DEFAULT_AGENT_IDENTITY"]
     expected = guidance.localize(
-        raw.replace(guidance.IDENTITY_SELFNAME_UPSTREAM, guidance.IDENTITY_SELFNAME_PULSE)
+        raw.replace(guidance.IDENTITY_SELFNAME_UPSTREAM, guidance.IDENTITY_SELFNAME_CRUSOR)
     )
     assert guidance.DEFAULT_AGENT_IDENTITY == expected
     assert "Be direct: match the length of your reply to the weight of the ask" in guidance.DEFAULT_AGENT_IDENTITY
 
 
 def test_no_upstream_brand_tokens_survive():
-    """Pulse branding only: no Hermes/Nous Research reference may reach a model."""
+    """Crusor branding only: no Hermes/Nous Research reference may reach a model."""
     corpus_blob = json.dumps(CONSTANTS)
     rebuilt = guidance.localize(corpus_blob)
     for token in ("Hermes", "hermes-agent", "Nous Research", "nousresearch.com"):
@@ -131,7 +131,7 @@ def test_corpus_hash_matches_a_pinned_checkout(tmp_path):
 # =========================================================================
 
 
-def _view(**kwargs) -> PulsePromptView:
+def _view(**kwargs) -> CrusorPromptView:
     base = dict(
         model="qwen3.6-27b",
         provider="groq",
@@ -143,7 +143,7 @@ def _view(**kwargs) -> PulsePromptView:
         session_id="parity-thread",
     )
     base.update(kwargs)
-    return PulsePromptView(**base)
+    return CrusorPromptView(**base)
 
 
 def _parts(view):
@@ -263,7 +263,7 @@ def test_no_phantom_tool_names_in_the_assembled_prompt():
     """Every backticked identifier that looks like a tool must be a real one.
 
     This is the failure mode a naive paste produces: prompt text steering the
-    model at `terminal` or `search_files`, which do not exist in Pulse. Hermes
+    model at `terminal` or `search_files`, which do not exist in Crusor. Hermes
     ships the same style of guard for its own prompt corpus.
     """
     from src.tools.toolsets import all_known_tool_names
@@ -310,7 +310,7 @@ def test_environment_hints_are_stable_and_dialect_explicit():
 
 
 def test_execution_mode_rides_the_volatile_band():
-    """Pulse can switch Agent→Plan mid-conversation; the stable prefix must not move."""
+    """Crusor can switch Agent→Plan mid-conversation; the stable prefix must not move."""
     from src.prompts.hermes.environment import mode_hint
 
     assert mode_hint("plan")
@@ -372,28 +372,28 @@ def test_truncation_warning_surfaces_once_per_build():
 
 
 def test_context_file_priority_and_single_winner(tmp_path):
-    (tmp_path / "PULSE.md").write_text("pulse wins first")
+    (tmp_path / "CRUSOR.md").write_text("crusor wins first")
     (tmp_path / "AGENTS.md").write_text("agents second")
     (tmp_path / "CLAUDE.md").write_text("claude third")
     (tmp_path / ".cursorrules").write_text("cursorrules last")
     prompt = build_context_files_prompt(cwd=str(tmp_path), skip_soul=True)
-    assert "pulse wins first" in prompt
+    assert "crusor wins first" in prompt
     for loser in ("agents second", "claude third", "cursorrules last"):
         assert loser not in prompt
 
 
-def test_pulse_project_context_header_matches_upstream_shape(tmp_path):
+def test_crusor_project_context_header_matches_upstream_shape(tmp_path):
     (tmp_path / "AGENTS.md").write_text("Two-space indent.")
     prompt = build_context_files_prompt(cwd=str(tmp_path), skip_soul=True)
     assert prompt.startswith("# Project Context\n\nThe following project context files have been loaded and should be followed:")
     assert "## AGENTS.md" in prompt
 
 
-def test_agents_md_wins_over_pulse_instructions_without_duplication(tmp_path):
-    """Pulse's own instruction loader also reads AGENTS.md — inject it once."""
+def test_agents_md_wins_over_crusor_instructions_without_duplication(tmp_path):
+    """Crusor's own instruction loader also reads AGENTS.md — inject it once."""
     (tmp_path / "AGENTS.md").write_text("Shared project rule.")
-    (tmp_path / ".pulseai").mkdir()
-    (tmp_path / ".pulseai" / "instructions.md").write_text("Local extra rule.")
+    (tmp_path / ".crusorai").mkdir()
+    (tmp_path / ".crusorai" / "instructions.md").write_text("Local extra rule.")
     prompt = build_context_files_prompt(cwd=str(tmp_path), skip_soul=True)
     assert prompt.count("Shared project rule.") == 1
     assert "Local extra rule." in prompt
@@ -418,8 +418,8 @@ def test_stable_tier_is_registered_at_the_cache_boundary(tmp_path, monkeypatch):
     from src.prompts.hermes.system_prompt import build_system_prompt
 
     clear_stable_prefixes()
-    monkeypatch.setenv("PULSEAI_PROMPT_CACHE", "on")
-    monkeypatch.setenv("PULSEAI_PROMPT_CACHE_CUSTOM", "on")
+    monkeypatch.setenv("CRUSORAI_PROMPT_CACHE", "on")
+    monkeypatch.setenv("CRUSORAI_PROMPT_CACHE_CUSTOM", "on")
     view = _view()
     prompt = build_system_prompt(view, use_cache=False)
     stable = view._cached_system_prompt_static
@@ -432,7 +432,7 @@ def test_prompt_cache_plan_marks_the_system_prefix(tmp_path, monkeypatch):
     from src.context.prompt_cache_plan import build_prompt_cache_plan
     from src.prompts.hermes.system_prompt import build_system_prompt
 
-    monkeypatch.setenv("PULSEAI_PROMPT_CACHE", "on")
+    monkeypatch.setenv("CRUSORAI_PROMPT_CACHE", "on")
     view = _view()
     prompt = build_system_prompt(view, use_cache=False)
     planned, info = build_prompt_cache_plan(
@@ -458,8 +458,8 @@ def test_litellm_style_route_never_carries_a_tool_part_marker(monkeypatch):
 
     assert envelope_tool_part_cache_markers_supported("openai", None) is True
     assert envelope_tool_part_cache_markers_supported("custom", "http://localhost:4000/v1") is False
-    monkeypatch.setenv("PULSEAI_PROMPT_CACHE", "on")
-    monkeypatch.setenv("PULSEAI_PROMPT_CACHE_CUSTOM", "on")
+    monkeypatch.setenv("CRUSORAI_PROMPT_CACHE", "on")
+    monkeypatch.setenv("CRUSORAI_PROMPT_CACHE_CUSTOM", "on")
     messages = [
         {"role": "system", "content": "s" * 400},
         {"role": "user", "content": "u"},
@@ -478,16 +478,16 @@ def test_litellm_style_route_never_carries_a_tool_part_marker(monkeypatch):
 # =========================================================================
 
 
-def test_plan_prompt_uses_pulse_paths_but_upstream_rules():
+def test_plan_prompt_uses_crusor_paths_but_upstream_rules():
     from src.prompts.hermes.plan_learn import build_plan_prompt, plan_target_path
 
     prompt = build_plan_prompt("Add retry to the bridge")
     assert prompt.startswith("[/plan — plan mode]")
-    assert ".pulseai/plans/" in prompt
+    assert ".crusorai/plans/" in prompt
     assert ".hermes" not in prompt and "Hermes file tools" not in prompt
     assert "Task to plan:\nAdd retry to the bridge" in prompt
     assert "zero context for the codebase" in prompt or "zero context for the codebase" in guidance.PLAN_CRAFT
-    assert re.match(r"^\.pulseai/plans/\d{4}-\d{2}-\d{2}_\d{6}-[a-z0-9-]+\.md$", plan_target_path("Add retry to the bridge!"))
+    assert re.match(r"^\.crusorai/plans/\d{4}-\d{2}-\d{2}_\d{6}-[a-z0-9-]+\.md$", plan_target_path("Add retry to the bridge!"))
 
 
 def test_plan_prompt_without_task_defers_to_context():
@@ -505,7 +505,7 @@ def test_learn_prompt_shape_follows_the_bound_toolset():
     assert "Save the skill as a file" in without
     assert "skill_manage" not in without
     assert "skill_view" not in without
-    assert ".pulseai/skills/<category>/<name>/SKILL.md" in without
+    assert ".crusorai/skills/<category>/<name>/SKILL.md" in without
     assert "Never fetch the first source and ignore the rest." in without
     assert guidance.LEARN_AUTHORING_STANDARDS.splitlines()[0] in without
 
@@ -519,7 +519,7 @@ def test_learn_prompt_names_no_unbound_tools():
     prompt = build_learn_prompt("the deploy flow", valid_tool_names={"write_file", "read_file"})
     for name in set(re.findall(r"`([a-z][a-z0-9_]{2,})`", prompt)):
         if "_" in name:
-            assert name in real, f"learn prompt names {name!r}, which Pulse does not bind"
+            assert name in real, f"learn prompt names {name!r}, which Crusor does not bind"
 
 
 def test_prompt_engineer_never_names_a_tool_the_waist_lacks():
@@ -554,8 +554,8 @@ def test_both_help_guidance_variants_are_upstream_bytes():
     pointer text (a docs URL, a skill name) this fails.
     """
     pairs = (
-        ("HERMES_AGENT_HELP_GUIDANCE", "PULSE_AGENT_HELP_GUIDANCE"),
-        ("HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS", "PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS"),
+        ("HERMES_AGENT_HELP_GUIDANCE", "CRUSOR_AGENT_HELP_GUIDANCE"),
+        ("HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS", "CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS"),
     )
     for upstream_name, local_name in pairs:
         raw = CONSTANTS["prompt_builder"][upstream_name]
@@ -574,9 +574,9 @@ def test_help_guidance_variant_follows_the_skills_index(tmp_path):
     (`skill_view` bound) and back it (the skill is in the rendered index).
     """
     skills = tmp_path / "skills"
-    (skills / "pulseai").mkdir(parents=True)
-    (skills / "pulseai" / "SKILL.md").write_text(
-        "---\nname: pulseai\ndescription: Pulse agent operations\n---\nUse the skills index.\n",
+    (skills / "crusorai").mkdir(parents=True)
+    (skills / "crusorai" / "SKILL.md").write_text(
+        "---\nname: crusorai\ndescription: Crusor agent operations\n---\nUse the skills index.\n",
         encoding="utf-8",
     )
     with_skill_view = set(_view().valid_tool_names) | {"skill_view"}
@@ -584,13 +584,13 @@ def test_help_guidance_variant_follows_the_skills_index(tmp_path):
     both = _parts(
         _view(valid_tool_names=with_skill_view, skills_enabled=True, home=tmp_path, skills_dir=skills)
     )
-    assert guidance.PULSE_AGENT_HELP_GUIDANCE in both["stable"]
-    assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS not in both["stable"]
+    assert guidance.CRUSOR_AGENT_HELP_GUIDANCE in both["stable"]
+    assert guidance.CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS not in both["stable"]
 
     # Index present but the skill tool unbound -> pointing at it would be a lie.
     no_tool = _parts(_view(skills_enabled=True, home=tmp_path, skills_dir=skills))
-    assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS in no_tool["stable"]
-    assert guidance.PULSE_AGENT_HELP_GUIDANCE not in no_tool["stable"]
+    assert guidance.CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS in no_tool["stable"]
+    assert guidance.CRUSOR_AGENT_HELP_GUIDANCE not in no_tool["stable"]
 
     # Tool bound, empty index -> same honest fallback.
     empty = tmp_path / "empty-skills"
@@ -598,20 +598,20 @@ def test_help_guidance_variant_follows_the_skills_index(tmp_path):
     no_index = _parts(
         _view(valid_tool_names=with_skill_view, skills_enabled=True, home=tmp_path, skills_dir=empty)
     )
-    assert guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS in no_index["stable"]
-    assert guidance.PULSE_AGENT_HELP_GUIDANCE not in no_index["stable"]
+    assert guidance.CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS in no_index["stable"]
+    assert guidance.CRUSOR_AGENT_HELP_GUIDANCE not in no_index["stable"]
 
 
-def test_dump_pulse_prompt_script_is_the_live_zero_credit_probe(tmp_path):
+def test_dump_crusor_prompt_script_is_the_live_zero_credit_probe(tmp_path):
     """The desktop agent's Phase 2.0 command is pinned, not improvised.
 
-    ``scripts/dump_pulse_prompt.py`` is what a verification round runs to read the real
+    ``scripts/dump_crusor_prompt.py`` is what a verification round runs to read the real
     prompt bytes for a workspace without paying for a turn, so it has to keep working:
     same tiers, same brand gate, and a marker that lands in the CONTEXT tier only.
     """
     ws = tmp_path / "ws"
     ws.mkdir()
-    (ws / "PULSE.md").write_text("PULSE_FIXTURE_MARKER_alpha\n", encoding="utf-8")
+    (ws / "CRUSOR.md").write_text("CRUSOR_FIXTURE_MARKER_alpha\n", encoding="utf-8")
     prompt_file = tmp_path / "1.txt"
     prompt_file.write_text("List the files here.\n", encoding="utf-8")
     out = tmp_path / "dump.json"
@@ -619,7 +619,7 @@ def test_dump_pulse_prompt_script_is_the_live_zero_credit_probe(tmp_path):
     proc = subprocess.run(
         [
             sys.executable,
-            str(REPO / "scripts" / "dump_pulse_prompt.py"),
+            str(REPO / "scripts" / "dump_crusor_prompt.py"),
             "--workspace", str(ws),
             "--prompt-file", str(prompt_file),
             "--surface", "ide",
@@ -636,10 +636,10 @@ def test_dump_pulse_prompt_script_is_the_live_zero_credit_probe(tmp_path):
 
     tiers = json.loads(out.read_text(encoding="utf-8"))
     assert list(tiers) == ["stable", "context", "volatile"]
-    assert tiers["stable"].startswith("You are Pulse Agent.")
-    assert tiers["context"].count("PULSE_FIXTURE_MARKER_alpha") == 1
-    assert "PULSE_FIXTURE_MARKER_alpha" not in tiers["stable"]
-    assert "PULSE_FIXTURE_MARKER_alpha" not in tiers["volatile"]
+    assert tiers["stable"].startswith("You are Crusor Agent.")
+    assert tiers["context"].count("CRUSOR_FIXTURE_MARKER_alpha") == 1
+    assert "CRUSOR_FIXTURE_MARKER_alpha" not in tiers["stable"]
+    assert "CRUSOR_FIXTURE_MARKER_alpha" not in tiers["volatile"]
     # The script's gate is the same rule the suite enforces in-process.
     assert not re.search(r"(?i)\bhermes\b|nous", "\n\n".join(tiers.values()))
 
@@ -658,7 +658,7 @@ def test_cache_plan_route_gate_is_derived_and_dumpable(tmp_path):
          "--base-url", "https://api.sarvam.ai/v1", "--model", "sarvam-105b"],
         capture_output=True, text=True, cwd=str(REPO),
         env={**os.environ, "PYTHONPATH": str(REPO),
-             "PULSEAI_PROMPT_CACHE": "1", "PULSEAI_PROMPT_CACHE_CUSTOM": "1"},
+             "CRUSORAI_PROMPT_CACHE": "1", "CRUSORAI_PROMPT_CACHE_CUSTOM": "1"},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     derived = [json.loads(l) for l in proc.stdout.splitlines() if l.strip().startswith("{")]
@@ -672,7 +672,7 @@ def test_cache_plan_route_gate_is_derived_and_dumpable(tmp_path):
         [sys.executable, str(REPO / "scripts" / "dump_cache_plan.py"),
          "--provider", "openai", "--model", "gpt-4o"],
         capture_output=True, text=True, cwd=str(REPO),
-        env={**os.environ, "PYTHONPATH": str(REPO), "PULSEAI_PROMPT_CACHE": "1"},
+        env={**os.environ, "PYTHONPATH": str(REPO), "CRUSORAI_PROMPT_CACHE": "1"},
     )
     rows = [d for d in (json.loads(l) for l in openai.stdout.splitlines() if l.strip().startswith("{"))
             if d["derived_from_route"]]
@@ -682,7 +682,7 @@ def test_cache_plan_route_gate_is_derived_and_dumpable(tmp_path):
     off = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "dump_cache_plan.py"), "--provider", "openai", "--model", "gpt-4o"],
         capture_output=True, text=True, cwd=str(REPO),
-        env={k: v for k, v in os.environ.items() if not k.startswith("PULSEAI_")},
+        env={k: v for k, v in os.environ.items() if not k.startswith("CRUSORAI_")},
     )
     first = json.loads(off.stdout.splitlines()[0])
     assert (first["enabled"], first["reason"], first["stats_markers"]) == (False, "opt-in", 0)
@@ -696,7 +696,7 @@ def test_browser_vs_fetch_routing_is_taugth_on_both_tools():
     sides (verified in source): browser_navigate's description routes
     info-retrieval to web tools ("prefer web_search or web_extract"), and
     web_extract's description routes failures back ("If a URL fails or
-    times out, use the browser tool instead"). Pulse already had the
+    times out, use the browser tool instead"). Crusor already had the
     browser-side routing; this pins the web side (and the capability truth:
     web_fetch never runs the page's JavaScript). Capability statements only
     — no task lexicons, the model decides with correct facts."""
@@ -710,7 +710,7 @@ def test_browser_vs_fetch_routing_is_taugth_on_both_tools():
     # hermes binds the web extractor as `web_extract` — the routing teaching
     # lives on the primary; the legacy alias points at the same contract.
     web_doc = _text(web_extract)
-    assert "legacy pulse name" in _text(web_fetch)
+    assert "legacy crusor name" in _text(web_fetch)
     browser_doc = _text(browser_navigate)
     # hermes' failure pivot, ported to the web tool
     assert "use the browser tool instead" in web_doc
@@ -725,7 +725,7 @@ def test_model_gate_is_hermes_verbatim():
     """hermes agent/system_prompt.py:_model_gate — bool forces, gate words
     force, a list is a custom substring set, and an UNKNOWN WORD IS NOT
     TRUTHY-ON: it falls through to the auto model-substring match. The old
-    pulse gate treated any non-false word as on — upstream does not."""
+    crusor gate treated any non-false word as on — upstream does not."""
     from src.prompts.hermes.system_prompt import _GATE_WORDS, _model_gate
 
     assert _GATE_WORDS == {
@@ -748,40 +748,40 @@ def test_tool_use_enforcement_gate_covers_the_unknown_model_family():
     """Field 2026-09-08: `auto/best-chat` matches no upstream family, so the
     auto gate shipped no Tool-use enforcement — and the model ended the turn
     with a diagnosis instead of the fix. hermes' answer is the config key
-    (agent.tool_use_enforcement); pulse's surface is the env. Forced on, the
+    (agent.tool_use_enforcement); crusor's surface is the env. Forced on, the
     unknown model gets the block; comma-separated is the env transport for
     upstream's YAML list."""
     import os
     from src.prompts.hermes import view as view_mod
     from src.prompts.hermes.system_prompt import build_system_prompt
-    from src.prompts.hermes.view import PulsePromptView
+    from src.prompts.hermes.view import CrusorPromptView
 
     base = dict(cwd=".", valid_tool_names=("run_terminal", "edit_file"))
-    unknown = PulsePromptView(model="auto/best-chat", **base)
+    unknown = CrusorPromptView(model="auto/best-chat", **base)
     assert "Tool-use enforcement" not in build_system_prompt(unknown, use_cache=False)
 
-    forced = PulsePromptView(model="auto/best-chat", tool_use_enforcement=True, **base)
+    forced = CrusorPromptView(model="auto/best-chat", tool_use_enforcement=True, **base)
     assert "Never end your turn with a promise of future action" in (
         build_system_prompt(forced, use_cache=False))
 
-    listed = PulsePromptView(model="auto/best-chat", tool_use_enforcement=["best-chat"], **base)
+    listed = CrusorPromptView(model="auto/best-chat", tool_use_enforcement=["best-chat"], **base)
     assert "Tool-use enforcement" in build_system_prompt(listed, use_cache=False)
 
     # the env transport: bool word forces, comma list restricts
     monkey = __import__("pytest").MonkeyPatch()
-    monkey.setenv("PULSEAI_TOOL_USE_ENFORCEMENT", "true")
+    monkey.setenv("CRUSORAI_TOOL_USE_ENFORCEMENT", "true")
     try:
-        assert view_mod._gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT") == "true"
+        assert view_mod._gate_setting("CRUSORAI_TOOL_USE_ENFORCEMENT") == "true"
     finally:
         monkey.undo()
-    monkey.setenv("PULSEAI_TOOL_USE_ENFORCEMENT", "gpt, best-chat")
+    monkey.setenv("CRUSORAI_TOOL_USE_ENFORCEMENT", "gpt, best-chat")
     try:
-        assert view_mod._gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT") == ["gpt", "best-chat"]
+        assert view_mod._gate_setting("CRUSORAI_TOOL_USE_ENFORCEMENT") == ["gpt", "best-chat"]
     finally:
         monkey.undo()
-    monkey.delenv("PULSEAI_TOOL_USE_ENFORCEMENT", raising=False)
+    monkey.delenv("CRUSORAI_TOOL_USE_ENFORCEMENT", raising=False)
     try:
-        assert view_mod._gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT") == "auto"
+        assert view_mod._gate_setting("CRUSORAI_TOOL_USE_ENFORCEMENT") == "auto"
     finally:
         monkey.undo()
 
@@ -791,10 +791,10 @@ def test_execution_discipline_gate_stays_independent():
     models get it even with enforcement off — and a forced-on unknown model
     (the field's `auto/best-chat`) gets the Execution discipline block."""
     from src.prompts.hermes.system_prompt import build_system_prompt
-    from src.prompts.hermes.view import PulsePromptView
+    from src.prompts.hermes.view import CrusorPromptView
 
     base = dict(cwd=".", valid_tool_names=("run_terminal", "edit_file"))
-    forced = PulsePromptView(
+    forced = CrusorPromptView(
         model="auto/best-chat", execution_guidance=True,
         tool_use_enforcement=False, **base)
     prompt = build_system_prompt(forced, use_cache=False)

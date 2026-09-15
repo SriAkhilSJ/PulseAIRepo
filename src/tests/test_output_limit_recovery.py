@@ -10,9 +10,9 @@ def incomplete_message(*, tool_calls=None):
         content="",
         tool_calls=tool_calls or [],
         additional_kwargs={
-            "pulse_incomplete_response": True,
-            "pulse_incomplete_reason": "length",
-            "pulse_raw_finish_reason": "lengthlength",
+            "crusor_incomplete_response": True,
+            "crusor_incomplete_reason": "length",
+            "crusor_raw_finish_reason": "lengthlength",
         },
     )
 

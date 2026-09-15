@@ -47,7 +47,7 @@ if (-not (Test-Path ".env"))  { Write-Host "PREFLIGHT FAIL: .env missing (put CU
 $Workspace = [System.IO.Path]::GetFullPath($Workspace)
 New-Item -ItemType Directory -Force -Path (Join-Path $Workspace "notes"), (Join-Path $Workspace "data") | Out-Null
 
-# Exact PBR-002 fixture content (benchmarks/pulse_reliability_v1/fixtures.json).
+# Exact PBR-002 fixture content (benchmarks/crusor_reliability_v1/fixtures.json).
 # Single-quoted here-strings: literal text, no escaping; LF-normalised below.
 $proofContent = @'
 """Workspace identity proof for PBR-002."""
@@ -117,7 +117,7 @@ if (Test-Path $RunDir) {
 
 Write-Host "[run] PBR-002 bridge lane starting (watchdog: 30s checks, kill on stall)..."
 $proc = Start-Process -FilePath $Python `
-    -ArgumentList "-m", "benchmarks.pulse_reliability_v1.harness", "run",
+    -ArgumentList "-m", "benchmarks.crusor_reliability_v1.harness", "run",
                   "--task", "PBR-002", "--driver", "bridge",
                   "--workspace", $Workspace, "--python", $Python,
                   "--run-id", $RunId `

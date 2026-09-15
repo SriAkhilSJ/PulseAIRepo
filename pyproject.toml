@@ -1,7 +1,7 @@
 [project]
-name = "pulserepo"
+name = "crusorrepo"
 version = "0.1.0"
-description = "PulseAI – LangGraph autonomous coding agent with a task-aware context engine"
+description = "CrusorAI – LangGraph autonomous coding agent with a task-aware context engine"
 readme = "README.md"
 requires-python = ">=3.11"
 

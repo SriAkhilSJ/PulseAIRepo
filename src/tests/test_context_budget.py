@@ -812,7 +812,7 @@ def test_windows_junction_cannot_escape_workspace(tmp_path):
     if ws is None:
         # The TEMP drive can deny reparse-point creation by policy even when
         # the host supports it; retry on the workspace drive before skipping.
-        alt = Path(tempfile.mkdtemp(prefix="pulse_jtest_", dir=Path.cwd().anchor))
+        alt = Path(tempfile.mkdtemp(prefix="crusor_jtest_", dir=Path.cwd().anchor))
         alt_cleanup = alt
         ws, link, _outside = _attempt(alt)
         if ws is None:
@@ -856,7 +856,7 @@ def test_engine_emits_one_aggregate_receipt(tmp_path, receipts, monkeypatch):
     from src.context.convention_learner import ConventionLearner
     from unittest.mock import patch
 
-    # Hermeticity: ConventionLearner persists to the GLOBAL ~/.pulseai file
+    # Hermeticity: ConventionLearner persists to the GLOBAL ~/.crusorai file
     # keyed by workspace path, so a leftover entry for THIS ws path would
     # make the fresh learner skip its scan (no component in the receipt).
     # Route this test's learners to a per-test storage file instead.
@@ -904,13 +904,13 @@ def test_engine_emits_one_aggregate_receipt(tmp_path, receipts, monkeypatch):
 
 
 def test_engine_emits_all_three_walkers_when_repo_map_opted_in(tmp_path, receipts, monkeypatch):
-    """PULSEAI_REPO_MAP=on restores the historical three-walker receipt."""
+    """CRUSORAI_REPO_MAP=on restores the historical three-walker receipt."""
     from src.context.context_engine import ContextEngine, TaskType
     from src.context.chunk_index import ChunkIndex, get_index as _get_index
     from src.context.convention_learner import ConventionLearner
     from unittest.mock import patch
 
-    monkeypatch.setenv("PULSEAI_REPO_MAP", "on")
+    monkeypatch.setenv("CRUSORAI_REPO_MAP", "on")
     _iso_storage = str(tmp_path / "conventions-on.json")
     _orig_init = ConventionLearner.__init__
 

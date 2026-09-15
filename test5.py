@@ -82,12 +82,12 @@ def main() -> int:
         "LLM_MODEL": "sarvam-105b-conversations",
         "CUSTOM_BASE_URL": "https://api.sarvam.ai/v1",
         "CUSTOM_API_KEY": key,
-        "PULSEAI_BRIDGE_APPROVAL_POLICY": "workspace_session",
-        "PULSEAI_AUTO_APPROVE_WRITES": "1",
-        "PULSEAI_CAPTURE_REQUEST_PAYLOADS": "1",
-        "PULSEAI_LLM_STREAMING": "1",
-        "PULSEAI_LLM_TIMEOUT": "280",
-        "PULSEAI_DISABLE_LONG_TERM_MEMORY": "1",
+        "CRUSORAI_BRIDGE_APPROVAL_POLICY": "workspace_session",
+        "CRUSORAI_AUTO_APPROVE_WRITES": "1",
+        "CRUSORAI_CAPTURE_REQUEST_PAYLOADS": "1",
+        "CRUSORAI_LLM_STREAMING": "1",
+        "CRUSORAI_LLM_TIMEOUT": "280",
+        "CRUSORAI_DISABLE_LONG_TERM_MEMORY": "1",
     })
 
     command = [

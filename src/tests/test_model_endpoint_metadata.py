@@ -1,8 +1,8 @@
 """Ask the endpoint what it serves, the way Hermes does, before guessing.
 
 Upstream `agent/model_metadata.py` reads twelve different field names out of the provider's own model
-catalog and puts that answer ABOVE its hardcoded defaults (ladder step 2). Pulse probed three public
-catalogs for one field name each, and had no path at all for `custom` -- Pulse's generic OpenAI-compatible
+catalog and puts that answer ABOVE its hardcoded defaults (ladder step 2). Crusor probed three public
+catalogs for one field name each, and had no path at all for `custom` -- Crusor's generic OpenAI-compatible
 route, i.e. most self-hosted and router servers -- so an unrecognised model id fell to the 8,192 guess.
 That guess produced a 4,096-token budget, a ~1,638-token context budget, and a `workspace exceeds scan
 budget` refusal on a `hi` turn. The bound was honest; the number behind it was an assumption nobody asked

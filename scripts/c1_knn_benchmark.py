@@ -17,7 +17,7 @@ This script proves the gap and guards the fix with evidence:
   3. Asserts the returned id orderings are IDENTICAL (float ties don't
      occur at this precision), so the fix cannot change retrieval quality
      — it only removes wasted work.
-  4. If a real ~/.pulseai/code_index_*.db exists, reports the same two
+  4. If a real ~/.crusorai/code_index_*.db exists, reports the same two
      timings against the founder's actual workspace index.
 
 Run:  python scripts/c1_knn_benchmark.py
@@ -137,7 +137,7 @@ def bench_synthetic(n_rows: int, limit: int = 9, runs: int = 15) -> None:
 def bench_real_dbs(limit: int = 9, runs: int = 10) -> None:
     import sqlite_vec
 
-    dbs = sorted(glob.glob(os.path.expanduser("~/.pulseai/code_index_*.db")))
+    dbs = sorted(glob.glob(os.path.expanduser("~/.crusorai/code_index_*.db")))
     real = [d for d in dbs if not d.endswith(("-shm", "-wal"))]
     if not real:
         print("  (no real code_index DBs found — synthetic results above stand)")
@@ -170,6 +170,6 @@ if __name__ == "__main__":
     print("synthetic (random unit vectors, dim=384), median of runs:")
     for n in (2_000, 5_000, 20_000):
         bench_synthetic(n)
-    print("real workspace indexes (~/.pulseai/code_index_*.db):")
+    print("real workspace indexes (~/.crusorai/code_index_*.db):")
     bench_real_dbs()
     print("\nOrdering identical at every scale -> the fix changes ONLY wasted work.")

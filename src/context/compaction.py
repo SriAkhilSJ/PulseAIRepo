@@ -1,5 +1,5 @@
 """
-compaction.py -- D22: the hermes compaction hardening pack for PulseAI
+compaction.py -- D22: the hermes compaction hardening pack for CrusorAI
 =====================================================================
 
 Four patterns from NousResearch hermes-agent (§29, receipts re-verified
@@ -29,9 +29,9 @@ checkpoint store is never mutated. Their post-compaction store pollution
 placeholder text and the summary prefix below use markers the D16
 session index already skips at ingest anyway (belt and suspenders).
 
-Kill-switch: PULSEAI_COMPACTION=off restores the pre-D22 structural pipeline
+Kill-switch: CRUSORAI_COMPACTION=off restores the pre-D22 structural pipeline
 (summarize-then-trim, no prune, no summary). Landed mutation-payload omission is
-an independent run-budget safety fix; PULSEAI_MUTATION_PAYLOAD_COMPACTION=off
+an independent run-budget safety fix; CRUSORAI_MUTATION_PAYLOAD_COMPACTION=off
 disables it for diagnosis.
 """
 
@@ -51,7 +51,7 @@ from src.context.summary_route_pin import (
     take_pinned_summary_route,
 )
 
-log = logging.getLogger("pulseai.compaction")
+log = logging.getLogger("crusorai.compaction")
 
 # hermes context_compressor.py:399 verbatim — same marker text on purpose
 _PRUNED_TOOL_PLACEHOLDER = "[Old tool output cleared to save context space]"
@@ -80,7 +80,7 @@ _SUMMARY_END_MARKER = (
 # _IMAGE_PART_TYPES/_MAX_KEEP_TOOL_IMAGES). Screenshots and vision payloads
 # ride every later request until a provider 413 forces a reactive strip
 # (their #89286) — openai-style image_url tool results are the classic
-# case. Pulse's token counter serializes content parts, so one base64
+# case. Crusor's token counter serializes content parts, so one base64
 # frame also poisons the BUDGET estimate. Retire on the request-only copy:
 # walk newest-first, keep the newest frames (follow-up screenshot QA still
 # sees them), replace older payloads with an honest text label. User-role
@@ -205,7 +205,7 @@ def compact_file_mutation_arguments(
     Source checkpoint messages are never mutated and tool-call/result pairing
     remains intact.
     """
-    if os.environ.get("PULSEAI_MUTATION_PAYLOAD_COMPACTION", "").strip().lower() == "off":
+    if os.environ.get("CRUSORAI_MUTATION_PAYLOAD_COMPACTION", "").strip().lower() == "off":
         return history
 
     successful_ids: list[str] = []
@@ -558,7 +558,7 @@ def _salvage_cap_summary(summary: str) -> str:
     hermes-agent ``context_compressor.py`` caps a standalone compaction
     summary at ``_SALVAGE_SUMMARY_MAX_CHARS = 8_000`` as a LAST-RESORT shrink
     when the transcript has grown pathologically: an over-chatty running
-    summary must never become its own overflow. The head is kept (Pulse's
+    summary must never become its own overflow. The head is kept (Crusor's
     iterative summary keeps its anchor index at the top); the cut is honest.
     """
     if len(summary) <= _SALVAGE_SUMMARY_MAX_CHARS:
@@ -818,7 +818,7 @@ class HistoryCompactor:
         # Always apply the free per-tool summarizer before the budget check.
         # The old fast path replayed every raw result whenever history happened
         # to fit, so a 6KB file read was re-billed on every later call. Hermes
-        # stores/replays bounded receipts; Pulse now does the same even below
+        # stores/replays bounded receipts; Crusor now does the same even below
         # the structural-compaction threshold.
         payload_compacted = compact_file_mutation_arguments(history)
         summarized_fast = summarize_tools(payload_compacted)
@@ -835,7 +835,7 @@ class HistoryCompactor:
             return self._with_summary(summarized)
         head_n = self._head_len(summarized)
         tail_i = self._tail_start(summarized, head_n)
-        if os.environ.get("PULSEAI_LEAN_TAIL", "").strip().lower() != "off":
+        if os.environ.get("CRUSORAI_LEAN_TAIL", "").strip().lower() != "off":
             demoted_full = self._demote_stale_tail_tools(summarized, tail_i)
             head_msgs = demoted_full[:head_n]
             middle = demoted_full[head_n:tail_i]

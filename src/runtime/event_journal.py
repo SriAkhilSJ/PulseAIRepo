@@ -22,7 +22,7 @@ class JournalUnavailable(RuntimeError):
 
 class EventJournal:
     def __init__(self, path: str | Path | None = None):
-        self.path = Path(path or (Path.home() / ".pulseai" / "runtime_events.db"))
+        self.path = Path(path or (Path.home() / ".crusorai" / "runtime_events.db"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)

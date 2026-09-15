@@ -42,8 +42,8 @@ Frame order:
 5. `tool_call_end(write_file, ok)`;
 6. no further graph event for more than ten minutes.
 
-This confirms Sarvam responded to the narrowed contract and Pulse executed its
-call. The first confirmed failure boundary is now Pulse's post-tool path, before
+This confirms Sarvam responded to the narrowed contract and Crusor executed its
+call. The first confirmed failure boundary is now Crusor's post-tool path, before
 request 2—not provider instruction following.
 
 ## Post-tool boundary and deterministic repair

@@ -19,7 +19,7 @@ D16), including their hard-won lessons:
 
 Storage-side facts these choices stand on (verified, not assumed):
 
-* LangGraph SqliteSaver at ``~/.pulseai/sessions.db`` keeps one row per
+* LangGraph SqliteSaver at ``~/.crusorai/sessions.db`` keeps one row per
   checkpoint, msgpack-serialized; the LATEST checkpoint per thread holds
   the full message list. Decoding MUST go through langgraph's own serde
   (``SqliteSaver.serde.loads_typed``) -- never hand-parse the blob.
@@ -44,10 +44,10 @@ from typing import Any
 # Keep the literal in both places: importing chat_graph from here would be
 # circular (chat_graph imports the tool that imports this).
 DEFAULT_CHECKPOINT_DB = os.path.join(
-    os.path.expanduser("~"), ".pulseai", "sessions.db"
+    os.path.expanduser("~"), ".crusorai", "sessions.db"
 )
 DEFAULT_INDEX_DB = os.path.join(
-    os.path.expanduser("~"), ".pulseai", "session_index.db"
+    os.path.expanduser("~"), ".crusorai", "session_index.db"
 )
 
 # Machine-generated handoff summaries (never user content). Adopted from

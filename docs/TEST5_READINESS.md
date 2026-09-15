@@ -24,7 +24,7 @@ The failure was not caused by the bridge's 1 MiB frame limit; a roughly 30KB pay
 
 The repair preserves interactive behavior while making the benchmark path explicit and fail-safe:
 
-- the guarded runner sets `PULSEAI_BRIDGE_APPROVAL_POLICY=workspace_session`;
+- the guarded runner sets `CRUSORAI_BRIDGE_APPROVAL_POLICY=workspace_session`;
 - the bridge validates and forwards that policy to `stream_agent`;
 - the runner always answers any residual approval frame, auto-approving only warning-free `write_file`, `edit_file`, or `copy_file` operations contained by the run workspace and denying sensitive/escaping/other calls;
 - outcome evidence records safety request, approval, and denial counts;
@@ -52,11 +52,11 @@ This result proves the attempt-4b approval deadlock was not the attempt-5 bounda
 
 Preserve `C:\test5-ws-attempt5`, `C:\test5-ws-attempt6`, and both evidence directories exactly. Attempt 6 was manually cancelled after more than 180 seconds and 16 observed LLM requests with zero files. Therefore human interventions were 1, and the missing outcome cannot honestly be attributed to a bridge crash: the runner did not catch `KeyboardInterrupt`, while the PowerShell wrapper used the redirected `Start-Process` path already proven capable of hanging.
 
-The pre-delivery repair did activate too weakly: `execute_code` remained allowed, and Pulse mechanically copied Hermes' execute-code iteration refund without Hermes' surrounding guardrail posture. Four `os.walk` scripts could therefore inspect forever without advancing the counter. The corrected design counts every provider iteration, counts varied pre-delivery observations together, exposes only direct file mutations in forced-delivery mode, removes PowerShell stream redirection, records operator cancellation, and adds a runner-level no-file credit stop.
+The pre-delivery repair did activate too weakly: `execute_code` remained allowed, and Crusor mechanically copied Hermes' execute-code iteration refund without Hermes' surrounding guardrail posture. Four `os.walk` scripts could therefore inspect forever without advancing the counter. The corrected design counts every provider iteration, counts varied pre-delivery observations together, exposes only direct file mutations in forced-delivery mode, removes PowerShell stream redirection, records operator cancellation, and adds a runner-level no-file credit stop.
 
 ## Post-attempt-6 Hermes runtime audit
 
-The counter bypass was real but not the complete reason Sarvam chose inspection. A minute-layer comparison found that Pulse's first Test-5 request combined a 16,445-character interactive persona, duplicate and contradictory task/style layers, multiple advisory planner calls, a system instruction appended after the human role, and 33 tools totaling 18,070 schema characters. The prompt explicitly promoted `think`, `execute_code`, explanation before action, clarification, replanning, and verification. Sarvam's observed meta/`os.walk` choices were valid under that overloaded contract.
+The counter bypass was real but not the complete reason Sarvam chose inspection. A minute-layer comparison found that Crusor's first Test-5 request combined a 16,445-character interactive persona, duplicate and contradictory task/style layers, multiple advisory planner calls, a system instruction appended after the human role, and 33 tools totaling 18,070 schema characters. The prompt explicitly promoted `think`, `execute_code`, explanation before action, clarification, replanning, and verification. Sarvam's observed meta/`os.walk` choices were valid under that overloaded contract.
 
 The autonomous surface now uses a 1,234-character action contract, suppresses conflicting interactive context, bypasses advisory planning, pins the explicitly requested model/provider, orders all initial system guidance before the user message, and exposes only `write_file` for a fresh empty delivery workspace. The deterministic Windows Test-5 first-request construction is four messages / 3,084 content characters / one 591-character tool schema (the non-Windows variant omits the 313-character terminal contract). Exact post-sanitizer/post-trim payload capture and SHA-256 fingerprints are enabled for any future guarded run. Eager Hugging Face embedding initialization during graph import was also replaced with cache-only lazy memory.
 
@@ -65,7 +65,7 @@ See [`HERMES_RUNTIME_AUDIT.md`](HERMES_RUNTIME_AUDIT.md) for the complete layer 
 ## Attempt 8 desktop result
 
 Attempt `test5-8-desktop` confirmed the repaired Windows request shape and
-Sarvam called the sole exposed `write_file` tool. Pulse wrote one 4,995-byte
+Sarvam called the sole exposed `write_file` tool. Crusor wrote one 4,995-byte
 `index.html`, emitted a successful tool result, and then produced no second
 provider request or graph-terminal frame. The watchdog killed it after 613.5
 idle seconds. Static inspection proves the file is truncated mid-CSS and

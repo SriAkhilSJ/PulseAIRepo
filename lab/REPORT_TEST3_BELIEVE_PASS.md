@@ -40,7 +40,7 @@ Visual process exit: **0**. Wall time: **94.37s**.
 
 ## Agent browser evidence
 
-The Pulse agent itself executed:
+The Crusor agent itself executed:
 
 ```text
 start_terminal

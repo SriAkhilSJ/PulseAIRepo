@@ -1,4 +1,4 @@
-# Task: Apply Hermes Runtime Values to PulseAI for Scope IDE Agent
+# Task: Apply Hermes Runtime Values to CrusorAI for Scope IDE Agent
 
 **Status:** IN PROGRESS  
 **Goal:** Keep Scope a broad IDE agent—not coding-only—while giving each task a small, deterministic capability surface.
@@ -6,7 +6,7 @@
 
 ## Why
 
-PulseAI's existing toolset waist is coding-first: even a greeting sees file-write and terminal tools. That conflicts with Scope's product direction (research, documents, data, browser work, system tasks, and coding) and wastes tool-schema tokens.
+CrusorAI's existing toolset waist is coding-first: even a greeting sees file-write and terminal tools. That conflicts with Scope's product direction (research, documents, data, browser work, system tasks, and coding) and wastes tool-schema tokens.
 
 Hermes value being adopted:
 

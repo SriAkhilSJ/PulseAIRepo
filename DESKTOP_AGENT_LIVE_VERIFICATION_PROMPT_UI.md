@@ -4,8 +4,8 @@
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 **Host:** Windows / PowerShell, run from the repo root (`cd <repo root>`). The fork lives at
 `desktop\vscode`. `npm run compile` is **expected and allowed** when the Manager view times out — prior
-rounds withdrew the skip-compile rule, and `validate_pulse_ui_cdp.js` cannot find `Pulse Manager` in a stale
-`.build`. So: run the manager-only pass first; on `Timed out waiting for Pulse Manager editor`, run
+rounds withdrew the skip-compile rule, and `validate_crusor_ui_cdp.js` cannot find `Crusor Manager` in a stale
+`.build`. So: run the manager-only pass first; on `Timed out waiting for Crusor Manager editor`, run
 `cd desktop\vscode; npm run compile` once, re-run the pass, and record in findings.md whether you compiled.
 Never rebuild `.build` by hand (no `npm run gulp`, no manual copies).
 **Return channel:** commit and push evidence **back to `arena/01a06408-pulseairepo`**. No merge, no delete,
@@ -36,7 +36,7 @@ mechanism in this repo:
    trick — output tokens are where money dies.
 5. **One scratch workspace, ~6 tiny files** (fixture in Phase 2). A 200-file repo map is a context tax
    you pay on every single request.
-6. **Do not change any `PULSEAI_*` flag except where a phase explicitly says so**, and log every flag you
+6. **Do not change any `CRUSORAI_*` flag except where a phase explicitly says so**, and log every flag you
    did set (Phase 6 manifest). Flags that silently multiply requests are how budgets die.
 7. **Ledger after every phase, not at the end.** Append `credits-spent.log` lines as you go:
    `phase, requests, prompt_tokens, completion_tokens, running_total`. Reconstruct from
@@ -59,21 +59,21 @@ git fetch origin arena/01a0564d-pulseairepo
 git pull --ff-only origin arena/01a0564d-pulseairepo
 git merge-base --is-ancestor 051510ae HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Required port commit 051510ae missing — STOP' }
-foreach ($need in 'scripts\dump_pulse_prompt.py','src\tests\test_hermes_prompt_parity.py',
+foreach ($need in 'scripts\dump_crusor_prompt.py','src\tests\test_hermes_prompt_parity.py',
                   'DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md') {
   if (-not (Test-Path $need)) { throw "Live-round tooling missing ($need) — pull again, then STOP" }
 }
-.venv\Scripts\python.exe -m pytest src\tests\test_hermes_prompt_parity.py -q -k dump_pulse_prompt
+.venv\Scripts\python.exe -m pytest src\tests\test_hermes_prompt_parity.py -q -k dump_crusor_prompt
 if ($LASTEXITCODE -ne 0) { throw 'prompt dumper is not pinned/green — STOP' }
 .venv\Scripts\python.exe -m pytest src\tests\test_hermes_runtime_values.py -q -k "grandchild or cancel" `
   2>&1 | Tee-Object "$evidence\gate-cancel-fix.log"
 if ($LASTEXITCODE -ne 0) { throw 'foreground-cancel fix missing — pull again, then STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
-$envBackup = Join-Path $env:TEMP 'pulseai-env-backup\.env'   # never back up inside the repo
+$envBackup = Join-Path $env:TEMP 'crusorai-env-backup\.env'   # never back up inside the repo
 if (Test-Path '.env') { New-Item -ItemType Directory -Force -Path (Split-Path $envBackup) | Out-Null; Copy-Item '.env' $envBackup -Force }
 if (-not (Test-Path 'desktop\vscode\.build')) { throw 'desktop/vscode/.build missing — run npm run compile yourself, then STOP' }
 if (Get-NetTCPConnection -LocalPort 9222 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 9222 in use — STOP' }
-if (Get-Process PulseAI -ErrorAction SilentlyContinue) { throw 'PulseAI already running — STOP' }
+if (Get-Process CrusorAI -ErrorAction SilentlyContinue) { throw 'CrusorAI already running — STOP' }
 ```
 
 Then create/replace `.env` **only when I hand you the key** (an existing `.env` is moved to the TEMP backup
@@ -89,7 +89,7 @@ AUX_LLM_MODEL=<paste the cheapest model your provider offers>
 ```
 
 expect: `git rev-parse HEAD` is `051510ae` or a descendant on `arena/01a0564d-pulseairepo`, and
-`scripts\dump_pulse_prompt.py --help` works (proves the pinned tooling is present).
+`scripts\dump_crusor_prompt.py --help` works (proves the pinned tooling is present).
 expect: the credit probe from `scripts\run_paid_pbr002_guarded.ps1` (one 8-token call) prints `PROBE_OK`.
  **That probe is hard-wired to `https://api.sarvam.ai/v1/chat/completions` +
  `sarvam-105b-conversations`.** If my key is for a different provider, run the identical 8-token probe
@@ -107,7 +107,7 @@ machine it was false. Six test modules in `src/tests` (pre-existing, not from th
 whatever key your `.env` holds — before `-k`/`-m` applies and before any timeout guard is armed. They also write
 into `generated/`. `src/tests/test_no_import_time_agent_turns.py` is the pin that keeps the pattern from
 growing; those 6 files sit in its `KNOWN_IMPORT_TIME_TURNS` set as owner debt, deliberately not converted
-mid-round. So run the full suite **with those six ignored**, and never set `PULSEAI_ALLOW_LIVE_AGENT_TEST=1` for
+mid-round. So run the full suite **with those six ignored**, and never set `CRUSORAI_ALLOW_LIVE_AGENT_TEST=1` for
 this task — that variable opts *into* a billed turn, and it is the only thing gating the seventh file
 (`test_agent_status_checkpoint.py`, which is what stalled your collection at 60 s and got misread as a slow
 import).
@@ -116,8 +116,8 @@ import).
 $evidence = Join-Path $repo 'bench-results\prompt-ui-live-e2e'
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
-$env:PULSEAI_ENGINE_ROOT = $repo
-$env:PULSEAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
+$env:CRUSORAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
 .venv\Scripts\python.exe -m pytest src\tests\test_hermes_prompt_parity.py src\tests\test_hermes_prompt_session_cache.py -q 2>&1 |
   Tee-Object "$evidence\pytest-parity.log"
 $live_debt = @(
@@ -125,14 +125,14 @@ $live_debt = @(
   'test_plan_mode.py','test_plan_revision.py','test_replan_recovery.py'
 ) | ForEach-Object { "--ignore=src/tests/$_" }
 .venv\Scripts\python.exe -m pytest src\tests -q $live_debt 2>&1 | Tee-Object "$evidence\pytest-full.log"
-cd pulse-webview; npm test 2>&1 | Tee-Object "$repo\$evidence\webview-test.log"; `
+cd crusor-webview; npm test 2>&1 | Tee-Object "$repo\$evidence\webview-test.log"; `
   npx tsc -b 2>&1 | Tee-Object "$repo\$evidence\webview-tsc.log"; `
   npx vite build 2>&1 | Tee-Object "$repo\$evidence\webview-build.log"; cd $repo
 ```
 
 expect: `71 passed` from the two Hermes suites (61 parity + 10 session-cache), **0 skipped**. Any fewer =
 **STOP, report, spend 0 credits.** Then the full-suite log: a pass-count is yours to
-report, not to match against my box, and a `1 skipped` naming `PULSEAI_ALLOW_LIVE_AGENT_TEST` is the *correct*
+report, not to match against my box, and a `1 skipped` naming `CRUSORAI_ALLOW_LIVE_AGENT_TEST` is the *correct*
 result — if that test ran, credits were spent and `findings.md` must say so instead of reporting it green. If
 collection stalls again, `pytest --collect-only -q` plus a faulthandler dump names the module: look for
 module-scope work before you blame the interpreter.
@@ -162,12 +162,12 @@ fails 11 (see `bench-results/prompt-ui-live-diag/` at `c558e5c7`). So baseline *
 Select-String -Path "$evidence\pytest-full.log" -Pattern '^FAILED ' |
   ForEach-Object { ($_.Line -split '\s+')[1] } | Sort-Object | Unique | Set-Content "$evidence\ported-failures.txt" -Encoding utf8
 
-git worktree add "$repo\..\pulseai-base" 86eaaae2 --detach          # PRE-PORT, read-only, no stash
-Push-Location "$repo\..\pulseai-base"
+git worktree add "$repo\..\crusorai-base" 86eaaae2 --detach          # PRE-PORT, read-only, no stash
+Push-Location "$repo\..\crusorai-base"
 & (Join-Path $repo '.venv\Scripts\python.exe') -m pytest src\tests -q --tb=no -rf 2>&1 |
   Tee-Object "$evidence\base-failures-raw.log"
 Pop-Location
-git worktree remove "$repo\..\pulseai-base"
+git worktree remove "$repo\..\crusorai-base"
 Select-String -Path "$evidence\base-failures-raw.log" -Pattern '^FAILED ' |
   ForEach-Object { ($_.Line -split '\s+')[1] } | Sort-Object | Unique | Set-Content "$evidence\base-failures.txt" -Encoding utf8
 
@@ -186,22 +186,22 @@ the cancel drain are fixed on this branch, so if the 5 are still red you are on 
 expect: webview `48 passed`, `tsc -b` exit code 0, `vite build` succeeds.
 
 Two host notes so nobody chases ghosts: (1) before the fixture fix, `TestFeedbackStore` tests ran against the
-**real** user profile on Windows, so `~\.pulseai\context_feedback.jsonl` may hold hundreds of test-written
+**real** user profile on Windows, so `~\.crusorai\context_feedback.jsonl` may hold hundreds of test-written
 records — deleting that one file is fine, deleting anything else in your profile is not. (2) `.env` and the
-`PULSEAI_*` vars were already proven irrelevant to these failures (clean-env run failed identically), so do
+`CRUSORAI_*` vars were already proven irrelevant to these failures (clean-env run failed identically), so do
 not waste time stripping them again.
 
 ## Phase 2 — Live prompt engine (target: 4 turns / ≤ 20 requests)
 
-Scratch workspace: 6 tiny files, including `PULSE.md` with one literal line
-`PULSE_FIXTURE_MARKER_alpha`, plus a `README.md` and `notes\PULSE.md` decoy (same filename, wrong scope).
+Scratch workspace: 6 tiny files, including `CRUSOR.md` with one literal line
+`CRUSOR_FIXTURE_MARKER_alpha`, plus a `README.md` and `notes\CRUSOR.md` decoy (same filename, wrong scope).
 Prompts live in `$evidence\prompts\N.txt`. Run each through `run_bridge_turn.py` with
 `--max-llm-calls 5 --max-input-tokens 12000 --timeout-s 240`, one **unique** `--run-id` per turn (never
 reuse ids — durable checkpoint pollution).
 
-**1.5 What "the Agent UI" is, so the visual check has a target.** `pulse-webview/src/App.tsx` opens on
-`surface = "agent"` — the ported Hermes transcript (`PulseAgentThread` + `PulseComposer`) — with stock
-`CopilotChat` behind the header toggle for A/B, and both share one tool renderer (`usePulseToolRenderer`) so
+**1.5 What "the Agent UI" is, so the visual check has a target.** `crusor-webview/src/App.tsx` opens on
+`surface = "agent"` — the ported Hermes transcript (`CrusorAgentThread` + `CrusorComposer`) — with stock
+`CopilotChat` behind the header toggle for A/B, and both share one tool renderer (`useCrusorToolRenderer`) so
 they cannot disagree about a tool call. What makes it read as the Hermes surface: file edits as cards vs activity
 collapsed into a run keyed by the *first* `toolCallId`; the live call narrated in the present tense (`read_file`
 says "Exploring", not "Reading"); diffs clamped for paint but whole for copy; the plan/verification ledger
@@ -210,11 +210,11 @@ closing a turn; a designed empty state instead of a blank pane. Each is pinned b
 a finding rather than a guess.
 
 **2.0 Byte capture, 0 credits (do this first — it is the cheapest way to prove prompt content).** Dump the
-exact prompt tiers for the scratch workspace with `scripts\dump_pulse_prompt.py`, which is pinned by
-`test_dump_pulse_prompt_script_is_the_live_zero_credit_probe` in the parity suite (so it cannot rot):
+exact prompt tiers for the scratch workspace with `scripts\dump_crusor_prompt.py`, which is pinned by
+`test_dump_crusor_prompt_script_is_the_live_zero_credit_probe` in the parity suite (so it cannot rot):
 
 ```powershell
-.venv\Scripts\python.exe scripts\dump_pulse_prompt.py --workspace C:\scratch\pws `
+.venv\Scripts\python.exe scripts\dump_crusor_prompt.py --workspace C:\scratch\pws `
   --prompt-file "$evidence\prompts\1.txt" --out "$evidence\prompt-dump.json" `
   2>&1 | Tee-Object "$evidence\prompt-dump.txt"
 ```
@@ -228,11 +228,11 @@ case you need, that is a finding, not a thing to patch mid-run.
 expect: `prompt-dump.txt` contains three tiers in order `stable`, `context`, `volatile`, joined downstream
 with `\n\n`, and the brand check in 2.1 runs over these bytes. `state["workspace"]` is the real key (`view.py:209`);
 expect: the volatile tier carries `Model: …`, `Provider: …` and a `Platform: ide` line (`view.py:254` reads
-`surface` / `PULSEAI_SURFACE`, rendered at `system_prompt.py:282`). `Platform` must be `ide` for the
+`surface` / `CRUSORAI_SURFACE`, rendered at `system_prompt.py:282`). `Platform` must be `ide` for the
 desktop surface — if it is not, the UI and the engine are disagreeing about who is talking, which is worth a
 finding on its own.
-expect: `stable` starts with the identity block (`You are Pulse Agent.`), and `context` shows
-`# Project Context` → `## PULSE.md` → the marker exactly once.
+expect: `stable` starts with the identity block (`You are Crusor Agent.`), and `context` shows
+`# Project Context` → `## CRUSOR.md` → the marker exactly once.
 **Caveat, and it matters:** the dump inherits whatever `src/config/settings.py` resolved from the *process
 environment*, so run it in the same shell that has `.env` loaded — otherwise the printed
 `Model:`/`Provider:` are the repo defaults (`qwen/qwen3.6-27b` + `groq` in mine). `--model`/`--provider`/
@@ -242,21 +242,21 @@ environment*, so run it in the same shell that has `.env` loaded — otherwise t
 **2.1 Stable prefix + project context + no brand leak** — prompt: `What files are in this workspace? Name
 the project instructions file if there is one. Answer in at most 120 words…`
 expect: engine log / `frames.jsonl` shows the three tiers joined with a single `\n\n`, in the order
-`identity → context → volatile`, with `PULSE_FIXTURE_MARKER_alpha` present **once**, inside the context tier
+`identity → context → volatile`, with `CRUSOR_FIXTURE_MARKER_alpha` present **once**, inside the context tier
 only.
 expect: `Select-String -Path "$evidence\prompt-dump.txt" -Pattern "hermes","nous","NousResearch"
 -AllMatches` returns **nothing** (the script's own `BRAND_HITS: none` line is the same gate)
-(the `PULSE.md` filename and `PULSEAI_*` env names are allowed; the brand words are not).
+(the `CRUSOR.md` filename and `CRUSORAI_*` env names are allowed; the brand words are not).
 expect: `Conversation started:` and the mode hint are in the **volatile** tier, never the stable one.
 
 **2.2 Session-scoped prompt is built once** — same session, second and third turns.
 expect: turns 2–3 of the same session do **not** rebuild the system prompt: identical stable-tier bytes
-across turns 1–3, and no duplicate `llm.request` carrying a fresh system block. `PULSEAI_STABLE_PREFIX=off`
+across turns 1–3, and no duplicate `llm.request` carrying a fresh system block. `CRUSORAI_STABLE_PREFIX=off`
 must still run (one extra turn, `--max-llm-calls 2`) and return the legacy single-string prompt with no
 error — the kill switch works in both directions.
 
-**2.3 Context-file caps and truncation** — **grow `PULSE.md` to ~40 KB first** (one local command, 0 credits),
-verify the byte count before spending the turn (`(Get-Item PULSE.md).Length` must print ~40000, and a 79-byte
+**2.3 Context-file caps and truncation** — **grow `CRUSOR.md` to ~40 KB first** (one local command, 0 credits),
+verify the byte count before spending the turn (`(Get-Item CRUSOR.md).Length` must print ~40000, and a 79-byte
 file does NOT trigger truncation — last round this was skipped for exactly that reason), then one turn.
 expect: the prompt carries `kept 70+20 of <N> chars` style truncation text, and say in findings.md which
 tokeniser path was active — their `bridge_stderr.log` showed `[tokenizer] unavailable
@@ -271,10 +271,10 @@ on a tool-less turn, while the plan function reports different numbers. Assert a
 directly, both flag states on and off, and compare the **relations** below (`c99342df` findings, Phase 2.4):
 
 ```powershell
-$env:PULSEAI_PROMPT_CACHE='1'; $env:PULSEAI_PROMPT_CACHE_CUSTOM='1'
+$env:CRUSORAI_PROMPT_CACHE='1'; $env:CRUSORAI_PROMPT_CACHE_CUSTOM='1'
 .venv\Scripts\python.exe scripts\dump_cache_plan.py --base-url $env:CUSTOM_BASE_URL --model $env:LLM_MODEL |
   Out-File -Encoding utf8 "$evidence\cache-plan.txt"; Get-Content "$evidence\cache-plan.txt"
-Remove-Item Env:PULSEAI_PROMPT_CACHE, Env:PULSEAI_PROMPT_CACHE_CUSTOM
+Remove-Item Env:CRUSORAI_PROMPT_CACHE, Env:CRUSORAI_PROMPT_CACHE_CUSTOM
 ```
 
 expect (measured at `7a6f79b3`, derived path — `tool_part_markers_arg: null`, which is what the engine uses):
@@ -293,7 +293,7 @@ NOT being preserved, which is worth a finding even though it is not a gate failu
 **2.5 Bridge terminal frame (new — this is what blocked you last round, now fixed).** `turn_done` used to be
 gated on an unbounded `Queue.join()`, and `EventBus.clear()` removed queued events without releasing their join
 slots, so a healthy engine could finish with the client waiting forever. Pull `>= ` the fix commit; then:
-set `$env:PULSEAI_BRIDGE_DIAGNOSTICS='1'` for the live turns (the bridge dumps all thread tracebacks after 60s
+set `$env:CRUSORAI_BRIDGE_DIAGNOSTICS='1'` for the live turns (the bridge dumps all thread tracebacks after 60s
 — if anything still strands, that dump is what identifies the producer, and it costs nothing) and
 expect every `run_bridge_turn.py` invocation to exit 0 on `turn_done`, with no `runtime_degraded`
 `event queue flush incomplete` frame. If that degraded frame appears, capture it plus the faulthandler dump
@@ -306,7 +306,7 @@ follow-up turn in the same session.
 expect: after compaction the stable tier bytes are unchanged, and `find_stable_prefix()`-style behaviour
 holds — the volatile tail is what moved. Record the compaction label `Summarizing thread` appearing in the
 UI/frames for that turn.
-expect: `PULSEAI_COMPACTION=off` (one extra turn, `--max-llm-calls 4`) restores the legacy structural
+expect: `CRUSORAI_COMPACTION=off` (one extra turn, `--max-llm-calls 4`) restores the legacy structural
 pipeline without crash. Do not mix the off/on runs in the same session id.
 
 **3.2 Consent policy — verify the guard, not the model's manners.** The guard is a TOOL-ARGUMENT gate, never a
@@ -336,7 +336,7 @@ read side too), with `out/leak.txt` absent afterwards. Then confirm the freedom 
 `Overwrite tsconfig.json with write_file.` expect: **no** prompt for a tracked file. Both halves matter — an
 all-asks run proves as little as an all-goes one.
 
-`PULSEAI_SAFETY_GITIGNORE=0` restores the previous behaviour for a single run if you need to compare; record the
+`CRUSORAI_SAFETY_GITIGNORE=0` restores the previous behaviour for a single run if you need to compare; record the
 before/after in `findings.md` rather than re-running the suite twice by hand.
 
 **3.3 /plan — do NOT send `/plan` as turn text.** There is no slash-command parser at the bridge
@@ -346,7 +346,7 @@ at all, so send the frame yourself or note it). And here is the real finding: **
 then does nothing** — `chat_graph` branches on `ask` (`:798`) and `debug` (`:808`) only, and
 `build_plan_prompt` / `plan_target_path` have **no runtime caller** (exported from
 `src/prompts/hermes/__init__.py:23`, consumed only by tests). The port therefore guarantees the *prompt text*
-(`[/plan — plan mode]` header, `.pulseai/plans/<date>_<time>-<slug>.md` naming) and nothing above it.
+(`[/plan — plan mode]` header, `.crusorai/plans/<date>_<time>-<slug>.md` naming) and nothing above it.
 expect: with `mode:"plan"` on the frame, the turn still completes normally and `frames.jsonl` echoes the mode;
 that is all the code promises today.
 expect: `mode:"nonsense"` is **rejected** with an `unsupported execution mode: nonsense` error frame — that
@@ -369,34 +369,34 @@ browser-facing proxy → stylesheet → entry module:
 node scripts\ui_stack_smoke.mjs 2>&1 | Tee-Object "$evidence\ui-stack-smoke.log"
 ```
 expect: `5/5 hops healthy`. Engine streamed `RUN_STARTED` + `MESSAGES_SNAPSHOT` + `RUN_FINISHED` with no
-`RUN_ERROR`; the runtime advertises `pulse_agent`; the same contract answers through the proxy; `hermes-ui.css`
+`RUN_ERROR`; the runtime advertises `crusor_agent`; the same contract answers through the proxy; `hermes-ui.css`
 is really served; `index.html` + `main.tsx` compile. Non-zero exit prints a `fix:` line naming the dead hop. **A
 failing hop means the editor shows a blank or unstyled pane for a stack reason, not a UI regression** — say
 which, with that log. Last round's blocked Phase 4 was this class of failure, and no check you had would have
 told you so before you paid for turns.
 
-Launch exactly like prior rounds, with the **real** runner: leave `PULSEAI_BRIDGE_RUNNER` unset. `echo` is
+Launch exactly like prior rounds, with the **real** runner: leave `CRUSORAI_BRIDGE_RUNNER` unset. `echo` is
 the zero-credit test seam in `src\bridge\__main__.py:275` (it honours `cancel`, which is why prior rounds
 could prove layout with 0 provider requests); the real lane is `stream_agent` at `:495`. If a phase log shows
 `echo` behaviour while you are paying for turns, STOP — you are being billed for a fixture.
 
-`window.commandCenter` is not cosmetic: `scripts/validate_pulse_ui_cdp.js` opens Pulse Manager by clicking the
-title-bar / command-center entry (`:209`, `:215`) and then waits 20 s for `.pulseai-manager-shell` (`:218-239`).
+`window.commandCenter` is not cosmetic: `scripts/validate_crusor_ui_cdp.js` opens Crusor Manager by clicking the
+title-bar / command-center entry (`:209`, `:215`) and then waits 20 s for `.crusorai-manager-shell` (`:218-239`).
 Under the default native title bar that opener does not exist, the wait expires, and the phase reads as a UI
 failure when it is a launch-config one — which is what happened last round. If you cannot enable it, drive
-`pulseai.openManager` from the command palette and record which route you took.
+`crusorai.openManager` from the command palette and record which route you took.
 
 Never wrap a long-lived server in `| Select-Object -Last N` (or `| tail`): it buffers until EOF, so the
 process blocks on write once the pipe fills and keeps listening while answering nothing. `Tee-Object` is safe;
 `Select-Object -Last` is not. Redirect to a file and grep it instead.
 
 ```powershell
-$profile = Join-Path $env:TEMP 'pulseai-prompt-ui-live-profile'
+$profile = Join-Path $env:TEMP 'crusorai-prompt-ui-live-profile'
 New-Item -ItemType Directory -Force -Path (Join-Path $profile 'User') | Out-Null
 '{"security.workspace.trust.enabled":false,"window.restoreWindows":"none","workbench.startupEditor":"none","window.commandCenter":true,"window.titleBarStyle":"custom"}' |
   Set-Content (Join-Path $profile 'User\settings.json') -Encoding utf8
-$env:PULSEAI_ENGINE_ROOT=$repo; $env:PULSEAI_PYTHON_PATH=Join-Path $repo '.venv\Scripts\python.exe'
-$env:PULSEAI_CDP_PORT='9222'
+$env:CRUSORAI_ENGINE_ROOT=$repo; $env:CRUSORAI_PYTHON_PATH=Join-Path $repo '.venv\Scripts\python.exe'
+$env:CRUSORAI_CDP_PORT='9222'
 $process = Start-Process -FilePath (Join-Path $repo 'desktop\vscode\scripts\code.bat') `
   -ArgumentList @($repo, "--user-data-dir=$profile", '--remote-debugging-port=9222') `
   -RedirectStandardOutput "$evidence\desktop-stdout.log" -RedirectStandardError "$evidence\desktop-stderr.log" -PassThru
@@ -406,8 +406,8 @@ The validator takes one argument (the evidence dir) and a `--manager-only` switc
 this order — the manager pass costs nothing and the model pass costs one turn:
 
 ```powershell
-node scripts\validate_pulse_ui_cdp.js $evidence --manager-only 2>&1 | Tee-Object "$evidence\cdp-manager-only.log"   # 0 credits
-node scripts\validate_pulse_ui_cdp.js $evidence                 2>&1 | Tee-Object "$evidence\cdp-ui-console.log"   # full mode: makes the echo turn
+node scripts\validate_crusor_ui_cdp.js $evidence --manager-only 2>&1 | Tee-Object "$evidence\cdp-manager-only.log"   # 0 credits
+node scripts\validate_crusor_ui_cdp.js $evidence                 2>&1 | Tee-Object "$evidence\cdp-ui-console.log"   # full mode: makes the echo turn
 ```
 
 expect (manager-only): mode `manager-only`, prompt `null`, **provider requests `0`**, Screenshots and Echo
@@ -418,15 +418,15 @@ expect (full): mode `full`, `Execution mode picker` PASS (four accessible modes,
 restored through DOM interaction), `Echo turn` PASS, `Screenshots` captured to `$evidence\screens\`.
 Do not add new flags or invent a new harness; if a check is unavailable in a mode, record `SKIPPED(why)`.
 
-expect: the surface toggle renders both surfaces — **Agent UI** (`PulseAgentThread`) and **Copilot chat** —
+expect: the surface toggle renders both surfaces — **Agent UI** (`CrusorAgentThread`) and **Copilot chat** —
 and the default is Agent UI.
 expect: run header shows the present verb from `run-summary` — reading a file reads **"Exploring"**, not
 "Reading"; the target is a basename, and a live run shows a clause while a settled run shows counts.
-expect: a `write_file`/`edit_file` run renders `PulseTerminalTranscript` with the exit code element and an
-expandable payload; a diff run renders `PulseDiffSummary` + `PulseCodeBlock` with `+N/−M` badges; A2UI
+expect: a `write_file`/`edit_file` run renders `CrusorTerminalTranscript` with the exit code element and an
+expandable payload; a diff run renders `CrusorDiffSummary` + `CrusorCodeBlock` with `+N/−M` badges; A2UI
 surface renders **inside** the run card (no second card for the same tool call).
 expect: **approvals work live.** Trigger a gated mutation (`write_file` to `reports/out.md`) with
-`PULSEAI_AUTO_APPROVE_WRITES` **unset**: a card with `once|session|deny` appears; ⌘/Ctrl+Enter = Run,
+`CRUSORAI_AUTO_APPROVE_WRITES` **unset**: a card with `once|session|deny` appears; ⌘/Ctrl+Enter = Run,
 Esc = Reject; choosing `session` emits a `safety_reply{tool_id,approved,always_allow}` frame that the
 bridge resolves via `ApprovalQueue.resolve` — then the tool actually runs. Confirm the frame in
 `desktop-stdout.log`/frames and in a screenshot. A denied tool must **not** execute.
@@ -473,7 +473,7 @@ Files I will diff my provider-free claims against:
 | `head.txt` | `git rev-parse HEAD` you verified |
 | `pytest-parity.log`, `pytest-full.log`, `webview-test.log`, `webview-tsc.log`, `webview-build.log` | Phase 1 raw output, unedited |
 | `credits-spent.log` | per-phase ledger, appended live, final running total |
-| `env-manifest.json` | every `PULSEAI_*` / `LLM_*` / `PROVIDER_SAFE_LIMIT` you set (keys, not values); `CUSTOM_API_KEY` recorded as `"set"` |
+| `env-manifest.json` | every `CRUSORAI_*` / `LLM_*` / `PROVIDER_SAFE_LIMIT` you set (keys, not values); `CUSTOM_API_KEY` recorded as `"set"` |
 | `prompts/*.txt` | the exact prompt files, so turns are reproducible without a key |
 | `frames-*.jsonl` (copied from each `bench-results/<run-id>`) | the turn evidence I re-derive assertions from |
 | `pbr002-summary.txt`, `cdp-ui-console.log`, `desktop-stdout.log`, `desktop-stderr.log` | Phase 4–5 |
@@ -483,7 +483,7 @@ Files I will diff my provider-free claims against:
 
 `findings.md` rules: one section per `expect:` line, verdict `PASS` / `FAIL` / `SKIPPED(reason)` /
 `budget-stopped`. No prose summary at the top; no fixed-up logs; a FAIL with frames attached is worth more
-than a PASS I cannot reproduce. Do not edit anything under `src/` or `pulse-webview/src/` — **you are
+than a PASS I cannot reproduce. Do not edit anything under `src/` or `crusor-webview/src/` — **you are
 verifying, not fixing.** If you find a bug, write it in `findings.md` and stop there.
 
 Report the evidence commit SHA and finish. Do not merge. Do not delete the scratch profile.

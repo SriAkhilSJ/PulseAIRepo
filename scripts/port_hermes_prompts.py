@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract the pinned Hermes prompt corpus into Pulse's vendored prompt engine.
+"""Extract the pinned Hermes prompt corpus into Crusor's vendored prompt engine.
 
 This is the mechanical half of the "pin-to-pin" port: instead of retyping
 Hermes's prompt text (which drifts the moment someone edits it), we parse the
@@ -7,8 +7,8 @@ upstream module, lift the prompt-bearing constants verbatim, and write them to
 ``src/prompts/hermes/upstream_corpus.json`` with a provenance manifest.
 
 At runtime ``src/prompts/hermes/guidance.py`` loads that corpus and applies ONE
-documented transformation — the Hermes→Pulse tool-name rename map — so the
-words are upstream's and the identifiers are Pulse's. The parity test re-runs
+documented transformation — the Hermes→Crusor tool-name rename map — so the
+words are upstream's and the identifiers are Crusor's. The parity test re-runs
 the same extraction against a checkout of the pinned commit and asserts
 byte-equality, which is what makes "pin to pin" checkable rather than a claim.
 
@@ -75,13 +75,13 @@ WANTED: dict[str, list[str]] = {
 # Deliberately NOT ported, with the reason recorded in the manifest so the
 # gap is auditable instead of silent.
 EXCLUDED = {
-    "KANBAN_GUIDANCE": "kanban board protocol — Pulse has no kanban server or kanban_* tools",
-    "PLATFORM_HINTS": "messenger/relay surfaces (Telegram/Discord/Signal/HUD) — Pulse ships IDE + CLI only",
+    "KANBAN_GUIDANCE": "kanban board protocol — Crusor has no kanban server or kanban_* tools",
+    "PLATFORM_HINTS": "messenger/relay surfaces (Telegram/Discord/Signal/HUD) — Crusor ships IDE + CLI only",
     "TELEGRAM_RICH_MESSAGES_HINT": "Telegram rendering hint — no Telegram surface",
-    "_LOCAL_CRON_DELIVERY_NOTE": "cron delivery — Pulse has no cron daemon",
+    "_LOCAL_CRON_DELIVERY_NOTE": "cron delivery — Crusor has no cron daemon",
     "hud_surface_note": "floating-HUD per-turn note — no HUD surface",
     "build_memory_guidance": "composed by hand in guidance.py from the MEMORY_GUIDANCE corpus entry",
-    "execution_guidance_text": "re-implemented in guidance.py against Pulse's tool names",
+    "execution_guidance_text": "re-implemented in guidance.py against Crusor's tool names",
 }
 
 
@@ -246,7 +246,7 @@ def main(root: str) -> int:
             "extractor": "scripts/port_hermes_prompts.py",
             "note": (
                 "Prompt text lifted verbatim from the pinned upstream checkout. "
-                "Pulse applies ONLY the documented tool-name rename map at load "
+                "Crusor applies ONLY the documented tool-name rename map at load "
                 "time (see src/prompts/hermes/guidance.py). Nothing else is rewritten."
             ),
         },

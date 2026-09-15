@@ -1,6 +1,6 @@
 
 """
-Project Convention Learner for PulseCodeAI
+Project Convention Learner for CrusorCodeAI
 ==========================================
 Scans the codebase to detect coding patterns, then injects them
 into the agent's context so it writes code in YOUR style, not generic style.
@@ -29,9 +29,9 @@ class ConventionLearner:
     def __init__(self, storage_path: str | None = None):
         if storage_path is None:
             home = os.path.expanduser("~")
-            pulse_dir = os.path.join(home, ".pulseai")
-            os.makedirs(pulse_dir, exist_ok=True)
-            self.storage_path = os.path.join(pulse_dir, "conventions.json")
+            crusor_dir = os.path.join(home, ".crusorai")
+            os.makedirs(crusor_dir, exist_ok=True)
+            self.storage_path = os.path.join(crusor_dir, "conventions.json")
         else:
             self.storage_path = storage_path
 

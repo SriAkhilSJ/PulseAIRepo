@@ -4,7 +4,7 @@ hermes tools/file_operations_search.py caps EACH match's content at 500
 chars (:234/:241, SearchMatch(content=...[:500])). The field run on
 7a7111b9 (2026-09-09) reproduced why: `search_code '*'` matched a line of
 a ~1.9MB single-line minified bundle — the whole line rode the result and
-the bridge dropped the 1,719,559-byte PulseAI frame, leaving the UI step
+the bridge dropped the 1,719,559-byte CrusorAI frame, leaving the UI step
 empty. The per-match cap is the hermes-verbatim fix.
 
 All pure: temp workspace, no LLM, no provider keys.
@@ -39,11 +39,11 @@ def test_search_code_match_line_capped_at_500_chars(tmp_path):
 
 
 def test_search_code_still_returns_short_matches_verbatim(tmp_path):
-    (tmp_path / "app.py").write_text("def run_pulse():\n    return 42\n")
+    (tmp_path / "app.py").write_text("def run_crusor():\n    return 42\n")
 
-    out = _call(str(tmp_path), "run_pulse", path=".")
+    out = _call(str(tmp_path), "run_crusor", path=".")
 
-    assert "app.py:1: def run_pulse():" in out
+    assert "app.py:1: def run_crusor():" in out
 
 
 def test_search_code_multiple_matches_each_capped(tmp_path):

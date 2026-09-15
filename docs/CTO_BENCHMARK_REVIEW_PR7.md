@@ -1,6 +1,6 @@
 # CTO Review — PR #7 `benchmark/reliability-v1-runner`
 
-**Date:** 2026-09-11 · **Reviewer:** Office of the CTO (acting) · **Scope:** the latest merged commit — the Pulse Reliability Benchmark v1 (contract, evaluator, fixtures, runner)
+**Date:** 2026-09-11 · **Reviewer:** Office of the CTO (acting) · **Scope:** the latest merged commit — the Crusor Reliability Benchmark v1 (contract, evaluator, fixtures, runner)
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 > Rule I applied everywhere: **claims are verified by running the artifact, not by reading its README.**
@@ -29,13 +29,13 @@ This suite's `RunRecord` *captures* the numbers for all four — and then **enfo
 | **Latency** | ❌ Recorded, never gated | `startup_ms`, `first_token_ms`, `completion_ms` captured and printed — **zero checks assert a bound** |
 | **Cheap (fewer API calls)** | ❌ Recorded, never gated | `model_calls`, `tool_calls`, input/output/**cache** tokens, `estimated_cost_usd` captured and printed — **zero checks assert a ceiling or a cache-hit floor** |
 
-Consequence: today this suite can prove *"Pulse does not lie, leak, escape scope, or orphan processes."*
-It **cannot** prove *"Pulse is fast and cheap"* — which are your two headline differentiators. Nobody may yet say "low latency" or "cheap API calls" on the strength of this commit.
+Consequence: today this suite can prove *"Crusor does not lie, leak, escape scope, or orphan processes."*
+It **cannot** prove *"Crusor is fast and cheap"* — which are your two headline differentiators. Nobody may yet say "low latency" or "cheap API calls" on the strength of this commit.
 
 ## 3. Second gap: no execution lane, so zero runs exist
 
 The 99 green tests prove the **grader** is honest. They prove **nothing about the product**.
-The README defers "execution (desktop CDP harness)" to a separate lane. CTO decision: **pull the harness into this repo** (as `benchmarks/pulse_reliability_v1/harness/`), because trust is built by runs, not by architecture diagrams.
+The README defers "execution (desktop CDP harness)" to a separate lane. CTO decision: **pull the harness into this repo** (as `benchmarks/crusor_reliability_v1/harness/`), because trust is built by runs, not by architecture diagrams.
 
 Good news: **PBR-001..004, 011, 012 need no API key** (read-only / process tasks, `deny` or `localhost-only`). The first real run costs zero rupees.
 
@@ -47,7 +47,7 @@ Good news: **PBR-001..004, 011, 012 need no API key** (read-only / process tasks
 
 1. **Now, zero budget — harness lane in-repo.** Launch the fork IDE with `--remote-debugging-port`, drive PBR-001..003 / 011 / 012, capture frames/events/DOM/process/network into `RunRecord`. Gate: harness unit tests + 3 real desktop runs green. → **first real evidence rows exist.**
 2. **When a key arrives — baseline run.** One pass of PBR-005..010 (model tasks) establishes observed medians for latency/cost.
-3. **Add `perf` and `usage` check types** with task-specific ceilings at **2–3× the baseline median**, tightened per milestone; plus a **cache-hit floor** (`cache_tokens / (cache_tokens + input_tokens) ≥ X%`) — that single check encodes the "prompt caching is sacred" law that was your #1 cost lever. From then on, a PR that makes Pulse slower or pricier **fails the suite**.
+3. **Add `perf` and `usage` check types** with task-specific ceilings at **2–3× the baseline median**, tightened per milestone; plus a **cache-hit floor** (`cache_tokens / (cache_tokens + input_tokens) ≥ X%`) — that single check encodes the "prompt caching is sacred" law that was your #1 cost lever. From then on, a PR that makes Crusor slower or pricier **fails the suite**.
 4. **Cadence & dashboard.** Runs pinned to a commit; result JSONs stored outside git; one page: task × outcome × 4-axis sparklines. After **3 consecutive green suite runs**, the company may claim "reliability v1". After latency/cost gates pass 3×, it may claim "fast and cheap."
 
 ## 6. Verdict

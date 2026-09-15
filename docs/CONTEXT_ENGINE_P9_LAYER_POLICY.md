@@ -75,7 +75,7 @@ mutations never reach the module-level base.
   src/tests/test_context_budget.py src/tests/test_session_engines.py \
   src/tests/test_feedback_memory.py -q
 .venv/bin/python -m pytest src/tests -q \
-  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/pulseai-pytest
+  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/crusorai-pytest
 ```
 
 | Run | Result |

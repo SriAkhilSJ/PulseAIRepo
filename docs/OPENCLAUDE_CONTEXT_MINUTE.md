@@ -82,4 +82,4 @@
 
 ---
 
-*Use this as OpenClaude baseline — PulseAI gap is vector store vs deterministic PageRank; see `PULSEAI_CONTEXT_BENCH.md` for bench.*
+*Use this as OpenClaude baseline — CrusorAI gap is vector store vs deterministic PageRank; see `CRUSORAI_CONTEXT_BENCH.md` for bench.*

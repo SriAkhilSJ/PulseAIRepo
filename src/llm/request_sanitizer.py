@@ -330,7 +330,7 @@ def _pair_tool_calls_positionally(
 ) -> tuple[list[BaseMessage], int]:
     """Hermes _pair_tool_calls_positionally: ensures tool result immediately
     after its call, stubs missing, drops positional orphans.
-    Simplified for Pulse: this is a safety check that drops ToolMessages
+    Simplified for Crusor: this is a safety check that drops ToolMessages
     without a preceding matching AIMessage in the same turn. However, to
     avoid breaking valid flows where history is truncated, we only drop
     if we can prove it's stray (no matching call_id seen at all in history).

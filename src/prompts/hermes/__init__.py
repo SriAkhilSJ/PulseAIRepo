@@ -1,4 +1,4 @@
-"""Pulse's Hermes-parity prompt engine.
+"""Crusor's Hermes-parity prompt engine.
 
 Ported from ``NousResearch/hermes-agent`` at the commit pinned in
 ``upstream_corpus.json`` — see ``PROVENANCE.md`` for the per-symbol map and for
@@ -6,7 +6,7 @@ what was deliberately NOT ported.
 
 Layout mirrors upstream's ``agent/`` prompt subsystem::
 
-    upstream                            Pulse
+    upstream                            Crusor
     agent/prompt_builder.py   (partial)  → guidance.py, context_files.py, skills_index.py
     agent/system_prompt.py               → system_prompt.py
     agent/prompt_caching.py              → src/context/prompt_cache_plan.py
@@ -29,10 +29,10 @@ from src.prompts.hermes.system_prompt import (
     reconstruct_static_prefix,
     system_prompt_stats,
 )
-from src.prompts.hermes.view import PulsePromptView, resolve_valid_tool_names, view_from_config
+from src.prompts.hermes.view import CrusorPromptView, resolve_valid_tool_names, view_from_config
 
 __all__ = [
-    "PulsePromptView",
+    "CrusorPromptView",
     "build_learn_prompt",
     "build_plan_prompt",
     "build_system_prompt",

@@ -13,7 +13,7 @@ Design contract:
 - a constant preamble marks the boundary (volatile repo state is
   reference data, not conversation — and commit messages can be
   attacker-supplied, so the framing is explicit);
-- PULSEAI_VOLATILE_TAIL=off restores the legacy layout byte-for-byte.
+- CRUSORAI_VOLATILE_TAIL=off restores the legacy layout byte-for-byte.
 """
 
 from __future__ import annotations
@@ -109,10 +109,10 @@ def test_d23_order_git_after_history_and_preamble():
 def test_d23_legacy_layout_via_flag_and_env(monkeypatch):
     ws = _workspace()
     msgs = [HumanMessage(content="q1"), AIMessage(content="a1")]
-    # LEGACY packaging: PULSEAI_CONTEXT_MULTI_SYSTEM=1 restores the
+    # LEGACY packaging: CRUSORAI_CONTEXT_MULTI_SYSTEM=1 restores the
     # multi-system layout, where volatile_tail=False places git before
     # history (the pre-D23 truth, byte-for-byte).
-    monkeypatch.setenv("PULSEAI_CONTEXT_MULTI_SYSTEM", "1")
+    monkeypatch.setenv("CRUSORAI_CONTEXT_MULTI_SYSTEM", "1")
     eng = _engine(ws, volatile_tail=False)
     out = eng.build_ai_messages(_state(ws, msgs), SystemMessage(content="P"))
     kinds = [_kind(m) for m in out]
@@ -121,7 +121,7 @@ def test_d23_legacy_layout_via_flag_and_env(monkeypatch):
         assert kinds.index("git") < max(
             i for i, k in enumerate(kinds) if k in ("human", "ai")
         )
-    monkeypatch.delenv("PULSEAI_CONTEXT_MULTI_SYSTEM")
+    monkeypatch.delenv("CRUSORAI_CONTEXT_MULTI_SYSTEM")
 
     # Default (hermes-shape) packaging: git rides the tail block AFTER
     # history regardless of the engine's volatile_tail preference — the
@@ -135,10 +135,10 @@ def test_d23_legacy_layout_via_flag_and_env(monkeypatch):
             i for i, k in enumerate(kinds_default) if k in ("human", "ai")
         )
 
-    monkeypatch.setenv("PULSEAI_VOLATILE_TAIL", "off")
+    monkeypatch.setenv("CRUSORAI_VOLATILE_TAIL", "off")
     eng2 = ContextEngine(max_tokens=12_000, model="gpt-4o-mini", probe_window=False)
     assert eng2._volatile_tail is False
-    monkeypatch.delenv("PULSEAI_VOLATILE_TAIL")
+    monkeypatch.delenv("CRUSORAI_VOLATILE_TAIL")
     eng3 = ContextEngine(max_tokens=12_000, model="gpt-4o-mini", probe_window=False)
     assert eng3._volatile_tail is True
 

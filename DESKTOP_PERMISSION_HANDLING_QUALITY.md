@@ -1,6 +1,6 @@
 # Permission handling in the desktop agent — quality assessment
 
-Scope: how consent works when Pulse writes files **inside the VS Code fork**, plus the state of
+Scope: how consent works when Crusor writes files **inside the VS Code fork**, plus the state of
 Ask/Plan modes, the Manager surface, and the CopilotKit view. Written against `main` as of
 `bf696a61` (PR #14 merge). Every claim names a file and line; anything I could not verify is in
 "Open" with the reason.
@@ -31,12 +31,12 @@ friction and never secrets.
 | One rule for all mutating tools; no tool-choice bypass | `safety_guard.py::PATH_ARGS`, `_consent_for`; 18 behavioural tests in `src/tests/test_safety_guard_consent.py` on real `git init` fixtures |
 | Session-scoped grants are real, not decorative | `safety_reply { always_allow }` → `src/bridge/__main__.py:552` → `src/dashboard/event_bus.py:145,152`; and the *engine* still re-asks for the never-auto class because the guard returns `False` before scope is considered |
 | Autonomous runs degrade instead of deadlocking | `chat_graph.py:2765+`: a flagged call becomes a denial `ToolMessage` telling the model to pick another path and **not wait for approval**; safe calls in the same batch still execute |
-| Reversible work is not interrupted | tracked-file overwrite needs no prompt and no env flag; `PULSEAI_AUTO_APPROVE_WRITES` keeps its old meaning for eval lanes |
-| Approval surface is theme-safe and state-labelled | `pulseAIRenderer.ts::approvalDock`, states `queued/running/passed/approval/failed` (`:11`), `--pulseai-approval` amber token, `shield` glyph |
-| Undo exists per mutation | `checkpoint_before_mutation` in `file_tools.py`, and the renderer host exposes `restoreCheckpoint` (`pulseAIRenderer.ts::PulseAIRenderHost`) |
+| Reversible work is not interrupted | tracked-file overwrite needs no prompt and no env flag; `CRUSORAI_AUTO_APPROVE_WRITES` keeps its old meaning for eval lanes |
+| Approval surface is theme-safe and state-labelled | `crusorAIRenderer.ts::approvalDock`, states `queued/running/passed/approval/failed` (`:11`), `--crusorai-approval` amber token, `shield` glyph |
+| Undo exists per mutation | `checkpoint_before_mutation` in `file_tools.py`, and the renderer host exposes `restoreCheckpoint` (`crusorAIRenderer.ts::CrusorAIRenderHost`) |
 | Guard is argument-level, never prompt-level | documented at the top of `safety_guard.py`; `check_tool_call` sees only `tool_args` |
 
-## Fixed in this commit (fork side, `desktop/vscode/.../pulseai/`)
+## Fixed in this commit (fork side, `desktop/vscode/.../crusorai/`)
 
 1. **"Allow for session"** now exists. `replyToSafety(toolId, approved, alwaysAllow?)` has carried the
    third argument since the start and the bridge honours it, but the dock sent only `true`/`false` —
@@ -45,7 +45,7 @@ friction and never secrets.
 2. **Green/red by meaning.** `Allow once` = button primary + `--vscode-testing-iconPassed`; `Deny` =
    `--vscode-testing-iconFailed` border/tint; `Review change` secondary. Previously Allow was
    indistinguishable-in-kind from Review (both secondary) and nothing about a denial read as one.
-3. **Diff lines are tintable.** `.pulseai-diff-preview` was a single `<pre>` of text — no per-line
+3. **Diff lines are tintable.** `.crusorai-diff-preview` was a single `<pre>` of text — no per-line
    colour was possible — now `diffPreview()` emits one node per line with `is-added` / `is-removed` /
    `is-meta`, coloured with the *editor's own* diff tokens (`--vscode-diffEditor-insertedTextBackground`,
    `removedTextBackground`), so the pane and the native diff cannot disagree about what an added line
@@ -56,13 +56,13 @@ friction and never secrets.
    diff that arrived (`diffStats`, `undefined` when there is no diff body → renders `—`), and the
    receipt row only appears if the tool reported one. A placeholder the user can't distinguish from a
    measurement is worse than a blank.
-5. **The CopilotKit view works off a dev server.** `pulseAIViewPane.ts` hardcoded
+5. **The CopilotKit view works off a dev server.** `crusorAIViewPane.ts` hardcoded
    `src='http://localhost:5173'` at a fixed `height:50%`. On a packaged build, a remote/WSL window
    (where `localhost` is the client), a taken port, or a forgotten `npm run dev`, that is an empty
    frame — and the native renderer still surrendered half the pane to it. Now three settings:
-   `pulseai.copilotWebview.enabled` (off ⇒ native view gets 100%), `.url`, `.height`, plus an
+   `crusorai.copilotWebview.enabled` (off ⇒ native view gets 100%), `.url`, `.height`, plus an
    in-pane "not answering at <url>" notice with a Reload and the exact fix. Declared in
-   `pulseAI.contribution.ts` so they are discoverable in Settings, not tribal knowledge.
+   `crusorAI.contribution.ts` so they are discoverable in Settings, not tribal knowledge.
 6. **Native view has a designed empty state** (`emptyState` + starter prompts). `function emptyState`
    was *required* by the fork's own architecture pin and **red at base `86eaaae2`** — an empty
    transcript rendered as an empty lane. It now mirrors the ported webview's
@@ -84,19 +84,19 @@ grant, counted-not-placeholder rows) fail on any regression.
 | `debug` | `:808` DEBUG MODE prefix: reproduce → diagnose → smallest fix → rerun the strongest check | real prefix, no routing change |
 | `agent` | default: full pipeline, tools declared | baseline |
 
-The fork's chip is wired properly: `modePicker` → `setMode` (`pulseAIRendererService.ts:95`) →
+The fork's chip is wired properly: `modePicker` → `setMode` (`crusorAIRendererService.ts:95`) →
 `{ type:'prompt', …, mode: this.mode }` (`:478`), and mode is locked while a turn runs.
 
 ## Open — owner decisions
 
 1. **Two Manager surfaces.** The in-pane `Manager` button calls
-   `pulseAIRendererService.openManagerWindow()` (`:325`), which opens an **auxiliary window** and
-   hand-builds a root with class `pulseai-manager-editor`; the `pulseai.openManager` **command**
-   (`pulseAI.contribution.ts:190-201`) opens the registered `PulseAIManagerEditor`, whose DOM
-   carries `.pulseai-manager-shell` — the selector `scripts/validate_pulse_ui_cdp.js:218-239` waits
+   `crusorAIRendererService.openManagerWindow()` (`:325`), which opens an **auxiliary window** and
+   hand-builds a root with class `crusorai-manager-editor`; the `crusorai.openManager` **command**
+   (`crusorAI.contribution.ts:190-201`) opens the registered `CrusorAIManagerEditor`, whose DOM
+   carries `.crusorai-manager-shell` — the selector `scripts/validate_crusor_ui_cdp.js:218-239` waits
    for. So a Phase-4 run that reaches Manager through the *button* times out on a UI that is
    genuinely on screen. Pick popup-or-tab and route one through the other
-   (`executeCommand(PulseAICommandId.OpenManager)`). Owner directive for this round was
+   (`executeCommand(CrusorAICommandId.OpenManager)`). Owner directive for this round was
    *"don't touch manager UI / for / now"*, so no route was chosen here; the assertion now lives in
    `test_manager_opens_through_one_path_pending_owner_decision`, marked `xfail(strict=True)` with
    this paragraph as its reason. Strict means the lane stays green while the decision is open, and
@@ -119,16 +119,16 @@ The fork's chip is wired properly: `modePicker` → `setMode` (`pulseAIRendererS
 ## Agent UI inside the fork: the right panel
 
 The Agent surface in the fork is a `ViewPane` registered in the **Auxiliary Bar**
-(`pulseAI.contribution.ts`: `ViewContainerLocation.AuxiliaryBar`,
+(`crusorAI.contribution.ts`: `ViewContainerLocation.AuxiliaryBar`,
 `mergeViewWithContainerWhenSingleView: true`, `canMoveView: false`), painted by the shared native
-renderer — `transcript()` in `pulseAIRenderer.ts`, not the React webview. That transcript was the
+renderer — `transcript()` in `crusorAIRenderer.ts`, not the React webview. That transcript was the
 last real parity gap: it appended **one row per tool call**, flat under a static `Actions`
 heading. Hermes and the ported webview never do that — consecutive same-category calls coalesce
 into a **run** carrying a present-tense clause, and only decision-shaped tools stay cards.
 
-Fork changes, all under `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/`:
+Fork changes, all under `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/`:
 
-- **`pulseAIRunSummary.ts` (new)** — DOM-free port of `pulse-webview/src/hermes-ui/model/run-summary.ts`:
+- **`crusorAIRunSummary.ts` (new)** — DOM-free port of `crusor-webview/src/hermes-ui/model/run-summary.ts`:
   same `CATEGORY_ORDER` (`edit, explore, run, delegate, other`), same category nouns/verbs, same
   card and silent-tool sets, same `splitRunGroups` (a card breaks a run, order preserved), and the
   same clause rule inside `summarizeToolRun`: a category holding one call names that call
@@ -137,7 +137,7 @@ Fork changes, all under `desktop/vscode/src/vs/workbench/contrib/pulseai/browser
   waiting on. The fork passes its own target extractor as `targetOf` (`displayTarget`, which reads
   per-family payloads) where the webview uses `toolTarget`; the rule, not the payload reader, is
   what is shared.
-- **`pulseAIRenderer.ts`** — both transcript branches go through `toolSection(tools, host, openTools, live)`:
+- **`crusorAIRenderer.ts`** — both transcript branches go through `toolSection(tools, host, openTools, live)`:
   a run renders as one `<details>` whose summary *is* the clause (`Explored 3 files`,
   `Edited safety_guard.py`, `Running tests`), keyed by the **first** call's id
   (`dataset.runKey = key`) so re-renders don't yank an open panel shut under the reader, auto-open
@@ -148,12 +148,12 @@ Fork changes, all under `desktop/vscode/src/vs/workbench/contrib/pulseai/browser
 - **Targets are clamped** (`compactTarget`, 48 chars + ellipsis, whitespace collapsed) because the
   panel is ~380px wide; the clamp is display-only — the row behind it still carries the whole
   command. This mirrors the webview's `compactPreview` / `timelinePreview`.
-- **`pulseAIViewPane.ts`** — the pane stops stacking two full agent surfaces at 50/50. Tabs
+- **`crusorAIViewPane.ts`** — the pane stops stacking two full agent surfaces at 50/50. Tabs
   (`Agent` / `CopilotKit`) switch which one is visible; both stay mounted, so switching costs no
-  remount and the native view's scroll position survives. With `pulseai.copilotWebview.enabled:
+  remount and the native view's scroll position survives. With `crusorai.copilotWebview.enabled:
   false` the strip is hidden and the native view owns the entire pane — which is also the
   unreachable-webview state, so a dead dev server can no longer eat half the panel.
-- **`media/pulseAI.css`** — `.pulseai-tool-run*` and `.pulseai-view-tab*`; theme tokens only, no
+- **`media/crusorAI.css`** — `.crusorai-tool-run*` and `.crusorai-view-tab*`; theme tokens only, no
   colour literals, and a 420px tweak that keeps the clause on one line in a narrow bar.
 
 **Proof.** `src/tests/test_hermes_run_summary_parity.py` bundles *both* modules with the webview's
@@ -192,7 +192,7 @@ so a future edit cannot quietly give one surface its own list again.
 **Breathing and thinking.** `workingDock` (a spinner, a sentence, an action count) is replaced by
 the ported scaffold row: a 0.75rem square breathing at 1.6s, the named wait under a clipped-gradient
 sweep at 2.4s, and the seconds counted from the moment the turn last *showed* something — not from
-when the row mounted. `pulseAIActivity.ts` is DOM-free and carries `TURN_QUIET_S` (2s),
+when the row mounted. `crusorAIActivity.ts` is DOM-free and carries `TURN_QUIET_S` (2s),
 `DRAFTING_REVEAL_MS` (200ms, so a tool whose arguments land in three frames never flashes a label),
 `activitySignature`, `toolNarratesWait`, `formatElapsed`, `activityRowMode` and the measured-duration
 registry. Behaviour worth reading, from the executed sample:
@@ -213,16 +213,16 @@ is the newest thing produced and `Thought for 12s` after, caret to the right of 
 content-sized hover pill — upstream's `DisclosureRow` affordance. The duration comes from a keyed,
 module-level registry so it survives every repaint and outlives the row that measured it.
 
-**SVGs.** `browser/pulseAIIcons.ts` carries hermes-agent's `TOOL_ICON_PATHS` (13 Phosphor "fill"
+**SVGs.** `browser/crusorAIIcons.ts` carries hermes-agent's `TOOL_ICON_PATHS` (13 Phosphor "fill"
 paths, 256×256 viewBox, `currentColor`) copied by script from the pinned checkout, and the renderer's
 `icon()` uses them with upstream's fallback: solid SVG where the table has the name, outline codicon
 font otherwise — because a font glyph has no fillable region, so a filled look cannot be derived from
-it. `common/pulseAIToolCatalog.ts` then adopts the *webview's* glyph keys for all 36 tools (`think`
+it. `common/crusorAIToolCatalog.ts` then adopts the *webview's* glyph keys for all 36 tools (`think`
 → `brain`, `ask_user` → `question`, `edit_file` → `edit`, `browser_screenshot` → `file-media`,
 `delegate_*` → `rocket`, …), which is what makes the two surfaces pick the same glyph for the same
 call instead of re-guessing it.
 
-**One new signal.** `PulseAIRenderModel.turnStartedAt` (epoch ms, set when a prompt is sent, cleared
+**One new signal.** `CrusorAIRenderModel.turnStartedAt` (epoch ms, set when a prompt is sent, cleared
 on `turn_done` / `turn_failed` / a workspace switch). Without it the row can only report a
 component's age. `compacting` is on the model and consumed by the row, but fed `undefined`: the
 engine emits no compaction frame, so naming one would be inventing a signal.
@@ -249,8 +249,8 @@ is parse- and transpile-clean, and your first fork build is the gate.
 ## Runbook for the laptop
 
 ```powershell
-cd pulse-webview
-npm install; npm run dev                      # :5173  (or set pulseai.copilotWebview.url to a build you serve)
+cd crusor-webview
+npm install; npm run dev                      # :5173  (or set crusorai.copilotWebview.url to a build you serve)
 npm run runtime                               # :8200  (needs the engine below)
 cd ..
 .venv\Scripts\python.exe -m uvicorn src.server:app --host 0.0.0.0 --port 8123
@@ -266,20 +266,20 @@ The 40-second gate, before any full build (no display, no engine, no key, no net
 
 ```
 cd desktop\vscode\src
-node ..\..\..\pulse-webview\node_modules\typescript\bin\tsc -p tsconfig.pulseai-check.json
+node ..\..\..\crusor-webview\node_modules\typescript\bin\tsc -p tsconfig.crusorai-check.json
 ```
 
-`tsconfig.pulseai-check.json` is committed: same strict flags as the fork's own
+`tsconfig.crusorai-check.json` is committed: same strict flags as the fork's own
 `src/tsconfig.base.json` (`strict`, `noUnusedLocals`, `noImplicitOverride`, nodenext resolution),
-`noEmit`, scoped to `contrib/pulseai/browser` + `common` plus `src/typings` for the `*.css`
+`noEmit`, scoped to `contrib/crusorai/browser` + `common` plus `src/typings` for the `*.css`
 side-effect imports. `node/` and `electron-browser/` are deliberately out of scope — they need
 `@types/node` and `electron.d.ts`, which only a real install has — so this lane checks the DOM layer
 and the full build still checks everything. It earned its place: the first run found six real defects
 in code this branch had already shipped (a wrong element type on the SVG glyph, two dead locals that
 `noUnusedLocals` rejects, and three `HTMLElement`-vs-specific-element misannotations around the
 webview frame), every one of them invisible to the transpile-only check I had been using. Log:
-`bench-results/hermes-prompt-ui-copilotkit-verification/pulseai-typecheck.log`.
+`bench-results/hermes-prompt-ui-copilotkit-verification/crusorai-typecheck.log`.
 
-Settings to know: `pulseai.copilotWebview.enabled/.url/.height`,
-`PULSEAI_SAFETY_GITIGNORE=0` (revert the consent rule to its previous behaviour for one run),
-`PULSEAI_ALLOW_LIVE_AGENT_TEST` (never set it: that is the paid-turn gate).
+Settings to know: `crusorai.copilotWebview.enabled/.url/.height`,
+`CRUSORAI_SAFETY_GITIGNORE=0` (revert the consent rule to its previous behaviour for one run),
+`CRUSORAI_ALLOW_LIVE_AGENT_TEST` (never set it: that is the paid-turn gate).

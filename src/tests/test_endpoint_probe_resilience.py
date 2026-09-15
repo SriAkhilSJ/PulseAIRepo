@@ -1,6 +1,6 @@
 """Connect vs read, dead hosts vs slow hosts -- the distinction the owner's endpoint needed.
 
-Hermes separates "nothing is there" from "something is thinking" (agent/model_metadata.py @ 8cab422) and Pulse
+Hermes separates "nothing is there" from "something is thinking" (agent/model_metadata.py @ 8cab422) and Crusor
 did not: one flat 2.5s budget meant a 5.1s / 503 KB / 1,572-model catalog on localhost was indistinguishable from
 a dead host, and the engine concluded the provider published no window. Also ported: probing `localhost` on a
 Windows dual-stack machine pays a ~2s IPv6 connect timeout before falling back to IPv4 -- which is exactly the

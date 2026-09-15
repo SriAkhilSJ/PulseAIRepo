@@ -1,15 +1,15 @@
-# Desktop Agent Handoff — Pulse Agent UI CDP Runtime Validation
+# Desktop Agent Handoff — Crusor Agent UI CDP Runtime Validation
 
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required source ancestor:** `b790a29d`  
-**Required CDP script ancestor:** commit containing `scripts/validate_pulse_ui_cdp.js`  
-**Existing checkout:** `D:\pulseAIagent\PulseAIRepo`  
+**Required CDP script ancestor:** commit containing `scripts/validate_crusor_ui_cdp.js`  
+**Existing checkout:** `D:\crusorAIagent\PulseAIRepo`  
 **Provider authorization:** none; use only the echo runner  
 **Evidence directory:** `bench-results/agent-ui-cdp-desktop/`
 
 ## Correction
 
-R2 proved source/build integrity but did not run the GUI. The repository already documents raw CDP automation in `CDP_TEST_GUIDE.md`, and the Windows host has the established `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test` setup. The prior “human-only” conclusion was incorrect.
+R2 proved source/build integrity but did not run the GUI. The repository already documents raw CDP automation in `CDP_TEST_GUIDE.md`, and the Windows host has the established `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test` setup. The prior “human-only” conclusion was incorrect.
 
 This handoff performs the remaining runtime smoke through Electron's Chrome DevTools Protocol. The committed script uses Node's built-in `fetch` and `WebSocket`; it does not require Playwright, Selenium, AutoIt, or a provider.
 
@@ -26,7 +26,7 @@ This handoff performs the remaining runtime smoke through Electron's Chrome DevT
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\pulseAIagent\PulseAIRepo'
+$repo = 'D:\crusorAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — preserve it and STOP' }
@@ -35,7 +35,7 @@ git pull --ff-only origin arena/01a03741-pulseairepo
 if ($LASTEXITCODE -ne 0) { throw 'Fast-forward failed — STOP' }
 git merge-base --is-ancestor b790a29d HEAD
 if ($LASTEXITCODE -ne 0) { throw 'UI repair missing — STOP' }
-node --check scripts/validate_pulse_ui_cdp.js
+node --check scripts/validate_crusor_ui_cdp.js
 if ($LASTEXITCODE -ne 0) { throw 'CDP script syntax failed — STOP' }
 
 $evidence = Join-Path $repo 'bench-results\agent-ui-cdp-desktop'
@@ -45,18 +45,18 @@ git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
 git status --porcelain=v1 | Set-Content "$evidence\git-status-before.txt" -Encoding utf8
 ```
 
-Confirm port 9222 and PulseAI are not already in use. If they are, record the conflict and STOP rather than killing an unrelated process.
+Confirm port 9222 and CrusorAI are not already in use. If they are, record the conflict and STOP rather than killing an unrelated process.
 
 ```powershell
 $listener = Get-NetTCPConnection -LocalPort 9222 -State Listen -ErrorAction SilentlyContinue
 if ($listener) { throw 'CDP port 9222 already in use — STOP' }
-if (Get-Process PulseAI -ErrorAction SilentlyContinue) { throw 'PulseAI already running — STOP' }
+if (Get-Process CrusorAI -ErrorAction SilentlyContinue) { throw 'CrusorAI already running — STOP' }
 ```
 
 ## 2. Prepare isolated profile
 
 ```powershell
-$profile = Join-Path $env:TEMP 'pulseai-ui-cdp-r3-profile'
+$profile = Join-Path $env:TEMP 'crusorai-ui-cdp-r3-profile'
 if (Test-Path $profile) { throw 'R3 profile already exists — STOP; do not reuse it' }
 New-Item -ItemType Directory -Path (Join-Path $profile 'User') -Force | Out-Null
 @'
@@ -73,10 +73,10 @@ Disabling workspace trust applies only to this disposable validation profile; it
 ## 3. Launch the real Electron workbench with CDP
 
 ```powershell
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_ENGINE_ROOT = $repo
-$env:PULSEAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
-$env:PULSEAI_CDP_PORT = '9222'
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
+$env:CRUSORAI_CDP_PORT = '9222'
 
 cd "$repo\desktop\vscode"
 $process = Start-Process `
@@ -104,7 +104,7 @@ $version | ConvertTo-Json -Depth 5 | Set-Content "$evidence\cdp-version.json" -E
 
 ```powershell
 cd $repo
-node scripts/validate_pulse_ui_cdp.js $evidence 2>&1 |
+node scripts/validate_crusor_ui_cdp.js $evidence 2>&1 |
   Tee-Object "$evidence\cdp-ui-console.log"
 $cdpExit = $LASTEXITCODE
 ```
@@ -120,11 +120,11 @@ The script must drive the actual renderer and produce:
 
 It checks:
 
-- Pulse opens via its registered keybinding;
+- Crusor opens via its registered keybinding;
 - Agent composer, session header, and Manager button are visible;
 - narrow Agent layout has no horizontal overflow;
 - exactly one echo-runner prompt completes with a completion receipt;
-- the Manager button opens the existing Pulse Manager editor;
+- the Manager button opens the existing Crusor Manager editor;
 - Manager responsive behavior activates after real Electron window resize;
 - no renderer exception or console error is observed after CDP attachment;
 - provider request count remains zero.
@@ -136,10 +136,10 @@ Do not rerun on failure. Preserve the result exactly.
 ```powershell
 if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
 Start-Sleep -Seconds 3
-Remove-Item Env:PULSEAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
-Remove-Item Env:PULSEAI_ENGINE_ROOT -ErrorAction SilentlyContinue
-Remove-Item Env:PULSEAI_PYTHON_PATH -ErrorAction SilentlyContinue
-Remove-Item Env:PULSEAI_CDP_PORT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_ENGINE_ROOT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_PYTHON_PATH -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_CDP_PORT -ErrorAction SilentlyContinue
 ```
 
 Create `validation-summary.json` and `validation-report.md`. Overall PASS requires:
@@ -166,7 +166,7 @@ Get-FileHash "$evidence\*" -Algorithm SHA256 -ErrorAction SilentlyContinue |
 git add -- bench-results/agent-ui-cdp-desktop
 git diff --cached --name-only | Set-Content "$evidence\staged-files.txt" -Encoding utf8
 git add -- "$evidence\staged-files.txt"
-git commit -m "Add provider-free Pulse Agent UI CDP runtime evidence"
+git commit -m "Add provider-free Crusor Agent UI CDP runtime evidence"
 git push origin arena/01a03741-pulseairepo
 ```
 

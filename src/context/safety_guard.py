@@ -1,6 +1,6 @@
 
 """
-Safety Guard for PulseCodeAI
+Safety Guard for CrusorCodeAI
 ==============================
 Intercepts potentially destructive tool calls and asks for confirmation.
 Protects against:
@@ -150,12 +150,12 @@ class SafetyGuard:
             # freedom for git-ignored-but-ordinary paths (`out/`, `dist/`, caches).
             # The veto above it — named secrets, `.git`, `.ssh` — never relaxes,
             # which is the same precedence upstream uses for sensitive paths.
-            if os.environ.get("PULSEAI_AUTO_APPROVE_WRITES", "").strip() == "1":
+            if os.environ.get("CRUSORAI_AUTO_APPROVE_WRITES", "").strip() == "1":
                 return False, ""
             return True, self._ignored_file_warning(tool_name, key, path)
 
         # 3. No git to ask (not a repo, git missing, timed out, or the escape
-        # hatch PULSEAI_SAFETY_GITIGNORE=0): behave exactly as this guard did
+        # hatch CRUSORAI_SAFETY_GITIGNORE=0): behave exactly as this guard did
         # before, so a host without git neither gains nor loses freedom.
         return self._legacy_verdict(tool_name, key, path, resolved)
 
@@ -163,7 +163,7 @@ class SafetyGuard:
         if tool_name in ("copy_file", "edit_file"):
             return False, ""
         if tool_name == "write_file" and resolved.exists():
-            if os.environ.get("PULSEAI_AUTO_APPROVE_WRITES", "").strip() == "1":
+            if os.environ.get("CRUSORAI_AUTO_APPROVE_WRITES", "").strip() == "1":
                 return False, ""
             return True, self._overwrite_warning(path)
         return False, ""
@@ -174,7 +174,7 @@ class SafetyGuard:
 
     def _git_root(self) -> Path | None:
         """Toplevel of the repo containing the workspace, cached (None = no git)."""
-        if os.environ.get("PULSEAI_SAFETY_GITIGNORE", "1").strip() == "0":
+        if os.environ.get("CRUSORAI_SAFETY_GITIGNORE", "1").strip() == "0":
             return None
         if self._repo_root is not _UNSET:
             return self._repo_root

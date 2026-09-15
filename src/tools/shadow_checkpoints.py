@@ -16,9 +16,9 @@ ARCHITECTURE_REVIEW.md §43), simplified for one transport:
 Store layout (single shared store; git's object DB dedupes across projects
 and across turns — a second worktree of one repo costs near-zero):
 
-    ~/.pulseai/checkpoints/
+    ~/.crusorai/checkpoints/
         store/                      — bare-ish git repo (shared objects)
-            HEAD, config, objects/, refs/pulseai/<hash16>, indexes/<hash16>
+            HEAD, config, objects/, refs/crusorai/<hash16>, indexes/<hash16>
             info/exclude            — DEFAULT_EXCLUDES
         .last_gc                    — lazy daily gc idempotency marker
 
@@ -27,11 +27,11 @@ Git isolation (copied from their _git_env, receipts §43):
     the store — the user's project NEVER gets a .git it didn't already have.
     GIT_CONFIG_GLOBAL/SYSTEM=/dev/null so user gitconfig (commit.gpgsign,
     hooks, credential helpers) can't break background snapshots or spawn
-    pinentry windows mid-session. Identity is forced to "PulseAI Shadow"
+    pinentry windows mid-session. Identity is forced to "CrusorAI Shadow"
     because with config isolated there IS no user.email to commit with.
 
 Safety rails kept from upstream: master switch + env kill-switch
-(PULSEAI_CHECKPOINTS=off), never-raise anywhere (a broken snapshot must
+(CRUSORAI_CHECKPOINTS=off), never-raise anywhere (a broken snapshot must
 never break an edit), skip / and ~, lazy git-presence probe, per-turn
 dedup (one snapshot per workspace per AI iteration at most), no-change
 turns create no commit (diff-index --quiet), oversize files unstaged,
@@ -39,8 +39,8 @@ per-project history trimmed to max_snapshots via orphan-restart, plus a
 guard hermes does NOT have: restore refuses any commit that is not an
 ancestor of THIS project's checkpoint ref (no cross-project bleed).
 
-Kill-switch: PULSEAI_CHECKPOINTS=off — hooks become instant no-ops.
-Test override: PULSEAI_CHECKPOINT_HOME points the store elsewhere.
+Kill-switch: CRUSORAI_CHECKPOINTS=off — hooks become instant no-ops.
+Test override: CRUSORAI_CHECKPOINT_HOME points the store elsewhere.
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ from typing import Optional
 
 _GIT_TIMEOUT = 30          # hermes HERMES_CHECKPOINT_TIMEOUT default (clamp 10..60)
 _MAX_FILES = 50_000        # hermes _MAX_FILES: skip huge directories (bounded walk)
-_COMMITTER_NAME = "PulseAI Shadow"
-_COMMITTER_EMAIL = "shadow@pulseai.local"
+_COMMITTER_NAME = "CrusorAI Shadow"
+_COMMITTER_EMAIL = "shadow@crusorai.local"
 
 # Broad, boring excludes — the point is snapshots of YOUR work, not of
 # dependency forests and build output. (Trimmed copy of upstream's list:
@@ -80,7 +80,7 @@ DEFAULT_EXCLUDES = [
     "*.so", "*.dylib", "*.dll", "*.o", "*.a", "*.class", "*.exe", "*.obj",
     # Our own state (checkpoint store nested inside a workspace must never
     # recursively snapshot itself; langgraph DBs are runtime state)
-    ".pulseai/", "*.sqlite", "*.sqlite-shm", "*.sqlite-wal",
+    ".crusorai/", "*.sqlite", "*.sqlite-shm", "*.sqlite-wal",
     # OS noise
     ".DS_Store", "Thumbs.db",
 ]
@@ -91,13 +91,13 @@ _HASH_RE = re.compile(r"^[0-9a-f]{6,40}$")
 # the same 30s git-add give-up on a tree the snapshot can never cover —
 # 30s/turn, forever). After a give-up for a workspace, snapshots are skipped
 # for that workspace until the process restarts.
-# PULSEAI_SHADOW_RETRY_AFTER_GIVEUP=1 (read per call) restores retry behavior.
+# CRUSORAI_SHADOW_RETRY_AFTER_GIVEUP=1 (read per call) restores retry behavior.
 _GAVE_UP_LOCK = threading.Lock()
 _GAVE_UP_WORKSPACES: set = set()
 
 
 def _retry_after_giveup_enabled() -> bool:
-    raw = os.environ.get("PULSEAI_SHADOW_RETRY_AFTER_GIVEUP", "").strip().lower()
+    raw = os.environ.get("CRUSORAI_SHADOW_RETRY_AFTER_GIVEUP", "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
 
@@ -120,10 +120,10 @@ def _normalize_path(path_value: str) -> Path:
 
 
 def checkpoint_base() -> Path:
-    override = os.environ.get("PULSEAI_CHECKPOINT_HOME", "").strip()
+    override = os.environ.get("CRUSORAI_CHECKPOINT_HOME", "").strip()
     if override:
         return Path(override).expanduser().resolve()
-    return Path.home() / ".pulseai" / "checkpoints"
+    return Path.home() / ".crusorai" / "checkpoints"
 
 
 def _store_path(base: Optional[Path] = None) -> Path:
@@ -137,7 +137,7 @@ def _project_hash(working_dir: str) -> str:
 
 
 def _ref_name(dir_hash: str) -> str:
-    return f"refs/pulseai/{dir_hash}"
+    return f"refs/crusorai/{dir_hash}"
 
 
 def _index_path(store: Path, dir_hash: str) -> Path:
@@ -293,10 +293,10 @@ def _init_store(store: Path) -> None:
 
 
 def _git_timeout() -> int:
-    """Per-call snapshot git budget. Env-driven (PULSEAI_SHADOW_GIT_TIMEOUT_S),
+    """Per-call snapshot git budget. Env-driven (CRUSORAI_SHADOW_GIT_TIMEOUT_S),
     read every call — the owner run burned 30s per turn here because the add
     budget (2x base) was a fixed constant the user could neither see nor tune."""
-    raw = os.environ.get("PULSEAI_SHADOW_GIT_TIMEOUT_S", "").strip()
+    raw = os.environ.get("CRUSORAI_SHADOW_GIT_TIMEOUT_S", "").strip()
     try:
         value = int(raw) if raw else _GIT_TIMEOUT
     except (TypeError, ValueError):
@@ -307,10 +307,10 @@ def _git_timeout() -> int:
 
 
 def _max_files() -> int:
-    """Per-call file-count cap (PULSEAI_SHADOW_MAX_FILES), read every call.
+    """Per-call file-count cap (CRUSORAI_SHADOW_MAX_FILES), read every call.
     Explicit user intent is honored exactly — a silently-overridden knob is
     a lie (clamped only to a positive int)."""
-    raw = os.environ.get("PULSEAI_SHADOW_MAX_FILES", "").strip()
+    raw = os.environ.get("CRUSORAI_SHADOW_MAX_FILES", "").strip()
     try:
         value = int(raw) if raw else _MAX_FILES
     except (TypeError, ValueError):
@@ -369,7 +369,7 @@ class ShadowCheckpoints:
     ):
         if enabled is None:
             enabled = (
-                os.environ.get("PULSEAI_CHECKPOINTS", "").strip().lower()
+                os.environ.get("CRUSORAI_CHECKPOINTS", "").strip().lower()
                 != "off"
             )
         self.enabled = enabled
@@ -528,9 +528,9 @@ class ShadowCheckpoints:
             _mark_gave_up(str(_normalize_path(working_dir)))
             print(
                 f"[shadow_checkpoint] {working_dir}: skipped — tree over the "
-                f"{cap}-file cap (PULSEAI_SHADOW_MAX_FILES); NO undo point taken; "
+                f"{cap}-file cap (CRUSORAI_SHADOW_MAX_FILES); NO undo point taken; "
                 "snapshots are skipped for this workspace until restart "
-                "(PULSEAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
+                "(CRUSORAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
                 flush=True,
             )
             return False
@@ -565,9 +565,9 @@ class ShadowCheckpoints:
             print(
                 f"[shadow_checkpoint] {working_dir}: gave up after ~{add_budget}s "
                 "on 'git add' — tree too large for the snapshot budget "
-                "(PULSEAI_SHADOW_GIT_TIMEOUT_S); NO undo point taken; "
+                "(CRUSORAI_SHADOW_GIT_TIMEOUT_S); NO undo point taken; "
                 "snapshots are skipped for this workspace until restart "
-                "(PULSEAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
+                "(CRUSORAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
                 flush=True,
             )
             return False

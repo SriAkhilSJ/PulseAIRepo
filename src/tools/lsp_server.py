@@ -1,8 +1,8 @@
-"""LSP (Language Server Protocol) server for PulseAI.
+"""LSP (Language Server Protocol) server for CrusorAI.
 
 Wraps the existing tree-sitter and Python AST analysis into a standard
 LSP server. This gives VSCode code intelligence (go-to-definition,
-find-references, document symbols, etc.) powered by PulseAI's code
+find-references, document symbols, etc.) powered by CrusorAI's code
 understanding capabilities.
 
 The server runs as a separate process and communicates via stdio
@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 
 class LSPServer:
-    """Minimal LSP server that wraps PulseAI's code analysis capabilities.
+    """Minimal LSP server that wraps CrusorAI's code analysis capabilities.
     
     Implements the core LSP methods needed for code intelligence:
     - initialize: Server capabilities
@@ -101,7 +101,7 @@ class LSPServer:
         result = {
             "capabilities": capabilities,
             "serverInfo": {
-                "name": "pulseai-lsp",
+                "name": "crusorai-lsp",
                 "version": "0.1.0",
             },
         }

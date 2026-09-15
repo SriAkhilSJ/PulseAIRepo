@@ -23,9 +23,9 @@ while True:
     if not user_message.strip():
         continue
 
-    # Exit PulseCodeAI
+    # Exit CrusorCodeAI
     if user_message.lower() in ["exit", "quit"]:
-        print("\nPulseCodeAI: Goodbye!")
+        print("\nCrusorCodeAI: Goodbye!")
         break
 
     if user_message.strip() == "/model":
@@ -51,34 +51,34 @@ while True:
         new_name = parts[1] if len(parts) > 1 else None
         result = fork_conversation(thread_id, new_name)
         if result.startswith("No saved state"):
-            print(f"\nPulseCodeAI: {result}")
+            print(f"\nCrusorCodeAI: {result}")
         else:
             thread_id = result
-            print(f"\nPulseCodeAI: 🌿 Forked to new session: {thread_id}")
+            print(f"\nCrusorCodeAI: 🌿 Forked to new session: {thread_id}")
         continue
 
     # Show persistent memories
     if user_message.strip() == "/memories":
         import json
         home = os.path.expanduser("~")
-        mem_path = os.path.join(home, ".pulseai", "memories.json")
+        mem_path = os.path.join(home, ".crusorai", "memories.json")
         if os.path.exists(mem_path):
             try:
                 with open(mem_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 memories = data.get("memories", [])
                 if not memories:
-                    print("\nPulseCodeAI: No memories stored yet.")
+                    print("\nCrusorCodeAI: No memories stored yet.")
                 else:
-                    print(f"\nPulseCodeAI: 📚 {len(memories)} memories stored:")
+                    print(f"\nCrusorCodeAI: 📚 {len(memories)} memories stored:")
                     for i, mem in enumerate(memories[-5:], 1):
                         task = mem.get("task", "Unknown")[:60]
                         mtype = mem.get("type", "memory")
                         print(f"  {i}. [{mtype}] {task}...")
             except Exception as e:
-                print(f"\nPulseCodeAI: Could not read memories: {e}")
+                print(f"\nCrusorCodeAI: Could not read memories: {e}")
         else:
-            print("\nPulseCodeAI: No memory file found.")
+            print("\nCrusorCodeAI: No memory file found.")
         continue
 
     # Show learned conventions
@@ -87,9 +87,9 @@ while True:
         learner = ConventionLearner()
         conventions = learner.scan_workspace(workspace)
         if not conventions:
-            print("\nPulseCodeAI: No conventions learned yet.")
+            print("\nCrusorCodeAI: No conventions learned yet.")
         else:
-            print("\nPulseCodeAI: 🎨 Learned project conventions:")
+            print("\nCrusorCodeAI: 🎨 Learned project conventions:")
             for key, value in conventions.items():
                 if isinstance(value, dict):
                     print(f"  {key}:")
@@ -105,7 +105,7 @@ while True:
     if user_message.strip() == "/web":
         import subprocess
         import sys
-        print("\nPulseCodeAI: 🌐 Starting dashboard server...")
+        print("\nCrusorCodeAI: 🌐 Starting dashboard server...")
         print("   Open http://localhost:8080 in your browser")
         subprocess.Popen([
             sys.executable, "src/dashboard_server.py"
@@ -115,7 +115,7 @@ while True:
     # Show cost routing info
     if user_message.strip() == "/route":
         from src.agents.cost_router import cost_router
-        print(f"\nPulseCodeAI: 🧭 {cost_router.get_last_route_info()}")
+        print(f"\nCrusorCodeAI: 🧭 {cost_router.get_last_route_info()}")
         continue
 
     if user_message.strip().startswith("/route "):
@@ -123,9 +123,9 @@ while True:
         tier = user_message.split(maxsplit=1)[1].strip().lower()
         if tier in ("cheap", "standard", "premium"):
             cost_router.override_tier(tier)
-            print(f"\nPulseCodeAI: Locked routing to {tier.upper()} tier.")
+            print(f"\nCrusorCodeAI: Locked routing to {tier.upper()} tier.")
         else:
-            print("\nPulseCodeAI: Usage: /route cheap|standard|premium")
+            print("\nCrusorCodeAI: Usage: /route cheap|standard|premium")
         continue
 
     # List skills
@@ -133,10 +133,10 @@ while True:
         from src.agents.skill_manager import skill_manager
         skills = skill_manager.list_skills()
         if not skills:
-            print("\nPulseCodeAI: No skills defined yet.")
+            print("\nCrusorCodeAI: No skills defined yet.")
             print("Add one with: /skill add \"Name\" trigger1,trigger2 \"Instruction\"")
         else:
-            print(f"\nPulseCodeAI: 🎯 {len(skills)} skill(s):")
+            print(f"\nCrusorCodeAI: 🎯 {len(skills)} skill(s):")
             for s in skills:
                 status = "✅" if s.get("enabled", True) else "❌"
                 triggers = ", ".join(s["triggers"])
@@ -151,16 +151,16 @@ while True:
             parts = shlex.split(user_message)
             # Expected: ['/skill', 'add', 'Name', 'trigger1,trigger2', 'Instruction...']
             if len(parts) < 5:
-                print("\nPulseCodeAI: Usage: /skill add \"Name\" \"triggers\" \"Instruction text\"")
+                print("\nCrusorCodeAI: Usage: /skill add \"Name\" \"triggers\" \"Instruction text\"")
                 continue
 
             name = parts[2]
             triggers = [t.strip() for t in parts[3].split(",")]
             instruction = " ".join(parts[4:])
             skill_manager.add_skill(name, triggers, instruction)
-            print(f"\nPulseCodeAI: ✅ Skill '{name}' added.")
+            print(f"\nCrusorCodeAI: ✅ Skill '{name}' added.")
         except Exception as e:
-            print(f"\nPulseCodeAI: Could not parse skill. Error: {e}")
+            print(f"\nCrusorCodeAI: Could not parse skill. Error: {e}")
         continue
 
     # Remove a skill
@@ -168,9 +168,9 @@ while True:
         from src.agents.skill_manager import skill_manager
         name = user_message[len("/skill remove "):].strip()
         if skill_manager.remove_skill(name):
-            print(f"\nPulseCodeAI: ✅ Skill '{name}' removed.")
+            print(f"\nCrusorCodeAI: ✅ Skill '{name}' removed.")
         else:
-            print(f"\nPulseCodeAI: Skill '{name}' not found.")
+            print(f"\nCrusorCodeAI: Skill '{name}' not found.")
         continue
 
     # Toggle a skill
@@ -184,9 +184,9 @@ while True:
             new_state = not target.get("enabled", True)
             skill_manager.toggle_skill(name, new_state)
             status = "enabled" if new_state else "disabled"
-            print(f"\nPulseCodeAI: Skill '{name}' {status}.")
+            print(f"\nCrusorCodeAI: Skill '{name}' {status}.")
         else:
-            print(f"\nPulseCodeAI: Skill '{name}' not found.")
+            print(f"\nCrusorCodeAI: Skill '{name}' not found.")
         continue
 
     # List sub-agents
@@ -194,9 +194,9 @@ while True:
         from src.agents.sub_agent import subagent_coordinator
         agents = subagent_coordinator.list_active()
         if not agents:
-            print("\nPulseCodeAI: No sub-agents spawned yet.")
+            print("\nCrusorCodeAI: No sub-agents spawned yet.")
         else:
-            print(f"\nPulseCodeAI: 🤖 {len(agents)} sub-agent(s):")
+            print(f"\nCrusorCodeAI: 🤖 {len(agents)} sub-agent(s):")
             for a in agents:
                 print(f"  {a['id']} [{a['mode']}] — {a['task_preview']}...")
         continue
@@ -205,9 +205,9 @@ while True:
     if user_message.strip() == "/export":
         import json
         analytics = export_session_analytics(thread_id)
-        with open("pulse_analytics.json", "w") as f:
+        with open("crusor_analytics.json", "w") as f:
             json.dump(analytics, f, indent=2)
-        print("\nPulseCodeAI: 📊 Analytics exported to pulse_analytics.json")
+        print("\nCrusorCodeAI: 📊 Analytics exported to crusor_analytics.json")
         continue
 
     # Show token usage
@@ -246,7 +246,7 @@ while True:
             workspace=workspace,
         )
 
-        print(f"\nPulseCodeAI: {response}")
+        print(f"\nCrusorCodeAI: {response}")
 
         # Show token usage for this turn
         status = get_agent_status(thread_id)
@@ -256,4 +256,4 @@ while True:
             print(f"\n[Usage] {TokenTracker.format_usage(cost)}")
 
     except Exception as error:
-        print(f"\nPulseCodeAI Error: {error}")
+        print(f"\nCrusorCodeAI Error: {error}")

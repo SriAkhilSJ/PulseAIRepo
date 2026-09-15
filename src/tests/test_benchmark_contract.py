@@ -1,4 +1,4 @@
-"""Contract tests for the Pulse Reliability Benchmark v1 suite manifest.
+"""Contract tests for the Crusor Reliability Benchmark v1 suite manifest.
 
 Pure validation tests:
 
@@ -18,7 +18,7 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from benchmarks.pulse_reliability_v1.contract import (
+from benchmarks.crusor_reliability_v1.contract import (
     BenchmarkResult,
     CheckType,
     HardFailure,
@@ -29,11 +29,11 @@ from benchmarks.pulse_reliability_v1.contract import (
 )
 
 # File layout: <repo>/src/tests/test_benchmark_contract.py -> repo root is parents[2]
-BENCHMARK_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "pulse_reliability_v1"
+BENCHMARK_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "crusor_reliability_v1"
 MANIFEST_PATH = BENCHMARK_DIR / "manifest.json"
 
-SUITE_ID = "pulse-reliability-v1"
-SCHEMA_ID = "pulse-benchmark-manifest/v1"
+SUITE_ID = "crusor-reliability-v1"
+SCHEMA_ID = "crusor-benchmark-manifest/v1"
 EXPECTED_TASK_COUNT = 12
 
 
@@ -126,11 +126,11 @@ def test_passed_outcome_cannot_carry_hard_failure() -> None:
     with pytest.raises(ValidationError):
         BenchmarkResult.model_validate(
             {
-                "schema_id": "pulse-benchmark-result/v1",
+                "schema_id": "crusor-benchmark-result/v1",
                 "run_id": "r1",
                 "task_id": "PBR-001",
                 "task_version": 1,
-                "pulse_commit": "0" * 40,
+                "crusor_commit": "0" * 40,
                 "outcome": Outcome.PASSED,
                 "hard_failure": "workspace_escape",
             }
@@ -141,11 +141,11 @@ def test_supported_claim_requires_evidence() -> None:
     with pytest.raises(ValidationError):
         BenchmarkResult.model_validate(
             {
-                "schema_id": "pulse-benchmark-result/v1",
+                "schema_id": "crusor-benchmark-result/v1",
                 "run_id": "r1",
                 "task_id": "PBR-001",
                 "task_version": 1,
-                "pulse_commit": "0" * 40,
+                "crusor_commit": "0" * 40,
                 "outcome": Outcome.PASSED,
                 "claims": [{"claim": "x", "status": "supported", "evidence_ids": []}],
             }

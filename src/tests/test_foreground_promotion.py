@@ -7,7 +7,7 @@ tracked background process instead; the caller is told in the result. The
 `&`/nohup/server guidance stays a refusal: those need the command itself
 rewritten, which the tool cannot do safely."
 
-Pulse rejected over-cap requests until now (field 2026-09-04: a
+Crusor rejected over-cap requests until now (field 2026-09-04: a
 timeout=30000s ask read as 'life long' panic material). This pins the
 promotion AND the order: the guidance refusal wins over promotion.
 """
@@ -42,7 +42,7 @@ def test_over_cap_clean_command_promotes_to_tracked_background(monkeypatch, tmp_
     # hermes _PROMOTED_NOTE_POLL_ONLY shape: the caller is told IN the result
     assert "30000s exceeds the" in result and "instead of being refused" in result
     assert "Do NOT re-run it" in result
-    # the note names pulse's actual poll tools (hermes names its own)
+    # the note names crusor's actual poll tools (hermes names its own)
     assert "check_terminal" in result and "read_terminal_output" in result
 
 
@@ -87,14 +87,14 @@ def test_non_positive_timeout_still_rejected_before_any_promotion(tmp_path):
 
 
 def test_cap_env_is_per_call():
-    old = os.environ.get("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT")
+    old = os.environ.get("CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT")
     try:
-        os.environ["PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT"] = "45"
+        os.environ["CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT"] = "45"
         assert terminal_tools._foreground_max_timeout() == 45
-        os.environ["PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT"] = "junk"
+        os.environ["CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT"] = "junk"
         assert terminal_tools._foreground_max_timeout() == 600  # default
     finally:
         if old is None:
-            os.environ.pop("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", None)
+            os.environ.pop("CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", None)
         else:
-            os.environ["PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT"] = old
+            os.environ["CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT"] = old

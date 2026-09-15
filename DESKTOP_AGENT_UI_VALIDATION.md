@@ -1,17 +1,17 @@
-# Desktop Agent Handoff — Provider-Free Pulse Agent UI Validation
+# Desktop Agent Handoff — Provider-Free Crusor Agent UI Validation
 
 **Date:** 2026-08-26  
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required UI implementation ancestor:** `0f84d2df`  
-**Repository:** use the existing correct repository folder only (`D:\pulseAIagent\PulseAIRepo` if unchanged)  
+**Repository:** use the existing correct repository folder only (`D:\crusorAIagent\PulseAIRepo` if unchanged)  
 **Provider authorization:** none; zero model/provider requests  
 **PR #9:** open; do not merge
 
 ## Mission
 
-Validate the refined first-party Pulse Agent and Pulse Manager UI on the real Windows desktop checkout. This task validates source/build integrity and the actual desktop renderer. It must not exercise a provider.
+Validate the refined first-party Crusor Agent and Crusor Manager UI on the real Windows desktop checkout. This task validates source/build integrity and the actual desktop renderer. It must not exercise a provider.
 
-The UI increment adds a stronger session header, readable transcript lane, expandable plan strip, stable working dock, compact action timeline, workspace-gated starter actions, polished composer, responsive behavior, keyboard focus, and reduced-motion handling. Pulse branding, workbench registration, renderer architecture, host contracts, workspace safety, and approvals must remain unchanged.
+The UI increment adds a stronger session header, readable transcript lane, expandable plan strip, stable working dock, compact action timeline, workspace-gated starter actions, polished composer, responsive behavior, keyboard focus, and reduced-motion handling. Crusor branding, workbench registration, renderer architecture, host contracts, workspace safety, and approvals must remain unchanged.
 
 ## Hard constraints
 
@@ -30,7 +30,7 @@ The UI increment adds a stronger session header, readable transcript lane, expan
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\pulseAIagent\PulseAIRepo'
+$repo = 'D:\crusorAIagent\PulseAIRepo'
 cd $repo
 
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
@@ -68,9 +68,9 @@ $python = if (Test-Path '.venv\Scripts\python.exe') { (Resolve-Path '.venv\Scrip
 
 & $python -m pytest -q `
   src/tests/test_desktop_renderer_architecture.py `
-  src/tests/test_pulseai_branding.py `
+  src/tests/test_crusorai_branding.py `
   src/tests/test_desktop_workspace_boundary.py `
-  --basetemp "$env:TEMP\pulse-agent-ui-pytest" `
+  --basetemp "$env:TEMP\crusor-agent-ui-pytest" `
   2>&1 | Tee-Object "$evidence\focused-pytest.log"
 $focusedExit = $LASTEXITCODE
 
@@ -86,7 +86,7 @@ npm run build 2>&1 | Tee-Object "$evidence\ui-build.log"
 $uiBuildExit = $LASTEXITCODE
 ```
 
-Expected: focused tests pass, all 22 Pulse contribution files parse, and the UI production build passes.
+Expected: focused tests pass, all 22 Crusor contribution files parse, and the UI production build passes.
 
 ## 3. Code OSS compile validation
 
@@ -117,8 +117,8 @@ Run only after compilation succeeds and using the repository's established deskt
 
 ```powershell
 cd $repo
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_ENGINE_ROOT = $repo
 ```
 
 Do not enter any provider credential. The echo runner is deterministic and provider-free.
@@ -126,7 +126,7 @@ Do not enter any provider credential. The echo runner is deterministic and provi
 ### A. Empty and workspace-gated state
 
 1. Launch with the fresh profile and no folder open.
-2. Open the Pulse Agent view.
+2. Open the Crusor Agent view.
 3. Confirm the polished empty state renders without clipping.
 4. Confirm starter actions and the composer are disabled while no project is open.
 5. Capture `01-agent-no-workspace.png` and relevant renderer/window logs.
@@ -134,7 +134,7 @@ Do not enter any provider credential. The echo runner is deterministic and provi
 ### B. Ready Agent state and responsive layout
 
 1. Open the existing repository folder itself as the workspace.
-2. Confirm Pulse reaches Ready without a renderer error.
+2. Confirm Crusor reaches Ready without a renderer error.
 3. Confirm the header shows the current session/workspace hierarchy and the Manager button.
 4. Resize the Agent pane to approximately 260 px, 340 px, and 420 px widths.
 5. At every width, confirm there is no horizontal page scrollbar, overlapping text, inaccessible send/stop control, or clipped composer.
@@ -146,7 +146,7 @@ Do not enter any provider credential. The echo runner is deterministic and provi
 Submit exactly once:
 
 ```text
-Pulse Agent UI provider-free echo smoke
+Crusor Agent UI provider-free echo smoke
 ```
 
 Expected:
@@ -161,10 +161,10 @@ Expected:
 
 Capture `04-agent-echo-completed.png` and the relevant engine/window logs. Do not submit a second turn and do not retry a failure.
 
-### D. Pulse Manager
+### D. Crusor Manager
 
 1. Use the Agent header's Manager button.
-2. Confirm Pulse Manager opens as the existing editor surface, not a replacement webview or external page.
+2. Confirm Crusor Manager opens as the existing editor surface, not a replacement webview or external page.
 3. Confirm workspace/session navigation remains visible, the transcript is centered at a readable width, and the inspector remains present at a normal desktop width.
 4. Narrow the editor enough to trigger its responsive inspector/sidebar behavior; confirm the main session and composer remain usable.
 5. Capture `05-manager-wide.png` and `06-manager-responsive.png`.
@@ -173,14 +173,14 @@ Capture `04-agent-echo-completed.png` and the relevant engine/window logs. Do no
 
 - Confirm every interactive control reached during the smoke has visible keyboard focus.
 - Confirm plan/tool rows use native expandable disclosure if present; the echo runner may legitimately produce no plan/tools, which must be reported as `NOT OBSERVED`, not PASS.
-- Inspect the application developer console once and save relevant Pulse renderer errors/warnings to `desktop-console.log`.
+- Inspect the application developer console once and save relevant Crusor renderer errors/warnings to `desktop-console.log`.
 - Record whether Windows high-contrast or reduced-motion was tested. If not, mark each `NOT RUN`; do not infer from source checks.
 
 Close the app, then clear only the temporary process environment:
 
 ```powershell
-Remove-Item Env:PULSEAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
-Remove-Item Env:PULSEAI_ENGINE_ROOT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_ENGINE_ROOT -ErrorAction SilentlyContinue
 ```
 
 ## 5. Required report
@@ -240,7 +240,7 @@ Get-FileHash "$evidence\*" -Algorithm SHA256 -ErrorAction SilentlyContinue |
 git add -- bench-results/agent-ui-validation-desktop
 git diff --cached --name-only | Set-Content "$evidence\staged-files.txt" -Encoding utf8
 git add -- "$evidence\staged-files.txt"
-git commit -m "Add provider-free Pulse Agent UI desktop validation evidence"
+git commit -m "Add provider-free Crusor Agent UI desktop validation evidence"
 git push origin arena/01a03741-pulseairepo
 ```
 

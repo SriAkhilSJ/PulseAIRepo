@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PulseAI IDE</title>
+  <title>CrusorAI IDE</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -188,9 +188,9 @@
       padding: 3px 8px; border-radius: 4px;
     }
     .tool-status.pending { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
-    .tool-status.running { background: var(--red-dim); color: var(--red-light); border: 1px solid rgba(255, 26, 26, 0.2); animation: pulse-border 1.5s infinite; }
+    .tool-status.running { background: var(--red-dim); color: var(--red-light); border: 1px solid rgba(255, 26, 26, 0.2); animation: crusor-border 1.5s infinite; }
     .tool-status.done { background: rgba(34, 197, 94, 0.1); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.2); }
-    @keyframes pulse-border { 0%, 100% { border-color: rgba(255, 26, 26, 0.2); } 50% { border-color: rgba(255, 26, 26, 0.6); } }
+    @keyframes crusor-border { 0%, 100% { border-color: rgba(255, 26, 26, 0.2); } 50% { border-color: rgba(255, 26, 26, 0.6); } }
 
     .tool-body {
       padding: 12px 14px; font-family: 'JetBrains Mono', monospace;
@@ -618,7 +618,7 @@
 </style>
 </head>
 <body>
-<div class="pulse-ide">
+<div class="crusor-ide">
   <!-- Connection Status -->
   <div id="conn-status" class="conn-status disconnected">● Connecting...</div>
   <!-- Header -->
@@ -627,7 +627,7 @@
       <div class="ide-logo">
         <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
       </div>
-      <div class="ide-title">Pulse<span>AI</span></div>
+      <div class="ide-title">Crusor<span>AI</span></div>
     </div>
     <div class="ide-header-center">
       <div class="agent-dropdown" id="agent-dropdown" onclick="toggleModelPicker()">
@@ -675,7 +675,7 @@
             <div class="welcome-logo">
               <svg viewBox="0 0 24 24"><path d="M2 12 Q6 8 8 12 T12 6 T16 12 T20 8 T22 12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.3"/></svg>
             </div>
-            <h2>Pulse<span>AI</span> IDE</h2>
+            <h2>Crusor<span>AI</span> IDE</h2>
             <p>What would you like to build today?</p>
             <div class="welcome-grid">
               <div class="welcome-card" onclick="sendPrompt('Generate a Python module with type hints and tests')">
@@ -701,7 +701,7 @@
           <div class="mentions-popup" id="mentions-popup"></div>
           <div class="composer-box">
             <textarea class="composer-textarea" id="composer-input" rows="1"
-              placeholder="Ask Pulse to code, debug, explain, or plan..."
+              placeholder="Ask Crusor to code, debug, explain, or plan..."
               onkeydown="handleKeydown(event)"
               oninput="handleInput(event)"></textarea>
             <div class="composer-footer">
@@ -722,7 +722,7 @@
 </div>
 <script>
 // =========================================================
-// PULSE STREAMING ENGINE — Integrated UX Edition
+// CRUSOR STREAMING ENGINE — Integrated UX Edition
 // =========================================================
 const state = {
   connected: false,
@@ -933,7 +933,7 @@ function startAgentMessage() {
     <div class="message-group" id="${id}" data-checkpoint="${cpId}">
       <div class="message-header">
         <div class="message-avatar agent">⚡</div>
-        <div class="message-sender agent">Pulse</div>
+        <div class="message-sender agent">Crusor</div>
         <div class="checkpoint-badge" onclick="rollbackTo('${cpId}')" title="Rollback to this point">↩ ${cpId}</div>
         <div class="message-time">${time}</div>
       </div>
@@ -991,7 +991,7 @@ function renderErrorMessage(error) {
     <div class="message-group">
       <div class="message-header">
         <div class="message-avatar agent">⚡</div>
-        <div class="message-sender agent">Pulse</div>
+        <div class="message-sender agent">Crusor</div>
         <div class="message-time">Now</div>
       </div>
       <div class="message-body"><p style="color:#ef4444;">❌ ${escapeHtml(error)}</p></div>

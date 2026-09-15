@@ -36,7 +36,7 @@ Boring-by-choice details:
 - External edits (vim, IDE) are honestly OUT of scope: we only track
   in-process tool traffic (same upstream scope). The mtime is recorded so
   a smarter future check can compare — today's refusal is registry-based.
-- Kill-switch: PULSEAI_FILE_STATE_GUARD=off => instant no-op behavior.
+- Kill-switch: CRUSORAI_FILE_STATE_GUARD=off => instant no-op behavior.
 - Never raises. All hooks fail-open (log nothing, allow the action) — a
   guard bug must never break an edit; the D31 shadow checkpoint is the
   seatbelt underneath either way.
@@ -62,7 +62,7 @@ _guard = threading.Lock()
 
 def _enabled() -> bool:
     import os
-    return os.environ.get("PULSEAI_FILE_STATE_GUARD", "").strip().lower() != "off"
+    return os.environ.get("CRUSORAI_FILE_STATE_GUARD", "").strip().lower() != "off"
 
 
 def _key(path) -> str:

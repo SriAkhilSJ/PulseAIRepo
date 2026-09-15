@@ -9,7 +9,7 @@ node_modules/
 .vscode/extensions/**/out/
 extensions/**/dist/
 src/vs/base/browser/ui/codicons/codicon/codicon.ttf
-# The compiled pulseai panel slice ships in git so a plain `git pull` — with
+# The compiled crusorai panel slice ships in git so a plain `git pull` — with
 # NO manual compile step — updates the Agent pane (field 2026-09-09: three
 # rounds of UI fixes never reached the field because the compile step kept
 # silently failing). Everything else under out/ stays local-only.
@@ -20,7 +20,7 @@ src/vs/base/browser/ui/codicons/codicon/codicon.ttf
 /out/vs/workbench/*
 !/out/vs/workbench/contrib/
 /out/vs/workbench/contrib/*
-!/out/vs/workbench/contrib/pulseai/
+!/out/vs/workbench/contrib/crusorai/
 /extensions/**/out/
 build/node_modules
 build/darwin/.dmgbuild

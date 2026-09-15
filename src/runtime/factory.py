@@ -25,7 +25,7 @@ class RuntimeServices:
 
 
 def create_runtime_services(home: str | Path | None = None) -> RuntimeServices:
-    root = Path(home or (Path.home() / ".pulseai"))
+    root = Path(home or (Path.home() / ".crusorai"))
     root.mkdir(parents=True, exist_ok=True)
     return RuntimeServices(
         journal=EventJournal(root / "runtime_events.db"),
@@ -42,7 +42,7 @@ def get_runtime_services() -> RuntimeServices:
     if _default is None:
         with _lock:
             if _default is None:
-                root = Path.home() / ".pulseai"
+                root = Path.home() / ".crusorai"
                 _default = RuntimeServices(
                     journal=EventJournal(root / "runtime_events.db"),
                     verification=VerificationLedger(root / "verification.db"),

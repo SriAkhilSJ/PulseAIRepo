@@ -1,4 +1,4 @@
-"""Pure (no-LLM) smoke tests for the PulseAI context engine and safety guard.
+"""Pure (no-LLM) smoke tests for the CrusorAI context engine and safety guard.
 
 These run without provider keys, without the embedder model download, and
 without network access — the engine deliberately falls back to heuristic

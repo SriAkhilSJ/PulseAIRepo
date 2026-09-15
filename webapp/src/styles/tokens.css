@@ -1,4 +1,4 @@
-/* PulseAI SPA design tokens — PORTED from hermes apps/desktop/src/styles.css.
+/* CrusorAI SPA design tokens — PORTED from hermes apps/desktop/src/styles.css.
    The derivation chain is hers verbatim: theme seeds → color-mix formulas →
    --ui-* surface/text tokens. The only adaptation: themes/context.tsx applies
    seeds at runtime via setProperty; here the nous theme (hermes brand,
@@ -103,9 +103,9 @@
   --sticky-human-top: 0.23rem;
 
   /* Typography (hermes presets.ts SYSTEM_SANS / SYSTEM_MONO). */
-  --pulseai-font-sans: 'Segoe WPC', 'Segoe UI', -apple-system, BlinkMacSystemFont,
+  --crusorai-font-sans: 'Segoe WPC', 'Segoe UI', -apple-system, BlinkMacSystemFont,
     'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
-  --pulseai-font-mono: Menlo, Monaco, 'SF Mono', 'Courier Prime', monospace;
+  --crusorai-font-mono: Menlo, Monaco, 'SF Mono', 'Courier Prime', monospace;
 
   color-scheme: dark;
 }

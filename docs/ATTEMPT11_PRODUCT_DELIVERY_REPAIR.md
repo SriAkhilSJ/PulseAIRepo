@@ -31,9 +31,9 @@ Useful current mechanics are:
 - workspace-aware verification evidence and detected verification recipes; and
 - budget exhaustion normalized as non-completion rather than success.
 
-Hermes does **not** directly provide the bounded reserve Pulse needs here. Its
+Hermes does **not** directly provide the bounded reserve Crusor needs here. Its
 parent loop defaults to an effectively unlimited iteration count, and current
-verify-on-stop behavior is opt-in/off by default. Pulse therefore adapts the
+verify-on-stop behavior is opt-in/off by default. Crusor therefore adapts the
 bounded verification-continuation idea but does not copy unlimited spending or
 weaken its mandatory evidence gate.
 
@@ -56,7 +56,7 @@ The ordinary hard exhaustion and no-tools grace behavior are unchanged.
 
 ### 2. Landed mutation payload compaction
 
-Pulse previously summarized ToolMessage output but replayed the complete
+Crusor previously summarized ToolMessage output but replayed the complete
 assistant-side `write_file`/`edit_file` arguments on every later request.
 `compact_file_mutation_arguments` now redacts large payload fields from old,
 successfully landed mutations on the request-only history copy. It preserves:

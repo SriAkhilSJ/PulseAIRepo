@@ -74,12 +74,12 @@
     }
   },
   "excluded": {
-    "KANBAN_GUIDANCE": "kanban board protocol \u2014 Pulse has no kanban server or kanban_* tools",
-    "PLATFORM_HINTS": "messenger/relay surfaces (Telegram/Discord/Signal/HUD) \u2014 Pulse ships IDE + CLI only",
+    "KANBAN_GUIDANCE": "kanban board protocol \u2014 Crusor has no kanban server or kanban_* tools",
+    "PLATFORM_HINTS": "messenger/relay surfaces (Telegram/Discord/Signal/HUD) \u2014 Crusor ships IDE + CLI only",
     "TELEGRAM_RICH_MESSAGES_HINT": "Telegram rendering hint \u2014 no Telegram surface",
-    "_LOCAL_CRON_DELIVERY_NOTE": "cron delivery \u2014 Pulse has no cron daemon",
+    "_LOCAL_CRON_DELIVERY_NOTE": "cron delivery \u2014 Crusor has no cron daemon",
     "build_memory_guidance": "composed by hand in guidance.py from the MEMORY_GUIDANCE corpus entry",
-    "execution_guidance_text": "re-implemented in guidance.py against Pulse's tool names",
+    "execution_guidance_text": "re-implemented in guidance.py against Crusor's tool names",
     "hud_surface_note": "floating-HUD per-turn note \u2014 no HUD surface"
   },
   "files": {
@@ -141,7 +141,7 @@
     "commit_date": "2026-08-30T22:20:18-07:00",
     "extracted_at": "2026-08-31T05:48:02Z",
     "extractor": "scripts/port_hermes_prompts.py",
-    "note": "Prompt text lifted verbatim from the pinned upstream checkout. Pulse applies ONLY the documented tool-name rename map at load time (see src/prompts/hermes/guidance.py). Nothing else is rewritten.",
+    "note": "Prompt text lifted verbatim from the pinned upstream checkout. Crusor applies ONLY the documented tool-name rename map at load time (see src/prompts/hermes/guidance.py). Nothing else is rewritten.",
     "repo": "NousResearch/hermes-agent"
   }
 }

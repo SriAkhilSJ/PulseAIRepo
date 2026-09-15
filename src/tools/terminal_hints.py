@@ -6,8 +6,8 @@ match wins, patterns ordered by observed production frequency; scans only the fi
 ``_SCAN_CHARS`` so hints key on error headers, not deep context; hints state the *next action*
 in 1-2 sentences; pure function, no I/O or config reads.
 
-Pulse port (2026-09-10): verbatim from hermes ``tools/terminal_hints.py``
-(md5 b7fce14e537834358ef34a7aaacbba92). Pulse has not yet ported hermes'
+Crusor port (2026-09-10): verbatim from hermes ``tools/terminal_hints.py``
+(md5 b7fce14e537834358ef34a7aaacbba92). Crusor has not yet ported hermes'
 ``_interpret_exit_code`` semantics table, so the caller passes ``exit_note``
 as None and ``annotate_failure`` always gets its turn on non-zero exits.
 """

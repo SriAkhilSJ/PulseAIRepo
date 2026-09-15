@@ -1,36 +1,36 @@
 # CDP Test Guide — Agent-Friendly, Copy-Paste Ready
 
-**Purpose:** Run PulseAI CDP acceptance tests in <30 min. Zero analysis needed — just copy-paste commands.
+**Purpose:** Run CrusorAI CDP acceptance tests in <30 min. Zero analysis needed — just copy-paste commands.
 
 ## Quick Start (30 seconds)
 
 ```bash
 # 1. Verify Python works
-D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
+D:/crusorAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
 
 # 2. Launch app with CDP
-cd PulseAIRepo/desktop/vscode && cmd.exe //c "set PULSEAI_PYTHON_PATH=D:\\pulseAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set PULSEAI_ENGINE_ROOT=D:\\pulseAIagent\\PulseAIRepo&&scripts\\code.bat D:\\pulseAIagent\\PulseAIRepo --remote-debugging-port=9222" &
+cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\crusorAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set CRUSORAI_ENGINE_ROOT=D:\\crusorAIagent\\PulseAIRepo&&scripts\\code.bat D:\\crusorAIagent\\PulseAIRepo --remote-debugging-port=9222" &
 
 # 3. Wait 15s, verify CDP
 sleep 15 && curl -s http://localhost:9222/json/version | head -2
 
 # 4. Run tests (from CDP_test dir)
-cd D:/pulseAIagent/pulse-res/cancel-session-artifacts/CDP_test && node r03_final.js
+cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_final.js
 ```
 
 ## Prerequisites
 
 | Item | Value | Verify |
 |------|-------|--------|
-| Python venv | `D:\pulseAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
+| Python venv | `D:\crusorAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
 | Node.js | v24+ | `node --version` |
-| ws module | `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
-| PulseAI.exe | `desktop/vscode/.build/electron/PulseAI.exe` | `ls -la` |
+| ws module | `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
+| CrusorAI.exe | `desktop/vscode/.build/electron/CrusorAI.exe` | `ls -la` |
 | CDP port | 9222 | `curl -s http://localhost:9222/json/version` |
 
 ## Test Scripts (copy-paste ready)
 
-All scripts are in `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\`:
+All scripts are in `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\`:
 
 | Script | What it tests | Duration |
 |--------|--------------|----------|
@@ -40,7 +40,7 @@ All scripts are in `D:\pulseAIagent\pulse-res\cancel-session-artifacts\CDP_test\
 
 ### Run all tests:
 ```bash
-cd D:/pulseAIagent/pulse-res/cancel-session-artifacts/CDP_test
+cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test
 
 # Step 1: Trust folder (user must click "Yes, I trust" in app)
 # Step 2: Run main test
@@ -69,7 +69,7 @@ fs.writeFileSync('shot.png', Buffer.from(r.result.data, 'base64'));
 
 // Run JS
 const val = await send('Runtime.evaluate', {
-  expression: 'document.body.innerText.includes("Pulse ready")',
+  expression: 'document.body.innerText.includes("Crusor ready")',
   returnByValue: true
 });
 
@@ -92,7 +92,7 @@ await send('Input.dispatchMouseEvent', {
 ### Find textarea (always works)
 ```javascript
 const ta = await ev(`(() => {
-  const t = document.querySelector("textarea.pulseai-composer-input");
+  const t = document.querySelector("textarea.crusorai-composer-input");
   if (!t) return null;
   const r = t.getBoundingClientRect();
   return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
@@ -129,9 +129,9 @@ async function poll(needle, maxMs) {
 2. **`Input.insertText` vs char loop** → ALWAYS use `insertText`. Char-by-char `dispatchKeyEvent` hangs.
 3. **`ws` module not found** → Run from `CDP_test/` dir where `node_modules/ws` exists
 4. **Screenshot timeout** → Page may be navigating. Retry after 2s.
-5. **"Pulse ready" not showing** → Wait 10s after launch. Large workspaces take longer to load.
+5. **"Crusor ready" not showing** → Wait 10s after launch. Large workspaces take longer to load.
 6. **Stop button not found** → Use `[class*="stop"]` selector. Coordinates shift between layouts.
-7. **`PULSEAI_PYTHON_PATH`** → MUST set before launch. Wrong python = `ModuleNotFoundError langchain_core`.
+7. **`CRUSORAI_PYTHON_PATH`** → MUST set before launch. Wrong python = `ModuleNotFoundError langchain_core`.
 
 ## Build Commands
 
@@ -152,11 +152,11 @@ node --experimental-strip-types --max-old-space-size=8192 ./node_modules/gulp/bi
 ```bash
 cd PulseAIRepo
 python -c "
-from benchmarks.pulse_reliability_v1.fixtures import load_fixture_manifest, build_fixture
+from benchmarks.crusor_reliability_v1.fixtures import load_fixture_manifest, build_fixture
 from pathlib import Path
-manifest = load_fixture_manifest('benchmarks/pulse_reliability_v1/fixtures.json')
+manifest = load_fixture_manifest('benchmarks/crusor_reliability_v1/fixtures.json')
 spec = next(f for f in manifest.fixtures if f.task_id == 'PBR-004')
-build_fixture(spec, Path('D:/pulse-res/large-20k'))
+build_fixture(spec, Path('D:/crusor-res/large-20k'))
 print('Done: 20,001 files')
 "
 ```
@@ -164,7 +164,7 @@ print('Done: 20,001 files')
 ## Evidence Layout
 
 ```
-D:\pulse-res\r03-<timestamp>\
+D:\crusor-res\r03-<timestamp>\
 ├── R03_REPORT.md          # Final report
 ├── provenance.txt          # Commit + blob hashes
 ├── build.log               # Build output
@@ -176,14 +176,14 @@ D:\pulse-res\r03-<timestamp>\
 ## Environment Variables
 
 ```bash
-export PULSEAI_PYTHON_PATH='D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe'
-export PULSEAI_ENGINE_ROOT='D:/pulseAIagent/PulseAIRepo'
+export CRUSORAI_PYTHON_PATH='D:/crusorAIagent/PulseAIRepo/.venv/Scripts/python.exe'
+export CRUSORAI_ENGINE_ROOT='D:/crusorAIagent/PulseAIRepo'
 ```
 
 ## Shutdown Cleanup
 
 ```bash
-taskkill //F //IM PulseAI.exe
+taskkill //F //IM CrusorAI.exe
 sleep 3
-# Verify: 0 PulseAI, 0 python, ports 9222/5999 free
+# Verify: 0 CrusorAI, 0 python, ports 9222/5999 free
 ```

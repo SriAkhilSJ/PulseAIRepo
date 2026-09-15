@@ -8,27 +8,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DESKTOP = ROOT / "desktop"
 FORK = DESKTOP / "vscode"
-PULSE = FORK / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+CRUSOR = FORK / "src" / "vs" / "workbench" / "contrib" / "crusorai"
 
 
 def _text(*parts: str) -> str:
-    return PULSE.joinpath(*parts).read_text(encoding="utf-8")
+    return CRUSOR.joinpath(*parts).read_text(encoding="utf-8")
 
 
 def test_only_node_worker_imports_child_process():
     offenders = []
-    for path in PULSE.rglob("*.ts"):
+    for path in CRUSOR.rglob("*.ts"):
         text = path.read_text(encoding="utf-8")
         if "node:child_process" in text and "/node/" not in path.as_posix():
             offenders.append(path)
     assert offenders == []
-    worker = _text("node", "pulseAIWorkerProcessService.ts")
+    worker = _text("node", "crusorAIWorkerProcessService.ts")
     assert "shell: false" in worker
     assert "windowsHide: true" in worker
 
 
 def test_worker_validates_frames_paths_and_bridge_presence():
-    worker = _text("node", "pulseAIWorkerProcessService.ts")
+    worker = _text("node", "crusorAIWorkerProcessService.ts")
     for receipt in (
         "MAX_FRAME_BYTES", "Buffer.byteLength", "frame.includes('\\n')",
         "JSON.parse(frame)", "isAbsolute(options.engineRoot)",
@@ -54,7 +54,7 @@ def test_worker_validates_frames_paths_and_bridge_presence():
         "['-m', 'src.bridge']", "STOP_GRACE_MS",
     ):
         assert receipt in worker
-    contract = _text("common", "pulseAIWorkerService.ts")
+    contract = _text("common", "crusorAIWorkerService.ts")
     assert "environment" not in contract, "renderer must not inject arbitrary child environment"
 
 
@@ -69,7 +69,7 @@ def test_compile_task_is_self_contained_in_tracked_gulpfile():
     assert "build/gulpfile.ts" not in gulpfile
     assert "export async function compile" in gulpfile
     assert "tsconfig.json" in gulpfile and "tsc" in gulpfile
-    assert "pulseai-spa" in gulpfile, "compile must copy the SPA media tree"
+    assert "crusorai-spa" in gulpfile, "compile must copy the SPA media tree"
     tracked = subprocess.run(
         ["git", "ls-files", "--", "desktop/vscode/gulpfile.mjs"],
         cwd=ROOT, capture_output=True, text=True,
@@ -83,36 +83,36 @@ def test_spa_iframe_uses_browser_uri_not_file_uri():
     # file:// iframe from that origin is refused by Chromium ("Not allowed to
     # load local resource"). The SPA frame must ride FileAccess.asBrowserUri —
     # the document's OWN origin, admitted by frame-src 'self'.
-    pane = _text("browser", "pulseAIViewPane.ts")
+    pane = _text("browser", "crusorAIViewPane.ts")
     assert "FileAccess.asBrowserUri(LOCAL_SPA_RESOURCE" in pane
     assert "asFileUri(LOCAL_SPA_RESOURCE" not in pane
 
 
 def test_workbench_uses_existing_utility_process_framework():
-    engine = _text("electron-browser", "pulseAIEngineService.ts")
+    engine = _text("electron-browser", "crusorAIEngineService.ts")
     for receipt in (
         "IUtilityProcessWorkerWorkbenchService", "createWorker",
-        "PULSE_AI_WORKER_MODULE_ID", "ProxyChannel.toService",
-        "PULSE_AI_PROTOCOL_VERSION", "HANDSHAKE_TIMEOUT_MS",
+        "CRUSOR_AI_WORKER_MODULE_ID", "ProxyChannel.toService",
+        "CRUSOR_AI_PROTOCOL_VERSION", "HANDSHAKE_TIMEOUT_MS",
         "worker.onDidTerminate", "processService.onDidWriteStderr",
-        "await this.releaseWorker()", "PulseAIEngineState.Crashed",
+        "await this.releaseWorker()", "CrusorAIEngineState.Crashed",
     ):
         assert receipt in engine
-    main = _text("node", "pulseAIWorkerMain.ts")
+    main = _text("node", "crusorAIWorkerMain.ts")
     assert "UtilityProcessServer" in main
-    assert "PULSE_AI_WORKER_CHANNEL" in main
+    assert "CRUSOR_AI_WORKER_CHANNEL" in main
 
 
 def test_desktop_registration_is_isolated_from_common_and_web():
     common_main = (FORK / "src" / "vs" / "workbench" / "workbench.common.main.ts").read_text()
     desktop_main = (FORK / "src" / "vs" / "workbench" / "workbench.desktop.main.ts").read_text()
-    assert common_main.count("pulseAI.contribution.js") == 1
-    assert "pulseAI.desktop.contribution.js" not in common_main
-    assert desktop_main.count("pulseAI.desktop.contribution.js") == 1
-    registration = _text("electron-browser", "pulseAI.desktop.contribution.ts")
-    assert "registerSingleton(IPulseAIEngineService" in registration
-    assert "pulseai.engineRoot" in registration
-    assert "pulseai.pythonPath" in registration
+    assert common_main.count("crusorAI.contribution.js") == 1
+    assert "crusorAI.desktop.contribution.js" not in common_main
+    assert desktop_main.count("crusorAI.desktop.contribution.js") == 1
+    registration = _text("electron-browser", "crusorAI.desktop.contribution.ts")
+    assert "registerSingleton(ICrusorAIEngineService" in registration
+    assert "crusorai.engineRoot" in registration
+    assert "crusorai.pythonPath" in registration
 
 
 def test_selective_manifest_has_exactly_five_upstream_edits():
@@ -127,21 +127,21 @@ def test_selective_manifest_has_exactly_five_upstream_edits():
     assert all(item["modified"] for item in manifest["files"].values())
 
 
-def test_optimized_desktop_bundle_has_the_pulse_worker_entrypoint():
+def test_optimized_desktop_bundle_has_the_crusor_worker_entrypoint():
     buildfile = (FORK / "build" / "buildfile.ts").read_text(encoding="utf-8")
-    entry = "createModuleDescription('vs/workbench/contrib/pulseai/node/pulseAIWorkerMain')"
+    entry = "createModuleDescription('vs/workbench/contrib/crusorai/node/crusorAIWorkerMain')"
     desktop = buildfile.split("export const workbenchDesktop = [", 1)[1].split("];", 1)[0]
     server = buildfile.split("export const codeServer = [", 1)[1].split("];", 1)[0]
     assert desktop.count(entry) == 1
     assert entry not in server
 
 
-def test_current_esbuild_bundle_has_the_pulse_worker_entrypoint():
+def test_current_esbuild_bundle_has_the_crusor_worker_entrypoint():
     index = (FORK / "build" / "next" / "index.ts").read_text(encoding="utf-8")
-    entry = "vs/workbench/contrib/pulseai/node/pulseAIWorkerMain"
+    entry = "vs/workbench/contrib/crusorai/node/crusorAIWorkerMain"
     assert index.count(entry) == 1
     desktop = index.split("const desktopEntryPoints = [", 1)[1].split("];", 1)[0]
     assert desktop.count(entry) == 1
     for array_name in ("serverEntryPoints", "webEntryPoints", "webOnlyEntryPoints", "codeEntryPoints"):
         block = index.split(f"const {array_name} = [", 1)[1].split("];", 1)[0]
-        assert entry not in block, f"{array_name} must not carry the Pulse worker"
+        assert entry not in block, f"{array_name} must not carry the Crusor worker"

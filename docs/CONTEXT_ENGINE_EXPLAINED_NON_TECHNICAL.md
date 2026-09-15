@@ -1,6 +1,6 @@
 # The Context Engine — Explained for a Non‑Technical Person
 
-*A full, minute-step breakdown of the "brain's librarian" inside PulseAI.*
+*A full, minute-step breakdown of the "brain's librarian" inside CrusorAI.*
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 Everything below is based on the actual code in `src/context/` (45 modules, ~16,000 lines) — but written so **anyone** can follow it. No coding knowledge needed. Every technical word is translated into everyday language.
@@ -163,7 +163,7 @@ The raw conversation history (every message, every tool result) can grow enormou
 4. **Never tear a Q&A pair.** Every question the AI asked a tool and the tool's answer are glued together. Trimming is only allowed at clean chapter boundaries — a torn pair would make the AI provider reject the whole request.
 5. **Anti-thrash watchdog.** If a cleanup frees less than 15% of space, it counts as "ineffective." Three ineffective cleanups in a row → skip the expensive AI-written summaries for the next 10 cleanups (simple pruning continues). No wasted money spinning in circles.
 
-*There is also a manual kill switch (`PULSEAI_COMPACTION=off`) to restore the old simple behavior for diagnosis.*
+*There is also a manual kill switch (`CRUSORAI_COMPACTION=off`) to restore the old simple behavior for diagnosis.*
 
 ### Step 9 — Assemble the final folder in exact order 📚
 *(code: the final assembly + "volatile tail")*
@@ -322,7 +322,7 @@ Each is a separate module in `src/context/`. Plain-language role call:
 
 ## Part 7 — A Full Worked Example, Minute by Minute
 
-You type: **"the login button is broken, fix it"** — in the PulseAI IDE, with the Agent mode selected.
+You type: **"the login button is broken, fix it"** — in the CrusorAI IDE, with the Agent mode selected.
 
 1. **Step 1 — Hat:** keywords "broken", "fix" → **DEBUG (detective).**
 2. **Step 2 — Fingerprint:** your message changed the state → rebuild the paperwork.

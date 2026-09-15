@@ -4,7 +4,7 @@ Upstream (hermes-agent @ 8cab422, tests/test_ctx_halving_fix.py) names this as a
 "max_tokens = OUTPUT token cap (a single response). context_length = TOTAL context window (input + output
 combined). These are different and the old code conflated them; the fix keeps them separate."
 
-Pulse re-introduced the conflation one commit ago by subtracting the stated reply cap from the budget. On
+Crusor re-introduced the conflation one commit ago by subtracting the stated reply cap from the budget. On
 the owner's endpoint (window 1,048,576, max_output_tokens 512,000) that cost 262,144 tokens of context for
 no provider reason -- while ALSO, because my clamp capped the reservation at 25% of the window, promising
 MORE input than a max-length reply could coexist with. Both halves of that are wrong, so both are pinned here.
@@ -92,7 +92,7 @@ def test_a_silly_user_setting_is_floored_not_zeroed(monkeypatch):
 
 def test_the_env_setting_still_drives_it(monkeypatch):
     _state(monkeypatch, window=131_072, cap=None)
-    monkeypatch.setenv("PULSEAI_DELIVERY_MAX_TOKENS", "3072")
+    monkeypatch.setenv("CRUSORAI_DELIVERY_MAX_TOKENS", "3072")
     assert ob.requested_output_cap("test-model") == 3072
 
 

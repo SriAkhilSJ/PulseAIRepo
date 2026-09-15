@@ -1,5 +1,5 @@
 """
-Skill Manager for PulseCodeAI
+Skill Manager for CrusorCodeAI
 ============================
 Teach the agent reusable patterns and preferences.
 Skills are automatically injected into context when relevant.
@@ -55,9 +55,9 @@ class SkillManager:
     def __init__(self, storage_path: str | None = None):
         if storage_path is None:
             home = os.path.expanduser("~")
-            pulse_dir = os.path.join(home, ".pulseai")
-            os.makedirs(pulse_dir, exist_ok=True)
-            self.storage_path = os.path.join(pulse_dir, "skills.json")
+            crusor_dir = os.path.join(home, ".crusorai")
+            os.makedirs(crusor_dir, exist_ok=True)
+            self.storage_path = os.path.join(crusor_dir, "skills.json")
         else:
             self.storage_path = storage_path
 

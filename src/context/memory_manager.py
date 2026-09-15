@@ -31,7 +31,7 @@ class MemoryManager:
         """
         Creates the vector memory store.
 
-        db_path: SQLite file location. Defaults to ~/.pulseai/vector_memory.db
+        db_path: SQLite file location. Defaults to ~/.crusorai/vector_memory.db
         """
         self.vector_memory = VectorMemory(db_path=db_path)
 

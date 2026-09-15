@@ -1,4 +1,4 @@
-# PulseAI — Codebase Architecture Review & Strategic Roadmap
+# CrusorAI — Codebase Architecture Review & Strategic Roadmap
 
 **Reviewer:** Context-engineering analysis, 2026-08-04
 **Repo:** SriAkhilSJ/PulseAIRepo @ `517a771` → PR #14 merged `bf696a61` (2026-09-11)
@@ -8,7 +8,7 @@
 
 ---
 
-## 1. What PulseAI actually is today
+## 1. What CrusorAI actually is today
 
 A Python/LangGraph autonomous coding agent (~10.6K LOC + a 65KB dashboard) with a
 genuinely above-average context layer for an OSS project. Component inventory:
@@ -18,7 +18,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 | `src/graphs/chat_graph.py` | 2,069 | Full agentic loop: task manager → planner → plan preview/approval → AI node → SafeToolNode → progress → finalize/recovery/replan | Solid concept, monolithic file |
 | `src/context/context_engine.py` | 1,239 | 32-layer task-aware context assembly: classification, relevance scoring, dedup, budgeted hierarchical packing, differential cache, feedback loop | Best-in-repo; has fixable bugs |
 | `src/context/repo_map.py` | 388 | AST repo map + import graph (verified: handles async/decorators) | Good, capped 1200 tokens |
-| `src/context/vector_memory.py` | 137 | SQLite-persisted vector memory (`~/.pulseai/vector_memory.db`) | Persistent but **linear scan of 500 rows** — not an index |
+| `src/context/vector_memory.py` | 137 | SQLite-persisted vector memory (`~/.crusorai/vector_memory.db`) | Persistent but **linear scan of 500 rows** — not an index |
 | `src/agents/planner.py` | 524 | Plan create/replan/revise/finalize, ambiguity check | Works |
 | `src/agents/cost_router.py` | 138 | Tier-based model routing (cheap/standard/premium) | Real differentiator, underused |
 | `src/tools/terminal_tools.py` | 408 | Background processes w/ lifecycle (start/check/stop/list/cleanup) | Strong: many OSS agents lack this |
@@ -40,7 +40,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 1. **`TaskClassifier` is re-instantiated on every `build_ai_messages` call** (`context_engine.py:308`) → re-encodes ~25 prototype embeddings *every turn*. Should be a singleton/lazy module-level instance.
 2. **`LAYER_RELEVANCE` is a class attribute mutated at runtime** (`context_engine.py:1009-1011`) → learned weights leak across all engine instances in the process (and across dashboard sessions/threads). Deep-copy per instance in `__init__`.
 3. **Feedback attribution is broken as designed** — `record_feedback` snapshots `self._layer_cache`, which is the *session-wide* cache, not the layers actually sent this turn. `build_ai_messages` should return/record the exact layer list per call.
-4. **`MemorySaver` checkpointer** (`chat_graph.py:1754`) → all conversation state dies on restart. Use `SqliteSaver` under `~/.pulseai/` — you already built that persistence for memory, do it for sessions.
+4. **`MemorySaver` checkpointer** (`chat_graph.py:1754`) → all conversation state dies on restart. Use `SqliteSaver` under `~/.crusorai/` — you already built that persistence for memory, do it for sessions.
 
 **Architecture gaps (the real competition gap):**
 5. **No chunk-level code retrieval.** Context is whole-layer granularity (whole repo map, whole memory blocks). Cursor's actual moat is per-symbol/chunk embeddings + hybrid BM25/vector retrieval, incrementally refreshed. Your own README says this is the next milestone. It is.
@@ -58,7 +58,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 
 ### Is the plan right? **Yes, directionally.** Forking Code OSS/VSCodium is exactly what Cursor did (its editor is a VSCode fork), and the VSCode API surface gives you everything your roadmap lists as gaps:
 
-| VSCode API | What it unlocks for PulseAI |
+| VSCode API | What it unlocks for CrusorAI |
 |---|---|
 | `workspace.onDidChangeTextDocument` / file watchers | **Incremental index refresh** (your staleness problem solved) |
 | LSP client / language extensions | Go-to-def, references, diagnostics → AST-accurate context (upgrade over your 20-file import graph) |
@@ -66,7 +66,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 | Webviews | `dashboard.html` embeds as-is, zero rewrite |
 | Terminal API | Your strongest tool module becomes native |
 | Source Control API | Git-aware context (on your gap list) |
-| CodeLens / CodeActions | "Fix with PulseAI" inline affordances |
+| CodeLens / CodeActions | "Fix with CrusorAI" inline affordances |
 
 ### Should you do it first? **No. Doing the fork first is the classic startup sequencing mistake.**
 
@@ -81,7 +81,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 |---|---|---|
 | **P0 — Engine moat** (now, 4–6 wks) | Chunked code index + hybrid BM25/vector retrieval + incremental refresh; fix bugs #1–4; sqlite-vec; per-turn layer attribution | Closes the single biggest verified gap vs Cursor. Your README already names it. Until this exists, an editor shell is premature. |
 | **P1 — Harness quality** (2–4 wks) | pytest + CI; SWE-bench-lite-style eval harness; unified-diff apply with fuzzy matching (you already have `compute_unified_diff` — wire it into `edit_file`); auto-run-tests self-heal loop | You need evals to prove improvement, and a reliable edit/apply format is what separates toy agents from tools. |
-| **P2 — VSCode extension** (3–4 wks) | Package PulseAI as an extension against *stock* VSCode: webview chat (reuse dashboard.html), file-change feed → index refresh, diagnostics → context, inline completions later | 90% of the VSCode APIs' value, 10% of fork cost. Real users, real feedback, zero Electron tax. |
+| **P2 — VSCode extension** (3–4 wks) | Package CrusorAI as an extension against *stock* VSCode: webview chat (reuse dashboard.html), file-change feed → index refresh, diagnostics → context, inline completions later | 90% of the VSCode APIs' value, 10% of fork cost. Real users, real feedback, zero Electron tax. |
 | **P3 — Fork** (only when proven) | Fork Code OSS/VSCodium when (a) retention proves the engine AND (b) extension API limits are the actual blocker | Fork from strength, with users and metrics — not from speculation. |
 
 **Wedge advice:** don't fight Cursor head-on as "another AI IDE." Your codebase's DNA (local free embeddings, cost router, persistent private memory, honest benchmarks) points at a sharper position: **the private/cost-transparent agent** — fully local embeddings, multi-provider routing, on-prem friendly. That's a winnable lane for a startup; "general Cursor clone" is not.
@@ -92,7 +92,7 @@ genuinely above-average context layer for an OSS project. Component inventory:
 
 1. Fix `TaskClassifier` singleton + per-instance `LAYER_RELEVANCE` deep copy (2-line-ish fixes, real bugs).
 2. `build_ai_messages` → return layers-sent; wire into `record_feedback` (true attribution).
-3. Swap `MemorySaver` → `SqliteSaver` (~/.pulseai/sessions.db).
+3. Swap `MemorySaver` → `SqliteSaver` (~/.crusorai/sessions.db).
 4. Start P0 index: chunk files (tree-sitter or AST spans) → embed once → sqlite-vec + BM25 (`rank_bm25`) → retrieve top-k chunks into a new `code_context` layer with relevance=1.0 for DEBUG/REFACTOR.
 5. Convert tests to pytest; add GitHub Actions CI.
 6. `git rm -r --cached generated/ logs/` and gitignore them.
@@ -127,7 +127,7 @@ Second pasted task list ("5 cleanup tasks") — verified and shipped with correc
 
 | GPT Task | Verdict | Shipped |
 |---|---|---|
-| T1: `MemorySaver` → `SqliteSaver` via `from_conn_string` | **Direction right, code broken** — `from_conn_string()` returns a `_GeneratorContextManager` (empirically verified), not a saver; also omitted the required `langgraph-checkpoint-sqlite` package | ✅ Corrected: direct `sqlite3.connect(check_same_thread=False)` + `SqliteSaver(conn)` + `setup()`, sessions at `~/.pulseai/sessions.db` |
+| T1: `MemorySaver` → `SqliteSaver` via `from_conn_string` | **Direction right, code broken** — `from_conn_string()` returns a `_GeneratorContextManager` (empirically verified), not a saver; also omitted the required `langgraph-checkpoint-sqlite` package | ✅ Corrected: direct `sqlite3.connect(check_same_thread=False)` + `SqliteSaver(conn)` + `setup()`, sessions at `~/.crusorai/sessions.db` |
 | T2: purge `generated/`, gitignore | **Right** (only task usable verbatim). `logs/` was already ignored; `generated/` was not | ✅ `git rm --cached` both + expanded `.gitignore` |
 | T3: `requires-python >=3.10` | **Right idea, dated floor** — 3.10 hits EOL ~Oct 2026 (weeks away); no `tomllib` usage found in repo | ✅ Set `>=3.11` |
 | T4: pin `sentence-transformers >=2.5,<3.0` | **FALSE premise** — `>=3.0.0` already declared (line 23); pinning v2 contradicts the repo, and a version pin doesn't stop the 100MB runtime weights download anyway | ✅ Kept v3, added sane bound `>=3.0.0,<4.0.0` |
@@ -270,7 +270,7 @@ wrong long-term design.
 
 **Shipped: a priority chain in `resolve_context_window()`** —
 `LLM_CONTEXT_WINDOW` env override → fresh on-disk cache
-(`~/.pulseai/model_windows.json`, 7-day TTL) → static table (zero network
+(`~/.crusorai/model_windows.json`, 7-day TTL) → static table (zero network
 for known models) → **live provider probe** (Groq `/models`.`context_window`,
 Gemini `inputTokenLimit`, OpenRouter `context_length`; 2.5s hard timeout,
 then cached) → stale cache → conservative default.
@@ -763,7 +763,7 @@ stopped before the fix half. Same method failure as §19, second source.
 |---|---|---|---|
 | 1 | "No chunk-level code retrieval" | **FALSE** | `chunk_index.py` upstream since `ca3fd5c`: per-symbol module/function/class chunks; their quote of "Cursor's actual moat…" is §1:44, pre-fix text |
 | 2 | "No BM25/lexical retrieval" (their P0) | **FALSE** | `chunk_index.py:6` sqlite-vec KNN + **FTS5 BM25** fused via RRF (`:186,:613,:620`); the P0 fix is already shipped |
-| 3 | "MemorySaver checkpointer → state dies on restart" (their P1) | **FALSE** | `chat_graph.py:1810` `SqliteSaver(_checkpoint_conn)`, sessions at `~/.pulseai/sessions.db`; quote is §1:41, corrected per §:128 |
+| 3 | "MemorySaver checkpointer → state dies on restart" (their P1) | **FALSE** | `chat_graph.py:1810` `SqliteSaver(_checkpoint_conn)`, sessions at `~/.crusorai/sessions.db`; quote is §1:41, corrected per §:128 |
 | 4 | "TaskClassifier re-instantiated every turn" | **FALSE** | process-shared singleton `_get_shared_classifier()` (`context_engine.py:153-159`, fixed `445073c`) |
 | 5 | "LAYER_RELEVANCE class attribute mutated" | **FALSE** | per-instance `copy.deepcopy` (`context_engine.py:261`) |
 | 6 | "record_feedback snapshots session cache, not per-turn layers" | **FALSE** | attributes `self._last_layers_sent` (`context_engine.py:1200`), cache is only the never-happens fallback |
@@ -1174,7 +1174,7 @@ Their two hard-won lessons are adopted, not just copied:
   future compressor emits markers the index already ignores.
 
 Storage-side facts verified empirically before building (suite pins them):
-- Checkpoints live at ~/.pulseai/sessions.db, msgpack-serialized; decode
+- Checkpoints live at ~/.crusorai/sessions.db, msgpack-serialized; decode
   MUST use langgraph's own serde (SqliteSaver.serde.loads_typed) — never
   hand-parse (verified against a live SqliteSaver-written DB).
 - The latest checkpoint per thread holds the FULL message list
@@ -1215,7 +1215,7 @@ D20, D21, D22, C1, P2.
 Third hermes steal (§29 step #3), run measure-first per plan. New:
 `src/context/prompt_cache_audit.py` (per-turn byte-prefix recorder wired
 into build_ai_messages; per-session, in-memory ring, opt-in JSONL sink via
-PULSEAI_CACHE_AUDIT_JSONL) + `scripts/cache_audit_measure.py` (realistic
+CRUSORAI_CACHE_AUDIT_JSONL) + `scripts/cache_audit_measure.py` (realistic
 turn sequences through the REAL engine: tmp git repo, growing history,
 alternating feedback, noisy embeddings, git edits mid-session).
 
@@ -1271,7 +1271,7 @@ the step as needing the human; safe calls in the SAME batch still execute
 (partial execution — the old all-or-nothing block was itself a waste);
 merged results preserve the model's original tool_call order (§28 pairing
 invariants). Both paths audit-log (their logger.warning rule); opt-in
-escape hatch PULSEAI_SUBAGENT_AUTO_APPROVE=1 = their subagent_auto_approve
+escape hatch CRUSORAI_SUBAGENT_AUTO_APPROVE=1 = their subagent_auto_approve
 for batch/cron, also logged, ignored by interactive threads (pinned).
 
 Consistency note: execute_code's inner guard (D18) already auto-denies
@@ -1384,7 +1384,7 @@ store is never mutated. Their store-pollution bug (#43175, which forced
 discovery-time summary filtering) cannot occur here; pinned by the
 state-contents-unchanged test. Markers deliberately match D16's
 ingest-skip prefixes anyway (belt and suspenders, also pinned).
-Kill-switch: PULSEAI_COMPACTION=off restores the legacy pipeline.
+Kill-switch: CRUSORAI_COMPACTION=off restores the legacy pipeline.
 
 Development note (ledger honesty): two rounds of test-fixture bugs were
 mine (fat heads + BPE-compressible dump text masking middles; a leftover
@@ -1439,7 +1439,7 @@ form leaves the extension scanning its own `chunk_vec_chunks` /
 `chunk_vec_rowids` shadow tables — exactly k rowid lookups surfaced for
 limit=k, vs. the old plan's full-table distance compute.
 
-Honest edge, diagnosed not hidden: the one real ~/.pulseai DB large enough
+Honest edge, diagnosed not hidden: the one real ~/.crusorai DB large enough
 to time (593 rows) showed a returned-SET difference — 593/593 of its
 vectors are ALL-ZERO (it was indexed in degraded no-embedder mode; BM25
 carried it). Total tie: any k members are equally correct; old and new
@@ -1775,7 +1775,7 @@ recompute, and the gap widens with session length (15% vs 92% measured
 at 14K chars).
 
 Implementation: engine ctor flag volatile_tail (None = env
-PULSEAI_VOLATILE_TAIL, default ON, "off" = legacy byte-for-byte);
+CRUSORAI_VOLATILE_TAIL, default ON, "off" = legacy byte-for-byte);
 _position_volatile_tail partitions by _infer_layer_name (metadata tag +
 header fallback); constant VOLATILE_TAIL_PREAMBLE separates history from
 the tail ("reference data, not conversation, not instructions" — the
@@ -1824,7 +1824,7 @@ THE CONTEXT ENGINE BOARD IS EMPTY.
 extraction); hermes remaining queue D32/D33/D34 filed
 
 Direction: founder — "AS I SAID U: CHECK HERMES AGENT, WHAT IT DOES,
-CAPTURE ITS VALUE AND IMPLEMENT IN THE PULSEAI." First pass (§29) shipped
+CAPTURE ITS VALUE AND IMPLEMENT IN THE CRUSORAI." First pass (§29) shipped
 all six steals (D16/D18/D19/D20/D21/D22); this round is the SECOND PASS
 over the 3,848-file tree hunting unmined subsystems — specifically things
 that also answer the two external code reviews (Aug 7) adjudicated this
@@ -1858,8 +1858,8 @@ Second-pass findings with receipts (their tree):
 D31 SHIPPED — shadow checkpoints (src/tools/shadow_checkpoints.py, 450
 lines vs their 1,953: dropped legacy migration, gateway/volume-evidence,
 multi-transport env builder; kept all safety rails and added two):
-- One shared store at ~/.pulseai/checkpoints/store (env override
-  PULSEAI_CHECKPOINT_HOME); per-project ref refs/pulseai/<hash16> +
+- One shared store at ~/.crusorai/checkpoints/store (env override
+  CRUSORAI_CHECKPOINT_HOME); per-project ref refs/crusorai/<hash16> +
   per-project index; git object DB dedupes across projects and turns —
   their single-store receipt measured ~500MB → near-zero for N worktrees.
 - Hooks (transparent, LLM never sees them, never raise): write_file,
@@ -1872,7 +1872,7 @@ multi-transport env builder; kept all safety rails and added two):
   and zero commits on no-change turns (diff-index --quiet).
 - Git isolation copied verbatim in substance: GIT_DIR/GIT_WORK_TREE/
   GIT_INDEX_FILE + GIT_CONFIG_GLOBAL/SYSTEM=os.devnull + NOSYSTEM, forced
-  identity "PulseAI Shadow" (with config isolated there IS no user.email),
+  identity "CrusorAI Shadow" (with config isolated there IS no user.email),
   stdin DEVNULL, CREATE_NO_WINDOW on win32. The user's project NEVER gets
   a .git (pinned).
 - Restore: pre-rollback snapshot first (undo-the-undo), checkout <hash>
@@ -1886,7 +1886,7 @@ multi-transport env builder; kept all safety rails and added two):
   lazy daily git gc with marker (their _repair_bare_repo_dirs lesson:
   gc packs refs, so ALL our reads go through rev-parse, never loose
   files). Oversize files (>10MB) unstaged post-add. Kill-switch
-  PULSEAI_CHECKPOINTS=off (founder doctrine: every feature gets one).
+  CRUSORAI_CHECKPOINTS=off (founder doctrine: every feature gets one).
   Store-size hard cap deferred to D32-era prune port (noted, not silent).
 
 Measured (scripts/d31_checkpoint_measure.py, founder's latency metric):
@@ -1949,7 +1949,7 @@ texts process-lifetime then exactly 1/turn, D2 cache; "no unit tests"
 D25 — the Turn Tax (repo-map staleness os.walk every turn):
 CONFIRMED 10.1ms@1k / 105.6ms@10k / 305.8ms@30k files per staleness
 check (before-numbers, review6_adjudicate.py). Fix: RepoMap._is_stale
-trusts a fresh answer for PULSEAI_REPO_MAP_STALE_TTL seconds (default
+trusts a fresh answer for CRUSORAI_REPO_MAP_STALE_TTL seconds (default
 2.0; "0" = legacy always-walk) + file tools call invalidate_repo_map on
 EVERY mutation WE make (write_file/edit_file), so the TTL only ever
 bounds edits made outside the agent's view — our own changes can never
@@ -2042,7 +2042,7 @@ PRESERVING the other agent's changes outside the span (policy pinned
 by test, not by vibes). Identity = the graph's thread_id (main session
 or "sub-*" children — invoke_agent's config carries it natively,
 chat_graph.py:1737-1744); fallback "main". Kill-switch
-PULSEAI_FILE_STATE_GUARD=off; every hook fail-open (a guard bug must
+CRUSORAI_FILE_STATE_GUARD=off; every hook fail-open (a guard bug must
 never break an edit — and D31 shadows every mutation anyway).
 Honest scope limit: EXTERNAL edits (vim/IDE) are out of reach of the
 registry — same upstream scope; the mtime stamps are kept so a future
@@ -2102,7 +2102,7 @@ forget-phrases => new, exact-match approval-word veto preserves the
 plan-approval branch upstream, danger tokens and multi-line always fall
 to the LLM. Corpus measure (scripts/d30_classifier_skip_measure.py):
 33/53 = 62% of real traffic classifies FREE, 0 misroutes. Kill-switch
-PULSEAI_TASK_CLASSIFIER=llm. 55 pins (test_task_classifier_skip.py).
+CRUSORAI_TASK_CLASSIFIER=llm. 55 pins (test_task_classifier_skip.py).
 Metric line: latency (a whole LLM round-trip ~0.5-2s), token budget
 (classify prompt+completion both saved), LLM calls (-62% on the manager
 seat) — three of the founder's four, on the seat that fires EVERY turn.
@@ -2134,7 +2134,7 @@ have to re-run, which is fewer LLM calls bought with determinism.
 
 Wiring: SafeToolNode.__call__ all-safe path = try_parallel_batch ->
 try_sequential_batch -> ToolNode fall-through; _tools_by_name identity
-registry in __init__. Kill-switch PULSEAI_PARALLEL_TOOLS=off restores
+registry in __init__. Kill-switch CRUSORAI_PARALLEL_TOOLS=off restores
 TRUE legacy (concurrent, races included — pinned and measured so the
 switch's semantics are documented by behavior, not by comment).
 
@@ -2205,7 +2205,7 @@ The three top hermes patterns vs src/prompts/claude_persona.py:
 Anti-drift design: the legacy constant is NEVER mutated — on-mode is
 composed (replace + append); if persona text drifts and the replace
 stops matching, the pin fails loudly. Kill-switch
-PULSEAI_PERSONA_GUIDANCE=off returns the byte-identical legacy persona
+CRUSORAI_PERSONA_GUIDANCE=off returns the byte-identical legacy persona
 (pinned). Growth bound pinned: <1,300 chars (~330 tokens, stable tier).
 Graph consumes via system_persona() only — raw-constant consumption
 pinned dead. Founder's verdict honored: NO per-model gating shipped
@@ -2235,7 +2235,7 @@ kilocode UX read next on the founder's order).
 
 Founder green-lit P2 with "Go". Phase 0 plan (docs/P2-roadmap.md, scope
 FROZEN, 2-line rule). This commit is the engine half of Phase 0.4:
-src/bridge/ — the ONLY door between the PulseCode fork and the engine.
+src/bridge/ — the ONLY door between the CrusorCode fork and the engine.
 
 Design for the founder's environment: the fork spawns `python -m
 src.bridge` as a sidecar; nlJSON-RPC v1 over stdio. Codec is STDLIB-ONLY

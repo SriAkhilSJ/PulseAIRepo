@@ -1,4 +1,4 @@
-# INSTRUCTIONS — Desktop Agent: visual verification of PulseAI Dark
+# INSTRUCTIONS — Desktop Agent: visual verification of CrusorAI Dark
 
 **From:** Arena agent (Interface/Frontend session) · **Date:** 2026-08-23
 **Repo:** `https://github.com/SriAkhilSJ/PulseAIRepo`
@@ -10,7 +10,7 @@
 ## 0. Mission
 
 The IDE previously shipped VS Code's **Dark 2026** theme (grey `#121314` chrome,
-teal `#3994BC` accents), so it looked like VS Code. It now ships **PulseAI Dark**
+teal `#3994BC` accents), so it looked like VS Code. It now ships **CrusorAI Dark**
 — true black chrome, blue accents — as the **default** theme.
 
 The change is statically verified (valid JSON, registered, zero leftover upstream
@@ -38,8 +38,8 @@ git log --oneline -1                        # MUST be f2f1eb5e or newer
 Confirm the new files arrived:
 
 ```powershell
-Test-Path desktop\vscode\extensions\theme-defaults\themes\pulseai-dark.json   # True
-Test-Path scripts\generate_pulseai_theme.py                                    # True
+Test-Path desktop\vscode\extensions\theme-defaults\themes\crusorai-dark.json   # True
+Test-Path scripts\generate_crusorai_theme.py                                    # True
 ```
 
 > `.env`, `.venv`, `desktop\vscode\.build\`, `bench-results\` are gitignored — the
@@ -51,10 +51,10 @@ Test-Path scripts\generate_pulseai_theme.py                                    #
 
 ```powershell
 node -v          # expect v24.18.0 (desktop\.nvmrc)
-python -c "import json;d=json.load(open(r'desktop\vscode\extensions\theme-defaults\themes\pulseai-dark.json'));print(d['name'],len(d['colors']))"
-# expect:  PulseAI Dark 305
+python -c "import json;d=json.load(open(r'desktop\vscode\extensions\theme-defaults\themes\crusorai-dark.json'));print(d['name'],len(d['colors']))"
+# expect:  CrusorAI Dark 305
 python -c "import json;p=json.load(open(r'desktop\vscode\extensions\theme-defaults\package.json'));print(p['contributes']['configurationDefaults'])"
-# expect:  {'workbench.colorTheme': 'PulseAI Dark'}
+# expect:  {'workbench.colorTheme': 'CrusorAI Dark'}
 ```
 
 If any of these fail, **STOP and report** — do not try to fix them.
@@ -74,7 +74,7 @@ cd desktop\vscode
 ```
 
 `code.bat` runs `build/lib/preLaunch.ts` (fetches electron, compiles, builds
-built-in extensions), then launches `.build\electron\PulseAI.exe`.
+built-in extensions), then launches `.build\electron\CrusorAI.exe`.
 
 If a stale build causes trouble, skip prelaunch and run the existing binary:
 
@@ -90,7 +90,7 @@ Built-in extension metadata is cached. In order, cheapest first:
 1. In the IDE: **Ctrl+Shift+P → "Developer: Reload Window"**.
 2. Launch with a clean profile (does not touch your real settings):
    ```powershell
-   .build\electron\PulseAI.exe . --user-data-dir .freebuff\pulseai-theme-check
+   .build\electron\CrusorAI.exe . --user-data-dir .freebuff\crusorai-theme-check
    ```
    **A clean profile is the honest test** — `configurationDefaults` only applies
    where the user has not already set `workbench.colorTheme`. If you previously
@@ -112,7 +112,7 @@ Use the **clean profile** from §3b.2 so the default is genuinely exercised.
 ### 4a. Is it default?
 
 - **Ctrl+Shift+P → "Preferences: Color Theme"**
-- **"PulseAI Dark" must be the selected/checked entry**, and it should appear in
+- **"CrusorAI Dark" must be the selected/checked entry**, and it should appear in
   the list. If it is listed but not selected → `configurationDefaults` is not
   applying; report that specifically.
 
@@ -147,11 +147,11 @@ showing. Check specifically:
 
 ### 4d. Two known open questions — please answer both
 
-1. **Doubled panel header.** Open Pulse in the auxiliary bar. Does it show **two**
+1. **Doubled panel header.** Open Crusor in the auxiliary bar. Does it show **two**
    stacked headers (a container title *and* a view title)? We believe it does, and
-   the fix is a one-line option. **Screenshot the top of the Pulse panel.**
+   the fix is a one-line option. **Screenshot the top of the Crusor panel.**
 2. **Two agent icons.** Does the auxiliary bar show **both** a Copilot/Chat icon
-   **and** the Pulse icon? Copilot should hide itself when no Copilot extension is
+   **and** the Crusor icon? Copilot should hide itself when no Copilot extension is
    present. **Report which icons you see.** Do **not** delete or edit anything
    under `contrib/chat/` or `extensions/copilot/` — that code is our integration
    reference and is deliberately untouched.
@@ -163,11 +163,11 @@ showing. Check specifically:
 Save screenshots to `.freebuff\evidence\theme\` (gitignored) and paste:
 
 1. `git log --oneline -1` (sync proof)
-2. **Screenshot 1** — full window, a code file open, Pulse panel visible
-3. **Screenshot 2** — Color Theme picker showing PulseAI Dark selected
+2. **Screenshot 1** — full window, a code file open, Crusor panel visible
+3. **Screenshot 2** — Color Theme picker showing CrusorAI Dark selected
 4. **Screenshot 3** — Command Palette open (teal check)
 5. **Screenshot 4** — Settings UI (teal check)
-6. **Screenshot 5** — top of the Pulse panel (doubled-header question)
+6. **Screenshot 5** — top of the Crusor panel (doubled-header question)
 7. The §4b table with **pass/fail per row**
 8. Any teal found: **where**, plus a screenshot
 9. Answers to §4d.1 and §4d.2
@@ -190,13 +190,13 @@ Save screenshots to `.freebuff\evidence\theme\` (gitignored) and paste:
 
 ## 7. Context (why this matters)
 
-`PulseAI Dark` is generated from upstream `2026-dark.json` by
-`scripts/generate_pulseai_theme.py` — 298 upstream colors remapped (grey → true
-black, teal → Pulse blue with alpha preserved), plus ~60 explicit brand overrides.
+`CrusorAI Dark` is generated from upstream `2026-dark.json` by
+`scripts/generate_crusorai_theme.py` — 298 upstream colors remapped (grey → true
+black, teal → Crusor blue with alpha preserved), plus ~60 explicit brand overrides.
 It is registered additively inside `extensions/theme-defaults`, so **zero upstream
 source files were modified** and fork invariant 7 still holds.
 
 Full background: `docs/DESIGN/FORK_REBRANDING.md`.
-Design direction: `docs/DESIGN/PULSEAI_DESIGN_PLAN.md`.
+Design direction: `docs/DESIGN/CRUSORAI_DESIGN_PLAN.md`.
 Intended look (mockup, not a real screenshot):
-`branding/pulseai-dark-theme-preview.svg`.
+`branding/crusorai-dark-theme-preview.svg`.

@@ -11,7 +11,7 @@ actual design (_should_parallelize_tool_batch):
   A) [write x.txt "NEW" + read x.txt] in ONE batch, D34 ON:
      forced sequential in input order -> reader deterministically
      sees "NEW". Wall ~= writer(0.3s) + reader.
-  B) same batch, PULSEAI_PARALLEL_TOOLS=off (TRUE legacy):
+  B) same batch, CRUSORAI_PARALLEL_TOOLS=off (TRUE legacy):
      ToolNode runs both at once -> reader finishes BEFORE the
      (0.3s-slowed) writer -> reader reports the file MISSING.
      The race, receipted. (Same-class as overwrite+read; that shape
@@ -66,9 +66,9 @@ def _tool_messages(out, state):
 def _conflicting_batch(parallel_on: bool):
     """[write x NEW (0.3s slow) + read x]. Returns (wall, reader_content)."""
     if parallel_on:
-        os.environ.pop("PULSEAI_PARALLEL_TOOLS", None)
+        os.environ.pop("CRUSORAI_PARALLEL_TOOLS", None)
     else:
-        os.environ["PULSEAI_PARALLEL_TOOLS"] = "off"
+        os.environ["CRUSORAI_PARALLEL_TOOLS"] = "off"
     with tempfile.TemporaryDirectory() as td:
         def write_file(path: str = "", content: str = "") -> str:
             time.sleep(DELAY)  # slow write -> race window for legacy
@@ -99,7 +99,7 @@ def _conflicting_batch(parallel_on: bool):
 
 
 def _safe_batch() -> float:
-    os.environ.pop("PULSEAI_PARALLEL_TOOLS", None)
+    os.environ.pop("CRUSORAI_PARALLEL_TOOLS", None)
     with tempfile.TemporaryDirectory() as td:
         def read_file(path: str = "") -> str:
             time.sleep(DELAY)

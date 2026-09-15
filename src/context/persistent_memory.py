@@ -1,6 +1,6 @@
 
 """
-Persistent Memory Wrapper for PulseCodeAI
+Persistent Memory Wrapper for CrusorCodeAI
 ==========================================
 Wraps the existing MemoryManager with JSON disk persistence.
 Memories survive across terminal sessions and restarts.
@@ -31,9 +31,9 @@ class PersistentMemoryWrapper:
         self._base = base_manager
         if storage_path is None:
             home = os.path.expanduser("~")
-            pulse_dir = os.path.join(home, ".pulseai")
-            os.makedirs(pulse_dir, exist_ok=True)
-            self.storage_path = os.path.join(pulse_dir, "memories.json")
+            crusor_dir = os.path.join(home, ".crusorai")
+            os.makedirs(crusor_dir, exist_ok=True)
+            self.storage_path = os.path.join(crusor_dir, "memories.json")
         else:
             self.storage_path = storage_path
 

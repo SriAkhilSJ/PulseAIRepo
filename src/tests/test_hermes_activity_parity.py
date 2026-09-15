@@ -25,16 +25,16 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-BROWSER = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
-COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "common"
-HERMES_UI = ROOT / "pulse-webview" / "src" / "hermes-ui"
+BROWSER = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
+COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "common"
+HERMES_UI = ROOT / "crusor-webview" / "src" / "hermes-ui"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node_loader import esbuild_or_skip  # noqa: E402  (src/tests is not a package; pytest prepends it)
 
-FORK_ACTIVITY = BROWSER / "pulseAIActivity.ts"
-FORK_ICONS = BROWSER / "pulseAIIcons.ts"
-FORK_RENDERER = BROWSER / "pulseAIRenderer.ts"
-FORK_CATALOG = COMMON / "pulseAIToolCatalog.ts"
+FORK_ACTIVITY = BROWSER / "crusorAIActivity.ts"
+FORK_ICONS = BROWSER / "crusorAIIcons.ts"
+FORK_RENDERER = BROWSER / "crusorAIRenderer.ts"
+FORK_CATALOG = COMMON / "crusorAIToolCatalog.ts"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None,
@@ -61,7 +61,7 @@ def _node_json(command: list[str], cwd: Path, timeout: int = 180) -> object:
 def _bundle(source: Path, workdir: Path) -> Path:
     out = workdir / f"{source.stem}.mjs"
     proc = subprocess.run(
-        [str(esbuild_or_skip(ROOT / "pulse-webview")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+        [str(esbuild_or_skip(ROOT / "crusor-webview")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         stdin=subprocess.DEVNULL, timeout=180,
@@ -251,9 +251,9 @@ def test_both_surfaces_mount_the_same_column_and_teardown_the_timers():
         "the Manager used to bolt the transcript on by itself; the column owns it now"
     for glyph in ("icon('brain')", "renderToolIcon(name)"):
         assert glyph in renderer
-    css = (BROWSER / "media" / "pulseAI.css").read_text(encoding="utf-8")
-    for rule in (".pulseai-scaffold-pulse", "@keyframes pulseai-breathe", "@keyframes pulseai-sweep",
-                 ".pulseai-disclosure-caret", ".pulseai-thought-body"):
+    css = (BROWSER / "media" / "crusorAI.css").read_text(encoding="utf-8")
+    for rule in (".crusorai-scaffold-crusor", "@keyframes crusorai-breathe", "@keyframes crusorai-sweep",
+                 ".crusorai-disclosure-caret", ".crusorai-thought-body"):
         assert rule in css, f"{rule} is not in the stylesheet -- the row would mount unstyled"
 
 
@@ -349,11 +349,11 @@ def test_no_progress_line_is_invented_when_there_is_nothing_to_report():
     root = Path(__file__).resolve().parents[2]
     inspecting = "Inspecting " + "workspace context"
     preparing = "Preparing " + "workspace context"
-    renderer = (root / "desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIRenderer.ts").read_text(encoding="utf-8")
+    renderer = (root / "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts").read_text(encoding="utf-8")
     bridge = (root / "src/bridge/__main__.py").read_text(encoding="utf-8")
     assert inspecting not in renderer, "assistant copy must not be invented when assistantText is empty"
     assert preparing not in bridge, "the pre-graph liveness frame must not narrate a step that has not run"
-    copy_call = re.search(r"element\('div', 'pulseai-assistant-copy[^)]*\)", renderer)
+    copy_call = re.search(r"element\('div', 'crusorai-assistant-copy[^)]*\)", renderer)
     assert copy_call, "the assistant copy element must still exist -- the fix is to gate it, not delete it (01e09f92 merged the markdown root into this class; the pin follows the call shape)"
     assert "||" not in copy_call.group(0), f"the copy line must render only real text: {copy_call.group(0)}"
     # hermes message-parts port (owner report #4): the guard moved into the

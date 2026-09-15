@@ -1,8 +1,8 @@
-"""The neutral execution phase — pulse has NO phase lexicon.
+"""The neutral execution phase — crusor has NO phase lexicon.
 
 Hermes runs no keyword→phase machinery at all: steering comes from STATE
 (todo verification gates, budget reserves, verify-on-stop nudges) and the
-system prompt. Pulse's former keyword lexicon here (plan-step words like
+system prompt. Crusor's former keyword lexicon here (plan-step words like
 "build"/"browser" picking a phase, then guidance strings and — before
 fa5e77e8 — tool amputation) was an invention and a hardcode of exactly the
 class the owner banned; its amputation form broke the field on

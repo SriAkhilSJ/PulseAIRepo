@@ -2,7 +2,7 @@
 merged, and PRINTED — and the request prefix is pinned byte-stable.
 
 hermes' first invariant: a long-lived conversation reuses a cached prefix
-every turn, and cost follows. Pulse's custom tier re-bills all bound tool
+every turn, and cost follows. Crusor's custom tier re-bills all bound tool
 schemas on every call unless the provider's automatic prefix caching
 engages; nobody could SEE whether it does (field 2026-09-10: 628k billed
 over 15 calls with the estimate reading ~18.5k — the schemas' share was

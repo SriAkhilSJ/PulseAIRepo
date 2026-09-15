@@ -18,8 +18,8 @@ from langchain_core.tools import tool
 
 
 _USER_AGENT = (
-    "Mozilla/5.0 (compatible; PulseCodeAI/1.0; "
-    "+https://example.local/pulsecodeai)"
+    "Mozilla/5.0 (compatible; CrusorCodeAI/1.0; "
+    "+https://example.local/crusorcodeai)"
 )
 
 
@@ -235,10 +235,10 @@ def web_extract(
 
     Hermes tool-name parity (2026-09-09): hermes binds this tool as
     `web_extract` (tools/web_tools.py:475) with a `urls` list (max 5 per
-    call) and `char_limit`; pulse's old `web_fetch`/`url` shape was an
+    call) and `char_limit`; crusor's old `web_fetch`/`url` shape was an
     invention its guidance RENAME_MAP papered over. `urls` and `char_limit`
     are hermes' argument names; the scalar `url` remains as the legacy
-    pulse alias. This is the server's HTML text only — the page's
+    crusor alias. This is the server's HTML text only — the page's
     JavaScript never runs, so JS-rendered apps come back empty or partial.
     If a URL fails or times out, use the browser tool instead. To interact
     with a page, or to verify that a web app you built actually renders
@@ -297,7 +297,7 @@ def _fetch_one(url: str, max_chars: int) -> str:
 @tool
 def web_fetch(url: str, max_chars: int = 12_000) -> str:
     """
-    Legacy pulse name of `web_extract` (hermes tool-name parity,
+    Legacy crusor name of `web_extract` (hermes tool-name parity,
     2026-09-09). Executes the full web_extract contract for one URL.
     """
     return web_extract.func([url], max_chars)

@@ -1,65 +1,33 @@
 #!/usr/bin/env python3
-"""Generate PulseAI IDE platform icons from the canonical vector geometry."""
+"""Generate CrusorAI IDE platform icons from the canonical logo.
+
+The canonical source of truth is ``branding/crusorai-mark.png`` (the uploaded
+CrusorAI logo: a silver monochrome mark on a black square, 1536x1536).
+This script derives every platform asset consumed by the canonical fork
+(``desktop/vscode/resources/``) from that single PNG. Pillow is required
+only for this branding generation step.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 import shutil
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 BRANDING = ROOT / "branding"
 DESKTOP = ROOT / "desktop" / "vscode" / "resources"
-UI_PUBLIC = ROOT / "ui" / "public"
+SCALE_SOURCE = BRANDING / "crusorai-mark.png"
 SCALE = 4
 SIZE = 1024
 
 
-def scaled(value: int) -> int:
-    return value * SCALE
-
-
-def render_mark() -> Image.Image:
-    size = scaled(SIZE)
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle(
-        (scaled(42), scaled(42), scaled(982), scaled(982)),
-        radius=scaled(224),
-        fill="#071118",
-    )
-    draw.rounded_rectangle(
-        (scaled(62), scaled(62), scaled(962), scaled(962)),
-        radius=scaled(204),
-        outline="#245461",
-        width=scaled(8),
-    )
-    points = [(scaled(x), scaled(y)) for x, y in [
-        (164, 536), (292, 536), (372, 306), (486, 746),
-        (584, 382), (672, 552), (860, 552),
-    ]]
-    draw.line(points, fill="#22D3EE", width=scaled(54), joint="curve")
-    for x, y in points:
-        draw.ellipse(
-            (x - scaled(27), y - scaled(27), x + scaled(27), y + scaled(27)),
-            fill="#22D3EE",
-        )
-
-    highlight = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    highlight_draw = ImageDraw.Draw(highlight)
-    highlight_draw.line(points, fill=(217, 250, 255, 86), width=scaled(8), joint="curve")
-    image = Image.alpha_composite(image, highlight)
-
-    draw = ImageDraw.Draw(image)
-    draw.ellipse(
-        (scaled(830), scaled(522), scaled(890), scaled(582)),
-        fill="#9B8CFF",
-    )
-    draw.ellipse(
-        (scaled(848), scaled(540), scaled(872), scaled(564)),
-        fill="#F5F3FF",
-    )
-    return image.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+def load_mark() -> Image.Image:
+    """Load the canonical CrusorAI mark (opaque, square)."""
+    source = Image.open(SCALE_SOURCE)
+    if source.mode != "RGBA":
+        source = source.convert("RGBA")
+    return source
 
 
 def save_png(source: Image.Image, path: Path, size: int) -> None:
@@ -68,11 +36,11 @@ def save_png(source: Image.Image, path: Path, size: int) -> None:
 
 
 def main() -> None:
-    source = render_mark()
+    source = load_mark()
     generated = BRANDING / "generated"
-    save_png(source, generated / "pulseai-mark-1024.png", 1024)
-    save_png(source, generated / "pulseai-mark-512.png", 512)
-    save_png(source, generated / "pulseai-mark-256.png", 256)
+    save_png(source, generated / "crusorai-mark-1024.png", 1024)
+    save_png(source, generated / "crusorai-mark-512.png", 512)
+    save_png(source, generated / "crusorai-mark-256.png", 256)
 
     save_png(source, DESKTOP / "linux" / "code.png", 512)
     save_png(source, DESKTOP / "server" / "code-192.png", 192)
@@ -99,10 +67,8 @@ def main() -> None:
         sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)],
     )
 
-    (DESKTOP / "pulseai").mkdir(parents=True, exist_ok=True)
-    UI_PUBLIC.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(BRANDING / "pulseai-mark.svg", DESKTOP / "pulseai" / "pulseai-mark.svg")
-    shutil.copyfile(BRANDING / "pulseai-mark.svg", UI_PUBLIC / "pulseai-mark.svg")
+    (DESKTOP / "crusorai").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(BRANDING / "crusorai-mark.svg", DESKTOP / "crusorai" / "crusorai-mark.svg")
 
 
 if __name__ == "__main__":

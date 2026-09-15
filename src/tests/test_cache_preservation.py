@@ -1,6 +1,6 @@
 """D37 prompt-cache preservation across provider failover.
 
-PulseAI emits no cache_control blocks, so the port is the hermes invariant:
+CrusorAI emits no cache_control blocks, so the port is the hermes invariant:
 the static prefix is byte-preserved across a provider transition, and any
 provider cache decoration is stripped defensively.
 """

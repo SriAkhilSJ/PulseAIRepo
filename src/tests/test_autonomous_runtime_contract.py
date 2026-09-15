@@ -29,7 +29,7 @@ def test_fuse_system_head_merges_every_system_block(monkeypatch):
     blocks vanish; the kill-switch restores the legacy request."""
     from src.graphs import chat_graph
 
-    monkeypatch.delenv("PULSEAI_CONTEXT_MULTI_SYSTEM", raising=False)
+    monkeypatch.delenv("CRUSORAI_CONTEXT_MULTI_SYSTEM", raising=False)
     msgs = [
         SystemMessage(content="PERSONA", response_metadata={"layers": ["persona"]}),
         SystemMessage(content="=== SAFETY GUARD ==="),
@@ -59,7 +59,7 @@ def test_fuse_system_head_merges_every_system_block(monkeypatch):
     assert one[0].content == "only"
 
     # kill-switch: legacy multi-system request preserved byte-for-byte
-    monkeypatch.setenv("PULSEAI_CONTEXT_MULTI_SYSTEM", "1")
+    monkeypatch.setenv("CRUSORAI_CONTEXT_MULTI_SYSTEM", "1")
     legacy = chat_graph._fuse_system_head(
         [SystemMessage(content="PERSONA"), SystemMessage(content="=== SAFETY GUARD ==="),
          HumanMessage(content="hi")]
@@ -351,9 +351,9 @@ def test_incomplete_tool_call_is_rejected_then_observed_by_request_two(tmp_path,
 
     request_one = chat_graph.ai_node(base_state, config)
     assistant = request_one["messages"][0]
-    assert assistant.additional_kwargs["pulse_incomplete_response"] is True
-    assert assistant.additional_kwargs["pulse_incomplete_reason"] == "length"
-    assert assistant.additional_kwargs["pulse_raw_finish_reason"] == "length"
+    assert assistant.additional_kwargs["crusor_incomplete_response"] is True
+    assert assistant.additional_kwargs["crusor_incomplete_reason"] == "length"
+    assert assistant.additional_kwargs["crusor_raw_finish_reason"] == "length"
     assert request_one["incomplete_response_retries"] == 1
 
     tool_state = dict(base_state)

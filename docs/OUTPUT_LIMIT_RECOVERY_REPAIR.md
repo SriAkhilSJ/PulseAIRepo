@@ -7,11 +7,11 @@ Scope: provider-free repair after Test-5 Attempt 10
 
 ## Status and limits
 
-This change repairs existing Pulse control flow; it does not redesign the graph. It uses no provider calls and does not establish a live runtime/product PASS. Attempt 10 remains `RUNTIME_FAIL / PRODUCT_FAIL`. PR #9 remains unmerged.
+This change repairs existing Crusor control flow; it does not redesign the graph. It uses no provider calls and does not establish a live runtime/product PASS. Attempt 10 remains `RUNTIME_FAIL / PRODUCT_FAIL`. PR #9 remains unmerged.
 
 ## Failure addressed
 
-LangChain streaming chunk addition can concatenate repeated string metadata. Two terminal chunks carrying `finish_reason="length"` can therefore yield `lengthlength`. Pulse previously tested the merged value against a fixed set, misclassified it as complete, and finalized an empty response. The evidence runner then lost diagnostic detail when a Windows console heartbeat raised `OSError 22`.
+LangChain streaming chunk addition can concatenate repeated string metadata. Two terminal chunks carrying `finish_reason="length"` can therefore yield `lengthlength`. Crusor previously tested the merged value against a fixed set, misclassified it as complete, and finalized an empty response. The evidence runner then lost diagnostic detail when a Windows console heartbeat raised `OSError 22`.
 
 ## Repairs
 
@@ -49,7 +49,7 @@ Tool-bearing incomplete responses still route through `SafeToolNode`, which emit
 
 ### Custom OpenRouter budget discovery
 
-`src/context/model_budgets.py` recognizes an `openrouter.ai` host configured through Pulse's generic custom/OpenAI-compatible route. Unknown models then use OpenRouter's existing public catalog probe and cache rather than silently falling to the generic 8,192-token window. Other custom hosts retain existing behavior.
+`src/context/model_budgets.py` recognizes an `openrouter.ai` host configured through Crusor's generic custom/OpenAI-compatible route. Unknown models then use OpenRouter's existing public catalog probe and cache rather than silently falling to the generic 8,192-token window. Other custom hosts retain existing behavior.
 
 ## Deterministic verification
 
@@ -74,7 +74,7 @@ pytest -q \
 
 ### Windows deterministic validation
 
-The existing Windows checkout at `D:\pulseAIagent\PulseAIRepo` independently
+The existing Windows checkout at `D:\crusorAIagent\PulseAIRepo` independently
 validated repair commit `0bb00413f4a03b0172c4f6214018bad156fb1d2a`:
 
 ```text

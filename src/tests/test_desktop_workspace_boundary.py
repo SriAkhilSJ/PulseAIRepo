@@ -30,11 +30,11 @@ from src.bridge.protocol import PROTOCOL_VERSION
 from src.runtime.identity import workspace_id
 
 ROOT = Path(__file__).resolve().parents[2]
-PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+CRUSOR = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai"
 
 
 def _text(*parts: str) -> str:
-    return PULSE.joinpath(*parts).read_text(encoding="utf-8")
+    return CRUSOR.joinpath(*parts).read_text(encoding="utf-8")
 
 
 def _lines(source: str, needle: str) -> list[int]:
@@ -53,7 +53,7 @@ def _assert_one(source: str, needle: str, label: str) -> int:
 
 
 def test_session_folder_comes_only_from_workspace_context_service():
-    service = _text("browser", "pulseAIRendererService.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     # The getter reads getWorkspace().folders directly — never cwd/env/app dirs.
     assert _lines(service, "workspaceContextService.getWorkspace().folders"), "folders read"
     _assert_one(service, "if (folders.length === 0) { return undefined; }", "zero folders")
@@ -67,10 +67,10 @@ def test_session_folder_comes_only_from_workspace_context_service():
 
 def test_no_cwd_appdir_or_dot_fallback_in_desktop_sources():
     for relative in (
-        "browser/pulseAIRendererService.ts",
-        "browser/pulseAIRenderer.ts",
-        "common/pulseAIEngineService.ts",
-        "electron-browser/pulseAIEngineService.ts",
+        "browser/crusorAIRendererService.ts",
+        "browser/crusorAIRenderer.ts",
+        "common/crusorAIEngineService.ts",
+        "electron-browser/crusorAIEngineService.ts",
     ):
         source = _text(*relative.split("/"))
         assert "process.cwd()" not in source, relative
@@ -90,33 +90,33 @@ def test_no_cwd_appdir_or_dot_fallback_in_desktop_sources():
 
 
 def test_start_workspace_cannot_leak_into_engine_root():
-    desktop = _text("electron-browser", "pulseAIEngineService.ts")
-    common = _text("common", "pulseAIEngineService.ts")
+    desktop = _text("electron-browser", "crusorAIEngineService.ts")
+    common = _text("common", "crusorAIEngineService.ts")
 
-    # resolvePulseAIEngineRoot is called with config, env, and workspace-as-fallback.
-    call = _assert_one(desktop, "resolvePulseAIEngineRoot(", "engine root resolution")
-    assert "configurationService.getValue<string>('pulseai.engineRoot')" in desktop
-    assert "env['PULSEAI_ENGINE_ROOT']" in desktop
+    # resolveCrusorAIEngineRoot is called with config, env, and workspace-as-fallback.
+    call = _assert_one(desktop, "resolveCrusorAIEngineRoot(", "engine root resolution")
+    assert "configurationService.getValue<string>('crusorai.engineRoot')" in desktop
+    assert "env['CRUSORAI_ENGINE_ROOT']" in desktop
 
     # The resolver signature accepts workspace as a LAST fallback only.
     # Config and env are still checked first; workspace is only used when both are empty.
-    assert "export function resolvePulseAIEngineRoot(configured: string | undefined, envRoot: string | undefined, workspace?: string): string" in common
+    assert "export function resolveCrusorAIEngineRoot(configured: string | undefined, envRoot: string | undefined, workspace?: string): string" in common
     assert "configured?.trim() || envRoot?.trim() || ''" in common
 
 
 def test_blank_engine_root_is_rejected():
-    common = _text("common", "pulseAIEngineService.ts")
-    assert "export class PulseAIEngineSetupError extends Error" in common
-    assert "this.name = 'PulseAIEngineSetupError'" in common
-    _assert_one(common, "throw new PulseAIEngineSetupError();", "blank root throw")
-    assert "PulseAIEngineSetupError" in _text("browser", "pulseAIRendererService.ts")
+    common = _text("common", "crusorAIEngineService.ts")
+    assert "export class CrusorAIEngineSetupError extends Error" in common
+    assert "this.name = 'CrusorAIEngineSetupError'" in common
+    _assert_one(common, "throw new CrusorAIEngineSetupError();", "blank root throw")
+    assert "CrusorAIEngineSetupError" in _text("browser", "crusorAIRendererService.ts")
 
 
 def test_blank_session_workspace_is_rejected_desktop_side():
-    desktop = _text("electron-browser", "pulseAIEngineService.ts")
+    desktop = _text("electron-browser", "crusorAIEngineService.ts")
     assert "if (!workspace?.trim()) {" in desktop
-    assert "PulseAI session requires an opened workspace folder" in desktop
-    service = _text("browser", "pulseAIRendererService.ts")
+    assert "CrusorAI session requires an opened workspace folder" in desktop
+    service = _text("browser", "crusorAIRendererService.ts")
     assert "if (!workspace) {" in service
 
 
@@ -126,22 +126,22 @@ def test_blank_session_workspace_is_rejected_desktop_side():
 
 
 def test_no_folder_never_starts_the_engine():
-    service = _text("browser", "pulseAIRendererService.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     guard = _assert_one(service, "if (!workspace) {", "no-folder guard")
     start = _assert_one(service, "this.engineService.start(workspace).then", "start with workspace")
     assert start > guard, "start() must appear only after the no-workspace guard"
     # ensureEngine() no longer mixes a missing-workspace message with engine
     # setup; those two failures are distinct UIs.
-    assert "Open a workspace or configure pulseai.engineRoot" not in service
+    assert "Open a workspace or configure crusorai.engineRoot" not in service
     # The engine-setup failure path is explicit (actionable Open Settings row).
-    assert "engineSetupError = error instanceof PulseAIEngineSetupError" in service
+    assert "engineSetupError = error instanceof CrusorAIEngineSetupError" in service
 
 
 def test_no_folder_ui_is_exact_and_submission_is_blocked():
-    service = _text("browser", "pulseAIRendererService.ts")
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     # The exact hint text is owned by the service and rendered from the model.
-    _assert_one(service, "noWorkspaceHint: 'Open a folder to start a Pulse session.'", "hint owner")
+    _assert_one(service, "noWorkspaceHint: 'Open a folder to start a Crusor session.'", "hint owner")
     assert "model.noWorkspaceHint" in renderer
     # Composer input and send are disabled; an Open Folder action is offered.
     assert "const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired;" in renderer
@@ -150,7 +150,7 @@ def test_no_folder_ui_is_exact_and_submission_is_blocked():
     assert "host.openFolder" in renderer
     assert "workbench.action.files.openFolder" in service
     assert "host.openEngineSettings" in renderer
-    assert "PulseAICommandId.OpenSettings" in service
+    assert "CrusorAICommandId.OpenSettings" in service
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_no_folder_ui_is_exact_and_submission_is_blocked():
 
 
 def test_frames_carry_the_opened_fs_path_unchanged():
-    service = _text("browser", "pulseAIRendererService.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     create = _assert_one(service, "type: 'session_create', workspace: this.workspacePath", "session_create workspace")
     prompt = _assert_one(service, "type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath", "prompt workspace")
     assert create > 0 and prompt > create
@@ -174,7 +174,7 @@ def test_frames_carry_the_opened_fs_path_unchanged():
 @pytest.fixture
 def bridge():
     env = dict(os.environ)
-    env["PULSEAI_BRIDGE_RUNNER"] = "echo"
+    env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
@@ -198,7 +198,7 @@ def bridge():
     proc.kill()
 
 
-def test_desktop_frame_sequence_binds_pulse_ws(bridge, tmp_path):
+def test_desktop_frame_sequence_binds_crusor_ws(bridge, tmp_path):
     proc, send, drain_until = bridge
     ws = str(tmp_path)
     created = send({"type": "session_create", "session_id": "s", "workspace": ws})
@@ -214,11 +214,11 @@ def test_desktop_frame_sequence_binds_pulse_ws(bridge, tmp_path):
     assert done["completed"] is True
 
 
-def test_desktop_route_uses_canonical_pulse_ws_fixture_when_present(bridge):
-    """Requirement 4 routing evidence: the tiny D:\\pulse-ws project (no model)."""
-    fixture = Path("D:/pulse-ws")
+def test_desktop_route_uses_canonical_crusor_ws_fixture_when_present(bridge):
+    """Requirement 4 routing evidence: the tiny D:\\crusor-ws project (no model)."""
+    fixture = Path("D:/crusor-ws")
     if not fixture.is_dir():
-        pytest.skip("canonical D:\\pulse-ws fixture not present on this machine")
+        pytest.skip("canonical D:\\crusor-ws fixture not present on this machine")
     proc, send, drain_until = bridge
     ws = str(fixture)
     created = send({"type": "session_create", "session_id": "s", "workspace": ws})

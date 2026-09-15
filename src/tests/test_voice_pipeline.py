@@ -51,13 +51,13 @@ def test_everything_is_env_driven_never_hardcoded(monkeypatch):
     is honored without a restart."""
     from src.voice import pipeline as vp
 
-    monkeypatch.setenv("PULSEAI_STT_URL", "https://alt.example/stt")
-    monkeypatch.setenv("PULSEAI_STT_MODEL", "whisper-alt")
-    monkeypatch.setenv("PULSEAI_TTS_URL", "https://alt.example/tts")
-    monkeypatch.setenv("PULSEAI_TTS_MODEL", "tts-alt")
-    monkeypatch.setenv("PULSEAI_TTS_VOICE", "AltVoice")
-    monkeypatch.setenv("PULSEAI_STT_API_KEY", "stt-key")
-    monkeypatch.setenv("PULSEAI_TTS_API_KEY", "tts-key")
+    monkeypatch.setenv("CRUSORAI_STT_URL", "https://alt.example/stt")
+    monkeypatch.setenv("CRUSORAI_STT_MODEL", "whisper-alt")
+    monkeypatch.setenv("CRUSORAI_TTS_URL", "https://alt.example/tts")
+    monkeypatch.setenv("CRUSORAI_TTS_MODEL", "tts-alt")
+    monkeypatch.setenv("CRUSORAI_TTS_VOICE", "AltVoice")
+    monkeypatch.setenv("CRUSORAI_STT_API_KEY", "stt-key")
+    monkeypatch.setenv("CRUSORAI_TTS_API_KEY", "tts-key")
 
     seen = {}
     def transport(url, **kw):
@@ -72,16 +72,16 @@ def test_everything_is_env_driven_never_hardcoded(monkeypatch):
 
     # Key precedence: per-feature beats the shared provider key.
     monkeypatch.setenv("GROQ_API_KEY", "shared")
-    monkeypatch.setenv("PULSEAI_STT_API_KEY", "specific")
+    monkeypatch.setenv("CRUSORAI_STT_API_KEY", "specific")
     assert vp._api_key() == "specific"
-    monkeypatch.delenv("PULSEAI_STT_API_KEY", raising=False)
-    monkeypatch.delenv("PULSEAI_TTS_API_KEY", raising=False)
-    monkeypatch.delenv("PULSEAI_VOICE_API_KEY", raising=False)
+    monkeypatch.delenv("CRUSORAI_STT_API_KEY", raising=False)
+    monkeypatch.delenv("CRUSORAI_TTS_API_KEY", raising=False)
+    monkeypatch.delenv("CRUSORAI_VOICE_API_KEY", raising=False)
     assert vp._api_key() == "shared"
 
 
 def test_upload_limit_is_env_configurable(monkeypatch):
-    monkeypatch.setenv("PULSEAI_VOICE_MAX_UPLOAD_BYTES", "10")
+    monkeypatch.setenv("CRUSORAI_VOICE_MAX_UPLOAD_BYTES", "10")
     r = transcribe(b"x" * 11, api_key="k")
     assert not r.ok and "10 byte limit" in r.error
 
@@ -92,9 +92,9 @@ def test_hermes_tool_use_enforcement_flows_into_the_system_prompt():
     import sys
     sys.path.insert(0, ".")
     from src.prompts.hermes.system_prompt import build_system_prompt
-    from src.prompts.hermes.view import PulsePromptView
+    from src.prompts.hermes.view import CrusorPromptView
 
-    view = PulsePromptView(
+    view = CrusorPromptView(
         model="qwen/qwen3.6-27b", cwd=".",
         valid_tool_names=("run_terminal", "edit_file"),
     )
@@ -109,7 +109,7 @@ def test_hermes_tool_use_enforcement_flows_into_the_system_prompt():
     if fields:
         fields["model"] = "claude-sonnet-4"
         try:
-            claude_view = PulsePromptView(**fields)
+            claude_view = CrusorPromptView(**fields)
             assert "Tool-use enforcement" not in build_system_prompt(claude_view, use_cache=False)
         except TypeError:
             pass  # view surface drifted; the qwen-side pin above is the contract

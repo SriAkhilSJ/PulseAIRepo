@@ -47,7 +47,7 @@ its timeout/cancellation condition. Tests now use
 `test_posix_guard_allows_windows_temp_inside_workspace` exposed a real source
 problem. `_posix_violations` classified every `mkdir` token as POSIX-only, even
 without `-p`. Bare `mkdir` is native cmd.exe syntax and is explicitly recommended
-by Pulse's Windows guidance. The guard now permits bare `mkdir` while retaining
+by Crusor's Windows guidance. The guard now permits bare `mkdir` while retaining
 rejection of `mkdir -p`.
 
 ## Provider-free follow-up

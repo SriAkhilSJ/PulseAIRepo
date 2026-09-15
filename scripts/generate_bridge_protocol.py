@@ -21,9 +21,9 @@ OUTPUT = (
     / "vs"
     / "workbench"
     / "contrib"
-    / "pulseai"
+    / "crusorai"
     / "common"
-    / "pulseAIProtocol.generated.ts"
+    / "crusorAIProtocol.generated.ts"
 )
 
 
@@ -44,29 +44,29 @@ def render(data: dict) -> str:
  * Do not edit by hand.
  *--------------------------------------------------------------------------------------------*/
 
-export const PULSE_AI_PROTOCOL_VERSION = {version} as const;
+export const CRUSOR_AI_PROTOCOL_VERSION = {version} as const;
 
-export const PULSE_AI_EXECUTION_MODES = [
+export const CRUSOR_AI_EXECUTION_MODES = [
 {_quoted(modes)}
 ] as const;
-export type PulseExecutionMode = (typeof PULSE_AI_EXECUTION_MODES)[number];
+export type CrusorExecutionMode = (typeof CRUSOR_AI_EXECUTION_MODES)[number];
 
-export const PULSE_AI_CLIENT_METHODS = [
+export const CRUSOR_AI_CLIENT_METHODS = [
 {_quoted(methods)}
 ] as const;
-export type PulseClientMethodName = (typeof PULSE_AI_CLIENT_METHODS)[number];
+export type CrusorClientMethodName = (typeof CRUSOR_AI_CLIENT_METHODS)[number];
 
-export const PULSE_AI_SERVER_EVENTS = [
+export const CRUSOR_AI_SERVER_EVENTS = [
 {_quoted(events)}
 ] as const;
-export type PulseServerEventName = (typeof PULSE_AI_SERVER_EVENTS)[number];
+export type CrusorServerEventName = (typeof CRUSOR_AI_SERVER_EVENTS)[number];
 
-export const PULSE_AI_IDENTITY_FIELDS = [
+export const CRUSOR_AI_IDENTITY_FIELDS = [
 {_quoted(identities)}
 ] as const;
-export type PulseIdentityField = (typeof PULSE_AI_IDENTITY_FIELDS)[number];
+export type CrusorIdentityField = (typeof CRUSOR_AI_IDENTITY_FIELDS)[number];
 
-export const PULSE_AI_APPROVAL_IDENTITY_FIELD = '{approval}' as const;
+export const CRUSOR_AI_APPROVAL_IDENTITY_FIELD = '{approval}' as const;
 """
 
 

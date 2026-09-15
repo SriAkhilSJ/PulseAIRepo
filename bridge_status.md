@@ -6,7 +6,7 @@ One live call to Sarvam (`custom` provider → `https://api.sarvam.ai/v1`, model
 from `.env` (gitignored, not committed).
 
 ## Already verified
-- Protocol v2 `hello` frame, engine `pulseai`, protocol 2.
+- Protocol v2 `hello` frame, engine `crusorai`, protocol 2.
 - Echo-runner mechanics (deterministic, no model call).
 - Real model at graph level (in-process `stream_agent`, real `OK` reply).
 - Branded desktop launch, utility-process creation, optimized worker packaging.
@@ -14,7 +14,7 @@ from `.env` (gitignored, not committed).
 ## Root cause of the 420 s bridge silence — FOUND and FIXED
 The real turn was **not** blocked on approval, and the key/provider were fine.
 
-The faulthandler watchdog (`PULSEAI_BRIDGE_DIAGNOSTICS=1`, moved to the top of
+The faulthandler watchdog (`CRUSORAI_BRIDGE_DIAGNOSTICS=1`, moved to the top of
 `_run_turn` so it covers imports) captured the stuck thread stack:
 
 ```
@@ -22,7 +22,7 @@ Thread [bridge-turn-<sid>] (most recent call first):
   ... <frozen importlib._bootstrap> in create_module
   File "...\numpy\_core\multiarray.py", line 11 in <module>   <-- BLOCKED
   ... transformers\utils\... -> langchain_core\language_models\base.py
-  File "D:\pulseAIagent\PulseAIRepo\src\bridge\__main__.py" in _run_turn
+  File "D:\crusorAIagent\PulseAIRepo\src\bridge\__main__.py" in _run_turn
 ```
 
 The `bridge-turn-*` worker thread deadlocked inside **numpy's C-extension init**

@@ -10,7 +10,7 @@ The rules this module exists to enforce are Hermes's two sacred laws:
    content most likely to change renders last, so a rebuild that only touched
    the tail keeps the reused prefix.
 
-Pulse's backend supplies every input through :class:`PulsePromptView`
+Crusor's backend supplies every input through :class:`CrusorPromptView`
 (``view.py``); this module never reads settings, the graph, or the tool
 registry directly.
 """
@@ -24,22 +24,22 @@ from typing import Any, Dict, List, Optional
 from src.prompts.hermes import guidance
 from src.prompts.hermes.environment import build_environment_hints, mode_hint, resolve_platform_hint
 from src.prompts.hermes.skills_index import build_skills_system_prompt
-from src.prompts.hermes.view import PulsePromptView
+from src.prompts.hermes.view import CrusorPromptView
 
 logger = logging.getLogger(__name__)
 
 # The plugin/skill-section frame: a coarse anchor carried in the volatile tail
 # so a resumed process can rebuild the stable prefix without re-running
-# producers. Upstream regex-recognises its own frame; Pulse's frame labels the
+# producers. Upstream regex-recognises its own frame; Crusor's frame labels the
 # producing subsystem so a stale section can be attributed in logs.
-_SECTION_FRAME_RE = "^## Pulse Context: (?P<id>[a-z0-9][a-z0-9._-]{0,127})$"
+_SECTION_FRAME_RE = "^## Crusor Context: (?P<id>[a-z0-9][a-z0-9._-]{0,127})$"
 
 
-def _has_tools(view: PulsePromptView) -> bool:
+def _has_tools(view: CrusorPromptView) -> bool:
     return bool(view.valid_tool_names)
 
 
-def _skill_view_available(view: PulsePromptView) -> bool:
+def _skill_view_available(view: CrusorPromptView) -> bool:
     return "skill_view" in (view.valid_tool_names or set())
 
 
@@ -64,7 +64,7 @@ def _model_gate(setting: Any, model: Optional[str], default_models) -> bool:
     return any(p in model_lower for p in default_models)
 
 
-def _memory_block(view: PulsePromptView, target: str) -> str:
+def _memory_block(view: CrusorPromptView, target: str) -> str:
     store = view.memory_store
     if not store:
         return ""
@@ -74,14 +74,14 @@ def _memory_block(view: PulsePromptView, target: str) -> str:
         return ""
 
 
-def _session_start(view: PulsePromptView) -> datetime.datetime:
+def _session_start(view: CrusorPromptView) -> datetime.datetime:
     return getattr(view, "session_started_at", None) or datetime.datetime.now()
 
 
-def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[str] = None) -> Dict[str, str]:
+def build_system_prompt_parts(view: CrusorPromptView, system_message: Optional[str] = None) -> Dict[str, str]:
     """Assemble the system prompt as three ordered cache tiers.
 
-    ``stable``   — identity (SOUL.md or the Pulse default), tool guidance,
+    ``stable``   — identity (SOUL.md or the Crusor default), tool guidance,
                    per-model operational guidance, steering note, environment
                    hints, execution-mode posture.
     ``context``  — caller-supplied ``system_message`` plus the project context
@@ -131,9 +131,9 @@ def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[st
             skills_prompt = ""
 
     help_slot = len(stable_parts)
-    stable_parts.append(guidance.PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS)
-    if _skill_view_available(view) and "- pulseai:" in skills_prompt:
-        stable_parts[help_slot] = guidance.PULSE_AGENT_HELP_GUIDANCE
+    stable_parts.append(guidance.CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS)
+    if _skill_view_available(view) and "- crusorai:" in skills_prompt:
+        stable_parts[help_slot] = guidance.CRUSOR_AGENT_HELP_GUIDANCE
 
     # 3. Universal finish-the-job + batching steering. Gated only on tools
     #    actually being loaded — a model with no tools cannot batch anything.
@@ -158,7 +158,7 @@ def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[st
     if tool_guidance:
         stable_parts.append(" ".join(tool_guidance))
 
-    # 5. Steering note — only when a steer channel actually exists (Pulse:
+    # 5. Steering note — only when a steer channel actually exists (Crusor:
     #    bridge protocol v2 client method `steer`), and only when a tool result
     #    can carry it (i.e. there ARE tools).
     if view.steer_enabled and _has_tools(view) and guidance.STEER_CHANNEL_NOTE:
@@ -169,8 +169,8 @@ def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[st
     #    ("auto" default) match the hardcoded model lists; true/false force;
     #    a list gives custom model-name substrings. Execution guidance is an
     #    independent gate so DeepSeek/Kimi/Qwen-class models get it even with
-    #    enforcement off. Pulse's config surface is the environment
-    #    (PULSEAI_TOOL_USE_ENFORCEMENT / PULSEAI_EXECUTION_GUIDANCE); a
+    #    enforcement off. Crusor's config surface is the environment
+    #    (CRUSORAI_TOOL_USE_ENFORCEMENT / CRUSORAI_EXECUTION_GUIDANCE); a
     #    comma-separated value is the env transport for upstream's YAML list.
     if _model_gate(view.tool_use_enforcement, view.model,
                    guidance.TOOL_USE_ENFORCEMENT_MODELS):
@@ -241,7 +241,7 @@ def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[st
         if section:
             volatile_parts.append(str(section))
 
-    # Execution mode is a PER-TURN fact in Pulse (the composer can switch
+    # Execution mode is a PER-TURN fact in Crusor (the composer can switch
     # Agent → Plan → Ask mid-conversation), so unlike upstream's platform hint —
     # fixed for a session — it rides the volatile band. Putting it in the stable
     # tier would make every mode switch bust the whole cached prefix.
@@ -258,7 +258,7 @@ def build_system_prompt_parts(view: PulsePromptView, system_message: Optional[st
     }
 
 
-def _timestamp_line(view: PulsePromptView) -> str:
+def _timestamp_line(view: CrusorPromptView) -> str:
     """Date-only (not minute-precision) so the line is byte-stable for the day.
 
     Minute precision would invalidate the cached prefix on every rebuild
@@ -299,7 +299,7 @@ def _timestamp_line(view: PulsePromptView) -> str:
     return line
 
 
-def build_system_prompt(view: PulsePromptView, system_message: Optional[str] = None, *, use_cache: bool = True) -> str:
+def build_system_prompt(view: CrusorPromptView, system_message: Optional[str] = None, *, use_cache: bool = True) -> str:
     """Assemble the full system prompt, cached for the life of the session.
 
     Called once per session; only a compaction rebuilds it. The stable tier is
@@ -331,7 +331,7 @@ def build_system_prompt(view: PulsePromptView, system_message: Optional[str] = N
     return joined
 
 
-def invalidate_system_prompt(view: PulsePromptView) -> None:
+def invalidate_system_prompt(view: CrusorPromptView) -> None:
     """Force a rebuild on the next turn — called after context compression.
 
     Also reloads memory from disk so the rebuilt prompt captures anything this
@@ -356,7 +356,7 @@ def invalidate_system_prompt(view: PulsePromptView) -> None:
             break
 
 
-def reconstruct_static_prefix(view: PulsePromptView, system_message: Optional[str] = None, *, log_label: str = "restore") -> None:
+def reconstruct_static_prefix(view: CrusorPromptView, system_message: Optional[str] = None, *, log_label: str = "restore") -> None:
     """Rebuild ``_cached_system_prompt_static`` for an adopted/stored prompt.
 
     Only the full prompt is persisted, so any path that adopts a stored prompt
@@ -391,7 +391,7 @@ def reconstruct_static_prefix(view: PulsePromptView, system_message: Optional[st
     view._static_rebuild_failed_for = stored
 
 
-def format_tools_for_system_message(view: PulsePromptView) -> str:
+def format_tools_for_system_message(view: CrusorPromptView) -> str:
     """Render the bound toolset in trajectory format (for logs/evals, not the wire)."""
     if not view.tools:
         return "[]"
@@ -409,7 +409,7 @@ def format_tools_for_system_message(view: PulsePromptView) -> str:
     return json.dumps(formatted, ensure_ascii=False)
 
 
-def system_prompt_stats(view: PulsePromptView) -> Dict[str, Any]:
+def system_prompt_stats(view: CrusorPromptView) -> Dict[str, Any]:
     """Tier sizes — the cheap handle the dashboard/audit uses to see whether the
     stable prefix dominates (it should, and it must not move)."""
     parts = build_system_prompt_parts(view)

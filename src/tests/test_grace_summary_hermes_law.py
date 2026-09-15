@@ -16,7 +16,7 @@ hermes handle_max_iterations (agent/chat_completion_helpers.py:2101):
   4. strip <think>, ONE retry on an empty summary, honest fallback text
      (:1934, :2126-2138).
 
-These pins hold pulse to that law. Pure: fake LLMs, no provider keys.
+These pins hold crusor to that law. Pure: fake LLMs, no provider keys.
 """
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -79,7 +79,7 @@ def _state(**extra):
                 content="",
                 tool_calls=[{"name": "read_file", "args": {"path": "a.py"}, "id": "c1"}],
             ),
-            ToolMessage(content="def run_pulse(): ...", tool_call_id="c1"),
+            ToolMessage(content="def run_crusor(): ...", tool_call_id="c1"),
         ],
         "grace_done": 0,
     }
@@ -169,7 +169,7 @@ def test_provider_400_on_full_history_falls_back_text_only(monkeypatch):
 
 
 def test_second_lap_is_text_only_without_renudging(monkeypatch):
-    """grace_done: hermes never sees a lap 2 (the summary RETURNS). Pulse's
+    """grace_done: hermes never sees a lap 2 (the summary RETURNS). Crusor's
     graph can route one more exhausted call — it must not re-append the
     request, and the D40 pairs-drop keeps it provider-legal."""
     llm = _patch(monkeypatch, replies=["lap2 wrap-up"])

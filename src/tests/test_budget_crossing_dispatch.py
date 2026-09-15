@@ -63,7 +63,7 @@ def test_cancel_still_wins_over_pending_tools():
     cancelled = AIMessage(
         content="", tool_calls=[{"name": "run_terminal", "args": {}, "id": "c1"}],
     )
-    cancelled.additional_kwargs["pulse_cancelled"] = True
+    cancelled.additional_kwargs["crusor_cancelled"] = True
     assert should_continue(_state([HumanMessage(content="go"), cancelled])) == "finalize"
 
 

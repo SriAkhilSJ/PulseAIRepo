@@ -39,8 +39,8 @@ def test_get_llm_custom_branch_honors_budget(monkeypatch):
 
     monkeypatch.setattr(factory, "CUSTOM_API_KEY", "k")
     monkeypatch.setattr(factory, "CUSTOM_BASE_URL", "http://localhost:9/v1")
-    monkeypatch.delenv("PULSEAI_LLM_STREAMING", raising=False)
-    monkeypatch.delenv("PULSEAI_LLM_TIMEOUT", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STREAMING", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_TIMEOUT", raising=False)
     llm = factory.get_llm("custom", "m", max_attempts=2, request_timeout=8)
     assert llm._max_attempts == 2
     assert llm._llm.request_timeout == 8
@@ -57,8 +57,8 @@ def _custom_route(monkeypatch):
     monkeypatch.setenv("AUX_LLM_PROVIDER", "custom")
     monkeypatch.setattr("src.llm.factory.CUSTOM_API_KEY", "test-key")
     monkeypatch.setattr("src.llm.factory.CUSTOM_BASE_URL", "http://localhost:9/v1")
-    monkeypatch.delenv("PULSEAI_LLM_STREAMING", raising=False)
-    monkeypatch.delenv("PULSEAI_LLM_TIMEOUT", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STREAMING", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_TIMEOUT", raising=False)
 
 
 def test_classifier_budget_is_env_driven(monkeypatch, _custom_route):
@@ -66,21 +66,21 @@ def test_classifier_budget_is_env_driven(monkeypatch, _custom_route):
     import src.graphs.chat_graph as chat_graph
 
     monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
-    monkeypatch.delenv("PULSEAI_CLASSIFIER_ATTEMPTS", raising=False)
-    monkeypatch.delenv("PULSEAI_CLASSIFIER_TIMEOUT_S", raising=False)
+    monkeypatch.delenv("CRUSORAI_CLASSIFIER_ATTEMPTS", raising=False)
+    monkeypatch.delenv("CRUSORAI_CLASSIFIER_TIMEOUT_S", raising=False)
 
     proxy = chat_graph._task_manager_llm("custom", "auto/best-chat")
     assert proxy._max_attempts == 1
     assert proxy._llm.request_timeout == 10.0
 
-    monkeypatch.setenv("PULSEAI_CLASSIFIER_ATTEMPTS", "2")
-    monkeypatch.setenv("PULSEAI_CLASSIFIER_TIMEOUT_S", "25")
+    monkeypatch.setenv("CRUSORAI_CLASSIFIER_ATTEMPTS", "2")
+    monkeypatch.setenv("CRUSORAI_CLASSIFIER_TIMEOUT_S", "25")
     proxy = chat_graph._task_manager_llm("custom", "auto/best-chat")
     assert proxy._max_attempts == 2
     assert proxy._llm.request_timeout == 25.0
 
-    monkeypatch.setenv("PULSEAI_CLASSIFIER_ATTEMPTS", "99")
-    monkeypatch.setenv("PULSEAI_CLASSIFIER_TIMEOUT_S", "1")
+    monkeypatch.setenv("CRUSORAI_CLASSIFIER_ATTEMPTS", "99")
+    monkeypatch.setenv("CRUSORAI_CLASSIFIER_TIMEOUT_S", "1")
     proxy = chat_graph._task_manager_llm("custom", "auto/best-chat")
     assert proxy._max_attempts == 5  # clamped to hi
     assert proxy._llm.request_timeout == 2.0  # clamped to lo
@@ -209,7 +209,7 @@ def test_output_cap_is_env_driven(tmp_path, monkeypatch):
 
     from src.tools.terminal_tools import run_terminal
 
-    monkeypatch.setenv("PULSEAI_TERMINAL_MAX_OUTPUT_CHARS", "5000")
+    monkeypatch.setenv("CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS", "5000")
     command = (
         "for /l %i in (1,1,100000) do @echo line-%i"
         if sys.platform == "win32" else "seq 1 100000"

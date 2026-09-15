@@ -2,7 +2,7 @@
 """
 Lab harness — Test 3 (react-three-fiber hero component integration, E1 run).
 
-Drives the PulseAI agent on the exact Test 3 prompt inside a fresh empty
+Drives the CrusorAI agent on the exact Test 3 prompt inside a fresh empty
 sandbox (lab/workspace_test3) and captures: wall latency, live event timeline,
 tool calls, token/cost accounting, final agent status, full transcript, and
 pre/post workspace file hashes.

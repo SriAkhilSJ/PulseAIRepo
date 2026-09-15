@@ -1,0 +1,1736 @@
+/* Shared first-party Crusor renderer. Dense, flat, and entirely theme-token driven. */
+.crusorai-view,
+.crusorai-render-root {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+}
+
+.crusorai-render-root {
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+	font-family: var(--crusorai-font-ui);
+	font-size: inherit;
+	overflow: hidden;
+}
+
+.crusorai-render-root *,
+.crusorai-render-root *::before,
+.crusorai-render-root *::after { box-sizing: border-box; }
+
+.crusorai-render-root button,
+.crusorai-render-root select,
+.crusorai-render-root textarea {
+	color: inherit;
+	font: inherit;
+}
+
+.crusorai-render-root button { cursor: pointer; }
+
+.crusorai-agent-shell {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	width: 100%;
+	overflow: hidden;
+	background: var(--vscode-sideBar-background);
+}
+
+.crusorai-agent-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+	flex-shrink: 0;
+}
+
+.crusorai-agent-header-title {
+	font-size: var(--crusorai-text-body);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: var(--crusorai-track-caps);
+	color: var(--vscode-descriptionForeground);
+}
+
+.crusorai-agent-manager-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 8px;
+	border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-panel-border));
+	border-radius: 3px;
+	background: var(--vscode-button-secondaryBackground, transparent);
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	font-size: var(--crusorai-text-body);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.crusorai-agent-manager-button:hover {
+	background: var(--vscode-button-secondaryHoverBackground, var(--vscode-editorWidget-background));
+}
+
+.crusorai-manager-titlebar,
+.crusorai-manager-tabs,
+.crusorai-manager-pane-head {
+	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+}
+
+.crusorai-brand-mark { width: 21px; height: 21px; flex: none; }
+.crusorai-brand-mark rect { fill: var(--vscode-editorWidget-background); stroke: color-mix(in srgb, var(--crusorai-accent) 42%, var(--vscode-panel-border)); }
+.crusorai-brand-mark path { fill: none; stroke: var(--crusorai-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.crusorai-brand-mark circle { fill: var(--crusorai-agent); }
+
+.crusorai-engine-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+	white-space: nowrap;
+}
+
+.crusorai-status-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--vscode-descriptionForeground);
+	flex: none;
+}
+
+.crusorai-engine-status.is-ready .crusorai-status-dot,
+.crusorai-status-dot.is-ready { background: var(--crusorai-verified); }
+.crusorai-engine-status.is-running .crusorai-status-dot,
+.crusorai-status-dot.is-running { background: var(--crusorai-running); box-shadow: 0 0 0 2px color-mix(in srgb, var(--crusorai-running) 18%, transparent); }
+.crusorai-engine-status.is-failed .crusorai-status-dot { background: var(--crusorai-failed); }
+
+.crusorai-plan-strip {
+	border-bottom: 1px solid var(--vscode-panel-border, transparent);
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 92%, var(--crusorai-accent));
+}
+.crusorai-plan-strip-summary {
+	display: grid;
+	grid-template-columns: 14px auto 1fr auto 12px;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 4px 10px;
+	list-style: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+	cursor: pointer;
+}
+.crusorai-plan-strip-summary::-webkit-details-marker { display: none; }
+.crusorai-plan-strip-summary:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-plan-strip-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.crusorai-plan-strip-summary strong { color: var(--vscode-foreground); font-size: var(--crusorai-text-body); }
+.crusorai-plan-strip-summary > .codicon-chevron-down { transition: transform 120ms ease; }
+.crusorai-plan-strip:not([open]) .crusorai-plan-strip-summary > .codicon-chevron-down { transform: rotate(-90deg); }
+.crusorai-plan-strip-state { display: inline-flex; align-items: center; gap: 5px; color: var(--crusorai-running); }
+.crusorai-plan-strip-list { display: grid; gap: 5px; margin: 0; padding: 2px 12px 9px 30px; list-style: none; }
+.crusorai-plan-strip-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); line-height: 1.35; }
+.crusorai-plan-strip-list li.is-active { color: var(--vscode-foreground); }
+
+.crusorai-agent-shell > .crusorai-transcript-scroll { flex: 1 1 auto; }
+
+.crusorai-transcript-scroll {
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+.crusorai-transcript-lane {
+	width: min(86%, 44rem);
+	box-sizing: border-box;
+	min-width: 0;
+	margin: 0 auto;
+	padding: 14px 0 24px;
+	display: flex;
+	flex-direction: column;
+	gap: var(--crusorai-turn-block-gap);
+	overflow-wrap: anywhere;
+}
+
+.crusorai-user-message {
+	margin: 0;
+	padding: 6px 10px;
+	border: 1px solid var(--crusorai-bubble-border);
+	border-radius: var(--crusorai-radius-turn);
+	background: var(--crusorai-bubble-bg);
+	font-size: var(--crusorai-conv-size);
+	line-height: var(--crusorai-conv-line);
+	width: fit-content;
+	max-width: 100%;
+	white-space: pre-wrap;
+}
+
+.crusorai-assistant-message {
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--crusorai-turn-block-gap);
+}
+
+.crusorai-assistant-label { display: none; }
+
+.crusorai-stream-label {
+	margin-left: auto;
+	color: var(--crusorai-running);
+	font-size: var(--crusorai-text-meta);
+	font-weight: normal;
+}
+
+.crusorai-assistant-copy {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	font-size: var(--crusorai-conv-size);
+	line-height: var(--crusorai-conv-line);
+	white-space: pre-wrap;
+}
+
+.crusorai-reasoning {
+	margin: 3px 0 5px 19px;
+	padding-left: 8px;
+	border-left: 1px solid var(--vscode-panel-border);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-body);
+	line-height: 1.4;
+}
+
+.crusorai-tool-list {
+	margin: 0;
+	border-top: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--crusorai-scaffold-gap);
+}
+.crusorai-section-heading { display: none; }
+.crusorai-section-count {
+	display: grid;
+	place-items: center;
+	min-width: 17px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 8px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: var(--crusorai-text-micro);
+	letter-spacing: 0;
+}
+
+.crusorai-tool-row {
+	border-bottom: 0;
+	background: transparent;
+}
+
+.crusorai-tool-row[open] { background: transparent; }
+.crusorai-manager-main .crusorai-tool-row[open] { background: transparent; }
+
+.crusorai-tool-summary {
+	display: grid;
+	grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto auto 12px;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 1px 0;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+	overflow: hidden;
+	color: var(--crusorai-scaffold-text);
+	font-size: var(--crusorai-conv-tool-size);
+	line-height: var(--crusorai-conv-line);
+	transition: color 120ms ease;
+}
+
+.crusorai-tool-summary::-webkit-details-marker { display: none; }
+.crusorai-tool-summary:hover { background: transparent; color: var(--vscode-foreground); }
+.crusorai-tool-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.crusorai-tool-row[open] .crusorai-tool-summary > .codicon-chevron-right { transform: rotate(90deg); }
+.crusorai-tool-row.is-passed .crusorai-tool-summary > :first-child { color: var(--crusorai-verified); }
+.crusorai-tool-row.is-failed .crusorai-tool-summary > :first-child { color: var(--crusorai-failed); }
+.crusorai-tool-row.is-approval .crusorai-tool-summary > :first-child { color: var(--crusorai-approval); }
+.crusorai-tool-row.is-running .crusorai-tool-summary > :first-child { color: var(--crusorai-running); }
+
+.crusorai-tool-summary strong { min-width: 0; overflow: hidden; font-weight: 400; white-space: nowrap; }
+.crusorai-tool-summary > .codicon-chevron-right { opacity: 0; transition: opacity 150ms ease; }
+.crusorai-tool-row:hover > .crusorai-tool-summary > .codicon-chevron-right,
+.crusorai-tool-row[open] .crusorai-tool-summary > .codicon-chevron-right,
+.crusorai-tool-summary:focus-visible > .codicon-chevron-right { opacity: 0.8; }
+.crusorai-tool-target { min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
+
+.crusorai-tool-state {
+	padding: 1px 4px;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-micro);
+	line-height: 14px;
+	text-transform: uppercase;
+}
+.crusorai-tool-state.is-running { color: var(--crusorai-running); }
+.crusorai-tool-state.is-passed { color: var(--crusorai-verified); }
+.crusorai-tool-state.is-failed { color: var(--crusorai-failed); }
+.crusorai-tool-state.is-approval { color: var(--crusorai-approval); }
+
+.crusorai-mini-spinner {
+	display: inline-block;
+	width: 11px;
+	height: 11px;
+	border: 1px solid color-mix(in srgb, var(--crusorai-running) 25%, transparent);
+	border-top-color: var(--crusorai-running);
+	border-radius: 50%;
+	animation: crusorai-spin 850ms linear infinite;
+}
+@keyframes crusorai-spin { to { transform: rotate(360deg); } }
+
+/* ---- Pending label sweep (`crusor-shimmer`, hermes-agent thread) ----
+   Hermes sweeps the GLYPHS with a clipped gradient at 2.4s linear; the fork used to slide a
+   translucent bar over the text, which reads as a loading bar rather than a live label. Same
+   technique as the webview stylesheet, on theme tokens instead of literals. */
+.crusorai-shimmer {
+	background: linear-gradient(90deg, var(--vscode-descriptionForeground) 0%, var(--vscode-foreground) 45%, var(--vscode-descriptionForeground) 90%);
+	background-size: 300% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: crusorai-sweep 2.4s linear infinite;
+}
+@keyframes crusorai-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* ---- Breathing Edge (Kilo pattern: gradient crusor at streaming text bottom) ---- */
+.crusorai-breathing-edge {
+	position: relative;
+}
+.crusorai-breathing-edge::after {
+	content: '';
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 20px;
+	background: linear-gradient(to bottom, transparent, var(--vscode-sideBar-background));
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 100ms ease;
+}
+.crusorai-breathing-edge.is-streaming::after {
+	opacity: 0.6;
+	animation: crusorai-edge-breathe 1.2s ease-in-out infinite;
+}
+@keyframes crusorai-edge-breathe {
+	0%, 100% { opacity: 0.4; }
+	50% { opacity: 0.8; }
+}
+
+/* ---- Tool fields (Kilo Fields pattern, black/blue only) ---- */
+.crusorai-tool-fields { display: grid; gap: 4px; padding-top: 6px; }
+.crusorai-tool-field-row { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 8px; font-size: var(--crusorai-text-meta); }
+.crusorai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: var(--crusorai-text-micro); letter-spacing: var(--crusorai-track-caps); }
+.crusorai-tool-field-val { color: var(--vscode-foreground); font-family: var(--crusorai-font-mono); font-size: var(--crusorai-text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-search-results { display: grid; gap: 4px; margin-top: 6px; }
+.crusorai-search-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
+.crusorai-tool-checks { display: grid; gap: 6px; padding: 6px 0; }
+.crusorai-tool-checks > div { display: flex; align-items: center; gap: 6px; font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
+.crusorai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: var(--crusorai-text-micro); text-transform: uppercase; }
+.crusorai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
+.crusorai-browser-screenshot { display: block; max-width: 100%; max-height: 320px; margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
+.crusorai-raw-call { margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
+.crusorai-raw-call summary { padding: 4px 6px; cursor: pointer; opacity: 0.85; }
+.crusorai-raw-call-pre { margin: 0; padding: 4px 8px; max-height: 160px; overflow: auto; }
+.crusorai-child-tool-list { display: grid; gap: 4px; margin-top: 6px; }
+.crusorai-child-tool-list > div { display: flex; align-items: center; gap: 6px; font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
+.crusorai-code-preview, .crusorai-diff-preview { font-size: var(--crusorai-text-body); line-height: 1.4; }
+
+.crusorai-tool-body {
+	padding: 6px 8px 8px;
+	border-top: 0;
+	background: var(--crusorai-codecard-bg);
+	border-radius: var(--crusorai-radius-code);
+}
+
+.crusorai-tool-field { padding-top: 6px; }
+.crusorai-tool-field-label { display: block; margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); text-transform: uppercase; }
+
+.crusorai-tool-pre,
+.crusorai-terminal-output {
+	max-height: 220px;
+	margin: 0;
+	padding: 2px 0;
+	overflow: auto;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-editor-foreground);
+	font-family: var(--crusorai-font-mono);
+	font-size: var(--crusorai-conv-code-size);
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.crusorai-terminal-command {
+	display: flex;
+	gap: 7px;
+	padding: 2px 0;
+	background: transparent;
+	font-family: var(--crusorai-font-mono);
+	font-size: var(--crusorai-conv-code-size);
+	line-height: 1.45;
+}
+.crusorai-terminal-prompt { color: var(--crusorai-scaffold-meta); }
+.crusorai-terminal-command code { overflow-wrap: anywhere; }
+/* Hermes terminal-output.tsx (mechanism 8): max-h-16 — a 4rem window on the
+ * output, not the tall panel this used to be; monospace does not wrap
+ * lines horizontally, whitespace: pre); meta-size text. boundedText keeps
+ * the tail, so the window + tail-jump reads the live end of the stream. */
+.crusorai-terminal-output {
+	max-height: var(--crusorai-terminal-max-h);
+	border-top: 0;
+	white-space: pre;
+	font-size: var(--crusorai-conv-code-size);
+	line-height: 1.5;
+}
+.crusorai-terminal-result { display: flex; align-items: center; gap: 9px; padding-top: 4px; color: var(--crusorai-scaffold-meta); font-size: var(--crusorai-conv-meta-size); }
+
+.crusorai-tool-actions { display: flex; align-items: center; gap: 5px; padding-top: 5px; }
+.crusorai-turn-receipt {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	padding: 6px 10px;
+	border: 1px solid color-mix(in srgb, var(--crusorai-failed) 35%, transparent);
+	border-radius: var(--crusorai-radius-turn);
+	background: color-mix(in srgb, var(--crusorai-failed) 7%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-turn-receipt.is-cancelled {
+	border-color: var(--crusorai-bubble-border);
+	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+}
+.crusorai-turn-receipt.is-completed > .codicon { color: var(--crusorai-verified); }
+.crusorai-turn-receipt.is-cancelled > .codicon { color: var(--crusorai-approval); }
+.crusorai-turn-receipt.is-failed > .codicon { color: var(--crusorai-failed); }
+.crusorai-link-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 4px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-textLink-foreground);
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-link-button:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+
+.crusorai-error-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--crusorai-failed);
+	background: var(--vscode-inputValidation-errorBackground);
+	color: var(--vscode-inputValidation-errorForeground);
+	line-height: 1.35;
+}
+.crusorai-error-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
+/* ---- Context status row (compaction progress / overflow warning) ----
+   Same lane discipline as the error row, quieter: an info status is a whisper
+   (no error chrome), a warning keeps the warning border without claiming the
+   turn failed — it warns about the NEXT model call. */
+.crusorai-context-status-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--vscode-charts-blue, var(--crusorai-failed));
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.35;
+}
+.crusorai-context-status-row.is-warning {
+	border-left-color: var(--vscode-editorWarning-foreground, var(--crusorai-failed));
+	color: var(--vscode-editorWarning-foreground, inherit);
+}
+.crusorai-context-status-row > span:nth-child(2) { min-width: 0; flex: 1; }
+
+/* ---- Tail activity row: Hermes' scaffold line ----
+   What the agent leaves at the tail of a live turn: a breathing square, the named wait under the
+   sweep, and the seconds it has been waiting. `data-slot` carries upstream's own names
+   (`aui_response-loading` before the tail message produces anything, `aui_turn-activity` after),
+   so a selector written against the webview finds the same thing in the pane. */
+.crusorai-scaffold-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 22px;
+	padding: 3px 10px;
+	font-size: var(--crusorai-text-body);
+	color: var(--vscode-descriptionForeground);
+}
+.crusorai-scaffold-crusor {
+	display: inline-block;
+	flex-shrink: 0;
+	inline-size: 0.75rem;
+	block-size: 0.75rem;
+	border-radius: 2px;
+	background: currentColor;
+	animation: crusorai-breathe 1.6s ease-in-out infinite;
+}
+@keyframes crusorai-breathe {
+	0%, 100% { opacity: 0.25; }
+	50% { opacity: 1; }
+}
+.crusorai-scaffold-hint { font-weight: 500; }
+.crusorai-scaffold-meta { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- Thinking, behind a row (upstream DisclosureRow affordance) ----
+   No leading chevron and no full-width slab: the hit target is a content-sized pill around the
+   label, and the caret lives to its right -- on hover, and while the row is open. The fork uses a
+   native `details` disclosure rather than the webview's measure-then-clamp ExpandableBlock, since
+   the renderer has no ResizeObserver plumbing; the affordance is the same, the clamp is not. */
+.crusorai-thought-row { display: block; }
+.crusorai-disclosure-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 1px 0;
+	border: 0;
+	background: none;
+	color: var(--crusorai-scaffold-text);
+	font-size: var(--crusorai-conv-tool-size);
+	line-height: var(--crusorai-conv-line);
+	list-style: none;
+	cursor: pointer;
+	transition: color 120ms ease;
+}
+.crusorai-disclosure-row::-webkit-details-marker { display: none; }
+.crusorai-disclosure-stack {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 6px;
+	margin-left: -6px;
+	border-radius: 4px;
+	transition: background-color 120ms ease;
+}
+.crusorai-disclosure-row:hover { color: var(--vscode-foreground); }
+.crusorai-disclosure-row:hover .crusorai-disclosure-stack { background: transparent; }
+.crusorai-disclosure-stack strong { color: inherit; font-weight: 400; }
+.crusorai-disclosure-caret { opacity: 0; font-size: var(--crusorai-text-micro); transition: opacity 120ms ease; }
+.crusorai-disclosure-row:hover .crusorai-disclosure-caret,
+.crusorai-thought-row[open] .crusorai-disclosure-caret { opacity: 0.75; }
+.crusorai-thought-body { padding: 2px 10px 6px 26px; }
+.crusorai-thought-body p {
+	margin: 0;
+	color: var(--crusorai-scaffold-text);
+	font-size: var(--crusorai-conv-size);
+	line-height: var(--crusorai-conv-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Solid SVG glyphs (crusorAIIcons.ts) sit on the text baseline like the font they replace. */
+.crusorai-tool-summary svg,
+.crusorai-scaffold-status svg,
+.crusorai-disclosure-row svg { flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+	.crusorai-shimmer,
+	.crusorai-scaffold-crusor,
+	.crusorai-breathing-edge.is-streaming::after { animation: none; }
+}
+@media (max-width: 420px) {
+	.crusorai-scaffold-status { padding-inline: 8px; }
+	.crusorai-scaffold-meta { display: none; }
+}
+
+.crusorai-approval-dock {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	min-width: 0;
+	padding: 7px 9px;
+	border-top: 1px solid var(--crusorai-approval);
+	background: color-mix(in srgb, var(--crusorai-approval) 9%, var(--vscode-sideBar-background));
+}
+.crusorai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
+.crusorai-approval-copy > .codicon { margin-top: 2px; color: var(--crusorai-approval); }
+.crusorai-approval-copy div { display: grid; min-width: 0; }
+.crusorai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
+
+/* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
+.crusorai-approval-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.crusorai-approval-pill {
+	position: relative;
+	display: inline-flex;
+	align-items: stretch;
+	height: 24px;
+	overflow: visible;
+	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
+	color: var(--vscode-focusBorder);
+}
+.crusorai-approval-run {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 100%; padding: 0 8px; border: none; border-radius: 5px 0 0 5px;
+	background: transparent; color: inherit; font-size: var(--crusorai-text-body-lg); font-weight: 500;
+	cursor: pointer;
+}
+.crusorai-approval-run:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
+.crusorai-approval-divider { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent); }
+.crusorai-approval-more {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 20px; height: 100%; padding: 0; border: none; border-radius: 0 5px 5px 0;
+	background: transparent; color: inherit; cursor: pointer;
+}
+.crusorai-approval-more:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
+.crusorai-approval-menu {
+	display: none;
+	position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
+	min-width: 176px; padding: 4px;
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, rgba(128,128,128,.35)));
+	border-radius: 6px;
+	background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+	box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+.crusorai-approval-menu.is-open { display: grid; gap: 1px; }
+.crusorai-approval-menu-item {
+	display: flex; align-items: center; gap: 7px;
+	height: 26px; padding: 0 8px; border: none; border-radius: 4px;
+	background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	font-size: var(--crusorai-text-body-lg); text-align: left; cursor: pointer;
+}
+.crusorai-approval-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.2)); }
+.crusorai-approval-menu-item.is-destructive { color: var(--vscode-errorForeground); }
+.crusorai-approval-menu-item .codicon { font-size: var(--crusorai-text-title); }
+.crusorai-approval-reject {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-body-lg); cursor: pointer;
+}
+.crusorai-approval-reject:hover { color: var(--vscode-foreground); }
+.crusorai-approval-review {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-body-lg); cursor: pointer;
+}
+.crusorai-approval-review:hover { color: var(--vscode-foreground); }
+.crusorai-approval-kbd { font-size: var(--crusorai-text-micro); opacity: .6; }
+.crusorai-approval-command-toggle {
+	display: inline-flex; align-items: center; gap: 4px;
+	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-body-lg); cursor: pointer;
+}
+.crusorai-approval-command-toggle:hover { color: var(--vscode-foreground); }
+.crusorai-approval-command {
+	display: none;
+	width: 100%; max-height: 160px; overflow: auto;
+	margin: 6px 0 0; padding: 6px 10px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 6px;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-body-lg); line-height: 1.45;
+	white-space: pre-wrap; word-break: break-word;
+}
+.crusorai-approval-command.is-open { display: block; }
+.crusorai-dialog-overlay {
+	display: none;
+	position: fixed; inset: 0; z-index: 100;
+	align-items: center; justify-content: center;
+	background: rgba(0,0,0,.45);
+}
+.crusorai-dialog-overlay.is-open { display: flex; }
+.crusorai-dialog {
+	width: min(420px, calc(100vw - 48px));
+	padding: 16px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.35));
+	border-radius: 8px;
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	box-shadow: 0 8px 28px rgba(0,0,0,.5);
+}
+.crusorai-dialog h3 { margin: 0 0 8px; font-size: var(--crusorai-text-title); font-weight: 600; }
+.crusorai-dialog-copy { margin: 0 0 10px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body-lg); line-height: 1.5; }
+.crusorai-dialog-command {
+	max-height: 120px; overflow: auto; margin: 0 0 10px; padding: 6px 10px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3)); border-radius: 6px;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-body-lg);
+	white-space: pre-wrap; word-break: break-word;
+}
+.crusorai-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Hermes clarify card (the ask tool) ── */
+.crusorai-clarify-card {
+	display: grid; gap: 8px;
+	margin: 6px 0;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 88%, transparent);
+	font-size: var(--crusorai-text-body, 13px);
+}
+.crusorai-clarify-form { border-color: color-mix(in srgb, var(--vscode-focusBorder) 40%, transparent); }
+.crusorai-clarify-block { display: grid; gap: 6px; }
+.crusorai-clarify-q { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; line-height: 1.45; }
+.crusorai-clarify-q > .codicon, .crusorai-clarify-q > svg { margin-top: 2px; flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+.crusorai-clarify-choices { display: grid; gap: 1px; }
+.crusorai-clarify-choice, .crusorai-clarify-other {
+	display: flex; width: 100%; align-items: flex-start; gap: 8px;
+	padding: 5px 6px; border: none; border-radius: 4px;
+	background: transparent; color: var(--vscode-descriptionForeground);
+	font-size: inherit; text-align: left; cursor: pointer;
+}
+.crusorai-clarify-choice:hover, .crusorai-clarify-other:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-clarify-choice.is-selected { color: var(--vscode-foreground); }
+.crusorai-clarify-choice.is-active, .crusorai-clarify-other.is-active { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-clarify-choice-label { flex: 1 1 auto; overflow-wrap: anywhere; }
+.crusorai-clarify-recommended { color: var(--vscode-descriptionForeground); }
+.crusorai-key-badge {
+	display: inline-flex; align-items: center; justify-content: center;
+	min-width: 18px; height: 18px; padding: 0 4px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.4)); border-radius: 4px;
+	font-size: var(--crusorai-text-micro); color: var(--vscode-descriptionForeground);
+	margin-top: 1px;
+}
+.crusorai-key-badge.is-selected {
+	border-color: var(--vscode-button-background);
+	background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+}
+.crusorai-clarify-other-input {
+	flex: 1 1 auto; min-height: 0; resize: none;
+	border: none; background: transparent; color: var(--vscode-foreground);
+	font: inherit; outline: none;
+}
+.crusorai-clarify-open { padding: 6px; border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3)); border-radius: 6px; }
+.crusorai-clarify-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.crusorai-clarify-submit[disabled] { opacity: .5; cursor: not-allowed; }
+.crusorai-clarify-a { display: flex; align-items: flex-start; gap: 8px; color: var(--vscode-descriptionForeground); }
+.crusorai-clarify-a.is-error { color: var(--vscode-errorForeground); }
+.crusorai-clarify-a.is-skipped { font-style: italic; color: var(--vscode-descriptionForeground); opacity: .8; }
+.crusorai-clarify-a-badge {
+	display: inline-flex; align-items: center; justify-content: center;
+	min-width: 18px; height: 18px; padding: 0 4px; margin-top: 1px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.4)); border-radius: 50%;
+	font-size: var(--crusorai-text-micro);
+}
+.crusorai-clarify-late { display: grid; gap: 1px; }
+.crusorai-clarify-late-hint { margin: 2px 0 0; padding: 0 6px; font-size: var(--crusorai-text-body); color: var(--vscode-descriptionForeground); }
+
+/* ── Hermes todo panel (the task tool) ── */
+.crusorai-todo-stack { display: grid; gap: 4px; }
+.crusorai-todo-list { display: grid; gap: 1px; }
+.crusorai-todo-row {
+	display: flex; align-items: center; gap: 8px;
+	min-height: 20px; padding: 1px 8px;
+	font-size: var(--crusorai-text-meta, 12px); color: var(--vscode-foreground);
+}
+.crusorai-todo-row.is-completed .crusorai-todo-content { color: var(--vscode-descriptionForeground); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--vscode-descriptionForeground) 60%, transparent); }
+.crusorai-todo-row.is-completed > .codicon, .crusorai-todo-row.is-completed > svg { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.crusorai-todo-row.is-cancelled { color: var(--vscode-descriptionForeground); opacity: .6; }
+.crusorai-todo-ring {
+	box-sizing: border-box; width: 11px; height: 11px; flex-shrink: 0;
+	border: 1px dashed var(--vscode-descriptionForeground);
+	border-radius: 50%; opacity: .65;
+}
+.crusorai-todo-row .crusorai-mini-spinner { width: 11px; height: 11px; flex-shrink: 0; }
+
+.crusorai-button {
+	height: 24px;
+	padding: 0 9px;
+	border: 1px solid transparent;
+}
+.crusorai-button-primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.crusorai-button-primary:hover { background: var(--vscode-button-hoverBackground); }
+.crusorai-button-secondary { border-color: var(--vscode-button-secondaryBackground); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+
+.crusorai-composer {
+	padding: 9px 10px 7px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.crusorai-composer-box {
+	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+	border-radius: 7px;
+	background: var(--vscode-input-background);
+	box-shadow: 0 3px 12px var(--vscode-widget-shadow);
+	overflow: hidden;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.crusorai-composer-box:focus-within {
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent), 0 4px 14px var(--vscode-widget-shadow);
+}
+.crusorai-composer-input {
+	display: block;
+	width: 100%;
+	min-height: 30px;
+	max-height: 130px;
+	padding: 8px 9px 4px;
+	resize: vertical;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	line-height: 1.4;
+}
+.crusorai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+.crusorai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; }
+.crusorai-composer-left { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 160px; }
+
+.crusorai-mode-picker { position: relative; min-width: 0; }
+.crusorai-mode-summary {
+	display: inline-flex;
+	align-items: center;
+	gap: .4em;
+	height: 24px;
+	padding: 0 .6em;
+	border-radius: 5px;
+	list-style: none;
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+	font-size: inherit;
+	cursor: pointer;
+	user-select: none;
+}
+.crusorai-mode-summary::-webkit-details-marker { display: none; }
+.crusorai-mode-summary:hover { background: var(--vscode-toolbar-hoverBackground); }
+.crusorai-mode-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.crusorai-mode-summary[aria-disabled='true'] { cursor: default; opacity: .65; }
+.crusorai-mode-summary > .codicon:last-child { color: var(--vscode-descriptionForeground); font-size: .85em; }
+.crusorai-mode-picker[open] .crusorai-mode-summary > .codicon:last-child { transform: rotate(180deg); }
+.crusorai-mode-menu {
+	position: absolute;
+	z-index: 40;
+	bottom: calc(100% + 6px);
+	left: 0;
+	display: grid;
+	width: min(250px, calc(100vw - 24px));
+	padding: 4px;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+	border-radius: 6px;
+	background: var(--vscode-menu-background);
+	color: var(--vscode-menu-foreground);
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+}
+.crusorai-mode-option {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) 16px;
+	align-items: center;
+	gap: .5em;
+	width: 100%;
+	min-height: 38px;
+	padding: .35em .55em;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+}
+.crusorai-mode-option:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+.crusorai-mode-option:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.crusorai-mode-option.is-selected { background: var(--vscode-list-inactiveSelectionBackground); }
+.crusorai-mode-option-copy { display: grid; min-width: 0; gap: 1px; }
+.crusorai-mode-option-copy strong { font-size: 1em; font-weight: 500; }
+.crusorai-mode-option-copy small { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .86em; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-mode-option:hover small { color: inherit; }
+.crusorai-mode-option > .codicon-check { color: var(--vscode-testing-iconPassed); }
+
+.crusorai-composer-pill,
+.crusorai-composer-select {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 0 auto;
+	height: 21px;
+	padding: 0 7px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+	cursor: pointer;
+}
+.crusorai-composer-pill:hover,
+.crusorai-composer-select:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-composer-select { width: 92px; min-width: 0; flex: 0 0 auto; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-at-sign { color: var(--crusorai-accent); font-weight: 700; margin-right: 3px; }
+.crusorai-send-button {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font-size: 1.1em;
+	cursor: pointer;
+}
+.crusorai-send-button:hover { filter: brightness(1.08); }
+.crusorai-send-button.crusorai-send-stop {
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	outline: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+}
+.crusorai-send-button.crusorai-send-stop:hover { color: var(--vscode-foreground); }
+.crusorai-composer-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 5px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	height: 21px;
+	padding: 0 5px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-icon-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+
+/* Crusor Manager occupies an editor tab, leaving source editors and the global menu intact. */
+.crusorai-manager-editor {
+	display: block;
+	container-name: crusorai-manager-editor;
+	container-type: inline-size;
+}
+.crusorai-manager-shell {
+	display: grid;
+	grid-template-columns: minmax(160px, 18%) minmax(0, 1fr) minmax(200px, 22%);
+	height: 100%;
+	min-width: 0;
+	background: var(--vscode-editor-background);
+}
+.crusorai-manager-sidebar,
+.crusorai-manager-inspector,
+.crusorai-manager-main { min-width: 0; min-height: 0; }
+.crusorai-manager-sidebar {
+	display: grid;
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
+	border-right: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.crusorai-manager-inspector {
+	overflow: auto;
+	border-left: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-sideBar-background);
+}
+.crusorai-manager-main {
+	display: grid;
+	grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+
+.crusorai-manager-pane-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 48px;
+	padding: 7px 10px;
+}
+.crusorai-manager-pane-head h2 { margin: 1px 0 0; font-size: var(--crusorai-text-title); font-weight: 600; }
+.crusorai-eyebrow { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); letter-spacing: var(--crusorai-track-caps); }
+
+.crusorai-manager-search {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 29px;
+	margin: 7px;
+	padding: 0 7px;
+	border: 1px solid var(--vscode-input-border, transparent);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-placeholderForeground);
+}
+.crusorai-workspace-group { overflow: auto; }
+.crusorai-workspace-title { display: flex; align-items: center; gap: 5px; height: 27px; padding: 0 8px; font-size: var(--crusorai-text-body); }
+.crusorai-workspace-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-session-row {
+	display: grid;
+	grid-template-columns: 8px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	padding: 7px 8px 7px 20px;
+	border: 0;
+	border-left: 2px solid transparent;
+	background: transparent;
+	text-align: left;
+}
+.crusorai-session-row:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-session-row.is-active { border-left-color: var(--crusorai-accent); background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.crusorai-session-row > div { display: grid; min-width: 0; gap: 2px; }
+.crusorai-session-row strong,
+.crusorai-session-row div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-session-row div span,
+.crusorai-session-state { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-manager-sidebar-footer { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
+
+.crusorai-manager-titlebar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-height: 56px;
+	padding: 7px 12px;
+}
+.crusorai-manager-breadcrumb { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
+.crusorai-manager-titlebar h1 { max-width: 680px; margin: 3px 0 0; overflow: hidden; font-size: var(--crusorai-text-page); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-manager-tabs { display: flex; height: 32px; padding-left: 7px; }
+.crusorai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body); }
+.crusorai-manager-tabs button:hover { color: var(--vscode-foreground); }
+.crusorai-manager-tabs button.is-active { border-bottom-color: var(--crusorai-accent); color: var(--vscode-foreground); }
+.crusorai-manager-main .crusorai-transcript-lane { max-width: 860px; padding: 18px clamp(18px, 4vw, 42px) 24px; }
+.crusorai-manager-main .crusorai-composer { padding: 8px 16px 10px; background: var(--vscode-editor-background); }
+.crusorai-manager-main .crusorai-composer-input { min-height: 58px; }
+
+.crusorai-inspector-section { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.crusorai-inspector-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; font-size: var(--crusorai-text-meta); text-transform: uppercase; }
+.crusorai-inspector-title strong { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); font-weight: 500; }
+.crusorai-plan-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.crusorai-plan-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); line-height: 1.35; }
+.crusorai-plan-list li.is-active { color: var(--vscode-foreground); }
+.crusorai-plan-list li.is-muted { opacity: .75; }
+.crusorai-evidence-row { display: flex; align-items: flex-start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); line-height: 1.35; }
+.crusorai-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
+.crusorai-usage-grid strong { color: var(--vscode-foreground); font-weight: 500; }
+
+/* Viewport queries are a fallback; container queries are authoritative because
+ * editor width also changes when Explorer and the auxiliary Agent view are open. */
+@media (max-width: 880px) {
+	.crusorai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
+	.crusorai-manager-inspector { display: none; }
+}
+
+@media (max-width: 610px) {
+	.crusorai-manager-shell { grid-template-columns: minmax(0, 1fr); }
+	.crusorai-manager-sidebar { display: none; }
+}
+
+@container crusorai-manager-editor (max-width: 880px) {
+	.crusorai-manager-shell { grid-template-columns: minmax(160px, 25%) minmax(0, 1fr); }
+	.crusorai-manager-inspector { display: none; }
+}
+
+@container crusorai-manager-editor (max-width: 610px) {
+	.crusorai-manager-shell { grid-template-columns: minmax(0, 1fr); }
+	.crusorai-manager-sidebar { display: none; }
+}
+
+@media (max-width: 420px) {
+	.crusorai-plan-strip-state,
+	.crusorai-working-detail { display: none; }
+	.crusorai-tool-summary { grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto 12px; }
+	.crusorai-tool-duration { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.crusorai-mini-spinner { animation: none; }
+	.crusorai-plan-strip-summary > .codicon-chevron-down,
+	.crusorai-composer-box { transition: none; }
+}
+
+/* ---- Copilot hiding (visual layer) ----
+ * The context-key layer in crusorAIHideCopilot.ts handles the watermark and
+ * onboarding surfaces. These rules hide the remaining Copilot chrome that
+ * persists because the entitlement service's async update cycle or the
+ * agent registration re-asserts context keys after our BlockStartup pass.
+ *
+ * Targets:
+ *   1. Status bar Copilot entry (#chat.statusBarEntry)
+ *   2. Title-bar "Open in Agents" widget (.open-in-agents-titlebar-widget)
+ *   3. Title-bar "Sign In" button (Copilot sign-in affordance)
+ *   4. Auxiliary-bar Copilot Chat icon (activity-workbench-view-extension-copilot-chat-*)
+ *   5. Copilot sparkle codicon in any toolbar/title bar
+ */
+#chat\.statusBarEntry,
+.activitybar [class*="activity-workbench-view-extension-copilot-chat"],
+.open-in-agents-titlebar-widget,
+.agent-status-input-area,
+.codicon-copilot,
+.codicon-chat-sparkle,
+[class*="titlebar"] .codicon-copilot,
+[class*="titlebar"] .codicon-chat-sparkle {
+	display: none !important;
+}
+
+/* ---- Sub-Agent List ---- */
+.crusorai-subagent-list {
+	margin: 13px 0 7px;
+	border-top: 1px solid var(--vscode-panel-border, transparent);
+}
+.crusorai-subagent-row {
+	display: grid;
+	grid-template-columns: 13px minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 6px;
+	padding: 5px 0;
+	border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 50%, transparent);
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-subagent-row.is-running { background: color-mix(in srgb, var(--crusorai-running) 5%, transparent); }
+.crusorai-subagent-row.is-completed { background: color-mix(in srgb, var(--crusorai-verified) 5%, transparent); }
+.crusorai-subagent-row.is-failed { background: color-mix(in srgb, var(--crusorai-failed) 5%, transparent); }
+.crusorai-subagent-goal {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.crusorai-subagent-state {
+	padding: 1px 4px;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	font-size: var(--crusorai-text-micro);
+	text-transform: uppercase;
+}
+.crusorai-subagent-state.is-running { color: var(--crusorai-running); }
+.crusorai-subagent-state.is-completed { color: var(--crusorai-verified); }
+.crusorai-subagent-state.is-failed { color: var(--crusorai-failed); }
+.crusorai-subagent-state.is-cancelled { color: var(--crusorai-approval); }
+.crusorai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-subagent-result {
+	grid-column: 1 / -1;
+	margin-top: 4px;
+}
+.crusorai-subagent-result pre {
+	max-height: 120px;
+	margin: 0;
+	padding: 5px 7px;
+	overflow: auto;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	background: var(--vscode-textCodeBlock-background);
+	font-family: var(--crusorai-font-mono);
+	font-size: var(--vscode-editor-font-size, 11px);
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* ---- Inline Completion Ghost Text ---- */
+.crusorai-inline-suggestion {
+	color: var(--vscode-editorGhostText-foreground, var(--vscode-editor-inactiveSelectionBackground));
+	background: var(--vscode-editorGhostText-background, transparent);
+	text-decoration: none;
+}
+
+/* ---- Next Edit Suggestion Lightbulb ---- */
+.crusorai-next-edit-gutter {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: var(--crusorai-accent);
+	color: var(--vscode-editor-background);
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+	font-size: var(--crusorai-text-micro);
+}
+
+/* --- permission handling: allow / allow-for-session / deny, colour-coded by
+   meaning, on theme tokens so every product theme stays legible --- */
+.crusorai-button-allow {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.crusorai-button-allow:hover { background: var(--vscode-button-hoverBackground); }
+.crusorai-button-allow > .codicon { color: var(--vscode-testing-iconPassed, #3fb950); }
+.crusorai-button-allow-session > .codicon,
+.crusorai-button-deny > .codicon { color: var(--vscode-testing-iconFailed, #f85149); }
+.crusorai-button-deny {
+	border: 1px solid color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 55%, transparent);
+}
+.crusorai-button-deny:hover {
+	background: color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 16%, transparent);
+}
+.crusorai-button-allow-session:hover {
+	background: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) 14%, transparent);
+}
+
+/* --- diff lines: green/red from the editor's own diff tokens, so the pane and the
+   native diff editor cannot disagree about what an added line looks like --- */
+.crusorai-diff-line { padding: 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crusorai-diff-line.is-added { background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent); }
+.crusorai-diff-line.is-removed { background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent); }
+.crusorai-diff-line.is-meta { color: var(--vscode-descriptionForeground); }
+.crusorai-diff-line.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
+
+/* --- the optional webview pane: configurable host + an honest "not answering" state --- */
+.crusorai-webview-slot { position: relative; }
+.crusorai-webview-unreachable {
+	position: absolute;
+	inset: auto 8px 8px 8px;
+	display: grid;
+	gap: 6px;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-inputValidation-infoBorder, transparent);
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+	font-size: var(--crusorai-text-body);
+}
+.crusorai-webview-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.crusorai-webview-unreachable .crusorai-button { justify-self: start; }
+
+/* --- designed empty state for the native Agent view (mirrors the ported webview's
+   `empty-state.tsx`, so the two surfaces of one agent cannot look unrelated) --- */
+.crusorai-empty-state {
+	display: grid;
+	gap: 10px;
+	padding: 18px 12px 12px;
+	align-content: center;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+.crusorai-empty-copy { margin: 0; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-copy); line-height: 1.5; }
+.crusorai-starter-grid { display: grid; gap: 6px; }
+.crusorai-starter-prompt {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 7px 9px;
+	text-align: left;
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 5px;
+	background: var(--vscode-list-hoverBackground, transparent);
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	font-size: var(--crusorai-text-copy);
+	width: 100%;
+}
+.crusorai-starter-prompt:hover { border-color: var(--vscode-focusBorder); }
+.crusorai-starter-prompt > .codicon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
+@media (max-width: 420px) { .crusorai-empty-state { padding: 12px 8px 8px; } }
+
+/* --- activity runs in the right panel: one summary line per run of activity, cards
+   for anything that draws its own surface (mirrors the CopilotKit webview) --- */
+.crusorai-tool-run {
+	border: 0;
+	border-radius: 0;
+	margin: 0;
+	background: transparent;
+	overflow: visible;
+}
+.crusorai-tool-run-summary {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 1px 0;
+	cursor: pointer;
+	list-style: none;
+	font-size: var(--crusorai-conv-tool-size);
+	line-height: var(--crusorai-conv-line);
+	color: var(--crusorai-scaffold-text);
+}
+.crusorai-tool-run-summary::-webkit-details-marker { display: none; }
+.crusorai-tool-run-summary:hover { background: transparent; color: var(--vscode-foreground); }
+.crusorai-tool-run.is-live .crusorai-tool-run-summary { color: var(--vscode-foreground); }
+.crusorai-tool-run-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-tool-run-count {
+	margin-left: auto;
+	flex-shrink: 0;
+	padding: 0;
+	background: transparent;
+	color: var(--crusorai-scaffold-meta);
+	font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-tool-run-body { border-top: 0; padding: 2px 0 0; display: flex; flex-direction: column; gap: var(--crusorai-scaffold-gap); }
+.crusorai-tool-run-body .crusorai-tool-row { border: 0; padding-left: 0; }
+@media (max-width: 420px) { .crusorai-tool-run-summary { font-size: var(--crusorai-text-body); } }
+
+/* --- one surface at a time in a narrow auxiliary bar --- */
+.crusorai-view-tabs { display: flex; gap: 4px; padding: 4px 6px 0; flex-shrink: 0; }
+.crusorai-view-tabs.is-hidden { display: none; }
+.crusorai-view-tab {
+	flex: 0 1 auto;
+	padding: 3px 9px;
+	font-size: var(--crusorai-text-body);
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-bottom: 0;
+	border-radius: 4px 4px 0 0;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+}
+.crusorai-view-tab.is-active {
+	color: var(--vscode-foreground);
+	background: var(--vscode-sideBar-background);
+	border-color: var(--vscode-focusBorder);
+}
+.crusorai-view-tab:disabled { opacity: .5; cursor: default; }
+.crusorai-view > .crusorai-render-root { min-height: 0; }
+
+/* --- manager session rows: the fork's attention rules, Crusor's skin.
+ * Upstream crusors needs-input on a 2s glyph cycle and a 3s row accent, and goes quiet while the
+ * row is selected/hovered (chat/browser/agentSessions/media/agentsessionsviewer.css:29-40); the
+ * reduced-motion branch keeps a static tint instead of a blink. Same rules, our selectors. */
+.crusorai-status-dot.is-waiting { background: var(--vscode-charts-yellow, #d7ba7d); }
+.crusorai-status-dot.is-failed { background: var(--vscode-errorForeground, #f14c4c); }
+.crusorai-status-dot.is-idle { background: var(--vscode-descriptionForeground); }
+.crusorai-session-detail { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-session-row:disabled, .crusorai-session-row.is-empty { cursor: default; opacity: 1; }
+.crusorai-session-row.is-empty > div > strong { color: var(--vscode-foreground); }
+.crusorai-session-row.is-attention { background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground, #3a3d41) 8%, transparent); }
+.crusorai-session-row.is-needs-input .crusorai-status-dot.is-waiting { animation: crusorai-needs-input 2s ease-in-out infinite; }
+.crusorai-session-row.is-needs-input.is-active .crusorai-status-dot.is-waiting,
+.crusorai-session-row.is-needs-input:hover .crusorai-status-dot.is-waiting { animation: none; }
+@keyframes crusorai-needs-input { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+	.crusorai-session-row.is-needs-input .crusorai-status-dot.is-waiting { animation: none; }
+	.crusorai-session-row.is-needs-input { background: color-mix(in srgb, var(--vscode-list-hoverBackground, #3a3d41) 8%, transparent); }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Transcript markdown (crusorai-md): the assistant copy is rendered as real
+ * markdown via DOM in crusorAIRenderer.ts. Keep these rules theme-driven --
+ * every color comes from a VS Code theme variable so the map never fights
+ * the user's theme.
+ * ------------------------------------------------------------------------- */
+.crusorai-md { font-size: var(--crusorai-conv-size); line-height: var(--crusorai-conv-line); }
+.crusorai-md .crusorai-md-p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crusorai-md .crusorai-md-p + .crusorai-md-p { margin-top: var(--crusorai-paragraph-gap); }
+.crusorai-md .crusorai-md-h { font-weight: 600; margin: var(--crusorai-paragraph-gap) 0 2px 0; }
+.crusorai-md .crusorai-md-h1,
+.crusorai-md .crusorai-md-h2 { font-size: 1.05em; }
+.crusorai-md .crusorai-md-h3,
+.crusorai-md .crusorai-md-h4 { font-size: 1.05em; }
+.crusorai-md .crusorai-md-h5,
+.crusorai-md .crusorai-md-h6 { font-size: 1em; color: var(--vscode-descriptionForeground); }
+.crusorai-md .crusorai-md-ul { margin: 2px 0 0 0; padding-left: 20px; }
+.crusorai-md .crusorai-md-ul li { margin: 1px 0; }
+.crusorai-md .crusorai-md-hr { border: none; border-top: 1px solid var(--vscode-editorWidget-border, rgba(128,128,128,.35)); margin: 8px 0; }
+.crusorai-md .crusorai-md-code {
+	font-family: var(--monaco-monospace-font, monospace);
+	font-size: 0.95em;
+	background: var(--vscode-textCodeBlock-background);
+	color: var(--vscode-textPreformat-foreground, inherit);
+	padding: 1px 4px;
+	border-radius: 3px;
+}
+.crusorai-md .crusorai-md-pre {
+	margin: 4px 0 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--crusorai-radius-code);
+	background: var(--crusorai-codecard-bg);
+	font-family: var(--crusorai-font-mono);
+	font-size: var(--crusorai-conv-code-size);
+	line-height: 1.45;
+}
+.crusorai-md .crusorai-md-pre,
+.crusorai-md .crusorai-md-code { user-select: text; }
+
+
+/* ---------------------------------------------------------------------------
+ * Hermes-port: message actions + activity row (crusorAIRenderer.ts).
+ * - .crusorai-icon-action: the copy control is an ICON button (codicon copy,
+ *   check-flash on success) -- never a naked text line.
+ * - .crusorai-activity-row: the ONE tail row while a turn runs -- crusor dot +
+ *   wait hint + live elapsed seconds (updated in place by the 1s ticker).
+ * ------------------------------------------------------------------------- */
+.crusorai-message-actions { display: flex; gap: 4px; margin-top: 2px; }
+.crusorai-icon-action {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 22px; height: 22px; padding: 0;
+	background: transparent; border: none; border-radius: 4px;
+	color: var(--vscode-foreground); opacity: .55; cursor: pointer;
+}
+.crusorai-icon-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+.crusorai-icon-action .codicon { font-size: var(--crusorai-icon-md); }
+.crusorai-activity-row { gap: 6px; }
+.crusorai-activity-dot {
+	width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto;
+	background: currentColor; animation: crusorai-opacity-crusor 1.2s ease-in-out infinite;
+}
+@keyframes crusorai-opacity-crusor { 0%, 100% { opacity: .15; } 50% { opacity: .85; } }
+/* Hermes dot grammar (session-status-dot.tsx): stalled = alive but SILENT.
+ * Same accent, hollow, no motion — "filled means producing, hollow means open
+ * but quiet". The row text carries the fact; the dot only changes shape. */
+.crusorai-activity-row.is-stalled .crusorai-activity-dot {
+	animation: none; background: transparent;
+	box-shadow: inset 0 0 0 1.5px currentColor; opacity: .85;
+}
+/* Hermes expandable-block.tsx: collapsed cap 7.5rem + bottom fade + one
+ * chevron; expanded caps at 40dvh and scrolls. Fits -> no chrome. */
+.crusorai-expandable { position: relative; }
+.crusorai-expandable-clip { overflow-y: auto; overflow-x: auto; }
+.crusorai-expandable.is-collapsed .crusorai-expandable-clip { max-height: 7.5rem; overflow: hidden; }
+.crusorai-expandable:not(.is-collapsed) .crusorai-expandable-clip { max-height: 40dvh; }
+.crusorai-expandable.is-fits .crusorai-expandable-fade { display: none; }
+.crusorai-expandable-fade {
+	position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+	display: flex; justify-content: flex-end; align-items: flex-end;
+	background: linear-gradient(to top, var(--vscode-editor-background, rgba(0,0,0,.35)) 10%, transparent);
+	pointer-events: none;
+}
+.crusorai-expandable-toggle {
+	pointer-events: auto; border: none; background: transparent;
+	color: var(--vscode-foreground); opacity: .7; cursor: pointer;
+	padding: 2px 6px; display: flex; align-items: center;
+}
+.crusorai-expandable-toggle:hover { opacity: 1; }
+.crusorai-expandable:not(.is-collapsed) .crusorai-expandable-toggle { transform: rotate(180deg); }
+/* Collapsed arguments drawer on generic tool cards (think & friends): the
+ * prose is the content; the raw call arguments are an audit trail. */
+.crusorai-tool-args-details { margin-top: 6px; }
+.crusorai-tool-args-summary {
+	cursor: pointer; opacity: .55; font-size: var(--crusorai-text-body); user-select: none;
+}
+.crusorai-tool-args-summary:hover { opacity: .85; }
+.crusorai-tool-args-details[open] .crusorai-tool-args-summary { opacity: .85; }
+/* The anatomy inspector: what the live request is made of, role + head per
+ * message. Quiet by default — a collapsed one-line summary; opens into a
+ * monospace list. Colors and fonts come from theme vars; no invented values. */
+.crusorai-llm-anatomy { margin: 2px 0 0 14px; }
+.crusorai-llm-anatomy-summary {
+	cursor: pointer; list-style: none; opacity: .55; font-size: var(--crusorai-text-meta);
+	user-select: none; color: var(--vscode-descriptionForeground);
+}
+.crusorai-llm-anatomy-summary:hover { opacity: .85; }
+.crusorai-llm-anatomy-list {
+	margin-top: 4px; display: grid; gap: 2px; max-height: 40dvh; overflow: auto;
+}
+.crusorai-llm-anatomy-row {
+	display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 6px;
+	font-size: var(--crusorai-text-meta); line-height: 1.4; align-items: baseline;
+}
+.crusorai-llm-anatomy-role {
+	color: var(--vscode-descriptionForeground); text-transform: uppercase;
+	font-size: var(--crusorai-text-micro); letter-spacing: var(--crusorai-track-caps); text-align: right;
+}
+.crusorai-llm-anatomy-head {
+	font-family: var(--crusorai-font-mono); color: var(--vscode-descriptionForeground);
+	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.crusorai-elapsed { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }
+
+
+/* ===========================================================================
+ * Hermes transcript skin (apps/desktop/src/styles.css) — ported verbatim as
+ * RATIOS, not colors: every token is color-mix over the live VS Code theme
+ * variables, so nothing is hardcoded and the skin follows the user's theme.
+ *
+ * What makes it read as hermes:
+ *   1. ONE quiet color for all scaffolding (thinking headers, tool rows,
+ *      activity) at 64% foreground — the prose alone speaks at ~94%.
+ *   2. Tool rows are borderless dim LINES, not framed cards; expanding one is
+ *      the only moment it gains a surface.
+ *   3. The user's message is the only tinted bubble (accent-seeded mix).
+ *   4. No per-message brand label on a settled reply — the answer is the
+ *      reply; "Working" appears only while the turn is live.
+ *   5. Hermes rhythm: 12px between turn blocks, 6px between tool rows,
+ *      13px/18px prose, 11px scaffold text.
+ * All rules are scoped `.crusorai-transcript-lane :where(...)` — zero-specificity
+ * heads, so existing manager-surface rules keep winning where they disagree.
+ * ------------------------------------------------------------------------ */
+
+.crusorai-transcript-scroll {
+	--crusorai-h-text: color-mix(in srgb, var(--vscode-editor-foreground) 94%, transparent);
+	--crusorai-h-body: color-mix(in srgb, var(--vscode-editor-foreground) 74%, transparent);
+	--crusorai-h-quiet: color-mix(in srgb, var(--vscode-editor-foreground) 54%, transparent);
+	--crusorai-h-scaffold: color-mix(in srgb, var(--vscode-editor-foreground) 64%, transparent);
+	--crusorai-h-meta: color-mix(in srgb, var(--vscode-editor-foreground) 44%, transparent);
+	--crusorai-h-stroke: color-mix(in srgb, var(--vscode-panel-border) 60%, transparent);
+	--crusorai-h-bubble: color-mix(in srgb, var(--vscode-focusBorder) 9%, var(--vscode-editor-background));
+	--crusorai-h-bubble-edge: color-mix(in srgb, var(--vscode-focusBorder) 16%, transparent);
+	--crusorai-h-turn-gap: 12px;
+	--crusorai-h-scaffold-gap: 4px;
+	--crusorai-h-tool-row-gap: 6px;
+	--crusorai-h-prose-size: 13px;
+	--crusorai-h-prose-line: 18px;
+	--crusorai-h-scaffold-size: 11px;
+	--crusorai-h-meta-size: 10px;
+	--crusorai-h-code-size: 12px;
+	--crusorai-h-radius: 12px;
+}
+
+/* --- rhythm ------------------------------------------------------------- */
+.crusorai-transcript-lane :where(.crusorai-user-message) {
+	margin: 0 0 var(--crusorai-h-turn-gap) auto;
+	max-width: 86%;
+	width: fit-content;
+	padding: 6px 12px;
+	border: 1px solid var(--crusorai-h-bubble-edge);
+	border-radius: var(--crusorai-h-radius);
+	background: var(--crusorai-h-bubble);
+	color: var(--crusorai-h-text);
+	font-size: var(--crusorai-h-prose-size);
+	line-height: var(--crusorai-h-prose-line);
+}
+.crusorai-transcript-lane :where(.crusorai-assistant-message) {
+	margin: 0 0 var(--crusorai-h-turn-gap);
+	color: var(--crusorai-h-text);
+	font-size: var(--crusorai-h-prose-size);
+	line-height: var(--crusorai-h-prose-line);
+}
+/* The brand label is a live indicator, not a letterhead: hermes shows no
+   per-message header on a settled reply. */
+.crusorai-transcript-lane :where(.crusorai-assistant-message:not(.is-streaming)) :where(.crusorai-assistant-label) {
+	display: none;
+}
+.crusorai-transcript-lane :where(.crusorai-assistant-message.is-streaming) :where(.crusorai-assistant-label) {
+	height: 16px;
+	font-size: var(--crusorai-h-scaffold-size);
+	color: var(--crusorai-h-scaffold);
+}
+
+/* --- one scaffold voice -------------------------------------------------- */
+.crusorai-transcript-lane :where(.crusorai-tool-list) {
+	margin: var(--crusorai-h-scaffold-gap) 0;
+	border-top: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--crusorai-h-tool-row-gap);
+}
+.crusorai-transcript-lane :where(.crusorai-section-heading) { display: none; }
+.crusorai-transcript-lane :where(.crusorai-tool-row) {
+	border-bottom: 0;
+	font-size: var(--crusorai-h-scaffold-size);
+	color: var(--crusorai-h-scaffold);
+}
+.crusorai-transcript-lane :where(.crusorai-tool-row[open]) {
+	border: 1px solid var(--crusorai-h-stroke);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 45%, transparent);
+}
+.crusorai-transcript-lane :where(.crusorai-tool-summary) {
+	min-height: 22px;
+	color: var(--crusorai-h-scaffold);
+	font-size: var(--crusorai-h-scaffold-size);
+}
+.crusorai-transcript-lane :where(.crusorai-tool-run) { font-size: var(--crusorai-h-scaffold-size); }
+.crusorai-transcript-lane :where(.crusorai-tool-run-summary) {
+	color: var(--crusorai-h-scaffold);
+	font-size: var(--crusorai-h-scaffold-size);
+}
+.crusorai-transcript-lane :where(.crusorai-tool-run-body) { border-top: 1px solid var(--crusorai-h-stroke); }
+.crusorai-transcript-lane :where(.crusorai-thought-row) {
+	color: var(--crusorai-h-scaffold);
+	font-size: var(--crusorai-h-scaffold-size);
+}
+.crusorai-transcript-lane :where(.crusorai-disclosure-row) { color: var(--crusorai-h-scaffold); }
+.crusorai-transcript-lane :where(.crusorai-thought-body) {
+	color: var(--crusorai-h-quiet);
+	font-size: var(--crusorai-h-scaffold-size);
+}
+.crusorai-transcript-lane :where(.crusorai-scaffold-status) {
+	color: var(--crusorai-h-scaffold);
+	font-size: var(--crusorai-h-scaffold-size);
+}
+.crusorai-transcript-lane :where(.crusorai-scaffold-meta),
+.crusorai-transcript-lane :where(.crusorai-tool-duration) {
+	color: var(--crusorai-h-meta);
+	font-size: var(--crusorai-h-meta-size);
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- prose --------------------------------------------------------------- */
+.crusorai-transcript-lane :where(.crusorai-assistant-copy) {
+	margin: 2px 0 0;
+	color: var(--crusorai-h-text);
+	font-size: var(--crusorai-h-prose-size);
+	line-height: var(--crusorai-h-prose-line);
+}
+.crusorai-transcript-lane :where(.crusorai-md .crusorai-md-p) {
+	margin: 0 0 0.7rem;
+	line-height: var(--crusorai-h-prose-line);
+}
+.crusorai-transcript-lane :where(.crusorai-md .crusorai-md-p:last-child) { margin-bottom: 0; }
+.crusorai-transcript-lane :where(.crusorai-md .crusorai-md-code) {
+	border-radius: 4px;
+	font-size: var(--crusorai-h-code-size);
+}
+
+.crusorai-engine-build {
+	margin-left: 6px;
+	padding-left: 6px;
+	border-left: 1px solid var(--vscode-panel-border, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--monaco-monospace-font, monospace);
+	font-size: var(--crusorai-text-micro);
+	opacity: 0.8;
+}
+
+/* Hermes thought rows carry no status glyph — keep the grid cell so the
+ * label column stays aligned with neighboring tool rows. */
+.crusorai-glyph-spacer { width: 14px; height: 1px; }
+
+/* ── Hermes scaffold resting fade (styles.css, verbatim mechanics) ──
+   Every scaffold block (tool row, run group, thought row) rests dimmed;
+   prose stays primary. Lift on hover or KEYBOARD focus only — :focus-within
+   also matches the focus a mouse click leaves on the disclosure toggle,
+   which kept a row lit after you clicked to collapse it. */
+.crusorai-assistant-message [data-conversation-scaffold] {
+	opacity: 0.67;
+	transition: opacity 120ms ease-out;
+}
+.crusorai-assistant-message [data-conversation-scaffold]:is(:hover, :has(:focus-visible)) {
+	opacity: 1;
+}
+
+/* ── hermes diff-lines.tsx wireframe (ported 2026-09-09) ──
+   File-headers/@@ noise and the +/- gutter are dropped; changes read by tint
+   + a 2px left gutter accent, rows flush to the card edges (the box bleeds
+   out of the card padding like hermes' -mx-1.5 -mb-1.5), internal scroll
+   like a code block, overscroll handed back to the page. */
+.crusorai-diff-body {
+	--crusorai-diff-add-background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent);
+	--crusorai-diff-remove-background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent);
+	--crusorai-diff-add-foreground: var(--vscode-diffEditor-insertedTextForeground, #3fb950);
+	--crusorai-diff-remove-foreground: var(--vscode-diffEditor-removedTextForeground, #f85149);
+	display: block;
+	max-height: 12rem;
+	margin: 4px 0 0 0;
+	overflow: auto;
+	overscroll-behavior-x: contain;
+	font-family: var(--crusorai-font-mono);
+	font-size: var(--crusorai-conv-code-size);
+	line-height: 1.5;
+	color: var(--vscode-descriptionForeground);
+}
+.crusorai-diff-row {
+	display: block;
+	min-width: max-content;
+	white-space: pre;
+	border-left: 2px solid transparent;
+	padding: 0 10px;
+}
+.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: var(--crusorai-diff-add-foreground); }
+.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: var(--crusorai-diff-remove-foreground); }
+.crusorai-diff-row.is-context { color: var(--vscode-editor-foreground); }
+.crusorai-diff-row.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
+
+/* ── hermes lib/ansi.ts palette (ported 2026-09-09) ──
+   Tuned for legibility against the card surface; pure ANSI black/white are
+   not painted (they disappear into the surface) — they map to the muted
+   zinc pair exactly as hermes' TAILWIND_BY_COLOR does. */
+.crusorai-terminal-earlier { color: var(--vscode-descriptionForeground); font-style: italic; border-bottom: 1px dashed var(--vscode-widget-border, #4444); }
+.crusorai-ansi-line { display: block; min-width: max-content; }
+.crusorai-ansi-black { color: var(--vscode-descriptionForeground); }
+.crusorai-ansi-red { color: var(--vscode-terminal-ansiRed, #f85149); }
+.crusorai-ansi-green { color: var(--vscode-terminal-ansiGreen, #3fb950); }
+.crusorai-ansi-yellow { color: var(--vscode-terminal-ansiYellow, #d29922); }
+.crusorai-ansi-blue { color: var(--vscode-terminal-ansiBlue, #58a6ff); }
+.crusorai-ansi-magenta { color: var(--vscode-terminal-ansiMagenta, #bc8cff); }
+.crusorai-ansi-cyan { color: var(--vscode-terminal-ansiCyan, #39c5cf); }
+.crusorai-ansi-white { color: var(--vscode-foreground); opacity: 0.85; }
+.crusorai-ansi-bright-black { color: var(--vscode-descriptionForeground); }
+.crusorai-ansi-bright-red { color: var(--vscode-terminal-ansiBrightRed, #ff7b72); }
+.crusorai-ansi-bright-green { color: var(--vscode-terminal-ansiBrightGreen, #7ee787); }
+.crusorai-ansi-bright-yellow { color: var(--vscode-terminal-ansiBrightYellow, #e3b341); }
+.crusorai-ansi-bright-blue { color: var(--vscode-terminal-ansiBrightBlue, #79c0ff); }
+.crusorai-ansi-bright-magenta { color: var(--vscode-terminal-ansiBrightMagenta, #d2a8ff); }
+.crusorai-ansi-bright-cyan { color: var(--vscode-terminal-ansiBrightCyan, #67e8f9); }
+.crusorai-ansi-bright-white { color: var(--vscode-editor-foreground); }
+.crusorai-ansi-line .is-bold { font-weight: 700; }
+
+/* ── hermes changed-files-card.tsx (ported 2026-09-09) ──
+   The turn-closing "N files changed" rollup: widget chrome shared with the
+   transcript's other inline cards, ~5 rows tall before it scrolls. */
+.crusorai-changed-files {
+	margin-top: 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--vscode-widget-border, #4444);
+	border-radius: 8px;
+	background: var(--vscode-sideBar-background);
+}
+.crusorai-changed-files-head {
+	display: flex; align-items: center; gap: 8px;
+	color: var(--vscode-foreground); font-size: var(--crusorai-text-body);
+}
+.crusorai-changed-files-rows {
+	display: flex; flex-direction: column;
+	max-height: 9.375rem; overflow: auto; margin-top: 4px;
+}
+.crusorai-changed-file-row {
+	display: flex; align-items: center; gap: 8px;
+	padding: 2px 6px; border-radius: 6px;
+	color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body);
+}
+.crusorai-changed-file-row.is-activatable { cursor: pointer; }
+.crusorai-changed-file-row.is-activatable:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-changed-file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-diff-count { display: inline-flex; gap: 6px; font-family: var(--crusorai-font-mono); font-size: var(--crusorai-text-micro); }
+.crusorai-diff-count .is-added { color: var(--vscode-diffEditor-insertedTextForeground, #3fb950); }
+.crusorai-diff-count .is-removed { color: var(--vscode-diffEditor-removedTextForeground, #f85149); }
+
+/* ── hermes markdown-text additions (ported 2026-09-09) ── */
+.crusorai-md .crusorai-md-ol { margin: 2px 0; padding-left: 22px; display: flex; flex-direction: column; gap: 2px; }
+.crusorai-md .crusorai-md-quote {
+	margin: 4px 0; padding: 2px 10px;
+	border-left: 3px solid var(--vscode-widget-border, #6666);
+	color: var(--vscode-descriptionForeground);
+}
+.crusorai-md .crusorai-md-table {
+	border-collapse: collapse; margin: 6px 0;
+	font-size: var(--crusorai-text-body); max-width: 100%;
+	display: block; overflow-x: auto;
+}
+.crusorai-md .crusorai-md-table th,
+.crusorai-md .crusorai-md-table td {
+	border: 1px solid var(--vscode-widget-border, #4444);
+	padding: 3px 8px; text-align: left; white-space: nowrap;
+}
+.crusorai-md .crusorai-md-table th { background: var(--vscode-sideBar-background); font-weight: 600; }
+.crusorai-md .crusorai-md-link { color: var(--vscode-textLink-foreground); text-decoration: none; }
+.crusorai-md .crusorai-md-link:hover { text-decoration: underline; }
+
+/* ── hermes disclosure-row affordance (ported 2026-09-09) ──
+   The trailing slot (duration) stays IN FLOW and always visible — the title
+   reserves space for it instead of painting underneath it (hermes
+   disclosure-row.tsx trailing contract). Row hover keeps the resting-dim
+   lift already ported above; no invented caret is added. */
+.crusorai-tool-row > summary .crusorai-tool-duration { opacity: 0.9; }
+
+/* ── plan/todo list rows (hermes composer status-row port) ─────────────── */
+.crusorai-plan-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.crusorai-plan-empty { opacity: .6; font-size: var(--crusorai-text-body); padding: 2px 0; }
+.crusorai-plan-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.crusorai-plan-glyph { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; flex: none; }
+.crusorai-plan-glyph .codicon { font-size: var(--crusorai-conv-size); }
+.crusorai-plan-row.is-completed .crusorai-plan-glyph { color: var(--vscode-charts-green, #3fb950); }
+.crusorai-plan-row.is-failed .crusorai-plan-glyph { color: var(--vscode-charts-red, #f85149); }
+/* hermes DESKTOP StatusSection (components/chat/status-section.tsx): the
+   plan body sits under a caret+icon+label header. Closed caret points
+   right, open rotates 90deg (DisclosureCaret); the running spinner only
+   shows on a collapsed header. */
+.crusorai-plan-details { margin: 2px 0; }
+.crusorai-plan-head { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; list-style: none; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); user-select: none; }
+.crusorai-plan-head::-webkit-details-marker { display: none; }
+.crusorai-plan-head:hover { color: var(--vscode-foreground); }
+.crusorai-plan-caret { display: inline-flex; flex: none; transition: transform 150ms ease; }
+.crusorai-plan-caret .codicon { font-size: var(--crusorai-conv-size); }
+.crusorai-plan-details[open] > .crusorai-plan-head .crusorai-plan-caret { transform: rotate(90deg); }
+.crusorai-plan-icon { display: inline-flex; flex: none; opacity: .7; }
+.crusorai-plan-icon .codicon { font-size: var(--crusorai-conv-size); }
+.crusorai-plan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-plan-spinner { flex: none; width: 10px; height: 10px; }
+.crusorai-plan-details[open] > .crusorai-plan-head .crusorai-plan-spinner { display: none; }
+.crusorai-plan-details .crusorai-plan-list { padding-left: 22px; }
+.crusorai-plan-row.is-cancelled .crusorai-plan-glyph { color: var(--vscode-descriptionForeground); opacity: .6; }
+.crusorai-plan-row.is-pending .crusorai-plan-glyph::before {
+	content: ''; width: 10px; height: 10px; border-radius: 50%;
+	border: 1px dashed var(--vscode-descriptionForeground, #888);
+	box-sizing: border-box;
+}
+.crusorai-plan-row.is-in_progress .crusorai-plan-glyph::before {
+	content: ''; width: 8px; height: 8px; border-radius: 50%;
+	background: var(--vscode-charts-green, #3fb950);
+	animation: crusorai-plan-live 1.2s ease-in-out infinite;
+}
+@keyframes crusorai-plan-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.crusorai-plan-text { font-size: var(--crusorai-conv-tool-size); line-height: 1.45; }
+.crusorai-plan-row.is-completed .crusorai-plan-text { color: var(--vscode-descriptionForeground); }

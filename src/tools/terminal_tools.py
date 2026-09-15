@@ -263,7 +263,7 @@ def run_terminal(
     timeout: int | str | None = None,
 ) -> str:
     """
-    Legacy pulse name of `terminal` (hermes tool-name parity, 2026-09-09;
+    Legacy crusor name of `terminal` (hermes tool-name parity, 2026-09-09;
     the 2026-09-05 alias direction flipped). Executes the full terminal
     contract: timeout honored (default 300s, foreground max 600s,
     above-cap promoted to a tracked background process).
@@ -394,7 +394,7 @@ def _failure_hint(command: str, returncode: int, output: str, exit_note) -> str 
     rc=0, warn when a pipeline tail / `|| echo` may mask an upstream failure
     and the output carries strong failure indicators (advisory only — the exit
     code itself is NEVER rewritten); on rc!=0, one recovery hint from
-    tools/terminal_hints.py. ``exit_note`` stays None until pulse ports
+    tools/terminal_hints.py. ``exit_note`` stays None until crusor ports
     hermes' ``_interpret_exit_code`` semantics table."""
     from src.tools.terminal_hints import annotate_failure, annotate_masked_success
 
@@ -442,7 +442,7 @@ FOREGROUND_MAX_TIMEOUT_DEFAULT = 600  # hermes TERMINAL_MAX_FOREGROUND_TIMEOUT
 # tuition otherwise: every `npm run dev` in run_terminal burned the full
 # foreground timeout (316.5s on 2026-09-07 10:28, again 2026-09-07 2:19 PM)
 # before the exit-124 pivot. Hermes refuses in zero seconds. Guidance names
-# pulse's real tools (start_terminal / read_terminal_output).
+# crusor's real tools (start_terminal / read_terminal_output).
 # ---------------------------------------------------------------------------
 _SHELL_LEVEL_BACKGROUND_RE = re.compile(
     r"(?:^|[;&|]\s*|&&\s*|\|\|\s*|\$\(\s*)(?:nohup|disown|setsid)\b", re.IGNORECASE | re.MULTILINE
@@ -464,7 +464,7 @@ _LONG_LIVED_FOREGROUND_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
 
 def _strip_quotes(command: str) -> str:
     """hermes terminal_tool_guards._strip_quotes (minus heredoc masking,
-    which is a hermes shell_heredoc module pulse does not carry): blank
+    which is a hermes shell_heredoc module crusor does not carry): blank
     quoted/backtick content so keywords inside strings can't match."""
     result = re.sub(r"'[^']*'", "''", command)
     result = re.sub(r'"(?:[^"\\]|\\.)*"', '""', result)
@@ -484,7 +484,7 @@ def _looks_like_help_or_version_command(command: str) -> bool:
 
 def _foreground_background_guidance(command: str) -> str | None:
     """hermes _foreground_background_guidance, verbatim logic; guidance text
-    adapted to pulse's tool names (terminal(background=true) -> start_terminal)."""
+    adapted to crusor's tool names (terminal(background=true) -> start_terminal)."""
     if _looks_like_help_or_version_command(command):
         return None
     unquoted = _strip_quotes(command)
@@ -575,7 +575,7 @@ def _foreground_max_timeout() -> int:
     """hermes TERMINAL_MAX_FOREGROUND_TIMEOUT (terminal_tool.py:74, default
     600), read PER CALL, clamped to the 30..3600 band."""
     try:
-        raw_max = os.environ.get("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "")
+        raw_max = os.environ.get("CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "")
         max_cap = int(raw_max) if raw_max else FOREGROUND_MAX_TIMEOUT_DEFAULT
     except (TypeError, ValueError):
         max_cap = FOREGROUND_MAX_TIMEOUT_DEFAULT
@@ -592,7 +592,7 @@ def _foreground_timeout(value) -> tuple[int, str | None]:
     when the model passed nothing.
     Returns (effective_seconds, rejection_message_or_None).
     """
-    raw_env = os.environ.get("PULSEAI_TERMINAL_TIMEOUT", "300")
+    raw_env = os.environ.get("CRUSORAI_TERMINAL_TIMEOUT", "300")
     try:
         default = int(raw_env)
     except (TypeError, ValueError):
@@ -621,7 +621,7 @@ def terminal(
     Run a short terminal command inside the active workspace (shell).
 
     Hermes tool-name parity (2026-09-09): hermes binds this tool as
-    `terminal` (tools/terminal_tool.py); `run_terminal` was pulse's
+    `terminal` (tools/terminal_tool.py); `run_terminal` was crusor's
     invention and remains bound below as the legacy alias.
 
     USE for quick commands: python scripts, tests, checks, environment
@@ -645,7 +645,7 @@ def terminal(
     managers — anything that needs a shell.
     Output is auto-truncated — never pipe through tail/head to shorten
     it. (hermes terminal_tool.py's sentence names the spill file its
-    full-text save produces; pulse has not yet ported that spill, so
+    full-text save produces; crusor has not yet ported that spill, so
     only the truthful half of the sentence is bound here.)
 
     DO NOT use for long-running installs/builds/servers (use
@@ -831,9 +831,9 @@ def terminal(
         # built-in default -- the number lives in config, not in logic).
         # Owner run: a recursive listing returned ~5MB and the bridge dropped
         # the whole frame; the desktop never saw the result. Env-driven, read
-        # per call, clamped. PULSEAI_TERMINAL_MAX_OUTPUT_CHARS.
+        # per call, clamped. CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS.
         try:
-            _raw = os.environ.get("PULSEAI_TERMINAL_MAX_OUTPUT_CHARS", "12000")
+            _raw = os.environ.get("CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS", "12000")
             _max_chars = max(1_000, min(int(str(_raw).strip()), 1_000_000))
         except Exception:
             _max_chars = 12_000
@@ -873,7 +873,7 @@ def terminal(
 
 @tool
 def list_terminal_processes() -> str:
-    """List terminal processes started by PulseCodeAI and show their current status."""
+    """List terminal processes started by CrusorCodeAI and show their current status."""
 
     with _process_lock:
         if not _processes:
@@ -901,7 +901,7 @@ def list_terminal_processes() -> str:
 
 @tool
 def stop_terminal(process_id: str) -> str:
-    """Stop a running terminal process started by PulseCodeAI."""
+    """Stop a running terminal process started by CrusorCodeAI."""
 
     with _process_lock:
         process_data = _processes.get(process_id)
@@ -952,7 +952,7 @@ def stop_terminal(process_id: str) -> str:
 
 @tool
 def cleanup_terminal_processes() -> str:
-    """Remove completed terminal processes from PulseCodeAI's process registry."""
+    """Remove completed terminal processes from CrusorCodeAI's process registry."""
 
     removed = []
 

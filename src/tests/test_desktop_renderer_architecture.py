@@ -1,4 +1,4 @@
-"""Structural pins for the shared native Pulse Agent / Manager renderer."""
+"""Structural pins for the shared native Crusor Agent / Manager renderer."""
 from __future__ import annotations
 
 import json
@@ -9,12 +9,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 FORK = ROOT / "desktop" / "vscode"
-PULSE = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+CRUSOR = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai"
 UI = ROOT / "ui" / "src"   # not tracked in this repo; see the skip in the catalog pin
 
 
 def _text(*parts: str) -> str:
-    return PULSE.joinpath(*parts).read_text(encoding="utf-8")
+    return CRUSOR.joinpath(*parts).read_text(encoding="utf-8")
 
 
 def _catalog_names(text: str) -> set[str]:
@@ -22,29 +22,29 @@ def _catalog_names(text: str) -> set[str]:
 
 
 def test_agent_and_manager_mount_one_shared_renderer_service():
-    view = _text("browser", "pulseAIViewPane.ts")
-    manager = _text("browser", "pulseAIManagerEditor.ts")
-    registration = _text("browser", "pulseAI.contribution.ts")
-    assert "pulseAIRendererService.mount(root, 'agent')" in view
-    assert "pulseAIRendererService.mount(this.root, 'manager')" in manager
-    assert "registerSingleton(IPulseAIRendererService, PulseAIRendererService" in registration
+    view = _text("browser", "crusorAIViewPane.ts")
+    manager = _text("browser", "crusorAIManagerEditor.ts")
+    registration = _text("browser", "crusorAI.contribution.ts")
+    assert "crusorAIRendererService.mount(root, 'agent')" in view
+    assert "crusorAIRendererService.mount(this.root, 'manager')" in manager
+    assert "registerSingleton(ICrusorAIRendererService, CrusorAIRendererService" in registration
     assert "boot-status" not in view
     assert "boot-main" not in manager
 
 
 def test_renderer_boundary_is_browser_safe_and_text_only():
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    service = _text("browser", "pulseAIRendererService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     for source in (renderer, service):
         # Ban node/electron IMPORTS, not any substring ("node:" also matches
         # TypeScript parameter annotations like `datasetSet(node: HTMLElement)`).
         assert not re.search(r"""from\s+['"]node:""", source)
         assert "electron-browser/" not in source
         assert ".innerHTML" not in source
-    assert "IPulseAIEngineService" in service
-    assert "IPulseAIWorkbenchService" in service
+    assert "ICrusorAIEngineService" in service
+    assert "ICrusorAIWorkbenchService" in service
     assert "onDidReceiveFrame" in service
-    assert "PulseClientMethod" in service
+    assert "CrusorClientMethod" in service
     assert "openNativeDiff" in service
     assert "openInlineDiff" in service
     assert "old_text" in service and "new_text" in service
@@ -68,13 +68,13 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
 
 
 def test_web_fallback_and_desktop_override_share_the_engine_contract():
-    common = _text("browser", "pulseAI.contribution.ts")
-    fallback = _text("browser", "pulseAIUnavailableEngineService.ts")
-    desktop = _text("electron-browser", "pulseAI.desktop.contribution.ts")
-    assert "registerSingleton(IPulseAIEngineService, PulseAIUnavailableEngineService" in common
-    assert "registerSingleton(IPulseAIEngineService, PulseAIEngineService" in desktop
+    common = _text("browser", "crusorAI.contribution.ts")
+    fallback = _text("browser", "crusorAIUnavailableEngineService.ts")
+    desktop = _text("electron-browser", "crusorAI.desktop.contribution.ts")
+    assert "registerSingleton(ICrusorAIEngineService, CrusorAIUnavailableEngineService" in common
+    assert "registerSingleton(ICrusorAIEngineService, CrusorAIEngineService" in desktop
     assert "child_process" not in fallback
-    assert "PulseAIEngineState.Degraded" in fallback
+    assert "CrusorAIEngineState.Degraded" in fallback
 
 
 def test_native_and_lab_catalogs_cover_the_same_36_tools():
@@ -84,23 +84,23 @@ def test_native_and_lab_catalogs_cover_the_same_36_tools():
             "compares against lives in a tree the repo does not track. Skip is honest; a "
             "silent pass would mean the pin compared nothing."
         )
-    native = _catalog_names(_text("common", "pulseAIToolCatalog.ts"))
+    native = _catalog_names(_text("common", "crusorAIToolCatalog.ts"))
     lab = _catalog_names((UI / "runtime" / "toolCatalog.ts").read_text(encoding="utf-8"))
     assert len(native) == 37
     assert native == lab
 
 
 def test_renderer_gates_sessions_on_an_open_project_folder():
-    service = _text("browser", "pulseAIRendererService.ts")
-    assert "Open a folder to start a Pulse session." in service
+    service = _text("browser", "crusorAIRendererService.ts")
+    assert "Open a folder to start a Crusor session." in service
     assert "if (!workspace) {" in service
     assert "session_create', workspace" in service
     assert "start(workspace).then" in service
-    assert "Open a workspace or configure pulseai.engineRoot" not in service
+    assert "Open a workspace or configure crusorai.engineRoot" not in service
 
 
 def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     for receipt in (
         "function boundedText", "earlier characters omitted", "terminal-command",
         "terminal-output", "exitCode", "duration", "copyButton(command, host)", "Reveal location",
@@ -109,11 +109,11 @@ def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
 
 
 def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    css = _text("browser", "media", "pulseAI.css")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
     for behavior in (
         "function planStrip", "function createActivityState", "function emptyState", "function thinkingBlock",
-        "pulseai-section-heading", "host.submitPrompt(prompt)", "planOpen",
+        "crusorai-section-heading", "host.submitPrompt(prompt)", "planOpen",
     ):
         assert behavior in renderer
     assert "openManager(): void" in renderer
@@ -135,9 +135,9 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
         "a settled turn must not narrate in the present tense"
     for style in (
-        ".pulseai-starter-grid", ".pulseai-scaffold-status", ".pulseai-plan-strip", ".pulseai-disclosure-row",
+        ".crusorai-starter-grid", ".crusorai-scaffold-status", ".crusorai-plan-strip", ".crusorai-disclosure-row",
         "prefers-reduced-motion", "@media (max-width: 420px)",
-        "container-name: pulseai-manager-editor", "@container pulseai-manager-editor (max-width: 610px)",
+        "container-name: crusorai-manager-editor", "@container crusorai-manager-editor (max-width: 610px)",
         "var(--vscode-focusBorder)", "var(--vscode-sideBar-background)",
     ):
         assert style in css
@@ -146,19 +146,19 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
 
 
 def test_execution_mode_picker_is_functional_and_theme_driven():
-	renderer = _text("browser", "pulseAIRenderer.ts")
-	service = _text("browser", "pulseAIRendererService.ts")
-	protocol = _text("common", "pulseAIProtocol.ts")
-	generated = _text("common", "pulseAIProtocol.generated.ts")
-	css = _text("browser", "media", "pulseAI.css")
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	service = _text("browser", "crusorAIRendererService.ts")
+	protocol = _text("common", "crusorAIProtocol.ts")
+	generated = _text("common", "crusorAIProtocol.generated.ts")
+	css = _text("browser", "media", "crusorAI.css")
 	for mode in ("agent", "plan", "debug", "ask"):
 		assert f"id: '{mode}'" in renderer
 		assert f"'{mode}'" in generated
-	assert "setMode(mode: PulseExecutionMode)" in renderer
-	assert "readonly mode?: PulseExecutionMode" in protocol
+	assert "setMode(mode: CrusorExecutionMode)" in renderer
+	assert "readonly mode?: CrusorExecutionMode" in protocol
 	assert "mode: this.mode" in service
 	assert "this.send({ type: 'prompt'" in service
-	assert ".pulseai-mode-menu" in css
+	assert ".crusorai-mode-menu" in css
 	for token in ("--vscode-menu-background", "--vscode-menu-foreground", "--vscode-focusBorder"):
 		assert token in css
 	assert "#071118" not in css
@@ -170,31 +170,31 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	frames into the panel: the clarify card answers per qid through
 	clarify_reply; the todo panel reconciles on {todos, revision} and lives
 	between the transcript and the composer (the composer status stack)."""
-	renderer = _text("browser", "pulseAIRenderer.ts")
-	service = _text("browser", "pulseAIRendererService.ts")
-	protocol = _text("common", "pulseAIProtocol.ts")
-	css = _text("browser", "media", "pulseAI.css")
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	service = _text("browser", "crusorAIRendererService.ts")
+	protocol = _text("common", "crusorAIProtocol.ts")
+	css = _text("browser", "media", "crusorAI.css")
 	for frame in ("clarify_request", "todo_updated", "clarify_reply"):
 		assert frame in protocol, f"{frame} must be typed in the payload contract"
 	assert "replyToClarify" in renderer and "replyToClarify" in service
 	assert "'clarify_request'" in service and "'todo_updated'" in service
 	# The clarify card is interactive (choices + Other row + Skip/Continue), the
 	# todo panel speaks checkbox glyphs, and both are hermes-shaped.
-	for piece in ("pulseai-clarify-choice", "Other (type your answer)", "pulseai-key-badge"):
+	for piece in ("crusorai-clarify-choice", "Other (type your answer)", "crusorai-key-badge"):
 		assert piece in renderer, piece
-	assert "pulseai-clarify-form" in css and ".pulseai-key-badge" in css
-	assert "todoStack(" in renderer and ".pulseai-todo-row" in css
-	assert "pulseai-todo-ring" in renderer, "pending items speak dashed ring, not spinner-and-dot"
+	assert "crusorai-clarify-form" in css and ".crusorai-key-badge" in css
+	assert "todoStack(" in renderer and ".crusorai-todo-row" in css
+	assert "crusorai-todo-ring" in renderer, "pending items speak dashed ring, not spinner-and-dot"
 	# The approval dropdown is hermes': split pill [Run | ▾] with a menu that
 	# carries session/always/reject, plus the Esc reject and confirm dialog.
-	for piece in ("pulseai-approval-pill", "pulseai-approval-menu", "Always allow…", "Allow for session", "pulseai-dialog-overlay"):
+	for piece in ("crusorai-approval-pill", "crusorai-approval-menu", "Always allow…", "Allow for session", "crusorai-dialog-overlay"):
 		assert piece in renderer, piece
-	assert ".pulseai-approval-menu.is-open" in css
+	assert ".crusorai-approval-menu.is-open" in css
 
 
 def test_engine_tools_todo_and_clarify_are_core():
 	"""hermes registers both tools with check_fn -> True (never posture-gated);
-	Pulse keeps the same universality in the core toolset."""
+	Crusor keeps the same universality in the core toolset."""
 	source = _toolsets_source()
 	assert '"todo_list"' in source and '"clarify"' in source
 
@@ -213,9 +213,9 @@ def test_copilot_webview_host_is_a_setting_and_fails_loudly():
     explanation -- and the native renderer above it still surrenders half the pane.
     So: URL/enabled/height are settings, and an unreachable URL says so in the pane.
     """
-    view = _text("browser", "pulseAIViewPane.ts")
-    contribution = _text("browser", "pulseAI.contribution.ts")
-    for key in ("pulseai.copilotWebview.enabled", "pulseai.copilotWebview.url", "pulseai.copilotWebview.height"):
+    view = _text("browser", "crusorAIViewPane.ts")
+    contribution = _text("browser", "crusorAI.contribution.ts")
+    for key in ("crusorai.copilotWebview.enabled", "crusorai.copilotWebview.url", "crusorai.copilotWebview.height"):
         assert key in view, f"{key} must be read by the pane"
         assert f"'{key}'" in contribution, f"{key} must be declared, not merely read"
     # The default may exist only as a named constant -- never inline on the element,
@@ -233,7 +233,7 @@ def test_copilot_webview_host_is_a_setting_and_fails_loudly():
     assert "return;" in view[disabled_guard:disabled_guard + 200]
     # And a dead URL is a message, not a blank rectangle: the honest fix for a
     # missing pane is the built SPA, not a dev server that may not be running.
-    assert "pulseai-webview-unreachable" in view
+    assert "crusorai-webview-unreachable" in view
     assert "npm run build" in view
     # The load event is the only honest success signal, so the watchdog is cancelled
     # on dispose rather than left to fire into torn-down DOM.
@@ -243,15 +243,15 @@ def test_copilot_webview_host_is_a_setting_and_fails_loudly():
 def test_approval_dock_offers_every_scope_the_protocol_carries():
     """`always_allow` was plumbed end to end and unreachable from the UI.
 
-    `PulseAIRenderHost.replyToSafety(toolId, approved, alwaysAllow?)` ->
+    `CrusorAIRenderHost.replyToSafety(toolId, approved, alwaysAllow?)` ->
     `safety_reply { always_allow }` -> `src/bridge/__main__.py:552` ->
     `EventBus.resolve_approval(..., always_allow)`. The dock sent only true/false,
     so every ordinary write re-prompted for the rest of the session even though a
     session grant existed. The third argument must be used, and the two grants must
     be labelled as different things.
     """
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    css = _text("browser", "media", "pulseAI.css")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
     assert "host.replyToSafety(approval.toolId, true, true)" in renderer
     # Hermes ApprovalBar (2026-09-06 port): the grants live in the chevron
     # menu — Run (allow once) is the pill's primary segment, session/always
@@ -262,7 +262,7 @@ def test_approval_dock_offers_every_scope_the_protocol_carries():
     assert "dataset.approveOnce" in renderer and "dataset.deny" in renderer
     # Every decision carries an icon and a hint: a bare word on a button is how
     # "Allow" and "Allow always" get clicked by mistake.
-    assert ".pulseai-button-allow" in css and ".pulseai-button-deny" in css
+    assert ".crusorai-button-allow" in css and ".crusorai-button-deny" in css
     assert "control.title = hint" in renderer
     # Green/red are token-derived, never literals, so both product themes stay legible.
     assert "--vscode-testing-iconPassed" in css
@@ -279,7 +279,7 @@ def test_file_write_rows_report_counted_values_not_placeholders():
     the diff that arrived, and the receipt row only appears when the tool reported
     one.
     """
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "'+12 −4'" not in renderer
     assert "['Receipt', 'syntax valid']" not in renderer
     assert "export function diffStats" in renderer
@@ -287,31 +287,31 @@ def test_file_write_rows_report_counted_values_not_placeholders():
     # Diff lines are per-line nodes so green/red can exist at all -- the old
     # single <pre> could only be tinted as one block -- and the clamp is bounded for
     # paint while saying what it hid.
-    assert "pulseai-diff-row" in renderer
+    assert "crusorai-diff-row" in renderer
     assert "is-truncated" in renderer
-    css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-diff-row.is-add" in css
-    assert ".pulseai-diff-row.is-remove" in css
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-diff-row.is-add" in css
+    assert ".crusorai-diff-row.is-remove" in css
 
 
 @pytest.mark.xfail(
     strict=True,
     reason=(
         "DEFERRED BY OWNER (2026-09-02: 'don't touch manager UI / for / now'). The in-pane "
-        "Manager button reaches PulseAIRendererService via host.openManager() "
-        "(pulseAIRenderer.ts:657 -> pulseAIRendererService.ts:129), which calls "
+        "Manager button reaches CrusorAIRendererService via host.openManager() "
+        "(crusorAIRenderer.ts:657 -> crusorAIRendererService.ts:129), which calls "
         "openManagerWindow() (:325) and hand-builds an auxiliary-window root classed "
-        "`pulseai-manager-editor`; the pulseai.openManager command instead opens the registered "
-        "PulseAIManagerEditor, whose DOM carries `.pulseai-manager-shell` -- the selector "
-        "scripts/validate_pulse_ui_cdp.js:218-239 waits for. Un-mark this test when the button is "
+        "`crusorai-manager-editor`; the crusorai.openManager command instead opens the registered "
+        "CrusorAIManagerEditor, whose DOM carries `.crusorai-manager-shell` -- the selector "
+        "scripts/validate_crusor_ui_cdp.js:218-239 waits for. Un-mark this test when the button is "
         "routed through the command; strict=True means fixing it without saying so fails here."
     ),
 )
 
 
 def test_manager_opens_through_one_path_pending_owner_decision():
-    service = _text("browser", "pulseAIRendererService.ts")
-    assert "executeCommand(PulseAICommandId.OpenManager)" in service
+    service = _text("browser", "crusorAIRendererService.ts")
+    assert "executeCommand(CrusorAICommandId.OpenManager)" in service
 
 
 def test_streaming_isolation_only_the_message_part_repaints():
@@ -324,7 +324,7 @@ def test_streaming_isolation_only_the_message_part_repaints():
     and fall back to the full paint for anything else (tools, plan, status,
     timer ticks with unchanged text -- the thinking seconds must keep
     moving)."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "paintSignature" in renderer
     # Text content (string AND part text) is excluded from the signature; the
     # part SHAPE (kinds + tool ids) stays in, so a new tool/text segment takes
@@ -347,21 +347,21 @@ def test_streaming_isolation_only_the_message_part_repaints():
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}\\b")
 
 
-def test_pulseai_palette_is_derived_not_hardcoded():
+def test_crusorai_palette_is_derived_not_hardcoded():
     """Owner directive ("don't hardcode plz", twice): the semantic palette is
     DERIVED from the live workbench theme by the hermes seed-to-token machine
     (themes/color.ts + themes/vscode.ts port), never hand-picked hex. The CSS
     token file carries var() fallback chains only; color literals live solely
-    in pulseTheme.ts as documented machine INPUTS (contrast anchors, semantic
+    in crusorTheme.ts as documented machine INPUTS (contrast anchors, semantic
     hue seeds) with hermes citations."""
-    tokens = _text("browser", "media", "pulseAI-tokens.css")
+    tokens = _text("browser", "media", "crusorAI-tokens.css")
     hexes = _HEX_RE.findall(tokens)
     assert not hexes, f"hardcoded colors in the token file: {hexes}"
     # and the old hand-maintained light-mode override block is gone: one
     # derivation serves every theme, re-run on onDidColorThemeChange.
     assert ".monaco-workbench.vs" not in tokens
 
-    machine = _text("browser", "pulseTheme.ts")
+    machine = _text("browser", "crusorTheme.ts")
     # the hermes enforcement values, by name
     assert "ACCENT_MIN_CONTRAST = 4.5" in machine, "WCAG AA text floor"
     assert "DOT_MIN_CONTRAST = 3" in machine, "WCAG 1.4.11 non-text floor"
@@ -378,31 +378,31 @@ def test_pulseai_palette_is_derived_not_hardcoded():
         "#1e1e1e", "#d4d4d4",                     # missing-theme fallbacks (hermes)
         "#10b981",                                # SUCCESS_SEED (hermes --ui-success)
         "#e25563",                                # DESTRUCTIVE_FALLBACK (hermes)
-        "#efb75c",                                # APPROVAL_SEED (pulse identity)
-        "#9b8cff",                                # AGENT_SEED (pulse identity)
+        "#efb75c",                                # APPROVAL_SEED (crusor identity)
+        "#9b8cff",                                # AGENT_SEED (crusor identity)
     }
     found = {h.lower() for h in _HEX_RE.findall(machine)}
     unexpected = found - allowed
-    assert not unexpected, f"undocumented color literals in pulseTheme.ts: {sorted(unexpected)}"
+    assert not unexpected, f"undocumented color literals in crusorTheme.ts: {sorted(unexpected)}"
     # pane + manager editor install the machine on their roots
-    for file in ("pulseAIViewPane.ts", "pulseAIManagerEditor.ts"):
-        assert "installPulseTheme(" in _text("browser", file), file
+    for file in ("crusorAIViewPane.ts", "crusorAIManagerEditor.ts"):
+        assert "installCrusorTheme(" in _text("browser", file), file
 
 
-def test_pulseai_type_grammar_is_tokenized():
+def test_crusorai_type_grammar_is_tokenized():
     """hermes scaffold grammar: sizes and tracking are NAMED tokens, never
     literals; numerals that tick hold tabular; caps labels share ONE tracking
     value; fonts are the host's own stacks."""
-    css = _text("browser", "media", "pulseAI.css")
+    css = _text("browser", "media", "crusorAI.css")
     raw_sizes = re.findall(r"font-size:\s*[0-9.]+(?:px|rem)\b", css)
     assert not raw_sizes, f"raw font sizes: {raw_sizes}"
     raw_tracking = re.findall(r"letter-spacing:\s*[0-9.]+(?:px|em)\b", css)
     assert not raw_tracking, f"raw letter-spacing: {raw_tracking}"
-    assert "font-size: var(--pulseai-text-" in css
-    assert "letter-spacing: var(--pulseai-track-caps)" in css
-    tokens = _text("browser", "media", "pulseAI-tokens.css")
-    for token in ("--pulseai-font-ui", "--pulseai-font-mono", "--pulseai-text-meta",
-                  "--pulseai-text-body", "--pulseai-text-micro", "--pulseai-track-caps"):
+    assert "font-size: var(--crusorai-text-" in css
+    assert "letter-spacing: var(--crusorai-track-caps)" in css
+    tokens = _text("browser", "media", "crusorAI-tokens.css")
+    for token in ("--crusorai-font-ui", "--crusorai-font-mono", "--crusorai-text-meta",
+                  "--crusorai-text-body", "--crusorai-text-micro", "--crusorai-track-caps"):
         assert token in tokens, token
     # host stacks, nothing bundled
     assert "--vscode-font-family" in tokens and "@font-face" not in tokens
@@ -420,7 +420,7 @@ def test_reveal_paths_and_terminal_obey_hermes():
     carries state ONCE (the colored glyph) and receipts as one meta line.
     (c) The stdout box was a 260px panel; hermes terminal-output.tsx caps it
     at max-h-16 with non-wrapping lines and a jump to the latest output."""
-    service = _text("browser", "pulseAIRendererService.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     # Anchors avoid backslash literals entirely: the drive/UNC branch and the
     # scheme branch are identified by their RETURNS, and ORDER is the pin.
     resource_fn = service.index("private resourceUri")
@@ -429,18 +429,18 @@ def test_reveal_paths_and_terminal_obey_hermes():
     assert resource_fn < fs_test < scheme_test, "filesystem paths must be tested before the scheme sniff"
     assert "died after a tool call" in service
 
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     summary_start = renderer.index("const summary = element('summary'")
     summary_end = renderer.index("details.append(summary")
-    assert "pulseai-tool-state" not in renderer[summary_start:summary_end]
+    assert "crusorai-tool-state" not in renderer[summary_start:summary_end]
     assert "· exit ${exit}" in renderer, "one meta receipt line"
     assert "dataset.tailed" in renderer, "terminal tail jump present"
 
-    css = _text("browser", "media", "pulseAI.css")
-    assert "var(--pulseai-terminal-max-h)" in css
+    css = _text("browser", "media", "crusorAI.css")
+    assert "var(--crusorai-terminal-max-h)" in css
     assert "260px" not in css, "the tall stdout panel is retired"
-    tokens = _text("browser", "media", "pulseAI-tokens.css")
-    assert "--pulseai-terminal-max-h: 4rem" in tokens, "hermes max-h-16"
+    tokens = _text("browser", "media", "crusorAI-tokens.css")
+    assert "--crusorai-terminal-max-h: 4rem" in tokens, "hermes max-h-16"
 
 
 def test_browser_cards_render_hermes_visible_testing_evidence():
@@ -448,7 +448,7 @@ def test_browser_cards_render_hermes_visible_testing_evidence():
     backend's EVIDENCE — honest per-tool fields, the screenshot image inline,
     the session recording one click away — not the lab-era fake chrome
     (Page/Viewport rows of a puppeteer backend that never ran)."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     # per-tool honesty: fields come from the hermes receipts
     for marker in (
         "tool.name === 'browser_screenshot'",
@@ -460,23 +460,23 @@ def test_browser_cards_render_hermes_visible_testing_evidence():
     ):
         assert marker in renderer
     # the screenshot is PAINTED, not just named
-    assert "pulseai-browser-screenshot" in renderer
+    assert "crusorai-browser-screenshot" in renderer
     assert "img.src = src" in renderer
     # the recording is WATCHABLE from the card (hermes record start/stop)
     assert "Watch session recording" in renderer
     # the fake chrome is gone
     assert "1280 × 800" not in renderer, "puppeteer-era viewport lie"
-    assert "pulseai-browser-snapshot" not in renderer, "fake document line retired"
+    assert "crusorai-browser-snapshot" not in renderer, "fake document line retired"
 
     # image loading crosses the workbench boundary through the HOST contract,
     # implemented with FileAccess in the service (renderer stays neutral)
     assert "resourceSrc(resource: string): string | undefined" in renderer
-    service = _text("browser", "pulseAIRendererService.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     assert "resourceBrowserSrc" in service
     assert "FileAccess.uriToBrowserUri" in service
 
-    css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-browser-screenshot" in css
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-browser-screenshot" in css
     assert "var(--vscode-panel-border" in css
 
 
@@ -485,22 +485,22 @@ def test_raw_tool_call_markup_collapses_never_paints_as_prose():
     (<dots_function_call>/<exec>/<command>) into the transcript as chat text.
     The renderer must route markup lines into ONE collapsed, labeled
     disclosure — shown, not executed, not voiced as the agent."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "RAW_TOOL_MARKUP" in renderer
     assert "dots_function_call" in renderer
     assert "Unparsed tool-call markup (model dialect, not executed)" in renderer
-    assert "pulseai-raw-call" in renderer
+    assert "crusorai-raw-call" in renderer
     # the details element is the collapse (user can still inspect the raw text)
     assert "element('details'" in renderer
-    css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-raw-call" in css
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-raw-call" in css
     assert "var(--vscode-panel-border" in css
 
 
 def test_tool_catalog_carries_the_full_hermes_browser_surface():
     """UI setup check: every hermes browser tool gets a browser-family card;
     the retired puppeteer-era ghosts must not return."""
-    catalog = _text("common", "pulseAIToolCatalog.ts")
+    catalog = _text("common", "crusorAIToolCatalog.ts")
     for name in (
         "browser_navigate", "browser_snapshot", "browser_screenshot",
         "browser_click", "browser_type", "browser_scroll", "browser_back",
@@ -518,8 +518,8 @@ def test_cards_parse_string_results_and_web_urls_never_open_editors():
     the cards read keys off a parsed object; (b) the old lab-era card revealed
     the navigate URL and the textmodel resolver refused it ('Unable to resolve
     resource http://localhost:3000/')."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    workbench = _text("browser", "pulseAIWorkbenchService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    workbench = _text("browser", "crusorAIWorkbenchService.ts")
     # cards parse before firstString (terminal + family bodies both)
     assert renderer.count("resultRecord(tool.result)") >= 2
     assert "JSON.parse(value)" in renderer
@@ -537,9 +537,9 @@ def test_workbench_carries_a_freshness_stamp_next_to_the_engine_chip():
     nothing could tell, because the only build chip proves the PYTHON engine.
     The workbench stamp lives in renderer source, so any compile of current
     source carries it and an engine build dated after it reads STALE."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "const PULSEAI_UI_STAMP = '" in renderer
-    assert "ui ${PULSEAI_UI_STAMP}" in renderer
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "const CRUSORAI_UI_STAMP = '" in renderer
+    assert "ui ${CRUSORAI_UI_STAMP}" in renderer
     assert "STALE" in renderer
     assert "Workbench UI build" in renderer
 
@@ -569,33 +569,33 @@ def test_catalog_resolves_clarify_and_derives_hermes_generic_titles():
     """hermes names its ask tool `clarify` (CLARIFY_SCHEMA) and titles unknown
     tools via titleForTool (fallback-model.ts) -- `plan_update` reads
     `Plan Update`, never a flat `Tool`. The native catalog does both."""
-    catalog = _text("common", "pulseAIToolCatalog.ts")
+    catalog = _text("common", "crusorAIToolCatalog.ts")
     assert "clarify: tool('Question', 'control', 'question', 'running')" in catalog
     # hermes titleForTool, verbatim shape: strip browser_/web_, split, capitalize
     assert "replace(/^browser_/, '').replace(/^web_/, '')" in catalog
     assert "map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')" in catalog
     assert "tool('Tool', 'generic', GENERIC_ICON)" in catalog  # empty-name fallback only
     # the webview already ran this rule; the two surfaces must not diverge
-    webview = (ROOT / "pulse-webview" / "src" / "hermes-ui" / "model" / "fallback-model.ts").read_text(encoding="utf-8")
+    webview = (ROOT / "crusor-webview" / "src" / "hermes-ui" / "model" / "fallback-model.ts").read_text(encoding="utf-8")
     assert "replace(/^browser_/, '').replace(/^web_/, '')" in webview
 
 
 def test_plan_strip_renders_each_steps_own_status():
     """Hermes renders every todo/plan item's real state (ui-tui todoTone,
-    desktop composer-status todoStatus). Pulse's strip flattened plan_updated
+    desktop composer-status todoStatus). Crusor's strip flattened plan_updated
     to strings and guessed 'active' from the row index -- step 3 spun while
     step 1 ran. The frame now carries per-step status and the strip/inspector
     render it."""
-    service = _text("browser", "pulseAIRendererService.ts")
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     # the service parses {text, status} out of the frame (status vocabulary
-    # is pulse's wire vocab: failed, not cancelled)
-    assert "PulseAIPlanStepView" in service and "PulseAIPlanStepView" in renderer
+    # is crusor's wire vocab: failed, not cancelled)
+    assert "CrusorAIPlanStepView" in service and "CrusorAIPlanStepView" in renderer
     assert "'pending' | 'in_progress' | 'completed' | 'failed'" in renderer
     assert "frame.steps.map(planStepView)" in service
     # per-status glyphs; the index guess is gone from both surfaces
     assert "planStepGlyph" in renderer
-    assert "status === 'in_progress') { return element('span', 'pulseai-mini-spinner')" in renderer
+    assert "status === 'in_progress') { return element('span', 'crusorai-mini-spinner')" in renderer
     assert "status === 'completed') { return icon('pass-filled')" in renderer
     assert "index === 0 && model.running" not in renderer
     assert "index === 0 ? 'is-active'" not in renderer
@@ -604,12 +604,12 @@ def test_plan_strip_renders_each_steps_own_status():
 
 
 def test_catalog_resolves_hermes_primary_tool_names():
-    """Engine commit b75cd4c6: pulse binds and the model calls hermes' names
+    """Engine commit b75cd4c6: crusor binds and the model calls hermes' names
     (terminal, search_files, web_extract). The card catalog must resolve the
     SAME families as the legacy aliases — otherwise the field's most common
     calls render as generic cards (no terminal body/exit chip, no diff or
     search treatment). Both spellings resolve, forever."""
-    catalog = _text("common", "pulseAIToolCatalog.ts")
+    catalog = _text("common", "crusorAIToolCatalog.ts")
     # primaries present with real families (not the generic fallback)
     assert "terminal: tool('Terminal', 'terminal', 'terminal', 'always')" in catalog
     assert "search_files: tool('Search files', 'search', 'search')" in catalog
@@ -628,8 +628,8 @@ def test_ansi_terminal_output_ported():
     """hermes lib/ansi.ts + terminal-output.tsx: SGR-colored segments inside
     the terminal card, non-SGR escapes consumed, a plain fast path, and a
     bounded paint window (tail kept, earlier lines COUNTED)."""
-    module = _text("browser", "pulseaiCardFormat.ts")
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    module = _text("browser", "crusoraiCardFormat.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     # the parser: SGR only, other CSI consumed, segments merged by style
     assert "export function parseAnsi" in module
     assert "OTHER_ESCAPE_RE" in module and "CSI_RE" in module
@@ -641,15 +641,15 @@ def test_ansi_terminal_output_ported():
     assert "windowedTailLines(text, TERMINAL_PAINT_LINE_LIMIT)" in renderer
     assert "hasAnsiCodes(body)" in renderer  # plain text never pays for parsing
     assert "TERMINAL_PAINT_LINE_LIMIT = 400" in renderer
-    assert "'pulseai-terminal-earlier'" in renderer  # hidden lines are COUNTED
+    assert "'crusorai-terminal-earlier'" in renderer  # hidden lines are COUNTED
 
 
 def test_hermes_diff_grammar_ported():
     """hermes diff-lines.tsx: headers/@@ noise and the +/- gutter DROPPED —
     changes read by tint + 2px gutter accent, kind per row, fallback for
     non-hunk payloads, +/- stats excluding the git header lines."""
-    module = _text("browser", "pulseaiCardFormat.ts")
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    module = _text("browser", "crusoraiCardFormat.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "export function stripDiffFileHeaders" in module
     assert "'diff --git'" in module and "'+++ '" in module  # header prefixes
     assert "@@" in module and "/@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@/" in module
@@ -658,10 +658,10 @@ def test_hermes_diff_grammar_ported():
     assert "starts with '+++' exclusion" not in module  # honesty: real check below
     assert "line.startsWith('+++')" in module
     # the renderer paints hermes' grammar: gutter accent rows, no +/- glyphs
-    assert "pulseai-diff-row is-${line.kind}" in renderer or "pulseai-diff-row" in renderer
+    assert "crusorai-diff-row is-${line.kind}" in renderer or "crusorai-diff-row" in renderer
     assert "parseDiff(diff || '')" in renderer
-    css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-diff-row.is-add" in css
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-diff-row.is-add" in css
     assert "border-left: 2px solid transparent" in css
     assert "max-height: 12rem" in css  # hermes DIFF_BOX max-h-[12rem]
 
@@ -670,9 +670,9 @@ def test_changed_files_rollup_ported():
     """hermes changed-files.ts + changed-files-card.tsx: one row per LANDED
     file edit (first-touched order, +/- summed), the card closes the turn,
     a row click opens the file."""
-    module = _text("browser", "pulseaiCardFormat.ts")
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    css = _text("browser", "media", "pulseAI.css")
+    module = _text("browser", "crusoraiCardFormat.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
     assert "export function deriveChangedFiles" in module
     assert "['write_file', 'edit_file', 'copy_file']" in module
     assert "tool.state !== 'passed' && tool.state !== 'completed'" in module, (
@@ -683,25 +683,25 @@ def test_changed_files_rollup_ported():
     assert "turnFiles.length" in renderer, "…and re-opened history turns"
     assert "files changed" in renderer
     assert "9.375rem" in css  # hermes MAX_ROWS_HEIGHT (~5 rows)
-    assert "pulseai-diff-count" in css
+    assert "crusorai-diff-count" in css
 
 
 def test_markdown_block_grammar_ported():
     """hermes markdown-text: ordered lists, quotes, tables, and real links —
     the 'well intended output' surface, not one paragraph blob."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    css = _text("browser", "media", "pulseAI.css")
-    assert "pulseai-md-ol" in renderer and "pulseai-md-quote" in renderer
-    assert "pulseai-md-table" in renderer
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "crusorai-md-ol" in renderer and "crusorai-md-quote" in renderer
+    assert "crusorai-md-table" in renderer
     assert "a.target = '_blank'" in renderer
     assert "a.rel = 'noopener noreferrer'" in renderer
-    assert ".pulseai-md .pulseai-md-table th" in css
-    assert ".pulseai-md .pulseai-md-link" in css
+    assert ".crusorai-md .crusorai-md-table th" in css
+    assert ".crusorai-md .crusorai-md-link" in css
 
 
 def test_ui_stamp_bumped_for_the_card_format_round():
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "const PULSEAI_UI_STAMP = '2026-09-11';" in renderer, (
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "const CRUSORAI_UI_STAMP = '2026-09-11';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -712,10 +712,10 @@ def test_terminal_envelope_never_surfaces_in_the_card():
     painted the raw envelope; even the new card would have leaked the
     markers as body text. Hermes' terminal card receives raw output only —
     the card format module strips the markers."""
-    fmt = _text("browser", "pulseaiCardFormat.ts")
+    fmt = _text("browser", "crusoraiCardFormat.ts")
     assert "export function hasTerminalEnvelope" in fmt
     assert "export function stripTerminalEnvelope" in fmt
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "stripTerminalEnvelope(resultOutput(tool))" in renderer, (
         "terminalBody must render the stripped body, not the raw envelope"
     )
@@ -733,7 +733,7 @@ def test_engine_flags_a_stale_compiled_workbench():
     assert "_log_workbench_freshness" in bridge
     assert "DESKTOP WORKBENCH STALE" in bridge
     assert "npx gulp compile" in bridge, "the log must name the fork's compile task"
-    assert "pulseAIRenderer.js" in bridge, "the probe stats the compiled renderer bundle"
+    assert "crusorAIRenderer.js" in bridge, "the probe stats the compiled renderer bundle"
     assert "fully quit and reopen" in bridge
 
 
@@ -755,28 +755,28 @@ def test_markdown_copy_has_no_lying_assertions_and_flushes_raw_markup():
     runtime: null.append crash) — and the two type errors made `tsc -p src`
     fail, which blocked EVERY owner-side compile. The restructure buffers
     raw markup lines and flushes one disclosure per run."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "flushRawMarkup" in renderer
     assert "rawPre!" not in renderer
     assert "rawBlock = element" not in renderer, "loop-carried raw DOM refs removed"
     # dialog.append() takes (string|Node)[] — no ternary-undefined arg
     assert ": undefined,\n" not in renderer.split("function markdownCopy")[0][-4000:] or True
-    assert "if (commandText) { dialog.append(element('pre', 'pulseai-dialog-command', commandText)); }" in renderer
+    assert "if (commandText) { dialog.append(element('pre', 'crusorai-dialog-command', commandText)); }" in renderer
 
 
-def test_compiled_pulseai_panel_ships_in_git_and_carries_the_stamp():
+def test_compiled_crusorai_panel_ships_in_git_and_carries_the_stamp():
     """The panel slice ships compiled so `git pull` alone updates the Agent
     pane (the manual compile step failed in the field three times). The
     bundle must carry the current stamp, the envelope strip, and a
     BUILD_INFO.json naming the commit it was emitted from."""
-    browser = FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
-    bundle = (browser / "pulseAIRenderer.js").read_text(encoding="utf-8")
+    browser = FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
+    bundle = (browser / "crusorAIRenderer.js").read_text(encoding="utf-8")
     assert "2026-09-10" in bundle, "bundle predates the current UI round"
     assert "stripTerminalEnvelope" in bundle
-    assert "pulseai-changed-files-head" in bundle
+    assert "crusorai-changed-files-head" in bundle
     info = (browser / "BUILD_INFO.json").read_text(encoding="utf-8")
     assert '"commit"' in info
-    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
     assert "ModuleKind.ESNext" in emitter, "the fork app is ESM (type: module)"
     assert "import { fileURLToPath } from 'node:url';" in emitter
 
@@ -786,16 +786,16 @@ def test_bundle_emitter_inherits_the_fork_tsconfig_di_decorators():
     dropped `experimentalDecorators: true` — every DI-injected class in the
     shipped bundle emitted with the wrong decorator transform, vscode's
     InstantiationService could not read the parameter metadata, and the pane
-    died at construction (blank PULSE pane, Copilot chat took over). The
+    died at construction (blank CRUSOR pane, Copilot chat took over). The
     emitter must parse the fork's real src/tsconfig.json chain and REFUSE to
     run without experimentalDecorators."""
-    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
     assert "getParsedCommandLineOfConfigFile" in emitter, "options come from the project tsconfig, never hand-picked"
     assert "experimentalDecorators" in emitter and "refusing to run" in emitter
     assert "ModuleKind.ESNext" in emitter, "transpileModule under nodenext emits CommonJS the ESM workbench cannot load"
     assert "refusing to ship" in emitter, "emit-time assertion: DI-decorating sources must emit __param"
-    browser = FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser"
-    bundle = (browser / "pulseAIViewPane.js").read_text(encoding="utf-8")
+    browser = FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
+    bundle = (browser / "crusorAIViewPane.js").read_text(encoding="utf-8")
     assert "__param(" in bundle, "legacy DI decorator emit (design:paramtypes metadata) missing from the shipped pane"
     import re as _re
     assert _re.search(r"^import \{? ?", bundle, _re.M), "shipped pane must be an ES module (line-anchored import statements)"
@@ -807,9 +807,9 @@ def test_bundle_import_audit_script_is_tracked_and_green_shape():
     """The audit proves every named import in the shipped bundle resolves to
     a runtime export (ESM named-import failures kill the contribution chain
     at instantiation)."""
-    audit = (FORK / "scripts" / "audit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    audit = (FORK / "scripts" / "audit-crusorai-bundle.mjs").read_text(encoding="utf-8")
     assert "DEAD BINDING" in audit and "AUDIT OK" in audit
-    assert "path.join(FORK, 'out')" in audit, "cross-slice targets must resolve out/ -> src/ (only the pulseai slice is compiled here)"
+    assert "path.join(FORK, 'out')" in audit, "cross-slice targets must resolve out/ -> src/ (only the crusorai slice is compiled here)"
 
 
 def test_plan_card_is_a_desktop_status_section_disclosure():
@@ -822,26 +822,26 @@ def test_plan_card_is_a_desktop_status_section_disclosure():
     (defaultCollapse = type !== 'todo'), a header spinner while an item is
     in_progress (hidden when open), and the user's toggle survives
     re-renders (openPlanLists)."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "pulseai-plan-details" in renderer
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "crusorai-plan-details" in renderer
     assert "icon('chevron-right')" in renderer      # DisclosureCaret glyph
     assert "icon('checklist')" in renderer          # GROUP_ICON.todo
     assert "`Tasks ${done}/${rows.length}`" in renderer  # i18n/en.ts todos()
     assert "!openPlanLists.has(tool.id)" in renderer     # expanded by default
-    assert "pulseai-plan-spinner" in renderer            # running indicator
-    css = _text("browser", "media", "pulseAI.css")
+    assert "crusorai-plan-spinner" in renderer            # running indicator
+    css = _text("browser", "media", "crusorAI.css")
     assert "transition: transform 150ms" in css
-    assert ".pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-caret { transform: rotate(90deg); }" in css
-    assert ".pulseai-plan-details[open] > .pulseai-plan-head .pulseai-plan-spinner { display: none; }" in css
-    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js").read_text(encoding="utf-8")
-    assert "pulseai-plan-details" in bundle and "Tasks ${done}/${rows.length}" in bundle
+    assert ".crusorai-plan-details[open] > .crusorai-plan-head .crusorai-plan-caret { transform: rotate(90deg); }" in css
+    assert ".crusorai-plan-details[open] > .crusorai-plan-head .crusorai-plan-spinner { display: none; }" in css
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "crusorAIRenderer.js").read_text(encoding="utf-8")
+    assert "crusorai-plan-details" in bundle and "Tasks ${done}/${rows.length}" in bundle
 
 
 def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
-    out/ shows an older date on the chip (see PULSEAI_UI_STAMP)."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
-    assert "PULSEAI_UI_STAMP = '2026-09-11'" in renderer
+    out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "CRUSORAI_UI_STAMP = '2026-09-11'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -850,19 +850,19 @@ def test_plan_card_renders_a_task_list_never_arg_json():
     argument JSON. The catalog carries a 'plan' family whose body ports
     hermes' status-row todo rows (glyph + description), fed from the WRITTEN
     list (tool result) with call args as fallback."""
-    catalog = _text("common", "pulseAIToolCatalog.ts")
+    catalog = _text("common", "crusorAIToolCatalog.ts")
     assert "plan_update: tool('Plan Update', 'plan'" in catalog
     assert "todo_list: tool('Todo list', 'plan'" in catalog
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "function planListBody" in renderer
-    assert "pulseai-plan-row is-" in renderer
+    assert "crusorai-plan-row is-" in renderer
     for glyph in ("pass-filled", "circle-slash"):  # hermes status-row glyphs
         assert glyph in renderer
-    css = _text("browser", "media", "pulseAI.css")
-    assert ".pulseai-plan-row.is-pending .pulseai-plan-glyph::before" in css
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-plan-row.is-pending .crusorai-plan-glyph::before" in css
     assert "dashed" in css
-    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js").read_text(encoding="utf-8")
-    assert "pulseai-plan-row" in bundle, "the shipped panel carries the plan card"
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "crusorAIRenderer.js").read_text(encoding="utf-8")
+    assert "crusorai-plan-row" in bundle, "the shipped panel carries the plan card"
 
 
 def test_grace_summary_collapses_the_json_tool_call_dialect():
@@ -870,7 +870,7 @@ def test_grace_summary_collapses_the_json_tool_call_dialect():
     "calling" tools TEXTUALLY — the answer carried raw
     {"action": "terminal", ...} JSON painted into the transcript. The raw
     markup collapse now catches the JSON dialect too, not just XML-ish tags."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert '\"action\"' in renderer or '\\"action\\\"' in renderer or '"action"' in renderer
     assert "RAW_TOOL_MARKUP" in renderer
     # the regex alternative for the JSON dialect
@@ -887,10 +887,10 @@ def test_bundle_freshness_is_a_source_content_hash_not_ancestry():
     engine recomputes it from the pulled tree: match = current, mismatch =
     STALE. Both recipes must agree byte-for-byte (rel POSIX paths in
     codepoint order, rel + NUL + bytes + NUL, emitter last)."""
-    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
     assert "SOURCES_HASH" in emitter and "createHash" in emitter
     assert "sort()" in emitter and "localeCompare" not in emitter, "codepoint order, not locale"
-    shipped = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "SOURCES_HASH")
+    shipped = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "SOURCES_HASH")
     assert shipped.exists() and len(shipped.read_text(encoding="utf-8").strip()) == 64
     bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
     assert "SOURCES_HASH" in bridge and "_sources_hash" in bridge
@@ -907,7 +907,7 @@ def test_bundle_hash_is_stable_under_windows_crlf_checkout():
     on a current panel. Both recipes now normalize CRLF -> LF at the byte
     level before hashing: checkout line-ending state cannot flip the
     verdict; content still can."""
-    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
     assert "normalizeEol" in emitter and "latin1" in emitter
     bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
     recipe = bridge.split("def _sources_hash")[1].split("return h.hexdigest")[0]
@@ -970,7 +970,7 @@ def test_hash_feed_order_is_codepoint_strings_not_path_objects(tmp_path):
     """Field 2026-09-10 (owner aa68b244… != shipped f5b8d974… on every boot
     over a pristine tree): the engine used to sort Path OBJECTS, and on
     Windows PurePath comparison is case-insensitive (os.path.normcase) —
-    so `pulseAI…` vs `pulseai…` siblings fed the hash in a different order
+    so `crusorAI…` vs `crusorai…` siblings fed the hash in a different order
     than the JS emitter's codepoint string sort used at emit time. A
     byte-identical checkout hashed to a different digest and the STALE
     banner fired on a current panel; invisible on Linux, where both sorts
@@ -980,35 +980,35 @@ def test_hash_feed_order_is_codepoint_strings_not_path_objects(tmp_path):
     import hashlib
 
     vscode_root = tmp_path / "desktop" / "vscode"
-    contrib = vscode_root / "src" / "vs" / "workbench" / "contrib" / "pulseai"
-    (contrib / "browser" / "pulseai").mkdir(parents=True)
+    contrib = vscode_root / "src" / "vs" / "workbench" / "contrib" / "crusorai"
+    (contrib / "browser" / "crusorai").mkdir(parents=True)
     (vscode_root / "scripts").mkdir()
     # casefold flips this pair (codepoint: B < a; casefold: a < b)
     (contrib / "B.txt").write_bytes(b"B\n")
     (contrib / "a.txt").write_bytes(b"a\n")
     # a file named like its sibling directory flips parts-vs-string order
-    # (parts: pulseai/ first; strings: pulseai.ts first, '.' < '/')
-    (contrib / "browser" / "pulseai.ts").write_bytes(b"x\n")
-    (contrib / "browser" / "pulseai" / "inner.ts").write_bytes(b"y\n")
-    (vscode_root / "scripts" / "emit-pulseai-bundle.mjs").write_bytes(b"// emitter\n")
+    # (parts: crusorai/ first; strings: crusorai.ts first, '.' < '/')
+    (contrib / "browser" / "crusorai.ts").write_bytes(b"x\n")
+    (contrib / "browser" / "crusorai" / "inner.ts").write_bytes(b"y\n")
+    (vscode_root / "scripts" / "emit-crusorai-bundle.mjs").write_bytes(b"// emitter\n")
 
     got = _exec_engine_sources_hash()(contrib, tmp_path)
 
     h = hashlib.sha256()
-    prefix = "src/vs/workbench/contrib/pulseai/"
+    prefix = "src/vs/workbench/contrib/crusorai/"
     rels = sorted(
         [prefix + "B.txt", prefix + "a.txt",
-         prefix + "browser/pulseai.ts", prefix + "browser/pulseai/inner.ts"]
+         prefix + "browser/crusorai.ts", prefix + "browser/crusorai/inner.ts"]
     )
     for rel in rels:
         h.update(rel.encode("utf-8"))
         h.update(b"\0")
         h.update((vscode_root / rel).read_bytes().replace(b"\r\n", b"\n"))
         h.update(b"\0")
-    h.update(b"scripts/emit-pulseai-bundle.mjs")
+    h.update(b"scripts/emit-crusorai-bundle.mjs")
     h.update(b"\0")
     h.update(
-        (vscode_root / "scripts" / "emit-pulseai-bundle.mjs")
+        (vscode_root / "scripts" / "emit-crusorai-bundle.mjs")
         .read_bytes()
         .replace(b"\r\n", b"\n")
     )
@@ -1022,9 +1022,9 @@ def test_engine_hash_matches_the_shipped_panel_on_this_repo():
     owner's Windows checkout too (field 2026-09-10: the very hash pair
     f5b8d974… / aa68b244… that the Path-sort bug produced is now impossible;
     whatever ships later must keep both recipes moving together)."""
-    got = _exec_engine_sources_hash()(PULSE, ROOT)
+    got = _exec_engine_sources_hash()(CRUSOR, ROOT)
     shipped = (
-        FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "SOURCES_HASH"
+        FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "SOURCES_HASH"
     ).read_text(encoding="utf-8").strip()
     assert got == shipped
 
@@ -1060,14 +1060,14 @@ def test_tool_batch_pairing_invariant_fabricates_missing_results():
 
 def test_git_bash_paths_reveal_to_real_windows_drives():
     """Field 2026-09-10: the model works in the bash shell, so tool args and
-    changed-file rows carry `/d/TestPulseAI/...` — URI.file() read that as a
+    changed-file rows carry `/d/TestCrusorAI/...` — URI.file() read that as a
     rootless path and the owner's click died on "The editor could not be
     opened because the file was not found" while the file existed (explorer
     opened it fine). resourceUri converts the git-bash drive to a real
     Windows drive URI before anything else sniffs it."""
-    service = _text("browser", "pulseAIRendererService.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     assert "gitBash" in service and "Git-bash drive notation" in service
-    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRendererService.js").read_text(encoding="utf-8")
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "crusorAIRendererService.js").read_text(encoding="utf-8")
     assert "toUpperCase" in bundle, "shipped service converts /d/ -> D:/"
 
 
@@ -1079,7 +1079,7 @@ def test_write_receipts_carry_exact_line_counts_for_the_card():
     (the preview is capped; the counts must not be)."""
     tools = (ROOT / "src" / "tools" / "file_tools.py").read_text(encoding="utf-8")
     assert "lines added: {added}, removed: {removed}" in tools
-    fmt = _text("browser", "pulseaiCardFormat.ts")
+    fmt = _text("browser", "crusoraiCardFormat.ts")
     assert "lines added:" in fmt and "removed:" in fmt
 
 
@@ -1087,7 +1087,7 @@ def test_todo_items_require_hermes_fields_and_rows_fall_back_to_ids():
     """Field 2026-09-10 ("todo list 🤯"): with untyped dict items the model
     sent id-only status patches on the REPLACE path and the store validated
     them into "(no description)" rows. hermes TODO_SCHEMA requires
-    ["id", "content", "status"] per item — pulse's todo_list now carries the
+    ["id", "content", "status"] per item — crusor's todo_list now carries the
     same required fields (pydantic args_schema), and the card renders an
     id-only row as "Item <id>", never the raw placeholder."""
     import json as _json
@@ -1103,7 +1103,7 @@ def test_todo_items_require_hermes_fields_and_rows_fall_back_to_ids():
     except Exception:
         pass  # pydantic ValidationError is the fix working
 
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "Item ${id}" in renderer
     code_only = "\n".join(
         line for line in renderer.splitlines() if not line.strip().startswith("//")
@@ -1116,7 +1116,7 @@ def test_scaffold_card_shows_the_calls_own_fields_not_inventions():
     RUNTIME "Python 3.14" on a Next.js scaffolding call — invented text.
     The card shows the call's own location/template fields plus the honest
     state, nothing else."""
-    renderer = _text("browser", "pulseAIRenderer.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
     assert "Python 3.14" not in renderer
     assert "scaffoldFields" in renderer
 
@@ -1128,18 +1128,18 @@ def test_shipped_manifest_lets_the_engine_name_stale_files():
     SOURCES_HASH (diagnosis only — the aggregate stays the verdict), and the
     engine's STALE branch diffs it and NAMES modified/missing/extra files
     with the restore command."""
-    emitter = (FORK / "scripts" / "emit-pulseai-bundle.mjs").read_text(encoding="utf-8")
+    emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
     assert "SOURCES_MANIFEST.json" in emitter
     assert "sourcesHash" in emitter and "normalizeEol" in emitter
     bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
     assert "SOURCES_MANIFEST.json" in bridge
     assert "STALE diagnosis (per-file manifest)" in bridge
     assert "extra on disk" in bridge and "git checkout -- <file>" in bridge
-    manifest = (FORK / "out" / "vs" / "workbench" / "contrib" / "pulseai"
+    manifest = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai"
                 / "browser" / "SOURCES_MANIFEST.json")
     assert manifest.exists()
     parsed = json.loads(manifest.read_text(encoding="utf-8"))
     assert parsed.get("sourcesHash") == (FORK / "out" / "vs" / "workbench"
-                                         / "contrib" / "pulseai" / "browser"
+                                         / "contrib" / "crusorai" / "browser"
                                          / "SOURCES_HASH").read_text(encoding="utf-8").strip()
     assert isinstance(parsed.get("files"), dict) and parsed["files"]

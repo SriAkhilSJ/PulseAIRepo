@@ -7,9 +7,9 @@ pins the scan budget so a cold start is always bounded and can report WHY it
 truncated (surfaced as a ``runtime.degraded`` receipt by the callers).
 
 Budget (all enforced together, first-hit wins; every number is an
-env getter read per construction -- PULSEAI_SCAN_MAX_SECONDS,
-PULSEAI_SCAN_MAX_FILES, PULSEAI_SCAN_MAX_BYTES, PULSEAI_SCAN_MAX_FILE_BYTES,
-PULSEAI_SCAN_MAX_ENTRIES, PULSEAI_SCAN_MAX_VISITED):
+env getter read per construction -- CRUSORAI_SCAN_MAX_SECONDS,
+CRUSORAI_SCAN_MAX_FILES, CRUSORAI_SCAN_MAX_BYTES, CRUSORAI_SCAN_MAX_FILE_BYTES,
+CRUSORAI_SCAN_MAX_ENTRIES, CRUSORAI_SCAN_MAX_VISITED):
   - elapsed:  wall-clock cap (default 5.0s)
   - files:    max files consumed (default 1000)
   - bytes:    aggregate size of consumed files, counted via stat() so no
@@ -110,14 +110,14 @@ def _env_float(name: str, default: float, lo: float, hi: float) -> float:
 
 
 _SCAN_ENV_VARS = (
-    "PULSEAI_SCAN_MAX_SECONDS", "PULSEAI_SCAN_MAX_FILES",
-    "PULSEAI_SCAN_MAX_BYTES", "PULSEAI_SCAN_MAX_FILE_BYTES",
-    "PULSEAI_SCAN_MAX_ENTRIES", "PULSEAI_SCAN_MAX_VISITED",
+    "CRUSORAI_SCAN_MAX_SECONDS", "CRUSORAI_SCAN_MAX_FILES",
+    "CRUSORAI_SCAN_MAX_BYTES", "CRUSORAI_SCAN_MAX_FILE_BYTES",
+    "CRUSORAI_SCAN_MAX_ENTRIES", "CRUSORAI_SCAN_MAX_VISITED",
 )
 
 
 def scan_budget_source() -> str:
-    """'env' when any PULSEAI_SCAN_* knob is present in the process env,
+    """'env' when any CRUSORAI_SCAN_* knob is present in the process env,
     else 'defaults'. Boot-log honesty: a bound that silently ignored the
     env is exactly the bug that took a desktop session to find."""
     for name in _SCAN_ENV_VARS:
@@ -131,20 +131,20 @@ def default_scan_limits() -> "ScanLimits":
     """Build the product-default scan ceiling from the environment, per call.
 
     Knobs (all optional, all clamped):
-      PULSEAI_SCAN_MAX_SECONDS    wall-clock cap      (default 5.0,  0.5 .. 120)
-      PULSEAI_SCAN_MAX_FILES      files consumed      (default 1000, 1 .. 200_000)
-      PULSEAI_SCAN_MAX_BYTES      aggregate bytes     (default 16 MiB, 64 KiB .. 1 GiB)
-      PULSEAI_SCAN_MAX_FILE_BYTES per-file cap        (default 1 MiB, 1 KiB .. 64 MiB)
-      PULSEAI_SCAN_MAX_ENTRIES    entries considered  (default 1000, 1 .. 500_000)
-      PULSEAI_SCAN_MAX_VISITED    entries visited     (default 1000, 1 .. 500_000)
+      CRUSORAI_SCAN_MAX_SECONDS    wall-clock cap      (default 5.0,  0.5 .. 120)
+      CRUSORAI_SCAN_MAX_FILES      files consumed      (default 1000, 1 .. 200_000)
+      CRUSORAI_SCAN_MAX_BYTES      aggregate bytes     (default 16 MiB, 64 KiB .. 1 GiB)
+      CRUSORAI_SCAN_MAX_FILE_BYTES per-file cap        (default 1 MiB, 1 KiB .. 64 MiB)
+      CRUSORAI_SCAN_MAX_ENTRIES    entries considered  (default 1000, 1 .. 500_000)
+      CRUSORAI_SCAN_MAX_VISITED    entries visited     (default 1000, 1 .. 500_000)
     """
     return ScanLimits(
-        max_files=_env_int("PULSEAI_SCAN_MAX_FILES", 1000, 1, 200_000),
-        max_bytes=_env_int("PULSEAI_SCAN_MAX_BYTES", 16 * 1024 * 1024, 65_536, 1_073_741_824),
-        max_file_bytes=_env_int("PULSEAI_SCAN_MAX_FILE_BYTES", 1024 * 1024, 1_024, 67_108_864),
-        max_elapsed=_env_float("PULSEAI_SCAN_MAX_SECONDS", 5.0, 0.5, 120.0),
-        max_considered=_env_int("PULSEAI_SCAN_MAX_ENTRIES", 1000, 1, 500_000),
-        max_visited=_env_int("PULSEAI_SCAN_MAX_VISITED", 1000, 1, 500_000),
+        max_files=_env_int("CRUSORAI_SCAN_MAX_FILES", 1000, 1, 200_000),
+        max_bytes=_env_int("CRUSORAI_SCAN_MAX_BYTES", 16 * 1024 * 1024, 65_536, 1_073_741_824),
+        max_file_bytes=_env_int("CRUSORAI_SCAN_MAX_FILE_BYTES", 1024 * 1024, 1_024, 67_108_864),
+        max_elapsed=_env_float("CRUSORAI_SCAN_MAX_SECONDS", 5.0, 0.5, 120.0),
+        max_considered=_env_int("CRUSORAI_SCAN_MAX_ENTRIES", 1000, 1, 500_000),
+        max_visited=_env_int("CRUSORAI_SCAN_MAX_VISITED", 1000, 1, 500_000),
     )
 
 

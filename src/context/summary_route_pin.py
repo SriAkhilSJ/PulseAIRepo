@@ -39,7 +39,7 @@ PINNED_ROUTE_FIELDS: tuple[str, ...] = (
 )
 
 _SUMMARY_ROUTE_PIN: contextvars.ContextVar[Optional[Dict[str, Any]]] = (
-    contextvars.ContextVar("pulseai_summary_route_pin", default=None)
+    contextvars.ContextVar("crusorai_summary_route_pin", default=None)
 )
 
 
@@ -79,7 +79,7 @@ def peek_pinned_summary_route() -> Optional[Dict[str, Any]]:
 def aux_llm_for_route(aux_llm_getter: Callable[[], Any], route: Optional[Dict[str, Any]]) -> Any:
     """Resolve the aux summary LLM: the pinned route when installed, else the
     caller's normal getter (settings-driven). Only the fields that matter to
-    Pulse's ``RequestScopedAuxLLM(provider, model)`` facade are honored; the
+    Crusor's ``RequestScopedAuxLLM(provider, model)`` facade are honored; the
     rest (``base_url``/``api_key``/``api_mode``/``timeout``) are validated but
     delegated to the facade, which owns transports."""
     if not route:

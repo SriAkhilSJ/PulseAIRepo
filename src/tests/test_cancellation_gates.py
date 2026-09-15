@@ -9,7 +9,7 @@ Test matrix:
     C-2  cancel while task_manager LLM invoke is blocked → task_status == cancelled
     C-3  release the fake response after cancellation → response is discarded
     C-4  assert zero additional model invocations after cancel
-    C-5  assert the final result carries pulse_cancelled, not failed/completed
+    C-5  assert the final result carries crusor_cancelled, not failed/completed
     C-6  SafeToolNode cancels pending tool calls → no real tools run
     C-7  repeated cancellations do not grow threads/processes
     C-8  queued work (steer) is not started inside the old turn after cancel
@@ -170,7 +170,7 @@ class TestCancellationGates:
         """Cancel is triggered while ai_node is inside call_llm.invoke().
 
         The post-LLM cancellation gate must detect the cancelled state
-        and return pulse_cancelled=True instead of the LLM result.
+        and return crusor_cancelled=True instead of the LLM result.
         The returned message must carry NO tool_calls.
         """
         from src.graphs.chat_graph import ai_node
@@ -211,7 +211,7 @@ class TestCancellationGates:
         msg = self._result["messages"][0]
         assert isinstance(msg, AIMessage)
         assert msg.content == "Operation cancelled by the user."
-        assert msg.additional_kwargs.get("pulse_cancelled") is True
+        assert msg.additional_kwargs.get("crusor_cancelled") is True
         # Critical: no tool_calls leaked through
         assert not getattr(msg, "tool_calls", None), (
             "Tool calls leaked through the cancellation gate"
@@ -295,7 +295,7 @@ class TestCancellationGates:
         assert not isinstance(result, Exception), f"ai_node raised: {result}"
 
         msg = result["messages"][0]
-        assert msg.additional_kwargs.get("pulse_cancelled") is True
+        assert msg.additional_kwargs.get("crusor_cancelled") is True
         assert not getattr(msg, "tool_calls", None)
 
     # ── C-4: zero additional model invocations after cancel ──
@@ -337,7 +337,7 @@ class TestCancellationGates:
     # ── C-5: cancelled result, not failed or completed ──
 
     def test_c5_result_is_cancelled_not_failed_or_completed(self):
-        """The cancelled AIMessage must have pulse_cancelled=True and the
+        """The cancelled AIMessage must have crusor_cancelled=True and the
         state must NOT indicate task_completed or task_status=failed.
         """
         from src.graphs.chat_graph import ai_node
@@ -367,7 +367,7 @@ class TestCancellationGates:
 
         assert not t.is_alive()
         msg = self._c5_result["messages"][0]
-        assert msg.additional_kwargs.get("pulse_cancelled") is True
+        assert msg.additional_kwargs.get("crusor_cancelled") is True
         assert "cancel" in msg.content.lower()
 
     # ── C-6: SafeToolNode cancels pending tool calls ──
@@ -604,7 +604,7 @@ class TestCancellationGates:
         msg = self._c11_result["messages"][0]
         assert isinstance(msg, AIMessage)
         assert msg.content == "Operation cancelled by the user."
-        assert msg.additional_kwargs.get("pulse_cancelled") is True
+        assert msg.additional_kwargs.get("crusor_cancelled") is True
         # The exception path must NOT fail over to the base provider.
         base_fake.invoke.assert_not_called()
 
@@ -642,7 +642,7 @@ class TestCancellationIntegration:
         assert result.get("task_completed") is False
 
     def test_should_continue_routes_to_finalize_on_cancelled(self):
-        """After ai_node returns pulse_cancelled=True, should_continue
+        """After ai_node returns crusor_cancelled=True, should_continue
         must route to 'finalize', not 'tools'.
         """
         from src.graphs.gates import should_continue
@@ -652,7 +652,7 @@ class TestCancellationIntegration:
             messages=[
                 AIMessage(
                     content="Operation cancelled by the user.",
-                    additional_kwargs={"pulse_cancelled": True},
+                    additional_kwargs={"crusor_cancelled": True},
                 )
             ]
         )

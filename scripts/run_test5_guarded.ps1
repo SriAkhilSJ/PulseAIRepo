@@ -39,7 +39,7 @@ Write-Host "[preflight] workspace ready at $Workspace"
 # request after checking local configuration; Attempt 12 uses that path so the
 # authorization is spent only on the actual turn.
 if (-not $SkipProbe) {
-$probePy = Join-Path $env:TEMP "pulse_probe.py"
+$probePy = Join-Path $env:TEMP "crusor_probe.py"
 @"
 import json, os, time, urllib.request
 
@@ -69,7 +69,7 @@ req = urllib.request.Request(url, data=body,
                              headers={"Authorization": "Bearer " + key,
                                       "Content-Type": "application/json",
                                       "HTTP-Referer": "https://github.com/SriAkhilSJ/PulseAIRepo",
-                                      "X-Title": "PulseAI Test 5 Guarded Probe"})
+                                      "X-Title": "CrusorAI Test 5 Guarded Probe"})
 t0 = time.time()
 try:
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -87,20 +87,20 @@ if ($LASTEXITCODE -ne 0) { Write-Host "[probe] FAILED - test NOT started." -Fore
 # Hermes alignment for long build turns: STREAM the provider (first token
 # arrives in seconds; the timeout then guards stalls, not total generation
 # length) and give big generations room. Pre-set env values win.
-if (-not $env:PULSEAI_LLM_STREAMING) { $env:PULSEAI_LLM_STREAMING = "1" }
-if (-not $env:PULSEAI_LLM_TIMEOUT)   { $env:PULSEAI_LLM_TIMEOUT = "280" }
+if (-not $env:CRUSORAI_LLM_STREAMING) { $env:CRUSORAI_LLM_STREAMING = "1" }
+if (-not $env:CRUSORAI_LLM_TIMEOUT)   { $env:CRUSORAI_LLM_TIMEOUT = "280" }
 # Persist exact post-sanitizer messages and tool schemas in llm.request events
 # for offline inspection/replay. This does not add provider requests.
-$env:PULSEAI_CAPTURE_REQUEST_PAYLOADS = "1"
+$env:CRUSORAI_CAPTURE_REQUEST_PAYLOADS = "1"
 # The autonomous prompt does not consume cross-session memory. Keep the
 # optional embedding stack out of the post-tool path as defense in depth: a
 # landed file must route directly back to the agent, never initialize a local
 # sentence-transformer before request 2.
-$env:PULSEAI_DISABLE_LONG_TERM_MEMORY = "1"
+$env:CRUSORAI_DISABLE_LONG_TERM_MEMORY = "1"
 # Test 8 accepted a provider-default-sized tool argument that ended mid-CSS.
 # Bind an explicit generation ceiling for deliver/forced-delivery phases; the
 # runtime still rejects any response whose finish_reason reports a token limit.
-$env:PULSEAI_DELIVERY_MAX_TOKENS = "8192"
+$env:CRUSORAI_DELIVERY_MAX_TOKENS = "8192"
 
 # Long build turn: the driver itself records every protocol frame and bridge
 # stderr in the run directory. Do NOT use PowerShell 5.1 Start-Process stream

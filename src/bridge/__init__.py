@@ -1,6 +1,6 @@
-"""PulseAI Bridge — the only door between PulseAI IDE and the engine.
+"""CrusorAI Bridge — the only door between CrusorAI IDE and the engine.
 
-The first-party Code OSS contribution (`contrib/pulseai`, committed inside
+The first-party Code OSS contribution (`contrib/crusorai`, committed inside
 the canonical fork at `desktop/vscode/`) starts this module as a local
 sidecar and exchanges newline-delimited JSON frames over stdio. Bridge
 Protocol v2 covers sessions, streaming, tools, approvals, turn control,

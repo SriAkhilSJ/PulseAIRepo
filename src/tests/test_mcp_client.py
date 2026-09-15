@@ -83,7 +83,7 @@ def test_initialize_handshake_and_list(fake_server_cmd, tmp_path):
 def test_call_tool_roundtrip(fake_server_cmd):
     client = MCPStdioClient("fake", fake_server_cmd)
     client.initialize()
-    assert client.call_tool("echo", {"text": "hello pulse"}) == "echo: hello pulse"
+    assert client.call_tool("echo", {"text": "hello crusor"}) == "echo: hello crusor"
     client.close()
 
 

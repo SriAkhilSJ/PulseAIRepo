@@ -1,4 +1,4 @@
-# Kilo Code Tool Rendering Review → PulseAI Decisions
+# Kilo Code Tool Rendering Review → CrusorAI Decisions
 
 **Reviewed:** 2026-09-11
 **Kilo commit:** `c8271ad6f4b9d8a33da2485202af17ab07563c63`
@@ -49,7 +49,7 @@ Expanded task tools subscribe to child-session visibility, show child tool rows,
 
 `ToolStatusTitle` swaps/shimmers active and done labels without inserting another transcript row.
 
-## PulseAI implementation now
+## CrusorAI implementation now
 
 The browser UI now implements the interaction model without reintroducing floating cards:
 
@@ -64,7 +64,7 @@ The browser UI now implements the interaction model without reintroducing floati
 - all disclosure controls use SVG icons;
 - Playwright pins expansion, default-open edit behavior, and locked queued behavior.
 
-## Pulse tool coverage
+## Crusor tool coverage
 
 A catalog now maps all **36 current runtime tool names** to renderer families and default-open policy. A Python AST pin compares it with `src/tools/toolsets.py` and the browser tool decorators, so adding a runtime tool without a UI presentation fails tests.
 
@@ -91,7 +91,7 @@ The demo intentionally shows a failed authentication test, followed by the propo
 - deferred body mounting/virtualization for very long sessions;
 - terminal output tailing and background-process structured fields;
 - sub-agent child-session live subscription;
-- force-open from Pulse Manager/checkpoint/verification navigation;
+- force-open from Crusor Manager/checkpoint/verification navigation;
 - persisted user preference for default-open terminal/edit tools;
 - status label transition animation.
 

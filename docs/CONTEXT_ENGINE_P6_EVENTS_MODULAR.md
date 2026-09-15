@@ -122,7 +122,7 @@ receiving ≤ maxsize items makes `put_nowait` total.
   src/tests/test_engine_smoke.py src/tests/test_bridge_protocol_v2.py -q
 # full suite (README command)
 .venv/bin/python -m pytest src/tests -q \
-  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/pulseai-pytest
+  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/crusorai-pytest
 ```
 
 | Run | Result |

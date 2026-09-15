@@ -52,11 +52,11 @@ DEMOTE_FACTOR = 0.97
 
 
 def default_feedback_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.jsonl")
+    return os.path.join(os.path.expanduser("~"), ".crusorai", "context_feedback.jsonl")
 
 
 def default_legacy_feedback_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".pulseai", "context_feedback.json")
+    return os.path.join(os.path.expanduser("~"), ".crusorai", "context_feedback.json")
 
 
 class FeedbackMemory:

@@ -1,4 +1,4 @@
-# PulseAgent Lab Comparison — Test 1 vs Test 3
+# CrusorAgent Lab Comparison — Test 1 vs Test 3
 
 **Date:** 2026-08-14  
 **Evidence policy:** Only preserved files/logs are treated as fact. Missing Test-1 metrics are marked unavailable rather than reconstructed from memory.
@@ -44,4 +44,4 @@ Test 1 demonstrates that a corrected code artifact can exist even when durable r
 
 The defensible project claim is:
 
-> PulseAgent can complete and compiler-verify the Test-3 component integration, but reliable autonomous visual/UI validation remains unfinished.
+> CrusorAgent can complete and compiler-verify the Test-3 component integration, but reliable autonomous visual/UI validation remains unfinished.

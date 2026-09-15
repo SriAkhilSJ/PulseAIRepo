@@ -100,7 +100,7 @@ const desktopEntryPoints = [
 	'vs/sessions/sessions.desktop.main',
 	'vs/workbench/contrib/debug/node/telemetryApp',
 	'vs/platform/files/node/watcher/watcherMain',
-	'vs/workbench/contrib/pulseai/node/pulseAIWorkerMain',
+	'vs/workbench/contrib/crusorai/node/crusorAIWorkerMain',
 	'vs/platform/localTranscription/node/localTranscriptionMain',
 	'vs/platform/terminal/node/ptyHostMain',
 	'vs/platform/agentHost/node/agentHostMain',

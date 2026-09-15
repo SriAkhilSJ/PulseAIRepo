@@ -1,5 +1,5 @@
 """
-Smart Context Compressor for PulseCodeAI v2
+Smart Context Compressor for CrusorCodeAI v2
 ============================================
 Replaces arbitrary heuristics with semantic relevance scoring.
 """

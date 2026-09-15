@@ -6,7 +6,7 @@ category breakdown. Overall occupancy retains its provider-usage or estimate
 provenance; category estimates are not exact tokenizer counts or gate authority.
 
 Env values:
-- PULSEAI_CONTEXT_BREAKDOWN=off to disable
+- CRUSORAI_CONTEXT_BREAKDOWN=off to disable
 - All token estimates use chars//4 heuristic unless tiktoken available.
 """
 
@@ -42,7 +42,7 @@ _GRID_ROWS = 5  # 100 cells → 1 cell per percent
 _DETAILS_TABLE_LIMIT = 15
 
 def breakdown_enabled() -> bool:
-    return os.environ.get("PULSEAI_CONTEXT_BREAKDOWN", "on").lower() not in {"0","off","false","no"}
+    return os.environ.get("CRUSORAI_CONTEXT_BREAKDOWN", "on").lower() not in {"0","off","false","no"}
 
 def _chars_to_tokens(text: str) -> int:
     return (len(text) + 3) // 4
@@ -60,7 +60,7 @@ def _glyph(cat: Dict[str, Any]) -> str:
 
 def _split_tools(tools: Sequence[dict]) -> Tuple[List[dict], List[dict]]:
     builtin: List[dict] = []
-    mcp: List[dict] = []  # Pulse doesn't have MCP yet but keep parity
+    mcp: List[dict] = []  # Crusor doesn't have MCP yet but keep parity
     for tool in tools:
         fn = tool.get("function") if isinstance(tool, dict) else None
         name = str((fn if isinstance(fn, dict) else tool).get("name") or "") if isinstance(tool, (dict)) else str(getattr(tool, "name", "") or "")

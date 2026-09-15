@@ -4,8 +4,8 @@ cd "$(dirname "$0")/.."
 LIVE="lab/test3_believe_live.log"; CONSOLE="lab/test3_believe_console.out"
 WS="/home/user/test3_ws_believe"
 rm -f "$LIVE" "$CONSOLE" lab/test3_believe_killed.txt
-setsid env AGENT_ITERATION_BUDGET=20 PULSEAI_AUTO_APPROVE_WRITES=1 \
-  PULSEAI_TERMINAL_TIMEOUT=120 SUMMARIZER_LLM= PROVIDER_SAFE_LIMIT=6000 \
+setsid env AGENT_ITERATION_BUDGET=20 CRUSORAI_AUTO_APPROVE_WRITES=1 \
+  CRUSORAI_TERMINAL_TIMEOUT=120 SUMMARIZER_LLM= PROVIDER_SAFE_LIMIT=6000 \
   PUPPETEER_CACHE_DIR=/home/user/.cache/puppeteer \
   .venv/bin/python lab/run_eval_test3_believe.py >"$CONSOLE" 2>&1 &
 pid=$!; start=$(date +%s); last_lines=0; stale=0

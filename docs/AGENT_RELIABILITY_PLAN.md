@@ -33,7 +33,7 @@ Hermes does not rely only on prompt intelligence. Its runtime:
 - distinguishes platform/tool availability before execution;
 - keeps large-call recovery bounded and requires a changed strategy.
 
-Pulse already has fragments of these controls, but Attempt 5 proved gaps between them: the Windows detector listed commands it never rejected, unavailable typechecks were classified as failures, and no cross-tool pre-delivery cap stopped varied inspection calls.
+Crusor already has fragments of these controls, but Attempt 5 proved gaps between them: the Windows detector listed commands it never rejected, unavailable typechecks were classified as failures, and no cross-tool pre-delivery cap stopped varied inspection calls.
 
 ## Repair phases
 
@@ -87,4 +87,4 @@ No new paid attempt is authorized yet. If deterministic replay passes and the fo
 
 ### Phase E — VS Code Agent UI
 
-Only after runtime behavior and workspace hygiene are reviewed, move to the first-party Pulse workbench UI. The UI phase should expose—not conceal—plan cost, platform, tool denials, no-progress warnings, mutation receipts, verification state, and budget stops.
+Only after runtime behavior and workspace hygiene are reviewed, move to the first-party Crusor workbench UI. The UI phase should expose—not conceal—plan cost, platform, tool denials, no-progress warnings, mutation receipts, verification state, and budget stops.

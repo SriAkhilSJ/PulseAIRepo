@@ -1,15 +1,15 @@
 """Context-file discovery — pin-to-pin port of ``agent/prompt_builder.py``.
 
-Covers: injection scanning, git-root walking, ``.pulse.md`` discovery, YAML
+Covers: injection scanning, git-root walking, ``.crusor.md`` discovery, YAML
 frontmatter stripping, the AGENTS.md directory chain with per-directory
 override precedence, CLAUDE.md, ``.cursorrules``/``.cursor/rules/*.mdc``, the
 scaled character cap, and head/tail truncation with a recovery pointer.
 
-Two Pulse-side bindings, both mechanical:
+Two Crusor-side bindings, both mechanical:
 
-* the scanner is Pulse's own threat library (``src/context/threat_patterns.py``,
+* the scanner is Crusor's own threat library (``src/context/threat_patterns.py``,
   scope ``context``) rather than upstream's copy;
-* ``.hermes.md`` becomes ``.pulse.md``, and Pulse's ``.pulseai/instructions.md``
+* ``.hermes.md`` becomes ``.crusor.md``, and Crusor's ``.crusorai/instructions.md``
   loader rides the same section list (deduplicated by content, so a file that
   is also discovered by the chain can never appear twice).
 """
@@ -75,11 +75,11 @@ def find_git_root(start: Path) -> Optional[Path]:
     return None
 
 
-PULSE_MD_NAMES = (".pulse.md", "PULSE.md")
+CRUSOR_MD_NAMES = (".crusor.md", "CRUSOR.md")
 
 
-def find_pulse_md(cwd: Path) -> Optional[Path]:
-    """Discover the nearest ``.pulse.md`` / ``PULSE.md``.
+def find_crusor_md(cwd: Path) -> Optional[Path]:
+    """Discover the nearest ``.crusor.md`` / ``CRUSOR.md``.
 
     Search order: *cwd* first, then each parent up to (and including) the git
     repository root. With no git root only *cwd* is checked — walking parents
@@ -90,7 +90,7 @@ def find_pulse_md(cwd: Path) -> Optional[Path]:
     search_dirs = [current, *current.parents] if stop_at else [current]
 
     for directory in search_dirs:
-        for name in PULSE_MD_NAMES:
+        for name in CRUSOR_MD_NAMES:
             candidate = directory / name
             if candidate.is_file():
                 return candidate
@@ -149,9 +149,9 @@ def truncate_content(
 # =========================================================================
 
 
-def load_pulse_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
-    """``.pulse.md`` / ``PULSE.md`` — walk to git root."""
-    path = find_pulse_md(cwd_path)
+def load_crusor_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
+    """``.crusor.md`` / ``CRUSOR.md`` — walk to git root."""
+    path = find_crusor_md(cwd_path)
     if not path:
         return ""
     try:
@@ -166,7 +166,7 @@ def load_pulse_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
             pass
         content = _scan_context_content(content, rel)
         result = f"## {rel}\n\n{content}"
-        return truncate_content(result, ".pulse.md", context_length=context_length, read_path=str(path))
+        return truncate_content(result, ".crusor.md", context_length=context_length, read_path=str(path))
     except Exception as exc:
         logger.debug("Could not read %s: %s", path, exc)
         return ""
@@ -289,16 +289,16 @@ def load_cursorrules(cwd_path: Path, context_length: Optional[int] = None) -> st
 
 
 def load_soul_md(context_length: Optional[int] = None, home_override: Optional[Path] = None) -> Optional[str]:
-    """Load ``SOUL.md`` from the Pulse home and return its content, or None.
+    """Load ``SOUL.md`` from the Crusor home and return its content, or None.
 
     Slot #1 of the system prompt (the identity). When this returns content,
     :func:`build_context_files_prompt` runs with ``skip_soul=True`` so the file
     is not injected twice. Scoping to an explicit home matters: ambient
     resolution on a worker thread can read the *launch* profile's SOUL.md.
     """
-    from src.prompts.hermes.view import pulse_home
+    from src.prompts.hermes.view import crusor_home
 
-    home = Path(home_override) if home_override is not None else pulse_home()
+    home = Path(home_override) if home_override is not None else crusor_home()
     soul_path = home / "SOUL.md"
     if not soul_path.exists():
         return None
@@ -322,14 +322,14 @@ def _is_install_tree(path: Path) -> bool:
         return False
 
 
-def _pulseai_instructions(
+def _crusorai_instructions(
     cwd_path: Path,
     context_length: Optional[int] = None,
     already_loaded: Optional[set] = None,
 ) -> List[str]:
-    """Pulse's ``.pulseai/instructions.md`` loader, as labelled sections.
+    """Crusor's ``.crusorai/instructions.md`` loader, as labelled sections.
 
-    Pulse's own loader also folds in ``AGENTS.md``, which the upstream priority
+    Crusor's own loader also folds in ``AGENTS.md``, which the upstream priority
     chain may already have injected — so each file is emitted separately and any
     path or content already present is skipped. Double-injecting one instruction
     file is both a token tax and a cache hazard.
@@ -369,9 +369,9 @@ def _pulseai_instructions(
 
 def _find_project_context(cwd_path: Path, context_length: Optional[int]) -> tuple:
     """Run the upstream priority chain, reporting which file satisfied it."""
-    for loader in (load_pulse_md, load_agents_md, load_claude_md, load_cursorrules):
-        if loader is load_pulse_md:
-            found = find_pulse_md(cwd_path)
+    for loader in (load_crusor_md, load_agents_md, load_claude_md, load_cursorrules):
+        if loader is load_crusor_md:
+            found = find_crusor_md(cwd_path)
             if found is None:
                 continue
             return loader(cwd_path, context_length), {str(found)}
@@ -382,7 +382,7 @@ def _find_project_context(cwd_path: Path, context_length: Optional[int]) -> tupl
 
 
 def _paths_for(loader, cwd_path: Path) -> set:
-    """Real paths a chain loader consumed — for dedupe against Pulse's loader."""
+    """Real paths a chain loader consumed — for dedupe against Crusor's loader."""
     names: List[str] = []
     if loader is load_agents_md:
         names = ["AGENTS.override.md", "AGENTS.md", "agents.md"]
@@ -406,14 +406,14 @@ def _paths_for(loader, cwd_path: Path) -> set:
 
 
 _CHAIN_CANDIDATE_NAMES = (
-    ".pulse.md", "PULSE.md",
+    ".crusor.md", "CRUSOR.md",
     "AGENTS.override.md", "AGENTS.md", "agents.md",
     "CLAUDE.md", "claude.md", ".cursorrules",
 )
 
 
 def _chain_candidate_paths(cwd_path: Path) -> set:
-    """Every path the priority chain owns — Pulse's loader must not re-add them."""
+    """Every path the priority chain owns — Crusor's loader must not re-add them."""
     paths = {str(cwd_path / name) for name in _CHAIN_CANDIDATE_NAMES}
     for directory in agents_md_directory_chain(cwd_path):
         for name in ("AGENTS.override.md", "AGENTS.md", "agents.md"):
@@ -432,13 +432,13 @@ def build_context_files_prompt(
     """Discover and load context files for the system prompt.
 
     Priority (first found wins — only ONE project context type is loaded):
-      1. ``.pulse.md`` / ``PULSE.md``  (walk to git root)
+      1. ``.crusor.md`` / ``CRUSOR.md``  (walk to git root)
       2. AGENTS.md / agents.md         (merged chain: git root → cwd)
       3. CLAUDE.md / claude.md         (cwd only)
       4. .cursorrules / .cursor/rules/*.mdc (cwd only)
 
-    ``SOUL.md`` from the Pulse home is independent and always included when
-    present. Pulse's ``.pulseai/instructions.md`` rides the same section list
+    ``SOUL.md`` from the Crusor home is independent and always included when
+    present. Crusor's ``.crusorai/instructions.md`` rides the same section list
     after the project context, deduplicated by content so a file the chain
     already produced can never be injected twice.
     """
@@ -458,7 +458,7 @@ def build_context_files_prompt(
     if cwd_is_fallback and not allow_install_tree_fallback and _is_install_tree(cwd_path):
         logger.warning(
             "skipping project-context discovery: working directory resolved to the "
-            "Pulse source tree (%s) — point the session at your project directory",
+            "Crusor source tree (%s) — point the session at your project directory",
             cwd_path,
         )
         project_context = ""
@@ -474,10 +474,10 @@ def build_context_files_prompt(
 
     if instructions_allowed:
         # Upstream's contract is ONE project-context type per prompt, so the
-        # chain's candidate files are excluded from Pulse's loader regardless of
-        # which of them (if any) won — the loader may only add .pulseai files.
+        # chain's candidate files are excluded from Crusor's loader regardless of
+        # which of them (if any) won — the loader may only add .crusorai files.
         blocked = set(consumed) | _chain_candidate_paths(cwd_path)
-        sections.extend(_pulseai_instructions(cwd_path, context_length, already_loaded=blocked))
+        sections.extend(_crusorai_instructions(cwd_path, context_length, already_loaded=blocked))
 
     if not skip_soul:
         soul_content = load_soul_md(context_length, home_override=home_override)
@@ -496,11 +496,11 @@ __all__ = [
     "agents_md_directory_chain",
     "build_context_files_prompt",
     "find_git_root",
-    "find_pulse_md",
+    "find_crusor_md",
     "load_agents_md",
     "load_claude_md",
     "load_cursorrules",
-    "load_pulse_md",
+    "load_crusor_md",
     "load_soul_md",
     "strip_yaml_frontmatter",
     "truncate_content",

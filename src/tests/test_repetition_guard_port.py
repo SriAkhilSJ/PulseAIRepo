@@ -9,9 +9,9 @@ turn aborts with a clear error.
 
 Field 2026-09-10 (owner, desktop, custom/auto/best-chat): a degenerate
 salad turn streamed into the panel at full length and the run ended
-"unverified" — Pulse had NO such guard, and its own finish-gate nudge would
+"unverified" — Crusor had NO such guard, and its own finish-gate nudge would
 have asked the melting model to CONTINUE. This pins: the verbatim-repeat
-law (hermes constants), Pulse's documented word-loop extension, the ai_node
+law (hermes constants), Crusor's documented word-loop extension, the ai_node
 discard (history keeps the notice, never the slop), the router ending the
 turn, and the finish gate refusing to nudge a discarded fragment.
 """
@@ -97,7 +97,7 @@ def test_multilingual_solo_word_salad_without_verbatim_window_passes_verbatim_ch
     assert is_repetition_dominated(slop) is False
 
 
-# ── Pulse word-loop extension ────────────────────────────────────────────────
+# ── Crusor word-loop extension ────────────────────────────────────────────────
 
 
 def test_word_loop_extension_catches_field_slop():
@@ -108,7 +108,7 @@ def test_word_loop_extension_catches_field_slop():
 
 
 def test_word_loop_disabled_by_env(monkeypatch):
-    monkeypatch.setenv("PULSEAI_WORD_LOOP_SHARE", "0")
+    monkeypatch.setenv("CRUSORAI_WORD_LOOP_SHARE", "0")
     assert is_word_looped(_field_slop()) is False
 
 
@@ -171,8 +171,8 @@ def test_ai_node_discards_repetition_dominated_partial(monkeypatch, capsys):
     out = cg.ai_node(_state("rep-t"), _config("rep-t"))
     final = out["messages"][0]
     assert final.content == REPETITION_DOMINATED_NOTICE
-    assert final.additional_kwargs["pulse_repetition_dominated"] is True
-    assert final.additional_kwargs["pulse_incomplete_response"] is True
+    assert final.additional_kwargs["crusor_repetition_dominated"] is True
+    assert final.additional_kwargs["crusor_incomplete_response"] is True
     assert out["incomplete_response_retries"] == 1
     assert "repetition-dominated output (finish_reason=length)" in capsys.readouterr().out
 
@@ -185,8 +185,8 @@ def test_ai_node_keeps_normal_length_cut_intact(monkeypatch, capsys):
     out = cg.ai_node(_state("rep-k"), _config("rep-k"))
     final = out["messages"][0]
     assert final.content == long_normal
-    assert final.additional_kwargs["pulse_incomplete_response"] is True
-    assert "pulse_repetition_dominated" not in final.additional_kwargs
+    assert final.additional_kwargs["crusor_incomplete_response"] is True
+    assert "crusor_repetition_dominated" not in final.additional_kwargs
     assert "repetition-dominated" not in capsys.readouterr().out
 
 
@@ -201,7 +201,7 @@ def test_ai_node_stop_ended_slop_is_untouched_but_logged(monkeypatch, capsys):
     out = cg.ai_node(_state("rep-s"), _config("rep-s"))
     final = out["messages"][0]
     assert final.content == slop  # behavior scope stays hermes-verbatim
-    assert "pulse_repetition_dominated" not in final.additional_kwargs
+    assert "crusor_repetition_dominated" not in final.additional_kwargs
     assert "stop-ended response (informational)" in capsys.readouterr().out
 
 
@@ -213,8 +213,8 @@ def test_router_finalizes_repetition_dominated_fragment():
 
     msg = AIMessage(
         content=REPETITION_DOMINATED_NOTICE,
-        additional_kwargs={"pulse_incomplete_response": True,
-                           "pulse_repetition_dominated": True},
+        additional_kwargs={"crusor_incomplete_response": True,
+                           "crusor_repetition_dominated": True},
     )
     state = {"messages": [msg], "incomplete_response_retries": 1}
     assert should_continue(state) == "finalize"
@@ -225,8 +225,8 @@ def test_finish_gate_never_nudges_a_discarded_fragment():
 
     msg = AIMessage(
         content=REPETITION_DOMINATED_NOTICE,
-        additional_kwargs={"pulse_incomplete_response": True,
-                           "pulse_repetition_dominated": True},
+        additional_kwargs={"crusor_incomplete_response": True,
+                           "crusor_repetition_dominated": True},
     )
     out = finish_gate_node({"messages": [msg]})
     assert out == {}

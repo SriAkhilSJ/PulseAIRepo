@@ -38,7 +38,7 @@ def test_the_lexicon_is_gone_from_source():
 
     source = inspect.getsource(ep)
     for banned in (
-        "PULSEAI_PHASE_GUARD", "PULSEAI_PHASE_GUIDANCE",
+        "CRUSORAI_PHASE_GUARD", "CRUSORAI_PHASE_GUIDANCE",
         "filter_tool_names", "phase_allows", "derive_execution_phase",
         "browser_select", "browser_hover", "browser_evaluate",
         "static_verify", "visual_verify",
@@ -122,7 +122,7 @@ def test_state_driven_forced_delivery_phase_keeps_its_allowlist(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_binding_is_the_registry_snapshot_regardless_of_task_wording(tmp_path):
-    """hermes binds the same registry for 'hi' and for a build task. Pulse's
+    """hermes binds the same registry for 'hi' and for a build task. Crusor's
     former task-keyword waist (runtime_profile regexes over current_task) is
     retired from binding: any phrasing gets the full surface."""
     from src.graphs.chat_graph import _resolve_bound_tools
@@ -146,12 +146,12 @@ def test_browser_tools_bound_when_cli_resolves_hidden_when_it_doesnt(tmp_path, m
     import src.tools.browser_tools as bt
 
     config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
-    monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+    monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
     names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
     assert "browser_navigate" in names  # real resolution succeeds in CI (npx sentinel)
 
     bt.invalidate_cli_cache()
-    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(tmp_path / "no-such-browser"))
+    monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", str(tmp_path / "no-such-browser"))
     bt.invalidate_cli_cache()
     names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
     assert not any(name.startswith("browser_") for name in names)
@@ -190,7 +190,7 @@ def test_availability_receipt_names_the_install_fix_once(tmp_path, monkeypatch, 
     import src.graphs.chat_graph as cg
     import src.tools.browser_tools as bt
 
-    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(tmp_path / "nope"))
+    monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", str(tmp_path / "nope"))
     bt.invalidate_cli_cache()
     cg._TOOL_AVAILABILITY_REPORTED = False
     try:
@@ -207,7 +207,7 @@ def test_availability_receipt_names_the_install_fix_once(tmp_path, monkeypatch, 
         # available stack binds without the receipt (nothing hidden: the
         # workspace gets a tsconfig so typecheck_workspace binds too)
         bt.invalidate_cli_cache()
-        monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+        monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
         (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
         cg._TOOL_AVAILABILITY_REPORTED = False
         names = {t.name for t in _resolve_bound_tools({"current_task": "x"},
@@ -226,7 +226,7 @@ def test_env_block_states_browser_unavailability_as_host_fact(tmp_path, monkeypa
     from src.prompts.hermes.environment import build_environment_hints
     import src.tools.browser_tools as bt
 
-    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(tmp_path / "nope"))
+    monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", str(tmp_path / "nope"))
     bt.invalidate_cli_cache()
     try:
         hints = build_environment_hints(cwd=None)
@@ -235,7 +235,7 @@ def test_env_block_states_browser_unavailability_as_host_fact(tmp_path, monkeypa
     finally:
         bt.invalidate_cli_cache()
     # available stack: no availability line at all
-    monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
+    monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
     bt.invalidate_cli_cache()
     try:
         hints = build_environment_hints(cwd=None)

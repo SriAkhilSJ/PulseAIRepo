@@ -1,5 +1,5 @@
 """
-PulseAI Pre-Flight Checks
+CrusorAI Pre-Flight Checks
 =========================
 Run this before starting the dashboard server.
 It validates the entire pipeline without calling real APIs.
@@ -172,7 +172,7 @@ def check_approval_queue():
 
 def run_all():
     print("=" * 55)
-    print("   PulseAI Dashboard Pre-Flight Checks")
+    print("   CrusorAI Dashboard Pre-Flight Checks")
     print("=" * 55)
     import time
     start = time.time()

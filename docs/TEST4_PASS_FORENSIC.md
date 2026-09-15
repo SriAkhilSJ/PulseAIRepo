@@ -47,4 +47,4 @@ Those repaired files and screenshots are preserved under `lab/test4_final_artifa
 
 ## Implication for Test 5
 
-Test 4 does not contradict the Test-5 failures. It demonstrates that a partially generated project could be repaired into a passing product, not that Pulse reliably completed an equivalent task end to end. No deterministic repair in the current branch should be described as a runtime or product PASS until a separately authorized live attempt produces independently reviewed evidence.
+Test 4 does not contradict the Test-5 failures. It demonstrates that a partially generated project could be repaired into a passing product, not that Crusor reliably completed an equivalent task end to end. No deterministic repair in the current branch should be described as a runtime or product PASS until a separately authorized live attempt produces independently reviewed evidence.

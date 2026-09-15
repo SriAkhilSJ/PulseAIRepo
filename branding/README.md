@@ -1,18 +1,21 @@
-# PulseAI IDE branding
+# CrusorAI IDE branding
 
-The canonical mark is `pulseai-mark.svg`: a cyan execution pulse on the deep-navy PulseAI IDE shell, ending in the violet agent node.
+The canonical mark is `crusorai-mark.png` (mirrored as a self-contained `crusorai-mark.svg`): the CrusorAI logo — a silver monochrome mark centered on a black square.
 
 ## Palette
 
 | Token | Hex | Use |
 |---|---:|---|
-| Pulse cyan | `#22D3EE` | active intelligence, focus, streaming, primary brand |
-| Agent violet | `#9B8CFF` | delegated agents and the endpoint node |
-| Deep navy | `#071118` | application icon and branded workbench chrome |
+| Crusor cyan | `#22D3EE` | active intelligence, focus, streaming, primary accent |
+| Agent violet | `#9B8CFF` | delegated agents and semantic seeds |
 | Verified green | `#49D190` | completed verification |
 | Approval amber | `#EFB75C` | permission and attention |
 | Failure red | `#ED727C` | failed or destructive state |
+| Logo black | `#000000` | application icon and logo field |
+| Logo silver | `#E0E0E0` | logo mark strokes |
 
-Run `python branding/generate_icons.py` after changing the canonical geometry. It writes the Windows, macOS, Linux, server, and browser assets consumed by the canonical fork (`desktop/vscode/resources/`). Pillow is required only for this branding generation step.
+The UI accent palette is unchanged from the previous identity; the logomark itself is monochrome silver on black.
 
-The app icon intentionally contains no text so it remains legible at 16–32 px. Product copy uses **PulseAI IDE**; the in-product agent remains **Pulse**.
+Run `python branding/generate_icons.py` after replacing the canonical logo. It derives the Windows, macOS, Linux, server, and browser assets consumed by the canonical fork (`desktop/vscode/resources/`) from `crusorai-mark.png`. Pillow is required only for this branding generation step.
+
+The app icon intentionally contains no text so it remains legible at 16–32 px. Product copy uses **CrusorAI IDE**; the in-product agent remains **Crusor**.

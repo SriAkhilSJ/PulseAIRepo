@@ -41,7 +41,7 @@ IGNORED_DIRS = {
     ".tox",
     ".idea",
     ".vscode",
-    "generated",  # PulseAI's generated folder
+    "generated",  # CrusorAI's generated folder
 }
 
 # File extensions we care about.
@@ -67,10 +67,10 @@ def repo_map_enabled() -> bool:
     and a fresh prefix per workspace change), ranking by weak in-degree --
     all cost, little signal, on EVERY coding turn including 'hi'. The
     Aider-style pagerank port can bring it back as a HIGH-signal opt-in;
-    until then PULSEAI_REPO_MAP=on re-enables it explicitly.
+    until then CRUSORAI_REPO_MAP=on re-enables it explicitly.
     """
     import os as _os
-    raw = _os.getenv("PULSEAI_REPO_MAP")
+    raw = _os.getenv("CRUSORAI_REPO_MAP")
     if raw is None or not str(raw).strip():
         return False
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
@@ -728,7 +728,7 @@ class RepoMap:
         """Check if any file has been modified since cache was built.
 
         D25: the full-tree walk runs at most once per TTL window
-        (PULSEAI_REPO_MAP_STALE_TTL seconds, default 2.0; "0" restores the
+        (CRUSORAI_REPO_MAP_STALE_TTL seconds, default 2.0; "0" restores the
         legacy walk-every-call behavior). Worst case within the window: the
         map is up to TTL seconds behind an EXTERNAL edit — far below one
         agent turn, while the walk itself used to cost ~30% of a big-repo
@@ -784,7 +784,7 @@ def get_repo_map(
 
 def stale_check_ttl() -> float:
     """D25: seconds between full-tree staleness walks (env override)."""
-    raw = os.environ.get("PULSEAI_REPO_MAP_STALE_TTL", "").strip()
+    raw = os.environ.get("CRUSORAI_REPO_MAP_STALE_TTL", "").strip()
     if not raw:
         return 2.0
     try:

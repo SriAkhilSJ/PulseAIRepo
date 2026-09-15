@@ -42,7 +42,7 @@ The runtime's exact-match finish-reason normalizer recognizes `length`, but not
 the duplicated `lengthlength` string. LangChain streaming aggregation can merge
 repeated string metadata by concatenation, so the evidence does not prove the
 provider itself emitted that literal malformed value. The confirmed defect is
-at Pulse's provider-adapter normalization boundary: an output-limit response
+at Crusor's provider-adapter normalization boundary: an output-limit response
 reached graph control flow as `incomplete: false`.
 
 No tool call existed, so no incomplete mutation executed. No request 2 was

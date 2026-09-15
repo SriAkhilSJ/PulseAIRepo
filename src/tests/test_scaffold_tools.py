@@ -30,7 +30,7 @@ def test_scaffold_nextjs_preserves_provided_and_copy_first_files(tmp_path, monke
     assert delivered.read_text() == "DELIVERED"
     assert (workspace / "_provided" / "demo.tsx").read_text() == "SOURCE"
     assert (workspace / "src" / "app" / "page.tsx").read_text() == "PAGE"
-    assert calls[0][2].startswith("pulse-scaffold-")
+    assert calls[0][2].startswith("crusor-scaffold-")
     assert "--skip-install" in calls[0]
     assert calls[1][-3:] == ["three", "@react-three/fiber", "--legacy-peer-deps"]
 

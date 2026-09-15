@@ -121,7 +121,7 @@ from src.context import model_budgets as mb
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
-    """Every dynamic test gets a private HOME (private ~/.pulseai cache)
+    """Every dynamic test gets a private HOME (private ~/.crusorai cache)
     and no lingering override env var."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("LLM_CONTEXT_WINDOW", raising=False)

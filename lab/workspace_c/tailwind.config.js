@@ -69,7 +69,7 @@ module.exports = {
           '0%, 100%': { opacity: '0.2' },
           '50%': { opacity: '1' },
         },
-        'pulse': {
+        'crusor': {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' },
         }
@@ -78,7 +78,7 @@ module.exports = {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'typing-indicator': 'typing-indicator 1.4s ease-in-out infinite',
-        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'crusor': 'crusor 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       }
     },
   },

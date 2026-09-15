@@ -45,7 +45,7 @@ Response received: true
 | No-op continuation | 0 | 0 | 0 | 0 | $0 |
 | **Agent total** | **11** | **93,927** | **5,343** | **99,270** | **$0.099270** |
 
-Including the tiny readiness preflight gives **12 provider requests**. Its token usage was not returned through PulseAgent accounting and is excluded from 99,270. No provider call was used for the final deterministic repairs or final browser verification.
+Including the tiny readiness preflight gives **12 provider requests**. Its token usage was not returned through CrusorAgent accounting and is excluded from 99,270. No provider call was used for the final deterministic repairs or final browser verification.
 
 ## Monitoring
 

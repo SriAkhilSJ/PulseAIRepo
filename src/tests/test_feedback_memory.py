@@ -205,7 +205,7 @@ class TestEngineSurface:
         assert ContextEngine._FEEDBACK_COMPACT_TO == fbm.FEEDBACK_COMPACT_TO
 
     def test_engine_delegates_path_history_and_record(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HOME", str(tmp_path))  # keep the real ~/.pulseai clean
+        monkeypatch.setenv("HOME", str(tmp_path))  # keep the real ~/.crusorai clean
         eng = ContextEngine(max_tokens=4000, model="gpt-4o", probe_window=False)
 
         target = tmp_path / "eng.jsonl"

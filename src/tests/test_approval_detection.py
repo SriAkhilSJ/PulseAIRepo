@@ -1,7 +1,7 @@
 """Hermes approval_detection port — the two-tier dangerous-command gate.
 
 Field 2026-09-05: the model's Remove-Item/taskkill-class commands sailed
-past pulse's 6-substring table, and the old table demanded approval for a
+past crusor's 6-substring table, and the old table demanded approval for a
 bare `rm file.txt` (hermes only gates rm when recursive/root-targeted).
 Hermes-first: the taxonomy IS hermes' table; the hardline floor is never
 approvable and lives pre-spawn in the terminal tools.

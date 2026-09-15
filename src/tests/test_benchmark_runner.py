@@ -1,4 +1,4 @@
-"""Deterministic tests for the Pulse Reliability Benchmark runner wiring.
+"""Deterministic tests for the Crusor Reliability Benchmark runner wiring.
 
 Pure: in-memory manifests + pytest tmp dirs only. No network, no model calls,
 no process spawning, no desktop execution, no 20k builds (the large generated
@@ -12,16 +12,16 @@ from typing import get_args
 
 import pytest
 
-from benchmarks.pulse_reliability_v1.contract import CheckType, load_suite
-from benchmarks.pulse_reliability_v1.evaluator import _CHECK_HANDLERS
-from benchmarks.pulse_reliability_v1.fixtures import (
+from benchmarks.crusor_reliability_v1.contract import CheckType, load_suite
+from benchmarks.crusor_reliability_v1.evaluator import _CHECK_HANDLERS
+from benchmarks.crusor_reliability_v1.fixtures import (
     FixtureFile,
     FixtureManifest,
     FixtureSpec,
     load_fixture_manifest,
     resolve_files,
 )
-from benchmarks.pulse_reliability_v1.runner import (
+from benchmarks.crusor_reliability_v1.runner import (
     check,
     check_suite_and_fixtures,
     ensure_external_target,
@@ -30,7 +30,7 @@ from benchmarks.pulse_reliability_v1.runner import (
     main,
 )
 
-SUITE_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "pulse_reliability_v1"
+SUITE_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "crusor_reliability_v1"
 MANIFEST_PATH = SUITE_DIR / "manifest.json"
 FIXTURES_PATH = SUITE_DIR / "fixtures.json"
 
@@ -48,8 +48,8 @@ def _write_full_placeholder_fixtures(tmp_path: Path) -> Path:
     """Temporary manifest with a trivial file for every task (no big builds)."""
     suite = _suite()
     payload = {
-        "schema_id": "pulse-benchmark-fixtures/v1",
-        "suite_id": "pulse-reliability-v1",
+        "schema_id": "crusor-benchmark-fixtures/v1",
+        "suite_id": "crusor-reliability-v1",
         "version": 1,
         "fixtures": [
             {"task_id": task.id, "root": _ROOTS[task.id], "description": "placeholder",
@@ -139,8 +139,8 @@ def test_all_twelve_fixtures_in_memory_pass_complete_gate() -> None:
                     files=(FixtureFile(path="note.txt", content="x\n"),))
         for t in suite.tasks
     )
-    full = FixtureManifest(schema_id="pulse-benchmark-fixtures/v1",
-                           suite_id="pulse-reliability-v1", version=1, fixtures=specs)
+    full = FixtureManifest(schema_id="crusor-benchmark-fixtures/v1",
+                           suite_id="crusor-reliability-v1", version=1, fixtures=specs)
     assert check_suite_and_fixtures(suite, full, require_complete=True) == []
 
 
@@ -198,11 +198,11 @@ def test_generate_refuses_current_working_directory(tmp_path, monkeypatch) -> No
 
 def _write_run(tmp_path: Path, task_id: str = "PBR-001", **kw) -> Path:
     payload = {
-        "schema_id": "pulse-benchmark-run/v1",
+        "schema_id": "crusor-benchmark-run/v1",
         "run_id": f"runner-{task_id.lower()}-{id(tmp_path)}",
         "task_id": task_id,
         "task_version": 1,
-        "pulse_commit": "0" * 40,
+        "crusor_commit": "0" * 40,
     }
     payload.update(kw)
     path = tmp_path / f"{task_id}.run.json"
@@ -212,9 +212,9 @@ def _write_run(tmp_path: Path, task_id: str = "PBR-001", **kw) -> Path:
 
 def test_grade_writes_json_and_markdown(tmp_path) -> None:
     run = _write_run(tmp_path, "PBR-001", dom=[
-        {"selector": "textarea.pulseai-composer-input", "enabled": False},
-        {"selector": ".pulseai-composer-hint",
-         "text": "Open a folder to start a Pulse session."},
+        {"selector": "textarea.crusorai-composer-input", "enabled": False},
+        {"selector": ".crusorai-composer-hint",
+         "text": "Open a folder to start a Crusor session."},
     ])
     out = tmp_path / "out"
     result, markdown = grade(MANIFEST_PATH, run, out_dir=out)
@@ -226,7 +226,7 @@ def test_grade_writes_json_and_markdown(tmp_path) -> None:
 
 def test_grade_is_deterministic(tmp_path) -> None:
     run = _write_run(tmp_path, "PBR-001", dom=[
-        {"selector": "textarea.pulseai-composer-input", "enabled": False}])
+        {"selector": "textarea.crusorai-composer-input", "enabled": False}])
     a, _ = grade(MANIFEST_PATH, run, out_dir=tmp_path / "o1")
     b, _ = grade(MANIFEST_PATH, run, out_dir=tmp_path / "o2")
     assert a.model_dump(mode="json") == b.model_dump(mode="json")
@@ -262,7 +262,7 @@ def test_cli_generate_and_grade(tmp_path) -> None:
     assert main(["generate", "--suite", str(MANIFEST_PATH),
                  "--fixtures", str(lite), "--target-root", str(target)]) == 0
     run = _write_run(tmp_path, "PBR-001", dom=[
-        {"selector": "textarea.pulseai-composer-input", "enabled": False}])
+        {"selector": "textarea.crusorai-composer-input", "enabled": False}])
     out = tmp_path / "res"
     assert main(["grade", "--suite", str(MANIFEST_PATH),
                  "--run", str(run), "--out-dir", str(out)]) == 0

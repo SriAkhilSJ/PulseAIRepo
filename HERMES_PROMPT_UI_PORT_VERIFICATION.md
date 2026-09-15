@@ -1,4 +1,4 @@
-# Hermes → Pulse: prompt engine + Agent UI, pinned copy, verified without a provider
+# Hermes → Crusor: prompt engine + Agent UI, pinned copy, verified without a provider
 
 **Branch:** `arena/01a06408-pulseairepo` (merged to `main`) · **Base:** `86eaaae2` → **Merged:** `bf696a61`
 **Upstream pin:** `NousResearch/hermes-agent @ a9c783f21995723c812dcb2f8ae58bc6a4323e2f` (2026-08-30)
@@ -18,17 +18,17 @@ done I will verify all at once live using API key."*
 **Both halves are done, green, and merged to `main`.**
 
 - The prompt engine is a pinned copy of upstream's prompt text — 34 constants
-  lifted verbatim into a corpus with per-file sha256s, loaded through Pulse's own
+  lifted verbatim into a corpus with per-file sha256s, loaded through Crusor's own
   gating, and emitted only after two documented maps (tool rename, brand rewrite).
   `71/71` port tests pass (61 parity + 10 session-cache); the full backend suite is `1866 passed` on a fully provisioned venv
   with exactly the **6 pre-existing** failures that also fail on the pristine base. (Sandbox caveat, so nobody
   misreads a log: the run captured here after the venv was rebuilt reads `1169 passed / 25 failed / 6 skipped`
   — 19 of those are missing `tree-sitter`/`PIL` deps and fail identically at `86eaaae2`, verified by
   worktree. Same rule as above, applied to myself.)
-- The Agent UI is ported into `pulse-webview/src/hermes-ui/` (42 files, 7 217
+- The Agent UI is ported into `crusor-webview/src/hermes-ui/` (42 files, 7 217
   lines) — tool runs, one-line ticker, expandable diffs, file-edit cards,
   approval strip, plan/verification ledger, timeline rail, DOM render budget —
-  and it is bound to **Pulse's** backend (bridge protocol v2 frames, AG-UI
+  and it is bound to **Crusor's** backend (bridge protocol v2 frames, AG-UI
   messages, `ApprovalQueue`), not Hermes'. `48/48` webview tests pass,
   `npx tsc -b` exits 0, `vite build` succeeds, and the ported classes are present
   in the built stylesheet.
@@ -63,31 +63,31 @@ extraction silently loses module-scope-computed constants — the ones gating
 depends on). Parity is then asserted *byte-wise per constant*:
 
 ```python
-assert pulse_text == guidance.localize(corpus[CONST])   # for all 12 guidance/steer blocks
+assert crusor_text == guidance.localize(corpus[CONST])   # for all 12 guidance/steer blocks
 ```
 
 `test_corpus_sha256_matches_the_pinned_checkout` re-hashes the three upstream
 source files against the checkout and skips (never fails) if the pin is absent.
 
-### 2. The copy is bound to Pulse, not to Hermes
+### 2. The copy is bound to Crusor, not to Hermes
 
 | Check | Result |
 |---|---|
-| Blocks whose tools Pulse lacks are gated off (`memory`, `skill_view`, `skill_manage`, `kanban_*`) | ✅ asserted |
+| Blocks whose tools Crusor lacks are gated off (`memory`, `skill_view`, `skill_manage`, `kanban_*`) | ✅ asserted |
 | No unbound tool name in the system prompt **or** the `/plan` and `/learn` turn prompts | ✅ phantom-tool regex guard |
 | Tool gating read from `src/tools/toolsets.py` + `src/agents/runtime_profile.py` | ✅ `resolve_valid_tool_names` |
 | Per-model guidance gating table (`gpt-5.2`, `grok-4`, `gemini-2.5-pro`, `gemma-3-27b`, `qwen3.6-27b`, `deepseek-v4` enforce; `claude-sonnet-4-5` none) | ✅ asserted |
 | Three-band assembly (stable → context → volatile), identity first, timestamp only in volatile | ✅ asserted |
 | Stable prefix byte-identical across sessions; `find_stable_prefix(stable + "\n" + volatile) == stable` | ✅ asserted |
-| Context-file chain `PULSE.md > AGENTS.md > CLAUDE.md > .cursorrules`, single-winner, AGENTS.md injected once, frontmatter/BOM stripped, `20 000` cap with `70%+20%` head/tail truncation note | ✅ asserted |
+| Context-file chain `CRUSOR.md > AGENTS.md > CLAUDE.md > .cursorrules`, single-winner, AGENTS.md injected once, frontmatter/BOM stripped, `20 000` cap with `70%+20%` head/tail truncation note | ✅ asserted |
 | Injection pattern in a loaded file → `BLOCKED` | ✅ asserted |
 | Cache plan marks the system prefix and never a tool-part marker on LiteLLM-shaped routes (`openai` → 3 markers on system/user/tool; `custom`+`http://localhost:4000` or Sarvam → 2 markers, `tool_part_markers: False`) | ✅ asserted |
 | Session-once build: rebuild only on compression / reset; graph degradation cannot leak a per-turn prompt | ✅ asserted (10 tests) |
 
 ### 3. The UI paints, with no runtime
 
-`pulse-webview/src/__tests__/hermes-ui-thread.test.tsx` mounts the real components
-from a synthetic transcript built out of **Pulse's** real tool names and **Pulse's**
+`crusor-webview/src/__tests__/hermes-ui-thread.test.tsx` mounts the real components
+from a synthetic transcript built out of **Crusor's** real tool names and **Crusor's**
 real event shapes (flat `tool_id` / `name` / `arguments` / `result` / `warning` /
 `diff` frames; AG-UI `toolCalls[].id` pairing). 39 tests, including:
 
@@ -101,7 +101,7 @@ real event shapes (flat `tool_id` / `name` / `arguments` / `result` / `warning` 
 - normalization: tool results paired by `tool_call_id`, an unanswered call stays
   running, `turn_failed` renders as a failure and not a confident half answer,
   unknown frames are ignored (protocol is additive) — `toBe(state)` identity;
-- approvals: the guarded set is Pulse's, the strip answers `once|session|deny`,
+- approvals: the guarded set is Crusor's, the strip answers `once|session|deny`,
   `⌘/Ctrl+Enter` and `Esc` work, and a run blocked on approval stops collapsing
   into the ticker;
 - a completed file edit with no diff to review is hidden; a **failed** one stays
@@ -115,7 +115,7 @@ real event shapes (flat `tool_id` / `name` / `arguments` / `result` / `warning` 
 Test Files  2 passed (2)
 Tests      48 passed (48)          # 9 pre-existing + 39 port tests
 npx tsc -b                          # exit 0
-npx vite build                      # ok; pulse-* classes present in dist CSS
+npx vite build                      # ok; crusor-* classes present in dist CSS
 ```
 
 ### 4. No regressions
@@ -136,14 +136,14 @@ fed by **either** transport and produces one view model, so the fork inherits
 parity by pushing bridge frames:
 
 ```js
-iframe.contentWindow.postMessage({ source: 'pulse-bridge', frame: {
+iframe.contentWindow.postMessage({ source: 'crusor-bridge', frame: {
   type: 'tool_call_start', tool_id: 'call_7', name: 'run_terminal',
   arguments: { command: 'pytest -q' } } }, '*');
 ```
 
 and by answering the approval frame the UI hands back
-(`{type:'safety_reply', tool_id, approved, always_allow}` — Pulse's actual inbound
-shape, `src/bridge/__main__.py`). The two Pulse affordances that exist on bridge
+(`{type:'safety_reply', tool_id, approved, always_allow}` — Crusor's actual inbound
+shape, `src/bridge/__main__.py`). The two Crusor affordances that exist on bridge
 sessions but not on the Copilot path today — the approval channel
 (`approval_channel=True`) and steer/queue turn control — are therefore available to
 the fork without new UI. **All 32 layers are now ported and merged to `main`.**
@@ -158,7 +158,7 @@ the fork without new UI. **All 32 layers are now ported and merged to `main`.**
    it cannot prove a provider accepts the request. The key run is written up for the
    desktop agent in `DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md` (90-credit ceiling,
    per-phase request caps, `expect:` lines to answer to).
-2. **Pulse's Copilot path does not emit approvals today.** The approval strip is
+2. **Crusor's Copilot path does not emit approvals today.** The approval strip is
    correct against the bridge contract and harmless otherwise, but it will not
    appear in the CopilotKit tier unless the runtime starts forwarding the request.
 3. **Renderer simplifications are real gaps**, listed with reasons in
@@ -178,10 +178,10 @@ the fork without new UI. **All 32 layers are now ported and merged to `main`.**
 python3 -m pytest src/tests/test_hermes_prompt_parity.py \
                   src/tests/test_hermes_prompt_session_cache.py -q
 python3 -m pytest src/tests -q
-cd pulse-webview && npm install && npm test && npx tsc -b && npx vite build
+cd crusor-webview && npm install && npm test && npx tsc -b && npx vite build
 
 # The exact prompt bytes for any workspace, with no provider call:
-python3 scripts/dump_pulse_prompt.py --workspace /tmp/pws --out /tmp/dump.json
+python3 scripts/dump_crusor_prompt.py --workspace /tmp/pws --out /tmp/dump.json
 ```
 
 Raw transcripts of the run behind this commit:

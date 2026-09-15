@@ -272,7 +272,7 @@ def fb_home(tmp_path, monkeypatch):
 
 
 def _fb_path(home):
-    return home / ".pulseai" / "context_feedback.jsonl"
+    return home / ".crusorai" / "context_feedback.jsonl"
 
 
 class TestFeedbackStore:
@@ -315,7 +315,7 @@ class TestFeedbackStore:
         assert [r["task"] for r in eng._feedback_history] == ["ok", "ok2"]
 
     def test_legacy_json_store_migrates(self, fb_home):
-        legacy = fb_home / ".pulseai" / "context_feedback.json"
+        legacy = fb_home / ".crusorai" / "context_feedback.json"
         legacy.parent.mkdir(parents=True, exist_ok=True)
         legacy.write_text(json.dumps([{"task": "old1"}, {"task": "old2"}]))
         eng = ContextEngine(max_tokens=4000, llm=None, memory_manager=None)

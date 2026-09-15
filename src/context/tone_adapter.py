@@ -1,6 +1,6 @@
 
 """
-Tone Adapter for PulseCodeAI
+Tone Adapter for CrusorCodeAI
 =============================
 Analyzes the current task and adjusts the agent's communication style.
 Simple tasks get casual, fast responses. Complex tasks get thorough,

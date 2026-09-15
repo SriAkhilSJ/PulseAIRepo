@@ -3,7 +3,7 @@
 Upstream renders the facts the model cannot infer from its own persona (which
 OS, which shell dialect, whether the workspace is a git repo, whether the host
 is remote) into the *stable* tier, because they are stable for the life of the
-process and therefore cache-safe. Pulse's equivalents come from its own
+process and therefore cache-safe. Crusor's equivalents come from its own
 runtime: the Windows dialect rule already paid for itself in Attempt-5 (POSIX
 verbs sent to ``cmd.exe``), so it rides the same slot here.
 """
@@ -34,14 +34,14 @@ _WINDOWS_BASH_TERMINAL_TEACHING = (
     "through bash (git-bash / "
     "MSYS), NOT PowerShell or cmd.exe. Use POSIX shell syntax "
     "(`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside "
-    "terminal calls. MSYS-style paths like `/d/TestPulseAI/...` "
-    "work alongside native `D:\\TestPulseAI\\...` paths for bash "
+    "terminal calls. MSYS-style paths like `/d/TestCrusorAI/...` "
+    "work alongside native `D:\\TestCrusorAI\\...` paths for bash "
     "builtins (`cd`, `echo`, redirection). PowerShell builtins "
     "(`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT "
     "work — use their POSIX equivalents (`ls`, `$FOO`, `grep`). "
     "Path arguments for NATIVE Windows programs (git, rg, node, "
     "npm, python, ...) are NOT translated by MSYS: pass them "
-    "`D:/TestPulseAI/x`-style forward-slash native paths, and "
+    "`D:/TestCrusorAI/x`-style forward-slash native paths, and "
     "prefer a temp dir inside the workspace over `/tmp` when a "
     "native tool must read the file."
 )
@@ -184,7 +184,7 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
             # commands, so the gate that banned POSIX is bypassed in
             # terminal_tools and hermes' hint is the TRUTH here. Ported
             # verbatim up to the sentence that references hermes-only tools
-            # (pty `process(submit)`/`process(write)` do not exist in pulse —
+            # (pty `process(submit)`/`process(write)` do not exist in crusor —
             # same rule that banned this hint under cmd: the block never
             # names a tool the runtime lacks).
             parts.append(
@@ -206,7 +206,7 @@ def build_environment_hints(cwd: Optional[Path] = None) -> str:
                 "over `/tmp` for scratch files a native tool must read."
             )
         else:
-            # cmd.exe fallback (PULSEAI_WINDOWS_BASH=off or no git-bash):
+            # cmd.exe fallback (CRUSORAI_WINDOWS_BASH=off or no git-bash):
             # SINGLE SOURCE OF TRUTH (owner desktop run 2026-09-03): the
             # terminal gate refuses POSIX verbs on EVERY cmd host, so the
             # block states the enforced reality and nothing else.
@@ -270,7 +270,7 @@ def resolve_platform_hint(default_hint: str, platform_key: str, overrides: Optio
     return default_hint
 
 
-#: Pulse's execution modes (bridge protocol v2) as a prompt surface note.
+#: Crusor's execution modes (bridge protocol v2) as a prompt surface note.
 #: Same slot as upstream's per-platform hint: stable for the life of a session.
 MODE_HINTS: dict[str, str] = {
     "agent": (

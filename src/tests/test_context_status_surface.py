@@ -192,14 +192,14 @@ def test_overflow_blocked_warns_once_per_episode(captured, monkeypatch):
     eng = _engine()
     _arm_pressure(eng, window=1000, prompt=900)  # 90% of the window
     eng._apply_usage_pressure(history_budget=400)
-    monkeypatch.setenv("PULSEAI_COMPACTION", "off")
+    monkeypatch.setenv("CRUSORAI_COMPACTION", "off")
 
     trimmed = eng._compact_history([], 400)
     eng._warn_overflow_if_blocked(trimmed, history_budget=400)
     warnings = [p for _, p in captured.events if p.get("severity") == "warning"]
     assert len(warnings) == 1
     assert warnings[0]["phase"] == "overflow_blocked"
-    assert "PULSEAI_COMPACTION=off" in warnings[0]["message"]
+    assert "CRUSORAI_COMPACTION=off" in warnings[0]["message"]
 
     # Same episode again: latched — no duplicate toast.
     eng._warn_overflow_if_blocked(trimmed, history_budget=400)
@@ -216,7 +216,7 @@ def test_healthy_compaction_never_warns(captured, monkeypatch):
     eng = _engine()
     _arm_pressure(eng)
     eng._apply_usage_pressure(history_budget=400)
-    monkeypatch.delenv("PULSEAI_COMPACTION", raising=False)
+    monkeypatch.delenv("CRUSORAI_COMPACTION", raising=False)
 
     class _Tiny:
         type = "system"

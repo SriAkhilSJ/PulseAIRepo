@@ -6,7 +6,7 @@ call. ``tools/todo_tool.py:316`` exposes one function that reads or replaces the
 layer, no classifier. ``agent/plan_prompt.py`` then treats PLAN MODE as a prompt fed to the live
 agent as a normal turn: *"There is no engine and no model-tool footprint."*
 
-Pulse had the mirror image. The owner's measurement was the last straw: a turn of ``hi`` or
+Crusor had the mirror image. The owner's measurement was the last straw: a turn of ``hi`` or
 ``create a hello.py`` spent a classifier call plus a plan-generation call before the agent could
 act, and the plan then crashed the step projection. Money, latency, and a worse answer.
 
@@ -40,7 +40,7 @@ def _cap_description(description: str) -> str:
 
 
 def _validate_step(step: Any) -> dict:
-    """hermes _validate, on pulse's vocab (description/content): normalize one
+    """hermes _validate, on crusor's vocab (description/content): normalize one
     step to {id, description, status} with placeholders when missing."""
     if isinstance(step, str):
         # hermes' parse layer: a bare string is a legitimate step; its text
@@ -59,7 +59,7 @@ def _validate_step(step: Any) -> dict:
 
 
 def _dedupe_by_description(steps: list) -> list:
-    """hermes _dedupe_by_id (pulse steps are id-less until projection): keep
+    """hermes _dedupe_by_id (crusor steps are id-less until projection): keep
     the LAST occurrence of a duplicate description, in its position."""
     last_index: dict = {}
     for i, step in enumerate(steps):
@@ -146,7 +146,7 @@ def plan_update(
             ensure_ascii=False,
         )
 
-    # hermes todo_tool write path (verbatim semantics, pulse vocab):
+    # hermes todo_tool write path (verbatim semantics, crusor vocab):
     # _fresh_items = validate -> dedupe -> order; then the cap keeps the
     # priority head.
     normalized = [

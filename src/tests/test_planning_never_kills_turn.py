@@ -4,7 +4,7 @@ Two verified failures from one run ("Run failed / Planner did not return a
 valid numbered plan", 391.7s in, 20+ completed tool calls): (1) the model
 wrote its plan through plan_update with `steps` as a JSON STRING — hermes
 todo_tool.py tolerates exactly that ("LLMs sometimes send a JSON string
-instead of a list"), pulse's tool did not, so the write failed; (2) a later
+instead of a list"), crusor's tool did not, so the write failed; (2) a later
 triggered replan got a helper-LLM response with no numbered lines and
 create_replan's ValueError tore straight through the graph, ending the
 turn. The initial planner already degrades (_no_plan, lab run 10); the
@@ -53,7 +53,7 @@ def test_plan_update_wrong_type_never_reaches_the_loop():
 def test_engine_replan_component_no_longer_exists():
     """Hermes pipeline shape (verified in hermes source: no replanner
     component, no plan-LLM consult in the loop — the model adapts from
-    failure receipts). Pulse's create_replan engine, should_replan
+    failure receipts). Crusor's create_replan engine, should_replan
     consult, replanner node, and its route are removed with this round:
     a failure is handed back to the model like any other observation, so
     the 'Planner did not return a valid numbered plan' crash class is

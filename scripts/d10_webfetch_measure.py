@@ -27,7 +27,7 @@ from src.tools.web_tools import _strip_html as new_strip
 GNARLY_PAGE = """<!DOCTYPE html>
 <html>
 <head>
-<title>PulseAI Docs — Context Engine</title>
+<title>CrusorAI Docs — Context Engine</title>
 <script type="application/ld+json">{"@context":"https://schema.org","name":"spam"}</script>
 <style>.nav{display:none}.cookie{position:fixed}</style>
 </head>

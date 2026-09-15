@@ -3,7 +3,7 @@
 Upstream (NousResearch/hermes-agent @ 0cbc6e3) is unambiguous: ``tools/todo_tool.py:316`` is one function
 the model calls when the task earns a list, ``:15`` says behavioural guidance lives entirely in the tool
 schema description, and ``agent/plan_prompt.py`` makes PLAN MODE a prompt fed as a normal turn -- "There is
-no engine and no model-tool footprint". Pulse had the inverse: a classifier call, a generation call and a
+no engine and no model-tool footprint". Crusor had the inverse: a classifier call, a generation call and a
 validation call before the agent could act, so ``hi`` and ``create a hello.py`` cost money and latency to
 produce a plan nobody needed.
 
@@ -202,7 +202,7 @@ def test_a_reviser_parse_failure_never_kills_the_turn():
 # ---------------------------------------------------------------------------
 # Hermes steer delivery (agent_runtime_helpers:3186 + steer_user_row) —
 # field 2026-09-09: the owner's pane showed the self-describing marker row;
-# pulse's engine instead injected an invented "=== OUT-OF-BAND USER STEER ==="
+# crusor's engine instead injected an invented "=== OUT-OF-BAND USER STEER ==="
 # system banner that nothing in the system prompt teaches the model to trust.
 # ---------------------------------------------------------------------------
 

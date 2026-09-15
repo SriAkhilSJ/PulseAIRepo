@@ -27,7 +27,7 @@ def test_windows_block_matches_backend_bash(monkeypatch):
 
 
 def test_windows_block_cmd_fallback_still_honest(monkeypatch):
-    """No git-bash (or PULSEAI_WINDOWS_BASH=off): cmd.exe truth — no bash
+    """No git-bash (or CRUSORAI_WINDOWS_BASH=off): cmd.exe truth — no bash
     hint, and PowerShell cmdlets named as NOT commands (field 2026-09-05:
     Get-ChildItem|Select-Object into cmd.exe -> exit 255 -> recovery limit)."""
     from src.prompts.hermes import environment as env
@@ -95,10 +95,10 @@ def test_select_shell_cmd_fallback(monkeypatch):
 
 
 def test_windows_bash_override_off(monkeypatch):
-    """PULSEAI_WINDOWS_BASH=off forces the cmd fallback even with git-bash."""
+    """CRUSORAI_WINDOWS_BASH=off forces the cmd fallback even with git-bash."""
     import src.runtime.windows_shell as ws
 
-    monkeypatch.setenv("PULSEAI_WINDOWS_BASH", "off")
+    monkeypatch.setenv("CRUSORAI_WINDOWS_BASH", "off")
     assert ws.windows_bash_available() is False
 
 
@@ -164,19 +164,19 @@ def test_foreground_timeout_cap_env(monkeypatch):
         _foreground_timeout,
     )
 
-    monkeypatch.setenv("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "120")
+    monkeypatch.setenv("CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "120")
     assert _foreground_max_timeout() == 120
     assert _foreground_timeout(121) == (121, None)  # caller promotes
     assert _foreground_timeout(120) == (120, None)  # at-cap stays foreground
     # cap sanity floor: 30s minimum even if env says something silly
-    monkeypatch.setenv("PULSEAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "1")
+    monkeypatch.setenv("CRUSORAI_TERMINAL_MAX_FOREGROUND_TIMEOUT", "1")
     assert _foreground_max_timeout() == 30
     assert _foreground_timeout(31) == (31, None)
 
 
 def test_hermes_terminal_name_alias_executes(tmp_path):
     """Field run 2026-09-05: the model emitted the tool name `terminal`
-    (hermes' name) — pulse only knew `run_terminal`, the unknown-name
+    (hermes' name) — crusor only knew `run_terminal`, the unknown-name
     rejection ended the turn as "Tool failed: terminal" / "Ended
     incomplete: list the files". The hermes name must EXECUTE with the
     run_terminal contract, not reject."""
@@ -184,10 +184,10 @@ def test_hermes_terminal_name_alias_executes(tmp_path):
 
     assert terminal.name == "terminal"
     out = terminal.invoke(
-        {"command": "echo pulse_alias_probe"},
+        {"command": "echo crusor_alias_probe"},
         {"configurable": {"workspace": str(tmp_path)}},
     )
-    assert "pulse_alias_probe" in out
+    assert "crusor_alias_probe" in out
     assert "Exit code: 0" in out
 
 

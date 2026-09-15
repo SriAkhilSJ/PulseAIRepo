@@ -1,4 +1,4 @@
-"""pytest configuration for the PulseAI test suite.
+"""pytest configuration for the CrusorAI test suite.
 
 The historical suite below consists of *procedural integration scripts*:
 module-level code that calls ``invoke_agent`` / ``stream_agent`` with a real
@@ -13,13 +13,13 @@ guard. Delete entries from this list as each test is migrated.
 
 # D31: shadow checkpoints default ON in production. In tests they must
 # write to a per-session throwaway store, never the developer's real
-# ~/.pulseai/checkpoints.
+# ~/.crusorai/checkpoints.
 import os as _os
 import tempfile as _tempfile
 
 _os.environ.setdefault(
-    "PULSEAI_CHECKPOINT_HOME",
-    _tempfile.mkdtemp(prefix="pulseai-test-checkpoints-"),
+    "CRUSORAI_CHECKPOINT_HOME",
+    _tempfile.mkdtemp(prefix="crusorai-test-checkpoints-"),
 )
 
 collect_ignore = [
@@ -54,7 +54,7 @@ def _quiet_shadow_checkpoints(monkeypatch):
     ShadowCheckpoints(enabled=True) or delete this env in their own fixtures
     (which run after autouse), so they keep full coverage.
     """
-    monkeypatch.setenv("PULSEAI_CHECKPOINTS", "off")
+    monkeypatch.setenv("CRUSORAI_CHECKPOINTS", "off")
 
 
 @_pytest.fixture(autouse=True)

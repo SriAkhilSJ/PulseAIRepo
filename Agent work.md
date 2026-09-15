@@ -64,7 +64,7 @@ Implemented behavior:
 5. The paired rejection is fed directly into provider request 2, allowing the
    model to split the write and continue safely.
 6. Both `deliver` and `forced_delivery` bind an explicit output-token cap. The
-   guarded Windows wrapper sets `PULSEAI_DELIVERY_MAX_TOKENS=8192`.
+   guarded Windows wrapper sets `CRUSORAI_DELIVERY_MAX_TOKENS=8192`.
 7. Context differential hashing includes `execution_trace`, preventing request
    2 from reusing a stale pre-tool progress layer.
 8. Protocol v2, generated TypeScript, README, Attempt-8 documentation, and the
@@ -77,7 +77,7 @@ Primary implementation paths:
   SafeToolNode rejection.
 - `src/graphs/gates.py` — bounded continuation for incomplete text responses.
 - `src/context/context_engine.py` — post-tool context-cache correctness.
-- `src/bridge/` and `desktop/vscode/.../pulseAIProtocol*.ts` — `llm.response`
+- `src/bridge/` and `desktop/vscode/.../crusorAIProtocol*.ts` — `llm.response`
   wire contract.
 - `scripts/run_test5_guarded.ps1` — guarded delivery-token setting.
 
@@ -140,7 +140,7 @@ probe attempt; there were zero live-turn requests and no retry.
 
 OpenRouter Attempt 10 used `stealth/ox-alpha`. The probe passed, but its sole
 live response contained zero content/tools and finish metadata `lengthlength`,
-which Pulse classified as complete. The runner then recorded OSError 22; no
+which Crusor classified as complete. The runner then recorded OSError 22; no
 request 2 or file followed. Evidence commit
 `e344bc00e6de2961a2695d4fc7cfa7401ad64c87` independently verifies
 `RUNTIME_FAIL / PRODUCT_FAIL`.
@@ -162,7 +162,7 @@ and push complete evidence even on failure, and then STOP.
 The old long checklist in this file was not completed end-to-end. The following
 items remain unverified and are **not currently authorized work**:
 
-- human visual acceptance of Pulse Agent, Pulse Manager beside a source editor,
+- human visual acceptance of Crusor Agent, Crusor Manager beside a source editor,
   native-neutral chrome, iconography, and high-contrast behavior;
 - live native approval-diff flow using the exact `tool_id`;
 - end-to-end cancel behavior in the native UI;
@@ -171,7 +171,7 @@ items remain unverified and are **not currently authorized work**:
 - final screenshots and utility-process logs for those flows.
 
 Earlier work did establish that the branded desktop launched, the optimized
-`pulseAIWorkerMain` desktop entry existed, Protocol v2 hello worked, and a tiny
+`crusorAIWorkerMain` desktop entry existed, Protocol v2 hello worked, and a tiny
 real graph-level model response returned `OK`. Those historical observations do
 not validate the repaired Attempt-8 runtime and must not be reused as a current
 PASS.
@@ -242,7 +242,7 @@ The next agent normally needs only these files:
 5. `docs/ATTEMPT11_COMPLETION_REPAIR.md` — deterministic completion repair and accepted Windows revalidation.
 6. `docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md` — current reserve, compaction, dependency gate, and fresh Hermes comparison.
 7. `docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md` — Windows failure classification and provider-free correction.
-8. `docs/PULSE_VS_HERMES_ATTEMPT10.md` — earlier code-level Pulse/Hermes comparison.
+8. `docs/CRUSOR_VS_HERMES_ATTEMPT10.md` — earlier code-level Crusor/Hermes comparison.
 9. `docs/TEST5_ATTEMPT8_DESKTOP.md` — earlier failure and validation history.
 10. `docs/HERMES_RUNTIME_AUDIT.md` — historical behavioral comparison.
 11. The primary implementation files listed in Section 2, only if a

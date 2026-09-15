@@ -1,5 +1,5 @@
 # Lab Report — Test 3 (shadcn component integration): ✅ PASS
-**Date:** 2026-08-11 · **Agent:** PulseAgent · **Provider:** Sarvam AI · **Model:** `sarvam-105b-conversations` (105B, agentic-tuned) · **Workspace:** empty `/tmp/test3` (components provided in `_provided/`)
+**Date:** 2026-08-11 · **Agent:** CrusorAgent · **Provider:** Sarvam AI · **Model:** `sarvam-105b-conversations` (105B, agentic-tuned) · **Workspace:** empty `/tmp/test3` (components provided in `_provided/`)
 
 ---
 
@@ -20,7 +20,7 @@ The agent integrated both React components into a proper shadcn/TypeScript/Tailw
 
 ## How it passed (the fixes that mattered)
 
-This run succeeded where ~12 prior runs failed because of **real PulseAI bugs fixed this session**:
+This run succeeded where ~12 prior runs failed because of **real CrusorAI bugs fixed this session**:
 
 1. **`copy_file` tool (new)** — the model can place a large provided file byte-for-byte without emitting its content. `sarvam-105b-conversations` used it **3×** to copy both components verbatim. (The base `sarvam-105b` refused to use it and fabricated; the `-conversations` variant followed the tool instruction.)
 2. **`write_file` empty-content guard** — stops the silent-garbage trap (model emitting `content=""`) and redirects to `copy_file`.

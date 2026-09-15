@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="720" viewBox="0 0 1200 720">
+<rect width="1200" height="720" fill="#000000"/>
+<rect x="0" y="0" width="1200" height="36" fill="#000000"/>
+<line x1="0" y1="36" x2="1200" y2="36" stroke="#1A1A1A"/>
+<text x="600" y="23" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#E8E8E8">crusorai-web — CrusorAI IDE</text>
+<rect x="0" y="36" width="48" height="684" fill="#000000"/>
+<line x1="48" y1="36" x2="48" y2="720" stroke="#1A1A1A"/>
+<image x="16" y="48" width="20" height="20" xlink:href="data:image/png;base64,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"/>
+<rect x="16" y="92" width="16" height="16" rx="3" fill="#6A6A6A" opacity="0.55"/>
+<rect x="16" y="124" width="16" height="16" rx="3" fill="#6A6A6A" opacity="0.55"/>
+<rect x="16" y="156" width="16" height="16" rx="3" fill="#6A6A6A" opacity="0.55"/>
+<rect x="0" y="76" width="2" height="26" fill="#3B82F6"/>
+<circle cx="36" cy="86" r="7" fill="#3B82F6"/>
+<text x="36" y="90" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="9" font-weight="700" fill="#FFFFFF">3</text>
+<rect x="48" y="36" width="200" height="684" fill="#000000"/>
+<line x1="248" y1="36" x2="248" y2="720" stroke="#1A1A1A"/>
+<text x="64" y="62" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#9B9B9B" letter-spacing="1.2">EXPLORER</text>
+<rect x="48" y="104" width="200" height="26" fill="#0C1A30"/>
+<rect x="48" y="104" width="2" height="26" fill="#3B82F6"/>
+<text x="80" y="96" font-family="Segoe UI,sans-serif" font-size="13" fill="#BFBFBF">src</text><text x="80" y="121" font-family="Segoe UI,sans-serif" font-size="13" fill="#FFFFFF">session.ts</text><text x="80" y="147" font-family="Segoe UI,sans-serif" font-size="13" fill="#BFBFBF">callback.ts</text><text x="80" y="173" font-family="Segoe UI,sans-serif" font-size="13" fill="#BFBFBF">package.json</text>
+<rect x="248" y="36" width="632" height="38" fill="#000000"/>
+<rect x="248" y="36" width="150" height="38" fill="#0A0A0A"/>
+<rect x="248" y="36" width="150" height="2" fill="#3B82F6"/>
+<text x="272" y="60" font-family="Segoe UI,sans-serif" font-size="13" fill="#FFFFFF">session.ts</text>
+<text x="420" y="60" font-family="Segoe UI,sans-serif" font-size="13" fill="#9B9B9B">callback.ts</text>
+<rect x="248" y="252" width="632" height="26" fill="#0C1A30"/><rect x="248" y="252" width="2" height="26" fill="#3B82F6"/>
+<text x="150" y="150" font-family="monospace" font-size="13" fill="#6A6A6A">1</text><text x="185" y="150" font-family="monospace" font-size="13" fill="#9B8CFF">import { Telegraf } from 'telegraf';</text>
+<text x="150" y="176" font-family="monospace" font-size="13" fill="#6A6A6A">2</text><text x="185" y="176" font-family="monospace" font-size="13" fill="#9B8CFF">import { Crusor } from '@crusorai/sdk';</text>
+<text x="150" y="202" font-family="monospace" font-size="13" fill="#6A6A6A">3</text><text x="185" y="202" font-family="monospace" font-size="13" fill="#E8E8E8"></text>
+<text x="150" y="228" font-family="monospace" font-size="13" fill="#6A6A6A">4</text><text x="185" y="228" font-family="monospace" font-size="13" fill="#60A5FA">export async function completeSession(code) {</text>
+<text x="150" y="254" font-family="monospace" font-size="13" fill="#6A6A6A">5</text><text x="185" y="254" font-family="monospace" font-size="13" fill="#E8E8E8">  const jar = await cookies();</text>
+<text x="150" y="280" font-family="monospace" font-size="13" fill="#6A6A6A">6</text><text x="185" y="280" font-family="monospace" font-size="13" fill="#E8E8E8">  if (staleState) jar.delete('oauth_state');</text>
+<text x="150" y="306" font-family="monospace" font-size="13" fill="#6A6A6A">7</text><text x="185" y="306" font-family="monospace" font-size="13" fill="#E8E8E8">  redirect(safeDestination(destination));</text>
+<text x="150" y="332" font-family="monospace" font-size="13" fill="#6A6A6A">8</text><text x="185" y="332" font-family="monospace" font-size="13" fill="#E8E8E8">}</text>
+<rect x="880" y="36" width="320" height="684" fill="#000000"/>
+<line x1="880" y1="36" x2="880" y2="720" stroke="#1A1A1A"/>
+<text x="896" y="72" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#6A6A6A" letter-spacing="1.2">CURRENT SESSION</text>
+<text x="896" y="98" font-family="Segoe UI,sans-serif" font-size="17" font-weight="700" fill="#FFFFFF">Fix authentication redirect</text>
+<text x="896" y="120" font-family="Segoe UI,sans-serif" font-size="11" fill="#9B9B9B">Agent · 2 of 3 steps</text>
+<line x1="880" y1="140" x2="1176" y2="140" stroke="#1A1A1A"/>
+<text x="896" y="168" font-family="Segoe UI,sans-serif" font-size="12" fill="#22D3EE">▸ read_file src/session.ts</text>
+<text x="896" y="192" font-family="Segoe UI,sans-serif" font-size="12" fill="#9B9B9B">fixed stale oauth state deletion</text>
+<text x="896" y="222" font-family="Segoe UI,sans-serif" font-size="12" fill="#22D3EE">▸ write_file src/session.ts</text>
+<text x="896" y="246" font-family="Segoe UI,sans-serif" font-size="12" fill="#49D190">verified: redirect preserved</text>
+<text x="896" y="286" font-family="Segoe UI,sans-serif" font-size="12" fill="#E8E8E8">Ask Crusor…</text>
+<rect x="880" y="300" width="296" height="1" fill="#2A2A2A"/>
+</svg>

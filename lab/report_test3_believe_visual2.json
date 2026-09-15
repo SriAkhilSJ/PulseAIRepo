@@ -369,7 +369,7 @@
     {
       "type": "ToolMessage",
       "name": "check_terminal",
-      "content": "Status: RUNNING\nProcess ID: 0062ac76\n\nNew output:\n\n> pulse-scaffold-482a9455@0.1.0 dev\n> next dev --hostname 0.0.0.0 --port 3000\n\n\u25b2 Next.js 16.3.1 (Turbopack)\n- Local:         http://localhost:3000\n- Network:       http://0.0.0.0:3000\n\u2713 Ready in 554ms\n\u2713 Running next.config.ts took 95ms\n\n",
+      "content": "Status: RUNNING\nProcess ID: 0062ac76\n\nNew output:\n\n> crusor-scaffold-482a9455@0.1.0 dev\n> next dev --hostname 0.0.0.0 --port 3000\n\n\u25b2 Next.js 16.3.1 (Turbopack)\n- Local:         http://localhost:3000\n- Network:       http://0.0.0.0:3000\n\u2713 Ready in 554ms\n\u2713 Running next.config.ts took 95ms\n\n",
       "tool_calls": []
     },
     {

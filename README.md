@@ -1,6 +1,6 @@
-# PulseAI IDE
+# CrusorAI IDE
 
-PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named **Pulse**. The repository contains the desktop IDE, the Python agent runtime, the versioned stdio bridge between them, and a browser-based UI lab used to develop and verify Pulse surfaces.
+CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named **Crusor**. The repository contains the desktop IDE, the Python agent runtime, the versioned stdio bridge between them, and a browser-based UI lab used to develop and verify Crusor surfaces.
 
 > **Project status:** active prototype. The runtime and desktop integration have broad regression coverage, but this is not yet a production-ready multi-user service. The legacy web dashboard is intended for trusted local development only.
 
@@ -8,32 +8,32 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 
 | Area | Path | Purpose |
 |---|---|---|
-| Desktop IDE | `desktop/vscode/` | Vendored Code OSS fork with PulseAI branding and the first-party Pulse workbench contribution (AuxiliaryBar fixed right, single agent) |
-| Pulse contribution | `desktop/vscode/src/vs/workbench/contrib/pulseai/` | Agent panel, manager, tool rendering, workbench host, desktop sidecar, and CopilotKit webview host |
+| Desktop IDE | `desktop/vscode/` | Vendored Code OSS fork with CrusorAI branding and the first-party Crusor workbench contribution (AuxiliaryBar fixed right, single agent) |
+| Crusor contribution | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Agent panel, manager, tool rendering, workbench host, desktop sidecar, and CopilotKit webview host |
 | Agent runtime | `src/` | LangGraph workflow, tools, context engine ABC, safety gates, provider routing, persistence, and verification |
 | Desktop bridge | `src/bridge/` | Versioned newline-delimited JSON protocol over stdio |
-| Pulse Webview | `pulse-webview/` | CopilotKit React SPA (Vite) — fixed right-side AG-UI chat with generative cards. Vite `5173` → CopilotRuntime `8200` → FastAPI AG-UI agent `8123` |
+| Crusor Webview | `crusor-webview/` | CopilotKit React SPA (Vite) — fixed right-side AG-UI chat with generative cards. Vite `5173` → CopilotRuntime `8200` → FastAPI AG-UI agent `8123` |
 | Reliability benchmark | `benchmarks/` | Scenario contracts, drivers, grading, and report generation |
-| Tests | `src/tests/` and `pulse-webview/` | Runtime, bridge, desktop-boundary, branding, and webview e2e |
+| Tests | `src/tests/` and `crusor-webview/` | Runtime, bridge, desktop-boundary, branding, and webview e2e |
 | Design and engineering docs | `docs/` | Current architecture, roadmap, benchmark, and design decisions |
-| CopilotKit | `.copilotkit/project.json` | Managed Intelligence project `pulseai` `3084` (`sri-s-organisation`) |
+| CopilotKit | `.copilotkit/project.json` | Managed Intelligence project `crusorai` `3084` (`sri-s-organisation`) |
 
 ## Current product behavior
 
-### PulseAI IDE
+### CrusorAI IDE
 
-- Pulse is available in the right auxiliary bar **fixed, not movable, single agent** (`ViewContainerLocation.AuxiliaryBar`, `canMoveView:false`).
-- **Ctrl/Cmd+L** opens the Pulse agent panel.
-- A top-level **Pulse** menu and title-bar entry expose the primary commands.
-- **Manager button** in the Agent panel header opens the Pulse Manager in a separate Electron window.
+- Crusor is available in the right auxiliary bar **fixed, not movable, single agent** (`ViewContainerLocation.AuxiliaryBar`, `canMoveView:false`).
+- **Ctrl/Cmd+L** opens the Crusor agent panel.
+- A top-level **Crusor** menu and title-bar entry expose the primary commands.
+- **Manager button** in the Agent panel header opens the Crusor Manager in a separate Electron window.
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
-- CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `pulse_task_schema.json` generative cards, bound with `CopilotChat agentId="pulse_agent"`. Card schemas use the **flat A2UI v0.9** wire format (`{ id, component, ...props }`) — a `props`-nested wrapper renders an empty card.
-- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`pulseAIRenderer.ts` + `a2ui/renderers.tsx`).
+- CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `crusor_task_schema.json` generative cards, bound with `CopilotChat agentId="crusor_agent"`. Card schemas use the **flat A2UI v0.9** wire format (`{ id, component, ...props }`) — a `props`-nested wrapper renders an empty card.
+- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`crusorAIRenderer.ts` + `a2ui/renderers.tsx`).
 - The composer selects a real runtime mode: **Agent** executes the guarded workflow, **Plan** previews without executing, **Debug** diagnoses before minimal repair and retesting, and **Ask** answers without tools.
-- Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Pulse setting/command.
-- **PulseAI Dark** is the bundled default theme.
-- Engine root auto-detection: when neither `pulseai.engineRoot` nor `PULSEAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
+- Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Crusor setting/command.
+- **CrusorAI Dark** is the bundled default theme.
+- Engine root auto-detection: when neither `crusorai.engineRoot` nor `CRUSORAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
 
 ### Agent runtime
 
@@ -51,7 +51,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Parallel tool execution with conflict detection and deterministic fallback.
 - Lazy, workspace-pinned access to read-only native Code OSS intelligence: editor context, dirty text, diagnostics, symbols, definitions, references, search, SCM, and trust. Mutation/extension/MCP host invocation remains gated for later phases.
 - Multi-provider support for Groq, OpenAI-compatible endpoints (including Velona), Gemini, and NVIDIA.
-- **Aux provider routing**: Management-class calls (compression, titling, memory review) automatically use the cheap tier by default (`provider="cheap"`). Configure via `PULSEAI_CHEAP_API_KEY`, `PULSEAI_CHEAP_BASE_URL`, `PULSEAI_CHEAP_MODEL` env vars. Override with `AUX_LLM_PROVIDER` / `AUX_LLM_MODEL`.
+- **Aux provider routing**: Management-class calls (compression, titling, memory review) automatically use the cheap tier by default (`provider="cheap"`). Configure via `CRUSORAI_CHEAP_API_KEY`, `CRUSORAI_CHEAP_BASE_URL`, `CRUSORAI_CHEAP_MODEL` env vars. Override with `AUX_LLM_PROVIDER` / `AUX_LLM_MODEL`.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
 - Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
 - Hermes parity: tool names, prompt text, plan cards, and UI rendering match hermes desktop app behavior.
@@ -68,7 +68,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
-> **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/PULSE_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/PULSE_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
+> **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
 
 ## Requirements
 
@@ -77,7 +77,7 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 - Python **3.11 or newer** (`.python-version` currently pins 3.14 for uv-managed development)
 - [uv](https://docs.astral.sh/uv/) recommended
 
-### Pulse Webview
+### Crusor Webview
 
 - Node.js 24.18.0 (see `desktop/.nvmrc`)
 - npm 12.x
@@ -137,9 +137,9 @@ CUSTOM_BASE_URL=https://velona.in/v1
 CUSTOM_API_KEY=key_live_...
 
 # Optional: cheap model for janitor/management calls
-PULSEAI_CHEAP_API_KEY=key_live_...
-PULSEAI_CHEAP_BASE_URL=https://velona.in/v1
-PULSEAI_CHEAP_MODEL=qwen/qwen3.7-flash
+CRUSORAI_CHEAP_API_KEY=key_live_...
+CRUSORAI_CHEAP_BASE_URL=https://velona.in/v1
+CRUSORAI_CHEAP_MODEL=qwen/qwen3.7-flash
 ```
 
 ## Run the bridge
@@ -154,13 +154,13 @@ Protocol definitions live in:
 
 - `src/bridge/protocol_v2.json` — canonical schema
 - `src/bridge/protocol.py` — Python protocol helpers
-- `desktop/vscode/src/vs/workbench/contrib/pulseai/common/pulseAIProtocol.generated.ts` — generated desktop mirror
+- `desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.ts` — generated desktop mirror
 
 Do not hand-edit the generated TypeScript protocol mirror.
 
-## Run the Pulse Webview (CopilotKit)
+## Run the Crusor Webview (CopilotKit)
 
-The former `ui/` SolidJS lab has been removed and replaced by `pulse-webview/` — a Vite React SPA that hosts `CopilotChat` as a fixed right-side webview in the desktop fork.
+The former `ui/` SolidJS lab has been removed and replaced by `crusor-webview/` — a Vite React SPA that hosts `CopilotChat` as a fixed right-side webview in the desktop fork.
 
 The runtime talks to the Python agent over **AG-UI** using an `HttpAgent`. CopilotKit Intelligence
 is **optional**: it is enabled only when `INTELLIGENCE_API_KEY` is set. Without it the runtime runs
@@ -170,10 +170,10 @@ in `sse` mode and talks to the agent directly, so no CopilotKit Cloud account is
 # Terminal 1 — Python AG-UI agent (8123)
 uv run python -m uvicorn src.server:app --host 0.0.0.0 --port 8123
 # Terminal 2 — Copilot Runtime (8200)
-cd pulse-webview && npm run runtime
+cd crusor-webview && npm run runtime
 # Terminal 3 — Vite webview (5173)
-cd pulse-webview && npm ci && npm run dev
-# open http://localhost:5173 → CopilotChat + Pulse task card
+cd crusor-webview && npm ci && npm run dev
+# open http://localhost:5173 → CopilotChat + Crusor task card
 ```
 
 The webview calls a **relative** runtime URL (`/api/copilotkit`) which Vite proxies to `:8200`, so the
@@ -185,15 +185,15 @@ Useful checks:
 ```bash
 # typecheck both hosts
 npm run typecheck-client --prefix desktop/vscode
-npx tsc --noEmit --project pulse-webview/tsconfig.json
+npx tsc --noEmit --project crusor-webview/tsconfig.json
 # bridge + context
 uv run python -m pytest src/tests/test_bridge.py src/tests/test_bridge_protocol_v2.py src/tests/test_bounded_scan.py -q
 # webview DOM tests (provider-free: no API key, no tokens spent)
-cd pulse-webview && npm test
+cd crusor-webview && npm test
 curl http://localhost:8200/api/copilotkit/info
 curl http://localhost:8123/health
 # browser e2e (requires 8200+8123+5173 running)
-npx playwright test pulse-webview/e2e-verify.spec.ts
+npx playwright test crusor-webview/e2e-verify.spec.ts
 ```
 
 Playwright browser binaries may need to be installed once:
@@ -223,7 +223,7 @@ Run the repository suite from the root:
 ```bash
 uv run python -m pytest src/tests -q \
   --ignore=src/tests/test_session_engines.py \
-  --basetemp=/tmp/pulseai-pytest
+  --basetemp=/tmp/crusorai-pytest
 ```
 
 `test_session_engines.py` is excluded from the default command because it exercises heavier session-engine behavior separately. Use a temporary directory outside the repository so generated files do not alter git-aware tests.
@@ -235,7 +235,7 @@ uv run python -m pytest \
   src/tests/test_bridge.py \
   src/tests/test_bridge_protocol_v2.py \
   src/tests/test_desktop_workspace_boundary.py \
-  src/tests/test_pulseai_branding.py -q
+  src/tests/test_crusorai_branding.py -q
 ```
 
 The test count changes as coverage is added, so this README intentionally does not publish a stale fixed count. A green process exit is necessary but benchmark claims must also be checked against the preserved benchmark evidence.
@@ -248,14 +248,14 @@ A legacy Flask dashboard remains available for runtime development:
 uv run python src/dashboard_server.py
 ```
 
-It is **not** the main PulseAI IDE interface. Treat it as local-only: it is not an authenticated, tenant-isolated control plane and should not be exposed to an untrusted network.
+It is **not** the main CrusorAI IDE interface. Treat it as local-only: it is not an authenticated, tenant-isolated control plane and should not be exposed to an untrusted network.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    U[User] --> IDE[PulseAI IDE / Code OSS]
-    IDE --> HOST[First-party Pulse contribution]
+    U[User] --> IDE[CrusorAI IDE / Code OSS]
+    IDE --> HOST[First-party Crusor contribution]
     HOST --> WORKER[Desktop utility process]
     WORKER <-->|JSON lines over stdio| BRIDGE[Python bridge]
     BRIDGE --> GRAPH[LangGraph agent runtime]
@@ -275,15 +275,15 @@ The desktop boundary is deliberate: browser/workbench code talks to a typed host
 - Completion gates distinguish successful verification from failed, stale, skipped, or unavailable evidence.
 - Secrets belong in `.env` or the operating-system environment, never in tracked files.
 
-These controls reduce risk; they do not make arbitrary model-generated commands safe. Review permissions and diffs before using Pulse on important workspaces.
+These controls reduce risk; they do not make arbitrary model-generated commands safe. Review permissions and diffs before using Crusor on important workspaces.
 
 ## Documentation map
 
 - [`desktop/README.md`](desktop/README.md) — canonical fork and build invariants
-- [`pulse-webview/README.md`](pulse-webview/README.md) — CopilotKit webview host and AG-UI wiring
+- [`crusor-webview/README.md`](crusor-webview/README.md) — CopilotKit webview host and AG-UI wiring
 - [`docs/P2-roadmap.md`](docs/P2-roadmap.md) — product milestones and approved amendments
 - [`docs/RENOVATION_2026-08-29.md`](docs/RENOVATION_2026-08-29.md) — context-engine / security / CopilotKit renovation log + verification
-- [`docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md`](docs/PULSEAI_IDE_CONTRIB_ARCHITECTURE.md) — first-party workbench architecture
+- [`docs/CRUSORAI_IDE_CONTRIB_ARCHITECTURE.md`](docs/CRUSORAI_IDE_CONTRIB_ARCHITECTURE.md) — first-party workbench architecture
 - [`docs/DESIGN/FORK_REBRANDING.md`](docs/DESIGN/FORK_REBRANDING.md) — branding and discoverability decisions
 - [`docs/HARNESS_STATUS.md`](docs/HARNESS_STATUS.md) — benchmark harness status
 - [`docs/TEST5_READINESS.md`](docs/TEST5_READINESS.md) — Test-5 evidence and current stop status
@@ -294,17 +294,17 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 - [`docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md`](docs/TEST5_ATTEMPT11_WINDOWS_VALIDATION_REVIEW.md) — independent classification of the 142/145 Windows result and follow-up
 - [`docs/TEST4_PASS_FORENSIC.md`](docs/TEST4_PASS_FORENSIC.md) — why Test 4's repaired product passed while its autonomous run remained partial
 - [`HERMES_PROMPT_UI_PORT_VERIFICATION.md`](HERMES_PROMPT_UI_PORT_VERIFICATION.md) — hermes parity audit and 32-layer port verification
-- [`HERMES_VS_PULSEAI_ARCHITECTURE.md`](HERMES_VS_PULSEAI_ARCHITECTURE.md) — hermes vs pulse architecture comparison
+- [`HERMES_VS_CRUSORAI_ARCHITECTURE.md`](HERMES_VS_CRUSORAI_ARCHITECTURE.md) — hermes vs crusor architecture comparison
 - [`DESKTOP_AGENT_INSTRUCTIONS.md`](DESKTOP_AGENT_INSTRUCTIONS.md) — desktop agent operating instructions
 - [`DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md`](DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md) — live verification prompt for desktop agent
-- [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) — CopilotKit/Pulse agent render verification: defects found, root causes, and evidence
+- [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) — CopilotKit/Crusor agent render verification: defects found, root causes, and evidence
 - [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — start here for a new agent: current state, what was done, what is still open
-- [`CTO_AUDIT_PulseAI.md`](CTO_AUDIT_PulseAI.md) and [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) — historical audits; verify dates before treating recommendations as current
+- [`CTO_AUDIT_CrusorAI.md`](CTO_AUDIT_CrusorAI.md) and [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) — historical audits; verify dates before treating recommendations as current
 
 ## Development rules
 
 - Preserve the vendored Code OSS upstream boundary documented in `desktop/README.md`.
-- Keep Pulse workbench code under `contrib/pulseai/`, not under `/extensions/`.
+- Keep Crusor workbench code under `contrib/crusorai/`, not under `/extensions/`.
 - Do not edit generated protocol or generated theme files by hand.
 - Add regression coverage for bug fixes.
 - Keep credentials, build outputs, benchmark runs, and large generated artifacts out of Git.
@@ -327,7 +327,7 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 | **Context Engine** | `src/context/context_engine.py` | 32-layer task-aware assembly (implements the pluggable Hermes-parity `ContextEngine` ABC from `src/context/engine.py`), shared TaskClassifier (regex-only on turn path), per-instance LAYER_RELEVANCE (deep-copied), differential cache with VOLATILE_LAYERS set, session-scoped engines via per-thread-id registry with LRU cap (128) and per-engine API lock. P3: actual-usage-driven compaction (75% threshold of the real window, lean-tail tightening, anti-thrash re-arm), cache-break detection with latched `runtime.cache_break` receipts, sanitized memory layers, unified `get_status()`. P6: the P3 usage-pressure state machine extracted to `src/context/usage_pressure.py` (engine = facade + side effects), first modularization cut toward the startup review's Week-3 split. |
 | **Event Safety** | `src/dashboard/event_bus.py`, `src/tests/test_event_safety.py` | Session-scoped EventBus (live + replay isolation, admin-only global view, unattributed events never reach a session), bounded history (500) + newest-wins replay window (200), dead-subscriber eviction, unique ids; ApprovalQueue fails closed (cross-session resolve rejected, timeout = deny); engine receipts latched once per session with bounded thread-scoped payloads. |
 | **Feedback Memory** | `src/context/feedback_memory.py` | P7 extraction: append-only JSONL feedback store (per-`HOME`, cross-session), legacy migration, debris-tolerant load, in-memory rotation (300→150) + file compaction (2000→1000, newest tail, atomic replace), learned layer-relevance nudges (boost/demote by success rate; unknown layers skipped — pre-extraction this KeyErrored the turn's finalization). Best-effort: never blocks boot or the graph. |
-| **History Shaper** | `src/context/history_shaper.py` | P8 extraction: tool-output summarization, D22 prune-first compaction (protected head/tail, anti-thrash, `PULSEAI_COMPACTION=off` kill switch on the engine's public seam), turn-atomic pairing-safe trim, per-session compaction telemetry. One HistoryCompactor per session shared by the per-turn path and ABC `compress()`. Engine-coupling via getters (model/session/task read live — a mid-session `update_model` can never go stale). |
+| **History Shaper** | `src/context/history_shaper.py` | P8 extraction: tool-output summarization, D22 prune-first compaction (protected head/tail, anti-thrash, `CRUSORAI_COMPACTION=off` kill switch on the engine's public seam), turn-atomic pairing-safe trim, per-session compaction telemetry. One HistoryCompactor per session shared by the per-turn path and ABC `compress()`. Engine-coupling via getters (model/session/task read live — a mid-session `update_model` can never go stale). |
 | **Layer Policy** | `src/context/layer_policy.py` + `src/context/task_types.py` | P9 extraction: per-task budget allocation, layer attribution (tag → header fallback), relevance scoring (60/30/10, embedding-gated), semantic near-duplicate removal, D23 volatile-tail placement, D19 canonical emission order, score-driven assembly + layer compression (repo-map symbol strip, binary-search convergence). The 32 content builders stay engine-resident (D27 AST contract + live state coupling). No-stale-state rule: every call receives the live model / per-instance relevance dict, so feedback nudges and `update_model` are always seen. |
 | **Planner Messages + Ambiguity** | `src/context/plan_messages.py` + `src/context/ambiguity.py` | P10 extraction: strict-output planner-prompt suffix; planner / replanner (completed-remaining split, failures capped at 3, lessons capped at 2) / reviser node messages; task-ambiguity detection (embedding-gated advanced path over a D2-cached 26-string hint vocabulary + deterministic vague/specific fallback). Hard contract: deadline-bound turns (flag off) never encode — the embedder is never even imported. The live policy flag is fed per call, so a mid-session flip takes effect immediately. |
 | **Model Budgets** | `src/context/model_budgets.py` | Dynamic context-window discovery (Hermes parity ladder): env override → fresh cache → active endpoint `/v1/models` metadata → static table (incl. Velona gateway models) → live provider probe (groq, gemini, openrouter, velona; 2.5s timeout) → stale cache → 256K default fallback (not 8K). Auto-detects Velona from `CUSTOM_BASE_URL` hostname, probes gateway catalog for `context_window`. `PROVIDER_SAFE_LIMIT=0` auto mode: engine budget = proxy guard = discovered window − margin. |
@@ -341,7 +341,7 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 | **Safety** | `src/context/safety_guard.py` | Workspace path validation, destructive operation approval gates, `$()`/backtick escalation to approval, session cancellation checks. |
 | **Verification** | `src/context/verification_evidence.py` | Completion gates distinguishing successful/failed/stale/skipped/unavailable evidence. Edited-file invalidation. |
 | **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 20+ client methods, 16 server events. Host tool requests, safety requests, sub-agent lifecycle, telemetry, workspace binding. |
-| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/pulseai/` | Copilot-hidden Pulse-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. |
+| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. |
 | **UI Lab** | `ui/` | SolidJS renderer with Agent UI, Agent Manager, Tool Gallery. Deterministic replay data. Desktop-syntax check bridge. |
 
 ### Test coverage
@@ -364,4 +364,4 @@ The engine is completed work. The fork never edits its logic. The [P2 roadmap](d
 - **M4:** Time machine (checkpoint timeline, one-click restore)
 - **M5:** Shipping (electron-builder packaging, engine bundling, update channel)
 
-The [CTO audit](CTO_AUDIT_PulseAI.md) and [architecture review](ARCHITECTURE_REVIEW.md) document historical decisions; most recommendations have been implemented across the D-rounds. Verify dates before treating recommendations as current.
+The [CTO audit](CTO_AUDIT_CrusorAI.md) and [architecture review](ARCHITECTURE_REVIEW.md) document historical decisions; most recommendations have been implemented across the D-rounds. Verify dates before treating recommendations as current.

@@ -54,7 +54,7 @@ _DELEGATION_TOOLS: tuple[str, ...] = (
 
 def web_available(config: Any = None) -> bool:
     """Web is bundled through ddgs; an explicit operator opt-out wins."""
-    val = os.environ.get("PULSEAI_WEB_TOOLS", "").strip().lower()
+    val = os.environ.get("CRUSORAI_WEB_TOOLS", "").strip().lower()
     return val not in ("off", "0", "false", "no", "disabled")
 
 

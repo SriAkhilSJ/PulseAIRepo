@@ -4,8 +4,8 @@ cd "$(dirname "$0")/.."
 LIVE="lab/test3_visual_live.log"; CONSOLE="lab/test3_visual_console.out"
 WS="/home/user/test3_ws_visual"
 rm -f "$LIVE" "$CONSOLE" lab/test3_visual_killed.txt
-setsid env AGENT_ITERATION_BUDGET=18 PULSEAI_AUTO_APPROVE_WRITES=1 \
-  PULSEAI_TERMINAL_TIMEOUT=90 SUMMARIZER_LLM= PROVIDER_SAFE_LIMIT=6000 \
+setsid env AGENT_ITERATION_BUDGET=18 CRUSORAI_AUTO_APPROVE_WRITES=1 \
+  CRUSORAI_TERMINAL_TIMEOUT=90 SUMMARIZER_LLM= PROVIDER_SAFE_LIMIT=6000 \
   .venv/bin/python lab/run_eval_test3_visual.py >"$CONSOLE" 2>&1 &
 pid=$!; start=$(date +%s); last_lines=0; stale=0
 kill_run(){ echo "[WATCHDOG] KILL: $1"; echo "$1" > lab/test3_visual_killed.txt; kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true; sleep 3; kill -KILL -- "-$pid" 2>/dev/null || true; }

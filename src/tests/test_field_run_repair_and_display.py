@@ -149,11 +149,11 @@ def test_pump_flush_tail_releases_only_the_holdback():
 OWNER_FIELD_TEXT = """Let me proceed with browser testing and proof screenshot.
 <tool_call>terminal
 <arg_key>command</arg_key>
-<arg_value>cd /d/TestPulseAI/test5 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3000</arg_value>
+<arg_value>cd /d/TestCrusorAI/test5 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3000</arg_value>
 </tool_call>
 <tool_call>terminal
 <arg_key>command</arg_key>
-<arg_value>cd /d/TestPulseAI/test5 && ls -la components/ui/ | head -30</arg_value>
+<arg_value>cd /d/TestCrusorAI/test5 && ls -la components/ui/ | head -30</arg_value>
 </tool_call>
 <tool_call>terminal
 <arg_key>command</arg_key>
@@ -165,7 +165,7 @@ def test_owner_field_shape_parses_to_three_calls():
     out = repair_text_tool_calls(AIMessage(content=OWNER_FIELD_TEXT), allow=True)
     assert len(out.tool_calls) == 3
     assert all(tc["name"] == "terminal" for tc in out.tool_calls)
-    assert out.tool_calls[0]["args"]["command"].startswith("cd /d/TestPulseAI/test5 && curl")
+    assert out.tool_calls[0]["args"]["command"].startswith("cd /d/TestCrusorAI/test5 && curl")
     assert "<tool_call>" not in out.content
     assert "Let me proceed with browser testing" in out.content
 

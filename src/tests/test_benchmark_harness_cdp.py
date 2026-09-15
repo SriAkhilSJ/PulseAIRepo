@@ -1,6 +1,6 @@
 """CDP driver integration tests against a mock Chrome DevTools endpoint.
 
-The built PulseAI IDE cannot exist in a fresh checkout (build artifacts are
+The built CrusorAI IDE cannot exist in a fresh checkout (build artifacts are
 gitignored by design), so the live app is tested on the founder's machine.
 What CAN be proven anywhere is that the CDP driver speaks the protocol
 correctly: this suite stands up a real HTTP + WebSocket mock of the IDE's
@@ -21,14 +21,14 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.pulse_reliability_v1.harness.drivers.base import DriverError
-from benchmarks.pulse_reliability_v1.harness.drivers.cdp import CdpDriver
-from benchmarks.pulse_reliability_v1.harness.recorder import Recorder
+from benchmarks.crusor_reliability_v1.harness.drivers.base import DriverError
+from benchmarks.crusor_reliability_v1.harness.drivers.cdp import CdpDriver
+from benchmarks.crusor_reliability_v1.harness.recorder import Recorder
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _TEST_DIR = str(Path(__file__).resolve().parent)
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
-SUITE = REPO_ROOT / "benchmarks/pulse_reliability_v1/manifest.json"
+SUITE = REPO_ROOT / "benchmarks/crusor_reliability_v1/manifest.json"
 
 # ---------------------------------------------------------------------------
 # Mock CDP endpoint (real HTTP + WebSocket on 127.0.0.1)
@@ -45,7 +45,7 @@ def run_mock_cdp(http_port: int, ws_port: int, workspace_url: str = "file:///C:/
     """Run the mock CDP endpoint in the current process (blocks forever).
 
     Serves /json/version + /json/list over HTTP (discovery) and answers
-    Runtime.enable / Runtime.evaluate over WebSocket with canned PulseAI DOM
+    Runtime.enable / Runtime.evaluate over WebSocket with canned CrusorAI DOM
     snapshots. The advertised WebSocket URL points at ``ws_port`` — a real
     browser serves both from one port via HTTP upgrade; the mock uses two
     listeners because stdlib http.server cannot upgrade. The driver only
@@ -57,7 +57,7 @@ def run_mock_cdp(http_port: int, ws_port: int, workspace_url: str = "file:///C:/
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/json/version":
                 body = json.dumps({
-                    "Browser": "PulseAI/1.0 (mock)",
+                    "Browser": "CrusorAI/1.0 (mock)",
                     "webSocketDebuggerUrl": f"ws://127.0.0.1:{ws_port}/devtools/browser/1",
                 }).encode("utf-8")
             elif self.path == "/json/list":
@@ -86,13 +86,13 @@ def run_mock_cdp(http_port: int, ws_port: int, workspace_url: str = "file:///C:/
             method = msg.get("method")
             if method == "Runtime.evaluate":
                 expr = str((msg.get("params") or {}).get("expression") or "")
-                if "pulseai-composer-input" in expr:
-                    value = {"selector": "textarea.pulseai-composer-input", "count": 1,
+                if "crusorai-composer-input" in expr:
+                    value = {"selector": "textarea.crusorai-composer-input", "count": 1,
                              "visible": True, "enabled": False, "text": ""}
-                elif "pulseai-composer-hint" in expr:
-                    value = {"selector": ".pulseai-composer-hint", "count": 1,
+                elif "crusorai-composer-hint" in expr:
+                    value = {"selector": ".crusorai-composer-hint", "count": 1,
                              "visible": True, "enabled": None,
-                             "text": "Open a folder to start a Pulse session."}
+                             "text": "Open a folder to start a Crusor session."}
                 elif "Workspace folder" in expr:
                     value = {"selector": "select[aria-label='Workspace folder']", "count": 1,
                              "visible": True, "enabled": True, "text": "Select folder"}
@@ -168,13 +168,13 @@ def test_cdp_connect_and_observe_dom(mock_cdp):
     driver.connect(timeout_s=10.0)
     assert rec.startup_ms is not None
 
-    driver.observe_dom("textarea.pulseai-composer-input")
-    driver.observe_dom(".pulseai-composer-hint")
+    driver.observe_dom("textarea.crusorai-composer-input")
+    driver.observe_dom(".crusorai-composer-hint")
 
     by_selector = {d.selector: d for d in rec.dom}
-    assert by_selector["textarea.pulseai-composer-input"].enabled is False
-    assert by_selector["textarea.pulseai-composer-input"].visible is True
-    assert by_selector[".pulseai-composer-hint"].text == "Open a folder to start a Pulse session."
+    assert by_selector["textarea.crusorai-composer-input"].enabled is False
+    assert by_selector["textarea.crusorai-composer-input"].visible is True
+    assert by_selector[".crusorai-composer-hint"].text == "Open a folder to start a Crusor session."
     driver.shutdown()
 
 
@@ -182,8 +182,8 @@ def test_cdp_prefer_workspace_target(mock_cdp):
     rec = Recorder()
     driver = CdpDriver(rec, port=mock_cdp.port, workspace="C:/bench-ws")
     driver.connect(timeout_s=10.0)  # pick_page_target prefers the workspace URL
-    driver.observe_dom(".pulseai-composer-hint")
-    assert any(d.selector == ".pulseai-composer-hint" for d in rec.dom)
+    driver.observe_dom(".crusorai-composer-hint")
+    assert any(d.selector == ".crusorai-composer-hint" for d in rec.dom)
     driver.shutdown()
 
 
@@ -204,11 +204,11 @@ def test_pbr001_cdp_end_to_end_passes_against_mock(mock_cdp, tmp_path, monkeypat
     live app remains for the real run.
     """
     monkeypatch.chdir(tmp_path)  # keep artifacts out of the repo's bench-results
-    from benchmarks.pulse_reliability_v1.harness.orchestrator import run_task
+    from benchmarks.crusor_reliability_v1.harness.orchestrator import run_task
 
     record, result, run_dir = run_task(
         task_id="PBR-001", driver_kind="cdp", workspace=str(tmp_path),
-        suite_path=str(REPO_ROOT / "benchmarks/pulse_reliability_v1/manifest.json"),
+        suite_path=str(REPO_ROOT / "benchmarks/crusor_reliability_v1/manifest.json"),
         python_command=(sys.executable,),
         port=mock_cdp.port,
         run_id="test-pbr001-cdp-mock",
@@ -230,11 +230,11 @@ def test_pbr003_cdp_mock_end_to_end(mock_cdp, tmp_path, monkeypatch):
     gap that is never a fake pass and never a product failure.
     """
     monkeypatch.chdir(tmp_path)
-    from benchmarks.pulse_reliability_v1.harness.orchestrator import run_task
+    from benchmarks.crusor_reliability_v1.harness.orchestrator import run_task
 
     _, result, run_dir = run_task(
         task_id="PBR-003", driver_kind="cdp", workspace=str(tmp_path),
-        suite_path=str(REPO_ROOT / "benchmarks/pulse_reliability_v1/manifest.json"),
+        suite_path=str(REPO_ROOT / "benchmarks/crusor_reliability_v1/manifest.json"),
         python_command=(sys.executable,),
         port=mock_cdp.port,
         run_id="test-pbr003-cdp-mock",
@@ -251,14 +251,14 @@ def test_pbr003_cdp_mock_end_to_end(mock_cdp, tmp_path, monkeypatch):
 
 def test_report_shows_mock_label_and_pending(tmp_path):
     """Report card labels mock runs and lists tasks not yet run, with reason."""
-    from benchmarks.pulse_reliability_v1.harness.report import render_report
+    from benchmarks.crusor_reliability_v1.harness.report import render_report
 
     d = tmp_path / "res"
     d.mkdir()
     (d / "r1" / "result.json").parent.mkdir()
     (d / "r1" / "result.json").write_text(json.dumps({
         "task_id": "PBR-001", "outcome": "passed", "hard_failure": None,
-        "pulse_commit": "abc", "lane": "cdp", "mock": True, "checks_covered": 3,
+        "crusor_commit": "abc", "lane": "cdp", "mock": True, "checks_covered": 3,
         "checks": [
             {"check_id": f"c{i}", "classification": "passed"} for i in range(3)
         ],
@@ -294,7 +294,7 @@ def test_cdp_launch_command_spawns_and_connects(tmp_path):
     )
     driver.connect(timeout_s=10.0)
     assert driver._proc is not None  # the launch command really ran
-    driver.observe_dom("textarea.pulseai-composer-input")
-    assert any(d.selector == "textarea.pulseai-composer-input" for d in rec.dom)
+    driver.observe_dom("textarea.crusorai-composer-input")
+    assert any(d.selector == "textarea.crusorai-composer-input" for d in rec.dom)
     driver.shutdown()
     assert driver._proc.poll() is not None  # terminated cleanly

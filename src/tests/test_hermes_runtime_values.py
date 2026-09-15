@@ -247,7 +247,7 @@ def test_terminal_children_never_inherit_the_parents_stdin(tmp_path, monkeypatch
     """
     import shlex, subprocess, sys, time
 
-    monkeypatch.setenv("PULSEAI_TERMINAL_TIMEOUT", "5")
+    monkeypatch.setenv("CRUSORAI_TERMINAL_TIMEOUT", "5")
     from src.tools import terminal_tools
 
     # Quoting has to match the shell that will parse it: shlex emits POSIX single

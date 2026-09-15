@@ -60,7 +60,7 @@ def _record_workspace_edit(config: RunnableConfig, workspace: str, paths: list[s
 # translate Git Bash /c/Users/... drive paths before Path sees them"); our
 # old leading-slash strip instead turned '/d/x' into the RELATIVE 'd/x' and
 # silently nested it under the workspace (field 2026-09-06:
-# D:\TestPulseAI\d\test2_ws_retest). No-op off Windows, for empty input and
+# D:\TestCrusorAI\d\test2_ws_retest). No-op off Windows, for empty input and
 # for real POSIX paths like /home/x; idempotent on native paths.
 def _suggest_similar_files(resolved: Path) -> str:
     """Hermes file_operations.py::_suggest_similar_files (compact port): up to
@@ -239,7 +239,7 @@ def read_file(
     # Hermes read guards (tools/file_tools.py read_file_tool +
     # file_operations.py::_suggest_similar_files): a DIRECTORY read is a
     # tool-choice error with a named alternative (field 2026-09-06: the
-    # model read_file'd 'D:/TestPulseAI' itself and burned a step), and a
+    # model read_file'd 'D:/TestCrusorAI' itself and burned a step), and a
     # not-found returns up to 5 scored sibling suggestions so the next
     # attempt is informed instead of a second blind guess.
     if safe_path.is_dir():
@@ -513,9 +513,9 @@ def search_files(
 
     Hermes tool-name parity (2026-09-09): hermes binds this tool as
     `search_files` (tools/file_tools.py:1279) and its prompt text teaches
-    `search_files` (prompt_builder.py:460) — pulse's old `search_code`
+    `search_files` (prompt_builder.py:460) — crusor's old `search_code`
     name was an invention its guidance RENAME_MAP papered over. `pattern`
-    is hermes' argument name; `query` remains as the legacy pulse alias.
+    is hermes' argument name; `query` remains as the legacy crusor alias.
     Literal substring match, case-insensitive (hermes' regex/glob/output
     modes are a separate port — this schema does not advertise them).
 
@@ -594,7 +594,7 @@ def search_files(
                 # Field 2026-09-09 @7a7111b9: `search_code '*'` matched a line
                 # of a ~1.9MB single-line minified bundle (passes the 2MB file
                 # filter) and the whole line rode the result — the bridge
-                # dropped the 1,719,559-byte PulseAI frame and the UI showed
+                # dropped the 1,719,559-byte CrusorAI frame and the UI showed
                 # nothing for the step. Cap per match, exactly like hermes.
                 results.append(
                     f"{relative_path}:{line_number}: {line.strip()[:500]}"
@@ -618,7 +618,7 @@ def search_code(
     config: RunnableConfig
 ) -> str:
     """
-    Legacy pulse name of `search_files` (hermes tool-name parity,
+    Legacy crusor name of `search_files` (hermes tool-name parity,
     2026-09-09). Executes the full search_files contract.
     """
     return search_files.func(query, path, config)
@@ -940,12 +940,12 @@ _TSCONFIG_SCAN_MAX_ENTRIES = 500
 def find_typecheck_project_root(workspace: str | Path) -> Path | None:
     """The directory whose tsconfig.json a workspace typecheck must run in.
 
-    The workspace root wins (pulse's original contract). Otherwise ONE
+    The workspace root wins (crusor's original contract). Otherwise ONE
     bounded level of immediate subdirectories is probed — hermes
     coding_context.py's discovery bound ("root and its immediate subdirs",
     skip-list, entries cap): _CODE_SCAN_SKIP_DIRS / _CODE_SCAN_MAX_ENTRIES
-    ported verbatim. Pulse needs the downward probe because its session
-    workspace sits ABOVE the project in the field (root D:\\TestPulseAI,
+    ported verbatim. Crusor needs the downward probe because its session
+    workspace sits ABOVE the project in the field (root D:\\TestCrusorAI,
     project test5/ — engine 94051109 bound typecheck_workspace out of the
     toolset for every such task, and the whole verification-gate family
     degraded with it). Ties: a folder that also has package.json wins,
@@ -1024,7 +1024,7 @@ def typecheck_workspace(config: RunnableConfig) -> str:
         pass
 
     # G (field 2026-09-10): the project may live ONE level below the session
-    # workspace (root D:\TestPulseAI, project test5/). Bounded hermes-style
+    # workspace (root D:\TestCrusorAI, project test5/). Bounded hermes-style
     # discovery; None means genuinely no TypeScript project anywhere close.
     project_root = find_typecheck_project_root(workspace_path)
     if project_root is None:

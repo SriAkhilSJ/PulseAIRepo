@@ -5,7 +5,7 @@ the main-fallback route that returned an UNPARSEABLE answer and would have
 been used only as "continue" anyway. Hermes' run_conversation performs ZERO
 model calls before the main one — that is now the default in every mode.
 
-Contract (PULSEAI_TASK_CLASSIFIER read per call):
+Contract (CRUSORAI_TASK_CLASSIFIER read per call):
   unset/off -> no classifier round-trip in any mode (free D30 quick decision
                still owns acks and explicit resets)
   "on"      -> classify in every mode (legacy), on the bounded aux budget
@@ -55,7 +55,7 @@ def test_agent_mode_skips_by_default_too(monkeypatch):
 
 
 def test_env_on_restores_classification(monkeypatch):
-    monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "on")
+    monkeypatch.setenv("CRUSORAI_TASK_CLASSIFIER", "on")
     monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: object())
     monkeypatch.setattr(
         cg, "_invoke_task_decision",
@@ -69,7 +69,7 @@ def test_env_on_restores_classification(monkeypatch):
 
 
 def test_env_off_is_an_explicit_alias_of_the_default(monkeypatch):
-    monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "off")
+    monkeypatch.setenv("CRUSORAI_TASK_CLASSIFIER", "off")
     _forbid_classifier(monkeypatch)
     out = cg.task_manager_node(_state("agent"), _cfg())
     assert out["task_action"] == "continue"

@@ -1,5 +1,5 @@
 """Pipe exit-code masking: `npm run build 2>&1 | tail -40` on a BROKEN build
-reports tail's exit 0, and pulse read that as a verified pass.
+reports tail's exit 0, and crusor read that as a verified pass.
 
 Field 2026-09-10 (test5, owner screenshot): the terminal card showed the
 compiler's error lines and then "Passed · exit 0". Root cause is POSIX shell
@@ -32,7 +32,7 @@ from src.tools.terminal_hints import (
     annotate_masked_success,
 )
 
-FIELD_COMMAND = "cd /d/TestPulseAI/test5 && npm run build 2>&1 | tail -40"
+FIELD_COMMAND = "cd /d/TestCrusorAI/test5 && npm run build 2>&1 | tail -40"
 FIELD_OUTPUT = (
     "STDOUT:\n> test5@0.1.0 build\n> next build\n"
     "  ▲ Next.js 15\n   Linting and checking validity of types ...\n"
@@ -146,7 +146,7 @@ def test_attributable_matches_hermes_semantics():
     assert _exit_status_is_attributable(chain, 0, 1) is False  # && proves only on success
 
 
-# ── End-to-end: pulse's real terminal tool, a real broken build ────────────
+# ── End-to-end: crusor's real terminal tool, a real broken build ────────────
 
 
 def test_terminal_receipt_carries_the_masked_success_hint(tmp_path, monkeypatch):

@@ -10,7 +10,7 @@ D20 contract:
 - sub threads: unsafe calls -> denial ToolMessages (status=error, ids
   paired, original tool_call order preserved); safe calls in the same
   batch STILL EXECUTE; every denial is audit-logged
-- opt-in escape hatch: PULSEAI_SUBAGENT_AUTO_APPROVE=1 (batch/cron YOLO,
+- opt-in escape hatch: CRUSORAI_SUBAGENT_AUTO_APPROVE=1 (batch/cron YOLO,
   hermes' subagent_auto_approve), also audit-logged
 """
 
@@ -73,7 +73,7 @@ def test_subagent_denial_is_toolmessage_not_prompt(ws, caplog):
     from src.dashboard.event_bus import event_bus
     event_bus.clear("sub-w-7")
     events = event_bus.subscribe("sub-w-7")
-    with caplog.at_level(logging.WARNING, logger="pulseai.safety"):
+    with caplog.at_level(logging.WARNING, logger="crusorai.safety"):
         out = _invoke(_state(("run_terminal", {"command": "rm -rf keep"})), _cfg(ws, "sub-w-7"))
     msg = out["messages"][0]
     assert isinstance(msg, ToolMessage)
@@ -139,8 +139,8 @@ def test_subagent_unsafe_only_batch_never_prompts(ws):
 
 
 def test_auto_approve_escape_hatch(ws, monkeypatch, caplog):
-    monkeypatch.setenv("PULSEAI_SUBAGENT_AUTO_APPROVE", "1")
-    with caplog.at_level(logging.WARNING, logger="pulseai.safety"):
+    monkeypatch.setenv("CRUSORAI_SUBAGENT_AUTO_APPROVE", "1")
+    with caplog.at_level(logging.WARNING, logger="crusorai.safety"):
         out = _invoke(_state(("run_terminal", {"command": "echo approved > ok.txt"})),
                         _cfg(ws, "sub-cron-3"))
     msg = out["messages"][0]
@@ -152,8 +152,8 @@ def test_auto_approve_escape_hatch(ws, monkeypatch, caplog):
 
 def test_env_default_off_and_main_unaffected_by_flag(ws, monkeypatch):
     # Flag set but thread is interactive: main path ignores it entirely.
-    monkeypatch.setenv("PULSEAI_SUBAGENT_AUTO_APPROVE", "1")
+    monkeypatch.setenv("CRUSORAI_SUBAGENT_AUTO_APPROVE", "1")
     out = _invoke(_state(("run_terminal", {"command": "rm -rf keep"})), _cfg(ws, "main-1"))
     assert isinstance(out["messages"][0], AIMessage)  # still the human prompt
     assert (ws / "keep" / "precious.txt").exists()
-    monkeypatch.delenv("PULSEAI_SUBAGENT_AUTO_APPROVE")
+    monkeypatch.delenv("CRUSORAI_SUBAGENT_AUTO_APPROVE")

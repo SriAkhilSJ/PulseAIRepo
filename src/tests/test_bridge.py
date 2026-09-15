@@ -52,7 +52,7 @@ def test_codec_size_guard():
 
 def test_hello_handshake_rules():
     good = hello("v")
-    assert good["protocol"] == PROTOCOL_VERSION and good["engine"] == "pulseai"
+    assert good["protocol"] == PROTOCOL_VERSION and good["engine"] == "crusorai"
     assert check_client_hello({"type": "hello", "protocol": PROTOCOL_VERSION}) == PROTOCOL_VERSION
     assert SUPPORTED_PROTOCOL_VERSIONS == {1, 2}
     assert hello("v", protocol=1)["protocol"] == 1
@@ -82,7 +82,7 @@ def _send(proc, obj):
 def sidecar():
     import os
     env = dict(os.environ)
-    env["PULSEAI_BRIDGE_RUNNER"] = "echo"
+    env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -175,16 +175,16 @@ def test_sidecar_rejects_blank_workspace(sidecar):
 
 def test_sidecar_binds_session_to_an_explicit_workspace(sidecar):
     _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
-    info = _send(sidecar, {"type": "session_create", "workspace": "d:\\pulse-ws"})
+    info = _send(sidecar, {"type": "session_create", "workspace": "d:\\crusor-ws"})
     assert info["type"] == "session_info"
-    assert info["workspace"] == "d:\\pulse-ws"
+    assert info["workspace"] == "d:\\crusor-ws"
     listed = _send(sidecar, {"type": "session_list"})
     assert listed["type"] == "session_info"
-    assert any(s["workspace"] == "d:\\pulse-ws" for s in listed["sessions"])
+    assert any(s["workspace"] == "d:\\crusor-ws" for s in listed["sessions"])
     # A prompt routed to that session keeps the explicit binding.
     sidecar.stdin.write(json.dumps({
         "type": "prompt", "text": "hi", "session_id": info["session_id"],
-        "workspace": "d:\\pulse-ws",
+        "workspace": "d:\\crusor-ws",
     }) + "\n")
     sidecar.stdin.flush()
     frames = []
@@ -347,21 +347,21 @@ def test_session_create_reports_prior_checkpoints(sidecar, tmp_path):
 def test_bridge_memory_policy_defaults_off_and_honors_optin(monkeypatch, capsys):
     """Desktop engine default: long-term memory OFF (the in-process embedder
     wedged live turns at the checkpointer commit on Windows, 2026-09-04).
-    PULSEAI_MEMORY=on opts back in. The policy must not leak env to the test
+    CRUSORAI_MEMORY=on opts back in. The policy must not leak env to the test
     process either way."""
     import os
     from src.bridge.__main__ import BridgeServer
 
-    monkeypatch.delenv("PULSEAI_DISABLE_LONG_TERM_MEMORY", raising=False)
-    monkeypatch.delenv("PULSEAI_MEMORY", raising=False)
+    monkeypatch.delenv("CRUSORAI_DISABLE_LONG_TERM_MEMORY", raising=False)
+    monkeypatch.delenv("CRUSORAI_MEMORY", raising=False)
     BridgeServer._apply_memory_policy()
-    assert os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY") == "1"
+    assert os.environ.get("CRUSORAI_DISABLE_LONG_TERM_MEMORY") == "1"
     assert "long-term memory: OFF" in capsys.readouterr().err
 
-    monkeypatch.setenv("PULSEAI_MEMORY", "on")
-    monkeypatch.delenv("PULSEAI_DISABLE_LONG_TERM_MEMORY", raising=False)
+    monkeypatch.setenv("CRUSORAI_MEMORY", "on")
+    monkeypatch.delenv("CRUSORAI_DISABLE_LONG_TERM_MEMORY", raising=False)
     BridgeServer._apply_memory_policy()
-    assert os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY") is None
+    assert os.environ.get("CRUSORAI_DISABLE_LONG_TERM_MEMORY") is None
     assert "long-term memory: ON" in capsys.readouterr().err
 
 

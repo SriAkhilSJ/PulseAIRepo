@@ -1,7 +1,7 @@
 # Lab Test 2 - Chat App (EaseMize-style) D-series retest (workspace_d)
 
 **Source data:** `lab/report_chat_runD5.json` (full JSON report with the complete 96-message transcript)
-**Agent under test:** PulseAgent  **Provider:** FreeLLM custom proxy  **Thread:** `lab-chat-d5`
+**Agent under test:** CrusorAgent  **Provider:** FreeLLM custom proxy  **Thread:** `lab-chat-d5`
 
 ## Verdict
 
@@ -102,7 +102,7 @@ Import trace: ./components/ChatLayout.tsx -> ./app/page.tsx
 | 24 | `AIMessage` | `execute_code` |  |
 | 25 | `ToolMessage` | `execute_code` | ⛔ Script rejected: line 1: import statements are disabled inside execute_code. Preloaded modules: collections, datetime,... |
 | 27 | `AIMessage` | `run_terminal` |  |
-| 28 | `ToolMessage` | `run_terminal` | STDOUT:  Volume in drive D has no label.  Volume Serial Number is 7239-DFBD   Directory of D:\pulseAIrepo\PulseAIRepo\la... |
+| 28 | `ToolMessage` | `run_terminal` | STDOUT:  Volume in drive D has no label.  Volume Serial Number is 7239-DFBD   Directory of D:\crusorAIrepo\PulseAIRepo\la... |
 | 30 | `AIMessage` | `run_terminal` |  |
 | 31 | `ToolMessage` | `run_terminal` | STDERR: The system cannot find the path specified.  Exit code: 1 |
 | 34 | `AIMessage` | `run_terminal` |  |

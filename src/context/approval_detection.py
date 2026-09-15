@@ -2,7 +2,7 @@
 
 Port of hermes ``tools/approval_detection.py`` (module docstring verbatim):
 *Pure command classification for the approval gate — no approval state,
-config reads, or prompting live here.* Pulse's SafetyGuard keeps the state
+config reads, or prompting live here.* Crusor's SafetyGuard keeps the state
 and the prompting; this module answers ONE question: does this command sit
 below the hardline floor (never run), or in the dangerous tier (human in
 the loop asks first)?
@@ -21,7 +21,7 @@ Two tiers, hermes' names:
   flags, container daemon redirects and lifecycle.
 
 Dropped from hermes' table as dead coverage here (hermes product rules
-with no pulse analogue): hermes gateway lifecycle/launchctl/self-
+with no crusor analogue): hermes gateway lifecycle/launchctl/self-
 termination rules, ``hermes update``, ``$HERMES_HOME`` config paths.
 Keeping them would be coverage that only looks like coverage.
 

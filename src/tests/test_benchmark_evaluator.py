@@ -1,4 +1,4 @@
-"""Deterministic tests for the Pulse Reliability Benchmark evaluator core.
+"""Deterministic tests for the Crusor Reliability Benchmark evaluator core.
 
 Pure: synthetic in-memory run records only. No network, no model calls, no
 process spawning, no fixture workspaces, no desktop execution.
@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.pulse_reliability_v1.contract import (
+from benchmarks.crusor_reliability_v1.contract import (
     BenchmarkResult,
     CheckClassification,
     Outcome,
     SuiteManifest,
     load_suite,
 )
-from benchmarks.pulse_reliability_v1.evaluator import (
+from benchmarks.crusor_reliability_v1.evaluator import (
     RunRecord,
     detect_hard_failures,
     evaluate_suite,
@@ -26,7 +26,7 @@ from benchmarks.pulse_reliability_v1.evaluator import (
     _CHECK_HANDLERS,
 )
 
-BENCHMARK_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "pulse_reliability_v1"
+BENCHMARK_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "crusor_reliability_v1"
 MANIFEST_PATH = BENCHMARK_DIR / "manifest.json"
 
 
@@ -41,11 +41,11 @@ def _task(task_id: str):
 
 def _run(task_id: str, **kw) -> RunRecord:
     base = dict(
-        schema_id="pulse-benchmark-run/v1",
+        schema_id="crusor-benchmark-run/v1",
         run_id=f"test-{task_id.lower()}",
         task_id=task_id,
         task_version=1,
-        pulse_commit="0" * 40,
+        crusor_commit="0" * 40,
     )
     base.update(kw)
     return RunRecord.model_validate(base)
@@ -57,7 +57,7 @@ def _run(task_id: str, **kw) -> RunRecord:
 
 def test_dom_enabled_false_passes() -> None:
     task = _task("PBR-001")
-    record = _run("PBR-001", dom=[{"selector": "textarea.pulseai-composer-input", "enabled": False}])
+    record = _run("PBR-001", dom=[{"selector": "textarea.crusorai-composer-input", "enabled": False}])
     result = evaluate_task(task, record)
     first = result.checks[0]
     assert first.classification == CheckClassification.PASSED
@@ -65,7 +65,7 @@ def test_dom_enabled_false_passes() -> None:
 
 def test_dom_enabled_true_fails_composer_disabled() -> None:
     task = _task("PBR-001")
-    record = _run("PBR-001", dom=[{"selector": "textarea.pulseai-composer-input", "enabled": True}])
+    record = _run("PBR-001", dom=[{"selector": "textarea.crusorai-composer-input", "enabled": True}])
     result = evaluate_task(task, record)
     assert result.checks[0].classification == CheckClassification.FAILED_NEW
 
@@ -73,8 +73,8 @@ def test_dom_enabled_true_fails_composer_disabled() -> None:
 def test_dom_text_exact_match() -> None:
     task = _task("PBR-001")
     record = _run("PBR-001", dom=[
-        {"selector": "textarea.pulseai-composer-input", "enabled": False},
-        {"selector": ".pulseai-composer-hint", "text": "Open a folder to start a Pulse session."},
+        {"selector": "textarea.crusorai-composer-input", "enabled": False},
+        {"selector": ".crusorai-composer-hint", "text": "Open a folder to start a Crusor session."},
     ])
     result = evaluate_task(task, record)
     assert result.checks[1].classification == CheckClassification.PASSED
@@ -315,9 +315,9 @@ def test_process_scalar_observations() -> None:
 
 def test_outcome_passed_needs_all_green() -> None:
     task = _task("PBR-001")
-    record = _run("PBR-001", dom=[{"selector": "textarea.pulseai-composer-input", "enabled": False},
-                                  {"selector": ".pulseai-composer-hint",
-                                   "text": "Open a folder to start a Pulse session."}])
+    record = _run("PBR-001", dom=[{"selector": "textarea.crusorai-composer-input", "enabled": False},
+                                  {"selector": ".crusorai-composer-hint",
+                                   "text": "Open a folder to start a Crusor session."}])
     result = evaluate_task(task, record)
     assert result.outcome == Outcome.PASSED
 

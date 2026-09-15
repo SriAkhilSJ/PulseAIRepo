@@ -1,4 +1,4 @@
-"""Deterministic tests for the Pulse Reliability Benchmark fixture generator.
+"""Deterministic tests for the Crusor Reliability Benchmark fixture generator.
 
 Pure: generates tiny workspaces into pytest tmp_path only.
 No network, no model calls, no process spawning, no desktop execution.
@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from benchmarks.pulse_reliability_v1.contract import load_suite
-from benchmarks.pulse_reliability_v1.fixtures import (
+from benchmarks.crusor_reliability_v1.contract import load_suite
+from benchmarks.crusor_reliability_v1.fixtures import (
     FixtureFile,
     FixtureManifest,
     FixtureSpec,
@@ -24,7 +24,7 @@ from benchmarks.pulse_reliability_v1.fixtures import (
     resolve_files,
 )
 
-SUITE_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "pulse_reliability_v1"
+SUITE_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "crusor_reliability_v1"
 MANIFEST_PATH = SUITE_DIR / "manifest.json"
 FIXTURES_PATH = SUITE_DIR / "fixtures.json"
 
@@ -54,8 +54,8 @@ def built_large(tmp_path_factory) -> tuple[FixtureSpec, "object"]:
 
 def test_fixture_manifest_identity() -> None:
     m = _manifest()
-    assert m.schema_id == "pulse-benchmark-fixtures/v1"
-    assert m.suite_id == "pulse-reliability-v1"
+    assert m.schema_id == "crusor-benchmark-fixtures/v1"
+    assert m.suite_id == "crusor-reliability-v1"
     assert m.version == 1
 
 

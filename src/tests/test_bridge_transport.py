@@ -267,7 +267,7 @@ time.sleep(0.3)
 # ------------------------------------------------- 4. fake delayed turn emits progress + turn_done
 
 def test_echo_turn_emits_progress_then_turn_done(tmp_path):
-    proc = _spawn_bridge({"PULSEAI_BRIDGE_RUNNER": "echo"})
+    proc = _spawn_bridge({"CRUSORAI_BRIDGE_RUNNER": "echo"})
     try:
         _send(proc, {"type": "hello", "protocol": PROTOCOL_VERSION})
         hello = _read_frames(proc, lambda f: f.get("type") == "hello")[-1]
@@ -301,7 +301,7 @@ def test_real_turn_forwards_headless_workspace_approval_policy(tmp_path, monkeyp
         return "ok"
 
     monkeypatch.setattr(chat_graph, "stream_agent", fake_stream_agent)
-    monkeypatch.setenv("PULSEAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
+    monkeypatch.setenv("CRUSORAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
     server = object.__new__(BridgeServer)
     emitted = []
     server.emit = emitted.append
@@ -398,7 +398,7 @@ def test_read_frames_enforces_timeout_when_child_is_silent():
     Regression: the old _read_frames() called proc.stdout.readline() which
     blocks indefinitely past the deadline, so timeouts were cosmetic.
     """
-    proc = _spawn_bridge({"PULSEAI_BRIDGE_RUNNER": "echo"})
+    proc = _spawn_bridge({"CRUSORAI_BRIDGE_RUNNER": "echo"})
     try:
         t0 = time.time()
         with pytest.raises(TimeoutError):
@@ -424,8 +424,8 @@ def test_watchdog_is_cancelled_after_successful_echo_turn(monkeypatch):
 
     monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda *a, **k: calls.append("arm"))
     monkeypatch.setattr(faulthandler, "cancel_dump_traceback_later", lambda: calls.append("cancel"))
-    monkeypatch.setenv("PULSEAI_BRIDGE_DIAGNOSTICS", "1")
-    monkeypatch.setenv("PULSEAI_BRIDGE_RUNNER", "echo")
+    monkeypatch.setenv("CRUSORAI_BRIDGE_DIAGNOSTICS", "1")
+    monkeypatch.setenv("CRUSORAI_BRIDGE_RUNNER", "echo")
 
     emitted: list[dict] = []
     server = object.__new__(BridgeServer)
@@ -446,8 +446,8 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
 
     monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda *a, **k: calls.append("arm"))
     monkeypatch.setattr(faulthandler, "cancel_dump_traceback_later", lambda: calls.append("cancel"))
-    monkeypatch.setenv("PULSEAI_BRIDGE_DIAGNOSTICS", "1")
-    monkeypatch.delenv("PULSEAI_BRIDGE_RUNNER", raising=False)
+    monkeypatch.setenv("CRUSORAI_BRIDGE_DIAGNOSTICS", "1")
+    monkeypatch.delenv("CRUSORAI_BRIDGE_RUNNER", raising=False)
 
     # Avoid the real model call: stub stream_agent inside the real module.
     import src.graphs.chat_graph as chat_graph
@@ -477,10 +477,10 @@ def test_watchdog_is_cancelled_after_successful_real_turn(monkeypatch, tmp_path)
 # ------------------------------------------------- watchdog env gate (no 60 s wait)
 
 def test_diagnostics_watchdog_env_does_not_break_bridge(tmp_path):
-    # With PULSEAI_BRIDGE_DIAGNOSTICS=1 the bridge arms faulthandler around a
+    # With CRUSORAI_BRIDGE_DIAGNOSTICS=1 the bridge arms faulthandler around a
     # real turn. The echo runner returns instantly, so we only verify the env
     # wiring is harmless on the transport level (no 60 s wait here).
-    proc = _spawn_bridge({"PULSEAI_BRIDGE_RUNNER": "echo", "PULSEAI_BRIDGE_DIAGNOSTICS": "1"})
+    proc = _spawn_bridge({"CRUSORAI_BRIDGE_RUNNER": "echo", "CRUSORAI_BRIDGE_DIAGNOSTICS": "1"})
     try:
         _send(proc, {"type": "hello", "protocol": PROTOCOL_VERSION})
         hello = _read_frames(proc, lambda f: f.get("type") == "hello")[-1]
@@ -554,7 +554,7 @@ def test_turn_done_survives_a_undrained_event_queue(monkeypatch, tmp_path):
     import src.bridge.__main__ as bridge_mod
     from src.dashboard.event_bus import event_bus
 
-    monkeypatch.delenv("PULSEAI_BRIDGE_RUNNER", raising=False)
+    monkeypatch.delenv("CRUSORAI_BRIDGE_RUNNER", raising=False)
     monkeypatch.setattr(bridge_mod, "_EVENT_FLUSH_TIMEOUT_S", 0.3)
     monkeypatch.setattr(BridgeServer, "_forward_events", lambda self, *a, **k: None)
 

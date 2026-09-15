@@ -150,7 +150,7 @@ def run_mock_task(task: str = "Create a hello.py file"):
 
 if __name__ == "__main__":
     print("=" * 55)
-    print("   PulseAI Mock Agent")
+    print("   CrusorAI Mock Agent")
     print("   Simulating full task flow for dashboard testing")
     print("=" * 55)
     print("   Open http://localhost:8080 and watch the live stream")

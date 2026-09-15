@@ -6,7 +6,7 @@ Measures, per turn, how much of the assembled LLM request is BYTE-IDENTICAL
 to the previous turn's request — the exact quantity provider prompt caches
 (Anthropic/OpenAI KV prefix reuse) pay out on. Hermes treats "the default
 path leaves the request byte-identical" as a hard invariant
-(their context_engine.py cache-prefix contract, §29); PulseAI never
+(their context_engine.py cache-prefix contract, §29); CrusorAI never
 measured it. This module is the meter.
 
 Design notes:
@@ -21,8 +21,8 @@ Design notes:
   question is 'did the stable prefix reach the history boundary?'.
 * **Cheap always-on.** One prefix-compare of two strings per turn; the
   per-session engine already serializes nothing else. Optional JSONL sink
-  via env PULSEAI_CACHE_AUDIT_JSONL=path (or =1 for the default
-  ~/.pulseai/cache_audit.jsonl) for cross-session forensics; in-memory
+  via env CRUSORAI_CACHE_AUDIT_JSONL=path (or =1 for the default
+  ~/.crusorai/cache_audit.jsonl) for cross-session forensics; in-memory
   ring buffer otherwise.
 """
 
@@ -34,7 +34,7 @@ import threading
 from typing import Any
 
 _DEFAULT_JSONL = os.path.join(
-    os.path.expanduser("~"), ".pulseai", "cache_audit.jsonl"
+    os.path.expanduser("~"), ".crusorai", "cache_audit.jsonl"
 )
 _jsonl_lock = threading.Lock()
 
@@ -125,7 +125,7 @@ class CachePrefixAudit:
         # the cache-break regression test.
         self._peak_stable_chars = 0
         self._peak_total_chars = 0
-        env = os.environ.get("PULSEAI_CACHE_AUDIT_JSONL", "")
+        env = os.environ.get("CRUSORAI_CACHE_AUDIT_JSONL", "")
         self._jsonl_path = jsonl_path or (
             _DEFAULT_JSONL if env.strip() == "1" else (env.strip() or None)
         )

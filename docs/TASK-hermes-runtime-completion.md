@@ -1,4 +1,4 @@
-# Task: Complete Hermes Runtime Values in PulseAI
+# Task: Complete Hermes Runtime Values in CrusorAI
 
 **Status:** COMPLETE — ready for founder-supplied API-key live evaluation  
 **Rule satisfied:** no live Retest-3 was run during architecture work.
@@ -39,5 +39,5 @@
 ## Operational truth
 
 - Cancel is immediate for the graph between iterations and for foreground terminal processes. An already in-flight provider HTTP request remains bounded by the existing 60-second provider timeout because LangChain providers do not expose one uniform cross-provider socket-abort API.
-- The bridge test echo runner is enabled only by `PULSEAI_BRIDGE_RUNNER=echo`; production defaults to the real `stream_agent` path.
-- `PULSEAI_PARALLEL_TOOLS=off` deliberately restores legacy ToolNode behavior for compatibility, including its historical race characteristics. Normal operation uses the durable conflict-aware path.
+- The bridge test echo runner is enabled only by `CRUSORAI_BRIDGE_RUNNER=echo`; production defaults to the real `stream_agent` path.
+- `CRUSORAI_PARALLEL_TOOLS=off` deliberately restores legacy ToolNode behavior for compatibility, including its historical race characteristics. Normal operation uses the durable conflict-aware path.

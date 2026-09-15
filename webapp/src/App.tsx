@@ -50,8 +50,8 @@ function ToolRunRow({ command, output, meta }: { command: string; output: string
 
 function QuestionCard({ title, question, options }: { title: string; question: string; options: string[] }) {
   return (
-    <div className="pulseai-question-card" data-slot="pulseai-question-card">
-      <div className="pulseai-question-title">
+    <div className="crusorai-question-card" data-slot="crusorai-question-card">
+      <div className="crusorai-question-title">
         <Codicon name="question" size="0.75rem" className="text-(--ui-accent)" />
         {title}
       </div>
@@ -73,26 +73,26 @@ Exit code: 0`
 
 export default function App() {
   return (
-    <main className="pulseai-conversation" data-slot="pulseai-conversation">
-      <div className="pulseai-turn" data-slot="pulseai-turn">
-        <div className="pulseai-human">list the files</div>
+    <main className="crusorai-conversation" data-slot="crusorai-conversation">
+      <div className="crusorai-turn" data-slot="crusorai-turn">
+        <div className="crusorai-human">list the files</div>
 
-        <div data-slot="pulseai_assistant-message-content" className="flex flex-col gap-(--turn-block-gap)">
+        <div data-slot="crusorai_assistant-message-content" className="flex flex-col gap-(--turn-block-gap)">
           <ThinkingRow meta="1.2s" />
 
-          <ToolRunRow command="cd D:\\pulseAIagent\\PulseAIRepo && dir /b" output={DIR_OUTPUT} meta="0.8s · exit 0" />
+          <ToolRunRow command="cd D:\\crusorAIagent\\PulseAIRepo && dir /b" output={DIR_OUTPUT} meta="0.8s · exit 0" />
 
           <QuestionCard
             title="I need a bit more clarity:"
             question="Which directory would you like me to list files in?"
             options={[
-              'The workspace root: D:\\pulseAIagent\\PulseAIRepo',
+              'The workspace root: D:\\crusorAIagent\\PulseAIRepo',
               'The current working directory (if different)',
               'A specific subfolder',
             ]}
           />
 
-          <div className="pulseai-prose" data-slot="pulseai-prose">
+          <div className="crusorai-prose" data-slot="crusorai-prose">
             <p>
               Say <code>root</code> and I'll list it right away — or name any subfolder and I'll start
               there.

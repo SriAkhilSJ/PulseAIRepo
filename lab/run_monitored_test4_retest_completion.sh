@@ -3,7 +3,7 @@ set -u
 cd "$(dirname "$0")/.."
 LIVE="lab/test4_retest_completion_live.log"; CONSOLE="lab/test4_retest_completion_console.out"; WS="/home/user/test4_ws_retest"
 rm -f "$LIVE" "$CONSOLE" lab/test4_retest_completion_killed.txt
-setsid env AGENT_ITERATION_BUDGET=8 AGENT_TOKEN_BUDGET=65000 PULSEAI_PHASE_GUARD=on PULSEAI_DELIVERY_MAX_TOKENS=3072 PULSEAI_LLM_STREAMING=1 PULSEAI_LLM_TIMEOUT=90 PULSEAI_AUTO_APPROVE_WRITES=1 PULSEAI_TERMINAL_TIMEOUT=120 PULSEAI_DISABLE_LONG_TERM_MEMORY=1 SUMMARIZER_LLM= PROVIDER_SAFE_LIMIT=6000 PUPPETEER_CACHE_DIR=/home/user/.cache/puppeteer .venv/bin/python lab/run_eval_test4_retest_completion.py >"$CONSOLE" 2>&1 &
+setsid env AGENT_ITERATION_BUDGET=8 AGENT_TOKEN_BUDGET=65000 CRUSORAI_PHASE_GUARD=on CRUSORAI_DELIVERY_MAX_TOKENS=3072 CRUSORAI_LLM_STREAMING=1 CRUSORAI_LLM_TIMEOUT=90 CRUSORAI_AUTO_APPROVE_WRITES=1 CRUSORAI_TERMINAL_TIMEOUT=120 CRUSORAI_DISABLE_LONG_TERM_MEMORY=1 SUMMARIZER_LLM= PROVIDER_SAFE_LIMIT=6000 PUPPETEER_CACHE_DIR=/home/user/.cache/puppeteer .venv/bin/python lab/run_eval_test4_retest_completion.py >"$CONSOLE" 2>&1 &
 pid=$!; start=$(date +%s); last=0; stale=0
 kill_run(){ echo "[WATCHDOG] KILL: $1"; echo "$1" > lab/test4_retest_completion_killed.txt; kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true; sleep 3; kill -KILL -- "-$pid" 2>/dev/null || true; }
 while kill -0 "$pid" 2>/dev/null; do

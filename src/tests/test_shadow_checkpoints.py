@@ -45,8 +45,8 @@ def _ws(tmp_path) -> str:
 
 def _hook_env(monkeypatch, tmp_path):
     """Point the process singleton at a throwaway store and reset it."""
-    monkeypatch.setenv("PULSEAI_CHECKPOINT_HOME", str(tmp_path / "hook-store"))
-    monkeypatch.delenv("PULSEAI_CHECKPOINTS", raising=False)
+    monkeypatch.setenv("CRUSORAI_CHECKPOINT_HOME", str(tmp_path / "hook-store"))
+    monkeypatch.delenv("CRUSORAI_CHECKPOINTS", raising=False)
     sc.reset_shadow_checkpoints_for_tests()
 
 
@@ -96,7 +96,7 @@ def test_once_per_turn_then_new_turn_snapshots_again(tmp_path, monkeypatch):
 
 def test_kill_switch_makes_hooks_noop(tmp_path, monkeypatch):
     _hook_env(monkeypatch, tmp_path)
-    monkeypatch.setenv("PULSEAI_CHECKPOINTS", "off")
+    monkeypatch.setenv("CRUSORAI_CHECKPOINTS", "off")
     sc.reset_shadow_checkpoints_for_tests()
     ws = _ws(tmp_path)
     EDIT(path="target.py", old_text="return 1", new_text="return 999",
@@ -162,7 +162,7 @@ def test_no_git_pollution_in_workspace(tmp_path):
     store = tmp_path / "store-home" / "store"
     assert (store / "HEAD").exists()
     ok, tip, _ = sc._run_git(
-        ["rev-parse", "--verify", f"refs/pulseai/{sc._project_hash(ws)}^{{commit}}"],
+        ["rev-parse", "--verify", f"refs/crusorai/{sc._project_hash(ws)}^{{commit}}"],
         store, ws,
     )
     assert ok and tip
@@ -188,7 +188,7 @@ def test_excludes_keep_junk_out_of_snapshots(tmp_path):
     assert mgr.ensure_checkpoint(ws, "baseline") is True
 
     store = tmp_path / "store-home" / "store"
-    ref = f"refs/pulseai/{sc._project_hash(ws)}"
+    ref = f"refs/crusorai/{sc._project_hash(ws)}"
     ok, tree, _ = sc._run_git(
         ["ls-tree", "-r", "--name-only", ref],
         store, ws,
@@ -264,19 +264,19 @@ def test_file_cap_skips_with_honest_log(tmp_path, monkeypatch, capsys):
     ws.mkdir()
     for i in range(3):
         (ws / f"f{i}.py").write_text("x = 1\n")
-    monkeypatch.setenv("PULSEAI_SHADOW_MAX_FILES", "2")
+    monkeypatch.setenv("CRUSORAI_SHADOW_MAX_FILES", "2")
     mgr = _mgr(tmp_path)
 
     assert mgr.ensure_checkpoint(str(ws), "cap test") is False
     out = capsys.readouterr().out
     assert "NO undo point taken" in out
-    assert "PULSEAI_SHADOW_MAX_FILES" in out
+    assert "CRUSORAI_SHADOW_MAX_FILES" in out
 
 
 @git
 def test_add_giveup_is_named_not_silent(tmp_path, monkeypatch, capsys):
     ws = _ws(tmp_path)
-    monkeypatch.delenv("PULSEAI_SHADOW_MAX_FILES", raising=False)
+    monkeypatch.delenv("CRUSORAI_SHADOW_MAX_FILES", raising=False)
     real_run_git = sc._run_git
 
     def fake_run_git(args, *rest, **kwargs):
@@ -290,7 +290,7 @@ def test_add_giveup_is_named_not_silent(tmp_path, monkeypatch, capsys):
     assert mgr.ensure_checkpoint(str(ws), "timeout test") is False
     out = capsys.readouterr().out
     assert "gave up after" in out
-    assert "PULSEAI_SHADOW_GIT_TIMEOUT_S" in out
+    assert "CRUSORAI_SHADOW_GIT_TIMEOUT_S" in out
 
 
 @git

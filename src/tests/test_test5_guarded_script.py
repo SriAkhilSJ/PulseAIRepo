@@ -8,7 +8,7 @@ SCRIPT = (Path(__file__).parents[2] / "scripts" / "run_test5_guarded.ps1").read_
 
 
 def test_guarded_run_disables_unused_autonomous_memory():
-    assert '$env:PULSEAI_DISABLE_LONG_TERM_MEMORY = "1"' in SCRIPT
+    assert '$env:CRUSORAI_DISABLE_LONG_TERM_MEMORY = "1"' in SCRIPT
 
 
 def test_probe_uses_configured_custom_endpoint_and_model():

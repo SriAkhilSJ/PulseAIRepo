@@ -44,7 +44,7 @@ The allowlist is enforced twice: at provider tool binding and again at tool exec
 - Delivery phase injects a direct system instruction: no think/read/list/search/terminal.
 - At most two file mutations per response.
 - Named multi-file plan steps require one landed receipt per named file.
-- Delivery output is capped by `PULSEAI_DELIVERY_MAX_TOKENS` (default 3072, bounded 512–8192).
+- Delivery output is capped by `CRUSORAI_DELIVERY_MAX_TOKENS` (default 3072, bounded 512–8192).
 - This deliberately turns one timeout-prone mega-response into 2–3 bounded source batches.
 
 ### Turn-scoped budgets
@@ -63,8 +63,8 @@ The allowlist is enforced twice: at provider tool binding and again at tool exec
 
 ### Streaming custom-provider option
 
-- `PULSEAI_LLM_STREAMING=1` enables ChatOpenAI streaming for custom providers so active token chunks reset socket read timeout during bounded source generation.
-- `PULSEAI_LLM_TIMEOUT` is configurable from 10–300 seconds (default 60).
+- `CRUSORAI_LLM_STREAMING=1` enables ChatOpenAI streaming for custom providers so active token chunks reset socket read timeout during bounded source generation.
+- `CRUSORAI_LLM_TIMEOUT` is configurable from 10–300 seconds (default 60).
 - Read timeouts remain non-retryable to avoid charging repeated identical requests.
 
 ### Deterministic multi-route visual receipt
@@ -96,11 +96,11 @@ provider_preflight
 ```env
 AGENT_ITERATION_BUDGET=8
 AGENT_TOKEN_BUDGET=80000
-PULSEAI_PHASE_GUARD=on
-PULSEAI_DELIVERY_MAX_TOKENS=3072
-PULSEAI_LLM_STREAMING=1
-PULSEAI_LLM_TIMEOUT=90
-PULSEAI_DISABLE_LONG_TERM_MEMORY=1
+CRUSORAI_PHASE_GUARD=on
+CRUSORAI_DELIVERY_MAX_TOKENS=3072
+CRUSORAI_LLM_STREAMING=1
+CRUSORAI_LLM_TIMEOUT=90
+CRUSORAI_DISABLE_LONG_TERM_MEMORY=1
 SUMMARIZER_LLM=
 PROVIDER_SAFE_LIMIT=0   # AUTO: budget = the window the endpoint reports (was 6000, which pinned it regardless)
 ```

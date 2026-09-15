@@ -279,7 +279,7 @@ def clarify(
     timeout = 300.0
     try:
         import os
-        timeout = float(os.environ.get("PULSEAI_CLARIFY_TIMEOUT_S", "").strip() or 300.0)
+        timeout = float(os.environ.get("CRUSORAI_CLARIFY_TIMEOUT_S", "").strip() or 300.0)
     except (TypeError, ValueError):
         timeout = 300.0
     callback = _queue_callback_factory(session_id, timeout)

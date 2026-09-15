@@ -1,4 +1,4 @@
-# PulseAI SPA — hermes chat surface as a website
+# CrusorAI SPA — hermes chat surface as a website
 
 The chat rendering tier of the hermes desktop app (`apps/desktop/src/components/chat/`),
 ported verbatim, rendered as a standalone website AND served as the workbench
@@ -6,11 +6,11 @@ Webview panel bundle.
 
 - **Website:** `npm run dev` (or `npm run build && npm run preview`).
 - **Webview panel:** the built bundle is copied to
-  `desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/`,
-  where `pulseAIViewPane.ts` loads it in an iframe
-  (`vs/.../media/pulseai-spa/index.html`, mapped 1:1 into `out/` by the fork
+  `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorai-spa/`,
+  where `crusorAIViewPane.ts` loads it in an iframe
+  (`vs/.../media/crusorai-spa/index.html`, mapped 1:1 into `out/` by the fork
   compile). This fixes the field error
-  `Not allowed to load local resource: .../media/pulseai-spa/index.html` —
+  `Not allowed to load local resource: .../media/crusorai-spa/index.html` —
   the folder simply never existed.
 
 ## Ported so far (verbatim from hermes)
@@ -27,13 +27,13 @@ statically), the codicon font subset, and the scaffold resting-fade rule.
 cd webapp
 npm install   # first time only
 npm run build
-rm -rf ../desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa
-mkdir -p ../desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa
-cp -r dist/* ../desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/
+rm -rf ../desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorai-spa
+mkdir -p ../desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorai-spa
+cp -r dist/* ../desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorai-spa/
 ```
 
 Then `cd desktop/vscode && npm run compile` on the owner machine so `out/`
-picks it up (`pulseai_doctor.py` step [5] checks this).
+picks it up (`crusorai_doctor.py` step [5] checks this).
 
 ## Next turns
 

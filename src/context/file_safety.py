@@ -7,15 +7,15 @@ from pathlib import Path
 from typing import Optional
 
 
-def _pulse_home_path() -> Path:
-    return Path(os.path.expanduser(os.environ.get("PULSEAI_HOME", "~/.pulseai"))).expanduser().resolve() if os.path.exists(os.path.expanduser(os.environ.get("PULSEAI_HOME", "~/.pulseai"))) else Path(os.path.expanduser("~/.pulseai"))
+def _crusor_home_path() -> Path:
+    return Path(os.path.expanduser(os.environ.get("CRUSORAI_HOME", "~/.crusorai"))).expanduser().resolve() if os.path.exists(os.path.expanduser(os.environ.get("CRUSORAI_HOME", "~/.crusorai"))) else Path(os.path.expanduser("~/.crusorai"))
 def _hermes_home_path() -> Path:
-    """Resolve the active PULSEAI/HERMES_HOME."""
+    """Resolve the active CRUSORAI/HERMES_HOME."""
     try:
         from hermes_constants import get_hermes_home  # hermes compat
         return get_hermes_home()
     except Exception:
-        return _pulse_home_path()
+        return _crusor_home_path()
 
 
 def _hermes_root_path() -> Path:
@@ -23,7 +23,7 @@ def _hermes_root_path() -> Path:
         from hermes_constants import get_default_hermes_root
         return get_default_hermes_root()
     except Exception:
-        return Path(os.path.expanduser("~/.pulseai"))
+        return Path(os.path.expanduser("~/.crusorai"))
 
 
 def build_write_denied_paths(home: str) -> set[str]:

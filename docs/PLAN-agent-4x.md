@@ -52,7 +52,7 @@ Every failure maps to context we failed to feed — exactly the thesis. Nothing 
 6. **Prompt-cache discipline** (hermes D19 audit — already in engine): keep the prefix byte-stable; measure break position per turn.
 
 ### C. Fork integration (P2 — the multiplier)
-7. **M4 — `contrib/pulse/` sidecar** (locked roadmap, Phase 0.4 bridge exists): the engine spawns as the sidecar process; the fork feeds it:
+7. **M4 — `contrib/crusor/` sidecar** (locked roadmap, Phase 0.4 bridge exists): the engine spawns as the sidecar process; the fork feeds it:
    - **Diagnostics-as-context** from extension-host language features (tsserver) → agent sees live errors in its context, **zero tool calls** spent discovering broken code (the single biggest call-killer).
    - **Terminal streams as context** (Claude Code pattern) → output flows in, no polling loops.
    - **Native diff approve/refuse** → human helps collapse from Q&A threads to one click (15 → ~0-1).

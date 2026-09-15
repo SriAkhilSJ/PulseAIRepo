@@ -1,4 +1,4 @@
-"""Pins for the PulseAI overlay applied in place inside the canonical fork (desktop/vscode)."""
+"""Pins for the CrusorAI overlay applied in place inside the canonical fork (desktop/vscode)."""
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DESKTOP = ROOT / "desktop"
 FORK = DESKTOP / "vscode"
-CONTRIB = FORK / "src" / "vs" / "workbench" / "contrib" / "pulseai"
+CONTRIB = FORK / "src" / "vs" / "workbench" / "contrib" / "crusorai"
 MAIN = FORK / "src" / "vs" / "workbench" / "workbench.common.main.ts"
 
 
@@ -29,34 +29,34 @@ def _tracked(rel: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
-def test_product_brand_is_pulseai_ide():
+def test_product_brand_is_crusorai_ide():
     product = json.loads((FORK / "product.json").read_text(encoding="utf-8"))
-    assert product["nameShort"] == "PulseAI"
-    assert product["nameLong"] == "PulseAI IDE"
-    assert product["applicationName"] == "pulseai"
-    assert product["dataFolderName"] == ".pulseai-ide"
-    assert product["serverApplicationName"] == "pulseai-server"
-    assert product["win32DirName"] == "PulseAI IDE"
-    assert product["win32AppUserModelId"] == "PulseAI.IDE"
-    assert product["darwinBundleIdentifier"] == "com.pulseai.ide"
-    assert product["linuxIconName"] == "pulseai"
-    assert product["urlProtocol"] == "pulseai"
+    assert product["nameShort"] == "CrusorAI"
+    assert product["nameLong"] == "CrusorAI IDE"
+    assert product["applicationName"] == "crusorai"
+    assert product["dataFolderName"] == ".crusorai-ide"
+    assert product["serverApplicationName"] == "crusorai-server"
+    assert product["win32DirName"] == "CrusorAI IDE"
+    assert product["win32AppUserModelId"] == "CrusorAI.IDE"
+    assert product["darwinBundleIdentifier"] == "com.crusorai.ide"
+    assert product["linuxIconName"] == "crusorai"
+    assert product["urlProtocol"] == "crusorai"
 
 
-def test_pulse_is_registered_once_as_a_workbench_contribution():
+def test_crusor_is_registered_once_as_a_workbench_contribution():
     text = MAIN.read_text(encoding="utf-8")
-    registration = "import './contrib/pulseai/browser/pulseAI.contribution.js';"
+    registration = "import './contrib/crusorai/browser/crusorAI.contribution.js';"
     assert text.count(registration) == 1
     contrib_files = list(CONTRIB.rglob("*.ts"))
     assert contrib_files
-    assert any(path.name == "pulseAI.contribution.ts" for path in contrib_files)
-    assert not (FORK / "extensions" / "pulseai").exists()
+    assert any(path.name == "crusorAI.contribution.ts" for path in contrib_files)
+    assert not (FORK / "extensions" / "crusorai").exists()
 
 
-def test_copilot_extension_and_pulse_core_registration_are_not_conflated():
-    """Copilot is an extension layered on core chat; Pulse is core-first.
+def test_copilot_extension_and_crusor_core_registration_are_not_conflated():
+    """Copilot is an extension layered on core chat; Crusor is core-first.
 
-    Pinning the distinction prevents a future attempt to make Pulse "more
+    Pinning the distinction prevents a future attempt to make Crusor "more
     native" by assigning it Copilot's extension/auth product contract.
     """
     copilot = json.loads(
@@ -71,26 +71,26 @@ def test_copilot_extension_and_pulse_core_registration_are_not_conflated():
     assert product["defaultChatAgent"]["chatExtensionId"] == "GitHub.copilot-chat"
     assert "GitHub.copilot-chat" in product["trustedExtensionAuthAccess"]["github"]
 
-    pulse = (CONTRIB / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
-    assert "registerSingleton(IPulseAIWorkbenchService" in pulse
-    assert "registerViewContainer" in pulse
-    assert not (FORK / "extensions" / "pulseai").exists()
+    crusor = (CONTRIB / "browser" / "crusorAI.contribution.ts").read_text(encoding="utf-8")
+    assert "registerSingleton(ICrusorAIWorkbenchService" in crusor
+    assert "registerViewContainer" in crusor
+    assert not (FORK / "extensions" / "crusorai").exists()
 
 
-def test_pulse_menu_and_view_commands_are_declared():
-    text = (CONTRIB / "browser" / "pulseAI.contribution.ts").read_text(encoding="utf-8")
+def test_crusor_menu_and_view_commands_are_declared():
+    text = (CONTRIB / "browser" / "crusorAI.contribution.ts").read_text(encoding="utf-8")
     assert "MenuId.MenubarMainMenu" in text
-    assert "MenubarPulseAI" in text
+    assert "MenubarCrusorAI" in text
     for command in (
         "NewSession", "OpenManager", "ReviewChanges", "OpenCheckpoints",
         "StopActiveRun", "OpenSettings",
     ):
-        assert f"PulseAICommandId.{command}" in text
+        assert f"CrusorAICommandId.{command}" in text
     assert "ViewContainerLocation.AuxiliaryBar" in text
-    assert "new SyncDescriptor(PulseAIViewPane)" in text
+    assert "new SyncDescriptor(CrusorAIViewPane)" in text
     assert "registerEditorPane" in text
-    assert "PulseAIManagerEditor" in text
-    assert "PulseAIManagerInputSerializer" in text
+    assert "CrusorAIManagerEditor" in text
+    assert "CrusorAIManagerInputSerializer" in text
     assert "openEditor(input, { pinned: true })" in text
 
 
@@ -102,13 +102,13 @@ def test_selective_manifest_matches_overlay_files():
         assert receipt["modified"] is True
     for rel, receipt in manifest["brand_assets"].items():
         assert _sha(FORK / rel) == receipt["overlay_sha256"]
-        assert receipt["generated_from"] == "branding/pulseai-mark.svg"
+        assert receipt["generated_from"] == "branding/crusorai-mark.svg"
 
 
 def test_canonical_fork_holds_the_overlay_without_runtime_artifacts():
     assert (FORK / "package.json").exists()
     assert (FORK / "build" / "buildfile.ts").exists()
-    assert (FORK / "resources" / "pulseai" / "pulseai-mark.svg").exists()
+    assert (FORK / "resources" / "crusorai" / "crusorai-mark.svg").exists()
     assert not (FORK / ".git").exists()
     assert not (DESKTOP / "product.json").exists()
     assert not (DESKTOP / "resources").exists()

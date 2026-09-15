@@ -80,7 +80,7 @@ def test_stats_shape_histogram_and_ring_buffer():
 
 
 def test_jsonl_sink_only_when_configured(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_CACHE_AUDIT_JSONL", raising=False)
+    monkeypatch.delenv("CRUSORAI_CACHE_AUDIT_JSONL", raising=False)
     quiet = CachePrefixAudit()
     assert quiet._jsonl_path is None
     loud = CachePrefixAudit(jsonl_path=str(tmp_path / "audit.jsonl"))

@@ -173,7 +173,7 @@ class _FakeToolLLM:
 
 def test_ai_node_counts_execute_code_only_turn(monkeypatch):
     """Test5-6 regression: PTC is efficient only when it batches work; each
-    provider request still counts toward Pulse's bounded paid turn. A mechanical
+    provider request still counts toward Crusor's bounded paid turn. A mechanical
     Hermes refund let repeated os.walk scripts evade forced delivery."""
     _patch_env_tool_reply(monkeypatch, budget=10, tool_names=["execute_code"])
     state = {"iteration_used": 3, "current_task": "fix bug", "messages": []}

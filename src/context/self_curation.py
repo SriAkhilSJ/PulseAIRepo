@@ -6,7 +6,7 @@ that replays a snapshot of the conversation against a combined memory/skill
 review prompt on the JANITOR (aux) model, then writes durable facts with the
 memory tool (turn_context.py:625, background_review.py:1030).
 
-PulseAI port, adapted to its shape:
+CrusorAI port, adapted to its shape:
 
   * Runs only after a whole agent run completes (stream_agent / invoke_agent),
     gated on a user-turn countdown (MEMORY_NUDGE_INTERVAL) — hermes'
@@ -28,7 +28,7 @@ import threading
 from typing import Any
 
 # hermes _COMBINED_REVIEW_PROMPT (background_review.py:307), trimmed to the
-# parts PulseAI can act on: durable user facts + preferences written to long-
+# parts CrusorAI can act on: durable user facts + preferences written to long-
 # term memory. Style-correction lessons feed D39's skill pipeline instead.
 _MEMORY_REVIEW_PROMPT = (
     "Review the conversation below and decide what, if anything, is worth "

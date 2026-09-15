@@ -1,4 +1,4 @@
-# 🫀 P2 Analysis — The VS Code Fork: whole-folder map + where PulseAI plugs in
+# 🫀 P2 Analysis — The VS Code Fork: whole-folder map + where CrusorAI plugs in
 
 **Prepared after auditing the ENTIRE VS Code OSS tree** (clone of `microsoft/vscode` main @ `a2aaf37`, product version **1.133.0**, **17,714 files**). Every claim below cites a path in that tree. No guessing.
 
@@ -37,14 +37,14 @@ Your agent needs native diffs, checkpoint timelines, telemetry panels → **cont
 | `src/vs/base` | utilities (events, async) | read-only |
 | `src/vs/platform` | services (files, config, telemetry) | read-only |
 | `src/vs/editor` | the Monaco text editor core | we *use* it |
-| **`src/vs/workbench/contrib/`** | **the 99 first-party features** | **PulseAI lives here** |
+| **`src/vs/workbench/contrib/`** | **the 99 first-party features** | **CrusorAI lives here** |
 | `extensions/` | 107 built-in extensions (git, css, copilot…) | untouched |
 | `cli/` | the `code`/tunnel launcher | ships our engine |
 | `remote/` | remote-server (SSH/containers) | later |
 | `build/` | gulp/npm build machinery | untouched |
 | `product.json` | **branding point** — name, icons, update URLs, "quality" | **the ONE file every fork edits** |
 
-### Anatomy of every contrib (3 layers — maps 1:1 onto PulseAI)
+### Anatomy of every contrib (3 layers — maps 1:1 onto CrusorAI)
 Every contrib is split into:
 ```
 contrib/<name>/
@@ -53,23 +53,23 @@ contrib/<name>/
   electron-browser/  ← runs in the desktop process — CAN SPAWN OS PROCESSES
 ```
 
-That third layer is why contrib is the only home for our agent: **`electron-browser/` is allowed to launch child processes.** Our PulseAI engine stays 100% Python — the fork spawns it as a *sidecar process*, same pattern the debugger uses for debug adapters (`contrib/debug`) and language servers use for LSP.
+That third layer is why contrib is the only home for our agent: **`electron-browser/` is allowed to launch child processes.** Our CrusorAI engine stays 100% Python — the fork spawns it as a *sidecar process*, same pattern the debugger uses for debug adapters (`contrib/debug`) and language servers use for LSP.
 
 ---
 
 ## 3. The plug-in architecture (M1 target shape)
 
 ```
-┌─ PulseCode (our VS Code fork) ────────────────────────────┐
-│  src/vs/workbench/contrib/pulse/                          │
+┌─ CrusorCode (our VS Code fork) ────────────────────────────┐
+│  src/vs/workbench/contrib/crusor/                          │
 │    browser/          chat view, diff previews,            │
 │                      checkpoint timeline, telemetry panel │
 │    common/           protocol messages (JSON-RPC-ish)     │
-│    electron-browser/ PulseEngineService ──────────────┐   │
+│    electron-browser/ CrusorEngineService ──────────────┐   │
 └───────────────────────────────────────────────────────┼───┘
                                                          │ spawns + stdio
 ┌────────────────────────────────────────────────────────┼───┐
-│  PulseAI engine (THIS repo — untouched Python)  ◄──────┘   │
+│  CrusorAI engine (THIS repo — untouched Python)  ◄──────┘   │
 │  422-green context engine, graph, tools, guards,           │
 │  checkpoints, cost router — the finished heart 🫀           │
 └────────────────────────────────────────────────────────────┘
@@ -81,7 +81,7 @@ That third layer is why contrib is the only home for our agent: **`electron-brow
 
 ---
 
-## 4. PulseAI feature → fork surface (the heart's organs get a body)
+## 4. CrusorAI feature → fork surface (the heart's organs get a body)
 
 | Engine feature (shipped, pinned) | Fork surface it becomes |
 |---|---|
@@ -99,13 +99,13 @@ That third layer is why contrib is the only home for our agent: **`electron-brow
 
 | | Milestone | What you SEE at the end |
 |---|---|---|
-| **M1** | **Brain inside the body** — fork builds & rebrands (`product.json` → PulseCode), empty `contrib/pulse/` shell spawns the Python engine, chat panel where typing talks to the real agent | **A VS Code that says "PulseCode", where you chat with YOUR agent** |
+| **M1** | **Brain inside the body** — fork builds & rebrands (`product.json` → CrusorCode), empty `contrib/crusor/` shell spawns the Python engine, chat panel where typing talks to the real agent | **A VS Code that says "CrusorCode", where you chat with YOUR agent** |
 | M2 | **Safety UX** — guarded edits as native diffs with approve/refuse; D32/D34 refusals as readable prompts | You watch the agent's edit BEFORE it lands, click ✅/❌ |
 | M3 | **Telemetry panel** — 4 metrics live per turn | Every turn shows tokens/latency/calls saved |
 | M4 | **Checkpoint timeline** — D31 👑 as a visual time machine | "Go back 3 turns" = one click |
-| M5 | **Packaging & sync** — installers (Win first), upstream-merge ritual documented | Downloadable PulseCode setup.exe |
+| M5 | **Packaging & sync** — installers (Win first), upstream-merge ritual documented | Downloadable CrusorCode setup.exe |
 
-**Fork-sync discipline** (so we drown in upstream changes never): all our code inside `contrib/pulse/` + `product.json` + one `FORK.md`; upstream merges monthly, conflicts stay tiny by construction.
+**Fork-sync discipline** (so we drown in upstream changes never): all our code inside `contrib/crusor/` + `product.json` + one `FORK.md`; upstream merges monthly, conflicts stay tiny by construction.
 
 ---
 

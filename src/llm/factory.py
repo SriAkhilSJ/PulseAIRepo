@@ -480,7 +480,7 @@ class RetryLLMProxy:
             # ------------------------------------------------------------------
             # P1 PROMPT-CACHE PLAN: decorate the byte-stable prefix head with
             # cache breakpoints (hermes prompt_caching.py shape). DEFAULT OFF —
-            # only applied when PULSEAI_PROMPT_CACHE=1 AND the provider/model is
+            # only applied when CRUSORAI_PROMPT_CACHE=1 AND the provider/model is
             # allowlisted (an OpenAI-compatible endpoint that rejects unknown
             # content fields must never 4xx a turn). Pure, never raises; the
             # failover stripper (cache_preservation.py) can always undo it.
@@ -541,7 +541,7 @@ class RetryLLMProxy:
 
             request_snapshot = build_request_snapshot(messages_arg, self._llm)
             capture_payload = os.environ.get(
-                "PULSEAI_CAPTURE_REQUEST_PAYLOADS", ""
+                "CRUSORAI_CAPTURE_REQUEST_PAYLOADS", ""
             ).strip().lower() in {"1", "true", "yes", "on"}
 
             for attempt in range(self._max_attempts):
@@ -575,7 +575,7 @@ class RetryLLMProxy:
                 try:
                     response = self._invoke_provider(provider_loop, *args, **kwargs)
                     # Hermes records the provider's completion boundary before
-                    # dispatching tools. Pulse previously retained only request
+                    # dispatching tools. Crusor previously retained only request
                     # metadata, so a token-limited tool call was
                     # indistinguishable from a complete one. Emit bounded
                     # response facts—never tool arguments or assistant text.
@@ -603,7 +603,7 @@ class RetryLLMProxy:
                     # a blackholed network or a dead key is diagnosable from
                     # the log alone.
                     print(
-                        f"[PulseAI LLM] attempt {attempt + 1}/{self._max_attempts} "
+                        f"[CrusorAI LLM] attempt {attempt + 1}/{self._max_attempts} "
                         f"failed on {self.model!r}: {type(error).__name__}: "
                         f"{str(error)[:200]}"
                     )
@@ -623,7 +623,7 @@ class RetryLLMProxy:
                     # rather than waiting up to 30 seconds for the next gate.
                     self._raise_if_cancelled()
                     delay = self._retry_delay(error, attempt)
-                    print(f"[PulseAI LLM] retrying in {delay:.1f}s ...")
+                    print(f"[CrusorAI LLM] retrying in {delay:.1f}s ...")
                     if sid is None:
                         time.sleep(delay)
                     else:
@@ -817,13 +817,13 @@ class RetryLLMProxy:
 def default_request_timeout() -> float:
     """Provider request timeout in seconds — env-driven, read per call.
 
-    PULSEAI_LLM_REQUEST_TIMEOUT_S (default 60). A hung provider must never
+    CRUSORAI_LLM_REQUEST_TIMEOUT_S (default 60). A hung provider must never
     wedge a turn forever, but the number is a deployment decision, not a
     hardcoded one.
     """
     import os as _os
     try:
-        return max(10.0, min(float(_os.environ.get("PULSEAI_LLM_REQUEST_TIMEOUT_S", "60")), 600.0))
+        return max(10.0, min(float(_os.environ.get("CRUSORAI_LLM_REQUEST_TIMEOUT_S", "60")), 600.0))
     except (TypeError, ValueError):
         return 60.0
 
@@ -837,8 +837,8 @@ def _stream_stall_timeout() -> float:
     the attempt within the budget. Field proof: the owner's endpoint hung
     after a tool call and the generation-sized 180s timeout handed it 3
     minutes of silent "Waiting on the model" per attempt. Env:
-    PULSEAI_LLM_STALL_TIMEOUT_S, default 45, clamp 10..300, read per call."""
-    raw = os.environ.get("PULSEAI_LLM_STALL_TIMEOUT_S", "")
+    CRUSORAI_LLM_STALL_TIMEOUT_S, default 45, clamp 10..300, read per call."""
+    raw = os.environ.get("CRUSORAI_LLM_STALL_TIMEOUT_S", "")
     try:
         value = float(raw) if raw.strip() else 45.0
     except (TypeError, ValueError):
@@ -849,7 +849,7 @@ def _stream_stall_timeout() -> float:
 def streaming_enabled(default: bool) -> bool:
     """Token streaming on/off -- env-driven, read per client construction.
 
-    PULSEAI_LLM_STREAMING: "1/true/yes/on" forces ON, anything else forces
+    CRUSORAI_LLM_STREAMING: "1/true/yes/on" forces ON, anything else forces
     OFF; unset falls back to the per-provider default. Hermes doctrine (the
     single stream owner): streaming is the NORMAL posture -- the user watches
     words arrive instead of staring at a frozen panel for the whole
@@ -859,10 +859,10 @@ def streaming_enabled(default: bool) -> bool:
     whose model streams fine, and words-arrive-as-words is the product
     posture. LangChain's sync invoke() owns and aggregates the stream
     (tool-call chunks included) -- the single-owner shape this file already
-    pins in its comments. PULSEAI_LLM_STREAMING=off is the escape hatch for
+    pins in its comments. CRUSORAI_LLM_STREAMING=off is the escape hatch for
     a server that mishandles `stream:true`.
     """
-    raw = os.environ.get("PULSEAI_LLM_STREAMING")
+    raw = os.environ.get("CRUSORAI_LLM_STREAMING")
     if raw is None or not str(raw).strip():
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
@@ -922,17 +922,17 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
 
     if provider == "cheap":
         # Owner directive 2026-09-06: the low tier is a FULLY env-configured
-        # OpenAI-compatible offload — PULSEAI_CHEAP_API_KEY / _BASE_URL /
+        # OpenAI-compatible offload — CRUSORAI_CHEAP_API_KEY / _BASE_URL /
         # _MODEL. No provider name is hardcoded; the endpoint just has to
         # speak the OpenAI API (groq, together, openrouter, local servers).
         # Env is read per call (standing rule) so rotation needs no restart.
         import os as _os
-        cheap_key = (_os.environ.get("PULSEAI_CHEAP_API_KEY") or "").strip()
-        cheap_url = (_os.environ.get("PULSEAI_CHEAP_BASE_URL") or "").strip()
+        cheap_key = (_os.environ.get("CRUSORAI_CHEAP_API_KEY") or "").strip()
+        cheap_url = (_os.environ.get("CRUSORAI_CHEAP_BASE_URL") or "").strip()
         if not cheap_key or not cheap_url:
             raise ValueError(
-                "provider 'cheap' requires PULSEAI_CHEAP_API_KEY and "
-                "PULSEAI_CHEAP_BASE_URL (and PULSEAI_CHEAP_MODEL in the router)"
+                "provider 'cheap' requires CRUSORAI_CHEAP_API_KEY and "
+                "CRUSORAI_CHEAP_BASE_URL (and CRUSORAI_CHEAP_MODEL in the router)"
             )
         llm = ChatOpenAI(
             api_key=cheap_key,
@@ -950,7 +950,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             # Sized to GENERATION length for NON-streaming calls (hermes
             # doctrine): a 100B-class model writing a large first response
             # legitimately needs >60s wall time when no stream is running.
-            timeout = float(os.environ.get("PULSEAI_LLM_TIMEOUT", "180"))
+            timeout = float(os.environ.get("CRUSORAI_LLM_TIMEOUT", "180"))
         except (TypeError, ValueError):
             timeout = 180.0
         if request_timeout is not None:
@@ -1059,7 +1059,7 @@ class EmbeddingFactory:
             # otherwise a missing cache cleanly disables optional memory via
             # LazyMemoryManager instead of retrying Hugging Face at import/use.
             allow_downloads = os.environ.get(
-                "PULSEAI_ALLOW_MODEL_DOWNLOADS", ""
+                "CRUSORAI_ALLOW_MODEL_DOWNLOADS", ""
             ).strip().lower() in {"1", "true", "yes", "on"}
             self._model = SentenceTransformer(
                 EMBEDDING_MODEL,

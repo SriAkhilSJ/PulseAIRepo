@@ -17,7 +17,7 @@ the thread a unique id so a previous run's checkpoint cannot vouch for this
 one, and gate it with
 
     pytestmark = pytest.mark.skipif(
-        os.environ.get("PULSEAI_ALLOW_LIVE_AGENT_TEST") != "1",
+        os.environ.get("CRUSORAI_ALLOW_LIVE_AGENT_TEST") != "1",
         reason="performs a real, billed provider turn",
     )
 """
@@ -112,7 +112,7 @@ def test_no_test_module_calls_the_agent_at_import_time():
         "a test module executes the agent while pytest collects, which bills the "
         "configured provider before anything is selected (no -k/-m filter has run "
         "yet) and can stall the suite for minutes; move it into a test function "
-        "and gate provider-touching ones behind PULSEAI_ALLOW_LIVE_AGENT_TEST: "
+        "and gate provider-touching ones behind CRUSORAI_ALLOW_LIVE_AGENT_TEST: "
         + ", ".join(offenders)
     )
 
@@ -143,5 +143,5 @@ def test_known_import_time_turns_do_not_grow():
     assert billed <= KNOWN_IMPORT_TIME_TURN_COUNT, (
         f"import-time *billed* agent turns grew from {KNOWN_IMPORT_TIME_TURN_COUNT} to {billed}: "
         "each one runs against the configured provider during collection, before "
-        "-k/-m filters apply. Gate it behind PULSEAI_ALLOW_LIVE_AGENT_TEST."
+        "-k/-m filters apply. Gate it behind CRUSORAI_ALLOW_LIVE_AGENT_TEST."
     )

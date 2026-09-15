@@ -6,7 +6,7 @@ the breakpoints it allocates, while the wire-visible count is what the provider 
 both, for a tool-less turn and a tool round-trip, so the relation is checkable instead of arguable.
 
 Usage (repo root, cache flags on for a realistic plan):
-    PULSEAI_PROMPT_CACHE=1 PULSEAI_PROMPT_CACHE_CUSTOM=1 \
+    CRUSORAI_PROMPT_CACHE=1 CRUSORAI_PROMPT_CACHE_CUSTOM=1 \
         python3 scripts/dump_cache_plan.py --base-url https://api.sarvam.ai/v1 --model sarvam-105b
 """
 from __future__ import annotations

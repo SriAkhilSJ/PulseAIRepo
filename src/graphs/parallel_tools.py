@@ -48,7 +48,7 @@ become error ToolMessages with pairing intact (same crash-net contract
 as handle_tool_errors=True, §27 — exact wording differs, documented,
 since ToolNode's own text is version-drift territory).
 
-Kill-switch: PULSEAI_PARALLEL_TOOLS=off => TRUE legacy: both gates step
+Kill-switch: CRUSORAI_PARALLEL_TOOLS=off => TRUE legacy: both gates step
 aside, ToolNode does what ToolNode does (concurrent, races included —
 pinned loudly so nobody mistakes "off" for "serial").
 """
@@ -282,7 +282,7 @@ def repair_tool_call_name(tool_name: str, valid_names: set[str]) -> Optional[str
 
     Field receipt (owner log 2026-09-08): the model emitted `terminal` —
     hermes' own shell tool name (terminal_tool.py:1358 `name="terminal"`) —
-    into pulse's `run_terminal`-named toolset, then `Bash`, and both fell
+    into crusor's `run_terminal`-named toolset, then `Bash`, and both fell
     through to ToolNode's terse unknown-name error; the turn flailed and
     died unverified. Same repair, same position (before validation).
     """
@@ -528,7 +528,7 @@ def try_parallel_batch(
     """None => not ours (kill-switch, single call, or refused by the gate —
     the caller then asks try_sequential_batch or ToolNode). Otherwise the
     ordered ToolMessages, every slot filled, order = input order."""
-    if os.environ.get("PULSEAI_PARALLEL_TOOLS", "").strip().lower() == "off":
+    if os.environ.get("CRUSORAI_PARALLEL_TOOLS", "").strip().lower() == "off":
         return None
     if not is_eligible(tool_calls, tools_by_name, workspace):
         return None
@@ -537,7 +537,7 @@ def try_parallel_batch(
     workers = max(1, min(_MAX_WORKERS, len(tool_calls)))
 
     with ThreadPoolExecutor(
-        max_workers=workers, thread_name_prefix="pulseai-tools"
+        max_workers=workers, thread_name_prefix="crusorai-tools"
     ) as pool:
         future_to_index = {}
         for index, tc in enumerate(tool_calls):
@@ -585,7 +585,7 @@ def try_sequential_batch(
     None => caller hands the batch to ToolNode: single call (no ordering
     question), unknown tool name (ToolNode owns that error text), or
     kill-switch (true legacy, races included)."""
-    if os.environ.get("PULSEAI_PARALLEL_TOOLS", "").strip().lower() == "off":
+    if os.environ.get("CRUSORAI_PARALLEL_TOOLS", "").strip().lower() == "off":
         return None
     if not tool_calls or len(tool_calls) < 2:
         return None

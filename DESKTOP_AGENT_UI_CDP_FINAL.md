@@ -27,7 +27,7 @@ Run only this targeted manager check. `--manager-only` submits no prompt, so thi
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\pulseAIagent\PulseAIRepo'
+$repo = 'D:\crusorAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
@@ -35,7 +35,7 @@ git fetch origin arena/01a03741-pulseairepo
 git pull --ff-only origin arena/01a03741-pulseairepo
 git merge-base --is-ancestor 23f3f0b4 HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Required harness fix missing — STOP' }
-node --check scripts/validate_pulse_ui_cdp.js
+node --check scripts/validate_crusor_ui_cdp.js
 if ($LASTEXITCODE -ne 0) { throw 'Harness syntax failed — STOP' }
 
 $evidence = Join-Path $repo 'bench-results\agent-ui-cdp-desktop-final'
@@ -43,7 +43,7 @@ if (Test-Path $evidence) { throw 'Final evidence already exists — STOP' }
 New-Item -ItemType Directory -Path $evidence | Out-Null
 git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding utf8
 
-$profile = Join-Path $env:TEMP 'pulseai-ui-cdp-final-profile'
+$profile = Join-Path $env:TEMP 'crusorai-ui-cdp-final-profile'
 if (Test-Path $profile) { throw 'Final profile already exists — STOP' }
 New-Item -ItemType Directory -Path (Join-Path $profile 'User') -Force | Out-Null
 @'
@@ -55,12 +55,12 @@ New-Item -ItemType Directory -Path (Join-Path $profile 'User') -Force | Out-Null
 '@ | Set-Content (Join-Path $profile 'User\settings.json') -Encoding utf8
 
 if (Get-NetTCPConnection -LocalPort 9222 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 9222 in use — STOP' }
-if (Get-Process PulseAI -ErrorAction SilentlyContinue) { throw 'PulseAI already running — STOP' }
+if (Get-Process CrusorAI -ErrorAction SilentlyContinue) { throw 'CrusorAI already running — STOP' }
 
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_ENGINE_ROOT = $repo
-$env:PULSEAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
-$env:PULSEAI_CDP_PORT = '9222'
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_PYTHON_PATH = Join-Path $repo '.venv\Scripts\python.exe'
+$env:CRUSORAI_CDP_PORT = '9222'
 $process = Start-Process `
   -FilePath (Join-Path $repo 'desktop\vscode\scripts\code.bat') `
   -ArgumentList @($repo, "--user-data-dir=$profile", '--remote-debugging-port=9222') `
@@ -77,7 +77,7 @@ do {
 if (-not $version) { throw 'CDP unavailable — preserve logs and STOP' }
 $version | ConvertTo-Json -Depth 5 | Set-Content "$evidence\cdp-version.json" -Encoding utf8
 
-node scripts/validate_pulse_ui_cdp.js $evidence --manager-only 2>&1 |
+node scripts/validate_crusor_ui_cdp.js $evidence --manager-only 2>&1 |
   Tee-Object "$evidence\cdp-ui-console.log"
 $cdpExit = $LASTEXITCODE
 ```
@@ -101,7 +101,7 @@ Expected screenshots: `01-agent-ready.png`, `02-agent-narrow.png`, `04-manager-w
 ```powershell
 if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
 Start-Sleep -Seconds 3
-Remove-Item Env:PULSEAI_BRIDGE_RUNNER, Env:PULSEAI_ENGINE_ROOT, Env:PULSEAI_PYTHON_PATH, Env:PULSEAI_CDP_PORT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER, Env:CRUSORAI_ENGINE_ROOT, Env:CRUSORAI_PYTHON_PATH, Env:CRUSORAI_CDP_PORT -ErrorAction SilentlyContinue
 ```
 
 Create `validation-summary.json` and `validation-report.md`. Keep prior classifications immutable. The combined UI runtime verdict may be PASS only if:
@@ -121,7 +121,7 @@ Get-FileHash "$evidence\*" -Algorithm SHA256 -ErrorAction SilentlyContinue |
 git add -- bench-results/agent-ui-cdp-desktop-final
 git diff --cached --name-only | Set-Content "$evidence\staged-files.txt" -Encoding utf8
 git add -- "$evidence\staged-files.txt"
-git commit -m "Add final provider-free Pulse Manager CDP evidence"
+git commit -m "Add final provider-free Crusor Manager CDP evidence"
 git push origin arena/01a03741-pulseairepo
 ```
 

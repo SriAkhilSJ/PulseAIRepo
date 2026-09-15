@@ -1,4 +1,4 @@
-"""Headless Scope/Pulse IDE bridge with real agent streaming and turn control.
+"""Headless Scope/Crusor IDE bridge with real agent streaming and turn control.
 
 Workspace contract (P0): a session is only ever bound to a real project folder.
 The renderer disables prompt submission without one, and the bridge enforces
@@ -22,7 +22,7 @@ _EVENT_FLUSH_TIMEOUT_S = 5.0
 # knobs from os.environ at import time, and the desktop child process cannot
 # rely on Windows propagating freshly `setx`-ed user env through a
 # still-running explorer.exe (the owner's scan knobs silently never arrived).
-# The workspace `.env` (cwd == engine root) and ~/.pulseai/.env are the
+# The workspace `.env` (cwd == engine root) and ~/.crusorai/.env are the
 # reliable sources. load_dotenv never overrides values already in the
 # process environment: real env wins, files are the fallback.
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ try:
     from pathlib import Path as _dotenv_path
     from dotenv import load_dotenv as _load_dotenv
     _load_dotenv()  # <engine root>/.env
-    _load_dotenv(str(_dotenv_path.home() / ".pulseai" / ".env"))
+    _load_dotenv(str(_dotenv_path.home() / ".crusorai" / ".env"))
 except Exception:
     pass  # env files are a fallback; their absence must never block boot
 
@@ -51,7 +51,7 @@ _WORKSPACE_REQUIRED_METHODS = frozenset({
     "host_capabilities_update", "host_tool_result",
 })
 NO_WORKSPACE_ERROR = (
-    "workspace required: open a project folder before starting a Pulse session"
+    "workspace required: open a project folder before starting a Crusor session"
 )
 
 
@@ -110,7 +110,7 @@ class BridgeServer:
         """Count durable checkpoints for a thread id (read-only, no engine
         import). None = unknown (db unreadable/schema changed) — never
         reported as 0 when unknown."""
-        db = db_path or os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
+        db = db_path or os.path.join(os.path.expanduser("~"), ".crusorai", "sessions.db")
         if not os.path.exists(db):
             return 0
         try:
@@ -334,7 +334,7 @@ class BridgeServer:
                     self.emit(frame)
             except Exception as exc:
                 print(
-                    f"[PulseAI bridge] event forwarder failed: {type(exc).__name__}: {exc}",
+                    f"[CrusorAI bridge] event forwarder failed: {type(exc).__name__}: {exc}",
                     file=sys.stderr, flush=True,
                 )
                 try:
@@ -375,7 +375,7 @@ class BridgeServer:
         # explicitly: the scheduled dump must always be cancelled after the
         # turn, and the echo branch must not leak it either.
         diagnostics_enabled = (
-            os.environ.get("PULSEAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}
+            os.environ.get("CRUSORAI_BRIDGE_DIAGNOSTICS", "").lower() in {"1", "true", "yes"}
         )
         if diagnostics_enabled:
             import faulthandler
@@ -390,7 +390,7 @@ class BridgeServer:
         # node but the turn never ended - "Working" hung until the user pressed
         # Stop. The bridge emits the terminal frame itself (stall receipt) so
         # the session is RELEASED even while the stuck thread stays stuck.
-        # PULSEAI_TURN_STALL_TIMEOUT_S, 0 = off.
+        # CRUSORAI_TURN_STALL_TIMEOUT_S, 0 = off.
         #
         # FIELD FIX (owner log 2026-09-08): the first watchdog fired on a LIVE
         # turn — it timed TOTAL wall time from turn start, and a turn the
@@ -423,24 +423,24 @@ class BridgeServer:
             run_stall_watchdog(
                 terminal=_terminal,
                 liveness=_liveness,
-                budget_env=os.environ.get("PULSEAI_TURN_STALL_TIMEOUT_S", "").strip(),
+                budget_env=os.environ.get("CRUSORAI_TURN_STALL_TIMEOUT_S", "").strip(),
                 fire=lambda budget: self._emit_stall_release(identity, _force_ended, budget),
             )
 
-        threading.Thread(target=_stall_watchdog, name="pulseai-turn-watchdog", daemon=True).start()
+        threading.Thread(target=_stall_watchdog, name="crusorai-turn-watchdog", daemon=True).start()
         # Establish active ownership before publishing turn_started. Once the
         # UI can show Stop, stream_agent's nested begin must preserve it.
         turn_controls.begin(sid)
         set_active_session(sid)
         try:
             self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
-            if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() == "echo":
-                # Test seam (PULSEAI_ECHO_DELAY_MS): simulate an in-flight turn
+            if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() == "echo":
+                # Test seam (CRUSORAI_ECHO_DELAY_MS): simulate an in-flight turn
                 # that honours a cancel request, mirroring real turn semantics.
                 # Used by the reliability-benchmark harness (PBR-012) to verify
                 # cancel behaviour with zero model calls. Default 0 => the
                 # historical instant echo turn, byte-compatible with past tests.
-                delay_ms = int(os.environ.get("PULSEAI_ECHO_DELAY_MS", "0") or "0")
+                delay_ms = int(os.environ.get("CRUSORAI_ECHO_DELAY_MS", "0") or "0")
                 if delay_ms > 0:
                     from src.runtime.turn_control import turn_controls
                     import time as _time
@@ -498,7 +498,7 @@ class BridgeServer:
                 # this handoff every safe write emits safety_request and a
                 # headless runner waits until the watchdog kills the bridge.
                 approval_policy = os.environ.get(
-                    "PULSEAI_BRIDGE_APPROVAL_POLICY", "ask"
+                    "CRUSORAI_BRIDGE_APPROVAL_POLICY", "ask"
                 ).strip()
                 if approval_policy not in {"ask", "workspace_session", "session"}:
                     approval_policy = "ask"
@@ -519,7 +519,7 @@ class BridgeServer:
                 # engine completed and the hunt is renderer-side; if it never
                 # appears, the wall between the last ai answer and this line
                 # names the guilty call. (stderr -> owner log as
-                # `[PulseAI Engine] ...`.)
+                # `[CrusorAI Engine] ...`.)
                 import sys as _sys
                 import time as _time
                 _turn_wall = _time.monotonic() - _turn_t0
@@ -712,7 +712,7 @@ class BridgeServer:
                 # sys.modules, the worker's own imports are instant no-ops.
                 # The echo runner never touches chat_graph, so skip the ~11s
                 # warm-up there.
-                if os.environ.get("PULSEAI_BRIDGE_RUNNER", "").lower() != "echo":
+                if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo":
                     from src.dashboard.event_bus import event_bus  # noqa: F401
                     from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
@@ -923,9 +923,9 @@ class BridgeServer:
         the memory warmup notice. Housekeeping (hermes: memory saves are
         never on the turn's critical path) belongs at boot, where its cost
         is visible and its failure cannot eat a live conversation. The
-        PULSEAI_MEMORY_WARMUP_AT_BOOT gate is read per process start.
+        CRUSORAI_MEMORY_WARMUP_AT_BOOT gate is read per process start.
         """
-        if os.environ.get("PULSEAI_MEMORY_WARMUP_AT_BOOT", "").strip().lower() in {"0", "false", "no", "off"}:
+        if os.environ.get("CRUSORAI_MEMORY_WARMUP_AT_BOOT", "").strip().lower() in {"0", "false", "no", "off"}:
             return
 
         def _warm():
@@ -936,7 +936,7 @@ class BridgeServer:
             except Exception as exc:
                 print(f"[bridge] boot memory warmup skipped: {exc!r}", file=sys.stderr, flush=True)
 
-        threading.Thread(target=_warm, name="pulseai-boot-warmup", daemon=True).start()
+        threading.Thread(target=_warm, name="crusorai-boot-warmup", daemon=True).start()
 
     @staticmethod
     def _apply_memory_policy() -> None:
@@ -949,18 +949,18 @@ class BridgeServer:
         memory housekeeping OFF the turn's critical path; ours sat right
         on it. Until the backend moves behind a real process boundary,
         the desktop engine runs with memory disabled unless the user
-        opts in (PULSEAI_MEMORY=on). CLI/dashboard surfaces are not
+        opts in (CRUSORAI_MEMORY=on). CLI/dashboard surfaces are not
         affected (this policy lives in the bridge). Must run BEFORE the
         first chat_graph import — the lazy manager reads the env there.
         """
-        opted_in = os.environ.get("PULSEAI_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
+        opted_in = os.environ.get("CRUSORAI_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
         if opted_in:
-            print("[bridge] long-term memory: ON (PULSEAI_MEMORY=on)", file=sys.stderr, flush=True)
+            print("[bridge] long-term memory: ON (CRUSORAI_MEMORY=on)", file=sys.stderr, flush=True)
             return
-        os.environ.setdefault("PULSEAI_DISABLE_LONG_TERM_MEMORY", "1")
+        os.environ.setdefault("CRUSORAI_DISABLE_LONG_TERM_MEMORY", "1")
         print(
             "[bridge] long-term memory: OFF (desktop default; "
-            "PULSEAI_MEMORY=on to enable)",
+            "CRUSORAI_MEMORY=on to enable)",
             file=sys.stderr, flush=True,
         )
 
@@ -1006,8 +1006,8 @@ class BridgeServer:
             import subprocess
             from pathlib import Path
             root = Path(__file__).resolve().parents[2]
-            src_dir = root / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai"
-            out_file = root / "desktop" / "vscode" / "out" / "vs" / "workbench" / "contrib" / "pulseai" / "browser" / "pulseAIRenderer.js"
+            src_dir = root / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai"
+            out_file = root / "desktop" / "vscode" / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "crusorAIRenderer.js"
             srcs = list(src_dir.rglob("*.ts")) if src_dir.is_dir() else []
             if not srcs:
                 return  # unusual layout (packaged engine without the fork tree) — nothing to compare
@@ -1030,7 +1030,7 @@ class BridgeServer:
             # no mtime jitter.)
             import hashlib
             def _sources_hash():
-                # Mirrors scripts/emit-pulseai-bundle.mjs BYTE-FOR-BYTE:
+                # Mirrors scripts/emit-crusorai-bundle.mjs BYTE-FOR-BYTE:
                 # repo-relative-to-desktop/vscode POSIX paths in codepoint
                 # order, feeding rel + NUL + line-ending-normalized bytes
                 # + NUL, emitter last. Normalization is CRLF -> LF at the
@@ -1047,7 +1047,7 @@ class BridgeServer:
                 # != shipped f5b8d974… on every boot over a PRISTINE tree):
                 # this used to be `sorted(<Path objects>)`, and on Windows
                 # PurePath comparison is case-insensitive (os.path.normcase)
-                # — so `pulseAI…` vs `pulseai…` siblings ordered opposite to
+                # — so `crusorAI…` vs `crusorai…` siblings ordered opposite to
                 # the JS emitter's codepoint string sort, the hash inputs
                 # fed in a different order, and a byte-identical checkout
                 # hashed to a different digest. The STALE banner fired on a
@@ -1065,7 +1065,7 @@ class BridgeServer:
                     h.update(b"\0")
                     h.update(f.read_bytes().replace(b"\r\n", b"\n"))
                     h.update(b"\0")
-                emitter = vscode_root / "scripts" / "emit-pulseai-bundle.mjs"
+                emitter = vscode_root / "scripts" / "emit-crusorai-bundle.mjs"
                 h.update(emitter.relative_to(vscode_root).as_posix().encode("utf-8"))
                 h.update(b"\0")
                 h.update(emitter.read_bytes().replace(b"\r\n", b"\n"))
@@ -1078,13 +1078,13 @@ class BridgeServer:
                 if shipped == current:
                     print(
                         "[bridge] desktop UI: compiled workbench matches the pulled "
-                        "pulseai sources (sha256) — panel is current",
+                        "crusorai sources (sha256) — panel is current",
                         file=sys.stderr, flush=True,
                     )
                     return
                 print(
                     "[bridge] DESKTOP WORKBENCH STALE: the shipped panel was emitted "
-                    "from DIFFERENT pulseai sources than this checkout (sha256 "
+                    "from DIFFERENT crusorai sources than this checkout (sha256 "
                     f"{shipped[:12]}… != {current[:12]}…) — the Agent pane will render "
                     "OLD cards no matter what the engine runs. Fix: `git pull` (the "
                     f"repo ships a current compiled panel), or `npx gulp compile` in "
@@ -1129,7 +1129,7 @@ class BridgeServer:
                             "[bridge] STALE diagnosis (per-file manifest): "
                             + "; ".join(lines)
                             + " — compare with `git status -- desktop/vscode/src/vs/"
-                            "workbench/contrib/pulseai` and restore with "
+                            "workbench/contrib/crusorai` and restore with "
                             "`git checkout -- <file>` (or delete the extra file).",
                             file=sys.stderr, flush=True,
                         )
@@ -1137,7 +1137,7 @@ class BridgeServer:
                         print(
                             "[bridge] STALE diagnosis: every manifest file matches — "
                             "the drift is in tree membership or the emitter itself; "
-                            "re-run `node scripts/emit-pulseai-bundle.mjs` in "
+                            "re-run `node scripts/emit-crusorai-bundle.mjs` in "
                             "desktop/vscode and reopen.",
                             file=sys.stderr, flush=True,
                         )
@@ -1180,14 +1180,14 @@ class BridgeServer:
             if newest_src > out_file.stat().st_mtime + slack:
                 fmt = lambda ts: _t.strftime("%Y-%m-%d %H:%M", _t.localtime(ts))
                 print(
-                    "[bridge] DESKTOP WORKBENCH STALE (mtimes): pulseai UI sources changed "
+                    "[bridge] DESKTOP WORKBENCH STALE (mtimes): crusorai UI sources changed "
                     f"({fmt(newest_src)}) but the compiled panel ({fmt(out_file.stat().st_mtime)}) "
                     "predates them — run `npx gulp compile` in "
                     f"{root / 'desktop' / 'vscode'}, then fully quit and reopen the app.",
                     file=sys.stderr, flush=True,
                 )
             else:
-                print("[bridge] desktop UI: compiled workbench is newer than the newest pulseai source — panel is current", file=sys.stderr, flush=True)
+                print("[bridge] desktop UI: compiled workbench is newer than the newest crusorai source — panel is current", file=sys.stderr, flush=True)
         except Exception as exc:
             print(f"[bridge] desktop UI freshness check skipped ({exc})", file=sys.stderr, flush=True)
 

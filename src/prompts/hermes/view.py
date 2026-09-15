@@ -1,12 +1,12 @@
-"""``PulsePromptView`` — the Pulse backend that satisfies the Hermes prompt contract.
+"""``CrusorPromptView`` — the Crusor backend that satisfies the Hermes prompt contract.
 
 Upstream's prompt builders all take one argument, ``agent``, and read a fixed
 set of attributes off it (``valid_tool_names``, ``model``, ``provider``,
-``_memory_store``, ``load_soul_identity``, the cached-prompt slots, …). Pulse
+``_memory_store``, ``load_soul_identity``, the cached-prompt slots, …). Crusor
 has no ``AIAgent`` object: its equivalents are spread over
 ``src/config/settings``, ``src/tools/toolsets``, ``src/context/*`` and the
 graph state. This module is the single seam that binds them, so the prompt
-engine upstream-side stays byte-faithful and everything Pulse-specific lives
+engine upstream-side stays byte-faithful and everything Crusor-specific lives
 in ONE auditable place.
 
 Nothing here builds prompt text; it only resolves inputs.
@@ -29,7 +29,7 @@ def _env_flag(name: str, default: bool = True) -> bool:
 
 def _gate_setting(name: str) -> Any:
     """hermes reads agent.tool_use_enforcement / agent.execution_guidance from
-    config.yaml as bool / word / list / "auto"; pulse's config surface is the
+    config.yaml as bool / word / list / "auto"; crusor's config surface is the
     environment, so a comma-separated value is the env transport for
     upstream's YAML list. Read per call (the standing env rule)."""
     raw = str(os.environ.get(name, "") or "").strip()
@@ -41,10 +41,10 @@ def _gate_setting(name: str) -> Any:
 
 
 def resolve_valid_tool_names(task: str = "", config: Any = None) -> Set[str]:
-    """The session's tool surface — Pulse's narrow waist, not the whole registry.
+    """The session's tool surface — Crusor's narrow waist, not the whole registry.
 
     Hermes gates every guidance block on ``agent.valid_tool_names`` so a block
-    can never advertise a tool the model cannot call. Pulse's equivalent of
+    can never advertise a tool the model cannot call. Crusor's equivalent of
     that resolution already exists (``src/tools/toolsets.py`` driven by
     ``runtime_profile``), so the prompt engine consumes it rather than keeping
     its own list: same gate, one source of truth.
@@ -67,7 +67,7 @@ def resolve_valid_tool_names(task: str = "", config: Any = None) -> Set[str]:
 
 
 @dataclass
-class PulsePromptView:
+class CrusorPromptView:
     """Attribute surface the ported prompt builders read.
 
     Field names intentionally match upstream's ``agent`` attributes: that is
@@ -83,7 +83,7 @@ class PulsePromptView:
     # ── model surface ──────────────────────────────────────────────────────
     model: str = ""
     provider: str = ""
-    platform: str = "ide"                    # Pulse surfaces: ide | cli | dashboard | bridge
+    platform: str = "ide"                    # Crusor surfaces: ide | cli | dashboard | bridge
     context_length: Optional[int] = None
     pass_session_id: bool = True
     session_id: str = ""
@@ -98,7 +98,7 @@ class PulsePromptView:
     skip_context_files: bool = False
     context_file_max_chars: Optional[int] = None
 
-    # ── block gating (upstream config.yaml keys, Pulse env vars) ───────────
+    # ── block gating (upstream config.yaml keys, Crusor env vars) ───────────
     task_completion_guidance: bool = True
     parallel_tool_call_guidance: bool = True
     tool_use_enforcement: Any = "auto"        # upstream agent.tool_use_enforcement
@@ -159,7 +159,7 @@ class PulsePromptView:
         return self.platform_hint_overrides
 
     def _emit_status(self, message: str) -> None:
-        """Upstream's status channel; Pulse's is the bridge/dashboard receipt list."""
+        """Upstream's status channel; Crusor's is the bridge/dashboard receipt list."""
         if message:
             self.status_sink.append(message)
 
@@ -177,13 +177,13 @@ def _settings() -> Any:
         return None
 
 
-def pulse_home() -> Path:
-    """Pulse's equivalent of ``HERMES_HOME`` — where SOUL.md / skills live."""
-    raw = os.environ.get("PULSE_HOME", "").strip()
+def crusor_home() -> Path:
+    """Crusor's equivalent of ``HERMES_HOME`` — where SOUL.md / skills live."""
+    raw = os.environ.get("CRUSOR_HOME", "").strip()
     if raw:
         return Path(raw).expanduser()
     settings = _settings()
-    candidate = getattr(settings, "PULSE_HOME", None)
+    candidate = getattr(settings, "CRUSOR_HOME", None)
     if candidate:
         return Path(str(candidate)).expanduser()
     return Path(__file__).resolve().parents[2]
@@ -195,8 +195,8 @@ def view_from_config(
     *,
     tools: Optional[Iterable[Any]] = None,
     task: str = "",
-) -> PulsePromptView:
-    """Build the view from Pulse's real runtime inputs (graph config + state).
+) -> CrusorPromptView:
+    """Build the view from Crusor's real runtime inputs (graph config + state).
 
     Defensive by design: this runs on the AG-UI path, where the caller may send
     only ``messages`` and none of the CLI/bridge configurables — the same trap
@@ -225,8 +225,8 @@ def view_from_config(
     workspace = str(cfg("workspace", "") or "")
     # Absolute-as-is (the repo's resolver rule): a drive-letter path from a
     # Windows workspace is ABSOLUTE even when the engine host is POSIX —
-    # Path("d:\\TestPulseAI") is relative there, and resolve() welded it onto
-    # the engine's own cwd ("/engine/root/d:\TestPulseAI"), naming a directory
+    # Path("d:\\TestCrusorAI") is relative there, and resolve() welded it onto
+    # the engine's own cwd ("/engine/root/d:\TestCrusorAI"), naming a directory
     # that exists nowhere (field-class bug, probed 2026-09-06).
     if re.match(r"^[A-Za-z]:[\\/]", workspace):
         cwd = Path(workspace)
@@ -270,12 +270,12 @@ def view_from_config(
     except Exception:
         skill_manager = None
 
-    home = pulse_home()
-    return PulsePromptView(
+    home = crusor_home()
+    return CrusorPromptView(
         identity=str(cfg("persona", "") or "") or None,
         model=model,
         provider=provider,
-        platform=str(cfg("surface", os.environ.get("PULSEAI_SURFACE", "ide")) or "ide"),
+        platform=str(cfg("surface", os.environ.get("CRUSORAI_SURFACE", "ide")) or "ide"),
         context_length=context_length,
         session_id=str(cfg("thread_id", "") or cfg("session_id", "") or ""),
         valid_tool_names=tool_names,
@@ -284,24 +284,24 @@ def view_from_config(
         home=home,
         soul_path=home / "SOUL.md",
         skip_context_files=bool(cfg("skip_context_files", False)),
-        task_completion_guidance=_env_flag("PULSEAI_TASK_COMPLETION_GUIDANCE", True),
-        parallel_tool_call_guidance=_env_flag("PULSEAI_PARALLEL_TOOL_GUIDANCE", True),
-        tool_use_enforcement=_gate_setting("PULSEAI_TOOL_USE_ENFORCEMENT"),
-        execution_guidance=_gate_setting("PULSEAI_EXECUTION_GUIDANCE"),
-        memory_enabled=_env_flag("PULSEAI_MEMORY_GUIDANCE", False),
-        user_profile_enabled=_env_flag("PULSEAI_USER_PROFILE_GUIDANCE", False),
-        steer_enabled=_env_flag("PULSEAI_STEER_NOTE", True),
+        task_completion_guidance=_env_flag("CRUSORAI_TASK_COMPLETION_GUIDANCE", True),
+        parallel_tool_call_guidance=_env_flag("CRUSORAI_PARALLEL_TOOL_GUIDANCE", True),
+        tool_use_enforcement=_gate_setting("CRUSORAI_TOOL_USE_ENFORCEMENT"),
+        execution_guidance=_gate_setting("CRUSORAI_EXECUTION_GUIDANCE"),
+        memory_enabled=_env_flag("CRUSORAI_MEMORY_GUIDANCE", False),
+        user_profile_enabled=_env_flag("CRUSORAI_USER_PROFILE_GUIDANCE", False),
+        steer_enabled=_env_flag("CRUSORAI_STEER_NOTE", True),
         memory_store=memory_store,
         skill_manager=skill_manager,
-        skills_enabled=_env_flag("PULSEAI_SKILLS_INDEX", True),
+        skills_enabled=_env_flag("CRUSORAI_SKILLS_INDEX", True),
         skills_dir=home / "skills",
         platform_hint_overrides={},
     )
 
 
 __all__ = [
-    "PulsePromptView",
-    "pulse_home",
+    "CrusorPromptView",
+    "crusor_home",
     "resolve_valid_tool_names",
     "view_from_config",
 ]

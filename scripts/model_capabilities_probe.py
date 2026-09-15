@@ -1,6 +1,6 @@
 """What does my provider actually say about this model? Print it, don't guess.
 
-Pulse now derives the context window from the endpoint's own `/models` metadata, the way Hermes does. If a turn
+Crusor now derives the context window from the endpoint's own `/models` metadata, the way Hermes does. If a turn
 still reports `source: default`, that is a fact about the endpoint, not a bug to hunt through the engine -- this
 script says which it is in one read: the URL asked, whether it answered, whether the configured id was found,
 which of the twelve window keys the entry carries, and the budget the engine will therefore build.

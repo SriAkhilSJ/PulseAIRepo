@@ -17,7 +17,7 @@ VS Code window
         extension host → kilo-gateway / core → engines
 ```
 
-**They are an EXTENSION with a webview UI — we are a FORK with a contrib.** The designs below transfer 1:1: our `contrib/pulse/browser/` layer can render these same surfaces *natively* (no webview sandbox), while their message-bridge pattern maps onto our engine-sidecar protocol. We keep the fork benefits (native diff editor, checkpoint timeline with real editor scroll) and steal their *component designs*, which are excellent.
+**They are an EXTENSION with a webview UI — we are a FORK with a contrib.** The designs below transfer 1:1: our `contrib/crusor/browser/` layer can render these same surfaces *natively* (no webview sandbox), while their message-bridge pattern maps onto our engine-sidecar protocol. We keep the fork benefits (native diff editor, checkpoint timeline with real editor scroll) and steal their *component designs*, which are excellent.
 
 **Do NOT copy their plumbing:** 41 packages, bun + turbo + effect-ts, 5 UI packages. That's a company-scale monorepo. Our fork = vscode + one contrib + Python sidecar. Different league, same lessons.
 
@@ -85,7 +85,7 @@ The system underneath (core `permission.ts`):
 - **Display-side armor:** punycode-normalized URLs (anti-homograph), control/bidi character escaping so a command can't repaint itself (anti Trojan-Source)
 - Special flows: `external_directory` (outside workspace), skill batches (never persisted)
 
-**Map onto PulseAI:** our SafetyGuard approves per-call and asks *every time* an overwrite appears. Their per-pattern permission memory is the upgrade — candidate **D36: permission memory** (approve `write_file` for `generated/**` once → never nagged again; deny `npm publish *` once → refused forever). ⏸️ Proposal only, not shipped — your call.
+**Map onto CrusorAI:** our SafetyGuard approves per-call and asks *every time* an overwrite appears. Their per-pattern permission memory is the upgrade — candidate **D36: permission memory** (approve `write_file` for `generated/**` once → never nagged again; deny `npm publish *` once → refused forever). ⏸️ Proposal only, not shipped — your call.
 
 ---
 
@@ -120,7 +120,7 @@ Their model: revert = move a **message boundary**, show per-file diff stats, and
 
 ## 6. Full card inventory (the 41 chat components, sorted by job)
 
-| Job | Their cards | Adopt for PulseCode? |
+| Job | Their cards | Adopt for CrusorCode? |
 |---|---|---|
 | Permission | `PermissionDock`, `PermissionDiff`, `PermissionCommand` | ✅ M2 (native diff editor instead of webview diff) |
 | Ask user | `QuestionDock` | ✅ M2 (our `ask_user` gets a dock card) |
@@ -132,7 +132,7 @@ Their model: revert = move a **message boundary**, show per-file diff stats, and
 | Input | `PromptInput`, `PromptRail`, `SuggestBar`, `SessionMentionPicker` | ✅ M1 (@-mention files = cheap RAG UX) |
 | Sessions | `SessionTabStrip/Tab/Menu/Switcher`, `TabDnd` (drag!) | ⏳ M5 (multi-agent sessions — pairs with D33 batches) |
 | Niceties | `WelcomeEmptyState`, `ErrorDisplay`, `StartupErrorBanner`, `FeedbackDialog`, `KiloNotifications`, `AgentRequirements`, `ReviewComments`, `CloudImportDialog` | ⏳ as needed |
-| Component dev method | **every card has a `.stories.tsx`** (storybook catalog) | ✅ adopt the *habit*: build each PulseCode card against mock data first |
+| Component dev method | **every card has a `.stories.tsx`** (storybook catalog) | ✅ adopt the *habit*: build each CrusorCode card against mock data first |
 
 ---
 

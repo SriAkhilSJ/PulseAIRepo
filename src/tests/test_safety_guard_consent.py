@@ -138,7 +138,7 @@ def test_copy_between_recoverable_paths_is_free(repo):
 
 
 def test_named_secrets_ask_even_under_autonomous_writes(repo, monkeypatch):
-    monkeypatch.setenv("PULSEAI_AUTO_APPROVE_WRITES", "1")
+    monkeypatch.setenv("CRUSORAI_AUTO_APPROVE_WRITES", "1")
     guard = SafetyGuard(str(repo))
     assert guard.check_tool_call("write_file", {"path": ".env", "content": "x"})[0] is False
     # ... while ordinary tracked writes stay allowed, as D11 requires.
@@ -148,7 +148,7 @@ def test_named_secrets_ask_even_under_autonomous_writes(repo, monkeypatch):
 def test_autonomous_writes_keep_their_historical_freedom_for_ignored_paths(repo, monkeypatch):
     """Eval mode has no human to answer, so `out/` stays writable; the secrets veto
     above it does not relax. This is the compatibility contract for D11."""
-    monkeypatch.setenv("PULSEAI_AUTO_APPROVE_WRITES", "1")
+    monkeypatch.setenv("CRUSORAI_AUTO_APPROVE_WRITES", "1")
     assert SafetyGuard(str(repo)).check_tool_call(
         "write_file", {"path": "out/gen.js", "content": "x"}
     )[0] is True
@@ -178,11 +178,11 @@ def test_no_repo_falls_back_to_the_previous_behaviour(tmp_path):
 
 
 def test_kill_switch_restores_the_old_lenient_default(repo, monkeypatch):
-    monkeypatch.setenv("PULSEAI_SAFETY_GITIGNORE", "0")
+    monkeypatch.setenv("CRUSORAI_SAFETY_GITIGNORE", "0")
     ok, _ = SafetyGuard(str(repo)).check_tool_call(
         "write_file", {"path": "out/gen.js", "content": "x"}
     )
-    assert ok is True, "PULSEAI_SAFETY_GITIGNORE=0 must mean 'do not consult git'"
+    assert ok is True, "CRUSORAI_SAFETY_GITIGNORE=0 must mean 'do not consult git'"
     # The secrets veto survives the kill switch — it is not the gitignore rule.
     assert SafetyGuard(str(repo)).check_tool_call(
         "write_file", {"path": ".env", "content": "x"}

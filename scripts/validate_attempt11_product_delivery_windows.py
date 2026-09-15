@@ -20,7 +20,7 @@ from pathlib import Path
 REPAIR = "0370515cce811dd4d86d14379dd2729a94e640b1"
 PRIOR_FAILED_EVIDENCE = "b90cb579eb72b363491f53e2a014fd073e795552"
 BRANCH = "arena/01a03741-pulseairepo"
-EXPECTED_ROOTS = {"d:/pulseaiagent/pulseairepo"}
+EXPECTED_ROOTS = {"d:/crusoraiagent/pulseairepo"}
 EVIDENCE_REL = Path("bench-results/test5-11-product-delivery-repair-validation-windows-r3")
 FOCUSED_TESTS = [
     "src/tests/test_attempt11_product_delivery_boundary.py",

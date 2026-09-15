@@ -1,6 +1,6 @@
 
 """
-Sub-Agent Coordinator for PulseCodeAI
+Sub-Agent Coordinator for CrusorCodeAI
 =====================================
 Spawns specialized child agents for focused work.
 Each sub-agent gets a narrow task and reports back.
@@ -184,7 +184,7 @@ class SubAgentCoordinator:
                               provider=provider, model=model)
 
         with ThreadPoolExecutor(max_workers=workers,
-                                thread_name_prefix="pulseai-sub") as pool:
+                                thread_name_prefix="crusorai-sub") as pool:
             future_to_index = {}
             for index, task in enumerate(tasks):
                 ctx = contextvars.copy_context()

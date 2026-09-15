@@ -46,10 +46,10 @@ class VectorMemory:
 
     def __init__(self, db_path: str | None = None):
         """
-        db_path: SQLite file location. Defaults to ~/.pulseai/vector_memory.db
+        db_path: SQLite file location. Defaults to ~/.crusorai/vector_memory.db
         """
         if db_path is None:
-            db_path = os.path.join(os.path.expanduser("~"), ".pulseai", "vector_memory.db")
+            db_path = os.path.join(os.path.expanduser("~"), ".crusorai", "vector_memory.db")
         self.db_path = db_path
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 

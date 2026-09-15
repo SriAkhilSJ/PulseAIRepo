@@ -6,7 +6,7 @@ runs the Windows terminal through git-bash (environments/local.py
 _find_bash — "Hermes Agent requires Git for Windows on Windows") AND
 teaches the model the dialect in the system prompt (prompt_builder.py:826:
 POSIX syntax, MSYS paths alongside native ones, PowerShell builtins will
-NOT work, native-tool paths are NOT translated). Pulse had the execution
+NOT work, native-tool paths are NOT translated). Crusor had the execution
 half (select_shell -> bash) but only a one-line "Terminal dialect: ..."
 hint — field 2026-09-08: the model mixed `D:\\...` and `/d/...` shapes
 across calls in one turn, guessing its dialect. The dialect must be
@@ -24,7 +24,7 @@ def test_windows_bash_hint_is_taugth_not_named(monkeypatch):
         "src.runtime.windows_shell.windows_bash_available", lambda: True
     )
     hints = env.build_environment_hints(cwd=None)
-    # hermes hint content, adapted to pulse's tool names
+    # hermes hint content, adapted to crusor's tool names
     assert "runs commands through bash (git-bash / MSYS)" in hints
     assert "NOT PowerShell or cmd.exe" in hints
     assert "Use POSIX shell syntax" in hints

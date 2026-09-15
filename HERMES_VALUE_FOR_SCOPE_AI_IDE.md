@@ -5,7 +5,7 @@
 
 ## 1. Test correction: the README command
 
-The PulseAI README specifies this Windows command:
+The CrusorAI README specifies this Windows command:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path "D:\pytest-tmp" | Out-Null
@@ -117,7 +117,7 @@ Hermes builds a stable system prompt once per session, persists it, restores it 
 - predictable context behavior;
 - model/provider failover without unnecessarily discarding the stable prefix.
 
-Scope should preserve PulseAI's task-aware retrieval, but retrieval should enter a volatile request tail instead of continuously rewriting the stable session identity and rules.
+Scope should preserve CrusorAI's task-aware retrieval, but retrieval should enter a volatile request tail instead of continuously rewriting the stable session identity and rules.
 
 ### 3.5 Narrow tool waist, capability at the edges
 
@@ -289,7 +289,7 @@ Hermes' ACP adapter supports:
 
 ## 5. Scope Agent Protocol v1
 
-PulseAI's existing bridge is a useful start, but Scope should make the contract more stateful and IDE-native.
+CrusorAI's existing bridge is a useful start, but Scope should make the contract more stateful and IDE-native.
 
 ### Client → runtime commands
 
@@ -348,9 +348,9 @@ workspace_id
 
 Tool events additionally need `tool_call_id`; sub-agent events need `subagent_id`; lineage changes need `runtime_session_id` and `lineage_root_id`.
 
-## 6. What Scope should reuse from PulseAI
+## 6. What Scope should reuse from CrusorAI
 
-Do not throw away PulseAI. Keep the parts where it already creates strong value:
+Do not throw away CrusorAI. Keep the parts where it already creates strong value:
 
 - LangGraph state and finish-gate logic;
 - task-aware context engine;

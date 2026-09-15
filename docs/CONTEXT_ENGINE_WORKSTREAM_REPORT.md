@@ -47,7 +47,7 @@ never against a live LLM.
    would 400 the provider.
 2. **Never-encode on deadline turns** — `ambiguity.py` pins that deadline-bound turns
    never take the encoding failover path (P10).
-3. **Compaction kill switch** — `PULSEAI_COMPACTION=off` is a *public seam*
+3. **Compaction kill switch** — `CRUSORAI_COMPACTION=off` is a *public seam*
    (`compact(history, budget, kill_switch_trim=None)`), injected by the engine and pinned
    by the pre-P8 regression test (P8).
 4. **Stale-state immunity** — the engine's model / inference policy / current task /

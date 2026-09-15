@@ -50,7 +50,7 @@ class SubagentLifecycleService:
         self._secret = secrets.token_bytes(32)
         self._records: dict[str, _Record] = {}
         self._lock = threading.RLock()
-        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pulse-subagent")
+        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="crusor-subagent")
 
     def _token(self, sid: str, parent: str, created: float) -> str:
         return hmac.new(self._secret, f"{sid}|{parent}|{created:.6f}".encode(), hashlib.sha256).hexdigest()

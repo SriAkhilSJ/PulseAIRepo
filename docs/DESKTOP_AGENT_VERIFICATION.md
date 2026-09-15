@@ -1,4 +1,4 @@
-# Desktop Agent Verification — Copilot-Hidden Pulse-Only UI
+# Desktop Agent Verification — Copilot-Hidden Crusor-Only UI
 
 **Date:** 2026-09-11
 **Branch:** `main` (HEAD: `bf696a61`)
@@ -11,12 +11,12 @@
 ## Authorization and stop rules
 
 This is a provider-free visual/structural verification of the Copilot-hiding layer
-and Pulse-only UI. No provider request, probe, fallback, live Test 5 turn,
+and Crusor-only UI. No provider request, probe, fallback, live Test 5 turn,
 credential inspection, merge, branch deletion, or source edit is authorized.
 
-Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone,
+Use only the existing repository at `D:\crusorAIagent\PulseAIRepo`. Do not clone,
 reset, clean, amend source, or touch historical evidence. Set
-`PULSEAI_BRIDGE_RUNNER=echo` before launching the IDE; this is the mandatory
+`CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE; this is the mandatory
 network/provider guard. A failure remains evidence and must not be overwritten
 by a retry.
 
@@ -26,7 +26,7 @@ by a retry.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-cd D:\pulseAIagent\PulseAIRepo
+cd D:\crusorAIagent\PulseAIRepo
 
 if ((git branch --show-current) -ne 'main') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Checkout is not clean — preserve it and STOP' }
@@ -46,7 +46,7 @@ Record HEAD in the evidence file. If any check fails, stop immediately.
 
 ```powershell
 $python = (Resolve-Path '.venv\Scripts\python.exe').Path
-$evidence = 'bench-results\copilot-hidden-pulse-only-verification'
+$evidence = 'bench-results\copilot-hidden-crusor-only-verification'
 if (Test-Path $evidence) { throw 'Evidence directory already exists — STOP' }
 New-Item -ItemType Directory -Path $evidence | Out-Null
 
@@ -61,7 +61,7 @@ node --version | Set-Content "$evidence\node-version.txt" -Encoding utf8
   src/tests/test_bridge_transport.py `
   src/tests/test_bridge_protocol_v2.py `
   src/tests/test_desktop_renderer_architecture.py `
-  src/tests/test_pulseai_branding.py 2>&1 |
+  src/tests/test_crusorai_branding.py 2>&1 |
   Tee-Object "$evidence\focused-pytest.log"
 if ($LASTEXITCODE -ne 0) { throw 'Focused pytest failed — STOP' }
 
@@ -87,18 +87,18 @@ Pop-Location
 
 ---
 
-## 3. Screenshot Copilot hidden and Pulse-only composer
+## 3. Screenshot Copilot hidden and Crusor-only composer
 
 Launch the IDE with echo runner and CDP:
 
 ```powershell
-$env:PULSEAI_PYTHON_PATH = $python
-$env:PULSEAI_ENGINE_ROOT = 'D:\pulseAIagent\PulseAIRepo'
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_CDP_PORT = '9222'
+$env:CRUSORAI_PYTHON_PATH = $python
+$env:CRUSORAI_ENGINE_ROOT = 'D:\crusorAIagent\PulseAIRepo'
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_CDP_PORT = '9222'
 
 $desktop = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', `
-  "set PULSEAI_BRIDGE_RUNNER=echo&&set PULSEAI_PYTHON_PATH=$python&&set PULSEAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\pulseAIagent\PulseAIRepo --remote-debugging-port=9222" `
+  "set CRUSORAI_BRIDGE_RUNNER=echo&&set CRUSORAI_PYTHON_PATH=$python&&set CRUSORAI_ENGINE_ROOT=D:\crusorAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\crusorAIagent\PulseAIRepo --remote-debugging-port=9222" `
   -PassThru
 ```
 
@@ -109,10 +109,10 @@ Wait for CDP, then capture screenshots via `Page.captureScreenshot`:
 | 3a | **AuxBar: no CHAT tab** | `document.querySelectorAll('[class*="activitybar"] [class*="action-label"]').forEach(e => text)` — scan auxiliary bar entries | No entry contains "Chat" or "GitHub Copilot" |
 | 3b | **Watermark: no "Open Chat"** | `document.querySelector('.empty-editor-watermark')?.textContent` | Text does not contain "Chat" or "Ctrl+Alt+I" |
 | 3c | **Title bar: no Copilot sparkle** | `document.querySelector('[class*="titlebar"] [class*="copilot"]')` | Element is null or invisible |
-| 3d | **Pulse-only composer visible** | `document.querySelector('.pulseai-composer')` or `document.querySelector('[class*="pulseai"][class*="composer"]')` | Element exists, is visible, enabled |
+| 3d | **Crusor-only composer visible** | `document.querySelector('.crusorai-composer')` or `document.querySelector('[class*="crusorai"][class*="composer"]')` | Element exists, is visible, enabled |
 | 3e | **Mode menu present** | Check for Agent/Plan/Debug/Ask in the mode picker | All four modes visible, Agent selected |
 
-Save each screenshot as `01-auxbar.png`, `02-watermark.png`, `03-titlebar.png`, `04-pulse-composer.png`, `05-mode-menu.png`.
+Save each screenshot as `01-auxbar.png`, `02-watermark.png`, `03-titlebar.png`, `04-crusor-composer.png`, `05-mode-menu.png`.
 
 ---
 
@@ -122,14 +122,14 @@ Use CDP `Runtime.evaluate` to check the following host sensor registrations:
 
 | # | Sensor | Check | PASS criteria |
 |---|--------|-------|---------------|
-| 4a | **History service** | `!!window.require?.('vs/workbench/services/history/common/historyService')` or check Pulse view pane exists | Pulse view pane rendered in auxiliary bar |
-| 4b | **Code actions catalog** | `document.querySelector('[class*="code-action"]')` or verify `pulseAIToolCatalog.ts` includes `invoke_host_capability` | Tool catalog entry present |
+| 4a | **History service** | `!!window.require?.('vs/workbench/services/history/common/historyService')` or check Crusor view pane exists | Crusor view pane rendered in auxiliary bar |
+| 4b | **Code actions catalog** | `document.querySelector('[class*="code-action"]')` or verify `crusorAIToolCatalog.ts` includes `invoke_host_capability` | Tool catalog entry present |
 | 4c | **Notebooks** | `!!document.querySelector('[class*="notebook"]')` | Notebook support available (not Copilot-specific) |
 | 4d | **Timeline** | `!!document.querySelector('[class*="timeline"]')` | Timeline view available |
-| 4e | **MCP catalog** | Grep for `mcpRegistryDataUrl` in product.json — it should point to GitHub Copilot endpoint but Pulse does NOT invoke MCP | `mcpRegistryDataUrl` exists in product.json (inherited, not Pulse-controlled) |
+| 4e | **MCP catalog** | Grep for `mcpRegistryDataUrl` in product.json — it should point to GitHub Copilot endpoint but Crusor does NOT invoke MCP | `mcpRegistryDataUrl` exists in product.json (inherited, not Crusor-controlled) |
 | 4f | **Editor catalogs** | `document.querySelectorAll('[class*="editor-actions"] [class*="action-item"]').length` | Editor action bar has items |
 | 4g | **No Copilot Chat** | `document.querySelector('[class*="chat-view"]')` | Element is null (Chat view container hidden) |
-| 4h | **No MCP invoke** | `document.querySelector('[class*="mcp-invoke"]')` | Element is null (Pulse does not expose MCP invoke) |
+| 4h | **No MCP invoke** | `document.querySelector('[class*="mcp-invoke"]')` | Element is null (Crusor does not expose MCP invoke) |
 
 Save the evaluation results as `host-sensors.json`.
 
@@ -142,9 +142,9 @@ Save the evaluation results as `host-sensors.json`.
 $phase1Files = @(
   'docs/DESIGN/FORK_REBRANDING.md',
   'docs/DESIGN/COPILOT_INTEGRATION_ANALYSIS.md',
-  'docs/DESIGN/PULSEAI_DESIGN_PLAN.md',
-  'docs/PULSE_COPILOT_REGISTRATION_REVIEW.md',
-  'docs/PULSE_AGENT_UI_ADAPTATION.md'
+  'docs/DESIGN/CRUSORAI_DESIGN_PLAN.md',
+  'docs/CRUSOR_COPILOT_REGISTRATION_REVIEW.md',
+  'docs/CRUSOR_AGENT_UI_ADAPTATION.md'
 )
 $missing = @()
 foreach ($f in $phase1Files) {
@@ -173,9 +173,9 @@ $themePkg = Get-Content 'desktop/vscode/extensions/theme-defaults/package.json' 
 $disableAI = $themePkg.contributes.configurationDefaults.'chat.disableAIFeatures'
 if ($disableAI -ne $true) { throw 'chat.disableAIFeatures is not true in theme-defaults — STOP' }
 
-# PulseAI HideCopilot contribution exists
-if (-not (Test-Path 'desktop/vscode/src/vs/workbench/contrib/pulseai/browser/pulseAIHideCopilot.ts')) {
-  throw 'pulseAIHideCopilot.ts missing — STOP'
+# CrusorAI HideCopilot contribution exists
+if (-not (Test-Path 'desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.ts')) {
+  throw 'crusorAIHideCopilot.ts missing — STOP'
 }
 ```
 
@@ -202,7 +202,7 @@ After all checks, create `validation-summary.json`:
     "auxbar_no_chat_tab": "PASS/FAIL",
     "watermark_no_open_chat": "PASS/FAIL",
     "titlebar_no_copilot_sparkle": "PASS/FAIL",
-    "pulse_composer_visible": "PASS/FAIL",
+    "crusor_composer_visible": "PASS/FAIL",
     "mode_menu_present": "PASS/FAIL"
   },
   "host_sensors": {
@@ -228,7 +228,7 @@ After all checks, create `validation-summary.json`:
 }
 ```
 
-**Overall PASS** = pins green + Copilot chrome gone + Pulse-only UI + audit files present.
+**Overall PASS** = pins green + Copilot chrome gone + Crusor-only UI + audit files present.
 
 ---
 
@@ -236,7 +236,7 @@ After all checks, create `validation-summary.json`:
 
 ```powershell
 # Stop the desktop
-Get-Process -Name "PulseAI" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "CrusorAI" -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # Hash evidence
 Get-ChildItem $evidence -Recurse -File |
@@ -248,8 +248,8 @@ Get-ChildItem $evidence -Recurse -File |
     "$hash  $relative"
   } | Set-Content "$evidence\sha256sums.txt" -Encoding ascii
 
-git add -f bench-results/copilot-hidden-pulse-only-verification
-git commit -m "test(ui): verify Copilot hidden and Pulse-only UI on main"
+git add -f bench-results/copilot-hidden-crusor-only-verification
+git commit -m "test(ui): verify Copilot hidden and Crusor-only UI on main"
 git push origin main
 ```
 
@@ -283,11 +283,11 @@ The next job is a **new session on `main`** to continue the verification pipelin
 | AuxBar: no Chat tab | PASS |
 | Watermark: no "Open Chat" | PASS |
 | Title bar: no Copilot sparkle | PASS |
-| Pulse composer visible | PASS |
+| Crusor composer visible | PASS |
 | Mode menu (Agent/Plan/Debug/Ask) | PASS |
 | No Copilot Chat view | PASS |
 | No MCP invoke surface | PASS |
-| Pulse view present | PASS |
+| Crusor view present | PASS |
 | No renderer errors | PASS |
 | No console errors | PASS |
 
@@ -297,7 +297,7 @@ The next job is a **new session on `main`** to continue the verification pipelin
 - `defaultChatAgent`: PRESENT
 - `chat.disableAIFeatures`: TRUE
 - `chat.titleBar.signIn.enabled`: FALSE
-- `pulseAIHideCopilot.ts`: EXISTS
+- `crusorAIHideCopilot.ts`: EXISTS
 
 ### Evidence
 - Commit: `50f0dc23`

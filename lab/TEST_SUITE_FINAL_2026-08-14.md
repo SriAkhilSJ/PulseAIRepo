@@ -11,7 +11,7 @@
 ```bash
 .venv/bin/python -m pytest src/tests -v --no-header \
   --ignore=src/tests/test_session_engines.py \
-  --basetemp=/home/user/pytest-pulse-final-commit
+  --basetemp=/home/user/pytest-crusor-final-commit
 ```
 
 This is the README-equivalent project selection requested by the evaluator. It excludes `src/tests/test_session_engines.py` as documented. The run completed with process exit code 0 on Linux with Python 3.13.

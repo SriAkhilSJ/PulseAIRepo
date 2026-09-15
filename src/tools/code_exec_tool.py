@@ -2,7 +2,7 @@
 execute_code -- Programmatic Tool Calling (PTC)
 ================================================
 
-Lets the LLM write ONE Python script that calls PulseAI's in-process tools
+Lets the LLM write ONE Python script that calls CrusorAI's in-process tools
 directly, collapsing multi-step tool chains into a single tool call. Only
 the script's ``print()`` output re-enters the conversation window.
 

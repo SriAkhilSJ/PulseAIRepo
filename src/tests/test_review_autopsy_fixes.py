@@ -66,7 +66,7 @@ def _state(ws: str, **noise) -> dict:
 # ---------------------------------------------------------------------------
 
 def test_d25_second_get_map_within_ttl_skips_the_walk(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_REPO_MAP_STALE_TTL", raising=False)
+    monkeypatch.delenv("CRUSORAI_REPO_MAP_STALE_TTL", raising=False)
     ws = _ws(tmp_path)
     rm = RepoMap(ws)
     rm.get_map()  # build: walks at least once
@@ -84,7 +84,7 @@ def test_d25_second_get_map_within_ttl_skips_the_walk(tmp_path, monkeypatch):
 
 
 def test_d25_ttl_zero_restores_legacy_always_walk(tmp_path, monkeypatch):
-    monkeypatch.setenv("PULSEAI_REPO_MAP_STALE_TTL", "0")
+    monkeypatch.setenv("CRUSORAI_REPO_MAP_STALE_TTL", "0")
     ws = _ws(tmp_path)
     rm = RepoMap(ws)
     rm.get_map()
@@ -102,7 +102,7 @@ def test_d25_ttl_zero_restores_legacy_always_walk(tmp_path, monkeypatch):
 
 
 def test_d25_external_change_appears_after_ttl_expiry(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_REPO_MAP_STALE_TTL", raising=False)
+    monkeypatch.delenv("CRUSORAI_REPO_MAP_STALE_TTL", raising=False)
     ws = _ws(tmp_path)
     rm = RepoMap(ws)
     assert "brand_new.py" not in rm.get_map()
@@ -118,7 +118,7 @@ def test_d25_external_change_appears_after_ttl_expiry(tmp_path, monkeypatch):
 
 
 def test_d25_write_hook_invalidates_own_changes_immediately(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_REPO_MAP_STALE_TTL", raising=False)
+    monkeypatch.delenv("CRUSORAI_REPO_MAP_STALE_TTL", raising=False)
     ws = _ws(tmp_path)
     assert "hook_added.py" not in get_repo_map(ws)
 

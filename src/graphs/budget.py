@@ -31,7 +31,7 @@ _ITERATION_BUDGET_CLAMP = 50
 # appends it as a USER message on the FULL history and the summary call
 # carries NO tools key (_iteration_summary_chat_kwargs :2025; the codex
 # attempt literally pops "tools" :2070). Field 2026-09-09 @b75cd4c6: the old
-# pulse grace (system nudge + _drop_tool_pairs) amnesia'd the model into
+# crusor grace (system nudge + _drop_tool_pairs) amnesia'd the model into
 # "I'll start by exploring..." + a raw text tool_call AFTER 111s of real
 # work — the owner's screenshot. The model must SEE its work to summarize it.
 _MAX_ITERATIONS_SUMMARY_REQUEST = (

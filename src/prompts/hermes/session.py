@@ -1,15 +1,15 @@
-"""Session-scoped prompt caching — the half of Law 1 that Pulse needs.
+"""Session-scoped prompt caching — the half of Law 1 that Crusor needs.
 
 Upstream caches the built prompt on the long-lived ``AIAgent`` instance
 (``agent._cached_system_prompt``) so a conversation reuses one byte-identical
-prefix every turn. Pulse has no long-lived agent object: its per-session
+prefix every turn. Crusor has no long-lived agent object: its per-session
 object is the ``ContextEngine`` chosen by ``thread_id``, and turns arrive as
 independent graph invocations. So the cache lives here, keyed by thread id,
 with the same rebuild rule:
 
     build once → reuse every turn → rebuild ONLY on compaction / session reset.
 
-Kill switch: ``PULSEAI_STABLE_PREFIX=off`` returns the legacy single-string
+Kill switch: ``CRUSORAI_STABLE_PREFIX=off`` returns the legacy single-string
 persona, byte-for-byte, so this can be disabled without touching a call site.
 """
 from __future__ import annotations
@@ -23,16 +23,16 @@ from src.prompts.hermes.system_prompt import (
     build_system_prompt,
     invalidate_system_prompt,
 )
-from src.prompts.hermes.view import PulsePromptView, view_from_config
+from src.prompts.hermes.view import CrusorPromptView, view_from_config
 
 logger = logging.getLogger(__name__)
 _lock = threading.Lock()
-_views: Dict[str, PulsePromptView] = {}
+_views: Dict[str, CrusorPromptView] = {}
 _MAX_SESSIONS = 64  # LRU-ish: an IDE can leave dozens of threads behind
 
 
 def stable_prefix_enabled() -> bool:
-    return os.environ.get("PULSEAI_STABLE_PREFIX", "on").strip().lower() not in {
+    return os.environ.get("CRUSORAI_STABLE_PREFIX", "on").strip().lower() not in {
         "0",
         "off",
         "false",
@@ -60,7 +60,7 @@ def _resolve_cwd(state: Optional[Dict[str, Any]] = None) -> str:
         ws = state.get("workspace") or state.get("cwd") or ""
         if ws:
             return str(ws)
-    env_cwd = os.environ.get("PULSEAI_WORKSPACE") or os.environ.get("PWD") or ""
+    env_cwd = os.environ.get("CRUSORAI_WORKSPACE") or os.environ.get("PWD") or ""
     if env_cwd:
         return str(env_cwd)
     try:
@@ -95,7 +95,7 @@ def view_for_session(
     *,
     autonomous: bool = False,
     tools: Optional[Any] = None,
-) -> PulsePromptView:
+) -> CrusorPromptView:
     """Return this session's prompt view, building it on first use.
 
     A rebuild happens when (and only when) the session was invalidated — see

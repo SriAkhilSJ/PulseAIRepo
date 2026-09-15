@@ -23,7 +23,7 @@ import src.graphs.chat_graph as chat_graph
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    monkeypatch.delenv("PULSEAI_PERSONA_GUIDANCE", raising=False)
+    monkeypatch.delenv("CRUSORAI_PERSONA_GUIDANCE", raising=False)
     yield
 
 
@@ -116,7 +116,7 @@ def test_d35_growth_bound():
 # ------------------------------------------------------------ kill-switch
 
 def test_d35_killswitch_restores_byte_identical_legacy(monkeypatch):
-    monkeypatch.setenv("PULSEAI_PERSONA_GUIDANCE", "off")
+    monkeypatch.setenv("CRUSORAI_PERSONA_GUIDANCE", "off")
     assert system_persona() is CLAUDE_SYSTEM_PERSONA or (
         system_persona() == CLAUDE_SYSTEM_PERSONA
     ), "off must return the exact legacy persona, byte for byte"
@@ -155,7 +155,7 @@ def test_p0c_ptc_default_absent_from_legacy_constant():
 
 
 def test_p0c_killswitch_drops_ptc_block(monkeypatch):
-    monkeypatch.setenv("PULSEAI_PERSONA_GUIDANCE", "off")
+    monkeypatch.setenv("CRUSORAI_PERSONA_GUIDANCE", "off")
     p = system_persona()
     assert "Programmatic Tool Calling = your default" not in p, (
         "off-mode leaked the PTC block — kill-switch must restore legacy only"
@@ -193,7 +193,7 @@ def test_d36_grounding_absent_from_legacy():
 
 
 def test_d36_mandatory_tool_use_lists_concrete_tools():
-    """The block must name the actual PulseAI tools (no phantom tools) —
+    """The block must name the actual CrusorAI tools (no phantom tools) —
     hermes' names since the 2026-09-09 tool-name parity pass."""
     p = system_persona()
     for tool in ("terminal", "read_file", "search_files", "web_search", "execute_code"):
@@ -209,7 +209,7 @@ def test_d36_grounding_composed_after_ptc():
 
 
 def test_d36_killswitch_drops_grounding(monkeypatch):
-    monkeypatch.setenv("PULSEAI_PERSONA_GUIDANCE", "off")
+    monkeypatch.setenv("CRUSORAI_PERSONA_GUIDANCE", "off")
     p = system_persona()
     assert p == CLAUDE_SYSTEM_PERSONA, "off-mode must restore legacy only"
     assert "Grounding" not in p, "off-mode leaked the grounding block"

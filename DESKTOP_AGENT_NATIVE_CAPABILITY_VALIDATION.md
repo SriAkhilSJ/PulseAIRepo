@@ -3,7 +3,7 @@
 **Date:** 2026-08-26  
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required implementation ancestor:** `b270f8cd`  
-**Repository:** use the existing correct repository folder only (`D:\pulseAIagent\PulseAIRepo` if unchanged)  
+**Repository:** use the existing correct repository folder only (`D:\crusorAIagent\PulseAIRepo` if unchanged)  
 **Provider authorization:** none; zero model/provider requests  
 **PR #9:** open; do not merge
 
@@ -11,7 +11,7 @@
 
 The prior acknowledgement said Attempt 12 was “runtime PASS, product PARTIAL.” That is incorrect and must not appear in the validation report.
 
-Attempt 12 is consumed and immutable. Its final bridge outcome had `completed=false`, its workspace referenced missing `./src/main.js`, and it lacked sufficient verified product evidence. Provider/model behavior dominated the 22-minute latency, but Pulse also had independent completion, integrity, and lifecycle defects. The truthful classification remains **runtime/product FAIL**. Do not rerun, repair, relabel, or modify Attempt-12 evidence.
+Attempt 12 is consumed and immutable. Its final bridge outcome had `completed=false`, its workspace referenced missing `./src/main.js`, and it lacked sufficient verified product evidence. Provider/model behavior dominated the 22-minute latency, but Crusor also had independent completion, integrity, and lifecycle defects. The truthful classification remains **runtime/product FAIL**. Do not rerun, repair, relabel, or modify Attempt-12 evidence.
 
 ## Mission
 
@@ -20,7 +20,7 @@ Validate commit `b270f8cd` provider-free on the real Windows desktop checkout:
 1. focused Python contracts for the host capability broker and protocol;
 2. generated protocol parity;
 3. native/UI tool-catalog parity;
-4. complete first-party Pulse TypeScript syntax parsing;
+4. complete first-party Crusor TypeScript syntax parsing;
 5. UI TypeScript/Vite build;
 6. Code OSS client typecheck, layer validation, and compile;
 7. optional deterministic desktop echo smoke if compilation succeeds;
@@ -57,7 +57,7 @@ Mutation, terminal execution, tasks/tests execution, extension tools, MCP, remot
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\pulseAIagent\PulseAIRepo'
+$repo = 'D:\crusorAIagent\PulseAIRepo'
 cd $repo
 
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') {
@@ -106,7 +106,7 @@ $python = if (Test-Path '.venv\Scripts\python.exe') {
   src/tests/test_desktop_renderer_architecture.py `
   src/tests/test_ui_tool_catalog.py `
   src/tests/test_desktop_sidecar_architecture.py `
-  --basetemp "$env:TEMP\pulse-native-capability-pytest" `
+  --basetemp "$env:TEMP\crusor-native-capability-pytest" `
   2>&1 | Tee-Object "$evidence\focused-pytest.log"
 $focusedExit = $LASTEXITCODE
 ```
@@ -134,15 +134,15 @@ This uses the echo runner and sends no provider request. It verifies handshake, 
 import json, os, subprocess, sys
 frames = [
     {'type':'hello','protocol':2},
-    {'type':'session_create','session_id':'host-desktop','workspace':r'C:\pulse-host-fixture'},
-    {'type':'host_capabilities_update','session_id':'host-desktop','workspace':r'C:\pulse-host-fixture','capabilities':[
+    {'type':'session_create','session_id':'host-desktop','workspace':r'C:\crusor-host-fixture'},
+    {'type':'host_capabilities_update','session_id':'host-desktop','workspace':r'C:\crusor-host-fixture','capabilities':[
         {'id':'diagnostics.markers','availability':'available','risk':'read','provider':'markerService'},
         {'id':'terminal.native','availability':'available','risk':'execute','provider':'terminalService'},
     ]},
     {'type':'shutdown'},
 ]
 env = dict(os.environ)
-env['PULSEAI_BRIDGE_RUNNER'] = 'echo'
+env['CRUSORAI_BRIDGE_RUNNER'] = 'echo'
 p = subprocess.run([sys.executable, '-m', 'src.bridge'], input=''.join(json.dumps(x)+'\n' for x in frames), text=True, capture_output=True, env=env, timeout=30)
 print(p.stdout, end='')
 print(p.stderr, file=sys.stderr, end='')
@@ -173,7 +173,7 @@ npm run build 2>&1 |
 $uiBuildExit = $LASTEXITCODE
 ```
 
-Expected syntax receipt: all 22 first-party Pulse contribution TypeScript files parse.
+Expected syntax receipt: all 22 first-party Crusor contribution TypeScript files parse.
 
 ## 5. Full Code OSS validation
 
@@ -204,7 +204,7 @@ npm run compile 2>&1 | Tee-Object "$evidence\desktop-compile.log"
 $desktopCompileExit = $LASTEXITCODE
 ```
 
-Expected: zero new TypeScript errors, zero layer violations, successful compile. If the vendored fork has a known unrelated baseline failure, capture the full output and classify it separately; do not call the bridge PASS unless Pulse files typecheck and the failure is proven unrelated.
+Expected: zero new TypeScript errors, zero layer violations, successful compile. If the vendored fork has a known unrelated baseline failure, capture the full output and classify it separately; do not call the bridge PASS unless Crusor files typecheck and the failure is proven unrelated.
 
 ## 6. Optional desktop echo runtime smoke
 
@@ -212,11 +212,11 @@ Run only if the Code OSS compile succeeded and an existing dev desktop build is 
 
 ```powershell
 cd $repo
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_ENGINE_ROOT = $repo
 ```
 
-Launch a fresh profile using the repository's established desktop launch command. Do not reuse Attempt profiles. Open the Pulse view, submit the literal text:
+Launch a fresh profile using the repository's established desktop launch command. Do not reuse Attempt profiles. Open the Crusor view, submit the literal text:
 
 ```text
 native capability bridge echo smoke
@@ -224,7 +224,7 @@ native capability bridge echo smoke
 
 Expected:
 
-- Pulse opens without a renderer error;
+- Crusor opens without a renderer error;
 - the sidecar reaches Ready;
 - the exact echo text returns;
 - no approval or provider UI appears;
@@ -236,8 +236,8 @@ Capture one screenshot and the relevant window/engine logs under the evidence di
 Clear only the temporary process environment after closing the app:
 
 ```powershell
-Remove-Item Env:PULSEAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
-Remove-Item Env:PULSEAI_ENGINE_ROOT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_ENGINE_ROOT -ErrorAction SilentlyContinue
 ```
 
 ## 7. Report and evidence integrity

@@ -1,4 +1,4 @@
-"""Keep the browser/workbench tool renderer catalog aligned with Pulse runtime tools."""
+"""Keep the browser/workbench tool renderer catalog aligned with Crusor runtime tools."""
 from __future__ import annotations
 
 import ast
@@ -65,7 +65,7 @@ def test_ui_catalog_covers_every_runtime_tool_name():
     assert actual == expected, f"missing={sorted(expected-actual)} extra={sorted(actual-expected)}"
 
 
-def test_terminal_family_has_real_pulse_process_tools():
+def test_terminal_family_has_real_crusor_process_tools():
     text = _catalog_text()
     assert 'run_terminal: tool("Terminal", "terminal"' in text
     assert 'start_terminal: tool("Start process", "process"' in text

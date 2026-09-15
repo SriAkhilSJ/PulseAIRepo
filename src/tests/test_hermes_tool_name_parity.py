@@ -1,10 +1,10 @@
-"""Hermes tool-NAME parity pins (owner, 2026-09-09: "tool name used in Pulse
+"""Hermes tool-NAME parity pins (owner, 2026-09-09: "tool name used in Crusor
 — is same <Prompt Engineering>?").
 
 The prompt engineering must teach hermes' own tool names. The field run
 @7a7111b9 proved the cost of the old inventions: models trained on hermes
-emit `terminal` (pulse had bound it only as an alias after the 2026-09-05
-unknown-name rejection), and pulse's guidance RENAME_MAP was actively
+emit `terminal` (crusor had bound it only as an alias after the 2026-09-05
+unknown-name rejection), and crusor's guidance RENAME_MAP was actively
 REWRITING hermes' verbatim prompt text (search_files→search_code,
 web_extract→web_fetch, terminal→run_terminal).
 
@@ -39,7 +39,7 @@ def test_hermes_primary_names_are_bound():
     assert "terminal" in names
 
 
-def test_legacy_pulse_names_still_execute_via_aliases():
+def test_legacy_crusor_names_still_execute_via_aliases():
     names = _tool_names()
     assert "search_code" in names
     assert "web_fetch" in names
@@ -47,8 +47,8 @@ def test_legacy_pulse_names_still_execute_via_aliases():
 
 
 def test_bound_hermes_names_subset_of_hermes_registry():
-    """Every hermes-primary name pulse binds must be a real hermes tool name —
-    the parity direction is hermes→pulse, never pulse-invented."""
+    """Every hermes-primary name crusor binds must be a real hermes tool name —
+    the parity direction is hermes→crusor, never crusor-invented."""
     hermes_names = {
         # /tmp/hermes tools/ registry register(name=...) + BROWSER_TOOL_SCHEMAS
         "annotate_preview", "apply_layout", "browser_cdp", "browser_dialog",
@@ -73,15 +73,15 @@ def test_bound_hermes_names_subset_of_hermes_registry():
 def test_search_files_runs_with_hermes_pattern_arg(tmp_path):
     from src.tools.file_tools import search_files
 
-    (tmp_path / "mod.py").write_text("def run_pulse():\n    return 42\n")
+    (tmp_path / "mod.py").write_text("def run_crusor():\n    return 42\n")
     out = search_files.func(
-        "run_pulse", ".", {"configurable": {"workspace": str(tmp_path)}}
+        "run_crusor", ".", {"configurable": {"workspace": str(tmp_path)}}
     )
-    assert "mod.py:1: def run_pulse():" in out
+    assert "mod.py:1: def run_crusor():" in out
 
-    # legacy pulse scalar arg still accepted
+    # legacy crusor scalar arg still accepted
     out2 = search_files.func(
-        "", ".", {"configurable": {"workspace": str(tmp_path)}}, query="run_pulse"
+        "", ".", {"configurable": {"workspace": str(tmp_path)}}, query="run_crusor"
     )
     assert "mod.py:1:" in out2
 
@@ -101,7 +101,7 @@ def test_web_extract_fetches_a_list(tmp_path):
 
     html_path = tmp_path / "page.html"
     html_path.write_text(
-        "<html><head><title>Pulse</title></head><body>hello parity</body></html>"
+        "<html><head><title>Crusor</title></head><body>hello parity</body></html>"
     )
     url = html_path.as_uri()  # file:// — rejected as non-http; error per URL
     out = web_extract.func([url, "not-a-scheme:x"], char_limit=5_000)
@@ -131,7 +131,7 @@ def test_terminal_is_primary_and_run_terminal_delegates(tmp_path):
 
 
 def test_guidance_rename_map_is_empty():
-    """The old map rewrote hermes' verbatim text to pulse inventions. Names
+    """The old map rewrote hermes' verbatim text to crusor inventions. Names
     are hermes' own now — nothing may be reworded."""
     from src.prompts.hermes.guidance import RENAME_MAP
 

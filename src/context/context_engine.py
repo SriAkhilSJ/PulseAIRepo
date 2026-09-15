@@ -1,6 +1,6 @@
 # src/context/context_engine.py
 """
-Context Engine for PulseCodeAI
+Context Engine for CrusorCodeAI
 ================================
 
 Think of this as the agent's "memory organizer."
@@ -315,7 +315,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                     stable block + history is one cache-friendly prefix;
                     only the small volatile tail recomputes on change.
                     False: legacy position (last layer, before history).
-                    None = env PULSEAI_VOLATILE_TAIL (default on; "off"
+                    None = env CRUSORAI_VOLATILE_TAIL (default on; "off"
                     restores legacy).
         """
         self.model = model or CONTEXT_MODEL
@@ -334,7 +334,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
 
         if volatile_tail is None:
             import os as _os
-            volatile_tail = _os.environ.get("PULSEAI_VOLATILE_TAIL", "").lower() != "off"
+            volatile_tail = _os.environ.get("CRUSORAI_VOLATILE_TAIL", "").lower() != "off"
         self._volatile_tail = volatile_tail
 
         if max_tokens is not None:
@@ -479,15 +479,15 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
             self.proactive_prune_min_result_chars = cfg["min_chars"]
             self.proactive_prune_min_reclaim_tokens = cfg["min_reclaim"]
             # Allow direct env override for min values
-            self.proactive_prune_min_result_chars = int(os.environ.get("PULSEAI_PROACTIVE_PRUNE_MIN_CHARS", str(self.proactive_prune_min_result_chars)) or 8000)
-            self.proactive_prune_min_reclaim_tokens = int(os.environ.get("PULSEAI_PROACTIVE_PRUNE_MIN_RECLAIM", str(self.proactive_prune_min_reclaim_tokens)) or 4096)
+            self.proactive_prune_min_result_chars = int(os.environ.get("CRUSORAI_PROACTIVE_PRUNE_MIN_CHARS", str(self.proactive_prune_min_result_chars)) or 8000)
+            self.proactive_prune_min_reclaim_tokens = int(os.environ.get("CRUSORAI_PROACTIVE_PRUNE_MIN_RECLAIM", str(self.proactive_prune_min_reclaim_tokens)) or 4096)
         except Exception:
             self.proactive_prune_tokens = 0
             self.proactive_prune_min_result_chars = 8000
             self.proactive_prune_min_reclaim_tokens = 4096
         self._proactive_prune_rearm_tokens = 0
 
-        # Model thresholds from env (PULSEAI_MODEL_THRESHOLDS JSON or csv)
+        # Model thresholds from env (CRUSORAI_MODEL_THRESHOLDS JSON or csv)
         try:
             env_thresholds = load_model_thresholds_from_env()
             if env_thresholds:
@@ -497,14 +497,14 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                 self.model_thresholds = base
             # Also check global threshold percent + protect_n overrides (all env-driven)
             from src.context.engine import _env_float, _env_int
-            tp = _env_float("PULSEAI_THRESHOLD_PERCENT", self.threshold_percent)
+            tp = _env_float("CRUSORAI_THRESHOLD_PERCENT", self.threshold_percent)
             if tp != self.threshold_percent:
                 self.threshold_percent = tp
                 self._pressure.threshold_percent = tp
-            pln = _env_int("PULSEAI_PROTECT_LAST_N", self.protect_last_n)
+            pln = _env_int("CRUSORAI_PROTECT_LAST_N", self.protect_last_n)
             if pln != self.protect_last_n:
                 self.protect_last_n = pln
-            pfn = _env_int("PULSEAI_PROTECT_FIRST_N", self.protect_first_n)
+            pfn = _env_int("CRUSORAI_PROTECT_FIRST_N", self.protect_first_n)
             if pfn != self.protect_first_n:
                 self.protect_first_n = pfn
         except Exception:
@@ -552,7 +552,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
             target=self._endpoint_retry_worker,
             args=(self.model,),
             daemon=True,
-            name="pulse-model-metadata",
+            name="crusor-model-metadata",
         )
         self._meta_thread.start()
 
@@ -658,7 +658,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
             )
             # Boot honesty for the scan bound: print the ceiling this engine
             # will actually enforce and WHERE it came from. The owner's
-            # desktop session ran with PULSEAI_SCAN_* set in a terminal while
+            # desktop session ran with CRUSORAI_SCAN_* set in a terminal while
             # the IDE process never inherited them -- a silent env loss that
             # this line makes visible forever.
             try:
@@ -680,8 +680,8 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                 from src.context.repo_map import repo_map_enabled
                 print(
                     "repo map layer: "
-                    + ("on (PULSEAI_REPO_MAP)" if repo_map_enabled()
-                       else "off (PULSEAI_REPO_MAP=on to enable)"),
+                    + ("on (CRUSORAI_REPO_MAP)" if repo_map_enabled()
+                       else "off (CRUSORAI_REPO_MAP=on to enable)"),
                 )
             except Exception:
                 pass  # diagnostics never block boot
@@ -730,7 +730,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     # provider's ACTUAL usage (threshold_percent=0.75 of the real window);
     # OpenClaude adds cache-break detection (a REGRESSION in the stable
     # prefix, >5% and >2000 tokens, is an event — not a silent cost) and a
-    # unified status surface. Pulse's turn path counts tokens with a
+    # unified status surface. Crusor's turn path counts tokens with a
     # heuristic fallback for unlisted models (tiktoken cl100k proxy,
     # measured for sarvam), so the provider's usage number is the ground
     # truth. ai_node feeds it in via update_from_response() after every
@@ -1105,7 +1105,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     def _compaction_kill_switch_off(self) -> bool:
         try:
             import os
-            return os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off"
+            return os.environ.get("CRUSORAI_COMPACTION", "").strip().lower() == "off"
         except Exception:
             return False
 
@@ -1166,7 +1166,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         if not at_threshold or self._overflow_warned:
             return
         if self._compaction_kill_switch_off():
-            reason = "PULSEAI_COMPACTION=off"
+            reason = "CRUSORAI_COMPACTION=off"
         elif count_tokens(trimmed_history, self.model) > history_budget:
             reason = "history still exceeds its budget after compaction"
         else:
@@ -1249,7 +1249,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
 
     def get_status(self) -> Dict[str, Any]:
         """Unified telemetry surface (Hermes get_status + OpenClaude cache
-        stats + Pulse compaction counters) — one call for bridge,
+        stats + Crusor compaction counters) — one call for bridge,
         dashboard and diagnostics."""
         base = super().get_status()
         window = int(self.context_window or 0)
@@ -1325,14 +1325,14 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
 
         Hermes parity: select_context is called with budget_tokens to inject
         additional context. For IDE, we use it to provide editor context
-        (dirty files, diagnostics) when PULSEAI_IDE_CONTEXT=on, and to
+        (dirty files, diagnostics) when CRUSORAI_IDE_CONTEXT=on, and to
         provide repo_map/chunks when budget allows.
 
         Returns None to use normal layer path, or list of additional messages.
         """
-        if os.environ.get("PULSEAI_IDE_CONTEXT", "").lower() not in {"1","on","true","yes"}:
+        if os.environ.get("CRUSORAI_IDE_CONTEXT", "").lower() not in {"1","on","true","yes"}:
             # Only activate when explicitly enabled — otherwise layer path handles it
-            # But still allow repo_map via budget if PULSEAI_REPO_MAP=on
+            # But still allow repo_map via budget if CRUSORAI_REPO_MAP=on
             if budget_tokens <= 0:
                 return None
         # Budget-aware injection: only if we have headroom
@@ -1362,10 +1362,10 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                 pass
 
         # Editor context: dirty files, diagnostics, symbols
-        if os.environ.get("PULSEAI_IDE_CONTEXT", "").lower() in {"1","on","true","yes"}:
+        if os.environ.get("CRUSORAI_IDE_CONTEXT", "").lower() in {"1","on","true","yes"}:
             try:
                 # Check for editor context in env or temp file
-                editor_ctx_path = os.environ.get("PULSEAI_EDITOR_CONTEXT_PATH", "")
+                editor_ctx_path = os.environ.get("CRUSORAI_EDITOR_CONTEXT_PATH", "")
                 if editor_ctx_path and os.path.exists(editor_ctx_path):
                     with open(editor_ctx_path, "r", encoding="utf-8") as f:
                         data = f.read(8000)
@@ -1540,7 +1540,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     # Per-model compaction-threshold overrides (Hermes parity, see
     # resolve_model_threshold in src/context/engine.py). Maps model-name
     # substrings to threshold fractions; the LONGEST matching key wins.
-    # Values stored in env PULSEAI_MODEL_THRESHOLDS (JSON or k=v csv) — env wins.
+    # Values stored in env CRUSORAI_MODEL_THRESHOLDS (JSON or k=v csv) — env wins.
     # Empty by default — every model uses the configured 0.75 until an
     # operator or the bridge populates this (update_model reads
     # getattr(self, "model_thresholds", {}) live, so a mid-session
@@ -1628,10 +1628,10 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         # after history — folding them into block #0 churned the whole
         # prefix on every repo edit (cache audit caught it: breaker persona
         # instead of history). D23's ordering intent is preserved: stable
-        # first, volatile nearest generation. PULSEAI_CONTEXT_MULTI_SYSTEM=1
+        # first, volatile nearest generation. CRUSORAI_CONTEXT_MULTI_SYSTEM=1
         # (read per call) restores the legacy multi-system packaging.
         multi_system = os.environ.get(
-            "PULSEAI_CONTEXT_MULTI_SYSTEM", ""
+            "CRUSORAI_CONTEXT_MULTI_SYSTEM", ""
         ).strip().lower() in {"1", "true", "yes", "on"}
         if multi_system:
             final_messages = [system_message] + self._position_volatile_tail(
@@ -1897,7 +1897,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
             extra.append(
                 f"walk bound: {pool.max_considered:,} entries to consider, {pool.max_files:,} files,"
                 f" {pool.max_bytes / 1_048_576:.0f} MiB, {pool.max_elapsed:.1f}s -- a file-count ceiling"
-                " from ContextBudget (tunable via PULSEAI_SCAN_* env), independent of the model window"
+                " from ContextBudget (tunable via CRUSORAI_SCAN_* env), independent of the model window"
             )
         if getattr(self, "context_window_source", "") == "default":
             extra.append(
@@ -2228,7 +2228,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         recursive directory listings.
         """
         # Owner verdict + hermes doctrine: no build-time workspace map.
-        # Disabled by default (PULSEAI_REPO_MAP=on re-enables); the env
+        # Disabled by default (CRUSORAI_REPO_MAP=on re-enables); the env
         # getter is read PER BUILD, never captured. When off, NOTHING walks:
         # no scan, no map, no fresh prefix -- the layer is simply absent.
         from src.context.repo_map import repo_map_enabled
@@ -2569,7 +2569,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         """D22 hermes pack (compaction.py): prune-first with protected
         head/tail, structural dropping only if still over budget, dropped
         turns folded into an iterative AUX-model summary with anti-thrash.
-        PULSEAI_COMPACTION=off restores the legacy structural pipeline;
+        CRUSORAI_COMPACTION=off restores the legacy structural pipeline;
         landed mutation omission has its own diagnostic kill switch."""
         return self._shaper.compact(
             history, budget, kill_switch_trim=self._trim_history

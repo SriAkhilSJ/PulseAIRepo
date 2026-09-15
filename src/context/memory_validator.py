@@ -1,6 +1,6 @@
 
 """
-Memory Validator for PulseCodeAI
+Memory Validator for CrusorCodeAI
 ================================
 Checks whether retrieved long-term memories are still valid.
 If a memory references a file that no longer exists, or describes

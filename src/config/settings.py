@@ -55,11 +55,11 @@ def resolve_aux_llm() -> tuple[str, str]:
     """(provider, model) for management-class calls.
 
     Routes to the cheap tier by default (provider="cheap" triggers
-    PULSEAI_CHEAP_API_KEY / PULSEAI_CHEAP_BASE_URL / PULSEAI_CHEAP_MODEL
+    CRUSORAI_CHEAP_API_KEY / CRUSORAI_CHEAP_BASE_URL / CRUSORAI_CHEAP_MODEL
     in factory.get_llm). Override via AUX_LLM_PROVIDER / AUX_LLM_MODEL.
     """
     provider = os.getenv("AUX_LLM_PROVIDER", "cheap")
-    model = os.getenv("AUX_LLM_MODEL") or os.getenv("PULSEAI_CHEAP_MODEL", "qwen/qwen3.7-flash")
+    model = os.getenv("AUX_LLM_MODEL") or os.getenv("CRUSORAI_CHEAP_MODEL", "qwen/qwen3.7-flash")
     return provider, model
 
 

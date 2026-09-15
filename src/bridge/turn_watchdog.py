@@ -3,7 +3,7 @@
 Hermes' liveness discipline (agent/activity_tracking.py): activity events
 stamp under a lock, the code "Bumps a monotonic generation under the activity
 lock so the watchdog can bind a stall observation to" a fixed state, and
-"Real progress invalidates a reserved abort claim". Pulse's bridge instead
+"Real progress invalidates a reserved abort claim". Crusor's bridge instead
 timed the TOTAL wall time from turn start — field log 2026-09-08: it fired
 600s into a turn the owner was actively watching work (311.6s non-streaming
 LLM answer, 264.9s browser_navigate, 108.7s context build), emitted a
@@ -13,7 +13,7 @@ engine kept going and painted more tool cards.
 The budget therefore measures SILENCE, not total time: the bridge's event
 forwarder touches the generation for every own-session event it relays, and
 a stall observation fires only if one full budget window passes with the
-generation unchanged. PULSEAI_TURN_STALL_TIMEOUT_S keeps its name and clamp
+generation unchanged. CRUSORAI_TURN_STALL_TIMEOUT_S keeps its name and clamp
 (default 600s, ceiling 3600s, 0 = off); the semantics are inactivity, as in
 hermes.
 """
@@ -42,7 +42,7 @@ class TurnLiveness:
 
 
 def stall_budget(raw: str, *, default: float = 600.0, ceiling: float = 3600.0) -> float:
-    """PULSEAI_TURN_STALL_TIMEOUT_S value, clamped (0 disables the watchdog)."""
+    """CRUSORAI_TURN_STALL_TIMEOUT_S value, clamped (0 disables the watchdog)."""
     try:
         budget = float(raw) if raw else default
     except (TypeError, ValueError):

@@ -1,4 +1,4 @@
-"""Pluggable Context Engine ABC — Hermes parity for PulseAI.
+"""Pluggable Context Engine ABC — Hermes parity for CrusorAI.
 
 Mirrors hermes agent/context_engine.py: ContextEngine(ABC) with token-state
 contract, threshold, protect_first/last, sanitize_memory_context, and hooks:
@@ -77,13 +77,13 @@ def _env_int(name: str, default: int) -> int:
 def load_model_thresholds_from_env() -> Dict[str, float]:
     """Load per-model threshold overrides from env.
 
-    Env PULSEAI_MODEL_THRESHOLDS = JSON dict like:
+    Env CRUSORAI_MODEL_THRESHOLDS = JSON dict like:
       {"gpt-4o": 0.75, "openrouter:claude-3-5-sonnet": 0.6, "astra": 0.85}
-    Also supports PULSEAI_THRESHOLD_PERCENT as global default override.
+    Also supports CRUSORAI_THRESHOLD_PERCENT as global default override.
     """
     import json, os
     thresholds: Dict[str, float] = {}
-    raw = os.environ.get("PULSEAI_MODEL_THRESHOLDS", "").strip()
+    raw = os.environ.get("CRUSORAI_MODEL_THRESHOLDS", "").strip()
     if raw:
         try:
             data = json.loads(raw)
@@ -119,9 +119,9 @@ def load_model_thresholds_from_env() -> Dict[str, float]:
 
 def load_proactive_prune_config_from_env() -> Dict[str, int]:
     return {
-        "tokens": _env_int("PULSEAI_PROACTIVE_PRUNE_TOKENS", 0),
-        "min_chars": _env_int("PULSEAI_PROACTIVE_PRUNE_MIN_CHARS", 8000),
-        "min_reclaim": _env_int("PULSEAI_PROACTIVE_PRUNE_MIN_RECLAIM", 4096),
+        "tokens": _env_int("CRUSORAI_PROACTIVE_PRUNE_TOKENS", 0),
+        "min_chars": _env_int("CRUSORAI_PROACTIVE_PRUNE_MIN_CHARS", 8000),
+        "min_reclaim": _env_int("CRUSORAI_PROACTIVE_PRUNE_MIN_RECLAIM", 4096),
     }
 
 def _model_threshold_key_rank(key: str, model: str, provider: str) -> tuple[int, int] | None:
@@ -180,15 +180,15 @@ class ContextEngine(ABC):
     compression_count: int = 0
 
     # Env-driven defaults — all values stored in env per user request
-    # PULSEAI_THRESHOLD_PERCENT (0-1 or 0-100), default 0.75 for IDE
-    # PULSEAI_PROTECT_LAST_N, PULSEAI_PROTECT_FIRST_N
+    # CRUSORAI_THRESHOLD_PERCENT (0-1 or 0-100), default 0.75 for IDE
+    # CRUSORAI_PROTECT_LAST_N, CRUSORAI_PROTECT_FIRST_N
     threshold_percent: float = 0.75
     protect_first_n: int = 3
     protect_last_n: int = 20  # IDE needs more recent turns than CLI's 6 — aligns with Hermes 20
     emit_automatic_compaction_status: bool = True
 
     # Proactive prune: deterministic tool-result pruning at low trigger (Hermes parity)
-    # All via env: PULSEAI_PROACTIVE_PRUNE_TOKENS, _MIN_CHARS, _MIN_RECLAIM
+    # All via env: CRUSORAI_PROACTIVE_PRUNE_TOKENS, _MIN_CHARS, _MIN_RECLAIM
     proactive_prune_tokens: int = 0
     proactive_prune_min_result_chars: int = 8000
     proactive_prune_min_reclaim_tokens: int = 4096
@@ -196,14 +196,14 @@ class ContextEngine(ABC):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         # Apply env overrides once per subclass creation so instances pick them up
-        cls.threshold_percent = _env_float("PULSEAI_THRESHOLD_PERCENT", cls.threshold_percent)
+        cls.threshold_percent = _env_float("CRUSORAI_THRESHOLD_PERCENT", cls.threshold_percent)
         # protect_last_n via env
         try:
             import os
-            raw = os.environ.get("PULSEAI_PROTECT_LAST_N", "").strip()
+            raw = os.environ.get("CRUSORAI_PROTECT_LAST_N", "").strip()
             if raw:
                 cls.protect_last_n = int(raw)
-            raw = os.environ.get("PULSEAI_PROTECT_FIRST_N", "").strip()
+            raw = os.environ.get("CRUSORAI_PROTECT_FIRST_N", "").strip()
             if raw:
                 cls.protect_first_n = int(raw)
         except Exception:
@@ -275,15 +275,15 @@ class ContextEngine(ABC):
             "proactive_prune_tokens": getattr(self, "proactive_prune_tokens", 0),
             "model_thresholds": getattr(self, "model_thresholds", {}),
             "env": {
-                "PULSEAI_THRESHOLD_PERCENT": self.threshold_percent,
-                "PULSEAI_MODEL_THRESHOLDS": load_model_thresholds_from_env(),
-                "PULSEAI_PROACTIVE_PRUNE_TOKENS": getattr(self, "proactive_prune_tokens", 0),
+                "CRUSORAI_THRESHOLD_PERCENT": self.threshold_percent,
+                "CRUSORAI_MODEL_THRESHOLDS": load_model_thresholds_from_env(),
+                "CRUSORAI_PROACTIVE_PRUNE_TOKENS": getattr(self, "proactive_prune_tokens", 0),
             }
         }
     def update_model(self, model: str, context_length: int, base_url: str = "", api_key: str = "", provider: str = "", api_mode: str = "") -> None:
         self.context_length = context_length
         if not hasattr(self, "_config_threshold_percent"):
-            self._config_threshold_percent = _env_float("PULSEAI_THRESHOLD_PERCENT", self.threshold_percent)
+            self._config_threshold_percent = _env_float("CRUSORAI_THRESHOLD_PERCENT", self.threshold_percent)
         # Merge env thresholds with instance thresholds — env wins
         try:
             env_thresholds = load_model_thresholds_from_env()

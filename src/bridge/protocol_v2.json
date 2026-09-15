@@ -1,6 +1,6 @@
 {
  "protocol": 2,
- "name": "PulseAI Bridge Protocol",
+ "name": "CrusorAI Bridge Protocol",
  "approval_identity_field": "tool_id",
  "execution_modes": [
   "agent",

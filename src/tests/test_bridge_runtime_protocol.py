@@ -24,7 +24,7 @@ def send(proc, frame):
 @pytest.fixture
 def bridge():
     env = dict(os.environ)
-    env["PULSEAI_BRIDGE_RUNNER"] = "echo"
+    env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,

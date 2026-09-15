@@ -55,7 +55,7 @@ else:
     _DEFAULT_SERVER_DIR = "/usr/lib/node_modules/@modelcontextprotocol/server-puppeteer"
     _DEFAULT_CACHE = os.path.expanduser("~/.cache/puppeteer")
 _SERVER_INDEX = os.environ.get(
-    "PULSEAI_PUPPETEER_INDEX",
+    "CRUSORAI_PUPPETEER_INDEX",
     os.path.join(_DEFAULT_SERVER_DIR, "dist", "index.js"),
 )
 _SERVER_DIR = os.path.dirname(os.path.dirname(_SERVER_INDEX))
@@ -111,7 +111,7 @@ class BrowserMCPSession:
             params = StdioServerParameters(
                 command="node",
                 args=[_SERVER_INDEX],
-                cwd=os.environ.get("PULSEAI_PUPPETEER_CWD", _SERVER_DIR),
+                cwd=os.environ.get("CRUSORAI_PUPPETEER_CWD", _SERVER_DIR),
                 env={
                     **os.environ,
                     "PUPPETEER_CACHE_DIR": _PUPPETEER_CACHE,
@@ -124,7 +124,7 @@ class BrowserMCPSession:
                     ),
                     # Server writes its rough HTML artifacts here; harmless.
                     "PUPPETEER_PROJECT_DIR": os.environ.get(
-                        "PULSEAI_PUPPETEER_PROJECT_DIR", _SERVER_DIR
+                        "CRUSORAI_PUPPETEER_PROJECT_DIR", _SERVER_DIR
                     ),
                 },
             )

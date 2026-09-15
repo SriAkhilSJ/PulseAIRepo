@@ -33,8 +33,8 @@ test-results/
 .DS_Store
 Thumbs.db
 
-# Local PulseAI runtime state (if ever created repo-local)
-.pulseai/
+# Local CrusorAI runtime state (if ever created repo-local)
+.crusorai/
 
 # VSCode fork (desktop/) build outputs — never vendor these
 node_modules/
@@ -64,9 +64,9 @@ lab/*.err.log
 desktop/vscode/.git/
 desktop/vscode/**/.git/
 
-# PulseAI IDE canonical fork. desktop/ tracks only fork metadata (README,
+# CrusorAI IDE canonical fork. desktop/ tracks only fork metadata (README,
 # manifest, pin, node version); desktop/vscode/ is the vendored Code OSS
-# checkout with the Pulse overlay applied in place. Local dependencies and
+# checkout with the Crusor overlay applied in place. Local dependencies and
 # build outputs stay on disk for building, but are never committed.
 desktop/*
 !desktop/.nvmrc
@@ -97,10 +97,10 @@ bench-archive*/
 # Agent scratch: web image-search artifacts
 image-search/
 
-# pulseai-spa is now BUILT IN REPO (webapp/, hermes chat components) and the
-# bundle is COMMITTED: pulseAIViewPane iframes it and the fork compile copies
-# it src->out verbatim. The old pulse-webview postbuild that used to copy it
+# crusorai-spa is now BUILT IN REPO (webapp/, hermes chat components) and the
+# bundle is COMMITTED: crusorAIViewPane iframes it and the fork compile copies
+# it src->out verbatim. The old crusor-webview postbuild that used to copy it
 # in is gone — ignoring the src path is what left the Webview tab dead
 # ("Not allowed to load local resource"). out/ stays ignored (compile output).
-desktop/vscode/out/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/
+desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorai-spa/
 .reference/

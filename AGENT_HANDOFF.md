@@ -1,4 +1,4 @@
-# Agent Handoff — PulseAI / CopilotKit
+# Agent Handoff — CrusorAI / CopilotKit
 
 Start here. This records the state of the CopilotKit work as of **2026-09-11**, what was
 verified, what was fixed, and the traps that will waste your time if you don't know them.
@@ -31,7 +31,7 @@ Runtime → Python LangGraph agent → A2UI card with real content and a live ac
 
 | # | Defect | Root cause | Fix |
 |---|---|---|---|
-| 1 | Card rendered **empty** | Schema used legacy `props`-nested format; A2UI v0.9 destructures `{ id, component, ...properties }`, so props landed under a `props` key and `props.child` was `undefined` | Flattened `src/a2ui_schemas/pulse_task_schema.json` |
+| 1 | Card rendered **empty** | Schema used legacy `props`-nested format; A2UI v0.9 destructures `{ id, component, ...properties }`, so props landed under a `props` key and `props.child` was `undefined` | Flattened `src/a2ui_schemas/crusor_task_schema.json` |
 | 2 | Runs **never reached** the Python agent | `server.ts` mixed a v1 `LangGraphHttpAgent` with `CopilotKitIntelligence` → every run routed to `api.intelligence.copilotkit.ai` | Use AG-UI `HttpAgent`; Intelligence now optional |
 | 3 | Agent crashed on first node | `KeyError: 'latest_instruction'`, then `'provider'` — set by CLI/bridge, not by any graph node; AG-UI sends only `messages` | `_latest_instruction_from_messages()` + `_cfg()` helper |
 | 4 | `tsc -b` broken, **12 errors** | `agent=` prop doesn't exist in v2 API; zod **4.5.2** in app vs zod **3.25.76** in a2ui | `agentId`; zod pinned to `3.25.76` |
@@ -59,15 +59,15 @@ Key facts:
   Never hard-code `localhost` — it breaks every non-localhost origin.
 - `CopilotKitIntelligence` is **optional**. Set `INTELLIGENCE_API_KEY` to enable Cloud mode;
   without it the runtime runs in `sse` mode, direct to the agent.
-- The A2UI catalog lives in `pulse-webview/src/a2ui/`; the card schema (the agent's contract)
-  lives in `src/a2ui_schemas/pulse_task_schema.json`. **These two must agree.**
+- The A2UI catalog lives in `crusor-webview/src/a2ui/`; the card schema (the agent's contract)
+  lives in `src/a2ui_schemas/crusor_task_schema.json`. **These two must agree.**
 
 ### Running it
 
 ```bash
 uv run python -m uvicorn src.server:app --host 0.0.0.0 --port 8123   # term 1
-cd pulse-webview && npm run runtime                                   # term 2
-cd pulse-webview && npm run dev                                       # term 3
+cd crusor-webview && npm run runtime                                   # term 2
+cd crusor-webview && npm run dev                                       # term 3
 ```
 
 ---
@@ -78,7 +78,7 @@ These cost real time to discover. Don't rediscover them.
 
 1. **A2UI v0.9 props are FLAT.** `{"id","component","child":"col"}` — not
    `{"id","component","props":{"child":"col"}}`. A nested `props` wrapper produces a card that
-   mounts with `data-testid="pulse-task-card"` but is **completely empty**. It fails silently:
+   mounts with `data-testid="crusor-task-card"` but is **completely empty**. It fails silently:
    no error, no warning, just a blank box. Guarded by a regression test.
 
 2. **zod must stay on 3.25.76.** `@copilotkit/a2ui-renderer` and `@a2ui/web_core` bundle
@@ -110,14 +110,14 @@ These cost real time to discover. Don't rediscover them.
 ## Test commands
 
 ```bash
-cd pulse-webview && npm test        # 48 DOM tests, provider-free (no key, no tokens)
-cd pulse-webview && npx tsc -b      # must exit 0
+cd crusor-webview && npm test        # 48 DOM tests, provider-free (no key, no tokens)
+cd crusor-webview && npx tsc -b      # must exit 0
 uv run python -m pytest src/tests -q  # 1866 passed / 21 skipped / 1 xfailed (after PR #14 merge)
 ```
 
-The DOM harness (`pulse-webview/src/__tests__/`) mounts the real components with the real catalog
+The DOM harness (`crusor-webview/src/__tests__/`) mounts the real components with the real catalog
 and drives them with the exact operations the Python agent emits
-(`src/__tests__/fixtures/pulse-a2ui-operations.json`). It asserts the card paints real text, the
+(`src/__tests__/fixtures/crusor-a2ui-operations.json`). It asserts the card paints real text, the
 button dispatches, the schema stays flat, and the App shell mounts. **It spends zero tokens.**
 
 ---
@@ -164,8 +164,8 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
 
 ### 3. Minor
 
-- `pulse-webview/e2e-verify.spec.ts` writes screenshots to a hard-coded Windows path
-  (`D:/pulseAIagent/...`) and sleeps 12s waiting for an LLM. It will not pass as written.
+- `crusor-webview/e2e-verify.spec.ts` writes screenshots to a hard-coded Windows path
+  (`D:/crusorAIagent/...`) and sleeps 12s waiting for an LLM. It will not pass as written.
 - `README.md` still says Node 24.18.0 / Vite 7 for the webview; the app actually builds on
   Node 22.22 with Vite 8. Worth reconciling.
 - The `ui/` directory is referenced by some tests but does not exist in the tree.
@@ -178,12 +178,12 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
 |---|---|
 | `COPILOTKIT_VERIFICATION.md` | Full defect evidence, measurements, test results |
 | `AGENT_HANDOFF.md` | This file — orientation |
-| `src/a2ui_schemas/pulse_task_schema.json` | Agent→UI card contract (flat v0.9) |
+| `src/a2ui_schemas/crusor_task_schema.json` | Agent→UI card contract (flat v0.9) |
 | `src/graphs/chat_graph.py` | `_cfg()` + `_latest_instruction_from_messages()` |
-| `pulse-webview/server.ts` | AG-UI `HttpAgent`, optional Intelligence, crash guards |
-| `pulse-webview/src/App.tsx` | `agentId`, relative runtime URL |
-| `pulse-webview/src/a2ui/renderers.tsx` | Wired button `onClick` |
-| `pulse-webview/src/__tests__/` | Provider-free DOM harness + operations fixture |
+| `crusor-webview/server.ts` | AG-UI `HttpAgent`, optional Intelligence, crash guards |
+| `crusor-webview/src/App.tsx` | `agentId`, relative runtime URL |
+| `crusor-webview/src/a2ui/renderers.tsx` | Wired button `onClick` |
+| `crusor-webview/src/__tests__/` | Provider-free DOM harness + operations fixture |
 
 ## Recent changes
 
@@ -201,9 +201,9 @@ Fixed aux provider routing so management-class calls (compression, titling, memo
 **Configuration:**
 ```env
 # Cheap provider for aux calls (defaults)
-PULSEAI_CHEAP_API_KEY=your-key
-PULSEAI_CHEAP_BASE_URL=https://velona.in/v1
-PULSEAI_CHEAP_MODEL=qwen/qwen3.7-flash
+CRUSORAI_CHEAP_API_KEY=your-key
+CRUSORAI_CHEAP_BASE_URL=https://velona.in/v1
+CRUSORAI_CHEAP_MODEL=qwen/qwen3.7-flash
 
 # Override aux routing (optional)
 AUX_LLM_PROVIDER=custom
@@ -216,12 +216,12 @@ AUX_LLM_MODEL=your-model
 
 ```
 0f829c1e  fix: aux provider routing to use cheap tier by default
-3d199b71  Rebuild PulseAI webview SPA + fix STALE workbench
+3d199b71  Rebuild CrusorAI webview SPA + fix STALE workbench
 60c75c51  Dropped tool-call recovery + cost router improvements
 d886a591  Velona provider, context window priority, tool cap, Windows charmap fix
 bde38d97  hide todo stack above composer + rebuild webview
 8648ddf4  ui: hide plan checklist panel to maximize chat box (todo list already perfect)
 cab30792  chore: add .env for arena verification          ← reverted (untracked again); see Open items #1
-4f88a907  fix(copilotkit): make the Pulse agent actually render end-to-end
+4f88a907  fix(copilotkit): make the Crusor agent actually render end-to-end
 14b8862b  feat: Hermes-grade context/security + CopilotKit desktop fixed-right
 ```

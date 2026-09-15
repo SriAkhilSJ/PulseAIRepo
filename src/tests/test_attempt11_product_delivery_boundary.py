@@ -146,7 +146,7 @@ def test_mutation_payload_compaction_has_independent_kill_switch(monkeypatch):
         }]),
         ToolMessage(content="Wrote file: y.ts", name="write_file", tool_call_id="write-new"),
     ]
-    monkeypatch.setenv("PULSEAI_MUTATION_PAYLOAD_COMPACTION", "off")
+    monkeypatch.setenv("CRUSORAI_MUTATION_PAYLOAD_COMPACTION", "off")
     assert compact_file_mutation_arguments(history) is history
     assert call.tool_calls[0]["args"]["content"] == body
 

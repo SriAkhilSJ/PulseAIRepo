@@ -1,4 +1,4 @@
-# Fork Rebranding — Code OSS → PulseAI IDE
+# Fork Rebranding — Code OSS → CrusorAI IDE
 
 **Owner:** Interface agent · **Date:** 2026-09-11
 **Scope:** everything a user *sees* that says "Code OSS" / "Visual Studio Code" / looks upstream.
@@ -14,7 +14,7 @@ From `desktop/README.md`:
 - **Invariant 7:** exactly **five** upstream *source* files may be modified
   (`product.json`, `build/buildfile.ts`, `build/next/index.ts`,
   `workbench.common.main.ts`, `workbench.desktop.main.ts`).
-- **Invariant 2:** Pulse *agent* code never under `/extensions/`.
+- **Invariant 2:** Crusor *agent* code never under `/extensions/`.
 - **Invariant 4:** no global workbench recolor from code; theming happens through
   the theme system.
 
@@ -28,17 +28,17 @@ See §5 — the founder is right, with one nuance.
 
 | Area | State | Evidence |
 |---|---|---|
-| Product identity | ✅ Complete | `product.json`: `nameShort` PulseAI, `nameLong` PulseAI IDE, `applicationName` pulseai, `dataFolderName` .pulseai-ide, `urlProtocol` pulseai, `darwinBundleIdentifier` com.pulseai.ide, Win32 AppIds/mutexes all PulseAI |
-| Platform icons | ✅ 8 files | `resources/{darwin/code.icns, linux/code.png, win32/code.ico, win32/code_150x150.png, win32/code_70x70.png, server/code-192.png, server/code-512.png, server/favicon.ico}`, all generated from `branding/pulseai-mark.svg`, tracked in `SELECTIVE_MANIFEST.json → brand_assets` |
-| Window title | ✅ | Verified live: "PulseAI IDE Dev" (`Agent work.md`) |
-| Pulse contribution | ✅ | `contrib/pulseai/` registered in the auxiliary bar |
+| Product identity | ✅ Complete | `product.json`: `nameShort` CrusorAI, `nameLong` CrusorAI IDE, `applicationName` crusorai, `dataFolderName` .crusorai-ide, `urlProtocol` crusorai, `darwinBundleIdentifier` com.crusorai.ide, Win32 AppIds/mutexes all CrusorAI |
+| Platform icons | ✅ 8 files | `resources/{darwin/code.icns, linux/code.png, win32/code.ico, win32/code_150x150.png, win32/code_70x70.png, server/code-192.png, server/code-512.png, server/favicon.ico}`, all generated from `branding/crusorai-mark.svg`, tracked in `SELECTIVE_MANIFEST.json → brand_assets` |
+| Window title | ✅ | Verified live: "CrusorAI IDE Dev" (`Agent work.md`) |
+| Crusor contribution | ✅ | `contrib/crusorai/` registered in the auxiliary bar |
 
 **Identity-level rebranding is essentially finished.** What was missing is the
 part users actually *feel*: the colors.
 
 ---
 
-## 2. Shipped this session — the PulseAI Dark theme
+## 2. Shipped this session — the CrusorAI Dark theme
 
 The single highest-impact rebrand available: the IDE shipped **VS Code's
 "Dark 2026"** (grey `#121314` chrome, teal `#3994BC` accents). Any screenshot
@@ -48,18 +48,18 @@ looked like VS Code.
 
 | File | Change |
 |---|---|
-| `scripts/generate_pulseai_theme.py` | **New.** Generates the theme from `2026-dark.json`. |
-| `extensions/theme-defaults/themes/pulseai-dark.json` | **New.** 305 colors, 53 token rules. |
-| `extensions/theme-defaults/package.json` | Registers `PulseAI Dark`; adds `configurationDefaults` → default theme. |
-| `extensions/theme-defaults/package.nls.json` | Adds `pulseaiDarkThemeLabel`. |
-| `branding/pulseai-dark-theme-preview.svg` | Static preview of the result. |
+| `scripts/generate_crusorai_theme.py` | **New.** Generates the theme from `2026-dark.json`. |
+| `extensions/theme-defaults/themes/crusorai-dark.json` | **New.** 305 colors, 53 token rules. |
+| `extensions/theme-defaults/package.json` | Registers `CrusorAI Dark`; adds `configurationDefaults` → default theme. |
+| `extensions/theme-defaults/package.nls.json` | Adds `crusoraiDarkThemeLabel`. |
+| `branding/crusorai-dark-theme-preview.svg` | Static preview of the result. |
 
 **Zero upstream source files touched.** All four changes are additive, inside an
 existing built-in extension. Invariant 7 verified intact:
 
 ```bash
 git diff --name-only b192a4c2 -- desktop/vscode/ \
-  | grep -E "^desktop/vscode/(src/|build/|product.json)" | grep -v contrib/pulseai
+  | grep -E "^desktop/vscode/(src/|build/|product.json)" | grep -v contrib/crusorai
 # (no output)
 ```
 
@@ -71,7 +71,7 @@ systematic remaps and inherits everything else:
 
 1. **Surfaces → true black.** `#121314`/`#191A1B` → `#000000`;
    `#202122`→`#0A0A0A`; `#242526`→`#101010`; `#2A2B2C`→`#1A1A1A` (hairlines).
-2. **Accents → Pulse blue.** The teal family (`#3994BC`, `#297AA0`, `#307E9F`,
+2. **Accents → Crusor blue.** The teal family (`#3994BC`, `#297AA0`, `#307E9F`,
    `#48A0C7`, `#276782`, …) → the blue ramp (`#3B82F6`, `#2563EB`, `#60A5FA`,
    `#1D4ED8`), **alpha suffixes preserved** (`#3994BCB3` → `#3B82F6B3`).
 3. Syntax token colors and semantic red/green/amber inherited unchanged.
@@ -85,7 +85,7 @@ Verification: **0** leftover upstream teal or grey values.
 ### Re-syncing when the upstream pin moves
 
 ```bash
-python3 scripts/generate_pulseai_theme.py
+python3 scripts/generate_crusorai_theme.py
 ```
 
 ### Default-theme mechanism (and why this way)
@@ -103,7 +103,7 @@ several built-ins already do (`extensions/copilot/package.json`,
 contributes:
 
 ```json
-"configurationDefaults": { "workbench.colorTheme": "PulseAI Dark" }
+"configurationDefaults": { "workbench.colorTheme": "CrusorAI Dark" }
 ```
 
 Users can still switch themes; this only moves the default.
@@ -120,13 +120,13 @@ across command palette, settings, SCM, find widget, and hovers, and statically
 - Editor + all chrome render true black `#000000` with `#1A1A1A` hairlines.
 - Focus rings, badges, buttons, selections all blue (`#3B82F6` / `#2563EB` / `#60A5FA`).
 - Syntax colors and red/amber/green states correctly **unchanged**.
-- `PulseAI Dark` present and selectable in the theme picker.
+- `CrusorAI Dark` present and selectable in the theme picker.
 
 Rows 7 and 9 (explorer selection wash, git/error decorations) were verified
 **statically from the theme JSON, not visually** — re-confirm opportunistically.
 
 **Build-pipeline note:** `.build\extensions\theme-defaults\` did not contain
-the new theme; the agent copied `pulseai-dark.json` + `package.json` in by hand
+the new theme; the agent copied `crusorai-dark.json` + `package.json` in by hand
 to avoid a multi-hour compile. On a real `npm run compile` the extension build
 step syncs these, so this is a stale-`.build` artifact, **not** a packaging bug.
 Worth re-confirming after the next full compile.
@@ -137,21 +137,21 @@ The verification surfaced three problems with a **single root cause**:
 
 1. **A GitHub "Device Code / Sign in to use GitHub Copilot" dialog blocked the
    entire UI on first launch** of a clean profile. The agent needed `Esc` ×5.
-   For a product called PulseAI IDE this is the worst possible first impression.
-2. **Doubled panel header** — the auxiliary bar showed a `CHAT | PULSE` tab
-   strip *plus* the `Pulse` view title.
-3. **Two agent surfaces** — both `CHAT` and `PULSE` present.
+   For a product called CrusorAI IDE this is the worst possible first impression.
+2. **Doubled panel header** — the auxiliary bar showed a `CHAT | CRUSOR` tab
+   strip *plus* the `Crusor` view title.
+3. **Two agent surfaces** — both `CHAT` and `CRUSOR` present.
 
 ### Root-cause correction (I was wrong earlier)
 
-`COPILOT_INTEGRATION_ANALYSIS.md` §1 claimed Pulse was missing
+`COPILOT_INTEGRATION_ANALYSIS.md` §1 claimed Crusor was missing
 `mergeViewWithContainerWhenSingleView`. **That was wrong** — it is already set at
-`pulseAI.contribution.ts:57`, and the desktop agent caught the error.
+`crusorAI.contribution.ts:57`, and the desktop agent caught the error.
 
 The real mechanism: the auxiliary bar renders a **tab strip per view
-*container***. Pulse's container holds exactly one view, so its own header
+*container***. Crusor's container holds exactly one view, so its own header
 merges correctly. The second bar appears because **two containers** occupy the
-auxiliary bar — Chat's and Pulse's. Remove Chat's, and both #2 and #3 disappear.
+auxiliary bar — Chat's and Crusor's. Remove Chat's, and both #2 and #3 disappear.
 `--disable-extension GitHub.copilot` does nothing here: `contrib/chat` is
 **built-in workbench code**, not the marketplace extension.
 
@@ -175,7 +175,7 @@ invariant 7 holds; **`contrib/chat/` and `extensions/copilot/` untouched**):
 
 | Key | Change | Why |
 |---|---|---|
-| `defaultChatAgent` | **removed** | Kills the GitHub sign-in dialog and the Chat setup/welcome UI; should leave Pulse alone in the auxiliary bar |
+| `defaultChatAgent` | **removed** | Kills the GitHub sign-in dialog and the Chat setup/welcome UI; should leave Crusor alone in the auxiliary bar |
 | `voiceWsUrl` | **removed** | Pointed at `falcon-caas.mai.microsoft.com`; we ship no voice feature |
 | `licenseUrl`, `serverLicenseUrl` | repointed | Were `github.com/microsoft/vscode`; now our repo |
 
@@ -185,7 +185,7 @@ sidecar 7).
 
 **This preserves the founder's rule exactly.** Copilot source remains the
 integration reference, byte-for-byte. We only stopped *advertising GitHub
-Copilot as this IDE's default chat agent* — which was never true of PulseAI.
+Copilot as this IDE's default chat agent* — which was never true of CrusorAI.
 
 `webviewContentExternalBaseUrlTemplate` was left alone: it is read only by the
 **web** environment service and falls back to the same URL anyway.
@@ -195,7 +195,7 @@ Copilot as this IDE's default chat agent* — which was never true of PulseAI.
 **Status: the removal was WRONG and has been reverted. Do not retry it.**
 
 Round-2 hardware verification (`e73e48b4`) found a **black screen**: the window
-opens, the title stays `PulseAI IDE`, and the renderer never paints. No
+opens, the title stays `CrusorAI IDE`, and the renderer never paints. No
 `logs/window1` is created. All four checks were blocked.
 
 The desktop agent's **control test is what cracked it**: restoring `product.json`
@@ -264,13 +264,13 @@ available lever. Candidate approaches, none yet validated:
 
 1. **Drop `workbench.common.main.ts:402`** (`welcomeOnboarding.contribution.js`).
    That file is already one of the 5 permitted modified files, and Microsoft's
-   "Sign in with GitHub Copilot / Google / Apple" wizard is wrong for PulseAI on
+   "Sign in with GitHub Copilot / Google / Apple" wizard is wrong for CrusorAI on
    its own merits. Removes the onboarding modal; does **not** address the CHAT
    container.
 2. **Neuter rather than delete** — keep `defaultChatAgent`'s full shape so no
-   consumer throws, but replace GitHub URLs/ids with PulseAI-neutral values.
+   consumer throws, but replace GitHub URLs/ids with CrusorAI-neutral values.
    Needs care: empty provider ids may produce a broken dialog instead of none.
-3. **Hide the Chat view container** via a contribution in the Pulse custom root,
+3. **Hide the Chat view container** via a contribution in the Crusor custom root,
    leaving `contrib/chat` untouched. Most surgical; needs research.
 
 Option 1 is cheapest to test and independently desirable. It should be verified
@@ -291,11 +291,11 @@ two agent icons). Zero credits.
 ```bash
 cd desktop/vscode
 npm run compile
-.build/electron/PulseAI.exe --user-data-dir .freebuff/pulseai-ud
+.build/electron/CrusorAI.exe --user-data-dir .freebuff/crusorai-ud
 ```
 
-Expect: black chrome, blue focus rings/badges/buttons, PulseAI Dark preselected
-in the theme picker. Preview of the intent: `branding/pulseai-dark-theme-preview.svg`.
+Expect: black chrome, blue focus rings/badges/buttons, CrusorAI Dark preselected
+in the theme picker. Preview of the intent: `branding/crusorai-dark-theme-preview.svg`.
 
 ---
 
@@ -306,11 +306,11 @@ in the theme picker. Preview of the intent: `branding/pulseai-dark-theme-preview
 | 1 | **Welcome / Getting Started page** | `contrib/welcomeGettingStarted/` | M | First screen on launch. Still upstream copy/walkthroughs. Highest remaining visibility. |
 | 2 | **Empty-editor watermark** | `contrib/watermark` (part of editor group) | S | Shows upstream keybinding list on an empty window. |
 | 3 | **Product icon theme** | `extensions/theme-modern-icons` / `product.json` `PRODUCT_ICON_THEME` | M | The codicon set. Replacing key glyphs is a strong brand signal. |
-| 4 | **About dialog** | driven by `product.json` + `LICENSE` | S | Verify it reads "PulseAI IDE" and our repo URL, not Microsoft's. |
+| 4 | **About dialog** | driven by `product.json` + `LICENSE` | S | Verify it reads "CrusorAI IDE" and our repo URL, not Microsoft's. |
 | ~~5~~ | ~~`licenseUrl` / `serverLicenseUrl`~~ | — | — | ✅ **Done** (§2c) |
 | 6 | `webviewContentExternalBaseUrlTemplate` | `product.json` | S | `vscode-cdn.net` URL. **Web-only code path**; harmless on desktop. Low priority. |
 | ~~7~~ | ~~`voiceWsUrl`~~ | — | — | ✅ **Done** (§2c) |
-| 8 | **Light theme** | `theme-defaults` | M | No PulseAI Light yet — generator handles it when wanted. |
+| 8 | **Light theme** | `theme-defaults` | M | No CrusorAI Light yet — generator handles it when wanted. |
 | 9 | **Splash / startup colors** | window background before workbench paints | S | Prevents a grey flash on cold start. |
 
 Items 5–7 are one-line `product.json` edits (already an allowed file) and are
@@ -332,8 +332,8 @@ would:
    it is not a delete, it is a refactor.
 
 **The one nuance:** *keeping the source* and *shipping the UI to end users* are
-separate decisions. Today a built PulseAI IDE shows **two** agent icons in the
-auxiliary bar — Copilot Chat and Pulse — which is confusing in a product demo.
+separate decisions. Today a built CrusorAI IDE shows **two** agent icons in the
+auxiliary bar — Copilot Chat and Crusor — which is confusing in a product demo.
 
 When that matters, the fix is **runtime visibility, not deletion**: Copilot's view
 is already gated on context keys (`ChatContextKeys.Setup.hidden`,
@@ -342,7 +342,7 @@ Copilot extension present and no auth, it should stay hidden on its own.
 **Verify this in the built IDE before doing anything else.** If it still shows,
 gate it via `product.json`/setting — never by editing `contrib/chat/`.
 
-Related: Copilot claims `{ isDefault: true }` on the auxiliary bar. Pulse should
+Related: Copilot claims `{ isDefault: true }` on the auxiliary bar. Crusor should
 claim it in our fork (see `COPILOT_INTEGRATION_ANALYSIS.md` §6 A3).
 
 ---
@@ -353,7 +353,7 @@ claim it in our fork (see `COPILOT_INTEGRATION_ANALYSIS.md` §6 A3).
 2. Then `product.json` cleanups (§4 items 5–7) — small, safe, batched.
 3. Then the four integration flags (`COPILOT_INTEGRATION_ANALYSIS.md` §6 A) —
    including the doubled-header fix.
-4. Then Agent UI (`PULSEAI_DESIGN_PLAN.md` Phases 2–4), rebuilt on the fork's
+4. Then Agent UI (`CRUSORAI_DESIGN_PLAN.md` Phases 2–4), rebuilt on the fork's
    design tokens per `COPILOT_INTEGRATION_ANALYSIS.md` §3.
 
 ---
@@ -362,7 +362,7 @@ claim it in our fork (see `COPILOT_INTEGRATION_ANALYSIS.md` §6 A3).
 
 | Date | Change |
 |---|---|
-| 2026-08-23 | Initial audit. Shipped PulseAI Dark theme + generator, set as default via extension `configurationDefaults`. Zero upstream source files touched. Copilot untouched per founder direction. |
+| 2026-08-23 | Initial audit. Shipped CrusorAI Dark theme + generator, set as default via extension `configurationDefaults`. Zero upstream source files touched. Copilot untouched per founder direction. |
 | 2026-08-23 | **Theme verified on hardware — 9/9 pass, zero teal** (§2b). Fixed the Copilot onboarding takeover by removing `defaultChatAgent` from `product.json` (§2c); also removed `voiceWsUrl` and repointed license URLs. Corrected my earlier wrong claim that `mergeViewWithContainerWhenSingleView` was missing — it was already set. 23 desktop tests green. |
 
 ---
@@ -379,7 +379,7 @@ the mechanism already proven on this hardware in round 1.
 
 ```json
 {
-  "workbench.colorTheme": "PulseAI Dark",
+  "workbench.colorTheme": "CrusorAI Dark",
   "chat.disableAIFeatures": true,
   "workbench.welcomePage.experimentalOnboarding": false,
   "workbench.startupEditor": "none"
@@ -428,7 +428,7 @@ when: ContextKeyExpr.and(
 
 With AI disabled every branch is false, so the view is inactive. The container
 declares `hideIfEmpty: true` (line 46), so a container with no active views
-**leaves the auxiliary bar entirely**. One container remains — Pulse's — so the
+**leaves the auxiliary bar entirely**. One container remains — Crusor's — so the
 per-container tab strip collapses and the "doubled header" resolves.
 
 `panelParticipantRegistered` was the one real risk: `extensions/copilot`
@@ -440,7 +440,7 @@ has **no `dist/` directory**. Independently,
 profile where chat setup was never completed.
 
 `maybeHideAuxiliaryBar()` (`chatSetupContributions.ts:858`) hides the whole
-auxiliary bar only when chat is the *sole* container. Pulse is registered there
+auxiliary bar only when chat is the *sole* container. Crusor is registered there
 too, so the bar survives.
 
 ### Why this cannot repeat §2c
@@ -457,12 +457,12 @@ These settings live in the **theme** extension. That is semantically wrong and
 is done only because `configurationDefaults` from `theme-defaults` is the exact
 mechanism already verified to work on the target hardware. `product.json`
 `configurationDefaults` is web-only and cannot be used here. **Follow-up: move
-these into a dedicated `pulseai-defaults` built-in extension** once round 3
+these into a dedicated `crusorai-defaults` built-in extension** once round 3
 confirms the behaviour.
 
 ### Guard rails added
 
-`src/tests/test_pulseai_branding.py` gains two tests: one asserting the
+`src/tests/test_crusorai_branding.py` gains two tests: one asserting the
 `configurationDefaults` contract, one asserting `defaultChatAgent` is still
 present in `product.json` so §2c cannot be repeated. Suite: **32 passing**.
 
@@ -541,20 +541,20 @@ The Codex protocol is agent-engine territory, not interface work. This was
 broken build blocks all UI verification. No agent logic was written or modified.
 
 
-## 2f. R4 — Pulse menu discoverability + Ctrl/Cmd+L hotkey (August 2026)
+## 2f. R4 — Crusor menu discoverability + Ctrl/Cmd+L hotkey (August 2026)
 
 ### Problem (R3 hardware verification)
 
-R3 core checks passed (5/5), but the user reported he never saw the Pulse
+R3 core checks passed (5/5), but the user reported he never saw the Crusor
 dropdown menu in the upper-left during testing. Investigation:
 
-- Pulse registered to `MenuId.MenubarMainMenu` (the hamburger app menu) with
-  `group: '9_pulseAI'`, which sorts **after** Help (group `9_Help`) — i.e.
+- Crusor registered to `MenuId.MenubarMainMenu` (the hamburger app menu) with
+  `group: '9_crusorAI'`, which sorts **after** Help (group `9_Help`) — i.e.
   last, visually buried.
 - On Windows/Linux with the compact titlebar the entire menubar collapses
   behind the hamburger `☰`, so the menu was effectively invisible.
 - No `openCommandActionDescriptor`, no keybinding, no left activity-bar icon.
-  The only way to reach Pulse was to (a) know it existed, (b) open the
+  The only way to reach Crusor was to (a) know it existed, (b) open the
   hamburger, (c) scroll to the absolute bottom.
 
 ### Competitor research
@@ -573,18 +573,18 @@ panel. We match them.
 
 ### Fix
 
-One file touched: `src/vs/workbench/contrib/pulseai/browser/pulseAI.contribution.ts`.
+One file touched: `src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts`.
 
 1. **Top-level menu item at `order: 7.5`**, between Terminal (7) and Help (8).
    Resulting menubar on Windows/Linux:
-   `File · Edit · Selection · View · Go · Run · Terminal · Pulse · Help`.
-   (On macOS, Electron's native Window menu sits between Terminal and Pulse;
+   `File · Edit · Selection · View · Go · Run · Terminal · Crusor · Help`.
+   (On macOS, Electron's native Window menu sits between Terminal and Crusor;
    Preferences also appears after Help natively.)
 2. **`openCommandActionDescriptor`** added to the view container, binding
    `KeyMod.CtrlCmd | KeyCode.KeyL` as the primary keybinding.
    `viewsService.ts` registers this at `KeybindingWeight.WorkbenchContrib (200)`,
    which outranks the editor's built-in `expandLineSelection` (weight 0) and
-   also exposes the command via F1 (Command Palette: "View: Toggle Pulse") and
+   also exposes the command via F1 (Command Palette: "View: Toggle Crusor") and
    the `View` menu automatically.
 3. **Location kept in Auxiliary (right) Bar** — matches Cursor/Copilot/Windsurf.
    No left activity-bar icon added; the keyboard + menu + Command Palette
@@ -597,13 +597,13 @@ One file touched: `src/vs/workbench/contrib/pulseai/browser/pulseAI.contribution
 
 ### Guard rails
 
-Three new tests in `src/tests/test_pulseai_branding.py`:
+Three new tests in `src/tests/test_crusorai_branding.py`:
 
-- `test_pulse_is_first_class_top_level_menu_not_buried_after_help` — pins
-  `order: 7.5` and forbids `'9_pulseAI'`.
-- `test_pulse_panel_opens_via_ctrl_cmd_l` — pins `Ctrl/Cmd+L` and forbids
+- `test_crusor_is_first_class_top_level_menu_not_buried_after_help` — pins
+  `order: 7.5` and forbids `'9_crusorAI'`.
+- `test_crusor_panel_opens_via_ctrl_cmd_l` — pins `Ctrl/Cmd+L` and forbids
   regressing to `Ctrl+Alt+I`.
-- `test_pulse_lives_in_auxiliary_bar_not_sidebar` — pins the right-side
+- `test_crusor_lives_in_auxiliary_bar_not_sidebar` — pins the right-side
   placement.
 
 Suite: **35 passed** (up from 32).
@@ -612,7 +612,7 @@ Suite: **35 passed** (up from 32).
 
 | Existing binding            | Weight | When / precondition                       | Outcome             |
 |-----------------------------|--------|-------------------------------------------|---------------------|
-| Expand Line Selection       | 0      | `EditorContextKeys.textInputFocus`        | Shadowed globally by Pulse — matches Cursor/Windsurf behavior. |
+| Expand Line Selection       | 0      | `EditorContextKeys.textInputFocus`        | Shadowed globally by Crusor — matches Cursor/Windsurf behavior. |
 | Browser: Focus URL Input    | 200    | `BROWSER_EDITOR_ACTIVE`                   | Still wins inside the embedded browser view (equal weight, more specific precondition). |
 | Notebook: Add Cursor To Line Ends (Ctrl+Shift+L) | 0 | —                | Different chord (Shift), unaffected. |
 | Search: Search Editor Ctrl+L, etc. | varies | contextual when clauses | Unaffected. |
@@ -626,7 +626,7 @@ This is identical to Cursor's shipped keybinding conflict resolution.
 After R4's menu/keybinding work, the IDE booted cleanly but the screenshot
 showed three Copilot leaks:
 
-1. A **CHAT tab** visible in the right auxiliary bar next to Pulse.
+1. A **CHAT tab** visible in the right auxiliary bar next to Crusor.
 2. An **"Open Chat Ctrl+Alt+I" entry** in the empty-editor watermark.
 3. A **Copilot "Sign In" button** in the title bar.
 
@@ -649,10 +649,10 @@ gets hidden at all.
 
 ### Fix
 
-New file `src/vs/workbench/contrib/pulseai/browser/pulseAIHideCopilot.ts`
+New file `src/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.ts`
 registers an `IWorkbenchContribution` at `LifecyclePhase.Starting` that:
 
-1. Reads two settings — `pulseai.hideBuiltInCopilotUI` (default `true`) and
+1. Reads two settings — `crusorai.hideBuiltInCopilotUI` (default `true`) and
    `chat.disableAIFeatures` — and forces the four Copilot context keys
    (`chatSetupHidden`, `chatSetupInstalled`, `chatSetupDisabled`,
    `chatIsEnabled`) to their "Copilot hidden" values immediately, before
@@ -661,8 +661,8 @@ registers an `IWorkbenchContribution` at `LifecyclePhase.Starting` that:
    state machine agrees.
 3. Re-applies on every relevant configuration change so the entitlement
    service can't flip them back during its async update.
-4. Exposes a Command-Palette toggle "Pulse: Toggle Built-in Copilot UI"
-   for power users who want Copilot visible alongside Pulse.
+4. Exposes a Command-Palette toggle "Crusor: Toggle Built-in Copilot UI"
+   for power users who want Copilot visible alongside Crusor.
 
 No files under `src/vs/workbench/contrib/chat/` or `extensions/copilot/`
 were modified — per standing rule the Copilot source remains untouched as
@@ -670,12 +670,12 @@ the future integration guide.
 
 ### Guard rail
 
-`test_pulse_forces_copilot_context_keys_hidden_at_startup` in
-`src/tests/test_pulseai_branding.py` pins:
-- `pulseAIHideCopilot.ts` exists and binds all four context keys,
+`test_crusor_forces_copilot_context_keys_hidden_at_startup` in
+`src/tests/test_crusorai_branding.py` pins:
+- `crusorAIHideCopilot.ts` exists and binds all four context keys,
 - it calls `setForceHidden(hide)`,
 - it registers at `LifecyclePhase.Starting`,
-- it is imported from `pulseAI.contribution.ts`,
+- it is imported from `crusorAI.contribution.ts`,
 - `chatParticipant.contribution.ts` is >5KB (not deleted/hollowed).
 
 38 tests pass.

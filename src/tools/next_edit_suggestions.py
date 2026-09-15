@@ -39,7 +39,7 @@ class NextEditPredictor:
         self._lock = threading.Lock()
         self._recent_changes: list[dict] = []
         self._max_recent = 50
-        self._enabled = os.environ.get("PULSEAI_NEXT_EDIT_SUGGESTIONS", "1").strip().lower() in {
+        self._enabled = os.environ.get("CRUSORAI_NEXT_EDIT_SUGGESTIONS", "1").strip().lower() in {
             "1", "true", "yes", "on",
         }
         # Common patterns that suggest follow-up edits

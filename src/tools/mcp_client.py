@@ -1,13 +1,13 @@
 """Generic MCP (Model Context Protocol) client — Floor 5, right-sized.
 
 hermes ships a 9,404-line ``mcp_tool.py`` (OAuth managers, dashboards,
-schema caches, death supervisors). Pulse gets the CORE of the value in one
+schema caches, death supervisors). Crusor gets the CORE of the value in one
 module: connect to user-configured MCP servers over stdio (newline-delimited
 JSON-RPC 2.0 per the MCP spec), discover their tools, and call them — so
 any of the hundreds of existing MCP servers (filesystem, github, sqlite,
-puppeteer, ...) becomes a Pulse tool with zero per-tool code.
+puppeteer, ...) becomes a Crusor tool with zero per-tool code.
 
-Config: ``.pulseai/mcp.json`` in the workspace::
+Config: ``.crusorai/mcp.json`` in the workspace::
 
     {
       "servers": {
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
-CLIENT_INFO = {"name": "pulseai", "version": "1.0.0"}
+CLIENT_INFO = {"name": "crusorai", "version": "1.0.0"}
 _CALL_TIMEOUT_S = 60.0
 
 
@@ -136,11 +136,11 @@ class MCPStdioClient:
 # -- workspace config + discovery ------------------------------------------
 
 def mcp_config_path(workspace: str) -> Path:
-    return Path(workspace) / ".pulseai" / "mcp.json"
+    return Path(workspace) / ".crusorai" / "mcp.json"
 
 
 def load_mcp_servers(workspace: str) -> dict[str, MCPStdioClient]:
-    """Read .pulseai/mcp.json and return initialized, ready clients."""
+    """Read .crusorai/mcp.json and return initialized, ready clients."""
     path = mcp_config_path(workspace)
     if not path.exists():
         return {}
@@ -167,7 +167,7 @@ def load_mcp_servers(workspace: str) -> dict[str, MCPStdioClient]:
 
 
 def discover_mcp_tools(workspace: str) -> list[dict]:
-    """Flatten every server's tools into Pulse tool descriptors.
+    """Flatten every server's tools into Crusor tool descriptors.
 
     Namespaced ``mcp_{server}_{tool}`` so collisions between servers are
     impossible; the input schema passes through verbatim for the model.

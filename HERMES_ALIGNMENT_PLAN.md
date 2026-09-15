@@ -1,5 +1,5 @@
-# PulseAI → Hermes Alignment: Analysis & Zero-Budget Roadmap
-**From:** Office of the CTO · **Date:** 2026-08-11 · **Constraint:** No API budget now; keys arrive later · **North Star:** Build PulseAI in the image of Hermes Agent
+# CrusorAI → Hermes Alignment: Analysis & Zero-Budget Roadmap
+**From:** Office of the CTO · **Date:** 2026-08-11 · **Constraint:** No API budget now; keys arrive later · **North Star:** Build CrusorAI in the image of Hermes Agent
 
 ---
 
@@ -13,7 +13,7 @@ Hermes's `AGENTS.md` opens by naming **two properties that shape almost every de
 
 Now map them to your complaints:
 
-| Your pain | Hermes law it violates | PulseAI's actual behavior |
+| Your pain | Hermes law it violates | CrusorAI's actual behavior |
 |---|---|---|
 | **Latency** (25–56s/step, API is 0.5–1s) | **Law 1** | Rebuilds a 16-layer context *every call*; 73% of tokens are static overhead reprocessed 30×. Runs on a non-caching provider. |
 | **"1 call = 1 tool"** (cost multiplier) | **Law 2 + PTC** | Binds **all 26 tools every call** (no toolset waist); weak free models under-batch; PTC exists but isn't exercised. |
@@ -24,9 +24,9 @@ Now map them to your complaints:
 
 ## Part 2 — Hermes Alignment Scorecard (mechanism by mechanism)
 
-I audited PulseAI's source against Hermes's. Here's the honest scorecard:
+I audited CrusorAI's source against Hermes's. Here's the honest scorecard:
 
-| Hermes mechanism | Hermes does | PulseAI today | Gap | Budget to fix? |
+| Hermes mechanism | Hermes does | CrusorAI today | Gap | Budget to fix? |
 |---|---|---|---|---|
 | **Prompt-cache stability** (Law 1) | Byte-stable system prefix for the life of a conversation; only `/compress` ever mutates it | `cache_preservation.py` + sentinel exist, **but** a task-aware 16-layer rebuild reorders context per call → fights the cache | **High** | ✅ Code only |
 | **Narrow waist / toolsets** (Law 2) | Tiny `_HERMES_CORE_TOOLS` + named toolsets + `check_fn` service-gating (tools appear only when configured) | **No toolset system.** All 26 tools bound every call (5,686 tool-def tokens/call) | **High** | ✅ Code only |
@@ -37,7 +37,7 @@ I audited PulseAI's source against Hermes's. Here's the honest scorecard:
 | **Model-agnostic, switch w/ no code** | `hermes model` — provider/model is config, not code | Has `providers/` (groq/openai/gemini/custom) — **aligned** | **Low** | ✅ Aligned |
 | **Engineering discipline** | Footprint Ladder, behavior-contract tests (no change-detectors), dependency pinning, "verify the premise", E2E over mocks | 148KB review doc, 40 "D-rounds" of patches accumulating faster than simplifying | **Med** | ✅ Process only |
 
-**The pattern is clear and encouraging:** PulseAI has already *stolen* a lot of Hermes's surface patterns (delegation, skills, PTC, cache-preservation scaffolding). What it has NOT done is adopt Hermes's **two load-bearing laws** and its **discipline**. That's the work — and none of it costs a rupee in API spend.
+**The pattern is clear and encouraging:** CrusorAI has already *stolen* a lot of Hermes's surface patterns (delegation, skills, PTC, cache-preservation scaffolding). What it has NOT done is adopt Hermes's **two load-bearing laws** and its **discipline**. That's the work — and none of it costs a rupee in API spend.
 
 ---
 
@@ -59,7 +59,7 @@ This is the productive no-money phase. Five workstreams, each independently ship
 
 #### P0-A · Build the toolset system (obey Law 2 — the narrow waist)
 **This is the single biggest token-cost fix in the codebase and it needs no API spend.**
-- Introduce `TOOLSETS` (a dict of named sets) + a tiny `_PULSEAI_CORE_TOOLS` list, mirroring Hermes's `toolsets.py`.
+- Introduce `TOOLSETS` (a dict of named sets) + a tiny `_CRUSORAI_CORE_TOOLS` list, mirroring Hermes's `toolsets.py`.
 - Add `check_fn` service-gating: a tool (e.g. `browser_*`, `web_search`) only enters the schema when its prerequisite is configured.
 - Refactor `chat_graph.py`'s `tools = [...]` (all 26) to resolve from the active toolset. Default coding tasks get a small set (`read_file, write_file, edit_file, search_code, list_files, run_terminal, execute_code, typecheck_workspace`); browser tools load only for UI tasks; web tools only when search is configured.
 - **Measured target:** tool-def tokens/call drop from ~5,686 → ~2,000 for a typical coding turn. (Hermes keeps core tools minimal for exactly this reason.)
@@ -74,13 +74,13 @@ This is the productive no-money phase. Five workstreams, each independently ship
 - **Test:** run two consecutive turns on the same conversation and assert the prefix is byte-identical (a real cache-stability contract test). This is the test that, once green, guarantees Phase 1's cost drop.
 
 #### P0-C · Elevate PTC to the default execution mode
-- PulseAI's `execute_code` already has local tool-stub dispatch (`_PTC_MAX_TOOL_CALLS=50`). It works — the model just never uses it on free models.
+- CrusorAI's `execute_code` already has local tool-stub dispatch (`_PTC_MAX_TOOL_CALLS=50`). It works — the model just never uses it on free models.
 - Make PTC the *taught default* in the persona: "to read 3 files and write 2, write ONE `execute_code` script that does all five and returns only the summary." (Hermes's exact philosophy: *"collapsing multi-step pipelines into zero-context-cost turns."*)
 - Optionally adopt Hermes's **TCP RPC** pattern later (lets tools live on Docker/SSH backends) — but local dispatch is enough to get the win now.
 - **Test:** a PTC script that calls `read_file` twice + `write_file` once returns one result message (not three turns).
 
 #### P0-D · Simplify the loop toward Hermes's model
-- Hermes's loop is ~15 lines: `while budget: call(); if tool_calls: handle+append; else: return`. PulseAI's is a 2,901-line LangGraph god-file.
+- Hermes's loop is ~15 lines: `while budget: call(); if tool_calls: handle+append; else: return`. CrusorAI's is a 2,901-line LangGraph god-file.
 - You don't have to abandon LangGraph — but **extract `chat_graph.py` into `nodes/` modules** (ai_node, tool_node, progress, verify_gate, finalize) so the budget/interrupt/cache logic is readable and testable in isolation. This is exactly the "refactor god-files into clean modules" work Hermes explicitly welcomes.
 - Wire the iteration budget cleanly (you have `_iteration_budget()` — make it the single governor, recursion_limit the backstop, as you already intend).
 
@@ -109,7 +109,7 @@ If Phase 0 is done, this is **a config change + a measurement**, not engineering
 
 Only now does "better than the competition" become real:
 - The chat-app task goes **green** (a model that applies `"use client"` and doesn't hallucinate `finish`).
-- The **skills learning loop** (Hermes's signature "self-improving" moat) activates — skills created from experience, curator lifecycle, cross-session session_search. PulseAI has the scaffolding; it needs a model smart enough to curate.
+- The **skills learning loop** (Hermes's signature "self-improving" moat) activates — skills created from experience, curator lifecycle, cross-session session_search. CrusorAI has the scaffolding; it needs a model smart enough to curate.
 - **Delegation + parallel subagents** for real workstreams.
 - Then — and only then — the VSCode desktop fork (your own architecture review §2 agrees: fork last).
 
@@ -121,7 +121,7 @@ The plan above needs **no money and no keys to start.** Phase 0 is pure architec
 
 **What I need from you to begin Phase 0:**
 
-1. **Confirm the north star:** align PulseAI to Hermes's two laws + discipline. (I'm assuming yes — you said you're following Hermes.)
+1. **Confirm the north star:** align CrusorAI to Hermes's two laws + discipline. (I'm assuming yes — you said you're following Hermes.)
 2. **Workstream order.** My recommendation: **P0-B (cache stability) → P0-A (toolsets) → P0-C (PTC) → P0-D (loop simplification) → P0-E (discipline)** in parallel with standing up a local model for validation. P0-A and P0-B together attack ~80% of your token/latency waste.
 3. **Permission to start coding.** I can begin with **P0-B** (the byte-stable prefix + cache-stability contract test) since it's the highest-leverage and unblocks the Phase-1 cost win — or **P0-A** (the toolset system) if you'd rather cut the per-call tool-def cost first.
 
@@ -129,4 +129,4 @@ The plan above needs **no money and no keys to start.** Phase 0 is pure architec
 
 ---
 
-*The bones of PulseAI are good — you've already stolen the right surface patterns from Hermes. Now steal the two laws and the discipline that make those patterns actually pay. That's the path from "upset" to "competitive," and it starts today, for free.*
+*The bones of CrusorAI are good — you've already stolen the right surface patterns from Hermes. Now steal the two laws and the discipline that make those patterns actually pay. That's the path from "upset" to "competitive," and it starts today, for free.*

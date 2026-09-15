@@ -4,9 +4,9 @@
 Verified in hermes source (tools/todo_tool.py): writes are validated,
 deduped (last occurrence in its position), capped (4000 chars/item, 256
 items), and the in_progress step is lifted ahead of earlier pending
-placeholders. Pulse keeps its wire vocab (description/status list, no
+placeholders. Crusor keeps its wire vocab (description/status list, no
 id store) but the semantics below are hermes' own, renamed only where
-pulse's vocab demands it.
+crusor's vocab demands it.
 """
 from __future__ import annotations
 

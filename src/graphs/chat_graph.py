@@ -43,7 +43,7 @@ from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.token_tracker import TokenTracker, TokenUsage
 
-# --- CopilotKit A2UI fixed-schema wiring (Pulse domain) ---
+# --- CopilotKit A2UI fixed-schema wiring (Crusor domain) ---
 from pathlib import Path as _A2UIPath
 try:
     # pyrefly: ignore [missing-import]
@@ -64,13 +64,13 @@ except Exception:  # fallback for offline validation without copilotkit
             return _j.dumps({"a2ui_operations": operations})
     a2ui = _A2UIFallback()  # type: ignore
 
-CATALOG_ID = "copilotkit://pulse-task-catalog"
-SURFACE_ID = "pulse-task"
+CATALOG_ID = "copilotkit://crusor-task-catalog"
+SURFACE_ID = "crusor-task"
 _SCHEMAS_DIR = _A2UIPath(__file__).parent.parent / "a2ui_schemas"
 try:
-    PULSE_TASK_SCHEMA = a2ui.load_schema(_SCHEMAS_DIR / "pulse_task_schema.json")
+    CRUSOR_TASK_SCHEMA = a2ui.load_schema(_SCHEMAS_DIR / "crusor_task_schema.json")
 except Exception:
-    PULSE_TASK_SCHEMA = []
+    CRUSOR_TASK_SCHEMA = []
 
 
 def _drop_tool_pairs(messages: list) -> list:
@@ -451,8 +451,8 @@ def delegate_to_subagent_batch(
     return "\n".join(parts)
 
 
-class PulseTask(TypedDict):
-    """Shape the LLM should fill for display_pulse_task — steers JSON schema."""
+class CrusorTask(TypedDict):
+    """Shape the LLM should fill for display_crusor_task — steers JSON schema."""
 
     title: str
     description: str
@@ -463,7 +463,7 @@ class PulseTask(TypedDict):
 
 
 @tool
-def display_pulse_task(
+def display_crusor_task(
     title: str,
     description: str,
     status: str,
@@ -471,10 +471,10 @@ def display_pulse_task(
     assignee: str,
     taskId: str,
 ) -> str:
-    """Show a Pulse task card for the given work item.
+    """Show a Crusor task card for the given work item.
 
     Use concise title and description, status like "In progress", priority like "high",
-    assignee like "Pulse Agent", taskId like "pulse-123".
+    assignee like "Crusor Agent", taskId like "crusor-123".
 
     After this tool returns, the task card is already rendered via the A2UI surface —
     the JSON returned is the surface descriptor, NOT a status code. Do NOT call again
@@ -483,7 +483,7 @@ def display_pulse_task(
     return a2ui.render(
         operations=[
             a2ui.create_surface(SURFACE_ID, catalog_id=CATALOG_ID),
-            a2ui.update_components(SURFACE_ID, PULSE_TASK_SCHEMA),
+            a2ui.update_components(SURFACE_ID, CRUSOR_TASK_SCHEMA),
             a2ui.update_data_model(
                 SURFACE_ID,
                 {
@@ -508,7 +508,7 @@ tools = [
     clarify,
     delegate_to_subagent,
     delegate_to_subagent_batch,
-    display_pulse_task,
+    display_crusor_task,
 
 
     # File tools
@@ -567,7 +567,7 @@ tools = [
 # Tool binding — hermes' registry snapshot (agent_init._load_tools).          #
 # Hermes loads agent.tools ONCE from the registry and binds the SAME list on  #
 # every call; narrowing exists only as operator toolset opt-in/out and        #
-# check_fn availability (deps missing -> tool unregistered). Pulse matched    #
+# check_fn availability (deps missing -> tool unregistered). Crusor matched    #
 # that on 2026-09-07 after the field proved the old task-keyword waist is a   #
 # failure generator ("browser testing" lost its tools to the word "build";    #
 # a differently-worded ask would never bind them at all). `tools` IS the      #
@@ -672,7 +672,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         hidden_receipts.append(
             "browser_* tools (agent-browser CLI not found — install with "
             "`npm install -g agent-browser`, then run `agent-browser install` "
-            "once; set PULSEAI_AGENT_BROWSER to the CLI path to override)")
+            "once; set CRUSORAI_AGENT_BROWSER to the CLI path to override)")
         names = [name for name in names if not name.startswith("browser_")]
     # check_fn: a verifier with no project cannot produce evidence. Hiding it
     # is stronger than repeatedly telling a weak model not to call it:
@@ -689,7 +689,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         names = [name for name in names if name != "typecheck_workspace"]
     # hermes agent_init._load_tools paints availability once at load ("Loaded
     # N tools" + "⚠️ Some tools may not work due to missing requirements").
-    # Pulse binds lazily per turn, so the receipt prints on the FIRST binding
+    # Crusor binds lazily per turn, so the receipt prints on the FIRST binding
     # per process — a silently hidden browser stack read as "the agent
     # cannot test" in the field (2026-09-07 1:34 PM) with no trace why.
     global _TOOL_AVAILABILITY_REPORTED
@@ -704,8 +704,8 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     resolved_names = list(names)
 
     # Tool cap: some models (notably DeepSeek) return empty tool_calls when
-    # overwhelmed by 40+ schemas. PULSEAI_MAX_TOOLS=0 disables the cap.
-    _max_env = os.getenv("PULSEAI_MAX_TOOLS", "0").strip()
+    # overwhelmed by 40+ schemas. CRUSORAI_MAX_TOOLS=0 disables the cap.
+    _max_env = os.getenv("CRUSORAI_MAX_TOOLS", "0").strip()
     _max_tools = int(_max_env) if _max_env.isdigit() else 0
     if _max_tools > 0 and len(resolved_names) > _max_tools:
         # Keep the most important tools (write_file, edit_file, read_file,
@@ -742,7 +742,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     )
     if _pre_delivery_stalled(state) or empty_autonomous_delivery:
         # A fresh autonomous build has nothing useful to inspect. Hermes begins
-        # headless jobs with action-capable tools; Pulse previously exposed 33
+        # headless jobs with action-capable tools; Crusor previously exposed 33
         # schemas and waited four paid observations before narrowing. Make the
         # first provider decision structurally about delivery, while retaining
         # the four-observation cap for non-empty interactive workspaces.
@@ -847,7 +847,7 @@ def _session_system_message(config: RunnableConfig, state: dict, *, autonomous: 
 
     Hermes builds the system prompt ONCE per session and reuses it every turn;
     only compaction rebuilds it (that is what keeps the provider's prompt cache
-    warm, and therefore what keeps cost and latency down). Pulse's equivalent
+    warm, and therefore what keeps cost and latency down). Crusor's equivalent
     lives in ``src/prompts/hermes/session.py``, keyed by ``thread_id``.
 
     Fallback is deliberate and total: if the engine cannot build a prefix for
@@ -893,11 +893,11 @@ def _fuse_system_head(messages: list) -> list:
     exactly hermes' `effective_system`, recomposed per call. Exact-duplicate
     texts collapse: the tool cycle re-appends the same reflection prompt every
     batch, and folding N copies would bloat the head with repeats.
-    PULSEAI_CONTEXT_MULTI_SYSTEM=1 (read per call) keeps the legacy
+    CRUSORAI_CONTEXT_MULTI_SYSTEM=1 (read per call) keeps the legacy
     multi-system request.
     """
     if os.environ.get(
-        "PULSEAI_CONTEXT_MULTI_SYSTEM", ""
+        "CRUSORAI_CONTEXT_MULTI_SYSTEM", ""
     ).strip().lower() in {"1", "true", "yes", "on"}:
         return messages
     head = messages[0] if messages else None
@@ -973,7 +973,7 @@ def ai_node(
         return {
             "messages": [AIMessage(
                 content="Operation cancelled by the user.",
-                additional_kwargs={"pulse_cancelled": True},
+                additional_kwargs={"crusor_cancelled": True},
             )],
             "iteration_used": int(state.get("iteration_used", 0)),
         }
@@ -1084,23 +1084,23 @@ def ai_node(
     # --- CopilotKit app context (agent-app-context) + refusal guard ---
     _copilotkit_ctx = state.get("copilotkit") if isinstance(state.get("copilotkit"), dict) else {}
     _ctx_items = _copilotkit_ctx.get("context") if isinstance(_copilotkit_ctx.get("context"), list) else []
-    _pulse_ctx = None
+    _crusor_ctx = None
     for _item in _ctx_items:
-        if isinstance(_item, dict) and _item.get("description") == "Pulse workspace context":
-            _pulse_ctx = _item.get("value")
+        if isinstance(_item, dict) and _item.get("description") == "Crusor workspace context":
+            _crusor_ctx = _item.get("value")
             break
-    if _pulse_ctx is not None:
+    if _crusor_ctx is not None:
         _insert_system_prefix(
             messages,
-            "=== PULSE WORKSPACE CONTEXT (shared via useAgentContext) ===\n"
-            + str(_pulse_ctx)[:4000]
+            "=== CRUSOR WORKSPACE CONTEXT (shared via useAgentContext) ===\n"
+            + str(_crusor_ctx)[:4000]
             + "\n\nUse this context to answer. If the user asks about an entity not in this context, refuse and name what is missing instead of inventing.",
         )
     else:
         _insert_system_prefix(
             messages,
-            "=== PULSE CONTEXT MISSING ===\n"
-            "No Pulse workspace context was shared via useAgentContext. If the user asks about files, tasks, or workspace entities, you must refuse to answer about entities the shared context does not carry, and name what is missing instead of inventing plausible entities. Ask the frontend to share context.",
+            "=== CRUSOR CONTEXT MISSING ===\n"
+            "No Crusor workspace context was shared via useAgentContext. If the user asks about files, tasks, or workspace entities, you must refuse to answer about entities the shared context does not carry, and name what is missing instead of inventing plausible entities. Ask the frontend to share context.",
         )
     # Guard unattended side effects: remind model to use clarify for destructive actions
     _insert_system_prefix(
@@ -1117,7 +1117,7 @@ def ai_node(
     # environment block taught POSIX; the model obeyed the banner —
     # `cd /d "..."` and `Get-ChildItem … | Select-Object` straight into bash,
     # both failed. hermes teaches the shell only via its environment block;
-    # pulse keeps this banner as the trim-proof copy of the SAME text.
+    # crusor keeps this banner as the trim-proof copy of the SAME text.
     from src.prompts.hermes.environment import windows_terminal_banner
     _terminal_banner = windows_terminal_banner()
     if _terminal_banner:
@@ -1159,7 +1159,7 @@ def ai_node(
             # The reply ceiling is the model's own number, clamped by what
             # the last rejection said still fits (base 6a2717bd/a8e7dc64 via
             # src/llm/output_budget) — never a constant written here. The
-            # user's PULSEAI_DELIVERY_MAX_TOKENS stays the DESIRED amount.
+            # user's CRUSORAI_DELIVERY_MAX_TOKENS stays the DESIRED amount.
             from src.llm.output_budget import requested_output_cap, take_available_output
 
             allowed = requested_output_cap(model)
@@ -1209,7 +1209,7 @@ def ai_node(
                 ]
         else:
             # Lap 2+: hermes never sees one (handle_max_iterations RETURNS
-            # the summary and the loop ends). Pulse's graph routes the
+            # the summary and the loop ends). Crusor's graph routes the
             # summary through the model once more, so this bounded lap keeps
             # the D40 pairs-drop: a clean text-only request the provider
             # accepts, no tools to act with.
@@ -1313,7 +1313,7 @@ def ai_node(
             return {
                 "messages": [AIMessage(
                     content="Operation cancelled by the user.",
-                    additional_kwargs={"pulse_cancelled": True},
+                    additional_kwargs={"crusor_cancelled": True},
                 )],
                 "iteration_used": int(state.get("iteration_used", 0)),
             }
@@ -1424,7 +1424,7 @@ def ai_node(
                 return {
                     "messages": [AIMessage(
                         content="Operation cancelled by the user.",
-                        additional_kwargs={"pulse_cancelled": True},
+                        additional_kwargs={"crusor_cancelled": True},
                     )],
                     "iteration_used": int(state.get("iteration_used", 0)),
                 }
@@ -1434,7 +1434,7 @@ def ai_node(
     # user pressed Stop while the HTTP request was in flight, the
     # result contains tool_calls that MUST NOT execute. Replace the
     # result with a cancellation message and let should_continue
-    # route to finalize (pulse_cancelled=True). Preserve valid
+    # route to finalize (crusor_cancelled=True). Preserve valid
     # tool-call/result pairing by never returning orphaned tool
     # calls into the graph.
     if turn_controls.cancelled(session_id):
@@ -1445,7 +1445,7 @@ def ai_node(
         return {
             "messages": [AIMessage(
                 content="Operation cancelled by the user.",
-                additional_kwargs={"pulse_cancelled": True},
+                additional_kwargs={"crusor_cancelled": True},
             )],
             "iteration_used": int(state.get("iteration_used", 0)),
         }
@@ -1534,18 +1534,18 @@ def ai_node(
     if completion["incomplete"]:
         incomplete_retries += 1
         extra = dict(getattr(result, "additional_kwargs", {}) or {})
-        extra["pulse_incomplete_response"] = True
-        extra["pulse_incomplete_reason"] = completion["finish_reason"]
-        extra["pulse_raw_finish_reason"] = completion["raw_finish_reason"]
+        extra["crusor_incomplete_response"] = True
+        extra["crusor_incomplete_reason"] = completion["finish_reason"]
+        extra["crusor_raw_finish_reason"] = completion["raw_finish_reason"]
         # hermes repetition_guard (agent/repetition_guard.py, issue #86581): a
-        # length-cut fragment dominated by verbatim repeats — or, Pulse's
+        # length-cut fragment dominated by verbatim repeats — or, Crusor's
         # documented extension, one dominating word — is a degenerate loop.
         # Discard the partial BEFORE the finish-gate continuation nudge can
         # stitch more of it (hermes incident: a 60k-char turn delivered as 31
-        # Discord messages; Pulse field 2026-09-10: a multilingual salad turn
+        # Discord messages; Crusor field 2026-09-10: a multilingual salad turn
         # streamed into the panel). History keeps the notice, never the slop.
         if is_degenerate_output(str(getattr(result, "content", "") or "")):
-            extra["pulse_repetition_dominated"] = True
+            extra["crusor_repetition_dominated"] = True
             print(
                 f"[ai_node] repetition-dominated output (finish_reason={completion['finish_reason']}) "
                 "— partial discarded, turn ends",
@@ -1583,7 +1583,7 @@ def ai_node(
 
     # P3 (Hermes parity): feed the provider's ACTUAL usage back into the
     # session context engine. The engine owns the compaction decision from
-    # real numbers (75% of the real window); Pulse's own counting is
+    # real numbers (75% of the real window); Crusor's own counting is
     # heuristic for unlisted models, so the provider's figure is the ground
     # truth. Only the MAIN-agent call feeds the engine — the task_manager
     # classifier request is a small planner call, not window pressure.
@@ -1616,7 +1616,7 @@ def ai_node(
 
     # Every provider iteration counts. Hermes refunds execute_code-only turns,
     # but it also runs a much larger default parent budget and a separate tool
-    # guardrail controller. Copying only the refund into Pulse's 20-call paid
+    # guardrail controller. Copying only the refund into Crusor's 20-call paid
     # harness created an unbounded blind spot: Test5-6 issued four os.walk
     # execute_code inspections without advancing the counter that activates
     # forced delivery. PTC still saves round trips when it batches real work;
@@ -1650,16 +1650,16 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # in the transcript shaping every later request (each repeated imperative
     # row biases the next completion toward exactly those imperatives; field
     # 2026-09-10: the degenerate turn looped on the nudges' leading word).
-    # Every nudge is tagged at creation (gates.py pulse_nudge); finalize
+    # Every nudge is tagged at creation (gates.py crusor_nudge); finalize
     # removes all of them, so nothing but real work survives the turn.
     _sweep = [
         RemoveMessage(id=m.id)
         for m in (state.get("messages") or [])
-        if getattr(m, "additional_kwargs", {}).get("pulse_nudge")
+        if getattr(m, "additional_kwargs", {}).get("crusor_nudge")
         and getattr(m, "id", None)
     ]
     last = state.get("messages", [])[-1] if state.get("messages") else None
-    if bool(getattr(last, "additional_kwargs", {}).get("pulse_cancelled")):
+    if bool(getattr(last, "additional_kwargs", {}).get("crusor_cancelled")):
         return {
             "task_completed": False,
             "task_status": "cancelled",
@@ -2315,8 +2315,8 @@ def _task_manager_llm(provider: str, model: str):
       - route: AUX_LLM_PROVIDER/AUX_LLM_MODEL env -> per-provider cheap
         table -> main-model fallback (hermes' own documented fallback:
         "a blocked pick is refused, let the caller keep the main model")
-      - PULSEAI_CLASSIFIER_ATTEMPTS  (default 1, clamp 1..5)
-      - PULSEAI_CLASSIFIER_TIMEOUT_S (default 10, clamp 2..120)
+      - CRUSORAI_CLASSIFIER_ATTEMPTS  (default 1, clamp 1..5)
+      - CRUSORAI_CLASSIFIER_TIMEOUT_S (default 10, clamp 2..120)
     The resolved route + budget print ONCE per process: a deployment whose
     classifier is silently riding the heavyweight main model sees it in
     one boot line instead of paying it invisibly every turn."""
@@ -2333,8 +2333,8 @@ def _task_manager_llm(provider: str, model: str):
         except Exception:
             return default
 
-    attempts = _clamp("PULSEAI_CLASSIFIER_ATTEMPTS", 1, 1, 5)
-    timeout_s = float(_clamp("PULSEAI_CLASSIFIER_TIMEOUT_S", 10, 2, 120))
+    attempts = _clamp("CRUSORAI_CLASSIFIER_ATTEMPTS", 1, 1, 5)
+    timeout_s = float(_clamp("CRUSORAI_CLASSIFIER_TIMEOUT_S", 10, 2, 120))
 
     try:
         aux_provider, aux_model = resolve_aux_llm()
@@ -2373,7 +2373,7 @@ def _task_manager_llm(provider: str, model: str):
 # explicit resets ("new task: ..."). This quick path classifies ONLY those
 # slam-dunks for free; anything with a whiff of ambiguity STILL pays the
 # aux call (the LLM path below is unchanged). Kill-switch:
-# PULSEAI_TASK_CLASSIFIER=llm restores always-LLM behavior.
+# CRUSORAI_TASK_CLASSIFIER=llm restores always-LLM behavior.
 
 _D30_ACK_VOCAB = frozenset({
     # single-message approvals/acks — every token must be in this set and
@@ -2426,9 +2426,9 @@ def _quick_task_decision(
     are full of — bare acknowledgments (= continue, task text unchanged)
     and explicit task resets (= new). CONSERVATIVE by design, both paths
     double-guarded; every uncertain message returns None and pays the aux
-    LLM exactly like before. Kill-switch: PULSEAI_TASK_CLASSIFIER=llm.
+    LLM exactly like before. Kill-switch: CRUSORAI_TASK_CLASSIFIER=llm.
     """
-    if os.environ.get("PULSEAI_TASK_CLASSIFIER", "").strip().lower() == "llm":
+    if os.environ.get("CRUSORAI_TASK_CLASSIFIER", "").strip().lower() == "llm":
         return None
 
     raw = (latest_instruction or "").strip()
@@ -2800,13 +2800,13 @@ def task_manager_node(
 
     # Hermes pipeline parity (run_conversation): ZERO model calls before the
     # main one — in EVERY mode, unless the owner opts back in with
-    # PULSEAI_TASK_CLASSIFIER=on (read per call). Field proof (agent-mode
+    # CRUSORAI_TASK_CLASSIFIER=on (read per call). Field proof (agent-mode
     # run): "hello" paid a classifier round-trip that returned an
     # UNPARSEABLE answer and would have been used only as "continue" anyway;
     # the free D30 quick decision above already owns acks and explicit
     # resets. A new-task instruction still lands: the main model sees it and
     # acts; only the task label may lag, which recovery/finalize reconcile.
-    classifier_mode = os.environ.get("PULSEAI_TASK_CLASSIFIER", "").strip().lower()
+    classifier_mode = os.environ.get("CRUSORAI_TASK_CLASSIFIER", "").strip().lower()
     if classifier_mode != "on":
         return {
             "current_task": current_task,
@@ -3022,7 +3022,7 @@ def progress_node(
             # Hermes pipeline shape (verified: hermes has NO replanner
             # component and no plan-LLM consult anywhere in the loop — the
             # model adapts from the failure receipt in context, exactly as
-            # it adapts to every other tool result). Pulse's should_replan
+            # it adapts to every other tool result). Crusor's should_replan
             # LLM consult is REMOVED with this round: a failure is just an
             # observation handed back to the model.
             continue
@@ -3256,7 +3256,7 @@ def planner_node(
         return {
             "messages": [AIMessage(
                 content="Operation cancelled by the user.",
-                additional_kwargs={"pulse_cancelled": True},
+                additional_kwargs={"crusor_cancelled": True},
             )],
         }
 
@@ -3275,7 +3275,7 @@ def planner_node(
         return {}
 
     # The autonomous workspace request is already a complete task contract and
-    # has a finite provider budget. Pulse previously spent multiple provider
+    # has a finite provider budget. Crusor previously spent multiple provider
     # calls classifying, generating, and validating a plan before the action
     # loop, unlike Hermes' direct headless conversation loop. Planning remains
     # available in explicit plan mode and throughout interactive IDE chat.
@@ -3402,7 +3402,7 @@ def plan_preview_node(state: AgentState):
     # A cancelled planner/plan_reviser must surface the cancellation message
     # instead of the (possibly stale) plan preview.
     last = state.get("messages", [])[-1] if state.get("messages") else None
-    if bool(getattr(last, "additional_kwargs", {}).get("pulse_cancelled")):
+    if bool(getattr(last, "additional_kwargs", {}).get("crusor_cancelled")):
         return {"messages": [AIMessage(content="Operation cancelled by the user.")]}
     plan = state.get("plan", [])
     if not plan:
@@ -3446,7 +3446,7 @@ def plan_reviser_node(
         return {
             "messages": [AIMessage(
                 content="Operation cancelled by the user.",
-                additional_kwargs={"pulse_cancelled": True},
+                additional_kwargs={"crusor_cancelled": True},
             )],
         }
 
@@ -3538,7 +3538,7 @@ class SafeToolNode:
     Unsafe calls become denial ToolMessages (model adapts in one turn
     instead of looping to the recursion cap), safe calls in the same batch
     still execute, and every denial is audit-logged. Opt-in escape hatch
-    for batch/cron-style runs: PULSEAI_SUBAGENT_AUTO_APPROVE=1 (their
+    for batch/cron-style runs: CRUSORAI_SUBAGENT_AUTO_APPROVE=1 (their
     ``subagent_auto_approve`` config), also audit-logged.
     """
     def __init__(self, tools, safety_guard: SafetyGuard):
@@ -3811,13 +3811,13 @@ class SafeToolNode:
         # ends mid-CSS. Return one paired error per call, with zero side effects.
         incomplete = bool(
             getattr(last_msg, "additional_kwargs", {}).get(
-                "pulse_incomplete_response"
+                "crusor_incomplete_response"
             )
         )
         if incomplete:
             reason = str(
                 getattr(last_msg, "additional_kwargs", {}).get(
-                    "pulse_incomplete_reason", "provider token limit"
+                    "crusor_incomplete_reason", "provider token limit"
                 )
             )
             return _with_repaired([
@@ -3860,7 +3860,7 @@ class SafeToolNode:
 
         # --- D20: sub-agent threads auto-deny instead of prompting -------
         if thread_id.startswith("sub-") and os.environ.get(
-            "PULSEAI_SUBAGENT_AUTO_APPROVE", ""
+            "CRUSORAI_SUBAGENT_AUTO_APPROVE", ""
         ).strip() != "1":
             verdicts = [
                 (tc, *guard.check_tool_call(tc.get("name", ""), tc.get("args", {})))
@@ -3871,7 +3871,7 @@ class SafeToolNode:
                 return _with_repaired(self._execute_durable(tool_calls, config))
 
             import logging
-            _log = logging.getLogger("pulseai.safety")
+            _log = logging.getLogger("crusorai.safety")
 
             def _content(tc, first_line):
                 return (
@@ -3900,9 +3900,9 @@ class SafeToolNode:
 
         if thread_id.startswith("sub-"):
             import logging
-            logging.getLogger("pulseai.safety").warning(
+            logging.getLogger("crusorai.safety").warning(
                 "sub-agent %s AUTO-APPROVED %d tool call(s) unchecked "
-                "(PULSEAI_SUBAGENT_AUTO_APPROVE=1): %s",
+                "(CRUSORAI_SUBAGENT_AUTO_APPROVE=1): %s",
                 thread_id, len(tool_calls),
                 [tc.get("name", "") for tc in tool_calls],
             )
@@ -3913,7 +3913,7 @@ class SafeToolNode:
             for tc in tool_calls
         ]
         unsafe = [v for v in verdicts if not v[1]]
-        autonomous = os.environ.get("PULSEAI_AUTO_APPROVE_WRITES", "").strip() == "1"
+        autonomous = os.environ.get("CRUSORAI_AUTO_APPROVE_WRITES", "").strip() == "1"
         if unsafe and autonomous:
             # D11: per-call DENIAL instead of a fabricated AIMessage — the
             # AUTONOMOUS path (no human to answer). The old main-thread
@@ -3930,7 +3930,7 @@ class SafeToolNode:
             # adapts in one turn, hermes delegate policy), safe calls in
             # the same batch still execute, order preserved.
             import logging
-            _log = logging.getLogger("pulseai.safety")
+            _log = logging.getLogger("crusorai.safety")
 
             def _content(tc, first_line):
                 return (
@@ -4067,7 +4067,7 @@ class SafeToolNode:
         # SEQUENTIAL in input order — write-then-read deterministically
         # reads the fresh content. Singletons and unknown tool names fall
         # through to ToolNode (its unknown-tool error text stays
-        # canonical). PULSEAI_PARALLEL_TOOLS=off => true legacy below.
+        # canonical). CRUSORAI_PARALLEL_TOOLS=off => true legacy below.
         from src.graphs.parallel_tools import (
             try_parallel_batch,
             try_sequential_batch,
@@ -4087,7 +4087,7 @@ class SafeToolNode:
         )
         if sequential is not None:
             return _with_repaired(sequential)
-        if os.environ.get("PULSEAI_PARALLEL_TOOLS", "").strip().lower() == "off":
+        if os.environ.get("CRUSORAI_PARALLEL_TOOLS", "").strip().lower() == "off":
             # Explicit compatibility kill-switch: restore ToolNode's historical
             # execution semantics (including its concurrent batch behavior).
             if _repaired_ai is not None:
@@ -4383,7 +4383,7 @@ from src.context.persistent_memory import PersistentMemoryWrapper
 # Long-term memory is optional and must not perform model/network/database work
 # while this graph module imports. Construct it on first real use; failures are
 # isolated by the lazy proxy and degrade to no-op memory for the process.
-if os.environ.get("PULSEAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
+if os.environ.get("CRUSORAI_DISABLE_LONG_TERM_MEMORY", "").strip().lower() in {
     "1", "true", "yes", "on"
 }:
     memory_manager = None
@@ -4515,7 +4515,7 @@ def get_context_engine(
 # so for a module-level saver we hold a direct connection instead.
 # check_same_thread=False is required: the dashboard server runs the graph
 # from worker threads, and sqlite connections are thread-bound by default.
-_CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
+_CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".crusorai", "sessions.db")
 os.makedirs(os.path.dirname(_CHECKPOINT_DB), exist_ok=True)
 _checkpoint_conn = sqlite3.connect(_CHECKPOINT_DB, check_same_thread=False)
 # Windows field failure (2026-09-04): the turn died BETWEEN finalize's return
@@ -4858,7 +4858,7 @@ def stream_agent(
 
         print("[turn] stream loop ended", flush=True)
         # hermes saves the browser recording in cleanup_browser ("saves the
-        # file before close"); the turn end is pulse's closest equivalent —
+        # file before close"); the turn end is crusor's closest equivalent —
         # the .webm is the visible-testing artifact (owner 2026-09-07,
         # Antigravity-style walkthroughs). Best-effort: never blocks idle.
         try:
@@ -5013,7 +5013,7 @@ def export_dashboard_analytics(
     import time
     from pathlib import Path
 
-    analytics_path = Path.home() / ".pulseai" / "session_analytics.json"
+    analytics_path = Path.home() / ".crusorai" / "session_analytics.json"
 
     # Read existing
     existing = {}

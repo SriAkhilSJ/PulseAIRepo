@@ -25,14 +25,14 @@ def _no_memory(monkeypatch):
 def test_streaming_env_getter(monkeypatch):
     from src.llm.factory import streaming_enabled
 
-    monkeypatch.delenv("PULSEAI_LLM_STREAMING", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STREAMING", raising=False)
     assert streaming_enabled(default=True) is True
     assert streaming_enabled(default=False) is False
-    monkeypatch.setenv("PULSEAI_LLM_STREAMING", "off")
+    monkeypatch.setenv("CRUSORAI_LLM_STREAMING", "off")
     assert streaming_enabled(default=True) is False
-    monkeypatch.setenv("PULSEAI_LLM_STREAMING", "1")
+    monkeypatch.setenv("CRUSORAI_LLM_STREAMING", "1")
     assert streaming_enabled(default=False) is True
-    monkeypatch.setenv("PULSEAI_LLM_STREAMING", "garbage")
+    monkeypatch.setenv("CRUSORAI_LLM_STREAMING", "garbage")
     assert streaming_enabled(default=True) is False
 
 
@@ -40,11 +40,11 @@ def test_groq_branch_streams_by_default_and_env_can_stop_it(monkeypatch):
     import src.llm.factory as factory
 
     monkeypatch.setattr(factory, "GROQ_API_KEY", "test-key")
-    monkeypatch.delenv("PULSEAI_LLM_STREAMING", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STREAMING", raising=False)
     llm = factory.get_llm("groq", "test-model")
     assert getattr(llm._llm, "streaming", False) is True
 
-    monkeypatch.setenv("PULSEAI_LLM_STREAMING", "off")
+    monkeypatch.setenv("CRUSORAI_LLM_STREAMING", "off")
     llm = factory.get_llm("groq", "test-model")
     assert getattr(llm._llm, "streaming", False) is False
 
@@ -52,16 +52,16 @@ def test_groq_branch_streams_by_default_and_env_can_stop_it(monkeypatch):
 def test_custom_branch_streams_by_default_and_env_can_stop_it(monkeypatch):
     """Owner deployment routes EVERY turn through the custom endpoint and
     their model streams fine -- custom now defaults ON like the first-class
-    branches; PULSEAI_LLM_STREAMING=off stays as the escape hatch."""
+    branches; CRUSORAI_LLM_STREAMING=off stays as the escape hatch."""
     import src.llm.factory as factory
 
     monkeypatch.setattr(factory, "CUSTOM_API_KEY", "test-key")
     monkeypatch.setattr(factory, "CUSTOM_BASE_URL", "http://localhost:9/v1")
-    monkeypatch.delenv("PULSEAI_LLM_STREAMING", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STREAMING", raising=False)
     llm = factory.get_llm("custom", "test-model")
     assert getattr(llm._llm, "streaming", False) is True
 
-    monkeypatch.setenv("PULSEAI_LLM_STREAMING", "off")
+    monkeypatch.setenv("CRUSORAI_LLM_STREAMING", "off")
     llm = factory.get_llm("custom", "test-model")
     assert getattr(llm._llm, "streaming", False) is False
 

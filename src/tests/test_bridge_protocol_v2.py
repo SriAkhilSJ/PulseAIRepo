@@ -1,4 +1,4 @@
-"""Contract pins for the PulseAI IDE Bridge Protocol v2 inside the canonical fork."""
+"""Contract pins for the CrusorAI IDE Bridge Protocol v2 inside the canonical fork."""
 from __future__ import annotations
 
 import json
@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "src" / "bridge" / "protocol_v2.json"
 GENERATED = (
     ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" /
-    "pulseai" / "common" / "pulseAIProtocol.generated.ts"
+    "crusorai" / "common" / "crusorAIProtocol.generated.ts"
 )
-PAYLOADS = GENERATED.with_name("pulseAIProtocol.ts")
+PAYLOADS = GENERATED.with_name("crusorAIProtocol.ts")
 
 
 def _manifest() -> dict:
@@ -53,7 +53,7 @@ def test_v2_approval_identity_is_tool_id():
     data = _manifest()
     assert data["approval_identity_field"] == "tool_id"
     text = PAYLOADS.read_text(encoding="utf-8")
-    safety = re.search(r"type: 'safety_reply'.*?PulseSessionRequest\)", text, re.S)
+    safety = re.search(r"type: 'safety_reply'.*?CrusorSessionRequest\)", text, re.S)
     assert safety is not None
     assert "readonly tool_id: string" in safety.group(0)
     assert "request_id" not in safety.group(0)
@@ -72,7 +72,7 @@ def test_generated_typescript_is_current():
 
 def test_handwritten_payload_union_covers_every_generated_name():
     text = PAYLOADS.read_text(encoding="utf-8")
-    server, client = text.split("export type PulseClientMethod =", 1)
+    server, client = text.split("export type CrusorClientMethod =", 1)
     assert _frame_names(server) == set(_manifest()["server_events"])
     assert _frame_names(client) == set(_manifest()["client_methods"])
 
@@ -141,7 +141,7 @@ def test_bridge_accepts_only_allowlisted_read_only_host_capabilities(tmp_path):
         [sys.executable, "-m", "src.bridge"], cwd=ROOT,
         input="".join(json.dumps(frame) + "\n" for frame in frames),
         text=True, capture_output=True, timeout=20,
-        env={**os.environ, "PULSEAI_BRIDGE_RUNNER": "echo"},
+        env={**os.environ, "CRUSORAI_BRIDGE_RUNNER": "echo"},
     )
     assert result.returncode == 0, result.stderr
     output = [json.loads(line) for line in result.stdout.splitlines()]
@@ -169,4 +169,4 @@ def test_selective_desktop_metadata_stays_tiny():
     assert "desktop/vscode/node_modules/x" in ignored
     assert "desktop/vscode/.vscode/x" in ignored
     assert "desktop/vscode/extensions/cpp/build/x" in ignored
-    assert not (desktop / "vscode" / "extensions" / "pulseai").exists()
+    assert not (desktop / "vscode" / "extensions" / "crusorai").exists()

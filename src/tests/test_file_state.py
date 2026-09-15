@@ -37,7 +37,7 @@ def _cfg(ws: str, tid: str) -> dict:
 
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
-    monkeypatch.delenv("PULSEAI_FILE_STATE_GUARD", raising=False)
+    monkeypatch.delenv("CRUSORAI_FILE_STATE_GUARD", raising=False)
     file_state.reset_for_tests()
     yield
     file_state.reset_for_tests()
@@ -103,7 +103,7 @@ def test_kill_switch_restores_legacy_behavior(tmp_path, monkeypatch):
     ws = _ws(tmp_path)
     READ(path=TARGET, config=_cfg(ws, A))
     WRITE(path=TARGET, content="X = 'B'\n", config=_cfg(ws, B))
-    monkeypatch.setenv("PULSEAI_FILE_STATE_GUARD", "off")
+    monkeypatch.setenv("CRUSORAI_FILE_STATE_GUARD", "off")
     out = WRITE(path=TARGET, content="X = 'A stale'\n", config=_cfg(ws, A))
     assert out.startswith("File written")  # pre-D32 behavior: last wins
 

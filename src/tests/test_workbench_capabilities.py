@@ -7,12 +7,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 # Canonical vendored fork: desktop/vscode/ (the old desktop/ overlay layout was
 # deleted when the overlay moved into the fork in place).
-COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "pulseai" / "common"
-CATALOG = COMMON / "pulseAIWorkbenchCapabilities.ts"
-HOST = COMMON / "pulseAIWorkbenchService.ts"
-IMPLEMENTATION = COMMON.parent / "browser" / "pulseAIWorkbenchService.ts"
-RENDERER = COMMON.parent / "browser" / "pulseAIRendererService.ts"
-PROTOCOL = COMMON / "pulseAIProtocol.ts"
+COMMON = ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "common"
+CATALOG = COMMON / "crusorAIWorkbenchCapabilities.ts"
+HOST = COMMON / "crusorAIWorkbenchService.ts"
+IMPLEMENTATION = COMMON.parent / "browser" / "crusorAIWorkbenchService.ts"
+RENDERER = COMMON.parent / "browser" / "crusorAIRendererService.ts"
+PROTOCOL = COMMON / "crusorAIProtocol.ts"
 AUDIT = ROOT / "docs" / "VSCODE_AGENT_CAPABILITIES_AUDIT.md"
 
 
@@ -32,7 +32,7 @@ def test_capability_catalog_is_unique_and_broad():
     for required in (
         "editor.dirtyText", "language.definitions", "diagnostics.markers",
         "edit.bulkApply", "tasks.discover", "tasks.run", "tests.run", "terminal.native", "scm.state",
-        "mcp.tools", "remote.authority", "secrets.pulseOwned",
+        "mcp.tools", "remote.authority", "secrets.crusorOwned",
     ):
         assert required in ids
 
@@ -59,7 +59,7 @@ def test_phase_a_adapter_uses_dirty_buffers_markers_and_language_providers():
     text = IMPLEMENTATION.read_text(encoding="utf-8")
     for receipt in (
         "activeTextEditorControl", "textFileService.isDirty", "markerService.read",
-        "registerTextModelContentProvider", "PULSE_AI_DIFF_SCHEME", "MAX_INLINE_DIFF_CHARS",
+        "registerTextModelContentProvider", "CRUSOR_AI_DIFF_SCHEME", "MAX_INLINE_DIFF_CHARS",
         "documentSymbolProvider.ordered", "definitionProvider.ordered",
         "referenceProvider.ordered", "createModelReference", "openNativeDiff",
         "bulkEditService.apply", "expectedVersionId", "approvalToolId",
@@ -73,10 +73,10 @@ def test_phase_a_adapter_uses_dirty_buffers_markers_and_language_providers():
         assert receipt in text
     assert "from 'node:" not in text
     assert "slice(0, 32_000)" in text
-    assert "Pulse cannot apply workspace edits before workspace trust is granted" in text
-    assert "Pulse cannot run terminal commands before workspace trust is granted" in text
-    assert "Pulse cannot run tests before workspace trust is granted" in text
-    assert "Pulse cannot run tasks before workspace trust is granted" in text
+    assert "Crusor cannot apply workspace edits before workspace trust is granted" in text
+    assert "Crusor cannot run terminal commands before workspace trust is granted" in text
+    assert "Crusor cannot run tests before workspace trust is granted" in text
+    assert "Crusor cannot run tasks before workspace trust is granted" in text
     assert "confirmBeforeUndo: true" in text
     assert "expectedVersionId" in HOST.read_text(encoding="utf-8")
 
@@ -92,7 +92,7 @@ def test_read_only_host_capability_bridge_is_workspace_pinned_and_allowlisted():
         "language.references", "search.workspace", "scm.state",
     ):
         assert capability in renderer
-    for forbidden in ("terminal.native", "tasks.run", "tests.run", "mcp.tools", "editor.tools", "secrets.pulseOwned"):
+    for forbidden in ("terminal.native", "tasks.run", "tests.run", "mcp.tools", "editor.tools", "secrets.crusorOwned"):
         assert f"case '{forbidden}'" not in renderer
     assert "frame.workspace !== workspace" in renderer
     assert "status?.availability !== 'available'" in renderer

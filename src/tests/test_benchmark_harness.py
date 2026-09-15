@@ -9,26 +9,26 @@ import sys
 
 import pytest
 
-from benchmarks.pulse_reliability_v1.contract import load_suite
-from benchmarks.pulse_reliability_v1.evaluator import (
+from benchmarks.crusor_reliability_v1.contract import load_suite
+from benchmarks.crusor_reliability_v1.evaluator import (
     CheckClassification,
     evaluate_suite,
 )
-from benchmarks.pulse_reliability_v1.harness.cli import main as cli_main
-from benchmarks.pulse_reliability_v1.harness.drivers.base import DriverError
-from benchmarks.pulse_reliability_v1.harness.drivers.bridge import BridgeDriver
-from benchmarks.pulse_reliability_v1.harness.drivers.cdp import (
+from benchmarks.crusor_reliability_v1.harness.cli import main as cli_main
+from benchmarks.crusor_reliability_v1.harness.drivers.base import DriverError
+from benchmarks.crusor_reliability_v1.harness.drivers.bridge import BridgeDriver
+from benchmarks.crusor_reliability_v1.harness.drivers.cdp import (
     dom_snapshot_expression,
     parse_targets,
     pick_page_target,
 )
-from benchmarks.pulse_reliability_v1.harness.orchestrator import run_task
-from benchmarks.pulse_reliability_v1.harness.recorder import Recorder
-from benchmarks.pulse_reliability_v1.harness.report import render_report
-from benchmarks.pulse_reliability_v1.harness.scenarios import covered_check_ids
+from benchmarks.crusor_reliability_v1.harness.orchestrator import run_task
+from benchmarks.crusor_reliability_v1.harness.recorder import Recorder
+from benchmarks.crusor_reliability_v1.harness.report import render_report
+from benchmarks.crusor_reliability_v1.harness.scenarios import covered_check_ids
 
 REPO_ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
-SUITE = REPO_ROOT / "benchmarks/pulse_reliability_v1/manifest.json"
+SUITE = REPO_ROOT / "benchmarks/crusor_reliability_v1/manifest.json"
 PY = (sys.executable,)
 
 
@@ -65,9 +65,9 @@ def test_recorder_builds_valid_run_record(workspace):
     rec.completion_ms = 222
     record = rec.build_run_record(
         run_id="test-run", task_id="PBR-012", task_version=1,
-        pulse_commit="abc123", fixture_root=str(workspace),
+        crusor_commit="abc123", fixture_root=str(workspace),
     )
-    assert record.schema_id == "pulse-benchmark-run/v1"
+    assert record.schema_id == "crusor-benchmark-run/v1"
     assert len(record.frames) == 2
     assert record.frames[-1].cancelled is False
     assert record.model_calls == 2
@@ -86,7 +86,7 @@ def test_bridge_echo_handshake():
     driver.connect(timeout_s=15.0)
     assert rec.frames[0].type == "hello"
     assert rec.frames[0].payload.get("protocol") == 2
-    assert rec.frames[0].payload.get("engine") == "pulseai"
+    assert rec.frames[0].payload.get("engine") == "crusorai"
     driver.shutdown()
 
 
@@ -158,7 +158,7 @@ def test_coverage_echo_pbr012():
 
 
 def test_coverage_cdp_covers_dom():
-    from benchmarks.pulse_reliability_v1.harness.drivers.cdp import CdpDriver
+    from benchmarks.crusor_reliability_v1.harness.drivers.cdp import CdpDriver
     caps = CdpDriver(Recorder(), port=1).capabilities
     assert caps.dom is True
     covered = covered_check_ids(_task("PBR-001"), caps)
@@ -223,8 +223,8 @@ def test_workspace_must_exist(monkeypatch, tmp_path):
 
 
 def test_dom_expression_embeds_selector():
-    expr = dom_snapshot_expression("textarea.pulseai-composer-input")
-    assert "textarea.pulseai-composer-input" in expr
+    expr = dom_snapshot_expression("textarea.crusorai-composer-input")
+    assert "textarea.crusorai-composer-input" in expr
     assert "querySelectorAll" in expr
     assert "getBoundingClientRect" in expr
 
@@ -253,7 +253,7 @@ def _fake_result(task_id, outcome="passed", lane="echo", checks=4, passed=4,
                  first_token=120, completion=800, calls=0, cost=0.0):
     return {
         "task_id": task_id, "outcome": outcome, "hard_failure": None,
-        "pulse_commit": "abc123", "lane": lane, "checks_covered": checks,
+        "crusor_commit": "abc123", "lane": lane, "checks_covered": checks,
         "checks": [
             {"check_id": f"c{i}", "classification": "passed" if i < passed else "failed_new"}
             for i in range(checks)
@@ -343,10 +343,10 @@ def test_cli_run_and_report(workspace, tmp_path, monkeypatch, capsys):
 def test_bridge_driver_records_events_and_usage_deltas():
     """Event-like frames become RunEvents; cumulative telemetry frames add
     usage as a DELTA (repeated snapshots never double-count)."""
-    from benchmarks.pulse_reliability_v1.harness.drivers.bridge import (
+    from benchmarks.crusor_reliability_v1.harness.drivers.bridge import (
         BridgeDriver, EVENT_FRAME_TYPES,
     )
-    from benchmarks.pulse_reliability_v1.harness.recorder import Recorder
+    from benchmarks.crusor_reliability_v1.harness.recorder import Recorder
 
     rec = Recorder()
     drv = BridgeDriver(rec, python_command=("python",))
@@ -370,7 +370,7 @@ def test_bridge_driver_records_events_and_usage_deltas():
     drv._record_frame({"type": "telemetry", "apiCalls": 2, "tokensIn": 250,
                        "tokensOut": 60, "totalCost": 0.03})
     record = rec.build_run_record(
-        run_id="t", task_id="PBR-002", task_version=1, pulse_commit="x",
+        run_id="t", task_id="PBR-002", task_version=1, crusor_commit="x",
     )
     assert record.model_calls == 2
     assert record.input_tokens == 250
@@ -382,7 +382,7 @@ def test_bridge_driver_session_id_is_unique_per_instance():
     """Cross-run pollution pin: a FIXED session id made every benchmark run
     replay all prior runs' durable checkpoint history (7->11->14->17 calls,
     linear). Each driver instance must mint a fresh thread id."""
-    from benchmarks.pulse_reliability_v1.harness.drivers.bridge import BridgeDriver
+    from benchmarks.crusor_reliability_v1.harness.drivers.bridge import BridgeDriver
     a = BridgeDriver(Recorder(), python_command=("python",))
     b = BridgeDriver(Recorder(), python_command=("python",))
     assert a._session_id != b._session_id
@@ -496,7 +496,7 @@ def test_terminal_timeout_tree_kills_and_returns_promptly(monkeypatch, tmp_path)
         gc, "_taskkill_tree",
         lambda pid: (killed.append(pid), True)[1],
     )
-    monkeypatch.setenv("PULSEAI_TERMINAL_TIMEOUT", "1")
+    monkeypatch.setenv("CRUSORAI_TERMINAL_TIMEOUT", "1")
     hang = f'"{sys.executable}" -c "import time; time.sleep(60)"'
     t0 = _time.monotonic()
     runner = getattr(tt.run_terminal, "func", tt.run_terminal)  # StructuredTool -> raw fn

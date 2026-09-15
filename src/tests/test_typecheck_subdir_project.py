@@ -2,7 +2,7 @@
 of the toolset for every task whose project lived ONE level below the session
 workspace — the owner's log said "unavailable this session:
 typecheck_workspace (no tsconfig.json in the workspace)" while the actual
-project (D:\\TestPulseAI\\test5) carried its own tsconfig.json + typescript.
+project (D:\\TestCrusorAI\\test5) carried its own tsconfig.json + typescript.
 The whole verification-gate family degraded with it.
 
 hermes' discovery law (agent/coding_context.py): bounded — "root and its
@@ -127,7 +127,7 @@ def test_tool_truly_empty_workspace_skip_message(tmp_path):
 
 
 def test_binding_keeps_typecheck_for_a_subdir_project(tmp_path):
-    """The field bug: root D:\\TestPulseAI (no tsconfig), project test5/ — the
+    """The field bug: root D:\\TestCrusorAI (no tsconfig), project test5/ — the
     tool must STAY BOUND."""
     from src.graphs.chat_graph import _resolve_bound_tools
 

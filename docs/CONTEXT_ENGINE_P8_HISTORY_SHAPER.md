@@ -14,7 +14,7 @@ conversation history before it reaches the model — moved out of
 | Concern | Owner now |
 |---|---|
 | Tool-output summarization (`_summarize_tool_messages` → `SmartSummarizer`) | `HistoryShaper.summarize_tool_messages` |
-| D22 prune-first compaction (protected head/tail, structural drop only while over budget, iterative AUX summary, anti-thrash; `PULSEAI_COMPACTION=off` kill switch incl. landed-mutation omission) | `HistoryShaper.compact` |
+| D22 prune-first compaction (protected head/tail, structural drop only while over budget, iterative AUX summary, anti-thrash; `CRUSORAI_COMPACTION=off` kill switch incl. landed-mutation omission) | `HistoryShaper.compact` |
 | Turn-atomic budget trim (P4 pairing guard: never starts on a ToolMessage, pairs never split) | `HistoryShaper.trim` |
 | Per-session compaction telemetry (`compaction_stats` / `get_status()["compaction"]`) | `HistoryShaper.stats` |
 | The ONE per-session `HistoryCompactor` (shared by the per-turn path and the ABC `compress()` entry — one anti-thrash state) | `HistoryShaper.ensure_compactor` / `.compactor` |
@@ -42,7 +42,7 @@ between `ensure_compactor()` calls re-stamps the live compactor's
 ### Kill-switch seam
 
 `compact(history, budget, kill_switch_trim=None)`: on the
-`PULSEAI_COMPACTION=off` path the engine passes its own bound
+`CRUSORAI_COMPACTION=off` path the engine passes its own bound
 `_trim_history`, so the legacy structural pipeline stays on the engine's
 **public seam** — the pre-P8 kill-switch regression test
 (`test_compaction.py::test_engine_compact_history_kill_switch`, which
@@ -62,7 +62,7 @@ respected rather than bypassed.
   src/tests/test_context_budget.py -q
 # full suite (README command)
 .venv/bin/python -m pytest src/tests -q \
-  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/pulseai-pytest
+  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/crusorai-pytest
 ```
 
 | Run | Result |

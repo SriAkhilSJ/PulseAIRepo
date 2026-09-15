@@ -29,7 +29,7 @@ def _cfg() -> dict:
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
-    monkeypatch.delenv("PULSEAI_TASK_CLASSIFIER", raising=False)
+    monkeypatch.delenv("CRUSORAI_TASK_CLASSIFIER", raising=False)
 
 
 def _explode(*_a, **_kw):
@@ -108,14 +108,14 @@ NEEDS_LLM = [
 
 @pytest.mark.parametrize("msg", NEEDS_LLM)
 def test_ambiguous_messages_return_no_quick_decision(msg, monkeypatch):
-    monkeypatch.delenv("PULSEAI_TASK_CLASSIFIER", raising=False)
+    monkeypatch.delenv("CRUSORAI_TASK_CLASSIFIER", raising=False)
     assert cg._quick_task_decision("build a login page", msg) is None or msg == ""
 
 
 def test_ambiguous_by_default_skips_llm_opt_in_consults_once(monkeypatch):
     """Hermes-parity default: an ambiguous instruction pays NO classifier
     round-trip (field: "hello" paid one and the answer was unparseable).
-    PULSEAI_TASK_CLASSIFIER=on restores the consult-exactly-once lane."""
+    CRUSORAI_TASK_CLASSIFIER=on restores the consult-exactly-once lane."""
 
     class FakeLLM:
         # The classifier lane invokes RAW since the prose-salvage port (the
@@ -143,7 +143,7 @@ def test_ambiguous_by_default_skips_llm_opt_in_consults_once(monkeypatch):
     assert out["current_task"] == "build a login page", "task label preserved verbatim on skip"
 
     # OPT-IN: consult the LLM exactly once.
-    monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "on")
+    monkeypatch.setenv("CRUSORAI_TASK_CLASSIFIER", "on")
     monkeypatch.setattr(cg, "_task_manager_llm", lambda *a, **k: FakeLLM())
     # record_call must return the REAL TokenUsage dataclass — the node
     # merges it with `+`, which reads .prompt_tokens off the addition
@@ -183,7 +183,7 @@ def test_approval_with_existing_plan_executes_it(monkeypatch):
 # ------------------------------------------------------- kill-switch + edge
 
 def test_kill_switch_restores_always_llm(monkeypatch):
-    monkeypatch.setenv("PULSEAI_TASK_CLASSIFIER", "llm")
+    monkeypatch.setenv("CRUSORAI_TASK_CLASSIFIER", "llm")
     assert cg._quick_task_decision("task", "ok go") is None
 
 

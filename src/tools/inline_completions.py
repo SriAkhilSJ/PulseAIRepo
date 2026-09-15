@@ -1,4 +1,4 @@
-"""Inline completion provider for PulseAI — ghost text suggestions.
+"""Inline completion provider for CrusorAI — ghost text suggestions.
 
 This module provides fast, context-aware inline completions similar to
 GitHub Copilot. It uses the existing context engine to gather relevant
@@ -54,9 +54,9 @@ class InlineCompletionProvider:
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._debounce_ms = int(os.environ.get("PULSEAI_COMPLETION_DEBOUNCE_MS", "150"))
-        self._max_tokens = int(os.environ.get("PULSEAI_COMPLETION_MAX_TOKENS", "128"))
-        self._enabled = os.environ.get("PULSEAI_INLINE_COMPLETIONS", "1").strip().lower() in {
+        self._debounce_ms = int(os.environ.get("CRUSORAI_COMPLETION_DEBOUNCE_MS", "150"))
+        self._max_tokens = int(os.environ.get("CRUSORAI_COMPLETION_MAX_TOKENS", "128"))
+        self._enabled = os.environ.get("CRUSORAI_INLINE_COMPLETIONS", "1").strip().lower() in {
             "1", "true", "yes", "on",
         }
         self._cache: dict[str, list[CompletionItem]] = {}

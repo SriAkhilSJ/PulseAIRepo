@@ -1,0 +1,96 @@
+/* CrusorAI design tokens.
+ *
+ * COLORS — derived, never hardcoded (owner directive: "don't hardcode plz").
+ * The `--crusorai-*` semantic outputs are computed at runtime by crusorTheme.ts
+ * (a port of the hermes desktop theme machine: apps/desktop/src/themes/
+ * color.ts + themes/vscode.ts): seeds read from the LIVE workbench theme
+ * (--vscode-* custom properties), accent contrast-enforced to WCAG AA 4.5:1
+ * against the sidebar it labels, semantic dots = constant hue seeds
+ * harmonized toward the accent in OKLCH (hermes `harmonize`, 0.25) then
+ * guaranteed 3:1 (WCAG 1.4.11). This file carries only var() FALLBACK chains
+ * into the host theme — theme-native paint before the machine runs — and is
+ * re-derived on every theme change (onDidColorThemeChange). The former
+ * hand-picked light/dark hex palette lived here and is gone: hand edits drift
+ * from the host theme silently and can't be re-derived (hermes presets.ts
+ * lesson, verbatim).
+ *
+ * TYPE — the hermes scaffold grammar (styles.css): two host font stacks (the
+ * workbench's own — zero bundled fonts), one meta size (0.625rem), tabular
+ * numerals on every counter/duration cell, caps letter-spacing token.
+ */
+:root {
+	/* Fallback chains INTO the host theme, so the pane paints theme-native
+	 * even before crusorTheme.ts runs. No hex here — a hex would paint a
+	 * foreign brand over a theme we didn't read. */
+	--crusorai-accent: var(--vscode-focusBorder, var(--vscode-button-background));
+	--crusorai-running: var(--crusorai-accent);
+	--crusorai-verified: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+	--crusorai-approval: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+	--crusorai-failed: var(--vscode-errorForeground, var(--vscode-charts-red));
+	--crusorai-agent: var(--vscode-symbolKindClass, var(--crusorai-accent));
+
+	/* Type grammar (hermes scaffold): the host's own stacks — the user's
+	 * editor font IS the product font; nothing bundled competes with it. */
+	--crusorai-font-ui: var(--vscode-font-family);
+	--crusorai-font-mono: var(--vscode-editor-font-family);
+
+	/* Scale — every size the pane paints, named by role (hermes scaffold
+	 * grammar: sizes are tokens, never literals). Values carry the pane's
+	 * existing steps 1:1 — a centralization, not a redesign; a later pass can
+	 * tighten them onto a modular scale. rem so the host's font-size
+	 * preference scales the pane (px ignored the user's setting). */
+	--crusorai-text-micro: 0.5625rem;   /* 9px scaffold floor + eyebrow */
+	--crusorai-text-meta: 0.625rem;     /* 10px meta — hermes' meta size */
+	--crusorai-text-body: 0.6875rem;    /* 11px default UI text */
+	--crusorai-text-body-lg: 0.71875rem;/* 11.5px transcript/tool rows */
+	--crusorai-text-copy: 0.75rem;      /* 12px reading copy, starters */
+	--crusorai-text-title: 0.8125rem;   /* 13px pane heading */
+	--crusorai-text-page: 0.9375rem;    /* 15px manager page title */
+	--crusorai-icon-md: 0.875rem;       /* 14px codicon glyph cell */
+
+	/* Caps tracking — hermes styles.css:0.08em on spaced uppercase labels.
+	 * ONE tracking value for every caps label (the old 0.04em/0.08em split
+	 * was per-selector tuning, exactly what the grammar forbids). */
+	--crusorai-track-caps: 0.08em;
+
+	/* Terminal output window — hermes terminal-output.tsx `max-h-16`: a
+	 * 4rem viewport on stdout with the tail pinned (the end of the stream
+	 * is the payload), never a tall panel that eats the transcript. */
+	--crusorai-terminal-max-h: 4rem;
+}
+
+/* Tabular numerals wherever digits update in place (hermes meta grammar):
+ * durations, anatomy counts, plan step numbers. Proportional digits shimmy
+ * as the number ticks; tabular digits hold the cell steady. */
+.crusorai-tool-duration,
+.crusorai-llm-anatomy-row,
+.crusorai-plan-strip-list li {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Hermes conversation system (apps/desktop styles.css, conversation block) —
+ * ported verbatim. Sizes/metrics are hermes tokens; every color stays
+ * semantic (derived from the live workbench theme at runtime by crusorTheme).
+ * Values: prose 0.8125rem on a 1.125rem line grid; tool rows 0.6875rem; meta
+ * 0.625rem tabular; code bodies 0.7rem; turn gap 0.375rem; block gap
+ * 0.75rem; scaffold gap = block/3; paragraph gap 0.7rem; radius turn 0.75rem,
+ * code card 0.625rem; disclosure caret rests at opacity 0. */
+:root {
+	--crusorai-conv-size: 0.8125rem;
+	--crusorai-conv-line: 1.125rem;
+	--crusorai-conv-tool-size: 0.6875rem;
+	--crusorai-conv-code-size: 0.7rem;
+	--crusorai-conv-meta-size: 0.625rem;
+	--crusorai-turn-gap: 0.375rem;
+	--crusorai-turn-block-gap: 0.75rem;
+	--crusorai-scaffold-gap: calc(var(--crusorai-turn-block-gap) / 3);
+	--crusorai-paragraph-gap: 0.7rem;
+	--crusorai-radius-turn: 0.75rem;
+	--crusorai-radius-code: 0.625rem;
+	--crusorai-scaffold-text: color-mix(in srgb, var(--vscode-foreground) 64%, transparent);
+	--crusorai-scaffold-meta: color-mix(in srgb, var(--vscode-foreground) 44%, transparent);
+	--crusorai-bubble-bg: color-mix(in srgb, var(--crusorai-accent) 6%, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)));
+	--crusorai-bubble-border: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+	--crusorai-codecard-bg: color-mix(in srgb, var(--vscode-editor-background, var(--vscode-sideBar-background)) 88%, var(--vscode-sideBar-background));
+	--crusorai-caret-rest: 0;
+}

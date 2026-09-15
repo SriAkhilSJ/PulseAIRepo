@@ -4,7 +4,7 @@ Field proof (owner run + Attempt 8): the first tool memory write used to
 construct the embedding backend SYNCHRONOUSLY in the turn's critical path —
 a model download behind tool_call_end, wedging tool->model for >10 minutes.
 The LazyMemoryManager must construct in a background thread and bound every
-call's wait to PULSEAI_MEMORY_WARMUP_BUDGET_S, degrading to defaults.
+call's wait to CRUSORAI_MEMORY_WARMUP_BUDGET_S, degrading to defaults.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from src.context.lazy_memory import LazyMemoryManager
 
 @pytest.fixture(autouse=True)
 def _tight_budget(monkeypatch):
-    monkeypatch.setenv("PULSEAI_MEMORY_WARMUP_BUDGET_S", "0.2")
+    monkeypatch.setenv("CRUSORAI_MEMORY_WARMUP_BUDGET_S", "0.2")
 
 
 def test_slow_backend_never_blocks_the_call():
@@ -61,11 +61,11 @@ def test_budget_is_read_per_call(monkeypatch):
     manager = LazyMemoryManager(factory)
     manager.warmup()
 
-    monkeypatch.setenv("PULSEAI_MEMORY_WARMUP_BUDGET_S", "0")
+    monkeypatch.setenv("CRUSORAI_MEMORY_WARMUP_BUDGET_S", "0")
     t0 = time.monotonic()
     manager.get_memory_count()
     assert time.monotonic() - t0 < 1, "budget 0 must not wait at all"
-    monkeypatch.setenv("PULSEAI_MEMORY_WARMUP_BUDGET_S", "bogus")
+    monkeypatch.setenv("CRUSORAI_MEMORY_WARMUP_BUDGET_S", "bogus")
     # invalid values fall back to the default instead of crashing the turn
     manager.get_memory_count()
 

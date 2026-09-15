@@ -62,7 +62,7 @@ direction (a crash → a skipped nudge).
   src/tests/test_review_autopsy_fixes.py src/tests/test_review12_reverify.py -q
 # full suite (README command)
 .venv/bin/python -m pytest src/tests -q \
-  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/pulseai-pytest
+  --ignore=src/tests/test_session_engines.py --basetemp=/tmp/crusorai-pytest
 ```
 
 | Run | Result |

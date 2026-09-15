@@ -1,17 +1,17 @@
 """Compression commit fence — simplified port of hermes-agent conversation_compression.py
 
 Hermes uses CompressionCommitFence with lock, progress hook, heartbeat, deadlock detection.
-For Pulse IDE (Electron utility process, not gateway), we need a lightweight version that:
+For Crusor IDE (Electron utility process, not gateway), we need a lightweight version that:
 - Prevents concurrent compaction on same thread_id
 - Provides progress callback for UI
 - Has idle timeout + total ceiling (env-driven)
 - Supports fallback chain pin via ContextVar (simplified)
 
 Env (from .env via settings.py load_dotenv, also loaded defensively here):
-- PULSEAI_COMPRESSION_IDLE_TIMEOUT=120s
-- PULSEAI_COMPRESSION_CEILING=600s
-- PULSEAI_COMPRESSION_FALLBACK_CHAIN=json list or comma-separated models
-- PULSEAI_COMPRESSION_LOCK_TTL=300s
+- CRUSORAI_COMPRESSION_IDLE_TIMEOUT=120s
+- CRUSORAI_COMPRESSION_CEILING=600s
+- CRUSORAI_COMPRESSION_FALLBACK_CHAIN=json list or comma-separated models
+- CRUSORAI_COMPRESSION_LOCK_TTL=300s
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 # ContextVar for pinned fallback route (Hermes parity)
-_SUMMARY_ROUTE_PIN: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("pulse_summary_route_pin", default=None)
+_SUMMARY_ROUTE_PIN: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("crusor_summary_route_pin", default=None)
 
 def pin_summary_route(route: Optional[Dict[str, Any]]):
     import contextlib
@@ -130,10 +130,10 @@ class CompressionCommitFence:
         holder: str = "",
     ):
         self.session_id = session_id
-        self.idle_timeout = idle_timeout if idle_timeout is not None else _env_int("PULSEAI_COMPRESSION_IDLE_TIMEOUT", _IDLE_TIMEOUT)
-        self.ceiling_timeout = ceiling_timeout if ceiling_timeout is not None else _env_int("PULSEAI_COMPRESSION_CEILING", _CEILING_TIMEOUT)
+        self.idle_timeout = idle_timeout if idle_timeout is not None else _env_int("CRUSORAI_COMPRESSION_IDLE_TIMEOUT", _IDLE_TIMEOUT)
+        self.ceiling_timeout = ceiling_timeout if ceiling_timeout is not None else _env_int("CRUSORAI_COMPRESSION_CEILING", _CEILING_TIMEOUT)
         self.on_progress = on_progress
-        self.holder = holder or f"pulse:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+        self.holder = holder or f"crusor:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self._acquired = False
         self._start = time.monotonic()
         self._last_progress = self._start
@@ -142,7 +142,7 @@ class CompressionCommitFence:
         self._stop_heartbeat = threading.Event()
 
     def __enter__(self):
-        self._acquired = try_acquire_compression_lock(self.session_id, self.holder, ttl=_env_int("PULSEAI_COMPRESSION_LOCK_TTL", _LOCK_TTL))
+        self._acquired = try_acquire_compression_lock(self.session_id, self.holder, ttl=_env_int("CRUSORAI_COMPRESSION_LOCK_TTL", _LOCK_TTL))
         if not self._acquired:
             raise RuntimeError(f"Compression lock held for session {self.session_id}")
         self._start_heartbeat()
@@ -193,13 +193,13 @@ class CompressionCommitFence:
         self.touch_progress({"phase": "commit"})
 
 def load_fallback_chain_from_env() -> List[Dict[str, Any]]:
-    """Parse PULSEAI_COMPRESSION_FALLBACK_CHAIN.
+    """Parse CRUSORAI_COMPRESSION_FALLBACK_CHAIN.
 
     Supports JSON list [{"provider":"openrouter","model":"claude-3-5-sonnet"}]
     or comma-separated "model1,model2" -> [{"model": m}].
     """
     import json
-    raw = os.environ.get("PULSEAI_COMPRESSION_FALLBACK_CHAIN", "").strip()
+    raw = os.environ.get("CRUSORAI_COMPRESSION_FALLBACK_CHAIN", "").strip()
     if not raw:
         return []
     try:

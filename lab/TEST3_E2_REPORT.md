@@ -1,7 +1,7 @@
 # Lab Report — Test 3 (react-three-fiber hero component integration) · E2
 
-**Date:** 2026-08-13 · **Agent under test:** PulseAgent · **Provider:** Sarvam AI · **Model:** `sarvam-105b-conversations`
-**Sandbox:** fresh external folder `/d/pulseAIrepo/test3_ws_e2` (OUTSIDE the repo — never gets a repo map; user-directed fix after E1)
+**Date:** 2026-08-13 · **Agent under test:** CrusorAgent · **Provider:** Sarvam AI · **Model:** `sarvam-105b-conversations`
+**Sandbox:** fresh external folder `/d/crusorAIrepo/test3_ws_e2` (OUTSIDE the repo — never gets a repo map; user-directed fix after E1)
 **Task:** the exact Test-3 prompt (hero-futuristic.tsx + demo.tsx into `/components/ui`, install three/@react-three/drei/@react-three/fiber)
 **Thread:** `lab-test3-e2` (+ `lab-test3-e1` aborted) · **Harness:** `lab/run_eval_test3.py`, `lab/resume_test3_e2.py`
 
@@ -19,7 +19,7 @@ retried the same blocked CLI and declared **"✅ Finished" with an empty deliver
 | Run | Sandbox | Calls | Tokens | Wall | What happened |
 |---|---|---|---|---|---|
 | **E1** (aborted by tester) | `lab/workspace_test3` (in-repo) | ~26 | uncounted | ~12 min | `execute_code` cwd = **repo root** → agent looped on `walk()` of the 15k-file `desktop/` tree; never worked in the sandbox. Killed to save credits. |
-| **E2** | `/d/pulseAIrepo/test3_ws_e2` (external, +cwd fix, +`_provided/` sources) | 32 | 1,052,189 | ~25 min | Correct flow: plan → `list_files`/`read_file` `_provided/*` → `create-next-app` (TS+Tailwind+`@/*` alias) → `npm install` → deps added → **shadcn-CLI interactive detour burned ~10 iterations** → budget exhausted, 0 components. |
+| **E2** | `/d/crusorAIrepo/test3_ws_e2` (external, +cwd fix, +`_provided/` sources) | 32 | 1,052,189 | ~25 min | Correct flow: plan → `list_files`/`read_file` `_provided/*` → `create-next-app` (TS+Tailwind+`@/*` alias) → `npm install` → deps added → **shadcn-CLI interactive detour burned ~10 iterations** → budget exhausted, 0 components. |
 | **E2 resume** (budget 45, explicit nudge) | same | 2 | +36,302 | 38 s | Ignored the nudge ("do NOT retry shadcn; copy the 2 files"), retried `printf '1\n1\n' \| npx shadcn init`, then `execute_code` with blocked `import shutil`, then declared `## ✅ Finished` — 0 files written. |
 
 **Total spend:** ~1.09M tokens, 34 calls, **est. $1.09** (engine accounting) — the bulk in E2.

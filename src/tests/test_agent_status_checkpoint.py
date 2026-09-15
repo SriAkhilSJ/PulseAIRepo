@@ -17,7 +17,7 @@ pytest is **collecting**, which had three consequences, all of them bad:
 So: heavy imports are now inside the test, the module imports nothing from
 ``src``, and the live turn is opt-in because it costs money.
 
-    PULSEAI_ALLOW_LIVE_AGENT_TEST=1 pytest src/tests/test_agent_status_checkpoint.py
+    CRUSORAI_ALLOW_LIVE_AGENT_TEST=1 pytest src/tests/test_agent_status_checkpoint.py
 """
 
 import os
@@ -30,10 +30,10 @@ import pytest
 # and therefore spends credits.  It is *skipped*, not failed, when the gate is
 # closed — a verifier run must be able to report "provider-free" truthfully.
 pytestmark = pytest.mark.skipif(
-    os.environ.get("PULSEAI_ALLOW_LIVE_AGENT_TEST") != "1",
+    os.environ.get("CRUSORAI_ALLOW_LIVE_AGENT_TEST") != "1",
     reason=(
         "performs a real, billed provider turn; opt in with "
-        "PULSEAI_ALLOW_LIVE_AGENT_TEST=1"
+        "CRUSORAI_ALLOW_LIVE_AGENT_TEST=1"
     ),
 )
 

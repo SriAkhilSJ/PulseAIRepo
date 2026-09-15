@@ -2,7 +2,7 @@
 Chunk Index — P0 (verified build)
 =================================
 
-Chunk-level code retrieval for PulseAI: per-symbol chunks (module/function/class),
+Chunk-level code retrieval for CrusorAI: per-symbol chunks (module/function/class),
 hybrid retrieval (sqlite-vec KNN + FTS5 BM25) fused with Reciprocal Rank Fusion.
 
 Design notes (each one is a verified lesson, not a guess):
@@ -349,7 +349,7 @@ class ChunkIndex:
             # retrieval between unrelated projects.
             ws_hash = hashlib.sha256(str(self.workspace).encode()).hexdigest()[:12]
             db_path = os.path.join(
-                os.path.expanduser("~"), ".pulseai", f"code_index_{ws_hash}.db"
+                os.path.expanduser("~"), ".crusorai", f"code_index_{ws_hash}.db"
             )
         self.db_path = db_path
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)

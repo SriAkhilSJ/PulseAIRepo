@@ -48,7 +48,7 @@ def test_general_chat_has_no_side_effect_tools():
 
 
 def test_research_is_not_silently_treated_as_coding(monkeypatch):
-    monkeypatch.delenv("PULSEAI_WEB_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_WEB_TOOLS", raising=False)
     profile = resolve_runtime_profile("Research the latest AI IDE agent architectures and compare sources")
     resolved = set(resolve_toolset_names("Research the latest AI IDE agent architectures and compare sources"))
     assert profile.has(CAP_RESEARCH)
@@ -58,7 +58,7 @@ def test_research_is_not_silently_treated_as_coding(monkeypatch):
 
 
 def test_web_operator_opt_out_wins(monkeypatch):
-    monkeypatch.setenv("PULSEAI_WEB_TOOLS", "off")
+    monkeypatch.setenv("CRUSORAI_WEB_TOOLS", "off")
     resolved = set(resolve_toolset_names("research current framework versions online"))
     assert not (resolved & WEB)
 

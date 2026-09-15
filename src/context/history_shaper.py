@@ -9,7 +9,7 @@ it reaches the model:
 * **Prune-first compaction** — the D22 hermes pack (compaction.py):
   protected head/tail, structural dropping only while still over budget,
   dropped turns folded into an iterative AUX-model summary with anti-thrash.
-  ``PULSEAI_COMPACTION=off`` restores the legacy structural pipeline (with
+  ``CRUSORAI_COMPACTION=off`` restores the legacy structural pipeline (with
   the landed-mutation-payload omission still applied — its own kill switch).
 * **Turn-atomic budget trim** — never splits tool pairs, never starts on a
   ToolMessage (the P4 guard lives in trim_messages_to_budget / the
@@ -143,7 +143,7 @@ class HistoryShaper:
         """D22 hermes pack (compaction.py): prune-first with protected
         head/tail, structural dropping only if still over budget, dropped
         turns folded into an iterative AUX-model summary with anti-thrash.
-        PULSEAI_COMPACTION=off restores the legacy structural pipeline;
+        CRUSORAI_COMPACTION=off restores the legacy structural pipeline;
         landed mutation omission has its own diagnostic kill switch.
 
         ``kill_switch_trim``: the engine passes its own ``_trim_history``
@@ -167,7 +167,7 @@ class HistoryShaper:
             retire_stale_tool_images(history)
         )
 
-        if os.environ.get("PULSEAI_COMPACTION", "").strip().lower() == "off":
+        if os.environ.get("CRUSORAI_COMPACTION", "").strip().lower() == "off":
             # Even the structural-compaction kill switch must not replay every
             # landed write payload until the run-level token budget is gone.
             from src.context.compaction import compact_file_mutation_arguments

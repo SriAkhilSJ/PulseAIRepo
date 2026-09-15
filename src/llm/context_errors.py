@@ -2,7 +2,7 @@
 
 Ported from hermes-agent @ 8cab422: `agent/model_metadata.py::parse_available_output_tokens_from_error`,
 `::parse_context_limit_from_error`, `::get_context_length_from_provider_error`, plus the rule those three
-exist to enforce. Their docstrings state it exactly, and Pulse had no equivalent at all:
+exist to enforce. Their docstrings state it exactly, and Crusor had no equivalent at all:
 
   1. "Prompt too long"  -- the INPUT exceeds the window.
        Fix: compress history, and only reduce context_length if the provider explicitly reports the actual

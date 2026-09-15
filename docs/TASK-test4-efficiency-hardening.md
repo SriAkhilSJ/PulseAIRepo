@@ -112,7 +112,7 @@ Command shape:
 ```bash
 python -m pytest src/tests -q --no-header \
   --ignore=src/tests/test_session_engines.py \
-  --basetemp=/home/user/pytest-pulse-test4-ready
+  --basetemp=/home/user/pytest-crusor-test4-ready
 ```
 
 Focused receipt/compaction/gate/toolset tests also pass. New behavior contracts live in `src/tests/test_efficiency_receipts.py`.

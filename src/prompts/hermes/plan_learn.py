@@ -3,7 +3,7 @@ and ``agent/learn_prompt.py``.
 
 Both are *turn prompts*, not system-prompt mutations: upstream's rule is that
 these commands never edit the system prompt or the history, precisely so the
-cached prefix survives them. Pulse has the same two surfaces (execution mode
+cached prefix survives them. Crusor has the same two surfaces (execution mode
 ``plan``, and a skill-authoring flow), so the builders land on the same
 separation.
 """
@@ -15,29 +15,29 @@ from typing import Iterable, Optional
 
 from src.prompts.hermes import guidance
 
-PLAN_DIR = ".pulseai/plans"  # upstream: .hermes/plans (same relative-path rule)
-SKILL_DIR = ".pulseai/skills"  # upstream writes through skill_manage
+PLAN_DIR = ".crusorai/plans"  # upstream: .hermes/plans (same relative-path rule)
+SKILL_DIR = ".crusorai/skills"  # upstream writes through skill_manage
 
 
 #: Upstream's authoring standards carry Hermes's own worked examples, including
 #: a list of illustrative tool names. Injecting that list verbatim would teach a
-#: Pulse skill to reach for tools this runtime does not have (`terminal`,
+#: Crusor skill to reach for tools this runtime does not have (`terminal`,
 #: `vision_analyze`, `image_generate`, `skill_manage`), so the examples are
-#: retargeted at Pulse's registry — a documented substitution table, not a
+#: retargeted at Crusor's registry — a documented substitution table, not a
 #: rewrite: the sentence shapes and every other word stay upstream's.
 #: Upstream's authoring standards carry Hermes's own worked examples, including
 #: a bullet that enumerates the tools a skill should name. Injected verbatim it
-#: would teach a Pulse skill to reach for tools this runtime does not have, so
-#: the enumeration is replaced by Pulse's real registry (same bullet shape, same
+#: would teach a Crusor skill to reach for tools this runtime does not have, so
+#: the enumeration is replaced by Crusor's real registry (same bullet shape, same
 #: purpose) and the remaining aliases map onto real tools.
-_PULSE_REFERENCE_BULLET = (
-    "- Reference Pulse tools by name in backticks: `terminal`, `read_file`,\n"
+_CRUSOR_REFERENCE_BULLET = (
+    "- Reference Crusor tools by name in backticks: `terminal`, `read_file`,\n"
     "  `write_file`, `search_files`, `edit_file`, `web_extract`, `web_search`,\n"
     "  `browser_navigate`, `browser_snapshot`, `delegate_to_subagent`, `execute_code`.\n"
 )
 
 _REFERENCE_BULLET_RE = re.compile(
-    r"- Reference (?:Hermes|Pulse) tools by name in backticks:.*?`execute_code`\.\n",
+    r"- Reference (?:Hermes|Crusor) tools by name in backticks:.*?`execute_code`\.\n",
     re.DOTALL,
 )
 
@@ -56,8 +56,8 @@ TOOL_EXAMPLE_REWRITES: tuple[tuple[str, str], ...] = (
 
 
 def retarget_upstream_tools(text: str) -> str:
-    """Map the corpus's illustrative tool references onto Pulse's registry."""
-    text = _REFERENCE_BULLET_RE.sub(_PULSE_REFERENCE_BULLET, text, count=1)
+    """Map the corpus's illustrative tool references onto Crusor's registry."""
+    text = _REFERENCE_BULLET_RE.sub(_CRUSOR_REFERENCE_BULLET, text, count=1)
     for src, dst in TOOL_EXAMPLE_REWRITES:
         text = text.replace(src, dst)
     return text
@@ -69,7 +69,7 @@ def _slug(text: str, limit: int = 48) -> str:
 
 
 def plan_target_path(task: str = "", now: Optional[datetime.datetime] = None) -> str:
-    """``.pulseai/plans/YYYY-MM-DD_HHMMSS-<slug>.md`` — same shape as upstream."""
+    """``.crusorai/plans/YYYY-MM-DD_HHMMSS-<slug>.md`` — same shape as upstream."""
     stamp = (now or datetime.datetime.now()).strftime("%Y-%m-%d_%H%M%S")
     return f"{PLAN_DIR}/{stamp}-{_slug(task)}.md"
 
@@ -107,8 +107,8 @@ def build_plan_prompt(task: str = "", *, target_path: Optional[str] = None) -> s
         + task_block
         + "\n"
         + guidance.PLAN_CRAFT
-        # Pulse-specific surface contract, appended after the frozen corpus text for the same reason the
-        # `.hermes/plans` -> `.pulseai/plans` swap is: upstream's rules are compared byte-for-byte against
+        # Crusor-specific surface contract, appended after the frozen corpus text for the same reason the
+        # `.hermes/plans` -> `.crusorai/plans` swap is: upstream's rules are compared byte-for-byte against
         # `upstream_corpus.json`, and this is our UI, not theirs. In the CLI a plan is invisible until you
         # open the file (the turn shows a tool count and nothing else). The desktop panel has a PLAN
         # inspector that reads the graph's plan state, so a plan that lives only in a file paints `0
@@ -161,7 +161,7 @@ def build_learn_prompt(
     """Build the agent prompt for an open-ended ``/learn`` request.
 
     With upstream's skill tools bound the body is upstream's, verbatim except
-    the documented rename map. Without them — the Pulse default, where skills
+    the documented rename map. Without them — the Crusor default, where skills
     are files the runtime reads rather than a model-facing tool — only the
     *save* step changes: the agent writes ``SKILL.md`` with ``write_file`` and
     nothing else is reworded.
@@ -170,7 +170,7 @@ def build_learn_prompt(
     names = None if valid_tool_names is None else {str(t) for t in valid_tool_names}
     has_skill_tools = bool(names) and {"skill_manage", "skill_view"} <= (names or set())
     # With upstream's skill tools bound the body is upstream's bytes; without
-    # them the illustrative tool references are retargeted at real Pulse tools.
+    # them the illustrative tool references are retargeted at real Crusor tools.
     rewrite = (lambda value: value) if has_skill_tools else retarget_upstream_tools
 
     body = (

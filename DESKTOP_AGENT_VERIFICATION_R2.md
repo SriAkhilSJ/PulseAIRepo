@@ -18,17 +18,17 @@ cause**, and the biggest one was the thing you hit first:
 
 > *"Required `Esc` ×5 to dismiss the GitHub Device Code dialog"*
 
-A product called **PulseAI IDE** was demanding a **GitHub Copilot sign-in**
+A product called **CrusorAI IDE** was demanding a **GitHub Copilot sign-in**
 before it could be used. That is worse than the cosmetic header issue.
 
 **Correction to my earlier analysis (you were right):**
-I claimed Pulse was missing `mergeViewWithContainerWhenSingleView`. It is
-**already set** at `pulseAI.contribution.ts:57`. Your report caught that.
+I claimed Crusor was missing `mergeViewWithContainerWhenSingleView`. It is
+**already set** at `crusorAI.contribution.ts:57`. Your report caught that.
 
 **The real mechanism** (slightly different from your diagnosis): the auxiliary
-bar renders **one tab strip per view *container***. Pulse's container holds a
+bar renders **one tab strip per view *container***. Crusor's container holds a
 single view and merges fine. The second bar appeared because **two containers**
-were present — Chat's and Pulse's. That is also why
+were present — Chat's and Crusor's. That is also why
 `--disable-extension GitHub.copilot` did nothing: `contrib/chat` is **built-in
 workbench code**, not the marketplace extension.
 
@@ -73,12 +73,12 @@ If that prints anything else, **STOP and report**.
 
 ```powershell
 cd desktop\vscode
-.\.build\electron\PulseAI.exe . --user-data-dir .freebuff\pulseai-check-r2 --new-window --disable-workspace-trust
+.\.build\electron\CrusorAI.exe . --user-data-dir .freebuff\crusorai-check-r2 --new-window --disable-workspace-trust
 ```
 
 **Two things that matter this round:**
 
-- **Use `pulseai-check-r2`, a fresh directory** — not the round-1 profile. The
+- **Use `crusorai-check-r2`, a fresh directory** — not the round-1 profile. The
   old one has `github.copilot.enable:false` and a pinned `workbench.colorTheme`
   seeded into it, which would mask exactly what we are testing.
 - **Do NOT seed `settings.json`, and do NOT pass `--disable-extension`.** The
@@ -86,7 +86,7 @@ cd desktop\vscode
   appears, that is the finding — screenshot it rather than dismissing it.
 
 Your round-1 `.build\extensions\theme-defaults\` copy should still be in place.
-If the theme regressed to grey, re-copy `pulseai-dark.json` + `package.json`
+If the theme regressed to grey, re-copy `crusorai-dark.json` + `package.json`
 there and note it. **Do not run a full rebuild.**
 
 ---
@@ -96,8 +96,8 @@ there and note it. **Do not run a full rebuild.**
 | # | Check | Expected |
 |---|---|---|
 | **1** | **First launch, out of the box** | **NO** GitHub "Device Code" / "Sign in to use GitHub Copilot" dialog. No Copilot welcome/setup screen. You should land straight in the editor. |
-| **2** | **Pulse panel header** | Open the secondary side bar (`View: Toggle Secondary Side Bar`) → **ONE** header, not two. No `CHAT | PULSE` tab strip — just `Pulse`. |
-| **3** | **Auxiliary bar contents** | **Only** Pulse. No `CHAT` tab. |
+| **2** | **Crusor panel header** | Open the secondary side bar (`View: Toggle Secondary Side Bar`) → **ONE** header, not two. No `CHAT | CRUSOR` tab strip — just `Crusor`. |
+| **3** | **Auxiliary bar contents** | **Only** Crusor. No `CHAT` tab. |
 | **4** | **Chat still reachable (regression guard)** | `F1` → type `Chat`. Chat commands should **still exist** and not throw. We hid the onboarding, we did not delete Chat. Note if the palette errors or the window breaks. |
 
 **Also re-confirm quickly (should be unchanged):** theme still true black, focus

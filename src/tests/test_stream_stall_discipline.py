@@ -19,9 +19,9 @@ from src.llm import factory
 def _custom_creds(monkeypatch):
     monkeypatch.setattr(factory, "CUSTOM_API_KEY", "test-key")
     monkeypatch.setattr(factory, "CUSTOM_BASE_URL", "http://test.local/v1")
-    monkeypatch.delenv("PULSEAI_LLM_STREAMING", raising=False)
-    monkeypatch.delenv("PULSEAI_LLM_TIMEOUT", raising=False)
-    monkeypatch.delenv("PULSEAI_LLM_STALL_TIMEOUT_S", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STREAMING", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_TIMEOUT", raising=False)
+    monkeypatch.delenv("CRUSORAI_LLM_STALL_TIMEOUT_S", raising=False)
 
 
 def _core(proxy):
@@ -37,13 +37,13 @@ def test_streaming_custom_uses_silence_sized_timeout(_custom_creds):
 
 
 def test_stall_budget_is_env_tunable_per_call(_custom_creds, monkeypatch):
-    monkeypatch.setenv("PULSEAI_LLM_STALL_TIMEOUT_S", "15")
+    monkeypatch.setenv("CRUSORAI_LLM_STALL_TIMEOUT_S", "15")
     assert _core(factory.get_llm("custom", "m")).request_timeout == 15.0
 
-    monkeypatch.setenv("PULSEAI_LLM_STALL_TIMEOUT_S", "not-a-number")
+    monkeypatch.setenv("CRUSORAI_LLM_STALL_TIMEOUT_S", "not-a-number")
     assert _core(factory.get_llm("custom", "m")).request_timeout == 45.0
 
-    monkeypatch.setenv("PULSEAI_LLM_STALL_TIMEOUT_S", "9999")
+    monkeypatch.setenv("CRUSORAI_LLM_STALL_TIMEOUT_S", "9999")
     assert _core(factory.get_llm("custom", "m")).request_timeout == 300.0, "clamped"
 
 
@@ -54,8 +54,8 @@ def test_explicit_request_timeout_wins(_custom_creds):
 
 
 def test_non_streaming_keeps_generation_sized_timeout(_custom_creds, monkeypatch):
-    monkeypatch.setenv("PULSEAI_LLM_STREAMING", "off")
-    monkeypatch.setenv("PULSEAI_LLM_TIMEOUT", "200")
+    monkeypatch.setenv("CRUSORAI_LLM_STREAMING", "off")
+    monkeypatch.setenv("CRUSORAI_LLM_TIMEOUT", "200")
     llm = _core(factory.get_llm("custom", "m"))
 
     assert llm.streaming is False
@@ -65,11 +65,11 @@ def test_non_streaming_keeps_generation_sized_timeout(_custom_creds, monkeypatch
 def test_stall_helper_clamps():
     import os
 
-    os.environ["PULSEAI_LLM_STALL_TIMEOUT_S"] = "3"
+    os.environ["CRUSORAI_LLM_STALL_TIMEOUT_S"] = "3"
     try:
         assert factory._stream_stall_timeout() == 10.0
     finally:
-        os.environ.pop("PULSEAI_LLM_STALL_TIMEOUT_S", None)
+        os.environ.pop("CRUSORAI_LLM_STALL_TIMEOUT_S", None)
 
 
 def test_bridge_forwards_llm_status_despite_session_filter():

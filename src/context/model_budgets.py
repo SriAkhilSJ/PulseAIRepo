@@ -323,7 +323,7 @@ _CACHE_TTL_S = 7 * 24 * 3600
 
 
 def _cache_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".pulseai", "model_windows.json")
+    return os.path.join(os.path.expanduser("~"), ".crusorai", "model_windows.json")
 
 
 def _read_cache() -> dict:
@@ -428,7 +428,7 @@ def _spend_cap(name: str, default: int, lo: int, hi: int) -> int:
     prefill hundreds of thousands of tokens -- minutes of 'Waiting on the
     model' before the first word (owner desktop run, 2026-09-03). These
     clamps keep per-call input sane while the window still bounds the worst
-    case. PULSEAI_CONTEXT_BUDGET_TOKENS / PULSEAI_HISTORY_BUDGET_TOKENS.
+    case. CRUSORAI_CONTEXT_BUDGET_TOKENS / CRUSORAI_HISTORY_BUDGET_TOKENS.
     """
     import os as _os
     try:
@@ -443,7 +443,7 @@ def _spend_cap(name: str, default: int, lo: int, hi: int) -> int:
 
 def context_spend_cap() -> int:
     """Max tokens of CONTEXT LAYERS assembled per call (default 32,768)."""
-    return _spend_cap("PULSEAI_CONTEXT_BUDGET_TOKENS", 32_768, 2_048, 1_000_000)
+    return _spend_cap("CRUSORAI_CONTEXT_BUDGET_TOKENS", 32_768, 2_048, 1_000_000)
 
 
 def history_spend_cap() -> int:
@@ -452,16 +452,16 @@ def history_spend_cap() -> int:
     Tightened from 98,304 after the owner desktop runs: even clamped at
     ~131k total, the custom router endpoint spent minutes prefilling before
     the first word (3:12 after a two-tool turn). First-word latency is the
-    product; raise PULSEAI_HISTORY_BUDGET_TOKENS explicitly if a deployment
+    product; raise CRUSORAI_HISTORY_BUDGET_TOKENS explicitly if a deployment
     wants deeper history.
     """
-    return _spend_cap("PULSEAI_HISTORY_BUDGET_TOKENS", 32_768, 4_096, 1_000_000)
+    return _spend_cap("CRUSORAI_HISTORY_BUDGET_TOKENS", 32_768, 4_096, 1_000_000)
 
 
 def input_budget_source() -> str:
     """'env' when either spend knob is set, else 'defaults' (boot honesty)."""
     import os as _os
-    for name in ("PULSEAI_CONTEXT_BUDGET_TOKENS", "PULSEAI_HISTORY_BUDGET_TOKENS"):
+    for name in ("CRUSORAI_CONTEXT_BUDGET_TOKENS", "CRUSORAI_HISTORY_BUDGET_TOKENS"):
         raw = _os.getenv(name)
         if raw is not None and str(raw).strip():
             return "env"
@@ -490,7 +490,7 @@ def _settings_key(name: str) -> str | None:
 # OpenAI-compatible server may say `max_model_len` (vLLM), `n_ctx` (llama.cpp),
 # `context_length` (Groq, OpenRouter), `context_window`, or `max_position_embeddings`
 # (Hugging Face text-generation-inference). Hermes reads all twelve; probing one
-# field name per provider is why `custom` -- Pulse's generic OpenAI-compatible
+# field name per provider is why `custom` -- Crusor's generic OpenAI-compatible
 # route, and therefore most self-hosted and router endpoints -- had no live path
 # at all and fell to the 8,192 guess. That guess is what bounded the owner's
 # workspace scan on a `hi` turn: window 8,192 -> budget 4,096 -> context budget
@@ -777,7 +777,7 @@ _PROBES = {
 def _effective_provider(provider: str) -> str:
     """Recognize routed providers without changing the configured transport.
 
-    OpenRouter is intentionally configured through Pulse's generic
+    OpenRouter is intentionally configured through Crusor's generic
     OpenAI-compatible ``custom`` route. Budget discovery still needs its public
     model catalog rather than the unknown-provider 8k fallback.
     Velona is also routed through ``custom`` but has its own gateway catalog.

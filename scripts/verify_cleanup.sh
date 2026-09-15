@@ -1,5 +1,5 @@
 #!/bin/bash
-# Post-cleanup verification for PulseAI.
+# Post-cleanup verification for CrusorAI.
 # Fixes vs the original suggestion: corrected module path (no URL artifact),
 # uv-native dev install, and an actual SqliteSaver sanity probe.
 set -e
@@ -17,7 +17,7 @@ echo "=== 3. Checkpointer is persistent ==="
 python - <<'PY'
 import os
 from langgraph.checkpoint.sqlite import SqliteSaver
-p = os.path.expanduser("~/.pulseai/sessions.db")
+p = os.path.expanduser("~/.crusorai/sessions.db")
 print(f"SqliteSaver usable; sessions path: {p}")
 import src.graphs.chat_graph as cg
 assert type(cg.memory).__name__ == "SqliteSaver", "checkpointer is not SqliteSaver"

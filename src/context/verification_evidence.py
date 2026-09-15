@@ -24,7 +24,7 @@ _TARGET_RE = re.compile(r"(?:^|\s)([^\s]+(?:::\S+|\.(?:py|ts|tsx|js|jsx|rs|go)))
 
 # hermes agent/verification_evidence.py port (2026-09-10): a piped/`||`ed/
 # backgrounded command's exit code says NOTHING about the classified segment
-# inside it. Field 2026-09-10: `cd /d/TestPulseAI/test5 && npm run build 2>&1
+# inside it. Field 2026-09-10: `cd /d/TestCrusorAI/test5 && npm run build 2>&1
 # | tail -40` on a broken build reports tail's exit 0 and the ledger recorded
 # the build as verification-PASSED. hermes gates every evidence match on
 # _exit_status_is_attributable; without it the "Ended verified" gate is fooled
@@ -120,7 +120,7 @@ def _exit_status_is_attributable(segments: list[_ShellSegment], match_index: int
 
 class VerificationLedger:
     def __init__(self, path: str | Path | None = None):
-        self.path = Path(path or (Path.home() / ".pulseai" / "verification.db"))
+        self.path = Path(path or (Path.home() / ".crusorai" / "verification.db"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)

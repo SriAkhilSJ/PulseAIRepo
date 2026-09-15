@@ -224,7 +224,7 @@ def test_list_files_without_path_lists_the_workspace_root(tmp_path):
 def test_env_hints_carry_the_hermes_host_block(tmp_path):
     """Hermes _local_host_hints: Host / User home directory / Current working
     directory as flat facts. The cwd line is what makes an unqualified request
-    resolve without a clarifying question (field 2026-09-06: "no Pulse
+    resolve without a clarifying question (field 2026-09-06: "no Crusor
     workspace context available to me")."""
     from src.prompts.hermes.environment import build_environment_hints
     hints = build_environment_hints(tmp_path)
@@ -235,16 +235,16 @@ def test_env_hints_carry_the_hermes_host_block(tmp_path):
 
 def test_windows_drive_letter_workspace_is_absolute_as_is():
     """A Windows workspace path must survive a POSIX engine host verbatim —
-    Path('d:\\\\TestPulseAI') is RELATIVE there and resolve() welded it onto the
-    engine's cwd (/engine/root/d:\\TestPulseAI), a directory that exists
+    Path('d:\\\\TestCrusorAI') is RELATIVE there and resolve() welded it onto the
+    engine's cwd (/engine/root/d:\\TestCrusorAI), a directory that exists
     nowhere (probed live 2026-09-06)."""
     from pathlib import Path
     from src.prompts.hermes.view import view_from_config
     view = view_from_config(
-        {"configurable": {"thread_id": "drive-letter-1", "workspace": "d:\\TestPulseAI"}},
+        {"configurable": {"thread_id": "drive-letter-1", "workspace": "d:\\TestCrusorAI"}},
         None,
     )
-    assert view.cwd == Path("d:\\TestPulseAI")
+    assert view.cwd == Path("d:\\TestCrusorAI")
     assert not str(view.cwd).startswith(str(Path.cwd()))
 
 

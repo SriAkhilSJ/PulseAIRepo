@@ -1,13 +1,13 @@
-"""Voice pipeline: speech-to-text and text-to-speech for Pulse (Floor 5).
+"""Voice pipeline: speech-to-text and text-to-speech for Crusor (Floor 5).
 
 hermes ships ~8,000 lines of voice (tts_tool 4,827 + transcription 3,419 +
-wake words + streaming). Pulse gets the right-sized core for an IDE call:
+wake words + streaming). Crusor gets the right-sized core for an IDE call:
 
   * ``transcribe(audio_bytes, filename)`` — audio in, text out. Provider:
-    Groq ``whisper-large-v3-turbo`` (fast, cheap, key Pulse already has).
+    Groq ``whisper-large-v3-turbo`` (fast, cheap, key Crusor already has).
   * ``speak(text)`` — text in, audio bytes (wav) out. Provider: Groq
     ``playai-tts`` (voice ``Fritz-PlayAI``), OpenAI-compatible endpoints
-    also honored via ``PULSEAI_TTS_BASE_URL``.
+    also honored via ``CRUSORAI_TTS_BASE_URL``.
 
 Fail-closed by contract: no key, no provider, or any transport failure
 returns a structured error dict — a voice hiccup must never kill a turn
@@ -33,32 +33,32 @@ def _env(name: str, default: str = "") -> str:
 
 def stt_url() -> str:
     """Speech-to-text endpoint (OpenAI-compatible /audio/transcriptions)."""
-    return _env("PULSEAI_STT_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
+    return _env("CRUSORAI_STT_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
 
 
 def stt_model() -> str:
-    return _env("PULSEAI_STT_MODEL", "whisper-large-v3-turbo")
+    return _env("CRUSORAI_STT_MODEL", "whisper-large-v3-turbo")
 
 
 def tts_url() -> str:
     """Text-to-speech endpoint (OpenAI-compatible /audio/speech)."""
-    return _env("PULSEAI_TTS_URL", "https://api.groq.com/openai/v1/audio/speech")
+    return _env("CRUSORAI_TTS_URL", "https://api.groq.com/openai/v1/audio/speech")
 
 
 def tts_model() -> str:
-    return _env("PULSEAI_TTS_MODEL", "playai-tts")
+    return _env("CRUSORAI_TTS_MODEL", "playai-tts")
 
 
 def tts_voice() -> str:
-    return _env("PULSEAI_TTS_VOICE", "Fritz-PlayAI")
+    return _env("CRUSORAI_TTS_VOICE", "Fritz-PlayAI")
 
 
 def max_transcribe_bytes() -> int:
-    return int(_env("PULSEAI_VOICE_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+    return int(_env("CRUSORAI_VOICE_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 
 
 def max_speak_chars() -> int:
-    return int(_env("PULSEAI_VOICE_MAX_SPEAK_CHARS", "10000"))
+    return int(_env("CRUSORAI_VOICE_MAX_SPEAK_CHARS", "10000"))
 
 
 def _api_key() -> str:
@@ -66,11 +66,11 @@ def _api_key() -> str:
     voice key, then the provider key the app already carries. No key is ever
     hardcoded; everything comes from the environment the deployment owns."""
     return (
-        os.environ.get("PULSEAI_STT_API_KEY")
-        or os.environ.get("PULSEAI_TTS_API_KEY")
-        or os.environ.get("PULSEAI_VOICE_API_KEY")
+        os.environ.get("CRUSORAI_STT_API_KEY")
+        or os.environ.get("CRUSORAI_TTS_API_KEY")
+        or os.environ.get("CRUSORAI_VOICE_API_KEY")
         or os.environ.get("GROQ_API_KEY")
-        or os.environ.get("PULSEAI_API_KEY")
+        or os.environ.get("CRUSORAI_API_KEY")
         or os.environ.get("CUSTOM_API_KEY")
         or ""
     )
@@ -137,7 +137,7 @@ def speak(
     if not key:
         return VoiceResult(ok=False, error="no voice API key configured (GROQ_API_KEY)")
     post = transport or _default_transport
-    base = _env("PULSEAI_TTS_BASE_URL") or tts_url()
+    base = _env("CRUSORAI_TTS_BASE_URL") or tts_url()
     try:
         resp = post(
             base,

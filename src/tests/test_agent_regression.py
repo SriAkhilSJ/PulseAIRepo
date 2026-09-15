@@ -53,7 +53,7 @@ def main():
             failed.append(module)
 
     print("\n" + "=" * 70)
-    print("PULSECODEAI REGRESSION RESULTS")
+    print("CRUSORCODEAI REGRESSION RESULTS")
     print("=" * 70)
 
     print(f"Passed: {len(passed)}")

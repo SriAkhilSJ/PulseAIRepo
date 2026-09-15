@@ -1,15 +1,15 @@
-# Desktop Agent Handoff — Pulse Agent UI Revalidation R2
+# Desktop Agent Handoff — Crusor Agent UI Revalidation R2
 
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required repair ancestor:** `b790a29d`  
-**Existing checkout only:** `D:\pulseAIagent\PulseAIRepo` if unchanged  
+**Existing checkout only:** `D:\crusorAIagent\PulseAIRepo` if unchanged  
 **Provider authorization:** none; zero provider/model requests  
 **Prior evidence:** `bench-results/agent-ui-validation-desktop/` is immutable FAIL evidence  
 **PR #9:** keep open and unmerged
 
 ## Purpose
 
-R1 correctly failed because the Agent's Manager button called a host method that was absent from both the renderer contract and host adapter. Commit `b790a29d` declares `openManager()`, maps it to the existing `PulseAICommandId.OpenManager` command, and adds a structural regression.
+R1 correctly failed because the Agent's Manager button called a host method that was absent from both the renderer contract and host adapter. Commit `b790a29d` declares `openManager()`, maps it to the existing `CrusorAICommandId.OpenManager` command, and adds a structural regression.
 
 Validate the repaired source once. If compilation passes, complete the provider-free interactive Agent and Manager smoke that R1 could not run.
 
@@ -28,7 +28,7 @@ Validate the repaired source once. If compilation passes, complete the provider-
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\pulseAIagent\PulseAIRepo'
+$repo = 'D:\crusorAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — preserve it and STOP' }
@@ -51,9 +51,9 @@ git status --porcelain=v1 | Set-Content "$evidence\git-status-before.txt" -Encod
 $python = if (Test-Path '.venv\Scripts\python.exe') { (Resolve-Path '.venv\Scripts\python.exe').Path } else { 'python' }
 & $python -m pytest -q `
   src/tests/test_desktop_renderer_architecture.py `
-  src/tests/test_pulseai_branding.py `
+  src/tests/test_crusorai_branding.py `
   src/tests/test_desktop_workspace_boundary.py `
-  --basetemp "$env:TEMP\pulse-agent-ui-r2-pytest" `
+  --basetemp "$env:TEMP\crusor-agent-ui-r2-pytest" `
   2>&1 | Tee-Object "$evidence\focused-pytest.log"
 $pytestExit = $LASTEXITCODE
 
@@ -85,23 +85,23 @@ Only if all required checks pass, use the established desktop launch command wit
 
 ```powershell
 cd $repo
-$env:PULSEAI_BRIDGE_RUNNER = 'echo'
-$env:PULSEAI_ENGINE_ROOT = $repo
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+$env:CRUSORAI_ENGINE_ROOT = $repo
 ```
 
-1. Launch with no folder. Open Pulse Agent; confirm starter cards and composer are disabled. Capture `01-no-workspace.png`.
-2. Open the repository folder. Confirm Pulse Ready, session/workspace header, empty state, and visible Manager button. Capture `02-agent-ready.png`.
+1. Launch with no folder. Open Crusor Agent; confirm starter cards and composer are disabled. Capture `01-no-workspace.png`.
+2. Open the repository folder. Confirm Crusor Ready, session/workspace header, empty state, and visible Manager button. Capture `02-agent-ready.png`.
 3. Resize Agent to approximately 260, 340, and 420 px. Confirm no horizontal page scroll, overlap, or clipped composer/send control. Capture `03-agent-narrow.png`.
 4. Use Tab navigation and confirm visible focus and logical order.
-5. Submit exactly one deterministic turn: `Pulse Agent UI provider-free echo smoke R2`.
+5. Submit exactly one deterministic turn: `Crusor Agent UI provider-free echo smoke R2`.
 6. Confirm exact echo text and completion receipt, no provider/credential/approval UI, and no renderer exception. Capture `04-agent-echo-completed.png`.
-7. Click **Manager**. Confirm the existing Pulse Manager editor opens, then validate normal and narrow responsive layouts. Capture `05-manager-wide.png` and `06-manager-responsive.png`.
+7. Click **Manager**. Confirm the existing Crusor Manager editor opens, then validate normal and narrow responsive layouts. Capture `05-manager-wide.png` and `06-manager-responsive.png`.
 8. Save relevant window/engine/console logs. Confirm zero `llm.request` and `llm.response` frames.
 9. Close the app and clear only the temporary environment variables.
 
 ```powershell
-Remove-Item Env:PULSEAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
-Remove-Item Env:PULSEAI_ENGINE_ROOT -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
+Remove-Item Env:CRUSORAI_ENGINE_ROOT -ErrorAction SilentlyContinue
 ```
 
 Plan/tool disclosure may be `NOT OBSERVED` because the echo runner need not emit either. High contrast and reduced motion may be `NOT RUN`; do not infer runtime proof from CSS.
@@ -128,7 +128,7 @@ Get-FileHash "$evidence\*" -Algorithm SHA256 -ErrorAction SilentlyContinue |
 git add -- bench-results/agent-ui-validation-desktop-r2
 git diff --cached --name-only | Set-Content "$evidence\staged-files.txt" -Encoding utf8
 git add -- "$evidence\staged-files.txt"
-git commit -m "Add provider-free Pulse Agent UI R2 validation evidence"
+git commit -m "Add provider-free Crusor Agent UI R2 validation evidence"
 git push origin arena/01a03741-pulseairepo
 ```
 

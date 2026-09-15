@@ -1,4 +1,4 @@
-"""Thin forwarder to Pulse's Hermes-parity prompt engine.
+"""Thin forwarder to Crusor's Hermes-parity prompt engine.
 
 Kept as the import path older callers/tests use. The real assembly lives in
 ``src/prompts/hermes/system_prompt.py`` (3-tier stable/context/volatile,
@@ -14,7 +14,7 @@ from src.prompts.hermes import guidance as _guidance
 from src.prompts.hermes.system_prompt import (
     build_system_prompt_parts as _build_parts,
 )  # pyrefly: ignore [missing-import]
-from src.prompts.hermes.view import PulsePromptView  # pyrefly: ignore [missing-import]
+from src.prompts.hermes.view import CrusorPromptView  # pyrefly: ignore [missing-import]
 
 DEFAULT_IDENTITY = _guidance.DEFAULT_AGENT_IDENTITY
 TASK_COMPLETION_GUIDANCE = _guidance.TASK_COMPLETION_GUIDANCE
@@ -46,7 +46,7 @@ def build_system_prompt_parts(
     """
     from pathlib import Path  # local: keeps this module import-cheap
 
-    view = PulsePromptView(
+    view = CrusorPromptView(
         identity=identity or "",
         model=model,
         platform=platform,

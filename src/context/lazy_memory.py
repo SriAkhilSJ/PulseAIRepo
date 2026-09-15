@@ -6,7 +6,7 @@ used; initialization failure degrades the optional feature for the process.
 
 Hermes discipline (conversation_loop.py treats memory saves as HOUSEKEEPING —
 never on the turn's critical path): construction runs in a background thread,
-and every memory call waits at most PULSEAI_MEMORY_WARMUP_BUDGET_S (default
+and every memory call waits at most CRUSORAI_MEMORY_WARMUP_BUDGET_S (default
 2.0, clamped 0..120, read per call) before degrading to the method's default
 for that call. Field proof this boundary needs owning: Attempt 8 wedged >10
 minutes between tool_call_end and the second provider request when the first
@@ -18,8 +18,8 @@ import os
 import threading
 from typing import Any, Callable
 
-_WARMUP_BUDGET_ENV = "PULSEAI_MEMORY_WARMUP_BUDGET_S"
-_INIT_BUDGET_ENV = "PULSEAI_MEMORY_INIT_BUDGET_S"
+_WARMUP_BUDGET_ENV = "CRUSORAI_MEMORY_WARMUP_BUDGET_S"
+_INIT_BUDGET_ENV = "CRUSORAI_MEMORY_INIT_BUDGET_S"
 
 
 def _init_budget() -> float:
@@ -73,7 +73,7 @@ class LazyMemoryManager:
                 return
             self._started = True
         threading.Thread(
-            target=self._construct, name="pulseai-memory-warmup", daemon=True
+            target=self._construct, name="crusorai-memory-warmup", daemon=True
         ).start()
 
     def _construct(self) -> None:

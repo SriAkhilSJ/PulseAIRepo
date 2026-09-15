@@ -1,12 +1,12 @@
-"""Custom instructions loader for PulseAI.
+"""Custom instructions loader for CrusorAI.
 
-Reads user-defined instructions from `.pulseai/instructions.md` files
+Reads user-defined instructions from `.crusorai/instructions.md` files
 in the workspace root. These instructions are injected into the system
 prompt so the AI follows project-specific conventions.
 
 Supports multiple instruction files:
-- `.pulseai/instructions.md` — global Pulse instructions
-- `.pulseai/instructions/{topic}.md` — topic-specific instructions
+- `.crusorai/instructions.md` — global Crusor instructions
+- `.crusorai/instructions/{topic}.md` — topic-specific instructions
 - `AGENTS.md` — agent instructions (Copilot-compatible)
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ class InstructionFile:
 class CustomInstructionsLoader:
     """Loads and caches custom instruction files from the workspace."""
 
-    INSTRUCTIONS_DIR = ".pulseai"
+    INSTRUCTIONS_DIR = ".crusorai"
     INSTRUCTIONS_FILE = "instructions.md"
     INSTRUCTIONS_TOPIC_DIR = "instructions"
     AGENTS_FILE = "AGENTS.md"
@@ -38,7 +38,7 @@ class CustomInstructionsLoader:
     def __init__(self):
         self._lock = threading.Lock()
         self._cache: dict[str, list[InstructionFile]] = {}
-        self._enabled = os.environ.get("PULSEAI_CUSTOM_INSTRUCTIONS", "1").strip().lower() in {
+        self._enabled = os.environ.get("CRUSORAI_CUSTOM_INSTRUCTIONS", "1").strip().lower() in {
             "1", "true", "yes", "on",
         }
 
@@ -58,7 +58,7 @@ class CustomInstructionsLoader:
         instructions: list[InstructionFile] = []
         workspace_path = Path(workspace)
 
-        # 1. Load .pulseai/instructions.md (global)
+        # 1. Load .crusorai/instructions.md (global)
         global_file = workspace_path / self.INSTRUCTIONS_DIR / self.INSTRUCTIONS_FILE
         if global_file.exists():
             try:
@@ -73,7 +73,7 @@ class CustomInstructionsLoader:
             except Exception:
                 pass
 
-        # 2. Load .pulseai/instructions/{topic}.md (topic-specific)
+        # 2. Load .crusorai/instructions/{topic}.md (topic-specific)
         topic_dir = workspace_path / self.INSTRUCTIONS_DIR / self.INSTRUCTIONS_TOPIC_DIR
         if topic_dir.is_dir():
             try:

@@ -33,8 +33,8 @@ def _fresh_resolution_state(monkeypatch):
     Recording defaults OFF for this module (navigate-mechanics tests must
     stay orthogonal); the visible-testing tests re-enable it explicitly."""
     bt.invalidate_cli_cache()
-    monkeypatch.delenv("PULSEAI_AGENT_BROWSER", raising=False)
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "off")
+    monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "off")
     with bt._recording_lock:
         bt._RECORDING_SESSIONS.clear()
     yield
@@ -53,7 +53,7 @@ def _cfg(thread: str = "t1", workspace: str = ".") -> dict:
 
 def test_tool_set_matches_hermes_names_and_order():
     names = [t.name for t in BROWSER_TOOLS]
-    # browser_screenshot is pulse's deterministic-verify receipt tool (hermes
+    # browser_screenshot is crusor's deterministic-verify receipt tool (hermes
     # reaches the same agent-browser command inside browser_vision); the rest
     # are hermes' local schema list verbatim, in hermes' order.
     assert names == [*HERMES_BROWSER_NAMES, "browser_screenshot"]
@@ -111,23 +111,23 @@ def test_env_override_wins_and_is_validated(monkeypatch, tmp_path):
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", str(fake))
+    monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", str(fake))
     monkeypatch.setattr(bt.subprocess, "run", fake_run)
     assert bt.find_agent_browser() == str(fake)
     assert calls and calls[0][:-1] == [str(fake)] and calls[0][-1] == "--version"
 
 
 def test_broken_override_fails_with_install_hint(monkeypatch):
-    monkeypatch.setenv("PULSEAI_AGENT_BROWSER", r"C:\definitely\not\real.exe")
-    result = run_browser_command("pulseai-x", "open", ["http://localhost:3000"])
+    monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", r"C:\definitely\not\real.exe")
+    result = run_browser_command("crusorai-x", "open", ["http://localhost:3000"])
     assert result["success"] is False
-    assert "PULSEAI_AGENT_BROWSER" in result["error"]
+    assert "CRUSORAI_AGENT_BROWSER" in result["error"]
     assert "npm install -g agent-browser" in result["error"]
 
 
 def test_missing_cli_gives_actionable_error(monkeypatch):
     monkeypatch.setattr(bt.shutil, "which", lambda _: None)
-    result = run_browser_command("pulseai-x", "snapshot", [])
+    result = run_browser_command("crusorai-x", "snapshot", [])
     assert result["success"] is False
     assert "agent-browser CLI not found" in result["error"]
     assert "npx" in result["error"]  # the npx route is named as the fallback
@@ -357,9 +357,9 @@ def test_screenshot_success_carries_quality_receipt(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_session_name_is_per_thread_and_sanitized():
-    assert bt._session_name("abc-123") == "pulseai-abc-123"
-    assert bt._session_name("weird id!! spaces") == "pulseai-weird-id-spaces"
-    assert bt._session_name("") == "pulseai-default"
+    assert bt._session_name("abc-123") == "crusorai-abc-123"
+    assert bt._session_name("weird id!! spaces") == "crusorai-weird-id-spaces"
+    assert bt._session_name("") == "crusorai-default"
 
 
 def test_session_derives_from_config_thread_id(monkeypatch):
@@ -371,7 +371,7 @@ def test_session_derives_from_config_thread_id(monkeypatch):
 
     monkeypatch.setattr(bt, "run_browser_command", fake_run)
     bt.browser_click.invoke({"ref": "@e1"}, config=_cfg(thread="turn-42"))
-    assert seen["session"] == "pulseai-turn-42"
+    assert seen["session"] == "crusorai-turn-42"
 
 
 def test_interpret_empty_stdout_rc0_is_stale_daemon_failure():
@@ -425,20 +425,20 @@ def test_verify_pipeline_reads_the_hermes_backend_only():
 # ---------------------------------------------------------------------------
 
 def test_headed_defaults_on_and_flag_rides_the_session_args():
-    # owner default: visible window; hermes knob shape, pulse default
+    # owner default: visible window; hermes knob shape, crusor default
     assert bt.headed_mode() is True
-    args = bt.build_session_args("pulseai-t")
-    assert args == ["--session", "pulseai-t", "--headed"]
+    args = bt.build_session_args("crusorai-t")
+    assert args == ["--session", "crusorai-t", "--headed"]
 
 
 def test_headed_env_off_restores_hermes_posture(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_HEADED", "off")
+    monkeypatch.setenv("CRUSORAI_BROWSER_HEADED", "off")
     assert bt.headed_mode() is False
-    assert bt.build_session_args("pulseai-t") == ["--session", "pulseai-t"]
+    assert bt.build_session_args("crusorai-t") == ["--session", "crusorai-t"]
 
 
 def test_recording_starts_once_per_session_and_announces_path(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "on")
     commands: list[tuple[str, list[str]]] = []
 
     def fake_run(session, command, args=None, timeout=None):
@@ -465,7 +465,7 @@ def test_recording_starts_once_per_session_and_announces_path(monkeypatch):
 
 
 def test_recording_off_restores_hermes_posture(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "off")
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "off")
     seen: list[str] = []
 
     def fake_run(session, command, args=None, timeout=None):
@@ -479,20 +479,20 @@ def test_recording_off_restores_hermes_posture(monkeypatch):
 
 
 def test_stop_recording_saves_webm_and_clears_state(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "on")
     monkeypatch.setattr(bt, "run_browser_command", lambda s, c, a=None, timeout=None: (
         {"success": True, "data": {}} if c == "record" and a[0] == "start"
         else {"success": True, "data": {"path": "C:\\recordings\\session.webm"}}
         if c == "record" else {"success": True, "data": {}}))
-    assert bt.maybe_start_recording("pulseai-t1") is not None
-    saved = bt.stop_browser_recording("pulseai-t1")
+    assert bt.maybe_start_recording("crusorai-t1") is not None
+    saved = bt.stop_browser_recording("crusorai-t1")
     assert saved == "C:\\recordings\\session.webm"
     # state cleared: a second stop is a no-op (hermes discard-in-finally shape)
-    assert bt.stop_browser_recording("pulseai-t1") is None
+    assert bt.stop_browser_recording("crusorai-t1") is None
 
 
 def test_stop_for_thread_maps_thread_to_session(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "on")
     seen: dict = {}
 
     def fake_run(session, command, args=None, timeout=None):
@@ -507,11 +507,11 @@ def test_stop_for_thread_maps_thread_to_session(monkeypatch):
     monkeypatch.setattr(bt, "run_browser_command", fake_run)
     bt.maybe_start_recording(bt._session_name("turn-9"))
     assert bt.stop_browser_recording_for_thread("turn-9") == "r.webm"
-    assert seen["session"] == "pulseai-turn-9"
+    assert seen["session"] == "crusorai-turn-9"
 
 
 def test_record_failure_never_blocks_navigation(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "on")
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "on")
     def fake_run(session, command, args=None, timeout=None):
         if command == "record":
             return {"success": False, "error": "recording unsupported"}
@@ -567,38 +567,38 @@ def test_window_option_is_two_valued_exactly_as_hermes_shapes_it(monkeypatch):
     off'. Both option names and the on/off families resolve; off wins as an
     explicit value, not as an absence."""
     for on_value in ("headed", "on", "true", "1", "yes"):
-        monkeypatch.setenv("PULSEAI_BROWSER_HEADED", on_value)
+        monkeypatch.setenv("CRUSORAI_BROWSER_HEADED", on_value)
         assert bt.headed_mode() is True, on_value
         assert "--headed" in bt.build_session_args("s")
     for off_value in ("headless", "off", "false", "0", "no"):
-        monkeypatch.setenv("PULSEAI_BROWSER_HEADED", off_value)
+        monkeypatch.setenv("CRUSORAI_BROWSER_HEADED", off_value)
         assert bt.headed_mode() is False, off_value
         assert "--headed" not in bt.build_session_args("s")
 
 
 def test_hermes_env_knob_aliases_in(monkeypatch):
-    """Unset PULSEAI_BROWSER_HEADED falls back to hermes' own knob
+    """Unset CRUSORAI_BROWSER_HEADED falls back to hermes' own knob
     (AGENT_BROWSER_HEADED=true|1|yes — hermes browser_tool_cloud)."""
-    monkeypatch.delenv("PULSEAI_BROWSER_HEADED", raising=False)
+    monkeypatch.delenv("CRUSORAI_BROWSER_HEADED", raising=False)
     monkeypatch.setenv("AGENT_BROWSER_HEADED", "1")
     assert bt.headed_mode() is True
-    # hermes' env never turns OFF: any other value falls to the pulse default
+    # hermes' env never turns OFF: any other value falls to the crusor default
     monkeypatch.setenv("AGENT_BROWSER_HEADED", "garbage")
     assert bt.headed_mode() is True
 
 
-def test_pulse_knob_beats_hermes_knob(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_HEADED", "headless")
+def test_crusor_knob_beats_hermes_knob(monkeypatch):
+    monkeypatch.setenv("CRUSORAI_BROWSER_HEADED", "headless")
     monkeypatch.setenv("AGENT_BROWSER_HEADED", "true")
     assert bt.headed_mode() is False
 
 
 def test_unrecognized_value_defaults_headed_and_states_itself(monkeypatch, capsys):
-    monkeypatch.setenv("PULSEAI_BROWSER_HEADED", "sorta-visible")
+    monkeypatch.setenv("CRUSORAI_BROWSER_HEADED", "sorta-visible")
     assert bt.headed_mode() is True  # owner posture survives a typo
     bt.headed_mode()
     out = capsys.readouterr().out
-    assert "PULSEAI_BROWSER_HEADED='sorta-visible'" in out
+    assert "CRUSORAI_BROWSER_HEADED='sorta-visible'" in out
     assert "headed|headless" in out
     # stated ONCE (hermes warn-once discipline, hermes_cli.plugin_compat)
     bt.headed_mode()
@@ -640,40 +640,40 @@ def test_record_is_legitimately_empty_like_hermes():
 
 
 def test_command_timeout_is_config_shaped_per_call(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_COMMAND_TIMEOUT", "7")
+    monkeypatch.setenv("CRUSORAI_BROWSER_COMMAND_TIMEOUT", "7")
     assert bt._command_timeout() == 7
-    monkeypatch.setenv("PULSEAI_BROWSER_COMMAND_TIMEOUT", "2")
+    monkeypatch.setenv("CRUSORAI_BROWSER_COMMAND_TIMEOUT", "2")
     assert bt._command_timeout() == 5          # hermes floor
-    monkeypatch.setenv("PULSEAI_BROWSER_COMMAND_TIMEOUT", "garbage")
+    monkeypatch.setenv("CRUSORAI_BROWSER_COMMAND_TIMEOUT", "garbage")
     assert bt._command_timeout() == bt.DEFAULT_COMMAND_TIMEOUT
-    monkeypatch.delenv("PULSEAI_BROWSER_COMMAND_TIMEOUT")
+    monkeypatch.delenv("CRUSORAI_BROWSER_COMMAND_TIMEOUT")
     assert bt._command_timeout() == bt.DEFAULT_COMMAND_TIMEOUT
 
 
 def test_snapshot_threshold_is_config_shaped_per_call(monkeypatch):
-    monkeypatch.setenv("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "30000")
+    monkeypatch.setenv("CRUSORAI_BROWSER_SNAPSHOT_THRESHOLD", "30000")
     assert bt._snapshot_threshold() == 30000
-    monkeypatch.setenv("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "5")
+    monkeypatch.setenv("CRUSORAI_BROWSER_SNAPSHOT_THRESHOLD", "5")
     assert bt._snapshot_threshold() == bt.MIN_SNAPSHOT_THRESHOLD  # hermes floor 1000
-    monkeypatch.setenv("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "bogus")
+    monkeypatch.setenv("CRUSORAI_BROWSER_SNAPSHOT_THRESHOLD", "bogus")
     assert bt._snapshot_threshold() == bt.DEFAULT_SNAPSHOT_THRESHOLD
 
 
-def test_full_snapshot_stores_under_the_pulse_home_for_read_file_paging(monkeypatch, tmp_path):
+def test_full_snapshot_stores_under_the_crusor_home_for_read_file_paging(monkeypatch, tmp_path):
     """hermes stores the full tree in a stable cache location so the model can
-    page it with read_file across calls; pulse's stable home is ~/.pulseai."""
+    page it with read_file across calls; crusor's stable home is ~/.crusorai."""
     fake_home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(fake_home))
     big = "\n".join(f"line {i}" for i in range(2000))
     result = {"success": True, "data": {"snapshot": big, "refs": {"e1": {}}}}
     fields = bt._snapshot_fields(result)
-    stored = fake_home / ".pulseai" / "browser" / "snapshots" / "last-full-snapshot.txt"
+    stored = fake_home / ".crusorai" / "browser" / "snapshots" / "last-full-snapshot.txt"
     assert stored.exists()
     assert "read_file" in fields["snapshot"]
 
 
 # ---------------------------------------------------------------------------
-# Navigate URL normalization — hermes' normalize step position; the pulse
+# Navigate URL normalization — hermes' normalize step position; the crusor
 # field shapes Chrome silently blanks (bare host:port, Windows paths)
 # ---------------------------------------------------------------------------
 
@@ -689,11 +689,11 @@ def test_normalize_repairs_the_field_url_shapes(monkeypatch):
     assert n("about:blank") == "about:blank"
     # drive repairs are Windows-only (on POSIX, /d/app is a real path)
     monkeypatch.setattr(bt.os, "name", "nt")
-    assert n("d:\\TestPulseAI\\app\\index.html") == "file:///d:/TestPulseAI/app/index.html"
-    assert n("D:/TestPulseAI/app/index.html") == "file:///d:/TestPulseAI/app/index.html"
-    assert n("/d/TestPulseAI/app/index.html") == "file:///d:/TestPulseAI/app/index.html"
+    assert n("d:\\TestCrusorAI\\app\\index.html") == "file:///d:/TestCrusorAI/app/index.html"
+    assert n("D:/TestCrusorAI/app/index.html") == "file:///d:/TestCrusorAI/app/index.html"
+    assert n("/d/TestCrusorAI/app/index.html") == "file:///d:/TestCrusorAI/app/index.html"
     monkeypatch.setattr(bt.os, "name", "posix")
-    assert n("/d/TestPulseAI/app/index.html") == "/d/TestPulseAI/app/index.html"
+    assert n("/d/TestCrusorAI/app/index.html") == "/d/TestCrusorAI/app/index.html"
 
 
 def test_navigate_runs_the_normalize_before_open(monkeypatch):
@@ -707,7 +707,7 @@ def test_navigate_runs_the_normalize_before_open(monkeypatch):
             return {"success": True, "data": {"title": "t", "url": captured["url"]}}
         return {"success": True, "data": {"snapshot": "s", "refs": {}}}
 
-    monkeypatch.setenv("PULSEAI_BROWSER_RECORD", "off")
+    monkeypatch.setenv("CRUSORAI_BROWSER_RECORD", "off")
     monkeypatch.setattr(bt, "run_browser_command", fake_run)
     out = json.loads(bt.browser_navigate.invoke({"url": "localhost:3000"}, config=_cfg()))
     assert captured["url"] == "http://localhost:3000"
@@ -812,7 +812,7 @@ def test_command_timeout_tree_kills_daemon_and_keeps_cli_cache(monkeypatch, tmp_
     """hermes _spawn_and_collect + _handle_browser_command_timeout: on timeout
     the CLI is killed, the daemon (unresponsive on Windows) is tree-killed via
     its pid file and the socket dir evicted. The CLI cache STAYS — a wedged
-    page is not a vanished binary (pulse's old blanket invalidate was an
+    page is not a vanished binary (crusor's old blanket invalidate was an
     invention that re-probed after every failure)."""
     calls = {"handle": 0, "resolve": 0}
     monkeypatch.setattr(bt, "find_agent_browser",
@@ -837,22 +837,22 @@ def test_command_timeout_tree_kills_daemon_and_keeps_cli_cache(monkeypatch, tmp_
 def test_handle_command_timeout_kills_pid_and_evicts_state(monkeypatch, tmp_path):
     """hermes _discard path: read <session>.pid, tree-kill, remove the socket
     dir, forget the session's first-nav + recording flags."""
-    (tmp_path / "pulseai-sess.pid").write_text("4242", encoding="utf-8")
+    (tmp_path / "crusorai-sess.pid").write_text("4242", encoding="utf-8")
     (tmp_path / "x.sock").write_text("", encoding="utf-8")
     killed = {}
     monkeypatch.setattr(bt, "_kill_process_tree", lambda pid: killed.__setitem__("pid", pid) or True)
     monkeypatch.setattr(bt, "_daemon_responsive", lambda d, probe_timeout_s=1.0: False)
-    bt._FIRST_NAV_SEEN.add("pulseai-sess")
-    bt._RECORDING_SESSIONS.add("pulseai-sess")
+    bt._FIRST_NAV_SEEN.add("crusorai-sess")
+    bt._RECORDING_SESSIONS.add("crusorai-sess")
     try:
-        bt._handle_command_timeout("pulseai-sess", str(tmp_path))
+        bt._handle_command_timeout("crusorai-sess", str(tmp_path))
         assert killed["pid"] == 4242
         assert not tmp_path.exists()
-        assert "pulseai-sess" not in bt._FIRST_NAV_SEEN
-        assert "pulseai-sess" not in bt._RECORDING_SESSIONS
+        assert "crusorai-sess" not in bt._FIRST_NAV_SEEN
+        assert "crusorai-sess" not in bt._RECORDING_SESSIONS
     finally:
-        bt._FIRST_NAV_SEEN.discard("pulseai-sess")
-        bt._RECORDING_SESSIONS.discard("pulseai-sess")
+        bt._FIRST_NAV_SEEN.discard("crusorai-sess")
+        bt._RECORDING_SESSIONS.discard("crusorai-sess")
 
 
 def test_a_live_posix_daemon_survives_a_command_timeout(monkeypatch, tmp_path):
@@ -869,7 +869,7 @@ def test_a_live_posix_daemon_survives_a_command_timeout(monkeypatch, tmp_path):
 def test_repeat_navigations_pay_the_warm_open_floor(monkeypatch):
     """hermes browser_navigate: only the session's FIRST open gets the 120s
     cold floor (MIN_FIRST_OPEN_TIMEOUT); later ones run warm at the 60s floor
-    (MIN_OPEN_TIMEOUT). Field 2026-09-09: pulse hardcoded first_open=True, so
+    (MIN_OPEN_TIMEOUT). Field 2026-09-09: crusor hardcoded first_open=True, so
     every navigate budgeted 120s."""
     seen_timeouts = []
 

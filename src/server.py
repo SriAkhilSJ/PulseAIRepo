@@ -11,7 +11,7 @@ import uvicorn
 # Import builder (durable SqliteSaver graph stays for bridge; we recompile with MemorySaver for AG-UI async)
 from src.graphs.chat_graph import builder
 
-_CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".pulseai", "sessions.db")
+_CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".crusorai", "sessions.db")
 os.makedirs(os.path.dirname(_CHECKPOINT_DB), exist_ok=True)
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -29,8 +29,8 @@ from copilotkit import LangGraphAGUIAgent
 add_langgraph_fastapi_endpoint(
     app=app,
     agent=LangGraphAGUIAgent(
-        name="pulse_agent",
-        description="Pulse autonomous coding agent - single Pulse Agent for the IDE.",
+        name="crusor_agent",
+        description="Crusor autonomous coding agent - single Crusor Agent for the IDE.",
         graph=async_graph,
     ),
     path="/",

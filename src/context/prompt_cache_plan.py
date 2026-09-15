@@ -2,7 +2,7 @@
 Prompt-cache plan (P2 Hermes 4-breakpoint)
 ============================================
 Port of hermes ``agent/prompt_caching.py`` 4-breakpoint ``build_prompt_cache_plan``
-(static prefix + last tool + last 2 endpoints) into Pulse's LangChain
+(static prefix + last tool + last 2 endpoints) into Crusor's LangChain
 BaseMessage world. Pure functions, never raises, never touches provider
 framing — only decorates ``additional_kwargs['cache_control']`` which the
 failover stripper already knows how to remove.
@@ -22,19 +22,19 @@ _TTL = "5m"
 ALIBABA_FAMILY_PROVIDERS = frozenset({"opencode","opencode-zen","opencode-go","alibaba"})
 
 def _cache_enabled(provider: str | None = None, model: str | None = None) -> bool:
-    val = os.environ.get("PULSEAI_PROMPT_CACHE", "").strip().lower()
+    val = os.environ.get("CRUSORAI_PROMPT_CACHE", "").strip().lower()
     if val not in ("1", "true", "yes", "on"):
         return False
     if provider and provider.strip().lower() in _DEFAULT_CACHEABLE_PROVIDERS:
         return True
     if provider and provider.strip().lower() == "custom":
-        allow = os.environ.get("PULSEAI_PROMPT_CACHE_CUSTOM", "").strip().lower()
+        allow = os.environ.get("CRUSORAI_PROMPT_CACHE_CUSTOM", "").strip().lower()
         return allow in ("1", "true", "yes", "on")
     return False
 
 #: Routes whose OpenAI→Anthropic translation copies content parts verbatim
 #: (LiteLLM et al. — and any generic ``custom`` OpenAI-compatible endpoint,
-#: which is Pulse's Sarvam/NVIDIA path). A part-level marker on a role:tool
+#: which is Crusor's Sarvam/NVIDIA path). A part-level marker on a role:tool
 #: message lands at ``tool_result.content[0].cache_control``, which the
 #: Anthropic Messages schema forbids: a non-retryable HTTP 400 that kills the
 #: whole turn (upstream #89886). On those routes tool messages must not carry

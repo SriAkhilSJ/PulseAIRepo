@@ -1,6 +1,6 @@
 
 """
-Cost-Aware Router for PulseCodeAI
+Cost-Aware Router for CrusorCodeAI
 ==================================
 Routes tasks to the cheapest adequate model instead of always
 using the most expensive one.
@@ -43,7 +43,7 @@ class CostRouter:
         self._dead.add((str(provider or ""), str(model or "")))
 
     def _offload_enabled(self) -> bool:
-        raw = (os.environ.get("PULSEAI_CHEAP_TIER", "") or "").strip().lower()
+        raw = (os.environ.get("CRUSORAI_CHEAP_TIER", "") or "").strip().lower()
         return raw not in {"off", "false", "0", "no"}
 
     def _build_tiers(self):
@@ -62,26 +62,26 @@ class CostRouter:
         # (owner directive 2026-09-06: "rather than using hardcoded provider
         # add its api key, url, model routed through env... as cheap or low
         # tier api"). No provider name is hardcoded anywhere: all three of
-        #   PULSEAI_CHEAP_API_KEY / PULSEAI_CHEAP_BASE_URL / PULSEAI_CHEAP_MODEL
+        #   CRUSORAI_CHEAP_API_KEY / CRUSORAI_CHEAP_BASE_URL / CRUSORAI_CHEAP_MODEL
         # must be set (any OpenAI-compatible endpoint works — groq, together,
         # openrouter, a local server). Env is read per _build_tiers call, so
-        # key rotation applies without a restart. PULSEAI_CHEAP_TIER=off
+        # key rotation applies without a restart. CRUSORAI_CHEAP_TIER=off
         # disables the offload entirely.
         try:
             if not self._offload_enabled():
-                print("[cost_router] cheap-tier offload disabled (PULSEAI_CHEAP_TIER=off)", flush=True)
+                print("[cost_router] cheap-tier offload disabled (CRUSORAI_CHEAP_TIER=off)", flush=True)
             else:
                 import os as _os
-                cheap_key = (_os.environ.get("PULSEAI_CHEAP_API_KEY") or "").strip()
-                cheap_url = (_os.environ.get("PULSEAI_CHEAP_BASE_URL") or "").strip()
-                cheap_model = (_os.environ.get("PULSEAI_CHEAP_MODEL") or "").strip()
+                cheap_key = (_os.environ.get("CRUSORAI_CHEAP_API_KEY") or "").strip()
+                cheap_url = (_os.environ.get("CRUSORAI_CHEAP_BASE_URL") or "").strip()
+                cheap_model = (_os.environ.get("CRUSORAI_CHEAP_MODEL") or "").strip()
                 if cheap_key and cheap_url and cheap_model:
                     self.tiers["cheap"] = {"provider": "cheap", "model": cheap_model}
                 elif cheap_key or cheap_url or cheap_model:
                     print(
                         "[cost_router] cheap-tier offload NOT armed: set ALL of "
-                        "PULSEAI_CHEAP_API_KEY, PULSEAI_CHEAP_BASE_URL, "
-                        "PULSEAI_CHEAP_MODEL (cheap tier stays on the default model)",
+                        "CRUSORAI_CHEAP_API_KEY, CRUSORAI_CHEAP_BASE_URL, "
+                        "CRUSORAI_CHEAP_MODEL (cheap tier stays on the default model)",
                         flush=True,
                     )
         except Exception:

@@ -1,7 +1,7 @@
 """P0: workspace identity routing on the bridge (no-model, deterministic).
 
-The desktop must bind every Pulse session to the user's OPENED workspace and
-never silently fall back to ".", the engine root, pulse-res/app, or the app
+The desktop must bind every Crusor session to the user's OPENED workspace and
+never silently fall back to ".", the engine root, crusor-res/app, or the app
 directory. The bridge enforces the same contract, so this suite pins:
 
 - no-folder blocking: workspace-required methods reject empty/missing/blank;
@@ -22,14 +22,14 @@ from src.bridge.protocol import PROTOCOL_VERSION
 from src.runtime.identity import workspace_id
 
 NO_WORKSPACE_ERROR = (
-    "workspace required: open a project folder before starting a Pulse session"
+    "workspace required: open a project folder before starting a Crusor session"
 )
 
 
 @pytest.fixture
 def bridge():
     env = dict(os.environ)
-    env["PULSEAI_BRIDGE_RUNNER"] = "echo"
+    env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
@@ -87,7 +87,7 @@ def test_hello_and_list_work_without_folder(bridge):
 
 def test_session_create_echoes_exact_workspace(bridge):
     # The canonical acceptance path for the desktop vertical slice.
-    ws = "D:\\pulse-ws"
+    ws = "D:\\crusor-ws"
     created = send(bridge, {"type": "session_create", "session_id": "s", "workspace": ws})
     assert created["type"] == "session_info"
     assert created["workspace"] == ws, "bridge must echo the exact opened folder"

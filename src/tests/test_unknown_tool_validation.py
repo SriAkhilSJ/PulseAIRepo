@@ -3,7 +3,7 @@ agent_runtime_helpers.repair_tool_call (#33007), SafeToolNode-shaped.
 
 Field receipt that pinned this (owner log 2026-09-08, run 2cef1d80): the
 model emitted `terminal` — hermes' own shell tool name (terminal_tool.py
-name="terminal") — and `Bash` into pulse's run_terminal-named toolset; both
+name="terminal") — and `Bash` into crusor's run_terminal-named toolset; both
 fell through to ToolNode's terse unknown-name text with no catalog, the
 model flailed (dir -R, 2>/dev/null || echo ...), and the turn finalized
 "Ended unverified". Hermes repairs the name before validating, and answers
@@ -59,7 +59,7 @@ def echo_probe(text: str) -> str:
 
 
 def _node(tmp_path: Path) -> chat_graph.SafeToolNode:
-    # run_terminal included: the fuzzy repair must see pulse's real shell tool
+    # run_terminal included: the fuzzy repair must see crusor's real shell tool
     # name to map hermes' `terminal` dialect onto it (field shape).
     from src.tools.terminal_tools import run_terminal
     return chat_graph.SafeToolNode(

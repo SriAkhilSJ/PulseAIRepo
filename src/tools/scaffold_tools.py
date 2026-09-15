@@ -115,7 +115,7 @@ def scaffold_nextjs(
 
     workspace.mkdir(parents=True, exist_ok=True)
     parent = workspace.parent
-    temp_name = f"pulse-scaffold-{uuid.uuid4().hex[:8]}"
+    temp_name = f"crusor-scaffold-{uuid.uuid4().hex[:8]}"
     temp_project = parent / temp_name
 
     from src.tools.shadow_checkpoints import checkpoint_before_mutation

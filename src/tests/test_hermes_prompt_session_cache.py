@@ -1,6 +1,6 @@
 """Session-caching behaviour of the ported prompt engine (Law 1, enforced).
 
-The prompt text is upstream's; what Pulse has to get right is *when it is
+The prompt text is upstream's; what Crusor has to get right is *when it is
 built*. These tests pin that: build once per session, reuse for every turn,
 rebuild only at a compaction/reset boundary, and fall back to the legacy
 persona the instant the engine is switched off or misbehaves.
@@ -17,7 +17,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from src.prompts.hermes import session as session_mod  # noqa: E402
-from src.prompts.hermes.view import PulsePromptView  # noqa: E402
+from src.prompts.hermes.view import CrusorPromptView  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -109,7 +109,7 @@ def test_context_engine_hooks_call_the_invalidator(monkeypatch):
 
 
 def test_kill_switch_falls_back_to_the_legacy_persona(monkeypatch):
-    monkeypatch.setenv("PULSEAI_STABLE_PREFIX", "off")
+    monkeypatch.setenv("CRUSORAI_STABLE_PREFIX", "off")
     assert session_mod.stable_prefix_enabled() is False
     assert session_mod.system_prompt_for_session(_config("off-thread"), {}) == ""
 
@@ -124,7 +124,7 @@ def test_chat_graph_uses_the_cached_prefix_and_degrades_safely(monkeypatch):
     session_mod.invalidate_all_sessions()
     msg = chat_graph._session_system_message(_config("graph-thread"), {"current_task": "hi"}, autonomous=False)
     assert isinstance(msg, SystemMessage)
-    assert "You are Pulse Agent." in msg.content or "Pulse" in msg.content
+    assert "You are Crusor Agent." in msg.content or "Crusor" in msg.content
     assert "Conversation started:" in msg.content
 
     monkeypatch.setattr(chat_graph, "system_message", SystemMessage(content="LEGACY-PERSONA"))
@@ -155,7 +155,7 @@ def test_autonomous_sessions_get_their_own_bucket():
 
 
 def test_truncation_reaches_the_status_channel_not_the_prompt():
-    view = PulsePromptView(
+    view = CrusorPromptView(
         model="qwen3.6-27b",
         provider="groq",
         context_length=64,  # tiny window → tiny cap → truncation

@@ -241,11 +241,11 @@ def test_dropped_text_redacts_secrets(monkeypatch):
 
 
 def test_hygiene_runs_before_kill_switch_too(monkeypatch):
-    """PULSEAI_COMPACTION=off skips the LLM summary, NOT the hygiene."""
+    """CRUSORAI_COMPACTION=off skips the LLM summary, NOT the hygiene."""
     import os
     from src.context.history_shaper import HistoryShaper
 
-    monkeypatch.setenv("PULSEAI_COMPACTION", "off")
+    monkeypatch.setenv("CRUSORAI_COMPACTION", "off")
     shaper = HistoryShaper(
         model=lambda: "gpt-4o-mini",
         allow_embedding_compute=lambda: False,

@@ -1,11 +1,11 @@
-# PulseAI Agent — Startup-Focused Technical Review
+# CrusorAI Agent — Startup-Focused Technical Review
 
 **Review date:** 2026-08-13  
 **Scope:** Agent backend and supporting dashboard API. The VS Code/Desktop fork was intentionally excluded.
 
 ## Executive verdict
 
-PulseAI is an **ambitious and technically credible agent-runtime prototype**, not yet a production startup product.
+CrusorAI is an **ambitious and technically credible agent-runtime prototype**, not yet a production startup product.
 
 - **Agent/runtime engineering:** 7.5/10
 - **Automated correctness evidence:** 7/10
@@ -145,7 +145,7 @@ A large unit suite validates machinery, not coding-agent success. The startup ne
 
 ### P1 — Packaging and operator experience need work
 
-`src/main.py` is an import-time interactive loop rather than a clean `main()`/Typer entry point. The project declares no console script in `pyproject.toml`. Runtime state is created under `~/.pulseai` during module import. These choices make embedding, testing, service operation and clean shutdown harder.
+`src/main.py` is an import-time interactive loop rather than a clean `main()`/Typer entry point. The project declares no console script in `pyproject.toml`. Runtime state is created under `~/.crusorai` during module import. These choices make embedding, testing, service operation and clean shutdown harder.
 
 ## Desktop folder decision
 

@@ -706,10 +706,10 @@ def test_cost_router_never_routes_to_dead_provider(monkeypatch):
     (owner directive: no hardcoded provider — key/url/model via env)."""
     from src.agents.cost_router import CostRouter
 
-    monkeypatch.setenv("PULSEAI_CHEAP_TIER", "on")
-    monkeypatch.setenv("PULSEAI_CHEAP_API_KEY", "gsk_test_invalid")
-    monkeypatch.setenv("PULSEAI_CHEAP_BASE_URL", "https://api.groq.com/openai/v1")
-    monkeypatch.setenv("PULSEAI_CHEAP_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setenv("CRUSORAI_CHEAP_TIER", "on")
+    monkeypatch.setenv("CRUSORAI_CHEAP_API_KEY", "gsk_test_invalid")
+    monkeypatch.setenv("CRUSORAI_CHEAP_BASE_URL", "https://api.groq.com/openai/v1")
+    monkeypatch.setenv("CRUSORAI_CHEAP_MODEL", "llama-3.1-8b-instant")
     monkeypatch.setattr("src.agents.cost_router.LLM_PROVIDER", "custom")
     monkeypatch.setattr("src.agents.cost_router.LLM_MODEL", "auto/best-chat")
 
@@ -726,14 +726,14 @@ def test_cost_router_never_routes_to_dead_provider(monkeypatch):
 
 
 def test_cost_router_offload_is_env_configured_not_hardcoded(monkeypatch):
-    """No GROQ_API_KEY anywhere in the cheap tier: without PULSEAI_CHEAP_*
+    """No GROQ_API_KEY anywhere in the cheap tier: without CRUSORAI_CHEAP_*
     the offload is not armed at all; with all three vars it arms as the
     virtual 'cheap' provider for ANY OpenAI-compatible endpoint; half-set
     vars arm nothing and say why."""
     from src.agents.cost_router import CostRouter
 
-    monkeypatch.setenv("PULSEAI_CHEAP_TIER", "on")
-    for var in ("PULSEAI_CHEAP_API_KEY", "PULSEAI_CHEAP_BASE_URL", "PULSEAI_CHEAP_MODEL"):
+    monkeypatch.setenv("CRUSORAI_CHEAP_TIER", "on")
+    for var in ("CRUSORAI_CHEAP_API_KEY", "CRUSORAI_CHEAP_BASE_URL", "CRUSORAI_CHEAP_MODEL"):
         monkeypatch.delenv(var, raising=False)
     from src.agents.cost_router import LLM_PROVIDER, LLM_MODEL
     router = CostRouter()
@@ -741,12 +741,12 @@ def test_cost_router_offload_is_env_configured_not_hardcoded(monkeypatch):
     # name hardcoded anywhere in the router).
     assert router.tiers["cheap"] == {"provider": LLM_PROVIDER, "model": LLM_MODEL}
 
-    monkeypatch.setenv("PULSEAI_CHEAP_API_KEY", "k")
-    monkeypatch.setenv("PULSEAI_CHEAP_BASE_URL", "http://localhost:1234/v1")
+    monkeypatch.setenv("CRUSORAI_CHEAP_API_KEY", "k")
+    monkeypatch.setenv("CRUSORAI_CHEAP_BASE_URL", "http://localhost:1234/v1")
     router = CostRouter()
     assert "cheap" != router.tiers["cheap"]["provider"], "half-configured must not arm"
 
-    monkeypatch.setenv("PULSEAI_CHEAP_MODEL", "qwen2.5-coder-7b")
+    monkeypatch.setenv("CRUSORAI_CHEAP_MODEL", "qwen2.5-coder-7b")
     router = CostRouter()
     assert router.tiers["cheap"] == {"provider": "cheap", "model": "qwen2.5-coder-7b"}
 
@@ -754,27 +754,27 @@ def test_cost_router_offload_is_env_configured_not_hardcoded(monkeypatch):
 def test_get_llm_cheap_provider_builds_openai_compatible_client(monkeypatch):
     """get_llm('cheap', model) builds the ChatOpenAI client against the env
     base_url/key; half-configured env raises a NAMING error."""
-    monkeypatch.setenv("PULSEAI_CHEAP_API_KEY", "k-test")
-    monkeypatch.setenv("PULSEAI_CHEAP_BASE_URL", "http://localhost:1234/v1")
+    monkeypatch.setenv("CRUSORAI_CHEAP_API_KEY", "k-test")
+    monkeypatch.setenv("CRUSORAI_CHEAP_BASE_URL", "http://localhost:1234/v1")
     from src.llm.factory import get_llm
 
     llm = get_llm("cheap", "qwen2.5-coder-7b", max_attempts=1)
     inner = getattr(llm, "llm", llm)
     assert "qwen2.5-coder-7b" in str(getattr(inner, "model_name", getattr(inner, "model", "")))
 
-    monkeypatch.delenv("PULSEAI_CHEAP_BASE_URL")
+    monkeypatch.delenv("CRUSORAI_CHEAP_BASE_URL")
     import pytest
     with pytest.raises(ValueError) as err:
         get_llm("cheap", "m", max_attempts=1)
-    assert "PULSEAI_CHEAP_BASE_URL" in str(err.value)
+    assert "CRUSORAI_CHEAP_BASE_URL" in str(err.value)
 
 
 def test_cost_router_offload_disabled_by_env(monkeypatch):
-    """PULSEAI_CHEAP_TIER=off keeps every tier on the user's default
+    """CRUSORAI_CHEAP_TIER=off keeps every tier on the user's default
     provider — routing knobs are configuration, never hardcoded."""
     from src.agents.cost_router import CostRouter
 
-    monkeypatch.setenv("PULSEAI_CHEAP_TIER", "off")
+    monkeypatch.setenv("CRUSORAI_CHEAP_TIER", "off")
     from src.config.settings import LLM_PROVIDER, LLM_MODEL
     router = CostRouter()
     # Offload off => the cheap tier IS the user's default pair, whatever it
@@ -877,7 +877,7 @@ def test_msys_drive_paths_translate_before_anchoring(monkeypatch):
     (its terminal IS git-bash on Windows) and passed '/d/test2_ws_retest' to
     read_file; the old leading-slash strip turned it into the RELATIVE
     'd/test2_ws_retest' and silently nested it under the workspace
-    (D:\\TestPulseAI\\d\\test2_ws_retest). The MSYS dialect must translate
+    (D:\\TestCrusorAI\\d\\test2_ws_retest). The MSYS dialect must translate
     to a Windows drive path BEFORE any anchoring, exactly like hermes."""
     from src.tools import file_tools
 
@@ -921,7 +921,7 @@ def test_resolve_workspace_path_still_strips_leading_slash(tmp_path):
 
 def test_read_file_directory_points_to_list_files(tmp_path):
     """Hermes not-regular discipline (field 2026-09-06: the model read_file'd
-    the workspace ROOT 'D:/TestPulseAI'): a directory read returns a clean
+    the workspace ROOT 'D:/TestCrusorAI'): a directory read returns a clean
     error naming the right tool, never a raw IsADirectoryError traceback."""
     from src.tools.file_tools import read_file
 
@@ -1096,8 +1096,8 @@ def test_terminal_timeout_env_returns_pivot_message():
     from src.tools.terminal_tools import run_terminal
     from langchain_core.runnables import RunnableConfig
     cfg = RunnableConfig({"configurable": {"workspace": "."}})
-    old = os.environ.get("PULSEAI_TERMINAL_TIMEOUT")
-    os.environ["PULSEAI_TERMINAL_TIMEOUT"] = "1"
+    old = os.environ.get("CRUSORAI_TERMINAL_TIMEOUT")
+    os.environ["CRUSORAI_TERMINAL_TIMEOUT"] = "1"
     argv = [sys.executable, "-c", "import time; time.sleep(60)"]
     command = (
         subprocess.list2cmdline(argv)
@@ -1108,9 +1108,9 @@ def test_terminal_timeout_env_returns_pivot_message():
         out = run_terminal.invoke({"command": command}, cfg)
     finally:
         if old is None:
-            os.environ.pop("PULSEAI_TERMINAL_TIMEOUT", None)
+            os.environ.pop("CRUSORAI_TERMINAL_TIMEOUT", None)
         else:
-            os.environ["PULSEAI_TERMINAL_TIMEOUT"] = old
+            os.environ["CRUSORAI_TERMINAL_TIMEOUT"] = old
     assert "timed out" in out
     assert "ENVIRONMENT failure" in out
     assert "retry" in out
@@ -1118,7 +1118,7 @@ def test_terminal_timeout_env_returns_pivot_message():
 
 # =====================================================================
 # P1 — prompt-cache plan (hermes prompt_caching.py shape). Pure functions,
-# zero LLM calls. DEFAULT OFF: markers only when PULSEAI_PROMPT_CACHE=1 AND
+# zero LLM calls. DEFAULT OFF: markers only when CRUSORAI_PROMPT_CACHE=1 AND
 # the provider is allowlisted.
 # =====================================================================
 
@@ -1126,16 +1126,16 @@ def test_cache_plan_is_off_by_default():
     import os
     from langchain_core.messages import SystemMessage
     from src.context.prompt_cache_plan import build_prompt_cache_plan
-    old = os.environ.get("PULSEAI_PROMPT_CACHE")
-    os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+    old = os.environ.get("CRUSORAI_PROMPT_CACHE")
+    os.environ.pop("CRUSORAI_PROMPT_CACHE", None)
     try:
         msgs = [SystemMessage(content="persona"), SystemMessage(content="layer")]
         out, info = build_prompt_cache_plan(msgs, "openai", "gpt-4.1")
     finally:
         if old is None:
-            os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+            os.environ.pop("CRUSORAI_PROMPT_CACHE", None)
         else:
-            os.environ["PULSEAI_PROMPT_CACHE"] = old
+            os.environ["CRUSORAI_PROMPT_CACHE"] = old
     assert out is msgs  # untouched by identity when disabled
     assert info["enabled"] is False
 
@@ -1144,8 +1144,8 @@ def test_cache_plan_marks_stable_head_when_enabled():
     import os
     from langchain_core.messages import SystemMessage, HumanMessage
     from src.context.prompt_cache_plan import build_prompt_cache_plan
-    old = os.environ.get("PULSEAI_PROMPT_CACHE")
-    os.environ["PULSEAI_PROMPT_CACHE"] = "1"
+    old = os.environ.get("CRUSORAI_PROMPT_CACHE")
+    os.environ["CRUSORAI_PROMPT_CACHE"] = "1"
     try:
         msgs = [
             SystemMessage(content="persona"),
@@ -1157,9 +1157,9 @@ def test_cache_plan_marks_stable_head_when_enabled():
         out, info = build_prompt_cache_plan(msgs, "openai", "gpt-4.1")
     finally:
         if old is None:
-            os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+            os.environ.pop("CRUSORAI_PROMPT_CACHE", None)
         else:
-            os.environ["PULSEAI_PROMPT_CACHE"] = old
+            os.environ["CRUSORAI_PROMPT_CACHE"] = old
     assert info["enabled"] is True
     assert info["markers"] >= 1
     assert info["markers"] <= 4
@@ -1177,22 +1177,22 @@ def test_cache_plan_custom_provider_requires_opt_in():
     import os
     from langchain_core.messages import SystemMessage
     from src.context.prompt_cache_plan import build_prompt_cache_plan
-    old_pc = os.environ.get("PULSEAI_PROMPT_CACHE")
-    old_c = os.environ.get("PULSEAI_PROMPT_CACHE_CUSTOM")
-    os.environ["PULSEAI_PROMPT_CACHE"] = "1"
-    os.environ.pop("PULSEAI_PROMPT_CACHE_CUSTOM", None)
+    old_pc = os.environ.get("CRUSORAI_PROMPT_CACHE")
+    old_c = os.environ.get("CRUSORAI_PROMPT_CACHE_CUSTOM")
+    os.environ["CRUSORAI_PROMPT_CACHE"] = "1"
+    os.environ.pop("CRUSORAI_PROMPT_CACHE_CUSTOM", None)
     try:
         msgs = [SystemMessage(content="persona")]
         out, info = build_prompt_cache_plan(msgs, "custom", "sarvam-105b-conversations")
     finally:
         if old_pc is None:
-            os.environ.pop("PULSEAI_PROMPT_CACHE", None)
+            os.environ.pop("CRUSORAI_PROMPT_CACHE", None)
         else:
-            os.environ["PULSEAI_PROMPT_CACHE"] = old_pc
+            os.environ["CRUSORAI_PROMPT_CACHE"] = old_pc
         if old_c is None:
-            os.environ.pop("PULSEAI_PROMPT_CACHE_CUSTOM", None)
+            os.environ.pop("CRUSORAI_PROMPT_CACHE_CUSTOM", None)
         else:
-            os.environ["PULSEAI_PROMPT_CACHE_CUSTOM"] = old_c
+            os.environ["CRUSORAI_PROMPT_CACHE_CUSTOM"] = old_c
     assert out is msgs
     assert info["enabled"] is False
 

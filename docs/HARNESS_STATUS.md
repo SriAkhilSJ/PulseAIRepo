@@ -1,6 +1,6 @@
 # Harness v0.1 — Status & Handoff
 
-**Date:** 2026-09-11 · **Scope:** execution lane of the Pulse Reliability Benchmark (PR #7)
+**Date:** 2026-09-11 · **Scope:** execution lane of the Crusor Reliability Benchmark (PR #7)
 
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
@@ -35,14 +35,14 @@ Three sets of eyes (drivers):
 |---|---|---|---|
 | `echo` | The engine's bridge protocol, driven by the deterministic echo test-runner | **Zero** (no API key) | Anywhere |
 | `bridge` | The real engine over Bridge Protocol v2 (stdio) | Zero for workspace/cancel/context; needs a key for model tasks | Anywhere with the repo venv |
-| `cdp` | The built PulseAI IDE over Chrome DevTools Protocol | Zero | A machine with the built IDE (your Windows box) |
+| `cdp` | The built CrusorAI IDE over Chrome DevTools Protocol | Zero | A machine with the built IDE (your Windows box) |
 
 ## What was built
 
-- `benchmarks/pulse_reliability_v1/harness/` — recorder, drivers (`base`, `bridge`, `cdp`),
-  scenarios, orchestrator, report card, CLI (`python -m benchmarks.pulse_reliability_v1.harness`).
+- `benchmarks/crusor_reliability_v1/harness/` — recorder, drivers (`base`, `bridge`, `cdp`),
+  scenarios, orchestrator, report card, CLI (`python -m benchmarks.crusor_reliability_v1.harness`).
 - `src/bridge/__main__.py` — **one test-seam addition**: the echo test-runner can now
-  simulate an in-flight turn that honours a `cancel` (`PULSEAI_ECHO_DELAY_MS`). Default `0`
+  simulate an in-flight turn that honours a `cancel` (`CRUSORAI_ECHO_DELAY_MS`). Default `0`
   = historical behaviour, byte-identical. Production path untouched. All 20 bridge tests pass.
 - `src/tests/test_benchmark_harness.py` — 15 tests (recorder, protocol v2 client, cancel
   semantics, coverage model, CDP helpers, report card, CLI).
@@ -53,7 +53,7 @@ Three sets of eyes (drivers):
 
 ## CDP lane: what is proven, what needs your machine
 
-The built PulseAI IDE cannot exist in a fresh checkout (build artifacts are gitignored by
+The built CrusorAI IDE cannot exist in a fresh checkout (build artifacts are gitignored by
 design), so the live app is exercised on the founder's machine. What IS proven here:
 
 - `CdpDriver.connect()` — real HTTP `/json/version` + `/json/list` discovery, target
@@ -69,7 +69,7 @@ design), so the live app is exercised on the founder's machine. What IS proven h
 ## Demo evidence (this machine, zero cost)
 
 ```
-python -m benchmarks.pulse_reliability_v1.harness run \
+python -m benchmarks.crusor_reliability_v1.harness run \
     --task PBR-012 --driver echo --workspace /tmp/pbr-demo-ws \
     --python /tmp/bvenv/bin/python --echo-delay-ms 2500 \
     --cancel-after-start-ms 100 --run-id demo-pbr012-echo
@@ -94,22 +94,22 @@ Report card: `bench-results/report-card.md` (gitignored — results never live i
 
 Prerequisites on your machine:
 - Full env + key configured in the repo's `.env` (gitignored — keys never committed).
-- Built IDE at `desktop/vscode/.build/electron/PulseAI.exe`.
+- Built IDE at `desktop/vscode/.build/electron/CrusorAI.exe`.
 - The test venv needs `websockets` for the CDP lane: `pip install websockets`
   (the driver fails loudly with this hint if it is missing — never a silent pass).
 
 ```powershell
 # ONE command: all keyless tasks (PBR-012 echo + PBR-001/003 cdp) + report card
-python -m benchmarks.pulse_reliability_v1.harness run-all `
+python -m benchmarks.crusor_reliability_v1.harness run-all `
     --workspace C:\path\to\a\test\workspace `
-    --launch "desktop\vscode\.build\electron\PulseAI.exe --remote-debugging-port=9222" `
+    --launch "desktop\vscode\.build\electron\CrusorAI.exe --remote-debugging-port=9222" `
     --port 9222 --connect-timeout 45
 
 # ...or the one-click script (same thing):
 scripts\run_keyless_cdp.bat C:\path\to\a\test\workspace
 
 # Scoreboard only:
-python -m benchmarks.pulse_reliability_v1.harness report --results-dir bench-results
+python -m benchmarks.crusor_reliability_v1.harness report --results-dir bench-results
 ```
 
 CDP live-window integration beyond DOM observation (frame/event capture, native
@@ -451,7 +451,7 @@ all green. Not variance — accumulation.
 | 2 | 3 | 12 (+3) |
 | 3 | 3 | 15 (+3) |
 
-Root cause: the engine's durable langgraph checkpointer (`~/.pulseai/
+Root cause: the engine's durable langgraph checkpointer (`~/.crusorai/
 sessions.db`) keys history by thread id, and the harness driver used the
 FIXED session id `bench` for every run — so each run created a session that
 silently resumed ALL prior benchmark runs' turns. The four "green" rows
@@ -735,14 +735,14 @@ adopted what fits; documented what we deliberately did not.
 1. **`scripts/run_tests.sh` — hermetic runner** (their "ALWAYS use the
    wrapper, never bare pytest" rule):
    - provider keys UNSET by default → no test can ever make a paid call
-     (PULSEAI_TEST_KEEP_KEYS=1 opt-out for integration scripts)
-   - fresh temp HOME per run → ~/.pulseai state (sessions.db,
+     (CRUSORAI_TEST_KEEP_KEYS=1 opt-out for integration scripts)
+   - fresh temp HOME per run → ~/.crusorai state (sessions.db,
      runtime_events.db, code indexes) can never leak across runs or onto the
      developer machine — the cross-run pollution class, killed at test level
-     (PULSEAI_TEST_REAL_HOME=1 opt-out)
+     (CRUSORAI_TEST_REAL_HOME=1 opt-out)
    - TZ=UTC, LANG=C.UTF-8 for determinism
    Proven: single-file run green under wrapper; key stripped (checked);
-   real ~/.pulseai untouched after state-heavy bridge/context runs (71 passed).
+   real ~/.crusorai untouched after state-heavy bridge/context runs (71 passed).
 
 2. **Audit against "never read source code in tests"** (their hard ban):
    `src/tests/test_workbench_capabilities.py` reads TS source text with
@@ -816,7 +816,7 @@ New claims, graded:
   routing; free "continue" is for pure acks only).
 - **run_tests.sh footgun** (KEEP_KEYS + REAL_HOME) — TRUE-ish. **FIXED**:
   the combination now REFUSES without an explicit
-  PULSEAI_TEST_UNSAFE_INTEGRATION=1 ack (verified firing).
+  CRUSORAI_TEST_UNSAFE_INTEGRATION=1 ack (verified firing).
 - **#16 "spin"** — fair: the latest commit WAS micro-fixes + scorecard; the
   characterization was of the commit, the defense was of the branch. Both
   true, no dispute.
@@ -845,7 +845,7 @@ behavior re-prompts (stall 2/turn, dropped-call 3) may continue. Ported
 for a LangGraph router: `consecutive_no_tool_ai_messages` counts the
 TRAILING no-tool assistant streak (resets on tool activity or user input);
 after `NO_TOOL_TURN_LIMIT = 3` the turn MUST finalize regardless of which
-loop produced the laps (plan, replan, intent misroute). PulseAI's bounded
+loop produced the laps (plan, replan, intent misroute). CrusorAI's bounded
 finish/verify nudges are untouched below the cap — first no-tool reply
 still gets its nudge; the cap only backstops the pathological streak.
 
@@ -894,7 +894,7 @@ never misfired, full frame evidence captured.
 ## Fix (hermes-aligned)
 
 - factory default timeout 60 -> 180s (env override unchanged, cap 300)
-- runner sets PULSEAI_LLM_STREAMING=1 + PULSEAI_LLM_TIMEOUT=280 for the
+- runner sets CRUSORAI_LLM_STREAMING=1 + CRUSORAI_LLM_TIMEOUT=280 for the
   child (pre-set env wins); script made pure-ASCII (em-dash encoding bug
   on the founder box fixed by their agent, now structural)
 
@@ -971,7 +971,7 @@ No merge or branch deletion followed.
 
 ## Confirmed root cause
 
-The guarded runner set `PULSEAI_AUTO_APPROVE_WRITES=1`, but the real bridge
+The guarded runner set `CRUSORAI_AUTO_APPROVE_WRITES=1`, but the real bridge
 opened an approval channel while leaving `stream_agent` at interactive policy
 `ask`. An ordinary safe mutation therefore entered `approval_queue` and could
 wait 300 seconds. The headless runner only recorded `safety_request`; it never
@@ -1051,7 +1051,7 @@ about 8–10 seconds for the targeted test. No non-daemon thread or child proces
 remained, and `pytest.main()` returned before process exit. The hang reproduced
 only when Windows PowerShell 5.1 `Start-Process` redirected stdout or stderr;
 it is a parent/child pipe-redirection deadlock in the diagnostic invocation,
-not a pytest fixture, plugin, or Pulse runtime teardown defect. Desktop
+not a pytest fixture, plugin, or Crusor runtime teardown defect. Desktop
 **deterministic validation PASS** is therefore supported for these selections.
 
 The report did not launch the IDE, so visual workbench cleanliness remains
@@ -1089,9 +1089,9 @@ turns were refunded. Worse, forced-delivery mode intentionally retained
 execute_code for web_fetch->write batching. The model instead used it for
 read-only os.walk, so the copied Hermes refund and broad PTC capability jointly
 bypassed the cap. Hermes refunds PTC inside a larger budget/guardrail system;
-copying that one behavior into Pulse's 20-call paid harness was not equivalent.
+copying that one behavior into Crusor's 20-call paid harness was not equivalent.
 
-Repair direction completed: every Pulse provider request counts; varied pre-delivery tool
+Repair direction completed: every Crusor provider request counts; varied pre-delivery tool
 observations share one cap; forced delivery exposes only direct file mutations;
 the paid runner cancels if no file exists by a hard request threshold; operator
 cancellation always writes an outcome; and the PowerShell wrapper inherits the

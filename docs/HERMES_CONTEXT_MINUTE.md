@@ -1,6 +1,6 @@
 # Hermes Context Engine — Every Minute Thing
 
-**Source:** `D:\hermes\hermes-agent` — exhaustive file:line audit 2026-08-30. This is the verbatim minute-by-minute inventory to renovate PulseAI.
+**Source:** `D:\hermes\hermes-agent` — exhaustive file:line audit 2026-08-30. This is the verbatim minute-by-minute inventory to renovate CrusorAI.
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ---
@@ -81,4 +81,4 @@ Evidence ledger SQLite `verification_evidence.db` `63` + `classify_verification_
 
 ---
 
-*Use this as checklist to renovate PulseAI — every constant above is a port candidate. See `docs/PULSEAI_CONTEXT_BENCH.md` for gap table.*
+*Use this as checklist to renovate CrusorAI — every constant above is a port candidate. See `docs/CRUSORAI_CONTEXT_BENCH.md` for gap table.*

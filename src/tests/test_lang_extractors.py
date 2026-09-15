@@ -280,7 +280,7 @@ impl Session {
 trait Stoppable { fn halt(&self); }
 """
 
-JAVA = """package com.pulse;
+JAVA = """package com.crusor;
 
 /** User service. */
 class UserService {

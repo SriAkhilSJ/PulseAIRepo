@@ -1,6 +1,6 @@
 
 """
-Reflection Engine for PulseCodeAI
+Reflection Engine for CrusorCodeAI
 =================================
 After every task, the agent reflects on:
 - What went well
@@ -27,9 +27,9 @@ class ReflectionEngine:
     def __init__(self, storage_path: str | None = None):
         if storage_path is None:
             home = os.path.expanduser("~")
-            pulse_dir = os.path.join(home, ".pulseai")
-            os.makedirs(pulse_dir, exist_ok=True)
-            self.storage_path = os.path.join(pulse_dir, "reflections.json")
+            crusor_dir = os.path.join(home, ".crusorai")
+            os.makedirs(crusor_dir, exist_ok=True)
+            self.storage_path = os.path.join(crusor_dir, "reflections.json")
         else:
             self.storage_path = storage_path
 

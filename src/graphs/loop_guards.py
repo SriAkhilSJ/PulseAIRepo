@@ -7,7 +7,7 @@ what the user might have meant), both bounded:
    LangGraph router: a model that keeps replying WITHOUT tool calls is
    answering, not working. Hermes ends the turn on the first no-tool reply
    (with 2-3 bounded behavior re-prompts for stall intent / dropped calls).
-   PulseAI keeps its bounded finish/verify nudges, but after
+   CrusorAI keeps its bounded finish/verify nudges, but after
    ``NO_TOOL_TURN_LIMIT`` consecutive no-tool assistant replies the turn
    MUST conclude regardless of which loop (plan, replan, classifier
    misroute) produced them — the measured 20-lap turn ($0.12 for one

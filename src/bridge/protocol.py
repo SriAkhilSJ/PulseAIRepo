@@ -1,4 +1,4 @@
-"""PulseAI Bridge Protocol v2 newline-delimited JSON codec (stdlib only)."""
+"""CrusorAI Bridge Protocol v2 newline-delimited JSON codec (stdlib only)."""
 from __future__ import annotations
 
 import json
@@ -59,7 +59,7 @@ def hello(engine_version: str, *, protocol: int = PROTOCOL_VERSION) -> dict[str,
         raise ProtocolError(f"unsupported negotiated protocol: {protocol!r}")
     return {
         "type": "hello", "protocol": protocol,
-        "engine": "pulseai", "engine_version": engine_version,
+        "engine": "crusorai", "engine_version": engine_version,
         "capabilities": sorted(CLIENT_METHODS - {"hello", "shutdown"}),
     }
 

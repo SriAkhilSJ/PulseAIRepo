@@ -26,7 +26,7 @@ from src.llm.factory import RetryLLMProxy
 def test_aux_resolution_cheap_default(monkeypatch):
     monkeypatch.delenv("AUX_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
-    monkeypatch.delenv("PULSEAI_CHEAP_MODEL", raising=False)
+    monkeypatch.delenv("CRUSORAI_CHEAP_MODEL", raising=False)
     provider, model = settings.resolve_aux_llm()
     assert (provider, model) == ("cheap", "qwen/qwen3.7-flash")
 
@@ -41,7 +41,7 @@ def test_aux_resolution_env_override_wins(monkeypatch):
 def test_aux_resolution_cheap_model_from_env(monkeypatch):
     monkeypatch.delenv("AUX_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
-    monkeypatch.setenv("PULSEAI_CHEAP_MODEL", "my-local-model")
+    monkeypatch.setenv("CRUSORAI_CHEAP_MODEL", "my-local-model")
     provider, model = settings.resolve_aux_llm()
     assert (provider, model) == ("cheap", "my-local-model")
 
@@ -94,8 +94,8 @@ def test_task_manager_prefers_aux_falls_back_to_main(monkeypatch):
 
     monkeypatch.setenv("AUX_LLM_PROVIDER", "groq")
     monkeypatch.setenv("AUX_LLM_MODEL", "llama-3.1-8b-instant")
-    monkeypatch.delenv("PULSEAI_CLASSIFIER_ATTEMPTS", raising=False)
-    monkeypatch.delenv("PULSEAI_CLASSIFIER_TIMEOUT_S", raising=False)
+    monkeypatch.delenv("CRUSORAI_CLASSIFIER_ATTEMPTS", raising=False)
+    monkeypatch.delenv("CRUSORAI_CLASSIFIER_TIMEOUT_S", raising=False)
 
     called: dict[str, tuple] = {}
 

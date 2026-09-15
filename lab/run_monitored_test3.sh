@@ -9,8 +9,8 @@ rm -f "$LIVE" "$CONSOLE" lab/test3_final_killed.txt
 # Hard cost cap: at most 12 agent iterations, no auxiliary-model summaries.
 setsid env \
   AGENT_ITERATION_BUDGET=12 \
-  PULSEAI_AUTO_APPROVE_WRITES=1 \
-  PULSEAI_TERMINAL_TIMEOUT=60 \
+  CRUSORAI_AUTO_APPROVE_WRITES=1 \
+  CRUSORAI_TERMINAL_TIMEOUT=60 \
   SUMMARIZER_LLM= \
   PROVIDER_SAFE_LIMIT=6000 \
   .venv/bin/python lab/run_eval_test3_final.py >"$CONSOLE" 2>&1 &

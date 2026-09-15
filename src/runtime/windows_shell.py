@@ -6,11 +6,11 @@ git-bash / MSYS, NOT cmd.exe or PowerShell. Field proof 2026-09-05: models
 repeatedly blended PowerShell cmdlets (`Get-ChildItem | Select-Object`,
 `2>$null`) into cmd.exe — cmd runs NEITHER POSIX NOR PowerShell cmdlets —
 and two exit-255 failures drove a turn to the recovery limit. The POSIX
-gate + cmd teaching were pulse's invention for a backend hermes never
+gate + cmd teaching were crusor's invention for a backend hermes never
 runs; with bash present the gate is obsolete (POSIX IS the dialect) and
 hermes' bash hint becomes the honest environment truth.
 
-`PULSEAI_WINDOWS_BASH` — explicit override: a path to bash.exe, or
+`CRUSORAI_WINDOWS_BASH` — explicit override: a path to bash.exe, or
 `off`/`0`/`false` to force the cmd.exe fallback. Read PER CALL (standing
 rule); only the PATH probe below it is cached per process.
 """
@@ -73,7 +73,7 @@ def windows_bash(override: str = "") -> str | None:
 
 def windows_bash_available() -> bool:
     """Env-truth for the prompt block: does the terminal run bash here?"""
-    override = os.environ.get("PULSEAI_WINDOWS_BASH", "").strip()
+    override = os.environ.get("CRUSORAI_WINDOWS_BASH", "").strip()
     if override.lower() in {"off", "0", "false", "no", "disabled"}:
         return False
     return windows_bash(override) is not None
@@ -86,7 +86,7 @@ def select_shell(command: str) -> tuple[list[str] | None, bool, str]:
     otherwise     -> (None, True, "cmd")                     legacy fallback
     """
     if _IS_WINDOWS and windows_bash_available():
-        override = os.environ.get("PULSEAI_WINDOWS_BASH", "").strip()
+        override = os.environ.get("CRUSORAI_WINDOWS_BASH", "").strip()
         bash = windows_bash(override) or windows_bash("")
         if bash:
             return [bash, "-c", command], False, "bash"

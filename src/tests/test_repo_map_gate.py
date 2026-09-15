@@ -13,18 +13,18 @@ from __future__ import annotations
 def test_repo_map_disabled_by_default(monkeypatch):
     from src.context.repo_map import repo_map_enabled
 
-    monkeypatch.delenv("PULSEAI_REPO_MAP", raising=False)
+    monkeypatch.delenv("CRUSORAI_REPO_MAP", raising=False)
     assert repo_map_enabled() is False
 
 
 def test_repo_map_env_opt_in_per_call(monkeypatch):
     from src.context.repo_map import repo_map_enabled
 
-    monkeypatch.setenv("PULSEAI_REPO_MAP", "on")
+    monkeypatch.setenv("CRUSORAI_REPO_MAP", "on")
     assert repo_map_enabled() is True
-    monkeypatch.setenv("PULSEAI_REPO_MAP", "off")
+    monkeypatch.setenv("CRUSORAI_REPO_MAP", "off")
     assert repo_map_enabled() is False
-    monkeypatch.setenv("PULSEAI_REPO_MAP", "garbage")
+    monkeypatch.setenv("CRUSORAI_REPO_MAP", "garbage")
     assert repo_map_enabled() is False
 
 
@@ -40,7 +40,7 @@ def test_layer_builds_nothing_when_disabled(monkeypatch):
     import src.context.repo_map as repo_map_module
     from src.context.context_engine import ContextEngine
 
-    monkeypatch.delenv("PULSEAI_REPO_MAP", raising=False)
+    monkeypatch.delenv("CRUSORAI_REPO_MAP", raising=False)
 
     def _boom(*args, **kwargs):
         raise AssertionError("get_repo_map must not be called when disabled")
@@ -54,7 +54,7 @@ def test_layer_builds_when_opted_in(monkeypatch):
     import src.context.repo_map as repo_map_module
     from src.context.context_engine import ContextEngine
 
-    monkeypatch.setenv("PULSEAI_REPO_MAP", "on")
+    monkeypatch.setenv("CRUSORAI_REPO_MAP", "on")
     import src.context.context_engine as ce_module
     monkeypatch.setattr(
         ce_module, "get_repo_map",
@@ -76,7 +76,7 @@ def test_walkers_exclude_repo_map_when_disabled(monkeypatch):
     from src.context.context_engine import ContextEngine
     from src.context.task_types import TaskType
 
-    monkeypatch.delenv("PULSEAI_REPO_MAP", raising=False)
+    monkeypatch.delenv("CRUSORAI_REPO_MAP", raising=False)
     relevance = ContextEngine.LAYER_RELEVANCE
     walkers = [
         name for name in ("repo_map", "relevant_chunks", "conventions")

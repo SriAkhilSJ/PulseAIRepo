@@ -4,7 +4,7 @@ Prompt-cache preservation across provider failover (D37)
 Hermes doctrine: per-conversation prompt caching must never break. Their
 prompt_builder splits the request into [static prefix, volatile tail] and
 their failover path re-decorates cache control for the new provider
-(_redecorate_prompt_cache_for_provider). PulseAI has no cache_control blocks
+(_redecorate_prompt_cache_for_provider). CrusorAI has no cache_control blocks
 today, but the failover chokepoint (ai_node) must still GUARANTEE:
 
   1. a byte-identical static prefix — the persona + stable context layers

@@ -1,11 +1,11 @@
-"""Pulse-local view of Hermes's pinned prompt constants.
+"""Crusor-local view of Hermes's pinned prompt constants.
 
 Everything in this module that is *text* comes from
 ``upstream_corpus.json`` — lifted verbatim out of ``hermes-agent`` at the
 commit recorded in that file — through exactly two documented transformations:
 
 1. ``BRAND_MAP`` / ``RENAME_MAP`` (below): brand tokens and tool identifiers
-   are rewritten to Pulse's real names. No sentence is reworded, reordered,
+   are rewritten to Crusor's real names. No sentence is reworded, reordered,
    added, or dropped.
 2. One sanctioned deviation in :data:`DEFAULT_AGENT_IDENTITY`: the opening
    self-name sentence, which upstream itself treats as a replaceable slot
@@ -36,32 +36,32 @@ BRAND_MAP: Dict[str, str] = {
     # Sentence-level pointers first: the self-name sentence (upstream itself
     # treats slot #1 as replaceable — SOUL.md overrides it) and the
     # "where do I read about this product" / "which skill do I load" pointers.
-    # Pulse's brand is Pulse; nothing upstream-branded survives (guarded by
+    # Crusor's brand is Crusor; nothing upstream-branded survives (guarded by
     # test_hermes_prompt_parity.py::test_no_upstream_brand_tokens_survive).
-    "You are Hermes Agent, built by Nous Research.": "You are Pulse Agent.",
-    "You run on Hermes Agent (by Nous Research).": "You run on Pulse Agent.",
+    "You are Hermes Agent, built by Nous Research.": "You are Crusor Agent.",
+    "You run on Hermes Agent (by Nous Research).": "You run on Crusor Agent.",
     "https://hermes-agent.nousresearch.com/docs": "https://github.com/SriAkhilSJ/PulseAIRepo",
-    "skill_view(name='hermes-agent')": "skill_view(name='pulse-agent')",
+    "skill_view(name='hermes-agent')": "skill_view(name='crusor-agent')",
     # Then path/identifier tokens, then bare brand words, longest-first so no
     # rule half-rewrites another.
-    "HERMES_HOME": "PULSE_HOME",
-    "HERMES_KANBAN": "PULSE_KANBAN",
-    ".hermes/": ".pulseai/",
-    "metadata.hermes.": "metadata.pulse.",
-    "hermes-agent": "Pulse Agent",
-    "Hermes-tool": "Pulse-tool",
-    "Hermes tools": "Pulse tools",
-    "Hermes Agent": "Pulse Agent",
-    "Nous Research": "Pulse",
-    "Hermes": "Pulse",
+    "HERMES_HOME": "CRUSOR_HOME",
+    "HERMES_KANBAN": "CRUSOR_KANBAN",
+    ".hermes/": ".crusorai/",
+    "metadata.hermes.": "metadata.crusor.",
+    "hermes-agent": "Crusor Agent",
+    "Hermes-tool": "Crusor-tool",
+    "Hermes tools": "Crusor tools",
+    "Hermes Agent": "Crusor Agent",
+    "Nous Research": "Crusor",
+    "Hermes": "Crusor",
 }
 
-#: Hermes tool identifiers → the real name of the tool in Pulse's registry.
-#: EMPTY since 2026-09-09 (owner: "tool name used in Pulse is same <Prompt
-#: Engineering>"): pulse's tools now BIND under hermes' own names
-#: (search_files, web_extract, terminal — each keeping the old pulse name
+#: Hermes tool identifiers → the real name of the tool in Crusor's registry.
+#: EMPTY since 2026-09-09 (owner: "tool name used in Crusor is same <Prompt
+#: Engineering>"): crusor's tools now BIND under hermes' own names
+#: (search_files, web_extract, terminal — each keeping the old crusor name
 #: as a bound legacy alias), so hermes' prompt text is used VERBATIM and
-#: nothing is reworded. Tools hermes names and pulse genuinely lacks
+#: nothing is reworded. Tools hermes names and crusor genuinely lacks
 #: (process_manage, patch, delegate_task, browser_screenshots' vision
 #: surface) are handled by *gating*/follow-up ports — never by renaming
 #: hermes' text to invented names.
@@ -127,20 +127,20 @@ def _text(module: str, name: str, fallback: str = "") -> str:
 #: Upstream's identity block is a *behaviour spec* (sizing rule, named
 #: prohibitions, earned-depth escape hatch) rather than a trait list, and it
 #: lives behind an override slot: ``SOUL.md`` replaces it wholesale when present.
-#: Pulse keeps that architecture and takes the spec verbatim except for the
-#: self-name sentence, which is Pulse's to write.
+#: Crusor keeps that architecture and takes the spec verbatim except for the
+#: self-name sentence, which is Crusor's to write.
 _UPSTREAM_IDENTITY = upstream("prompt_builder", "DEFAULT_AGENT_IDENTITY", "")
-#: The one sentence Pulse rewrites, recorded so the parity test can assert the
+#: The one sentence Crusor rewrites, recorded so the parity test can assert the
 #: rest of the block is upstream's bytes and nothing else changed.
 IDENTITY_SELFNAME_UPSTREAM = "You are Hermes Agent, built by Nous Research."
-IDENTITY_SELFNAME_PULSE = "You are Pulse Agent."
+IDENTITY_SELFNAME_CRUSOR = "You are Crusor Agent."
 
 
 def _identity() -> str:
     body = localize(_UPSTREAM_IDENTITY)
     if not body:
         return (
-            "You are Pulse Agent. Be direct: match the length of your reply to the "
+            "You are Crusor Agent. Be direct: match the length of your reply to the "
             "weight of the ask. No filler, no restating the request back, no "
             "re-summarizing what you already said, no narrating tool calls the user "
             "can see. Depth is earned, not default."
@@ -153,8 +153,8 @@ def _identity() -> str:
 DEFAULT_AGENT_IDENTITY = _identity()
 IDENTITY_OVERRIDDEN_PREFIX = "You are Hermes Agent, built by Nous Research. "
 
-PULSE_AGENT_HELP_GUIDANCE = _text("prompt_builder", "HERMES_AGENT_HELP_GUIDANCE")
-PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS = _text("prompt_builder", "HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS")
+CRUSOR_AGENT_HELP_GUIDANCE = _text("prompt_builder", "HERMES_AGENT_HELP_GUIDANCE")
+CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS = _text("prompt_builder", "HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS")
 
 # ---------------------------------------------------------------------------
 # Guidance blocks (verbatim text, gated at assembly time)
@@ -251,7 +251,7 @@ def is_google_model(model: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Mid-turn steering (/steer) — Pulse's bridge has a real ``steer`` client
+# Mid-turn steering (/steer) — Crusor's bridge has a real ``steer`` client
 # method (protocol v2), so this rides the same channel it was designed for.
 # ---------------------------------------------------------------------------
 
@@ -273,7 +273,7 @@ def format_steer_marker(steer_text: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Context-file caps and truncation — thresholds are upstream's, config keys are
-# Pulse's. Warnings accumulate in a ContextVar so concurrent sessions cannot
+# Crusor's. Warnings accumulate in a ContextVar so concurrent sessions cannot
 # drain each other's queue.
 # ---------------------------------------------------------------------------
 
@@ -291,7 +291,7 @@ WINDOWS_BASH_SHELL_HINT = _text("prompt_builder", "_WINDOWS_BASH_SHELL_HINT")
 WSL_ENVIRONMENT_HINT = _text("prompt_builder", "WSL_ENVIRONMENT_HINT")
 
 _TRUNCATION_WARNINGS: "contextvars.ContextVar[Optional[list]]" = contextvars.ContextVar(
-    "pulse_context_file_truncation_warnings", default=None
+    "crusor_context_file_truncation_warnings", default=None
 )
 
 
@@ -333,7 +333,7 @@ def get_context_file_max_chars(
     """Explicit config wins; else the dynamic cap; else the 20K floor."""
     if isinstance(override, (int, float)) and not isinstance(override, bool) and override > 0:
         return int(override)
-    try:  # Pulse settings are the equivalent of upstream's config.yaml lookup
+    try:  # Crusor settings are the equivalent of upstream's config.yaml lookup
         from src.config import settings  # noqa: PLC0415 - avoid import cycle at module load
 
         val = getattr(settings, "CONTEXT_FILE_MAX_CHARS", None)
@@ -368,8 +368,8 @@ __all__ = [
     "PARALLEL_TOOL_CALL_GUIDANCE",
     "PLAN_CRAFT",
     "PLAN_MODE_RULES",
-    "PULSE_AGENT_HELP_GUIDANCE",
-    "PULSE_AGENT_HELP_GUIDANCE_NO_SKILLS",
+    "CRUSOR_AGENT_HELP_GUIDANCE",
+    "CRUSOR_AGENT_HELP_GUIDANCE_NO_SKILLS",
     "RENAME_MAP",
     "SESSION_SEARCH_GUIDANCE",
     "SKILLS_GUIDANCE",

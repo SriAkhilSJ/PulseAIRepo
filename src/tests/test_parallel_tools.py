@@ -127,7 +127,7 @@ def test_outputs_match_sequential_toolnode_shape(tmp_path):
 def test_kill_switch_returns_none(tmp_path, monkeypatch):
     tools = {t.name: t for t in (_mk("x", 0.01), _mk("y", 0.01))}
     calls = _calls(("x", {}), ("y", {}))
-    monkeypatch.setenv("PULSEAI_PARALLEL_TOOLS", "off")
+    monkeypatch.setenv("CRUSORAI_PARALLEL_TOOLS", "off")
     assert try_parallel_batch(calls, tools, _cfg(tmp_path), str(tmp_path)) is None
     assert try_sequential_batch(calls, tools, _cfg(tmp_path), str(tmp_path)) is None
 
@@ -155,7 +155,7 @@ def test_conflicting_batch_forced_sequential_deterministic(
         tmp_path, monkeypatch):
     """write+read the SAME path in one batch => sequential, input order,
     ALWAYS (this shape raced before D34: concurrent reader won)."""
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     log: list = []
     node = SafeToolNode(_order_tools(log), SafetyGuard(str(tmp_path)))
     st = _state(_calls(("write_file", {"path": "x.txt", "content": "NEW"}),
@@ -177,7 +177,7 @@ def test_killswitch_restores_true_legacy_concurrency(
     the SAME conflicting batch CONCURRENTLY — the instant reader logs
     FIRST. 'off' = true legacy, races included; never mistake it for
     serial."""
-    monkeypatch.setenv("PULSEAI_PARALLEL_TOOLS", "off")
+    monkeypatch.setenv("CRUSORAI_PARALLEL_TOOLS", "off")
     log: list = []
     node = SafeToolNode(_order_tools(log), SafetyGuard(str(tmp_path)))
     st = _state(_calls(("write_file", {"path": "x.txt", "content": "NEW"}),
@@ -226,14 +226,14 @@ def test_fresh_content_vs_missing_read_race_receipt(tmp_path, monkeypatch):
         out = _reach_node(node, st, _cfg(tmp_path))
         return [m for m in out["messages"] if isinstance(m, ToolMessage)][1]
 
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     reader_msg = run_once()
     assert target.read_text() == "NEW"
     assert reader_msg.content == "NEW", \
         "gate ON: create-then-read of one file must read the FRESH content"
 
     target.unlink()
-    monkeypatch.setenv("PULSEAI_PARALLEL_TOOLS", "off")
+    monkeypatch.setenv("CRUSORAI_PARALLEL_TOOLS", "off")
     reader_msg = run_once()
     assert target.read_text() == "NEW"
     assert reader_msg.content == "MISSING", \
@@ -241,7 +241,7 @@ def test_fresh_content_vs_missing_read_race_receipt(tmp_path, monkeypatch):
 
 
 def test_wildcard_batch_forced_sequential(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     log: list = []
 
     def execute_code(code: str = "") -> str:
@@ -270,7 +270,7 @@ def test_wildcard_batch_forced_sequential(tmp_path, monkeypatch):
 
 def test_unknown_tool_falls_through_toolnode_canonical(
         tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     tools = [_mk("slow_a", 0.01)]
     node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
     st = _state(_calls(("slow_a", {"x": "1"}), ("mystery", {})))
@@ -289,7 +289,7 @@ def test_unknown_tool_falls_through_toolnode_canonical(
 
 
 def test_sequential_error_slot_pairs_and_continues(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     log: list = []
     tools = _order_tools(log, w_delay=0.01)
     doomed = StructuredTool.from_function(
@@ -321,7 +321,7 @@ def _reach_node(node_func, state, cfg):
 
 
 def test_parallel_batch_beats_serial_wall_clock(tmp_path, monkeypatch):
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     tools = [_mk("slow_a", 0.25), _mk("slow_b", 0.25), _mk("slow_c", 0.25)]
     node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
     t0 = time.perf_counter()
@@ -391,7 +391,7 @@ def test_unsafe_call_in_batch_denied_alone_rest_execute(tmp_path, monkeypatch):
     words). Under autonomous mode a mixed batch must deny only the
     unsafe call (ToolMessage, model adapts in one turn) and still
     execute the safe ones."""
-    monkeypatch.setenv("PULSEAI_AUTO_APPROVE_WRITES", "1")
+    monkeypatch.setenv("CRUSORAI_AUTO_APPROVE_WRITES", "1")
     log: list = []
 
     def write_file(path: str = "", content: str = "") -> str:
@@ -443,7 +443,7 @@ def test_unsafe_call_in_batch_denied_alone_rest_execute(tmp_path, monkeypatch):
 def test_workspace_session_lands_large_safe_write_without_approval_wait(tmp_path, monkeypatch):
     """Test-5 regression: a large complete write is valid work, not a reason
     for a headless bridge to emit safety_request and wait for a UI forever."""
-    monkeypatch.delenv("PULSEAI_AUTO_APPROVE_WRITES", raising=False)
+    monkeypatch.delenv("CRUSORAI_AUTO_APPROVE_WRITES", raising=False)
     payload = "const shader = `" + ("x" * 35_000) + "`;\n"
 
     def write_file(path: str = "", content: str = "") -> str:
@@ -473,12 +473,12 @@ def test_workspace_session_lands_large_safe_write_without_approval_wait(tmp_path
 
 
 def test_auto_approve_writes_allows_ordinary_overwrite(tmp_path, monkeypatch):
-    """D11: PULSEAI_AUTO_APPROVE_WRITES=1 (autonomous eval, no human)
+    """D11: CRUSORAI_AUTO_APPROVE_WRITES=1 (autonomous eval, no human)
     lets the agent overwrite ordinary workspace files — it must be able
     to FIX its own files or it deadlocks (D9: tsconfig fix blocked 4x,
     model declared Finished on a broken app). Critical paths and
     dangerous commands still block."""
-    monkeypatch.setenv("PULSEAI_AUTO_APPROVE_WRITES", "1")
+    monkeypatch.setenv("CRUSORAI_AUTO_APPROVE_WRITES", "1")
     guard = SafetyGuard(str(tmp_path))
     (tmp_path / "page.tsx").write_text("old")
     ok, warning = guard.check_tool_call(
@@ -497,7 +497,7 @@ def test_auto_approve_writes_allows_ordinary_overwrite(tmp_path, monkeypatch):
 def test_without_auto_approve_overwrite_still_flagged(tmp_path, monkeypatch):
     """Interactive default unchanged: overwrite of an existing file is
     still flagged for a human to confirm (auto-approve is opt-in)."""
-    monkeypatch.delenv("PULSEAI_AUTO_APPROVE_WRITES", raising=False)
+    monkeypatch.delenv("CRUSORAI_AUTO_APPROVE_WRITES", raising=False)
     guard = SafetyGuard(str(tmp_path))
     (tmp_path / "keep.txt").write_text("old")
     ok, warning = guard.check_tool_call(
@@ -515,7 +515,7 @@ def test_unknown_singleton_emits_tool_result_event(tmp_path, monkeypatch):
     tool_call_start and nothing else, so the card could never close. Pin:
     EVERY proposed call, known or not, ends its lifecycle on the bus, and the
     end frame carries the same tool id the start frame used."""
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     from src.dashboard.event_bus import event_bus
     q = event_bus.subscribe(None)
     try:
@@ -558,7 +558,7 @@ def test_mixed_batch_known_calls_stay_durable(tmp_path, monkeypatch):
     """A batch of one KNOWN + one UNKNOWN call: the known call must still go
     through the durable path (journal + tool.result) and the unknown through
     the canonical error — both terminal, input order preserved."""
-    monkeypatch.delenv("PULSEAI_PARALLEL_TOOLS", raising=False)
+    monkeypatch.delenv("CRUSORAI_PARALLEL_TOOLS", raising=False)
     tools = [_mk("slow_a", 0.0)]
     node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
     out = _reach_node(node, _state(_calls(("slow_a", {"x": "1"}), ("mystery", {}))),
@@ -590,12 +590,12 @@ def test_auth_dead_provider_circuit_breaker():
 
 def test_memory_init_watchdog_displaces_zombie_backend(monkeypatch):
     """A backend that needs minutes (embedder download) must not sit half-
-    born under live turns: past PULSEAI_MEMORY_INIT_BUDGET_S the process
+    born under live turns: past CRUSORAI_MEMORY_INIT_BUDGET_S the process
     DISABLES memory (calls degrade instantly) and says so loudly."""
     import time as _time
     from src.context.lazy_memory import LazyMemoryManager
 
-    monkeypatch.setenv("PULSEAI_MEMORY_INIT_BUDGET_S", "0.05")
+    monkeypatch.setenv("CRUSORAI_MEMORY_INIT_BUDGET_S", "0.05")
     started = threading.Event()
     release = threading.Event()
 

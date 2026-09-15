@@ -14,10 +14,10 @@
   "contributes": {
     "themes": [
       {
-        "id": "PulseAI Dark",
-        "label": "%pulseaiDarkThemeLabel%",
+        "id": "CrusorAI Dark",
+        "label": "%crusoraiDarkThemeLabel%",
         "uiTheme": "vs-dark",
-        "path": "./themes/pulseai-dark.json"
+        "path": "./themes/crusorai-dark.json"
       },
       {
         "id": "Light 2026",
@@ -88,7 +88,7 @@
       }
     ],
     "configurationDefaults": {
-      "workbench.colorTheme": "PulseAI Dark",
+      "workbench.colorTheme": "CrusorAI Dark",
       "chat.disableAIFeatures": true,
       "chat.titleBar.signIn.enabled": false,
       "workbench.welcomePage.experimentalOnboarding": false,

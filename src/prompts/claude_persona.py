@@ -1,8 +1,8 @@
 
 """
-Claude-Quality Persona for PulseCodeAI
+Claude-Quality Persona for CrusorCodeAI
 ======================================
-This module provides the system prompt that gives Pulse Agent
+This module provides the system prompt that gives Crusor Agent
 its Claude-like personality: thoughtful, nuanced, helpful, honest,
 and beautifully formatted.
 
@@ -14,7 +14,7 @@ What this changes:
 - It asks clarifying questions when tasks are ambiguous
 """
 
-CLAUDE_SYSTEM_PERSONA = """You are Pulse, an expert AI coding assistant. You help users build, debug, and understand software with thoughtfulness, precision, and care.
+CLAUDE_SYSTEM_PERSONA = """You are Crusor, an expert AI coding assistant. You help users build, debug, and understand software with thoughtfulness, precision, and care.
 
 You have access to a set of tools that let you read files, run commands, search code, and browse the web. You work by understanding the task, planning your approach, executing carefully, and verifying your work.
 
@@ -276,7 +276,7 @@ Mistakes are fine — covering them up isn't.
 #
 # Empirical adjudication before writing a single word: hermes' prompt corpus
 # is ~3,111 lines (agent/system_prompt.py 685 + agent/prompt_builder.py
-# 2,206) referencing tools PulseAI does not have (kanban, skills index,
+# 2,206) referencing tools CrusorAI does not have (kanban, skills index,
 # Telegram, USER.md, nous subscription) — they ship a `prompt_size.py` tool
 # just to measure the bloat. Verbatim paste = phantom tools + token-budget
 # damage. But THREE of their patterns were checked against THIS persona:
@@ -293,7 +293,7 @@ Mistakes are fine — covering them up isn't.
 #      to our real gate: safe batches run concurrently, conflicting batches
 #      run sequentially in input order — that is the true contract, §46).
 #
-# Kill-switch: PULSEAI_PERSONA_GUIDANCE=off => byte-identical legacy persona
+# Kill-switch: CRUSORAI_PERSONA_GUIDANCE=off => byte-identical legacy persona
 # (the constant above is NEVER mutated; on-mode is composed from it).
 # ---------------------------------------------------------------------------
 
@@ -347,7 +347,7 @@ _D35_FINISH_JOB = """
 #      can retrieve, label assumptions when proceeding under uncertainty).
 #   3. verification checklist — the persona had "verify" as a workflow step
 #      but no compact pre-finalize checklist (correctness/grounding/format).
-# Kill-switch gate: same PULSEAI_PERSONA_GUIDANCE=off as D35 — composed on-mode.
+# Kill-switch gate: same CRUSORAI_PERSONA_GUIDANCE=off as D35 — composed on-mode.
 _D35_GROUNDING = """
 
 ## Grounding — never answer facts from memory
@@ -437,7 +437,7 @@ Integrate, do not transcribe-from-memory.
 
 def _d35_guidance_enabled() -> bool:
     import os
-    return os.environ.get("PULSEAI_PERSONA_GUIDANCE", "").strip().lower() != "off"
+    return os.environ.get("CRUSORAI_PERSONA_GUIDANCE", "").strip().lower() != "off"
 
 
 # The desktop bridge's workspace-session mode has no interactive user and a
@@ -448,7 +448,7 @@ def _d35_guidance_enabled() -> bool:
 # Keep the rich persona for interactive IDE chat; use one short, action-first
 # contract for autonomous execution (the same separation Hermes applies to its
 # headless/kanban surfaces).
-AUTONOMOUS_SYSTEM_PERSONA = """You are Pulse, an autonomous workspace agent.
+AUTONOMOUS_SYSTEM_PERSONA = """You are Crusor, an autonomous workspace agent.
 
 Complete the user's task in the provided workspace using the available tools.
 Act immediately: every non-final response must contain concrete tool calls that

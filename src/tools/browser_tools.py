@@ -24,8 +24,8 @@ truncation with full copy stored for read_file paging), click, type
 (30s default; 60s/120s floors for open), URL floors (secret-in-URL block,
 cloud-metadata block) and session-per-thread naming all mirror hermes.
 
-NOT ported (hermes has them; pulse lacks the plumbing — stated, not
-silently dropped): browser_vision (needs an aux vision-model call — pulse
+NOT ported (hermes has them; crusor lacks the plumbing — stated, not
+silently dropped): browser_vision (needs an aux vision-model call — crusor
 has no image-carrying message pipeline yet), cloud providers
 (Browserbase/browser-use), Camofox, CDP supervisor, Lightpanda engine
 fallback, real-profile Chrome. The SSRF page-guard is
@@ -38,19 +38,19 @@ unspawnable on any machine but the lab's).
 
 There are exactly TWO window options — headed or headless — picked by env,
 read PER CALL (standing rule):
-    PULSEAI_BROWSER_HEADED = headed | on | true | 1 | yes    -> visible window
-    PULSEAI_BROWSER_HEADED = headless | off | false | 0 | no -> no window
+    CRUSORAI_BROWSER_HEADED = headed | on | true | 1 | yes    -> visible window
+    CRUSORAI_BROWSER_HEADED = headless | off | false | 0 | no -> no window
 Unset falls back to hermes' own knob (AGENT_BROWSER_HEADED=true|1|yes,
-hermes browser_tool_cloud._is_headed_mode), then to the pulse default
-HEADED. Hermes' own default is headless; PULSEAI_BROWSER_HEADED=headless
+hermes browser_tool_cloud._is_headed_mode), then to the crusor default
+HEADED. Hermes' own default is headless; CRUSORAI_BROWSER_HEADED=headless
 restores it. An unrecognized value states itself on stderr once and takes
 the default — a silent typo must not silently flip the owner's
-visible-testing posture. PULSEAI_BROWSER_RECORD uses the same word
+visible-testing posture. CRUSORAI_BROWSER_RECORD uses the same word
 families (on/off), default ON (hermes browser.record_sessions, default
 off, _maybe_start_recording).
 
-`PULSEAI_AGENT_BROWSER` — explicit path override for the CLI, read PER
-CALL (standing rule). `PULSEAI_BROWSER_INACTIVITY_TIMEOUT` — session idle
+`CRUSORAI_AGENT_BROWSER` — explicit path override for the CLI, read PER
+CALL (standing rule). `CRUSORAI_BROWSER_INACTIVITY_TIMEOUT` — session idle
 seconds before the agent-browser daemon self-terminates (hermes
 browser.inactivity_timeout; default 120s, 30s floor).
 """
@@ -192,7 +192,7 @@ def _dumps(payload: Dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CLI resolution — hermes browser_tool_install._find_agent_browser, pulse-sized
+# CLI resolution — hermes browser_tool_install._find_agent_browser, crusor-sized
 # ---------------------------------------------------------------------------
 _cli_lock = threading.Lock()
 _cached_cli: Any = False  # False = not yet resolved; None = resolved missing; str = path/sentinel
@@ -229,14 +229,14 @@ def _resolve_npx_bin() -> Optional[str]:
 
 
 def find_agent_browser() -> str:
-    """PATH (validated) -> npx sentinel. Env override `PULSEAI_AGENT_BROWSER`
+    """PATH (validated) -> npx sentinel. Env override `CRUSORAI_AGENT_BROWSER`
     wins per call. Raises FileNotFoundError with the install hint."""
-    override = os.environ.get("PULSEAI_AGENT_BROWSER", "").strip()
+    override = os.environ.get("CRUSORAI_AGENT_BROWSER", "").strip()
     if override:
         if _validate_candidate(override):
             return override
         raise FileNotFoundError(
-            f"PULSEAI_AGENT_BROWSER={override!r} is not a runnable agent-browser CLI. {_install_hint()}")
+            f"CRUSORAI_AGENT_BROWSER={override!r} is not a runnable agent-browser CLI. {_install_hint()}")
     global _cached_cli
     with _cli_lock:
         if _cached_cli is not False:
@@ -278,7 +278,7 @@ def _agent_browser_argv(browser_cmd: str) -> List[str]:
 # ---------------------------------------------------------------------------
 def _session_name(thread_id: str) -> str:
     sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", str(thread_id)).strip("-") or "default"
-    return f"pulseai-{sanitized[:60]}"
+    return f"crusorai-{sanitized[:60]}"
 
 
 def _session_socket_dir(session_name: str) -> str:
@@ -290,7 +290,7 @@ def _session_socket_dir(session_name: str) -> str:
 
 
 def _inactivity_timeout_s() -> int:
-    raw = os.environ.get("PULSEAI_BROWSER_INACTIVITY_TIMEOUT", "").strip()
+    raw = os.environ.get("CRUSORAI_BROWSER_INACTIVITY_TIMEOUT", "").strip()
     try:
         val = int(raw) if raw else DEFAULT_SESSION_INACTIVITY_TIMEOUT
     except ValueError:
@@ -312,13 +312,13 @@ _unrecognized_headed_warned: set[str] = set()
 def headed_mode() -> bool:
     """The window option — headed (visible) or headless — from env.
 
-    PULSEAI_BROWSER_HEADED accepts the two option names and their on/off
+    CRUSORAI_BROWSER_HEADED accepts the two option names and their on/off
     aliases (module docstring table). Unset -> hermes' AGENT_BROWSER_HEADED
-    (true/1/yes). Unset there too -> pulse default HEADED (owner 2026-09-07:
-    'in front of users eyes'); PULSEAI_BROWSER_HEADED=headless restores
+    (true/1/yes). Unset there too -> crusor default HEADED (owner 2026-09-07:
+    'in front of users eyes'); CRUSORAI_BROWSER_HEADED=headless restores
     hermes' headless posture. An unrecognized value is stated once on
     stderr and takes the default."""
-    raw = os.environ.get("PULSEAI_BROWSER_HEADED", "").strip().lower()
+    raw = os.environ.get("CRUSORAI_BROWSER_HEADED", "").strip().lower()
     if raw:
         if raw in _OFF_WORDS:
             return False
@@ -327,7 +327,7 @@ def headed_mode() -> bool:
         if raw not in _unrecognized_headed_warned:
             _unrecognized_headed_warned.add(raw)
             print(
-                f"[browser] PULSEAI_BROWSER_HEADED={raw!r} is not a window "
+                f"[browser] CRUSORAI_BROWSER_HEADED={raw!r} is not a window "
                 "option (headed|headless, on|off, true|false, 1|0, yes|no) "
                 "— using the default (headed).",
                 flush=True,
@@ -344,10 +344,10 @@ _RECORDING_SESSIONS: set[str] = set()  # hermes _recording_sessions shape
 
 
 def recording_enabled() -> bool:
-    """hermes gates on browser.record_sessions (default False); pulse defaults
-    ON per the owner's visible-testing direction. PULSEAI_BROWSER_RECORD=off
+    """hermes gates on browser.record_sessions (default False); crusor defaults
+    ON per the owner's visible-testing direction. CRUSORAI_BROWSER_RECORD=off
     restores hermes' posture."""
-    raw = os.environ.get("PULSEAI_BROWSER_RECORD", "").strip().lower()
+    raw = os.environ.get("CRUSORAI_BROWSER_RECORD", "").strip().lower()
     if raw in _OFF_WORDS:
         return False
     if raw in _ON_WORDS:
@@ -356,10 +356,10 @@ def recording_enabled() -> bool:
 
 
 def recordings_dir() -> Path:
-    """hermes: <hermes_home>/browser_recordings, cleaned at 72h. Pulse: under
+    """hermes: <hermes_home>/browser_recordings, cleaned at 72h. Crusor: under
     the home dot-dir, with an env override for desktop installs."""
-    override = os.environ.get("PULSEAI_BROWSER_RECORDINGS_DIR", "").strip()
-    base = Path(override) if override else Path.home() / ".pulseai" / "browser_recordings"
+    override = os.environ.get("CRUSORAI_BROWSER_RECORDINGS_DIR", "").strip()
+    base = Path(override) if override else Path.home() / ".crusorai" / "browser_recordings"
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -403,7 +403,7 @@ def stop_browser_recording(session: str) -> Optional[str]:
 def stop_browser_recording_for_thread(thread_id: str) -> Optional[str]:
     """Turn-end hook (chat_graph): save the recording for this turn's session.
     hermes stops in cleanup_browser ('saves the file before close'); the turn
-    end is pulse's closest equivalent of session close."""
+    end is crusor's closest equivalent of session close."""
     return stop_browser_recording(_session_name(thread_id))
 
 
@@ -418,9 +418,9 @@ def _command_env(session_name: str) -> Dict[str, str]:
 
 
 def _command_timeout() -> int:
-    """hermes browser.command_timeout (default 30s, floor 5s); pulse's config
+    """hermes browser.command_timeout (default 30s, floor 5s); crusor's config
     shape is the env, read PER CALL (standing rule)."""
-    raw = os.environ.get("PULSEAI_BROWSER_COMMAND_TIMEOUT", "").strip()
+    raw = os.environ.get("CRUSORAI_BROWSER_COMMAND_TIMEOUT", "").strip()
     try:
         return max(int(raw), 5) if raw else DEFAULT_COMMAND_TIMEOUT
     except ValueError:
@@ -437,7 +437,7 @@ def _open_timeout(*, first_open: bool) -> int:
 def build_session_args(session: str) -> List[str]:
     """hermes browser_tool_session (:589-591): local sessions ride
     `--session <name>`, plus `--headed` when the window should be visible
-    (hermes _is_headed_mode; pulse default ON — owner visible-testing)."""
+    (hermes _is_headed_mode; crusor default ON — owner visible-testing)."""
     backend_args = ["--session", session]
     if headed_mode():
         backend_args.append("--headed")
@@ -623,14 +623,14 @@ def _handle_command_timeout(session: str, socket_dir: str) -> None:
         _kill_process_tree(pid)
     shutil.rmtree(socket_dir, ignore_errors=True)
     # the daemon is gone: the session state goes with it (hermes evicts the
-    # session record; pulse's session is stateless, so just the flags)
+    # session record; crusor's session is stateless, so just the flags)
     with _recording_lock:
         _RECORDING_SESSIONS.discard(session)
         _FIRST_NAV_SEEN.discard(session)
 
 
 # Per-session first-navigation flag (hermes keeps `_first_nav` on the session
-# record; pulse's session is a name, so the flag lives here and dies with the
+# record; crusor's session is a name, so the flag lives here and dies with the
 # daemon in _handle_command_timeout).
 _FIRST_NAV_SEEN: set = set()
 
@@ -708,7 +708,7 @@ def _url_policy_error(url: str) -> Optional[Dict[str, Any]]:
 
 
 # hermes runs a normalize step on every navigate URL (url_safety.
-# normalize_url_for_request — whitespace repair, IRI->URI). Pulse's field
+# normalize_url_for_request — whitespace repair, IRI->URI). Crusor's field
 # adds two model-emitted shapes that Chrome silently blanks: a bare
 # host:port ("localhost:3000" parses as scheme "localhost:") and Windows
 # paths ("d:\app\index.html", git-bash "/d/app/index.html"). Same
@@ -743,7 +743,7 @@ def normalize_browser_url(url: str) -> str:
 def _snapshot_threshold() -> int:
     """hermes browser.snapshot_threshold (default 15000, floor 1000), read
     PER CALL."""
-    raw = os.environ.get("PULSEAI_BROWSER_SNAPSHOT_THRESHOLD", "").strip()
+    raw = os.environ.get("CRUSORAI_BROWSER_SNAPSHOT_THRESHOLD", "").strip()
     try:
         return max(int(raw), MIN_SNAPSHOT_THRESHOLD) if raw else DEFAULT_SNAPSHOT_THRESHOLD
     except ValueError:
@@ -781,7 +781,7 @@ def _snapshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
         if cut < MIN_SNAPSHOT_THRESHOLD:
             cut = threshold
         try:
-            snap_dir = Path.home() / ".pulseai" / "browser" / "snapshots"
+            snap_dir = Path.home() / ".crusorai" / "browser" / "snapshots"
             snap_dir.mkdir(parents=True, exist_ok=True)
             stored = snap_dir / "last-full-snapshot.txt"
             stored.write_text(snapshot_text[:MAX_STORED_SNAPSHOT_CHARS], encoding="utf-8")
@@ -819,7 +819,7 @@ def _session_from_config(config: RunnableConfig) -> str:
 
 # ---------------------------------------------------------------------------
 # The tools — hermes BROWSER_TOOL_SCHEMAS: names, contracts, descriptions.
-# Descriptions are the teaching; only references to tools pulse lacks are
+# Descriptions are the teaching; only references to tools crusor lacks are
 # adapted (web_extract -> web_fetch; the vision-tool sentence in get_images),
 # per the port rule: the block never names a tool the runtime lacks.
 # ---------------------------------------------------------------------------
@@ -837,7 +837,7 @@ def browser_navigate(
     # hermes browser_navigate: only the session's FIRST navigation pays the
     # 120s cold first-open floor; every later navigation runs warm with the
     # 60s floor (hermes `_first_nav` on the session record). The recording
-    # start keeps pulse's own once-per-recording-era guard (turn-scoped:
+    # start keeps crusor's own once-per-recording-era guard (turn-scoped:
     # stop_browser_recording re-arms it, the owner's visible-testing
     # contract). _handle_command_timeout forgets the flag together with the
     # daemon it tree-killed, so a fresh daemon is cold again — hermes' rule.
@@ -1008,8 +1008,8 @@ def browser_screenshot(name: str = "page", config: RunnableConfig = None) -> str
     inside browser_vision (`screenshot [--full] <path>`, hermes
     _capture_vision_screenshot); the description above is hermes
     browser_vision's teaching adapted to this tool (the auxiliary
-    vision-model fallback sentence is pulse's browser_vision counterpart
-    that does not exist here). Pulse keeps it as its own tool because the
+    vision-model fallback sentence is crusor's browser_vision counterpart
+    that does not exist here). Crusor keeps it as its own tool because the
     deterministic verify_ui_* pipeline consumes the quality receipt; the
     backend is hermes' exactly (agent-browser screenshot command).
     """

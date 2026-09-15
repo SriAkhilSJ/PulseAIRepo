@@ -4,7 +4,7 @@ Two hardcodes used to sit in the send path (`src/graphs/chat_graph.py`, both del
 
     max_tokens=max(512, min(delivery_cap, 8192))
 
-`delivery_cap` is the user's own setting (PULSEAI_DELIVERY_MAX_TOKENS), and then a bare 8,192 clamped it,
+`delivery_cap` is the user's own setting (CRUSORAI_DELIVERY_MAX_TOKENS), and then a bare 8,192 clamped it,
 whatever the model said. On an endpoint that reports max_output_tokens = 512,000 that cap is not protection,
 it is an unannounced policy: it throttles the reply to a number nobody chose, and it is invisible in every
 receipt because it never went through the budget layer. Per the standing instruction -- the provider is asked
@@ -46,7 +46,7 @@ def requested_output_cap(model: str | None, provider: str | None = None, request
     small one.
     """
     if requested is None:
-        raw = os.environ.get("PULSEAI_DELIVERY_MAX_TOKENS", "").strip()
+        raw = os.environ.get("CRUSORAI_DELIVERY_MAX_TOKENS", "").strip()
         try:
             requested = int(raw) if raw else DEFAULT_REQUESTED
         except ValueError:

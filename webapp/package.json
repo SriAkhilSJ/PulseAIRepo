@@ -1,9 +1,9 @@
 {
-  "name": "pulseai-spa",
+  "name": "crusorai-spa",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "PulseAI chat surface — hermes desktop chat components rendered as a website. Built bundle is copied to desktop/vscode/src/vs/workbench/contrib/pulseai/browser/media/pulseai-spa/ where pulseAIViewPane.ts loads it (fixes 'Not allowed to load local resource').",
+  "description": "CrusorAI chat surface — hermes desktop chat components rendered as a website. Built bundle is copied to desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorai-spa/ where crusorAIViewPane.ts loads it (fixes 'Not allowed to load local resource').",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

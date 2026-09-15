@@ -1,7 +1,7 @@
 
 ---
 
-# Lab Test 2 — shadcn/Spline component integration (agent under test: PulseAgent)
+# Lab Test 2 — shadcn/Spline component integration (agent under test: CrusorAgent)
 
 **Date:** 2026-08-09 · **Tester:** lab harness (`lab/run_eval_shadcn.py`, `lab/resume_eval_shadcn.py`)
 **Task:** *"Integrate an existing React component…"* — full verbatim shadcn prompt: copy SplineScene/demo/Card/Spotlight into `/components/ui`, install `@splinetool/runtime`, `@splinetool/react-spline`, `framer-motion`, and if the project lacks Tailwind/TS/shadcn, provide setup instructions; explain the `/components/ui` convention.
@@ -27,7 +27,7 @@
 | F2 | **`stream_agent` None-planner guard** (two-line) — previously any planner-noop event crashed the whole session on `.get("plan")`. Verified: resume after disk-full crash did **not** crash. | `src/graphs/chat_graph.py` |
 | F3 | **ai-node provider failover** — `llm_with_tools.invoke` wrapped; on 403/413/400/429/5xx falls back to the primary provider instead of killing the turn. | `src/graphs/chat_graph.py` |
 | F8-class | **Recovery pivot** — progress classifier now recognizes *environment-level* tool failures (npx/npm shim not found) and steers the agent to a **strategy switch** (write files manually / provide instructions) instead of retry-until-dead. This is what turned run 1's freeze into run 2's manual-scaffold pivot. | `src/graphs/progress_helpers.py`, `chat_graph.py` |
-| — | **Repo-map quadratic blowup** — `_compress_map` removed one file per loop and rebuilt the entry list each time → O(n²); the 15k-file `desktop/` fork turned repo-map builds into >600s hangs. Now binary-searches the smallest victim-count (O(n log n), same output) + `PULSEAI_REPO_MAP_MAX_FILES` bound. | `src/context/repo_map.py` |
+| — | **Repo-map quadratic blowup** — `_compress_map` removed one file per loop and rebuilt the entry list each time → O(n²); the 15k-file `desktop/` fork turned repo-map builds into >600s hangs. Now binary-searches the smallest victim-count (O(n log n), same output) + `CRUSORAI_REPO_MAP_MAX_FILES` bound. | `src/context/repo_map.py` |
 | — | **Planner graceful degradation** — no-plan path emits a degraded plan message instead of None. | `src/agents/planner.py` + graph wiring |
 | — | **Env/tooling**: fresh `uv sync` venv in-repo; removed torch/sentence-transformers (Python 3.14 memory-layer hang — designed degraded path); `lab/py` wrapper (C: base interpreter + in-repo venv site-packages, since D: blocks venv exe execution). | `lab/py` |
 
@@ -93,7 +93,7 @@ per-call prompt = 15,239 tokens = **5,686 tool defs + 3,654 context layers + 1,8
 
 1. **Finish-gate (already shipped in Test-1 era) held** — runs 1-2 died in 7-18s with "Finished" after zero work; the hermes-style nudge (conversation_loop.py `_CODEX_INCOMPLETE_NUDGE`) made run 3+ actually execute.
 2. **cmd.exe `mkdir app/components` quirk** — `/` parses as a switch; now classified env-failure → strategy pivot (progress_helpers.py marker added).
-3. **C: drive killed the run twice** — checkpointer moved to D: via env override (`PULSEAI_CHECKPOINT_DB`); puppeteer browser cache (2.1GB) was landing on C: by default → moved to `D:\puppeteer-cache` + `PUPPETEER_CACHE_DIR` hardcoded into browser_mcp.py spawn env + setx'd machine-wide.
+3. **C: drive killed the run twice** — checkpointer moved to D: via env override (`CRUSORAI_CHECKPOINT_DB`); puppeteer browser cache (2.1GB) was landing on C: by default → moved to `D:\puppeteer-cache` + `PUPPETEER_CACHE_DIR` hardcoded into browser_mcp.py spawn env + setx'd machine-wide.
 4. **NEW — the agent shipped ~15 syntax/type bugs** (recursion limit cut it before build-verify): `() {` missing arrow, JSX concat in attribute, lucide `MoreVert`/`BotMessageSquare`/`CircleHelp` (wrong names for 0.306), react-markdown v9 `inline` removed, prism-react-renderer v2 `Highlighter`→`Highlight`, and a scroll-area that **silently swallowed children**. Root cause: writes were blind (no per-file check) and nothing forced verification before finalize.
 
 ## Fixes shipped (hermes `file_operations.py` LINTERS/LSP pattern)

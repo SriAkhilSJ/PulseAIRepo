@@ -1,4 +1,4 @@
-# What PulseAI Should Steal From NousResearch `hermes-agent`
+# What CrusorAI Should Steal From NousResearch `hermes-agent`
 
 **Date:** 2026-09-11 (regenerated 2026-08-07 after sandbox wipe — all receipts re-verified against a fresh clone)
 **Direction:** yours — *"READ AND EXTRACT THE VALUE OF THAT CODEBASE. DON'T BE SCARED OR CONCLUDE BY CODEBASE."*
@@ -138,7 +138,7 @@ Four small hardenings that together decide whether a 3-hour session stays sharp:
 
 ## SECOND PASS — 2026-08-07 (deep scan of the unmined subsystems)
 
-Direction: founder — "AS I SAID U: CHECK HERMES AGENT, WHAT IT DOES, CAPTURE ITS VALUE AND IMPLEMENT IN THE PULSEAI."
+Direction: founder — "AS I SAID U: CHECK HERMES AGENT, WHAT IT DOES, CAPTURE ITS VALUE AND IMPLEMENT IN THE CRUSORAI."
 
 | # | Steal | Status | Receipt |
 |---|-------|--------|---------|
