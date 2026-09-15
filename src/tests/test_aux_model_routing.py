@@ -23,13 +23,12 @@ from src.llm.factory import RetryLLMProxy
 
 
 # ------------------------------------------------------------- resolution
-def test_aux_resolution_cheap_table_default(monkeypatch):
+def test_aux_resolution_cheap_default(monkeypatch):
     monkeypatch.delenv("AUX_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
-    monkeypatch.setattr(settings, "LLM_PROVIDER", "groq")
-    monkeypatch.setattr(settings, "LLM_MODEL", "qwen/qwen3.6-27b")
+    monkeypatch.delenv("PULSEAI_CHEAP_MODEL", raising=False)
     provider, model = settings.resolve_aux_llm()
-    assert (provider, model) == ("groq", "llama-3.1-8b-instant")
+    assert (provider, model) == ("cheap", "qwen/qwen3.7-flash")
 
 
 def test_aux_resolution_env_override_wins(monkeypatch):
@@ -39,13 +38,12 @@ def test_aux_resolution_env_override_wins(monkeypatch):
     assert (provider, model) == ("openai", "gpt-4o-mini-custom")
 
 
-def test_aux_resolution_unknown_provider_falls_back_to_main(monkeypatch):
+def test_aux_resolution_cheap_model_from_env(monkeypatch):
     monkeypatch.delenv("AUX_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
-    monkeypatch.setattr(settings, "LLM_PROVIDER", "custom")
-    monkeypatch.setattr(settings, "LLM_MODEL", "my-local-model")
+    monkeypatch.setenv("PULSEAI_CHEAP_MODEL", "my-local-model")
     provider, model = settings.resolve_aux_llm()
-    assert (provider, model) == ("custom", "my-local-model")
+    assert (provider, model) == ("cheap", "my-local-model")
 
 
 # ---------------------------------------------------------------- factory

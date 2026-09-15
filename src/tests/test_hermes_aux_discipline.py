@@ -99,13 +99,13 @@ def test_classifier_route_resolves_fresh_per_call(monkeypatch, _custom_route):
     assert proxy._llm.model_name == "llama-3.1-8b-instant"
 
     monkeypatch.delenv("AUX_LLM_MODEL", raising=False)
-    # unset env + unknown provider -> the documented MAIN-MODEL fallback
-    # ("identical behavior, the safe degradation"). Whatever LLM_MODEL
-    # resolves to in this environment IS the contract.
+    # unset env + custom provider -> resolve_aux_llm() returns the cheap
+    # default ("cheap", "qwen/qwen3.7-flash"). Only if resolve_aux_llm()
+    # itself throws does _task_manager_llm fall back to the main model.
     from src.config import settings as settings_mod
 
     proxy = chat_graph._task_manager_llm("custom", "auto/best-chat")
-    assert proxy._llm.model_name == settings_mod.LLM_MODEL
+    assert proxy._llm.model_name == settings_mod.AUX_LLM_MODEL
 
 
 def test_route_budget_logged_once(capsys, monkeypatch, _custom_route):
@@ -187,10 +187,14 @@ def test_run_terminal_caps_monstrous_output(tmp_path):
 
     from src.tools.terminal_tools import run_terminal
 
-    command = (
+    if sys.platform == "win32":
+        from src.runtime.windows_shell import windows_bash_available
+        use_bash = windows_bash_available()
+    else:
+        use_bash = False
+
+    command = "seq 1 200000" if (sys.platform != "win32" or use_bash) else \
         "for /l %i in (1,1,200000) do @echo line-%i"
-        if sys.platform == "win32" else "seq 1 200000"
-    )
     result = run_terminal.invoke(
         {"command": command},
         config={"configurable": {"workspace": str(tmp_path)}},

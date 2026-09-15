@@ -49,8 +49,6 @@ export function PulseComposer({ onQueue, onSteer, onStop, onSubmit, signals }: P
     }
 
     event.preventDefault();
-    // While the agent is working, Enter STEERS (the turn adopts the line); a
-    // ⌘/Ctrl+Enter queues it for after the turn, matching the fork's behavior.
     send(event.metaKey || event.ctrlKey ? 'queue' : busy ? 'steer' : 'send');
   };
 

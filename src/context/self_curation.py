@@ -148,10 +148,13 @@ def _review_snapshot(thread_id: str, messages: list) -> int:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     try:
+        print(f"[SelfReview] aux review calling {getattr(llm, '_llm', llm)}", flush=True)
         response = llm.invoke([
             SystemMessage(content=_MEMORY_REVIEW_PROMPT),
             HumanMessage(content=digest),
         ])
+        content = str(getattr(response, "content", ""))[:200]
+        print(f"[SelfReview] aux review answered ({len(content)} chars): {content[:120]}...", flush=True)
     except Exception as exc:
         print(f"[SelfReview] aux review call failed ({exc!r})")
         return 0
@@ -160,13 +163,10 @@ def _review_snapshot(thread_id: str, messages: list) -> int:
     if not prefs:
         return 0
 
-    # The memory write goes outside the lock (durable vector store); the
-    # in-flight marker is cleared before writing so the NEXT snapshot can
-    # start while slow embedding I/O finishes — why synchronous handoff.
     from src.graphs.chat_graph import memory_manager
 
     if memory_manager is None:
-        print("[SelfReview] memory disabled (degraded boot) — skipping write")
+        print(f"[SelfReview] aux review found {len(prefs)} preference(s) but memory disabled — skipping write")
         return 0
     written = 0
     for pref in prefs:
@@ -204,33 +204,34 @@ def maybe_spawn_memory_review(
     messages: list | None = None,
     *,
     force: bool = False,
-) -> None:
+) -> bool:
     """Post-run hook: spawn a bounded background memory review.
 
     Gated on MEMORY_NUDGE_INTERVAL (default 8 user turns, 0 = off) and
     per-session in-flight markers. ``force`` bypasses the interval (used by
     tests and explicit /review triggers). Never raises.
+    Returns True if a review thread was actually spawned.
     """
     try:
         interval = int(os.environ.get("MEMORY_NUDGE_INTERVAL", "8"))
     except ValueError:
         interval = 8
     if interval <= 0:
-        return
+        return False
 
     if not force:
-# Per-thread turn counter (process-local; coarse but matches the
-    # dashboard's single-worker reality).
+        # Per-thread turn counter (process-local; coarse but matches the
+        # dashboard's single-worker reality).
         key = f"{thread_id}:turns"
         with _turn_counts_lock:
             count = _turn_counts.get(key, 0) + 1
             _turn_counts[key] = count
         if count % interval != 0:
-            return
+            return False
 
     with _in_flight_lock:
         if _in_flight.get(thread_id):
-            return
+            return False
         _in_flight[thread_id] = True
 
     if messages is None:
@@ -246,5 +247,6 @@ def maybe_spawn_memory_review(
     if not messages:
         with _in_flight_lock:
             _in_flight.pop(thread_id, None)
-        return
+        return False
     _spawn(thread_id, messages)
+    return True

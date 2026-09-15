@@ -981,17 +981,27 @@ def ai_node(
     base_provider = _cfg(configurable, "provider", LLM_PROVIDER)
     base_model = _cfg(configurable, "model", LLM_MODEL)
 
-    # Cost-aware routing: try to use a cheaper/better model for this task
-    task_for_routing = state.get("current_task", "")
-    plan_for_routing = state.get("plan", [])
-    if _is_autonomous_workspace(config):
-        # The guarded runner authorizes one named provider/model. Never route a
-        # headless paid run through process-global alternative credentials.
-        routed_provider, routed_model = base_provider, base_model
-    else:
-        routed_provider, routed_model = cost_router.route(
-            task_for_routing, plan_for_routing
-        )
+    # Hermes-style: always use the user's configured main model.
+    # No cost routing on the main conversation path — auxiliary tasks
+    # (compression, titling) use resolve_aux_llm() separately.
+    # Allow /model <model_id> command to override the model for this turn.
+    routed_provider, routed_model = base_provider, base_model
+    messages = state.get("messages", [])
+    if messages:
+        last_user_msg = None
+        for msg in reversed(messages):
+            if hasattr(msg, "content") and getattr(msg, "role", None) == "user":
+                last_user_msg = msg
+                break
+        if last_user_msg and hasattr(last_user_msg, "content"):
+            content = last_user_msg.content if isinstance(last_user_msg.content, str) else ""
+            if content.startswith("/model "):
+                override_model = content[7:].strip()
+                if override_model:
+                    routed_model = override_model
+                    # Extract provider from model id (e.g. "openai/gpt-4o" -> "openai")
+                    if "/" in override_model:
+                        routed_provider = override_model.split("/")[0]
 
     provider = routed_provider
     model = routed_model
@@ -4864,8 +4874,9 @@ def stream_agent(
         # checkpointer and reviewed on a daemon thread.
         from src.context.self_curation import maybe_spawn_memory_review
         try:
-            maybe_spawn_memory_review(thread_id)
-            print("[turn] post-run review spawned", flush=True)
+            spawned = maybe_spawn_memory_review(thread_id)
+            if spawned:
+                print("[turn] post-run review spawned", flush=True)
         except Exception:
             pass
 

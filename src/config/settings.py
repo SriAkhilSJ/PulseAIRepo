@@ -54,12 +54,12 @@ _AUX_CHEAP_TABLE: dict[str, str] = {
 def resolve_aux_llm() -> tuple[str, str]:
     """(provider, model) for management-class calls.
 
-    Env overrides win; else the per-provider cheap table (unknown/custom
-    providers fall back to the MAIN model — identical behavior, the safe
-    degradation; configure AUX_LLM_MODEL to actually save).
+    Routes to the cheap tier by default (provider="cheap" triggers
+    PULSEAI_CHEAP_API_KEY / PULSEAI_CHEAP_BASE_URL / PULSEAI_CHEAP_MODEL
+    in factory.get_llm). Override via AUX_LLM_PROVIDER / AUX_LLM_MODEL.
     """
-    provider = os.getenv("AUX_LLM_PROVIDER", LLM_PROVIDER)
-    model = os.getenv("AUX_LLM_MODEL") or _AUX_CHEAP_TABLE.get(provider, LLM_MODEL)
+    provider = os.getenv("AUX_LLM_PROVIDER", "cheap")
+    model = os.getenv("AUX_LLM_MODEL") or os.getenv("PULSEAI_CHEAP_MODEL", "qwen/qwen3.7-flash")
     return provider, model
 
 

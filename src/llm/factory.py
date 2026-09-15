@@ -1028,6 +1028,10 @@ def get_auxiliary_llm() -> RequestScopedAuxLLM:
     """Return a reusable facade with request-owned management transports."""
     from src.config.settings import AUX_LLM_MODEL, AUX_LLM_PROVIDER
 
+    print(
+        f"[aux] routing to {AUX_LLM_PROVIDER}/{AUX_LLM_MODEL}",
+        flush=True,
+    )
     return RequestScopedAuxLLM(AUX_LLM_PROVIDER, AUX_LLM_MODEL)
 
 
