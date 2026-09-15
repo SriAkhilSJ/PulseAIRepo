@@ -51,6 +51,7 @@ PulseAI IDE is a Code OSS fork with a first-party autonomous coding agent named 
 - Parallel tool execution with conflict detection and deterministic fallback.
 - Lazy, workspace-pinned access to read-only native Code OSS intelligence: editor context, dirty text, diagnostics, symbols, definitions, references, search, SCM, and trust. Mutation/extension/MCP host invocation remains gated for later phases.
 - Multi-provider support for Groq, OpenAI-compatible endpoints (including Velona), Gemini, and NVIDIA.
+- **Aux provider routing**: Management-class calls (compression, titling, memory review) automatically use the cheap tier by default (`provider="cheap"`). Configure via `PULSEAI_CHEAP_API_KEY`, `PULSEAI_CHEAP_BASE_URL`, `PULSEAI_CHEAP_MODEL` env vars. Override with `AUX_LLM_PROVIDER` / `AUX_LLM_MODEL`.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
 - Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
 - Hermes parity: tool names, prompt text, plan cards, and UI rendering match hermes desktop app behavior.

@@ -185,9 +185,42 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
 | `pulse-webview/src/a2ui/renderers.tsx` | Wired button `onClick` |
 | `pulse-webview/src/__tests__/` | Provider-free DOM harness + operations fixture |
 
+## Recent changes
+
+### Aux provider routing fix (2026-09-15)
+
+Fixed aux provider routing so management-class calls (compression, titling, memory review) use the cheap tier by default instead of falling back to OpenRouter models.
+
+**Changes:**
+- `src/config/settings.py`: `resolve_aux_llm()` now defaults to `provider="cheap"` instead of `LLM_PROVIDER`
+- `src/llm/factory.py`: Added debug logging for aux routing
+- `src/context/self_curation.py`: Improved logging, `maybe_spawn_memory_review()` now returns bool
+- `src/graphs/chat_graph.py`: Removed cost routing from main conversation path, added `/model` command
+- Tests updated to match new behavior
+
+**Configuration:**
+```env
+# Cheap provider for aux calls (defaults)
+PULSEAI_CHEAP_API_KEY=your-key
+PULSEAI_CHEAP_BASE_URL=https://velona.in/v1
+PULSEAI_CHEAP_MODEL=qwen/qwen3.7-flash
+
+# Override aux routing (optional)
+AUX_LLM_PROVIDER=custom
+AUX_LLM_MODEL=your-model
+```
+
+---
+
 ## Commit history
 
 ```
+0f829c1e  fix: aux provider routing to use cheap tier by default
+3d199b71  Rebuild PulseAI webview SPA + fix STALE workbench
+60c75c51  Dropped tool-call recovery + cost router improvements
+d886a591  Velona provider, context window priority, tool cap, Windows charmap fix
+bde38d97  hide todo stack above composer + rebuild webview
+8648ddf4  ui: hide plan checklist panel to maximize chat box (todo list already perfect)
 cab30792  chore: add .env for arena verification          ← reverted (untracked again); see Open items #1
 4f88a907  fix(copilotkit): make the Pulse agent actually render end-to-end
 14b8862b  feat: Hermes-grade context/security + CopilotKit desktop fixed-right
