@@ -47,6 +47,17 @@ def allowed_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
+def slo_targets() -> dict[str, float]:
+    raw = os.environ.get("CRUSORAI_OPS_SLO_TARGETS", "").strip()
+    base = {"completion": 0.90, "p95_latency_s": 120.0, "uptime": 0.999}
+    if raw:
+        try:
+            base.update({k: float(v) for k, v in json.loads(raw).items()})
+        except Exception:
+            pass
+    return base
+
+
 def host_port() -> tuple[str, int]:
     host = os.environ.get("CRUSORAI_OPS_HOST", "127.0.0.1").strip() or "127.0.0.1"
     try:

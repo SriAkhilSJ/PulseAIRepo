@@ -169,3 +169,4 @@ select, input[type="search"] {
 .err-msg { color: var(--err); font-size: 13px; padding: 10px; }
 .livedot { width: 8px; height: 8px; border-radius: 99px; background: var(--ok); box-shadow: 0 0 8px var(--ok); display: inline-block; }
 .livedot.off { background: var(--muted); box-shadow: none; }
+.tl .ev.turn_receipt::before { background: var(--info); }

@@ -32,23 +32,31 @@ def health() -> dict[str, Any]:
 @router.get("/sessions")
 def sessions(limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
     rows = journal.list_sessions(limit=limit)
+    seen = {r["session_id"] for r in rows}
     recv = {r.get("session"): r for r in receipts.turns(days=30, limit=5000)}
     for row in rows:
         r = recv.get(row["session_id"])
         row["cost_usd"] = round(r["_cost"], 4) if r else None
         row["tokens"] = r["_tokens"] if r else None
         row["model"] = r.get("model") if r else None
-    return {"sessions": rows}
+    # receipts-only sessions (live deployments where the journal lacks rows)
+    for rs in receipts.sessions_from_receipts():
+        if rs["session_id"] not in seen:
+            rows.append(rs)
+            seen.add(rs["session_id"])
+    rows.sort(key=lambda x: x.get("last_at") or 0, reverse=True)
+    return {"sessions": rows[:limit]}
 
 
 @router.get("/sessions/{session_id}/trace")
 def trace(session_id: str) -> dict[str, Any]:
     events = journal.session_trace(session_id)
     if not events:
-        # receipts-only fallback: sessions that predate journaling still show usage
+        # receipts-only fallback: synthesize a replay-able timeline from the sink
         recv = [r for r in receipts.turns(days=30, limit=5000) if r.get("session") == session_id]
         if not recv:
             raise HTTPException(404, "session not found")
+        events = receipts.synthetic_trace_events(session_id)
     tools: dict[str, dict[str, Any]] = {}
     turns: list[dict[str, Any]] = []
     cur_turn: dict[str, Any] | None = None
@@ -255,7 +263,7 @@ def slo(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     cost = sum(r["_cost"] for r in recs)
     durs = sorted(float(r.get("duration_s") or 0) for r in recs)
     p95 = durs[min(len(durs) - 1, int(0.95 * len(durs)))] if durs else None
-    targets = {"completion": 0.90, "p95_latency_s": 120.0, "uptime": 0.999}
+    targets = config.slo_targets()
     current = {
         "completion": round(done / n, 4) if n else None,
         "p95_latency_s": p95,

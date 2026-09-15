@@ -27,6 +27,8 @@ const evBody = (ev: TraceEvent): React.ReactNode => {
       return <span style={{ color: "var(--err)" }}>{p.error}</span>;
     case "turn_done":
       return <span style={{ color: "var(--ok)" }}>{p.summary || "completed"}</span>;
+    case "turn_receipt":
+      return <>receipt sink: <code>{p.model}</code> in/out/cache {String(p.tokens_in)}/{String(p.tokens_out)}/{String(p.tokens_cache)} · ${String(p.cost_usd)} · {p.completed ? <span style={{ color: "var(--ok)" }}>completed</span> : <span style={{ color: "var(--err)" }}>failed {String(p.error)}</span>}</>;
     case "runtime_degraded":
       return <span style={{ color: "var(--warn)" }}>degraded: {p.reason} (layer {p.layer})</span>;
     default:

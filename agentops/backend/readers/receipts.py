@@ -64,6 +64,63 @@ def turns(days: int = 7, limit: int = 500) -> list[dict[str, Any]]:
     return recs[-limit:]
 
 
+def sessions_from_receipts() -> list[dict[str, Any]]:
+    """Receipts-only session view: the observability sink alone powers Sessions
+    when the journal has no rows for a session (typical live deployment)."""
+    recs = turns(days=30, limit=20000)
+    agg: dict[str, dict[str, Any]] = {}
+    for r in recs:
+        sid = str(r.get("session") or "?")
+        a = agg.setdefault(sid, {
+            "session_id": sid, "started_at": r["_ts"], "last_at": r["_ts"],
+            "events": 0, "turns": 0, "failures": 0, "workspace": "",
+            "mode": r.get("execution_mode") or "agent", "model": r.get("model"),
+            "cost_usd": 0.0, "tokens": 0,
+        })
+        a["last_at"] = max(a["last_at"], r["_ts"])
+        a["started_at"] = min(a["started_at"], r["_ts"])
+        a["turns"] += 1
+        a["cost_usd"] = round(a["cost_usd"] + r["_cost"], 4)
+        a["tokens"] += r["_tokens"]
+        if not r.get("completed"):
+            a["failures"] += 1
+    import time as _t
+    now = _t.time()
+    out = []
+    for a in agg.values():
+        a["status"] = "failed" if a["failures"] and a["failures"] >= a["turns"] else (
+            "active" if now - a["last_at"] <= 300 else "idle")
+        out.append(a)
+    out.sort(key=lambda x: x["last_at"], reverse=True)
+    return out
+
+
+def synthetic_trace_events(session_id: str) -> list[dict[str, Any]]:
+    """Replay-able timeline synthesized from receipts when the journal has no rows."""
+    out = []
+    seq = 0
+    for r in turns(days=30, limit=20000):
+        if r.get("session") != session_id:
+            continue
+        seq += 1
+        tok = r.get("tokens") or {}
+        out.append({
+            "seq": seq, "event_id": f"rcpt-{seq}", "created_at": r["_ts"],
+            "event_type": "turn_receipt", "session_id": session_id,
+            "turn_id": r.get("turn"), "workspace_id": None, "tool_call_id": None,
+            "payload": {
+                "model": r.get("model"), "provider": r.get("provider"),
+                "tokens_in": tok.get("input"), "tokens_out": tok.get("output"),
+                "tokens_cache": tok.get("cache"), "cost_usd": round(r["_cost"], 6),
+                "duration_s": r.get("duration_s"), "mode": r.get("execution_mode"),
+                "task_type": r.get("task_type"), "completed": r.get("completed"),
+                "error": r.get("error"), "tool_calls": r.get("tool_calls"),
+                "source": "receipts-sink",
+            },
+        })
+    return out
+
+
 def kpis(days: int = 1) -> dict[str, Any]:
     recs = turns(days=days, limit=10000)
     prev = _load(config.receipts_path(), since_ts=time.time() - 2 * days * 86400)
