@@ -6,6 +6,8 @@ import SessionTrace from "./views/SessionTrace";
 import ContextHealth from "./views/ContextHealth";
 import Usage from "./views/Usage";
 import Approvals from "./views/Approvals";
+import Evals from "./views/Evals";
+import Learning from "./views/Learning";
 import Errors from "./views/Errors";
 import Settings from "./views/Settings";
 import { useApi, useStream } from "./lib/api";
@@ -37,6 +39,10 @@ export default function App() {
     view = <Usage />;
   } else if (route.startsWith("#/approvals")) {
     view = <Approvals />;
+  } else if (route.startsWith("#/evals")) {
+    view = <Evals />;
+  } else if (route.startsWith("#/learning")) {
+    view = <Learning />;
   } else if (route.startsWith("#/errors")) {
     view = <Errors />;
   } else if (route.startsWith("#/settings")) {

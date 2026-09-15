@@ -42,6 +42,14 @@ export default function Settings({ health }: { health: Health | null }) {
             analytics, context health, errors, approvals and audit — built on the IJCATR1407.1001
             AgentOps framework (monitoring · debugging · automation · security).
           </p>
+          <h3 style={{ marginTop: 14 }}>Compliance export [PDF §2.3]</h3>
+          <div style={{ display: "flex", gap: 10 }}>
+            <a className="chip ok" href="/api/export/audit?format=csv" download>⬇ audit pack (CSV)</a>
+            <a className="chip info" href="/api/export/audit?format=json" download>⬇ audit pack (JSON)</a>
+          </div>
+          <p className="muted" style={{ fontSize: 11.5 }}>
+            Immutable journal audit trail + turn receipts with computed costs — one file for compliance review.
+          </p>
           <h3 style={{ marginTop: 14 }}>Environment</h3>
           <table className="tbl">
             <tbody>

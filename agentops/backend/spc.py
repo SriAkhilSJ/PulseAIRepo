@@ -33,3 +33,21 @@ def chart(series: list[dict], key: str) -> dict:
             "ooc": i in limits["violations"],
         })
     return {**limits, "points": points}
+
+
+def js_divergence(p: dict[str, float], q: dict[str, float]) -> float:
+    """Jensen-Shannon divergence (symmetric, bounded [0, ln2]) [PDF §4.4 drift]."""
+    import math
+    keys = set(p) | set(q)
+    sp = sum(p.values()) or 1.0
+    sq = sum(q.values()) or 1.0
+    d = 0.0
+    for k in keys:
+        a = p.get(k, 0.0) / sp
+        b = q.get(k, 0.0) / sq
+        m = (a + b) / 2.0
+        if a > 0 and m > 0:
+            d += 0.5 * a * math.log(a / m)
+        if b > 0 and m > 0:
+            d += 0.5 * b * math.log(b / m)
+    return round(d, 4)

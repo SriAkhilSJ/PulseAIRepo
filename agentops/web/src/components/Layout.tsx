@@ -8,6 +8,8 @@ const NAV = [
   ["#/context", "Context Health", "◍"],
   ["#/usage", "Usage & Cost", "◔"],
   ["#/approvals", "Approvals", "✓"],
+  ["#/evals", "Evals", "⚑"],
+  ["#/learning", "Learning", "∿"],
   ["#/errors", "Errors & SLOs", "⚠"],
   ["#/settings", "Settings", "⚙"],
 ] as const;

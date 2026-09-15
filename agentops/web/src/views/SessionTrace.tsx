@@ -147,6 +147,7 @@ export default function SessionTrace({ id }: { id: string }) {
             </table>
           </div>
 
+          <SubagentCard id={id} />
           <div className="card">
             <h3>Turn receipts (tokens · cost)</h3>
             <table className="tbl">
@@ -168,5 +169,30 @@ export default function SessionTrace({ id }: { id: string }) {
         </div>
       </div>
     </>
+  );
+}
+
+function SubagentCard({ id }: { id: string }) {
+  const { data } = useApi<{ subagents: any[] }>(`/api/sessions/${encodeURIComponent(id)}/subagents`, [id]);
+  const subs = data?.subagents ?? [];
+  if (subs.length === 0) return null;
+  return (
+    <div className="card">
+      <h3>Sub-agents (coordination tree)</h3>
+      <table className="tbl">
+        <thead><tr><th>agent</th><th>role</th><th>status</th><th>dur</th><th>cost</th></tr></thead>
+        <tbody>
+          {subs.map((a) => (
+            <tr key={a.agent_id}>
+              <td className="mono">{a.agent_id}<div className="muted" style={{ maxWidth: 220 }}>{a.task}</div></td>
+              <td className="muted">{a.role}</td>
+              <td>{a.status === "ok" ? <Chip tone="ok">ok</Chip> : a.status === "failed" ? <Chip tone="err">failed</Chip> : <Chip tone="warn">running</Chip>}</td>
+              <td className="num muted">{fmtDur(a.done_at && a.spawned_at ? a.done_at - a.spawned_at : null)}</td>
+              <td className="num">{fmtUsd(a.cost_usd ?? null)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

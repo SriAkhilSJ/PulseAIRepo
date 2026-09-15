@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from .. import config, engine_proxy, spc
 from ..readers import approvals, journal, perf, prompts, receipts, status_snap
@@ -303,3 +303,76 @@ async def control_stop(body: dict[str, Any] = {}) -> dict[str, Any]:
     if engine_proxy.ENGINE_URL:
         raise HTTPException(501, "engine HTTP surface has no cancel route yet (bridge-only); use the IDE stop command")
     raise HTTPException(501, "kill switch requires demo mode or an engine cancel route")
+
+
+# ---------------------------------------------------------------- Phase 3 ----
+
+@router.get("/evals")
+def evals_view() -> dict[str, Any]:
+    from ..readers import evals as ev
+    return {"runs": ev.runs(), "regression": ev.regression(), "evidence": ev.evidence()}
+
+
+@router.get("/evals/ab")
+def evals_ab(days: int = Query(14, ge=1, le=90)) -> dict[str, Any]:
+    from ..readers import evals as ev
+    return ev.ab(days)
+
+
+@router.get("/learning")
+def learning_view() -> dict[str, Any]:
+    from ..readers import learning as le
+    return le.summary()
+
+
+@router.get("/security/scan")
+def security_scan(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+    from ..readers import security as se
+    return {"suspects": se.scan(days=days)}
+
+
+@router.get("/sessions/{session_id}/subagents")
+def subagents_view(session_id: str) -> dict[str, Any]:
+    from ..readers import subagents as sa
+    return {"subagents": sa.tree(session_id)}
+
+
+@router.get("/drift")
+def drift_view(days: int = Query(14, ge=2, le=90)) -> dict[str, Any]:
+    from ..readers import drift as dr
+    return dr.series(days)
+
+
+@router.get("/export/audit")
+def export_audit(format: str = Query("csv"), days: int = Query(30, ge=1, le=365)):
+    """Compliance export [PDF §2.3]: immutable journal audit + receipts as a file."""
+    import csv as _csv
+    import io as _io
+    from datetime import datetime as _dt
+
+    events = journal.audit(limit=20000, since_seq=0)
+    recs = receipts.turns(days=days, limit=20000)
+    stamp = _dt.utcnow().strftime("%Y%m%d-%H%M%S")
+    if format == "json":
+        payload = {"generated_at": stamp, "journal_events": events, "turn_receipts": [
+            {k: v for k, v in r.items() if not k.startswith("_")} | {"computed_cost_usd": round(r["_cost"], 6)} for r in recs]}
+        return Response(
+            content=json.dumps(payload, indent=2, default=str),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="crusorai-audit-{stamp}.json"'},
+        )
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["section", "seq_or_ts", "session", "turn", "type_or_model", "detail", "cost_usd"])
+    for e in events:
+        w.writerow(["journal", e["seq"], e["session_id"], e.get("turn_id") or "", e["event_type"],
+                    json.dumps(e.get("payload") or {}, default=str)[:500], ""])
+    for r in recs:
+        w.writerow(["receipt", r.get("ts"), r.get("session"), r.get("turn"), r.get("model"),
+                    f"mode={r.get('execution_mode')} completed={r.get('completed')} error={r.get('error')}",
+                    round(r["_cost"], 6)])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="crusorai-audit-{stamp}.csv"'},
+    )

@@ -96,6 +96,8 @@ export default function Usage() {
         </div>
       </div>
 
+      <DriftCard days={days} />
+
       <div className="card" style={{ marginTop: 14, padding: 0 }}>
         <table className="tbl">
           <thead>
@@ -119,5 +121,30 @@ export default function Usage() {
         </table>
       </div>
     </>
+  );
+}
+
+function DriftCard({ days }: { days: number }) {
+  const { data } = useApi<any>(`/api/drift?days=${days}`, [days]);
+  if (!data) return null;
+  const rows = [...(data.tool_mix ?? []).map((x: any) => ({ ...x, mix: "tool" })), ...(data.task_mix ?? []).map((x: any) => ({ ...x, mix: "task" }))];
+  rows.sort((a, b) => b.js - a.js);
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h3>Distribution drift — JS divergence day-over-day (threshold {data.threshold})</h3>
+      {rows.length === 0 && <div className="muted">need ≥2 days of traffic</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.slice(0, 8).map((r, i) => (
+          <div className="hbar" key={i}>
+            <div className="mono">{r.mix} {r.day.slice(5)}</div>
+            <div className="track"><div className="fill" style={{ width: `${Math.min(100, (r.js / Math.max(data.threshold * 2, 0.01)) * 100)}%`, background: r.flagged ? "linear-gradient(90deg,#8f2b2b,#f0564a)" : undefined }} /></div>
+            <div className="val">{r.js.toFixed(3)}{r.flagged ? " ⚑" : ""}</div>
+          </div>
+        ))}
+      </div>
+      <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+        ⚑ = shift above threshold — investigate tool/task-mix change [PDF §4.4]
+      </div>
+    </div>
   );
 }

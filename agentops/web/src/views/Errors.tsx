@@ -80,6 +80,8 @@ export default function Errors() {
         </div>
       </div>
 
+      <SecurityCard days={days} />
+
       <div className="card" style={{ marginTop: 14 }}>
         <h3>Runtime receipts (cache-break · degraded)</h3>
         <div className="ticker" style={{ maxHeight: 260 }}>
@@ -94,5 +96,25 @@ export default function Errors() {
         </div>
       </div>
     </>
+  );
+}
+
+function SecurityCard({ days }: { days: number }) {
+  const { data } = useApi<{ suspects: any[] }>(`/api/security/scan?days=${days}`, [days]);
+  const suspects = data?.suspects ?? [];
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h3>Prompt-injection suspicion scan [PDF §2.3]</h3>
+      {suspects.length === 0 && <div className="muted">no suspicious tool intents in window</div>}
+      <div className="ticker" style={{ maxHeight: 220 }}>
+        {suspects.map((s, i) => (
+          <div className="row" key={i}>
+            <span className="t">{new Date((s.ts || 0) * 1000).toLocaleTimeString([], { hour12: false })}</span>
+            <span className="k"><Chip tone="err">{s.reason}</Chip></span>
+            <span className="muted mono">{s.tool_name} · {shortId(s.session_id, 12)} · …{String(s.snippet).slice(0, 110)}…</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
