@@ -1,10 +1,10 @@
 name: @@NAME@@
 version: '@@VERSION@@'
-summary: Code editing. Redefined.
+summary: AI-native code editing. Redefined.
 description: |
-  Visual Studio Code is a new choice of tool that combines the
+  CrusorAI IDE is an AI-native code editor that combines the
   simplicity of a code editor with what developers need for the core
-  edit-build-debug cycle.
+  edit-build-debug cycle, with a built-in autonomous coding agent.
 
 architectures:
   - build-on: amd64
