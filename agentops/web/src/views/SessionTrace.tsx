@@ -38,7 +38,22 @@ export default function SessionTrace({ id }: { id: string }) {
   const { data, error, reload } = useApi<Trace>(`/api/sessions/${encodeURIComponent(id)}/trace`);
   const [idx, setIdx] = useState<number | null>(null); // null = live (show all)
   const [playing, setPlaying] = useState(false);
+  const [stopMsg, setStopMsg] = useState<string | null>(null);
   const ivRef = useRef<any>(0);
+
+  const kill = async () => {
+    try {
+      const res = await fetch("/api/control/stop", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: id }),
+      });
+      const body = await res.json();
+      setStopMsg(res.ok ? `kill switch signaled for ${id.slice(0, 12)}…` : `kill switch: ${body.detail || res.status}`);
+      setTimeout(reload, 1500);
+    } catch (e) {
+      setStopMsg(`kill switch failed: ${e}`);
+    }
+  };
 
   // refetch when the stream reports new journal rows for this session
   useStream(3, (ev) => {
@@ -73,7 +88,11 @@ export default function SessionTrace({ id }: { id: string }) {
         <span style={{ marginLeft: "auto" }}>
           {failed ? <Chip tone="err">has failures</Chip> : <Chip tone="ok">journaled</Chip>}
         </span>
+        <button className="seg" style={{ padding: 0 }} onClick={kill} title="kill switch [PDF §6]">
+          <span style={{ padding: "6px 12px", color: "var(--err)", fontWeight: 700 }}>⏹ stop session</span>
+        </button>
       </div>
+      {stopMsg && <div className="muted" style={{ marginBottom: 10, fontSize: 12.5 }}>{stopMsg}</div>}
 
       <div className="replay">
         <button onClick={() => { setIdx(1); setPlaying(true); }}>▶ replay</button>

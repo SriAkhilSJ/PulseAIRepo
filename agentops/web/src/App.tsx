@@ -3,7 +3,9 @@ import Layout from "./components/Layout";
 import Overview from "./views/Overview";
 import Sessions from "./views/Sessions";
 import SessionTrace from "./views/SessionTrace";
+import ContextHealth from "./views/ContextHealth";
 import Usage from "./views/Usage";
+import Approvals from "./views/Approvals";
 import Errors from "./views/Errors";
 import Settings from "./views/Settings";
 import { useApi, useStream } from "./lib/api";
@@ -29,8 +31,12 @@ export default function App() {
     view = <SessionTrace id={decodeURIComponent(route.slice("#/sessions/".length))} />;
   } else if (route.startsWith("#/sessions")) {
     view = <Sessions />;
+  } else if (route.startsWith("#/context")) {
+    view = <ContextHealth />;
   } else if (route.startsWith("#/usage")) {
     view = <Usage />;
+  } else if (route.startsWith("#/approvals")) {
+    view = <Approvals />;
   } else if (route.startsWith("#/errors")) {
     view = <Errors />;
   } else if (route.startsWith("#/settings")) {

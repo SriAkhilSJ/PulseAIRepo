@@ -13,6 +13,7 @@ export default function Usage() {
   const ser = useApi<{ series: SeriesPoint[] }>(`/api/usage/series?days=${days}`, [days]);
   const trn = useApi<{ turns: any[] }>(`/api/usage/turns?days=${days}&limit=200`, [days]);
   const tls = useApi<{ tools: ToolStat[] }>(`/api/tools/stats?days=${days}`, [days]);
+  const pf = useApi<{ percentiles: any[]; throughput: any[] }>(`/api/perf?days=${days}&group_by=model`, [days]);
 
   const rows = sum.data?.rows ?? [];
   const totCost = rows.reduce((a, r) => a + r.cost_usd, 0);
@@ -63,6 +64,35 @@ export default function Usage() {
               {(tls.data?.tools ?? []).length === 0 && <tr><td colSpan={4} className="muted">no tool intents journaled</td></tr>}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="grid cols-2" style={{ marginTop: 14 }}>
+        <div className="card">
+          <h3>Latency percentiles by model ({days}d)</h3>
+          <table className="tbl">
+            <thead><tr><th>model</th><th>n</th><th>p50</th><th>p95</th><th>p99</th><th>max</th></tr></thead>
+            <tbody>
+              {(pf.data?.percentiles ?? []).map((p) => (
+                <tr key={p.key}>
+                  <td className="mono">{p.key}</td>
+                  <td className="num muted">{p.n}</td>
+                  <td className="num">{fmtDur(p.p50)}</td>
+                  <td className="num">{fmtDur(p.p95)}</td>
+                  <td className="num">{fmtDur(p.p99)}</td>
+                  <td className="num muted">{fmtDur(p.max)}</td>
+                </tr>
+              ))}
+              {(pf.data?.percentiles ?? []).length === 0 && <tr><td colSpan={6} className="muted">no receipts in window</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="card">
+          <h3>Throughput (recent hourly buckets)</h3>
+          <HBars rows={(pf.data?.throughput ?? []).slice(-12).map((t: any) => ({ label: t.hour, value: t.turns }))} fmt={(n) => `${n} turns/h`} />
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+            peak {(pf.data?.throughput ?? []).reduce((a: number, t: any) => Math.max(a, t.tokens_per_min || 0), 0).toFixed(0)} tokens/min
+          </div>
         </div>
       </div>
 

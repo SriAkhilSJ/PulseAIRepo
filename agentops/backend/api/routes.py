@@ -9,8 +9,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from .. import config
-from ..readers import journal, receipts
+from .. import config, engine_proxy, spc
+from ..readers import approvals, journal, perf, prompts, receipts, status_snap
 
 router = APIRouter(prefix="/api")
 
@@ -187,3 +187,111 @@ async def stream(request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------- Phase 2 ----
+
+@router.get("/context/sessions")
+def context_sessions() -> dict[str, Any]:
+    return {"sessions": status_snap.latest_per_session()}
+
+
+@router.get("/context/{session_id}/history")
+def context_history(session_id: str) -> dict[str, Any]:
+    return {"history": status_snap.history(session_id)}
+
+
+@router.get("/context/live")
+def context_live(thread_id: str = Query(..., min_length=1)) -> dict[str, Any]:
+    """On-demand proxy of the engine's get_status() when live proxy is configured."""
+    if not engine_proxy.ENGINE_URL:
+        return {"error": "live proxy not configured (set CRUSORAI_OPS_ENGINE_URL)", "status": 501}
+    status, body = engine_proxy.context_status(thread_id)
+    if status != 200:
+        raise HTTPException(status, body.get("error", "engine context status failed"))
+    return body
+
+
+@router.get("/approvals")
+def approvals_list(state: str = Query("pending")) -> dict[str, Any]:
+    if state == "pending":
+        return {"pending": approvals.pending(), "engine_live": engine_proxy.live_connected()}
+    return {"history": approvals.history()}
+
+
+@router.get("/approvals/stats")
+def approvals_stats(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+    return approvals.stats(days)
+
+
+@router.post("/approvals/{tool_id}/resolve")
+async def approvals_resolve(tool_id: str, body: dict[str, Any] = {}) -> dict[str, Any]:
+    approved = bool(body.get("approved", False))
+    always = bool(body.get("always_allow", False))
+    thread_id = body.get("thread_id") or None
+    if engine_proxy.ENGINE_URL:
+        status, resp = await asyncio.to_thread(engine_proxy.resolve, tool_id, approved, always, thread_id)
+        if status >= 400:
+            raise HTTPException(status, resp.get("error", "engine rejected decision"))
+        return {"forwarded": True, "engine": resp}
+    if config.demo_mode():
+        pend = {p["tool_id"]: p for p in approvals.pending()}
+        approvals.record_decision(tool_id, approved, always, (pend.get(tool_id) or {}).get("session_id", ""))
+        return {"forwarded": False, "demo": True}
+    raise HTTPException(501, "no engine proxy and not in demo mode — decision not recorded")
+
+
+@router.get("/perf")
+def perf_view(days: int = Query(7, ge=1, le=90), group_by: str = Query("model")) -> dict[str, Any]:
+    return {"percentiles": perf.percentiles(days, group_by), "throughput": perf.throughput(days)}
+
+
+@router.get("/slo")
+def slo(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+    series = receipts.series(days)
+    recs = receipts.turns(days=days, limit=20000)
+    n = len(recs)
+    done = sum(1 for r in recs if r.get("completed"))
+    cost = sum(r["_cost"] for r in recs)
+    durs = sorted(float(r.get("duration_s") or 0) for r in recs)
+    p95 = durs[min(len(durs) - 1, int(0.95 * len(durs)))] if durs else None
+    targets = {"completion": 0.90, "p95_latency_s": 120.0, "uptime": 0.999}
+    current = {
+        "completion": round(done / n, 4) if n else None,
+        "p95_latency_s": p95,
+        "cost_per_task": round(cost / n, 6) if n else None,
+        "uptime_proxy": round(done / n, 4) if n else None,  # journal-backed availability proxy
+    }
+    return {
+        "targets": targets,
+        "current": current,
+        "control": {
+            "cost_per_day": spc.chart(series, "cost_usd"),
+            "errors_per_day": spc.chart(series, "errors"),
+            "tokens_per_day": spc.chart(series, "tokens"),
+        },
+        "window_days": days,
+    }
+
+
+@router.get("/prompts")
+def prompts_view() -> dict[str, Any]:
+    return prompts.registry()
+
+
+@router.post("/control/stop")
+async def control_stop(body: dict[str, Any] = {}) -> dict[str, Any]:
+    """Kill switch [PDF §6]. Demo: signals the simulator via the control sidecar.
+    Live: the engine exposes no HTTP cancel route yet — surfaced as 501 with guidance."""
+    session_id = str(body.get("session_id") or "").strip()
+    if config.demo_mode():
+        p = config.data_dir() / "control.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        import time as _time
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(_json.dumps({"action": "stop", "session_id": session_id or "*", "at": _time.time()}) + "\n")
+        return {"ok": True, "demo": True, "session_id": session_id or "*"}
+    if engine_proxy.ENGINE_URL:
+        raise HTTPException(501, "engine HTTP surface has no cancel route yet (bridge-only); use the IDE stop command")
+    raise HTTPException(501, "kill switch requires demo mode or an engine cancel route")

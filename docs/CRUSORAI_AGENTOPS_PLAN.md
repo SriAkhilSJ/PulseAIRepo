@@ -239,10 +239,15 @@ Journal reader → Sessions, Trace + **replay scrubber**, tool drill-down, audit
 Receipts reader → per-turn cost (price table), aggregates, KPI strip, error feed, health tiles.
 SSE live mode. Overview control plane.
 
-### Phase 2 — Ops depth (C, E, H, J, K, I27, D18)
+### Phase 2 — Ops depth (C, E, H, J, K, I27, D18) — ✅ SHIPPED
 Context Health; Approvals queue + analytics; latency percentiles; Prompt Registry (needs
 `prompt_id` receipt field — the one small engine change, additive + optional);
 kill switch; SPC alert engine + SLO panel; verification-failure (hallucination-proxy) rate.
+> Implementation notes: live wiring proxies the engine dashboard (`CRUSORAI_OPS_ENGINE_URL`):
+> approvals mirrored over its SSE, decisions forwarded to its fail-closed `/api/approve`,
+> context status proxied on demand. Demo mode journals `context_status` + approval rows and
+> honors operator decisions/kill-switch via sidecar files. Engine `prompt_id` emission remains
+> the single open additive gap (registry + per-turn attribution UI already in place).
 
 ### Phase 3 — Evals, learning, multi-agent (F, G, L, I28, K34)
 Evals index + regression board + A/B compare; Learning explorer; sub-agent tree;

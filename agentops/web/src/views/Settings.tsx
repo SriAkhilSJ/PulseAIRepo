@@ -52,7 +52,55 @@ export default function Settings({ health }: { health: Health | null }) {
             </tbody>
           </table>
         </div>
+        <div className="card">
+          <h3>Prompt & policy registry [PDF §3.2]</h3>
+          <PromptRegistry />
+        </div>
       </div>
+    </>
+  );
+}
+
+function PromptRegistry() {
+  const { data } = useApi<any>("/api/prompts", [], 15000);
+  if (!data) return <div className="muted">loading…</div>;
+  if (!data.available) return <div className="muted">prompt corpus not found at {data.dir}</div>;
+  const dist = Object.entries(data.turn_distribution ?? {}) as [string, number][];
+  return (
+    <>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <Chip tone="info">corpus {data.corpus_hash}</Chip>
+        <span className="muted mono">{data.files.length} files · {data.dir}</span>
+      </div>
+      {dist.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>turns by prompt_id (30d)</div>
+          {dist.map(([pid, n]) => (
+            <div className="hbar" key={pid}>
+              <div className="mono">{pid}</div>
+              <div className="track"><div className="fill" style={{ width: `${(n / Math.max(...dist.map((d) => d[1]))) * 100}%` }} /></div>
+              <div className="val">{n} turns</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <table className="tbl" style={{ marginTop: 10 }}>
+        <thead><tr><th>file</th><th>hash</th><th>bytes</th></tr></thead>
+        <tbody>
+          {data.files.slice(0, 12).map((f: any) => (
+            <tr key={f.path}>
+              <td className="mono">{f.path}</td>
+              <td className="mono muted">{f.hash}</td>
+              <td className="num muted">{f.bytes}</td>
+            </tr>
+          ))}
+          {data.files.length > 12 && <tr><td colSpan={3} className="muted">… {data.files.length - 12} more files</td></tr>}
+        </tbody>
+      </table>
+      <p className="muted" style={{ fontSize: 11.5 }}>
+        Per-turn <code>prompt_id</code> emission by the engine is the remaining additive gap;
+        demo receipts carry it so the attribution view is exercised end-to-end.
+      </p>
     </>
   );
 }

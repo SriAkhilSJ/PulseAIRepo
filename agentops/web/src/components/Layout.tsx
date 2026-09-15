@@ -5,8 +5,10 @@ import type { Health } from "../lib/types";
 const NAV = [
   ["#/", "Overview", "◈"],
   ["#/sessions", "Sessions", "≣"],
+  ["#/context", "Context Health", "◍"],
   ["#/usage", "Usage & Cost", "◔"],
-  ["#/errors", "Errors", "⚠"],
+  ["#/approvals", "Approvals", "✓"],
+  ["#/errors", "Errors & SLOs", "⚠"],
   ["#/settings", "Settings", "⚙"],
 ] as const;
 

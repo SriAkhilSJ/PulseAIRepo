@@ -17,12 +17,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config
+from contextlib import asynccontextmanager
+
+from . import config, engine_proxy
 from .api.routes import router
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
-app = FastAPI(title="CrusorAI AgentOps", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    engine_proxy.start()  # no-op unless CRUSORAI_OPS_ENGINE_URL is set
+    yield
+
+
+app = FastAPI(title="CrusorAI AgentOps", version="0.2.0", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,12 +1,26 @@
 import React, { useState } from "react";
 import { useApi } from "../lib/api";
 import { Chip } from "../components/bits";
-import { fmtDate, shortId } from "../lib/format";
+import { ControlChart } from "../components/charts2";
+import { fmtDate, fmtUsd, fmtPct, fmtDur, shortId } from "../lib/format";
 import type { ErrorRow, RuntimeReceipt } from "../lib/types";
 
 export default function Errors() {
   const [days, setDays] = useState(7);
   const { data, error } = useApi<{ errors: ErrorRow[]; runtime_receipts: RuntimeReceipt[] }>(`/api/errors?days=${days}`, [days]);
+  const slo = useApi<any>(`/api/slo?days=${days}`, [days]);
+  const cur = slo.data?.current ?? {};
+  const tgt = slo.data?.targets ?? {};
+  const cc = slo.data?.control?.cost_per_day;
+
+  const sloRow = (label: string, value: string, target: string, ok: boolean | null) => (
+    <tr>
+      <td className="muted">{label}</td>
+      <td className="num">{value}</td>
+      <td className="num muted">{target}</td>
+      <td>{ok === null ? <Chip tone="mut">n/a</Chip> : ok ? <Chip tone="ok">meets</Chip> : <Chip tone="err">misses</Chip>}</td>
+    </tr>
+  );
 
   return (
     <>
@@ -37,6 +51,33 @@ export default function Errors() {
             {(data?.errors ?? []).length === 0 && <tr><td colSpan={6} className="muted">no failures in window 🎉</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      <div className="grid cols-2" style={{ marginTop: 14 }}>
+        <div className="card">
+          <h3>SLO panel [case-study targets, PDF §10]</h3>
+          <table className="tbl">
+            <thead><tr><th>objective</th><th>current</th><th>target</th><th>status</th></tr></thead>
+            <tbody>
+              {sloRow("completion / uptime proxy", fmtPct(cur.completion), "≥ 90%", cur.completion == null ? null : cur.completion >= (tgt.completion ?? 0.9))}
+              {sloRow("p95 turn latency", fmtDur(cur.p95_latency_s), "≤ 120s", cur.p95_latency_s == null ? null : cur.p95_latency_s <= (tgt.p95_latency_s ?? 120))}
+              {sloRow("cost per task", fmtUsd(cur.cost_per_task), "trend ↓", null)}
+            </tbody>
+          </table>
+        </div>
+        <div className="card">
+          <h3>Cost/day — SPC control chart (X̄ ± A₂R̄)</h3>
+          {cc ? (
+            <>
+              <ControlChart points={cc.points} mean={cc.mean} ucl={cc.ucl} lcl={cc.lcl} fmt={fmtUsd} />
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                {(cc.violations ?? []).length === 0
+                  ? "process in control — no days outside limits"
+                  : `${cc.violations.length} day(s) out of control (red) — investigate spend anomaly`}
+              </div>
+            </>
+          ) : <div className="muted">loading…</div>}
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>

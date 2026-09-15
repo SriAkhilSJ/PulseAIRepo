@@ -57,18 +57,28 @@ cd web && npm run dev                  # vite :5180, proxies /api → :8300
 | `CRUSORAI_OPS_ALLOWED_ORIGINS` | vite dev origins | CORS allowlist |
 | `CRUSORAI_OPS_HOST` / `CRUSORAI_OPS_PORT` | `127.0.0.1` / `8300` | bind address |
 | `CRUSORAI_OPS_PRICES` | built-in table | JSON price table per 1M tokens: `{"model": [in, out, cache]}` |
+| `CRUSORAI_OPS_ENGINE_URL` | empty | live proxy to the engine dashboard (e.g. `http://127.0.0.1:8080`): mirrors approvals over SSE, forwards decisions, proxies context status |
+| `CRUSORAI_OPS_ENGINE_TOKEN` | empty | bearer token for the engine dashboard (`PULSEAI_DASHBOARD_TOKEN`) |
+| `CRUSORAI_OPS_PROMPTS_DIR` | `<repo>/src/prompts` | prompt corpus root for the registry |
 
-## Views (Phase 1)
+## Views (Phase 1 + Phase 2)
 
 - **Overview** — orchestration control plane: KPI strip w/ deltas + sparklines, live SSE ticker,
   recent sessions, spend-by-day, latest failures, sink health.
 - **Sessions** — filterable session table (status/mode/cost/tokens/workspace).
 - **Session trace** — time-travel replay scrubber over the journaled timeline, tool intent→result
-  drill-down with args/diffs, per-turn receipts.
+  drill-down with args/diffs, per-turn receipts, **⏹ kill switch** per session.
+- **Context Health** — get_status() snapshots: window gauge + pressure, compaction & prompt-cache
+  counters, layer-breakdown bars, usage history; live proxy of the engine's
+  `/api/context/status` when `CRUSORAI_OPS_ENGINE_URL` is set.
 - **Usage & Cost** — Σ tokens × cost/token aggregates by day/model/provider/mode/task/session,
-  cache-hit economics, tool leaderboard.
-- **Errors** — failed turns + latched runtime receipts (cache-break, degraded).
-- **Settings** — data sources, auth posture, env reference, about.
+  cache-hit economics, tool leaderboard, latency percentiles (p50/p95/p99), throughput buckets.
+- **Approvals** — human-in-the-loop queue with approve/deny (fail-closed engine semantics
+  preserved; live mode forwards to the engine `/api/approve`), decision history + deny/latency stats.
+- **Errors & SLOs** — failed turns, latched runtime receipts, SLO panel vs case-study targets,
+  **SPC control chart** (X̄ ± A₂R̄) flagging out-of-control spend days.
+- **Settings** — data sources, auth posture, env reference, **prompt & policy registry**
+  (corpus hash, per-file hashes, turns-by-prompt_id), about.
 
 ## Layout
 
@@ -80,5 +90,6 @@ agentops/
   requirements.txt    fastapi, uvicorn
 ```
 
-Roadmap (plan §6): Phase 2 = context health, approvals + kill switch, prompt registry, SPC/SLO
-alerts · Phase 3 = evals/A-B, learning explorer, multi-agent tree, drift metrics, compliance export.
+Roadmap (plan §6): **Phase 2 shipped** (context health, approvals + kill switch, prompt registry,
+SPC/SLO alerts, latency percentiles/throughput) · Phase 3 = evals/A-B, learning explorer,
+multi-agent tree, drift metrics, compliance export.
