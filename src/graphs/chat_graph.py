@@ -139,6 +139,23 @@ def _is_tool_messages_rejection(exc: Exception) -> bool:
     )
 
 
+def _finish_reason_is_tool_calls(result: Any) -> bool:
+    """Check if the LLM result indicates it WANTED to call tools but
+    delivered an empty tool_calls array (DeepSeek v4, Claude on Copilot)."""
+    # Check response_metadata for finish_reason
+    rm = getattr(result, "response_metadata", None) or {}
+    fr = str(rm.get("finish_reason", "")).lower()
+    if fr in ("tool_calls", "function_call", "stop"):
+        # "stop" with empty tool_calls and non-empty content could be
+        # the model narrating instead of calling — only flag tool_calls
+        if fr == "tool_calls":
+            return True
+    # Also check additional_kwargs
+    akw = getattr(result, "additional_kwargs", None) or {}
+    fr2 = str(akw.get("finish_reason", "")).lower()
+    return fr2 in ("tool_calls", "function_call")
+
+
 def _summary_text_from(result: Any) -> str:
     """Answer text of a summary response, <think> blocks stripped
     (hermes :2132-2133)."""
@@ -1433,6 +1450,52 @@ def ai_node(
     from src.graphs.parallel_tools import repair_text_tool_calls
     result = repair_text_tool_calls(result, allow=tools_bound)
 
+    # Hermes dropped tool-call recovery (conversation_loop.py:8381-8424):
+    # Some providers (DeepSeek v4, Claude on Copilot) return
+    # finish_reason="tool_calls" with an empty tool_calls array — the model
+    # signalled it wanted to act but delivered no call. Re-prompt up to 3
+    # times with a nudge so the turn doesn't waste a full provider round-trip.
+    if (
+        tools_bound
+        and not (getattr(result, "tool_calls", None) or [])
+        and _finish_reason_is_tool_calls(result)
+        and int(state.get("_dropped_toolcall_retries", 0)) < 3
+    ):
+        _dropped_retries = int(state.get("_dropped_toolcall_retries", 0)) + 1
+        print(
+            f"[ai_node] finish_reason=tool_calls with empty tool_calls "
+            f"(retry {_dropped_retries}/3, model={model}) — re-prompting",
+            flush=True,
+        )
+        _nudge = HumanMessage(content=(
+            "Your previous turn indicated a tool call but none was "
+            "included. Do not narrate a plan or restate intent — issue "
+            "the actual tool call now to continue the task."
+        ))
+        messages_with_nudge = messages + [_nudge]
+        try:
+            result = _invoke_with_token_pump(
+                call_llm, messages_with_nudge, session_id, provider, model,
+                strip_tool_blocks=tools_bound,
+            )
+            result = repair_text_tool_calls(result, allow=tools_bound)
+            # Update state for the retry count (carried via additional_kwargs)
+            extra = dict(getattr(result, "additional_kwargs", {}) or {})
+            extra["_dropped_toolcall_retries"] = _dropped_retries
+            try:
+                result = result.model_copy(update={"additional_kwargs": extra})
+            except AttributeError:
+                result.additional_kwargs = extra
+        except Exception as _re_nudge_exc:
+            print(
+                f"[ai_node] dropped-toolcall re-prompt failed "
+                f"({type(_re_nudge_exc).__name__}) — continuing with empty",
+                flush=True,
+            )
+    elif tools_bound and not (getattr(result, "tool_calls", None) or []):
+        # Reset retry counter if we got a non-empty result or gave up
+        pass
+
     # hermes handle_max_iterations tail: the summary response is the turn's
     # FINAL answer — <think> stripped, one retry when empty, honest fallback
     # text. No tool_calls can ride it (repair is disarmed; no tools bound).
@@ -1550,6 +1613,13 @@ def ai_node(
     # it is not free when it consumes another provider request.
     next_used = iteration_used + 1
 
+    # Carry dropped-toolcall retry count through state for the re-prompt loop.
+    _dtc_retries = int(
+        (getattr(result, "additional_kwargs", None) or {}).get(
+            "_dropped_toolcall_retries", 0
+        )
+    )
+
     return {
         "messages": [result],
         "token_usage": token_usage,
@@ -1557,6 +1627,7 @@ def ai_node(
         "iteration_used": next_used,
         "incomplete_response_retries": incomplete_retries,
         "grace_done": 1 if budget_exhausted else grace_done,
+        "_dropped_toolcall_retries": _dtc_retries,
     }
 
 

@@ -101,31 +101,50 @@ class CostRouter:
     def classify(self, task: str, current_plan: list | None = None) -> Literal["cheap", "standard", "premium"]:
         """
         Classify task complexity for routing.
+        Cheap = simple lookups, trivial edits, scaffolding
+        Standard = moderate tasks, most real work
+        Premium = architecture, complex multi-step debugging
         """
         if self._forced_tier:
             return self._forced_tier
 
-        task_lower = task.lower()
-        # Premium signals: architecture, complex reasoning, debugging
+        task_lower = task.lower().strip()
+
+        # Premium signals: architecture, complex reasoning, multi-step work
         premium_signals = [
-            "architecture", "design", "refactor", "redesign", "restructure",
-            "migrate", "microservice", "database schema", "authentication",
-            "authorization", "security audit", "performance optimization",
-            "debug", "fix", "troubleshoot", "complex", "integrate",
-            "multi-step", "plan", "review", "audit",
+            "architecture", "redesign", "restructure",
+            "migrate", "microservice", "database schema",
+            "security audit", "performance optimization",
+            "complex refactor", "multi-step plan",
         ]
 
-        # Cheap signals: simple lookups, explanations, trivial edits
+        # Cheap signals: simple lookups, explanations, trivial one-shot actions
         cheap_signals = [
             "what is", "how do i", "explain", "show me", "list ",
             "find ", "where is", "hello", "hi ", "count ", "sum ",
-            "print ", "create a simple", "quick ", "just ", "tell me",
+            "print ", "quick ", "just ", "tell me",
+            "what does", "can you", "tell me about",
+            "list files", "show files", "ls ", "dir ",
+            "what's in", "what is in", "read the", "open the",
+        ]
+
+        # Scaffold / create signals: cheap if short
+        scaffold_signals = [
+            "create a simple", "make me a", "scaffold",
+            "set up a", "new project", "new app", "new file",
         ]
 
         if any(s in task_lower for s in premium_signals):
             return "premium"
 
         if any(s in task_lower for s in cheap_signals) and len(task) < 120:
+            return "cheap"
+
+        if any(s in task_lower for s in scaffold_signals) and len(task) < 80:
+            return "cheap"
+
+        # Short tasks (< 35 chars) with no premium signals are likely simple
+        if len(task) < 35:
             return "cheap"
 
         # Multi-step plans suggest standard or premium
