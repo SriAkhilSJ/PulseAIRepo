@@ -12,10 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 import { isCodeEditor, isDiffEditor } from '../../../../editor/browser/editorBrowser.js';
 import { IBulkEditService, ResourceTextEdit } from '../../../../editor/browser/services/bulkEditService.js';
-import { Position } from '../../../../editor/common/core/position.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
-import { isLocationLink } from '../../../../editor/common/languages.js';
-import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -41,8 +38,8 @@ import { ISearchService, isFileMatch, resultIsMatch } from '../../../services/se
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { PULSE_AI_WORKBENCH_CAPABILITIES, } from '../common/pulseAIWorkbenchCapabilities.js';
 const WIRED_CAPABILITIES = new Set([
-    'editor.activeSelection', 'editor.dirtyText', 'language.symbols',
-    'language.definitions', 'language.references', 'diagnostics.markers',
+    'editor.activeSelection', 'editor.dirtyText',
+    'diagnostics.markers',
     'search.workspace', 'scm.state',
     'edit.nativeDiff', 'edit.bulkApply', 'edit.undoRedo', 'terminal.native',
     'tasks.discover', 'tasks.run', 'tests.discover', 'tests.run', 'tests.results', 'workspace.trust',
@@ -100,12 +97,11 @@ function diagnostic(marker) {
     };
 }
 let PulseAIWorkbenchService = class PulseAIWorkbenchService extends Disposable {
-    constructor(editorService, textFileService, markerService, languageFeaturesService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService) {
+    constructor(editorService, textFileService, markerService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService) {
         super();
         this.editorService = editorService;
         this.textFileService = textFileService;
         this.markerService = markerService;
-        this.languageFeaturesService = languageFeaturesService;
         this.languageService = languageService;
         this.modelService = modelService;
         this.textModelService = textModelService;
@@ -203,58 +199,6 @@ let PulseAIWorkbenchService = class PulseAIWorkbenchService extends Disposable {
             return this.markerService.read({ take: 500 }).map(diagnostic);
         }
         return resources.flatMap(value => this.markerService.read({ resource: URI.parse(value), take: 200 }).map(diagnostic));
-    }
-    async getDocumentSymbols(resource) {
-        return this.withModel(resource, async (model) => {
-            const result = [];
-            for (const provider of this.languageFeaturesService.documentSymbolProvider.ordered(model)) {
-                try {
-                    const symbols = await Promise.resolve(provider.provideDocumentSymbols(model, CancellationToken.None));
-                    for (const symbol of symbols ?? []) {
-                        result.push(this.symbol(symbol));
-                    }
-                }
-                catch { /* one extension provider must not break all semantic context */ }
-            }
-            return result;
-        });
-    }
-    async getDefinitions(resource, line, column) {
-        return this.withModel(resource, async (model) => {
-            const result = [];
-            const position = new Position(line, column);
-            for (const provider of this.languageFeaturesService.definitionProvider.ordered(model)) {
-                try {
-                    const value = await Promise.resolve(provider.provideDefinition(model, position, CancellationToken.None));
-                    const items = Array.isArray(value) ? value : value ? [value] : [];
-                    for (const item of items) {
-                        const linked = isLocationLink(item);
-                        result.push({
-                            resource: item.uri.toString(),
-                            range: range(linked ? item.targetSelectionRange ?? item.range : item.range),
-                        });
-                    }
-                }
-                catch { /* provider isolation */ }
-            }
-            return result;
-        });
-    }
-    async getReferences(resource, line, column) {
-        return this.withModel(resource, async (model) => {
-            const result = [];
-            const position = new Position(line, column);
-            for (const provider of this.languageFeaturesService.referenceProvider.ordered(model)) {
-                try {
-                    const items = await Promise.resolve(provider.provideReferences(model, position, { includeDeclaration: true }, CancellationToken.None));
-                    for (const item of items ?? []) {
-                        result.push({ resource: item.uri.toString(), range: range(item.range) });
-                    }
-                }
-                catch { /* provider isolation */ }
-            }
-            return result;
-        });
     }
     async openResource(resource, selection) {
         const uri = URI.parse(resource);
@@ -653,21 +597,20 @@ PulseAIWorkbenchService = __decorate([
     __param(0, IEditorService),
     __param(1, ITextFileService),
     __param(2, IMarkerService),
-    __param(3, ILanguageFeaturesService),
-    __param(4, ILanguageService),
-    __param(5, IModelService),
-    __param(6, ITextModelService),
-    __param(7, IInstantiationService),
-    __param(8, IWorkspaceContextService),
-    __param(9, ISearchService),
-    __param(10, ISCMService),
-    __param(11, ITestService),
-    __param(12, ITestResultService),
-    __param(13, ITaskService),
-    __param(14, ITerminalService),
-    __param(15, IBulkEditService),
-    __param(16, IOpenerService),
-    __param(17, IWorkspaceTrustManagementService),
-    __param(18, IWorkspaceTrustRequestService)
+    __param(3, ILanguageService),
+    __param(4, IModelService),
+    __param(5, ITextModelService),
+    __param(6, IInstantiationService),
+    __param(7, IWorkspaceContextService),
+    __param(8, ISearchService),
+    __param(9, ISCMService),
+    __param(10, ITestService),
+    __param(11, ITestResultService),
+    __param(12, ITaskService),
+    __param(13, ITerminalService),
+    __param(14, IBulkEditService),
+    __param(15, IOpenerService),
+    __param(16, IWorkspaceTrustManagementService),
+    __param(17, IWorkspaceTrustRequestService)
 ], PulseAIWorkbenchService);
 export { PulseAIWorkbenchService };
