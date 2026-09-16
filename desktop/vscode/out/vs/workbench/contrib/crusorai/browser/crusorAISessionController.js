@@ -18,19 +18,18 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter } from '../../../../base/common/event.js';
-import { WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { ChatSessionStatus, IChatSessionsService, } from '../../chat/common/chatSessionsService.js';
+import { IChatSessionsService, } from '../../chat/common/chatSessionsService.js';
 import { isCrusorSessionUri, CRUSOR_CHAT_SESSION_TYPE, crusorSessionRows } from '../common/crusorAISessionProjection.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
-import { CrusorAICommandId } from '../common/crusorAI.js';
 import { sessionOpenerRegistry } from '../../chat/browser/agentSessions/agentSessionsOpener.js';
 function toChatSessionStatus(statusName) {
     switch (statusName) {
-        case 'inProgress': return ChatSessionStatus.InProgress;
-        case 'needsInput': return ChatSessionStatus.NeedsInput;
-        case 'failed': return ChatSessionStatus.Failed;
-        case 'completed': return ChatSessionStatus.Completed;
+        case 'inProgress': return 2 /* ChatSessionStatus.InProgress */;
+        case 'needsInput': return 3 /* ChatSessionStatus.NeedsInput */;
+        case 'failed': return 0 /* ChatSessionStatus.Failed */;
+        case 'completed': return 1 /* ChatSessionStatus.Completed */;
         default: return undefined;
     }
 }
@@ -119,9 +118,9 @@ export class CrusorAISessionOpener extends Disposable {
             return false;
         }
         // The same command the Agent pane's Manager button runs: two entrances, one path.
-        await accessor.get(ICommandService).executeCommand(CrusorAICommandId.OpenManager);
+        await accessor.get(ICommandService).executeCommand("crusorai.openManager" /* CrusorAICommandId.OpenManager */);
         return true;
     }
 }
-registerWorkbenchContribution2(CrusorAISessionController.ID, CrusorAISessionController, WorkbenchPhase.AfterRestored);
-registerWorkbenchContribution2(CrusorAISessionOpener.ID, CrusorAISessionOpener, WorkbenchPhase.AfterRestored);
+registerWorkbenchContribution2(CrusorAISessionController.ID, CrusorAISessionController, 3 /* WorkbenchPhase.AfterRestored */);
+registerWorkbenchContribution2(CrusorAISessionOpener.ID, CrusorAISessionOpener, 3 /* WorkbenchPhase.AfterRestored */);

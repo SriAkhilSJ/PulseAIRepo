@@ -18,8 +18,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
-import { CrusorAICommandId } from '../common/crusorAI.js';
-import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
+import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { crusorSessionLabel, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
@@ -179,7 +178,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             selectWorkspace: uri => this.selectWorkspace(uri),
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
-            openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
+            openEngineSettings: () => { void this.commandService.executeCommand("crusorai.openSettings" /* CrusorAICommandId.OpenSettings */); },
             openManager: () => { this.openManagerWindow(); },
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
@@ -192,17 +191,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
         };
         this._register(this.engineService.onDidChangeState(state => {
-            if (state === CrusorAIEngineState.Ready) {
+            if (state === "ready" /* CrusorAIEngineState.Ready */) {
                 this.restartAttempts = 0;
                 this.engineFault = undefined;
             }
-            else if (state === CrusorAIEngineState.Crashed || state === CrusorAIEngineState.Degraded) {
+            else if (state === "crashed" /* CrusorAIEngineState.Crashed */ || state === "degraded" /* CrusorAIEngineState.Degraded */) {
                 // The only trace of a dying sidecar used to be a log line: the process exit is reported by
                 // the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
                 // receives turn_done -- so the panel kept painting a live run that had no engine behind it.
                 // A setup failure already has its own actionable row, so it is not overwritten here.
                 if (!this.engineSetupError) {
-                    this.engineFault = state === CrusorAIEngineState.Crashed
+                    this.engineFault = state === "crashed" /* CrusorAIEngineState.Crashed */
                         ? 'The Crusor engine process stopped while this session was open.'
                         : 'The Crusor engine could not accept the request, so it never reached the model.';
                     if (this.running) {
@@ -431,7 +430,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }, delay);
     }
     async ensureEngine() {
-        if (this.engineService.state === CrusorAIEngineState.Ready) {
+        if (this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         if (this.startPromise) {
@@ -452,7 +451,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (resumeSession && this.engineService.state === CrusorAIEngineState.Ready) {
+            if (resumeSession && this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
                 this.publishHostCapabilities(resumeSession);
                 this.send({ type: 'session_resume', session_id: resumeSession, workspace });
                 this.send({ type: 'events_replay', session_id: resumeSession });
@@ -490,7 +489,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     publishHostCapabilities(sessionId = this.sessionId) {
         const workspace = this.workspacePath;
-        if (!sessionId || !workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (!sessionId || !workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
@@ -600,7 +599,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.ensureEngine(),
             new Promise(resolve => setTimeout(resolve, 20_000)),
         ]);
-        if (this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             // The one dishonest thing the old code did: return silently. The
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,

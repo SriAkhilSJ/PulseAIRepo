@@ -9,7 +9,7 @@
 		"resolveJsonModule": true,
 		"isolatedModules": false,
 		"skipLibCheck": true,
-		"outDir": "../out/vs",
+		"outDir": "../out",
 		"types": [
 			"@webgpu/types",
 			"mocha",
@@ -30,6 +30,9 @@
 		"./*.ts",
 		"./typings",
 		"./vs/**/*.ts",
+		"./vs/base/common/semver/semver.js",
+		"./vs/base/common/marked/marked.js",
+		"./vs/base/browser/dompurify/dompurify.js",
 		"./vscode-dts/vscode.proposed.*.d.ts",
 		"./vscode-dts/vscode.d.ts"
 	],

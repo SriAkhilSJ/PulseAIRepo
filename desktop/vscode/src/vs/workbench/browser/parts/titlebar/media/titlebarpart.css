@@ -281,19 +281,22 @@
 
 /* App Icon */
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon {
-	width: 35px;
+	width: 38px;
 	height: 100%;
 	position: relative;
 	z-index: 2500;
 	flex-shrink: 0;
 	order: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon:not(.codicon) {
-	background-image: url('../../../media/code-icon.svg');
+	background-image: url('../../../media/crusorai-logo.png');
 	background-repeat: no-repeat;
 	background-position: center center;
-	background-size: 16px;
+	background-size: 22px;
 }
 
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon.codicon {

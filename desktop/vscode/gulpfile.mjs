@@ -77,6 +77,7 @@ function copyResources() {
 					'src/vs/**/*.css',
 					'src/vs/**/*.ttf',
 					'src/vs/**/*.wasm',
+					'src/vs/**/*.html',
 					'src/vs/**/media/**',
 				],
 				{ cwd: FORK_ROOT, base: SRC }

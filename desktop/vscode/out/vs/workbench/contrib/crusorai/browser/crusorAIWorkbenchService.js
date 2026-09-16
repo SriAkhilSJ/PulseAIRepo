@@ -12,14 +12,16 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 import { isCodeEditor, isDiffEditor } from '../../../../editor/browser/editorBrowser.js';
 import { IBulkEditService, ResourceTextEdit } from '../../../../editor/browser/services/bulkEditService.js';
+import { Position } from '../../../../editor/common/core/position.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { isLocationLink } from '../../../../editor/common/languages.js';
+import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
-import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
@@ -28,9 +30,7 @@ import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from 
 import { ISCMService } from '../../scm/common/scm.js';
 import { ITestResultService } from '../../testing/common/testResultService.js';
 import { ITestService } from '../../testing/common/testService.js';
-import { TestResultState, TestRunProfileBitset } from '../../testing/common/testTypes.js';
 import { ITaskService } from '../../tasks/common/taskService.js';
-import { TaskRunSource } from '../../tasks/common/tasks.js';
 import { ITerminalService } from '../../terminal/browser/terminal.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -38,8 +38,8 @@ import { ISearchService, isFileMatch, resultIsMatch } from '../../../services/se
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES, } from '../common/crusorAIWorkbenchCapabilities.js';
 const WIRED_CAPABILITIES = new Set([
-    'editor.activeSelection', 'editor.dirtyText',
-    'diagnostics.markers',
+    'editor.activeSelection', 'editor.dirtyText', 'language.symbols',
+    'language.definitions', 'language.references', 'diagnostics.markers',
     'search.workspace', 'scm.state',
     'edit.nativeDiff', 'edit.bulkApply', 'edit.undoRedo', 'terminal.native',
     'tasks.discover', 'tasks.run', 'tests.discover', 'tests.run', 'tests.results', 'workspace.trust',
@@ -97,11 +97,12 @@ function diagnostic(marker) {
     };
 }
 let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable {
-    constructor(editorService, textFileService, markerService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService) {
+    constructor(editorService, textFileService, markerService, languageFeaturesService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService) {
         super();
         this.editorService = editorService;
         this.textFileService = textFileService;
         this.markerService = markerService;
+        this.languageFeaturesService = languageFeaturesService;
         this.languageService = languageService;
         this.modelService = modelService;
         this.textModelService = textModelService;
@@ -199,6 +200,58 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             return this.markerService.read({ take: 500 }).map(diagnostic);
         }
         return resources.flatMap(value => this.markerService.read({ resource: URI.parse(value), take: 200 }).map(diagnostic));
+    }
+    async getDocumentSymbols(resource) {
+        return this.withModel(resource, async (model) => {
+            const result = [];
+            for (const provider of this.languageFeaturesService.documentSymbolProvider.ordered(model)) {
+                try {
+                    const symbols = await Promise.resolve(provider.provideDocumentSymbols(model, CancellationToken.None));
+                    for (const symbol of symbols ?? []) {
+                        result.push(this.symbol(symbol));
+                    }
+                }
+                catch { /* one extension provider must not break all semantic context */ }
+            }
+            return result;
+        });
+    }
+    async getDefinitions(resource, line, column) {
+        return this.withModel(resource, async (model) => {
+            const result = [];
+            const position = new Position(line, column);
+            for (const provider of this.languageFeaturesService.definitionProvider.ordered(model)) {
+                try {
+                    const value = await Promise.resolve(provider.provideDefinition(model, position, CancellationToken.None));
+                    const items = Array.isArray(value) ? value : value ? [value] : [];
+                    for (const item of items) {
+                        const linked = isLocationLink(item);
+                        result.push({
+                            resource: item.uri.toString(),
+                            range: range(linked ? item.targetSelectionRange ?? item.range : item.range),
+                        });
+                    }
+                }
+                catch { /* provider isolation */ }
+            }
+            return result;
+        });
+    }
+    async getReferences(resource, line, column) {
+        return this.withModel(resource, async (model) => {
+            const result = [];
+            const position = new Position(line, column);
+            for (const provider of this.languageFeaturesService.referenceProvider.ordered(model)) {
+                try {
+                    const items = await Promise.resolve(provider.provideReferences(model, position, { includeDeclaration: true }, CancellationToken.None));
+                    for (const item of items ?? []) {
+                        result.push({ resource: item.uri.toString(), range: range(item.range) });
+                    }
+                }
+                catch { /* provider isolation */ }
+            }
+            return result;
+        });
     }
     async openResource(resource, selection) {
         const uri = URI.parse(resource);
@@ -394,7 +447,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             }
         }
         const result = await this.testService.runTests({
-            group: TestRunProfileBitset.Run,
+            group: 2 /* TestRunProfileBitset.Run */,
             tests: [...selected.values()],
             exclude,
             preserveFocus: true,
@@ -428,7 +481,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         if (!task) {
             throw new Error(`Crusor could not resolve task: ${request.taskId}`);
         }
-        const summary = await this.taskService.run(task, undefined, TaskRunSource.ChatAgent);
+        const summary = await this.taskService.run(task, undefined, 5 /* TaskRunSource.ChatAgent */);
         return {
             taskId: request.taskId,
             state: summary?.exitCode === 0 ? 'passed' : typeof summary?.exitCode === 'number' ? 'failed' : 'unknown',
@@ -524,7 +577,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             hasShellIntegration = true;
             listeners.add(capability.onCommandFinished(finishCommand));
         };
-        const existing = instance.capabilities.get(TerminalCapability.CommandDetection);
+        const existing = instance.capabilities.get(2 /* TerminalCapability.CommandDetection */);
         if (existing) {
             attachCommandDetection(existing);
         }
@@ -566,13 +619,13 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         }
     }
     testReceipt(result) {
-        const failed = result.counts[TestResultState.Failed] + result.counts[TestResultState.Errored];
+        const failed = result.counts[4 /* TestResultState.Failed */] + result.counts[6 /* TestResultState.Errored */];
         return {
             runId: result.id,
             state: result.completedAt === undefined ? 'running' : failed > 0 ? 'failed' : 'passed',
-            passed: result.counts[TestResultState.Passed],
+            passed: result.counts[3 /* TestResultState.Passed */],
             failed,
-            skipped: result.counts[TestResultState.Skipped],
+            skipped: result.counts[5 /* TestResultState.Skipped */],
         };
     }
     async withModel(resource, callback) {
@@ -597,20 +650,21 @@ CrusorAIWorkbenchService = __decorate([
     __param(0, IEditorService),
     __param(1, ITextFileService),
     __param(2, IMarkerService),
-    __param(3, ILanguageService),
-    __param(4, IModelService),
-    __param(5, ITextModelService),
-    __param(6, IInstantiationService),
-    __param(7, IWorkspaceContextService),
-    __param(8, ISearchService),
-    __param(9, ISCMService),
-    __param(10, ITestService),
-    __param(11, ITestResultService),
-    __param(12, ITaskService),
-    __param(13, ITerminalService),
-    __param(14, IBulkEditService),
-    __param(15, IOpenerService),
-    __param(16, IWorkspaceTrustManagementService),
-    __param(17, IWorkspaceTrustRequestService)
+    __param(3, ILanguageFeaturesService),
+    __param(4, ILanguageService),
+    __param(5, IModelService),
+    __param(6, ITextModelService),
+    __param(7, IInstantiationService),
+    __param(8, IWorkspaceContextService),
+    __param(9, ISearchService),
+    __param(10, ISCMService),
+    __param(11, ITestService),
+    __param(12, ITestResultService),
+    __param(13, ITaskService),
+    __param(14, ITerminalService),
+    __param(15, IBulkEditService),
+    __param(16, IOpenerService),
+    __param(17, IWorkspaceTrustManagementService),
+    __param(18, IWorkspaceTrustRequestService)
 ], CrusorAIWorkbenchService);
 export { CrusorAIWorkbenchService };

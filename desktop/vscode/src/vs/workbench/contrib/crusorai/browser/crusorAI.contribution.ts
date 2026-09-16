@@ -74,7 +74,7 @@ const container = Registry.as<IViewContainersRegistry>(
 ).registerViewContainer({
 	id: CRUSOR_AI_VIEW_CONTAINER_ID,
 	title: localize2('crusorAI.viewContainer.title', 'Crusor'),
-	icon: Codicon.crusor,
+	icon: Codicon.cursor,
 	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [
 		CRUSOR_AI_VIEW_CONTAINER_ID,
 		{ mergeViewWithContainerWhenSingleView: true },
@@ -86,7 +86,7 @@ const container = Registry.as<IViewContainersRegistry>(
 Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews([{
 	id: CRUSOR_AI_VIEW_ID,
 	name: localize2('crusorAI.view.name', 'Crusor Agent'),
-	containerIcon: Codicon.crusor,
+	containerIcon: Codicon.cursor,
 	canToggleVisibility: true,
 	canMoveView: false,
 	ctorDescriptor: new SyncDescriptor(CrusorAIViewPane),
@@ -126,7 +126,7 @@ registerAction2(class extends Action2 {
 			title: localize2('crusorAI.focus', 'Crusor: Open Agent'),
 			f1: true,
 			category: localize2('crusorAI.category', 'Crusor'),
-			icon: Codicon.crusor,
+			icon: Codicon.cursor,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
 				primary: KeyMod.CtrlCmd | KeyCode.KeyL,
@@ -170,7 +170,7 @@ MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
 	command: {
 		id: CrusorAICommandId.Focus,
 		title: localize2('crusorAI.commandCenter.tooltip', 'Open Crusor Agent (Ctrl+L)'),
-		icon: Codicon.crusor,
+		icon: Codicon.cursor,
 	},
 	order: -100,
 });
