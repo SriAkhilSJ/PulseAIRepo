@@ -2776,12 +2776,31 @@ def task_manager_node(
                 "prior_attempts": [],
                 "token_usage": _zero_token_usage(),
                 "turn_token_usage": _zero_token_usage(),
+                # Safety budgets are turn-scoped even when checkpoint state is
+                # resumed (same law as run_agent/stream_agent initial state).
+                # Without this reset an ack/reset after an exhausted turn
+                # inherited iteration_used>=budget + grace_done and the next
+                # turn entered toolless and finalized instantly.
+                "iteration_used": 0,
+                "grace_done": 0,
+                "incomplete_response_retries": 0,
+                "plan_wrap_nudges": 0,
+                "wrap_summary": 0,
                 "workspace": config["configurable"].get("workspace", "."),
             }
         return {
             "current_task": updated_task,
             "task_action": action,
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            # Turn-scoped budget reset (see the "new" branch above): a bare
+            # ack re-prompt after a budget-exhausted turn must get a fresh
+            # budget, not inherit the spent one from the checkpoint.
+            "turn_token_usage": _zero_token_usage(),
+            "iteration_used": 0,
+            "grace_done": 0,
+            "incomplete_response_retries": 0,
+            "plan_wrap_nudges": 0,
+            "wrap_summary": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
