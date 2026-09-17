@@ -62,11 +62,13 @@ def test_ack_messages_skip_llm_and_continue(msg, monkeypatch):
         # a budget-exhausted turn must not inherit the spent budget (which
         # forced the next turn toolless into an instant finalize).
         "turn_token_usage", "iteration_used", "grace_done",
+        "budget_warning_done",
         "incomplete_response_retries", "plan_wrap_nudges", "wrap_summary",
     }
     assert out["token_usage"]["calls"] == 1  # no LLM call recorded
     assert out["iteration_used"] == 0
     assert out["grace_done"] == 0
+    assert out["budget_warning_done"] == 0
 
 
 def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):
@@ -88,6 +90,7 @@ def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):
     assert out["task_action"] == "continue"
     assert out["iteration_used"] == 0
     assert out["grace_done"] == 0
+    assert out["budget_warning_done"] == 0
     assert out["wrap_summary"] == 0
     assert out["plan_wrap_nudges"] == 0
     assert out["incomplete_response_retries"] == 0
