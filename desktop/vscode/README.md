@@ -8,6 +8,18 @@ This directory is the **vendored [Code OSS](https://github.com/microsoft/vscode)
 - **Branding:** [`branding/`](../../branding/) — canonical CrusorAI mark and icon generation
 - **Agent contribution:** [`src/vs/workbench/contrib/crusorai/`](src/vs/workbench/contrib/crusorai/) — the Crusor workbench panel
 
+## Welcome Screen
+
+The empty-window editor displays a branded welcome screen with:
+
+- **CrusorAI logo** (center, from `crusorai-mark.svg` embedded as base64 PNG)
+- **"Crusor AI"** title + **"AI-Powered Code Intelligence"** subtitle
+- **4 action cards:** Open Project, Open File, Clone from GitHub, New File — each triggers the corresponding VS Code command
+- **Recent Projects** section (populated from workbench history storage)
+- **Grey theme** (`crusorai-dark.json`) — buttons, badges, focus borders, and links use a cohesive grey palette (`#2d2d2d` / `#3c3c3c`)
+
+Icons are created via `createElementNS` (TrustedTypes-safe, no DOMParser needed).
+
 ## Building
 
 The build runs directly inside this directory (see the fork docs for the full pipeline):

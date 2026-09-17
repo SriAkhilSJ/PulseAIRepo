@@ -22,13 +22,20 @@ The crusorai worker entrypoint (`crusorAIWorkerMain`) is emitted as a desktop-on
 
 The fork ships **CrusorAI Dark** as the default color theme
 (`extensions/theme-defaults/themes/crusorai-dark.json`), generated from upstream
-`2026-dark.json` by `scripts/generate_crusorai_theme.py`. Regenerate it after any
-upstream pin bump; never hand-edit the generated theme.
+`2026-dark.json` by `scripts/generate_crusorai_theme.py`. The theme uses a
+cohesive grey palette (`#2d2d2d` / `#3c3c3c`) for buttons, badges, focus
+borders, and links — matching the welcome screen card style.
 
 `CrusorAI Dark` is registered and made default from
 `extensions/theme-defaults/package.json` (`contributes.themes` +
 `contributes.configurationDefaults`) — **additive, no upstream source file is
 modified**, so invariant 7 still holds.
+
+The empty-window welcome screen (`editorGroupWatermark.ts`) displays:
+- CrusorAI logo (center, SVG rendered via `createElementNS` for TrustedTypes safety)
+- "Crusor AI" title + "AI-Powered Code Intelligence" subtitle
+- 4 action cards (Open Project, Open File, Clone from GitHub, New File)
+- Recent Projects section from workbench history
 
 **Copilot (`src/vs/workbench/contrib/chat/`, `extensions/copilot/`) is
 deliberately untouched** — it is the reference implementation for Crusor's

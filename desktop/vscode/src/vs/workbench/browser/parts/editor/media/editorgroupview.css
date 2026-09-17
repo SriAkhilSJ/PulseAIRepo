@@ -100,11 +100,13 @@
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper > .editor-group-watermark  {
 	display: flex;
 	height: 100%;
-	max-width: 272px;
+	max-width: 420px;
 	margin: auto;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
+	padding: 20px;
+	box-sizing: border-box;
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper > .editor-group-watermark > .watermark-container {
@@ -113,7 +115,7 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 24px;
+	gap: 12px;
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container:not(.empty) > .editor-group-watermark-wrapper {
@@ -122,7 +124,7 @@
 
 .monaco-workbench .part.editor > .content:not(.empty) .editor-group-container.empty > .editor-group-watermark-wrapper > .editor-group-watermark,
 .monaco-workbench .part.editor > .content.auxiliary .editor-group-container.empty > .editor-group-watermark-wrapper > .editor-group-watermark {
-	max-width: 200px;
+	max-width: 420px;
 	height: calc(100% - 70px);
 }
 
@@ -134,7 +136,7 @@
 	background-size: contain;
 	background-position-x: center;
 	background-repeat: no-repeat;
-	max-width: 256px;
+	max-width: 120px;
 }
 
 .monaco-workbench.vs-dark .part.editor > .content .editor-group-container .editor-group-watermark .letterpress {
@@ -187,6 +189,152 @@
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .shortcuts dd {
 	text-align: left;
 	margin-inline-start: 24px;
+}
+
+/* CrusorAI Welcome Screen Styles */
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .watermark-title {
+	text-align: center;
+	font-size: 24px;
+	color: #e0e0e0;
+	margin-top: 12px;
+	font-weight: 600;
+	letter-spacing: 1px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .watermark-subtitle {
+	text-align: center;
+	font-size: 13px;
+	color: #b0b0b0;
+	margin-top: 8px;
+	margin-bottom: 20px;
+	font-weight: 300;
+	letter-spacing: 0.5px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-cards {
+	width: 100%;
+	max-width: 400px;
+	margin: 0 auto 20px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-cards-box {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 8px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-card {
+	background-color: #2d2d2d;
+	border: 1px solid #3c3c3c;
+	border-radius: 6px;
+	padding: 12px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-card:hover {
+	background-color: #383838;
+	border-color: #505050;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-card-icon {
+	width: 20px;
+	height: 20px;
+	margin-bottom: 6px;
+	color: #b0b0b0;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-card-icon svg {
+	width: 100%;
+	height: 100%;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-card-title {
+	font-size: 12px;
+	font-weight: 500;
+	color: #e0e0e0;
+	margin-bottom: 2px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .action-card-desc {
+	font-size: 11px;
+	color: #888888;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-section {
+	width: 100%;
+	max-width: 400px;
+	margin: 0 auto 16px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-projects {
+	width: 100%;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-title {
+	font-size: 11px;
+	color: #888888;
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	margin-bottom: 8px;
+	padding-bottom: 6px;
+	border-bottom: 1px solid #3c3c3c;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-item {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 6px 10px;
+	background-color: #252526;
+	border-radius: 4px;
+	margin-bottom: 4px;
+	cursor: pointer;
+	transition: background-color 0.2s ease;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-item:hover {
+	background-color: #2d2d2d;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-item-name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: #e0e0e0;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-item-icon {
+	color: #569cd6;
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .recent-item-time {
+	font-size: 10px;
+	color: #666666;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .show-more {
+	display: block;
+	text-align: center;
+	padding: 8px;
+	color: #569cd6;
+	font-size: 11px;
+	cursor: pointer;
+	margin-top: 6px;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper .editor-group-watermark .show-more:hover {
+	color: #4fc1ff;
 }
 
 /* Title */
