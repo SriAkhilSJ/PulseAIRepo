@@ -29,7 +29,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
 - CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `crusor_task_schema.json` generative cards, bound with `CopilotChat agentId="crusor_agent"`. Card schemas use the **flat A2UI v0.9** wire format (`{ id, component, ...props }`) — a `props`-nested wrapper renders an empty card.
-- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`crusorAIRenderer.ts` + `a2ui/renderers.tsx`).
+- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`crusorAIRenderer.ts` + `a2ui/renderers.tsx`). Since `c3d7e4dc` the renderer walks the ordered `parts` timeline (`text | tool | reasoning`) so thinking cards interleave in arrival order (hermes `message.parts` parity) instead of collapsing above the tools block.
 - The composer selects a real runtime mode: **Agent** executes the guarded workflow, **Plan** previews without executing, **Debug** diagnoses before minimal repair and retesting, and **Ask** answers without tools.
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Crusor setting/command.
 - **CrusorAI Dark** is the bundled default theme.
@@ -341,7 +341,7 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 | **Safety** | `src/context/safety_guard.py` | Workspace path validation, destructive operation approval gates, `$()`/backtick escalation to approval, session cancellation checks. |
 | **Verification** | `src/context/verification_evidence.py` | Completion gates distinguishing successful/failed/stale/skipped/unavailable evidence. Edited-file invalidation. |
 | **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 20+ client methods, 16 server events. Host tool requests, safety requests, sub-agent lifecycle, telemetry, workspace binding. |
-| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. |
+| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering (`crusorAIRenderer.ts:54` parts timeline with inline `reasoning` slots). Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. Last recompile `c3d7e4dc` (2026-09-18). |
 | **UI Lab** | `ui/` | SolidJS renderer with Agent UI, Agent Manager, Tool Gallery. Deterministic replay data. Desktop-syntax check bridge. |
 
 ### Test coverage
@@ -351,7 +351,7 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 - Desktop compile, typecheck-client, valid-layers, syntax: all green
 - Protocol generation check: green
 - UI build + test:ui: green
-- PR #14 merge: 1866 passed / 21 skipped / 1 xfailed (all layers + provider-fetched output caps)
+- Post `c3d7e4dc` sample: 36 passed (bridge + budget parity); PR #14 merge baseline 1866 passed / 21 skipped / 1 xfailed (all layers + provider-fetched output caps)
 
 ### What the P2 roadmap covers next
 

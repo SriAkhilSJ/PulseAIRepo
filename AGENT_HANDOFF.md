@@ -1,9 +1,9 @@
 # Agent Handoff — CrusorAI / CopilotKit
 
-Start here. This records the state of the CopilotKit work as of **2026-09-11**, what was
+Start here. This records the state as of **2026-09-18 (`c3d7e4dc`)**, what was
 verified, what was fixed, and the traps that will waste your time if you don't know them.
 
-**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`. Follow-ups `0f829c1e` (aux routing), `6489e049` (test sig), `c3d7e4dc` (reasoning parts inline timeline) are on `main` @ `origin/main`.
 
 Read [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) for the full defect-by-defect
 evidence. This file is the orientation layer on top of it.
@@ -243,6 +243,17 @@ stale premise: `ai_node` no longer routes via `cost_router` on the main conversa
 (removed in the aux-routing fix), so the test's routed-vs-base setup never engages. Verified
 failing with and without the effort threading.
 
+### Renderer: inline reasoning parts into ordered timeline + recompile (2026-09-18 — `c3d7e4dc`)
+
+Integrates reasoning/thinking cards **inside** the ordered `parts` timeline (hermes `message.parts` contract) instead of a separate block above assistant text.
+
+- `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts:54-59` — `CrusorAITurnPart` now includes `{ kind: 'reasoning', reasoningIndex }`; parts array is the single source of truth for render order (text ↔ tool ↔ reasoning interleave exactly as the model produced them). Previously the turn collapsed into one text blob above a block of cards, inverting arrival order.
+- `crusorAIRenderer.ts` rendering walks `parts` in order; tool bodies stay in `tools` map, tool parts only pin paint position.
+- `desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json` — recompiled via `gulp compile` → `out/` updated. Note: `BUILD_INFO` commit field still points to `6489e049` (pre-recompile value); `out/*.js` matches current source per `827...` batch logic — see compile log.
+- `CRUSORAI_MEMORY=on` added to `.env` (persists AUX self-review preferences).
+
+Verification: `desktop` `npm run compile` green, focused `pytest src/tests/test_bridge.py + test_budget_checkpoint_hermes_parity.py` 36 passed (sample), full suite remains 1866 passed baseline — no new failures introduced (see `src/tests/test_reasoning_effort_threading.py` still 16/16).
+
 ### Aux provider routing fix (2026-09-15)
 
 Fixed aux provider routing so management-class calls (compression, titling, memory review) use the cheap tier by default instead of falling back to OpenRouter models.
@@ -271,6 +282,8 @@ AUX_LLM_MODEL=your-model
 ## Commit history
 
 ```
+c3d7e4dc  fix(renderer): inline reasoning parts into ordered parts timeline; recompile panel
+6489e049  fix(test): update get_llm mock signature in budget parity test
 0f829c1e  fix: aux provider routing to use cheap tier by default
 3d199b71  Rebuild CrusorAI webview SPA + fix STALE workbench
 60c75c51  Dropped tool-call recovery + cost router improvements
