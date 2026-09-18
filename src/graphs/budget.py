@@ -51,6 +51,16 @@ _PLAN_WRAP_SUMMARY_REQUEST = (
 # Legacy name (gates.py comment references it); same text.
 _GRACE_NUDGE = _MAX_ITERATIONS_SUMMARY_REQUEST
 
+# Field 2026-09-16 (hermes audit): when the TOKEN leg trips, the iterations
+# wording lies to the model ("maximum number of tool-calling iterations"
+# while iterations had headroom left). Same shape — one toolless summary
+# call on the full history — honest trigger name.
+_TOKEN_BUDGET_SUMMARY_REQUEST = (
+    "You've reached this run's token budget. Please provide a final response "
+    "summarizing what you've found and accomplished so far, without calling "
+    "any more tools."
+)
+
 
 def _iteration_budget() -> int:
     try:
@@ -58,6 +68,43 @@ def _iteration_budget() -> int:
     except (TypeError, ValueError):
         value = _ITERATION_BUDGET_DEFAULT
     return min(max(1, value), _ITERATION_BUDGET_CLAMP)
+
+
+# hermes turn_iteration_prep.py::_maybe_inject_iteration_budget_warning:
+# the hard wall has a SOFT checkpoint in front of it. Once the run enters
+# its final slice (default 90%), one shot tells the model to land durable
+# progress and head for the finish instead of hitting the wall cold mid-work
+# (which is exactly when the grace summary has the least to summarize).
+# AGENT_BUDGET_WARNING_RATIO=0 (or "off") disables the notice entirely.
+_BUDGET_WARNING_RATIO_DEFAULT = 0.9
+
+
+def _budget_warning_ratio() -> float | None:
+    raw = os.environ.get("AGENT_BUDGET_WARNING_RATIO", "").strip().lower()
+    if raw in {"0", "off", "none", "false"}:
+        return None
+    try:
+        ratio = float(raw) if raw else _BUDGET_WARNING_RATIO_DEFAULT
+    except ValueError:
+        ratio = _BUDGET_WARNING_RATIO_DEFAULT
+    if not (0 < ratio < 1):
+        return None
+    return ratio
+
+
+def _budget_warning_threshold() -> int | None:
+    """Iteration count at which the one-shot checkpoint warning fires.
+
+    hermes gate (verbatim shape): fires when
+    ``used >= min(ratio * max_total, max_total - 1)`` — the min keeps the
+    notice strictly BEFORE the wall, and a budget of 1 gets no notice at
+    all (``max_total - 1 == 0`` would fire on entry of the only lap).
+    """
+    ratio = _budget_warning_ratio()
+    budget = _iteration_budget()
+    if ratio is None or budget <= 1:
+        return None
+    return int(min(ratio * budget, budget - 1))
 
 
 # Each ai-node iteration costs several LangGraph recursion super-steps

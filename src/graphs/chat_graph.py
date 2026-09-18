@@ -1189,6 +1189,37 @@ def ai_node(
             "write_file (batch independent files). Do not verify an empty "
             "workspace.",
         )
+    # hermes turn_iteration_prep.py::_maybe_inject_iteration_budget_warning
+    # (field 2026-09-16 audit): the hard wall gets a SOFT checkpoint first.
+    # One shot, fired when the run enters its final budget slice: land
+    # durable progress and head for the finish instead of hitting the wall
+    # cold mid-work (a cold wall is exactly when the grace summary has the
+    # least to summarize — the class behind "acting dumb after the cut").
+    # Never on exhausted laps (the grace request owns that call), never in
+    # ask mode (no work to checkpoint), one-shot via budget_warning_done.
+    budget_warning_fired = bool(state.get("budget_warning_done", 0))
+    if (
+        execution_mode != "ask"
+        and not budget_exhausted
+        and not budget_warning_fired
+    ):
+        from src.graphs.budget import _budget_warning_threshold
+        _warn_at = _budget_warning_threshold()
+        if _warn_at is not None and iteration_used >= _warn_at:
+            budget_warning_fired = True
+            print(
+                f"[budget] checkpoint warning at {iteration_used}/"
+                f"{_iteration_budget()} — one-shot notice injected",
+                flush=True,
+            )
+            _insert_system_prefix(
+                messages,
+                "=== ITERATION BUDGET CHECKPOINT ===\n"
+                f"You have used {iteration_used} of {_iteration_budget()} "
+                "iterations. Checkpoint durable progress now, then continue "
+                "the task; do not stop solely because of this warning.",
+            )
+
     steers = turn_controls.drain_steer(session_id)
     if steers:
         _inject_steers_after_newest_tool_result(session_id, messages, steers)
@@ -1251,8 +1282,17 @@ def ai_node(
                     f"[{_budget_trip_reason(state)}]. Requesting summary...",
                     flush=True,
                 )
+                # The summary request must name the leg that ACTUALLY tripped:
+                # the iterations wording on a token-cap cut told the model it
+                # ran out of tool-calling iterations while iterations had
+                # headroom left (same mislabel class as the [grace] prefix).
+                if iteration_used >= _iteration_budget():
+                    _summary_request = _MAX_ITERATIONS_SUMMARY_REQUEST
+                else:
+                    from src.graphs.budget import _TOKEN_BUDGET_SUMMARY_REQUEST
+                    _summary_request = _TOKEN_BUDGET_SUMMARY_REQUEST
                 messages = messages + [
-                    HumanMessage(content=_MAX_ITERATIONS_SUMMARY_REQUEST)
+                    HumanMessage(content=_summary_request)
                 ]
         else:
             # Lap 2+: hermes never sees one (handle_max_iterations RETURNS
@@ -1687,6 +1727,9 @@ def ai_node(
         "iteration_used": next_used,
         "incomplete_response_retries": incomplete_retries,
         "grace_done": 1 if budget_exhausted else grace_done,
+        "budget_warning_done": 1 if budget_warning_fired else int(
+            state.get("budget_warning_done", 0) or 0
+        ),
         "_dropped_toolcall_retries": _dtc_retries,
     }
 
@@ -1759,6 +1802,17 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
     )
+    # hermes turn-finalizer honesty (turn_finalizer.py::_resolve_budget_fallback
+    # records max_iterations_reached(N/M)): a turn that ended because the
+    # budget VALVE closed is not a completed task — the grace summary is a
+    # checkpoint, not a finish. Without this the terminal frame told the IDE
+    # "completed" on cut runs (the ✅ on a run whose own farewell said "I
+    # reached the iteration limit"). The plan-complete wrap leg is exempt:
+    # that cut fires when the work IS done.
+    budget_cut = (
+        _budget_exhausted(state)
+        and not bool(state.get("wrap_summary"))
+    )
     # Hermes turn semantics (field 2026-09-05, "Ended incomplete" on a run
     # whose two tool errors were both long-recovered): failed_steps HISTORY
     # never fails a turn — tool errors are observations the model iterated
@@ -1766,7 +1820,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # (unrecovered — the model's final act was the failure) or D9-unverified
     # code marks the turn incomplete.
     trailing_failed = trailing_batch_failed(state.get("messages") or [])
-    task_succeeded = not unverified and not trailing_failed
+    task_succeeded = not unverified and not trailing_failed and not budget_cut
     if not task_succeeded:
         plan = finalize_plan(
             plan=list(state.get("plan", [])),
@@ -1784,7 +1838,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         )
     try:
         engine = get_context_engine(config)
-        if trailing_failed or unverified:
+        if trailing_failed or unverified or budget_cut:
             engine.record_feedback(success=False, task=current_task)
         else:
             engine.record_feedback(success=True, task=current_task)
@@ -1818,7 +1872,20 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         f"unverified={unverified}",
         flush=True,
     )
-    if did_work and unverified:
+    if budget_cut:
+        # The verdict frame must match the grace farewell: a budget-cut run
+        # ends on a checkpoint, and the next user message gets a FRESH budget
+        # (safety budgets are turn-scoped), so the stamp names the escape hatch.
+        lines.append(f"## ⚠️ Ended on budget: {task_display}")
+        lines.append("")
+        lines.append(
+            "**This run hit its iteration/token budget** and was concluded by "
+            "the budget valve — the summary above is a checkpoint of work so "
+            "far, not a finished task. Send a follow-up (e.g. \"continue\") "
+            "to resume with a fresh budget and full context."
+        )
+        lines.append("")
+    elif did_work and unverified:
         lines.append(f"## ⚠️ Ended unverified: {task_display}")
         lines.append("")
         lines.append(
@@ -1891,7 +1958,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             output_tokens=int(completion_tokens or 0),
             estimated_cost_usd=float(cost_usd or 0.0),
             execution_mode=str(state.get("execution_mode") or ""),
-            completed=not (trailing_failed or unverified),
+            completed=task_succeeded,
             error="; ".join(str(s) for s in (state.get("failed_steps") or [])[:3]),
         )
     except Exception:
@@ -1904,14 +1971,18 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 
     print(
         "[turn] finalize done: "
-        + ("unverified" if unverified else "failed" if trailing_failed else "completed"),
+        + ("budget-exhausted" if budget_cut
+           else "unverified" if unverified
+           else "failed" if trailing_failed
+           else "completed"),
         flush=True,
     )
     return {
         "plan": plan,
         "task_completed": task_succeeded,
         "task_status": (
-            "unverified" if unverified
+            "budget_exhausted" if budget_cut
+            else "unverified" if unverified
             else "failed" if trailing_failed
             else "completed"
         ),
@@ -3006,12 +3077,33 @@ def task_manager_node(
                 "prior_attempts": [],
                 "token_usage": _zero_token_usage(),
                 "turn_token_usage": _zero_token_usage(),
+                # Safety budgets are turn-scoped even when checkpoint state is
+                # resumed (same law as run_agent/stream_agent initial state).
+                # Without this reset an ack/reset after an exhausted turn
+                # inherited iteration_used>=budget + grace_done and the next
+                # turn entered toolless and finalized instantly.
+                "iteration_used": 0,
+                "grace_done": 0,
+                "budget_warning_done": 0,
+                "incomplete_response_retries": 0,
+                "plan_wrap_nudges": 0,
+                "wrap_summary": 0,
                 "workspace": config["configurable"].get("workspace", "."),
             }
         return {
             "current_task": updated_task,
             "task_action": action,
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            # Turn-scoped budget reset (see the "new" branch above): a bare
+            # ack re-prompt after a budget-exhausted turn must get a fresh
+            # budget, not inherit the spent one from the checkpoint.
+            "turn_token_usage": _zero_token_usage(),
+            "iteration_used": 0,
+            "grace_done": 0,
+            "budget_warning_done": 0,
+            "incomplete_response_retries": 0,
+            "plan_wrap_nudges": 0,
+            "wrap_summary": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -3045,6 +3137,7 @@ def task_manager_node(
             "turn_token_usage": _zero_token_usage(),
             "iteration_used": 0,
             "grace_done": 0,
+            "budget_warning_done": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -3131,6 +3224,7 @@ For "unrelated", preserve the existing active task exactly.
             "turn_token_usage": _merge_token_usage({}, [call_usage]),
             "iteration_used": 0,
             "grace_done": 0,
+            "budget_warning_done": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -3141,6 +3235,7 @@ For "unrelated", preserve the existing active task exactly.
         "turn_token_usage": _merge_token_usage({}, [call_usage]),
         "iteration_used": 0,
         "grace_done": 0,
+        "budget_warning_done": 0,
         "workspace": config["configurable"].get("workspace", "."),
     }
 
@@ -4808,6 +4903,7 @@ def invoke_agent(
                 # Safety budgets are turn-scoped even when checkpoint state is resumed.
                 "iteration_used": 0,
                 "grace_done": 0,
+                "budget_warning_done": 0,
                 "incomplete_response_retries": 0,
                 "plan_wrap_nudges": 0,
                 "wrap_summary": 0,
@@ -4909,6 +5005,7 @@ def stream_agent(
             # Safety budgets are turn-scoped even when checkpoint state is resumed.
             "iteration_used": 0,
             "grace_done": 0,
+            "budget_warning_done": 0,
             "incomplete_response_retries": 0,
             "plan_wrap_nudges": 0,
                 "wrap_summary": 0,

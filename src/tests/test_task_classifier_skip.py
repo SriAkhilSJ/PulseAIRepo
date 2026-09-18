@@ -56,8 +56,57 @@ def test_ack_messages_skip_llm_and_continue(msg, monkeypatch):
     out = cg.task_manager_node(_state(msg), _cfg())
     assert out["task_action"] == "continue"
     assert out["current_task"] == "build a login page"  # text unchanged
-    assert set(out) == {"current_task", "task_action", "token_usage", "workspace"}
+    assert set(out) == {
+        "current_task", "task_action", "token_usage", "workspace",
+        # Turn-scoped safety budgets are RESET here: an ack re-prompt after
+        # a budget-exhausted turn must not inherit the spent budget (which
+        # forced the next turn toolless into an instant finalize).
+        "turn_token_usage", "iteration_used", "grace_done",
+        "budget_warning_done",
+        "incomplete_response_retries", "plan_wrap_nudges", "wrap_summary",
+    }
     assert out["token_usage"]["calls"] == 1  # no LLM call recorded
+    assert out["iteration_used"] == 0
+    assert out["grace_done"] == 0
+    assert out["budget_warning_done"] == 0
+
+
+def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):
+    """Regression (field report: agent "acting dumb" on re-prompt). After a
+    turn ended on the iteration budget, the checkpoint carries
+    iteration_used>=budget + grace_done=1. A bare-ack re-prompt used to
+    skip the reset (quick-path return), so the next turn entered ai_node
+    already budget-exhausted: tools unbound, one toolless lap, instant
+    finalize. Every new user turn must get a fresh turn-scoped budget."""
+    monkeypatch.setattr(cg, "_task_manager_llm", _explode)
+    st = _state("ok")
+    st["iteration_used"] = 30
+    st["grace_done"] = 1
+    st["turn_token_usage"] = {"total_tokens": 500_000}
+    st["incomplete_response_retries"] = 2
+    st["plan_wrap_nudges"] = 1
+    st["wrap_summary"] = 1
+    out = cg.task_manager_node(st, _cfg())
+    assert out["task_action"] == "continue"
+    assert out["iteration_used"] == 0
+    assert out["grace_done"] == 0
+    assert out["budget_warning_done"] == 0
+    assert out["wrap_summary"] == 0
+    assert out["plan_wrap_nudges"] == 0
+    assert out["incomplete_response_retries"] == 0
+    assert out["turn_token_usage"] == cg._zero_token_usage()
+
+
+def test_reset_after_exhausted_turn_gets_fresh_budget(monkeypatch):
+    """Same law for the quick explicit-reset path."""
+    monkeypatch.setattr(cg, "_task_manager_llm", _explode)
+    st = _state("new task: add OAuth to the API")
+    st["iteration_used"] = 50
+    st["grace_done"] = 1
+    out = cg.task_manager_node(st, _cfg())
+    assert out["task_action"] == "new"
+    assert out["iteration_used"] == 0
+    assert out["grace_done"] == 0
 
 
 # ------------------------------------------------------------- reset => new
