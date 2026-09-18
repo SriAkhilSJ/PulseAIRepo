@@ -20,7 +20,17 @@ def data_dir() -> Path:
     custom = os.environ.get("CRUSORAI_OPS_DATA_DIR", "").strip()
     if custom:
         return Path(custom).expanduser()
-    return Path.home() / ".pulseai"
+    # engine rebranded: PulseAI -> CrusorAI (ca6a2f41), journal moved to ~/.crusorai
+    # prefer .crusorai, fallback to legacy .pulseai for older installs
+    crusorai = Path.home() / ".crusorai"
+    pulseai = Path.home() / ".pulseai"
+    # if crusorai has data, use it; else if only pulseai has data, use that
+    if crusorai.exists() and (crusorai / "runtime_events.db").exists():
+        return crusorai
+    if pulseai.exists() and (pulseai / "runtime_events.db").exists() and not crusorai.exists():
+        return pulseai
+    # default to new location (matches src/runtime/event_journal.py:25 and src/observability.py:43)
+    return crusorai
 
 
 def journal_path() -> Path:
