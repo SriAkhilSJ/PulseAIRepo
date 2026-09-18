@@ -11,7 +11,7 @@ import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import type { CrusorAISurface } from '../common/crusorAIRendererService.js';
 import type { CrusorAISessionRow } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
-	import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
+import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
 import { renderToolIcon } from './crusorAIIcons.js';
 import {
@@ -593,26 +593,26 @@ function expandableOutput(content: HTMLElement): HTMLElement {
 		const collapsed = wrap.classList.toggle('is-collapsed');
 		toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 	});
-		const fade = element('div', 'crusorai-expandable-fade', toggle);
-		wrap.append(clip, fade);
-		window.requestAnimationFrame(() => {
-			if (clip.scrollHeight <= 121) {
-				wrap.classList.remove('is-collapsed');
-				wrap.classList.add('is-fits');
-			}
-			// Hermes terminal-output.tsx: jump straight to the LATEST output
-			// on first delivery — boundedText keeps the tail, so the end of
-			// the stream is the payload (dir listings end at the current
-			// entries). First delivery only; a later resize must not yank
-			// the user while they scroll up reading earlier output.
-			const pre = clip.querySelector<HTMLElement>('.crusorai-terminal-output');
-			if (pre && !pre.dataset.tailed && pre.scrollHeight > pre.clientHeight) {
-				pre.dataset.tailed = 'true';
-				pre.scrollTop = pre.scrollHeight;
-			}
-		});
-		return wrap;
-	}
+	const fade = element('div', 'crusorai-expandable-fade', toggle);
+	wrap.append(clip, fade);
+	window.requestAnimationFrame(() => {
+		if (clip.scrollHeight <= 121) {
+			wrap.classList.remove('is-collapsed');
+			wrap.classList.add('is-fits');
+		}
+		// Hermes terminal-output.tsx: jump straight to the LATEST output
+		// on first delivery — boundedText keeps the tail, so the end of
+		// the stream is the payload (dir listings end at the current
+		// entries). First delivery only; a later resize must not yank
+		// the user while they scroll up reading earlier output.
+		const pre = clip.querySelector<HTMLElement>('.crusorai-terminal-output');
+		if (pre && !pre.dataset.tailed && pre.scrollHeight > pre.clientHeight) {
+			pre.dataset.tailed = 'true';
+			pre.scrollTop = pre.scrollHeight;
+		}
+	});
+	return wrap;
+}
 
 // hermes status-row.tsx todo glyphs, ported: pending = dashed ring,
 // in_progress = live dot, completed = pass-filled, failed = error,
@@ -720,14 +720,14 @@ function terminalBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	exit ??= (tool.state === 'running' ? 'running' : 'unknown');
 	const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';
 	const body = element('div', 'crusorai-tool-body crusorai-terminal-body');
-		body.append(
-			element('div', 'crusorai-terminal-command', element('span', 'crusorai-terminal-prompt', '$'), element('code', undefined, command)),
-			expandableOutput(terminalOutputContent(output, tool.state === 'running')),
-			// One meta line (hermes scaffold grammar): state word + exit code
-			// + duration, plain text — the colored glyph in the header already
-			// carries the state, so no second PASSED pill here.
-			element('div', 'crusorai-terminal-result', element('span', undefined, `${stateLabel(tool.state)} · exit ${exit}`), element('span', 'crusorai-tool-duration', duration)),
-		);
+	body.append(
+		element('div', 'crusorai-terminal-command', element('span', 'crusorai-terminal-prompt', '$'), element('code', undefined, command)),
+		expandableOutput(terminalOutputContent(output, tool.state === 'running')),
+		// One meta line (hermes scaffold grammar): state word + exit code
+		// + duration, plain text — the colored glyph in the header already
+		// carries the state, so no second PASSED pill here.
+		element('div', 'crusorai-terminal-result', element('span', undefined, `${stateLabel(tool.state)} · exit ${exit}`), element('span', 'crusorai-tool-duration', duration)),
+	);
 	const actions = element('div', 'crusorai-tool-actions');
 	actions.append(copyButton(command, host));
 	const cwd = firstString(args, ['cwd', 'path']);
@@ -991,7 +991,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-	function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
+function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
 	const section = element('section', 'crusorai-tool-list');
 	section.dataset.component = 'tool-list';
 	if (showHeading) {
@@ -1139,7 +1139,7 @@ function createActivityState(tick: () => void) {
 					quietTimer = setTimeout(() => { quietSince = Date.now(); tick(); }, TURN_QUIET_S * 1000);
 				}
 			}
-				const name = draftingToolName(model.tools);
+			const name = draftingToolName(model.tools);
 			const next = name && !toolNarratesWait(parts) ? toolPresentVerb(name) : '';
 			if (next !== verb) {
 				verb = next;
@@ -1271,7 +1271,7 @@ function assistantTurn(
 	const live = spec.live;
 	const response = element('section', `crusorai-assistant-message${live ? ' crusorai-breathing-edge is-streaming' : ''}`);
 	if (spec.current) { response.dataset.component = 'session-turn'; }
-response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
+	response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
 	// Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
 	// chronological position relative to text and tools is always preserved exactly.
 	// This mirrors the Hermes approach (message.content is a single ordered array).
@@ -2501,55 +2501,55 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 	// which is what makes the seconds move while the engine is quiet.
 	const activity = createActivityState(() => { if (!disposed) { tick(); } });
 	const tick = (): void => { if (!disposed && lastModel) { paint(lastModel); } };
-		const paint = (model: CrusorAIRenderModel): void => {
-			if (model.sessionId !== planSession) {
-				planSession = model.sessionId;
-				planOpen = undefined;
-				lastPaint = undefined;
-			}
-			const signature = paintSignature(model);
-			const streaming = lastTextPart(model);
-			if (
-				lastPaint
-				&& lastPaint.signature === signature
-				&& streaming
-				&& streaming.text !== lastPaint.text
-				&& streaming.text.startsWith(lastPaint.text)
-			) {
-				const slot = root.querySelector<HTMLElement>('[data-slot="session-turn-content"]');
-				if (slot) {
-					slot.replaceChildren(markdownCopy(streaming.text, 'session-turn-content'));
-					const scroller = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
-					if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32) {
-						scroller.scrollTop = scroller.scrollHeight;
-					}
-					lastPaint = { signature, text: streaming.text };
-					return;
+	const paint = (model: CrusorAIRenderModel): void => {
+		if (model.sessionId !== planSession) {
+			planSession = model.sessionId;
+			planOpen = undefined;
+			lastPaint = undefined;
+		}
+		const signature = paintSignature(model);
+		const streaming = lastTextPart(model);
+		if (
+			lastPaint
+			&& lastPaint.signature === signature
+			&& streaming
+			&& streaming.text !== lastPaint.text
+			&& streaming.text.startsWith(lastPaint.text)
+		) {
+			const slot = root.querySelector<HTMLElement>('[data-slot="session-turn-content"]');
+			if (slot) {
+				slot.replaceChildren(markdownCopy(streaming.text, 'session-turn-content'));
+				const scroller = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
+				if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32) {
+					scroller.scrollTop = scroller.scrollHeight;
 				}
-				// No live slot even though the shape says one should exist — the
-				// DOM does not match the model; take the full paint to resync.
+				lastPaint = { signature, text: streaming.text };
+				return;
 			}
-			const previousScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
-			const scrollTop = previousScroll?.scrollTop ?? 0;
-			const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
-			const activeElement = document.activeElement;
-			const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
-			const selectionStart = activeComposer?.selectionStart;
-			const selectionEnd = activeComposer?.selectionEnd;
-			root.replaceChildren();
-			root.dataset.surface = surface;
-			if (surface === 'agent') { renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }, activity); }
-			else { renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; }); }
-			const nextScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
-			if (nextScroll) { nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop; }
-			if (activeComposer) {
-				const input = root.querySelector<HTMLTextAreaElement>('.crusorai-composer-input');
-				input?.focus({ preventScroll: true });
-				if (input && selectionStart !== undefined && selectionEnd !== undefined) { input.setSelectionRange(selectionStart, selectionEnd); }
-			}
-			lastPaint = { signature, text: lastTextPart(model)?.text ?? '' };
+			// No live slot even though the shape says one should exist — the
+			// DOM does not match the model; take the full paint to resync.
+		}
+		const previousScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
+		const scrollTop = previousScroll?.scrollTop ?? 0;
+		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
+		const activeElement = document.activeElement;
+		const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
+		const selectionStart = activeComposer?.selectionStart;
+		const selectionEnd = activeComposer?.selectionEnd;
+		root.replaceChildren();
+		root.dataset.surface = surface;
+		if (surface === 'agent') { renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }, activity); }
+		else { renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; }); }
+		const nextScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
+		if (nextScroll) { nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop; }
+		if (activeComposer) {
+			const input = root.querySelector<HTMLTextAreaElement>('.crusorai-composer-input');
+			input?.focus({ preventScroll: true });
+			if (input && selectionStart !== undefined && selectionEnd !== undefined) { input.setSelectionRange(selectionStart, selectionEnd); }
+		}
+		lastPaint = { signature, text: lastTextPart(model)?.text ?? '' };
 
-		};
+	};
 	return {
 		update(model: CrusorAIRenderModel): void {
 			if (disposed) { return; }
