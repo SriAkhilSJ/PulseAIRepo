@@ -90,7 +90,7 @@ class _FakeEngine:
 def _patch(monkeypatch, budget):
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", str(budget))
     llm = _FakeLLM()
-    monkeypatch.setattr(cg, "get_llm", lambda provider, model: llm)
+    monkeypatch.setattr(cg, "get_llm", lambda provider=None, model=None, **kwargs: llm)
     monkeypatch.setattr(cg, "get_context_engine", lambda config: _FakeEngine())
     monkeypatch.setattr(cg.cost_router, "route", lambda t, p: ("groq", "m"))
     return llm
