@@ -5,6 +5,9 @@
 
 import type { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { CrusorClarifyQuestion, CrusorExecutionMode, CrusorTodoItem } from '../common/crusorAIProtocol.js';
+import { reasoningEffortLabel } from '../common/crusorAIReasoningEffort.js';
+import type { CrusorReasoningEffortValue } from '../common/crusorAIReasoningEffort.js';
+import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import type { CrusorAISurface } from '../common/crusorAIRendererService.js';
 import type { CrusorAISessionRow } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
@@ -50,7 +53,10 @@ export interface CrusorAIToolView {
  */
 export type CrusorAITurnPart =
 	| { readonly kind: 'text'; readonly text: string }
-	| { readonly kind: 'tool'; readonly toolId: string };
+	| { readonly kind: 'tool'; readonly toolId: string }
+	/** Index into the parallel reasoningParts array; used to preserve the chronological
+	 * position of a reasoning block relative to text and tool parts. */
+	| { readonly kind: 'reasoning'; readonly reasoningIndex: number };
 
 export interface CrusorAISubAgentView {
 	readonly id: string;
@@ -96,6 +102,10 @@ export interface CrusorAIRenderModel {
 	readonly voiceHeard?: { readonly ok: boolean; readonly text: string; readonly error?: string };
 	/** Live provider-call status (llm.request/llm.response): names the model being asked. */
 	readonly llmStatus?: { readonly model: string; readonly attempt: number };
+	/** The turn's live activity IS the Thinking card (reasoning streaming
+	 * during a provider call): the tail row must not narrate the same wait
+	 * twice — one thought, one surface. */
+	readonly llmReasoningLive?: boolean;
 	/** Bounded anatomy of the live request: role + head per message. */
 	readonly llmHeads?: readonly { readonly role: string; readonly head: string }[];
 	/** Hermes session-states.ts port: busy but silent for the 5-min watchdog
@@ -107,6 +117,8 @@ export interface CrusorAIRenderModel {
 	readonly contextStatus?: { readonly message: string; readonly severity: 'info' | 'warning'; readonly phase: string; readonly usagePercent?: number };
 	readonly sessionId?: string;
 	readonly mode: CrusorExecutionMode;
+	/** Selected Think level; '' = inherit the engine default (REASONING_EFFORT). */
+	readonly reasoningEffort?: string;
 	readonly running: boolean;
 	readonly cancelRequested: boolean;
 	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
@@ -114,7 +126,7 @@ export interface CrusorAIRenderModel {
 	readonly assistantText: string;
 	/** Ordered timeline (hermes message.parts): text segments and tool calls in arrival order. */
 	readonly parts: readonly CrusorAITurnPart[];
-	readonly reasoning?: string;
+	readonly reasoningParts: readonly { readonly text: string; readonly completedAt?: number }[];
 	readonly tools: readonly CrusorAIToolView[];
 	readonly subAgents: readonly CrusorAISubAgentView[];
 	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown };
@@ -153,7 +165,7 @@ export interface CrusorAIRenderModel {
 		readonly userMessage?: string;
 		readonly assistantText: string;
 		readonly parts: readonly CrusorAITurnPart[];
-		readonly reasoning?: string;
+		readonly reasoningParts: readonly { readonly text: string; readonly completedAt?: number }[];
 		readonly tools: readonly CrusorAIToolView[];
 		readonly subAgents: readonly CrusorAISubAgentView[];
 		readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
@@ -164,6 +176,8 @@ export interface CrusorAIRenderModel {
 export interface CrusorAIRenderHost {
 	setDraft(value: string): void;
 	setMode(mode: CrusorExecutionMode): void;
+	/** Think level for the NEXT turns (hermes reasoning-effort scale). */
+	setReasoningEffort(value: CrusorReasoningEffortValue): void;
 	submitPrompt(text: string): void;
 	cancel(): void;
 	steer(text: string): void;
@@ -1196,18 +1210,26 @@ function createActivityState(tick: () => void) {
  * sits to the RIGHT of the label and only the label is the hit target, which is why this is a
  * button-shaped summary over a content-width pill rather than a full-width bar.
  */
-function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean, seconds?: number): HTMLElement {
-	const key = 'thought';
+function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean, seconds?: number, partKey?: string): HTMLElement {
+	reasoning = separateGluedReasoningBlocks(reasoning);
+	const key = partKey || 'thought';
 	const details = element('details', 'crusorai-thought-row') as HTMLDetailsElement;
 	details.dataset.component = 'disclosure';
 	details.dataset.conversationScaffold = '';
 	details.dataset.disclosureKey = key;
-	// Open while the thinking is happening, so you can read it; folded afterwards, so a long
-	// turn does not leave a wall of prose above the answer.
-	details.open = live || openTools.has(key);
+	details.open = true;
 	details.addEventListener('toggle', () => {
 		if (details.open) { openTools.add(key); } else { openTools.delete(key); }
 	});
+	// Split accumulated reasoning into separate blocks (one per LLM call)
+	const body = element('div', 'crusorai-thought-body');
+	const blocks = reasoning.split(/\n\n---\n\n/);
+	for (const block of blocks) {
+		const trimmed = block.trim();
+		if (trimmed) {
+			body.append(element('p', undefined, trimmed));
+		}
+	}
 	details.append(
 		element('summary', 'crusorai-disclosure-row',
 			element('span', 'crusorai-disclosure-stack',
@@ -1217,7 +1239,7 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
 			seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined,
 			element('span', 'crusorai-disclosure-caret', '\u25be'),
 		),
-		element('div', 'crusorai-thought-body', element('p', undefined, reasoning)),
+		body,
 	);
 	return details;
 }
@@ -1232,7 +1254,7 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
  */
 function assistantTurn(
 	spec: {
-		reasoning?: string;
+		reasoningParts: readonly { readonly text: string; readonly completedAt?: number }[];
 		assistantText: string;
 		parts: readonly CrusorAITurnPart[];
 		tools: readonly CrusorAIToolView[];
@@ -1241,6 +1263,7 @@ function assistantTurn(
 		thoughtSeconds?: number;
 		cancelRequested?: boolean;
 		clarify?: CrusorAIRenderModel['clarify'];
+		turnKey?: string;
 	},
 	host: CrusorAIRenderHost,
 	openTools: Set<string>,
@@ -1248,8 +1271,11 @@ function assistantTurn(
 	const live = spec.live;
 	const response = element('section', `crusorai-assistant-message${live ? ' crusorai-breathing-edge is-streaming' : ''}`);
 	if (spec.current) { response.dataset.component = 'session-turn'; }
-	response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
-	if (spec.reasoning) { response.append(thinkingBlock(spec.reasoning, openTools, live, spec.thoughtSeconds)); }
+response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
+	// Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
+	// chronological position relative to text and tools is always preserved exactly.
+	// This mirrors the Hermes approach (message.content is a single ordered array).
+	const reasoningParts = (spec.reasoningParts || []).filter(p => p && p.text);
 	// Parts are the ordering source. A turn that predates them (or somehow
 	// carries text without a single text part) falls back to the legacy
 	// single-block paint so the answer can never be dropped by a missing
@@ -1268,13 +1294,22 @@ function assistantTurn(
 	let run: CrusorAIToolView[] = [];
 	const flushRun = () => {
 		if (!run.length) { return; }
-		// In-message runs drop the "Actions" heading: hermes tool rows carry
-		// their own labels, and a heading wedged between text segments reads
-		// as a second message.
 		response.append(toolSection(run, host, openTools, live, false, spec.clarify));
 		run = [];
 	};
 	parts.forEach((part, index) => {
+		if (part.kind === 'reasoning') {
+			// Flush any accumulated tool run BEFORE the reasoning block (preserves order)
+			flushRun();
+			const rp = reasoningParts[part.reasoningIndex];
+			if (rp && rp.text) {
+				// A reasoning block is "live" (spinner + growing text) only when it is the
+				// last part in the timeline and the turn is still running.
+				const isLastPart = index === parts.length - 1;
+				response.append(thinkingBlock(rp.text, openTools, live && isLastPart, spec.thoughtSeconds, `${spec.turnKey || 'turn'}:${part.reasoningIndex}`));
+			}
+			return;
+		}
 		if (part.kind === 'tool') {
 			const tool = toolsById.get(part.toolId);
 			if (tool) { run.push(tool); }
@@ -1302,13 +1337,14 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	// History: previous turns (user → agent) preserved wireframe style, no breathing
 	for (const turn of model.history) {
 		if (turn.userMessage) lane.append(element('div', 'crusorai-user-message', turn.userMessage));
-		if (turn.assistantText || turn.reasoning || turn.parts.length || turn.tools.length) {
+		if (turn.assistantText || turn.parts.length || turn.tools.length) {
 			lane.append(assistantTurn({
-				reasoning: turn.reasoning,
+				reasoningParts: turn.reasoningParts,
 				assistantText: turn.assistantText,
 				parts: turn.parts,
 				tools: turn.tools,
 				live: false,
+				turnKey: `history:${model.sessionId || 's'}`,
 			}, host, openTools));
 		}
 		if (turn.subAgents.length) {
@@ -1360,9 +1396,9 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	// claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
 	// died on a provider error still printed confident progress. The spinner and the 'Working' label
 	// already say the only true thing: the turn is open.
-	if (model.assistantText || model.reasoning || model.running || model.parts.length || model.tools.length) {
+	if (model.assistantText || model.reasoningParts.length || model.running || model.parts.length || model.tools.length) {
 		lane.append(assistantTurn({
-			reasoning: model.reasoning,
+			reasoningParts: model.reasoningParts,
 			assistantText: model.assistantText,
 			parts: model.parts,
 			tools: model.tools,
@@ -1371,6 +1407,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 			thoughtSeconds: liveThoughtSeconds,
 			cancelRequested: model.cancelRequested,
 			clarify: model.clarify,
+			turnKey: `current:${model.sessionId || 's'}`,
 		}, host, openTools));
 	}
 	if (model.subAgents.length) {
@@ -1423,7 +1460,10 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	// working (owner run: the row claimed "Waiting on the model" for 4min
 	// while dir /s /b was the one grinding); only a truly idle gap between
 	// tool and model may fall through to the generic text.
-	if (model.running) {
+	if (model.running && !model.llmReasoningLive) {
+		// `llmReasoningLive`: the Thinking card is the live activity — the row
+		// would narrate the same wait twice (field 2026-09-17: while the model
+		// thinks, the tail showed both a Thinking card and an Asking… row).
 		const liveTool = [...model.tools].reverse().find(tool => tool.state === 'running' || tool.state === 'queued');
 		let hint: string;
 		let stalled = model.stalled === true;
@@ -2182,6 +2222,50 @@ function modePicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLE
 	return details;
 }
 
+// hermes desktop lib/reasoning-effort.ts + composer model-pill: the Think
+// scale beside the execution mode. '' (no pick yet) means "inherit the
+// engine default" — the summary shows that honestly instead of guessing.
+const thinkOptions: readonly { readonly id: CrusorReasoningEffortValue; readonly description: string }[] = [
+	{ id: 'low', description: 'Quick replies, light reasoning' },
+	{ id: 'medium', description: 'Balanced default' },
+	{ id: 'high', description: 'Deep reasoning, slower turns' },
+	{ id: 'none', description: 'Disable extended thinking' },
+];
+
+function thinkPicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLElement {
+	const details = element('details', 'crusorai-mode-picker crusorai-think-picker') as HTMLDetailsElement;
+	const current = model.reasoningEffort ?? '';
+	const summary = element('summary', 'crusorai-mode-summary',
+		element('span', undefined, current ? reasoningEffortLabel(current) : 'Think'),
+		icon('chevron-down'));
+	summary.setAttribute('aria-label', `Thinking effort: ${current ? reasoningEffortLabel(current) : 'engine default'}`);
+	if (model.running) {
+		summary.setAttribute('aria-disabled', 'true');
+		summary.addEventListener('click', event => event.preventDefault());
+	}
+	const menu = element('div', 'crusorai-mode-menu');
+	menu.setAttribute('role', 'menu');
+	menu.setAttribute('aria-label', 'Thinking effort');
+	for (const option of thinkOptions) {
+		const selected = option.id === current;
+		const item = element('button', selected ? 'crusorai-mode-option is-selected' : 'crusorai-mode-option',
+			icon(option.id === 'none' ? 'circle-slash' : 'lightbulb'),
+			element('span', 'crusorai-mode-option-copy', element('strong', undefined, reasoningEffortLabel(option.id)), element('small', undefined, option.description)),
+			selected ? icon('check') : undefined,
+		) as HTMLButtonElement;
+		item.type = 'button';
+		item.setAttribute('role', 'menuitemradio');
+		item.setAttribute('aria-checked', String(selected));
+		item.addEventListener('click', () => {
+			details.open = false;
+			host.setReasoningEffort(option.id);
+		});
+		menu.append(item);
+	}
+	details.append(summary, menu);
+	return details;
+}
+
 function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager: boolean): HTMLElement {
 	const input = element('textarea', 'crusorai-composer-input') as HTMLTextAreaElement;
 	input.rows = manager ? 2 : 3;
@@ -2209,7 +2293,14 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	if (running && model.cancelRequested) { send.disabled = true; }
 	if (inputBlocked) { send.disabled = true; }
 
-	const toolbar = element('div', 'crusorai-composer-toolbar', modePicker(model, host), send);
+	// hermes composer layout: the Think pill sits beside the execution-mode
+	// picker; the Send button stays right-aligned via the toolbar's spare
+	// `.crusorai-composer-left` grid track.
+	const toolbar = element('div', 'crusorai-composer-toolbar',
+		modePicker(model, host),
+		thinkPicker(model, host),
+		element('span', 'crusorai-composer-left'),
+		send);
 	const hint = element('div', 'crusorai-composer-hint',
 		model.noWorkspace
 			? element('span', undefined, model.noWorkspaceHint)
@@ -2403,8 +2494,8 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		return undefined;
 	};
 	const paintSignature = (model: CrusorAIRenderModel): string => {
-		const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text')).join('>');
-		return `${JSON.stringify({ ...model, assistantText: undefined, parts: undefined })}|${shape}`;
+		const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : p.kind === 'reasoning' ? `reasoning:${p.reasoningIndex}` : 'text')).join('>');
+		return `${JSON.stringify({ ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined })}|${shape}`;
 	};
 	// The activity row's timers outlive individual renders; a tick repaints from the last model,
 	// which is what makes the seconds move while the engine is quiet.

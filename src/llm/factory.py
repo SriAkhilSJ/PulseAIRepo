@@ -9,6 +9,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
+from src.config.reasoning_config import build_model_kwargs_for_reasoning
 from src.config.settings import (
     CUSTOM_API_KEY,
     CUSTOM_BASE_URL,
@@ -16,6 +17,7 @@ from src.config.settings import (
     GROQ_API_KEY,
     NVIDIA_API_KEY,
     OPENAI_API_KEY,
+    REASONING_EFFORT,
 )
 
 from src.runtime.turn_control import active_session, turn_controls
@@ -868,7 +870,109 @@ def streaming_enabled(default: bool) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def get_llm(provider, model, max_attempts: int | None = None, request_timeout: float | None = None):
+# =========================================================
+# REASONING-CARRYING OPENAI-COMPATIBLE CLIENT
+# =========================================================
+# Keys an OpenAI-compatible router may use for hidden-reasoning text.
+# (Module-level: pydantic v2 claims underscore class attrs as private.)
+_REASONING_DELTA_KEYS = ("reasoning_content", "reasoning")
+
+
+class ReasoningAwareOpenAI(ChatOpenAI):
+    """ChatOpenAI that preserves router reasoning deltas.
+
+    Field 2026-09-17 (velona.in / OpenRouter-style routers): the endpoint
+    streams the model's thinking as ``delta.reasoning`` (plus
+    ``delta.reasoning_details``), and buffered responses carry
+    ``message.reasoning``. Stock ChatOpenAI documentedly drops all of them
+    ("reasoning_content, reasoning_details are not extracted ... use a
+    provider-specific subclass") — so the token pump never saw a single
+    reasoning frame and the desktop's Thinking card never painted.
+
+    Both conversion hooks are overridden to lift those fields verbatim into
+    ``additional_kwargs['reasoning_content']`` — the carrier the chat graph's
+    _AgentTokenPump already reads (chunk.additional_kwargs, then
+    chunk.message.additional_kwargs). Plain-string ``reasoning`` is
+    preserved as a string; structured ``reasoning_details`` lists are not
+    stringified (the pump ignores non-string payloads).
+    """
+
+    @staticmethod
+    def _lift_reasoning(delta: dict, kwargs: dict) -> None:
+        text = None
+        for key in _REASONING_DELTA_KEYS:
+            raw = delta.get(key)
+            if isinstance(raw, str) and raw:
+                text = raw if text is None else text + raw
+        details = delta.get("reasoning_details")
+        if isinstance(details, list) and details:
+            kwargs.setdefault("reasoning_details", details)
+        if text:
+            prior = kwargs.get("reasoning_content")
+            kwargs["reasoning_content"] = (prior + text) if isinstance(prior, str) else text
+
+    def _convert_chunk_to_generation_chunk(self, chunk, default_chunk_class, base_generation_info):  # noqa: ANN001, ANN003, ANN202
+        generation_chunk = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
+        if generation_chunk is None:
+            return None
+        choices = chunk.get("choices") or []
+        if choices:
+            delta = choices[0].get("delta") or {}
+            lifted: dict = {}
+            self._lift_reasoning(delta, lifted)
+            if lifted:
+                # Mirror into the message carrier the pump reads
+                # (chunk.message.additional_kwargs).
+                message = getattr(generation_chunk, "message", None)
+                if message is not None:
+                    message.additional_kwargs = {
+                        **(getattr(message, "additional_kwargs", None) or {}), **lifted}
+        return generation_chunk
+
+    def _create_chat_result(self, response, generation_info=None):  # noqa: ANN001, ANN003, ANN202
+        # Buffered path: langchain calls the MODULE-LEVEL
+        # _convert_dict_to_message() inside its own _create_chat_result, so a
+        # method override cannot intercept it. Lift from the raw response
+        # AFTER the super call instead — additive, library logic untouched.
+        result = super()._create_chat_result(response, generation_info)
+        try:
+            response_dict = (
+                response
+                if isinstance(response, dict)
+                else response.model_dump(
+                    exclude={"choices": {"__all__": {"message": {"parsed"}}}},
+                    warnings=False,
+                )
+            )
+            choices = response_dict.get("choices") or []
+            for generation, choice in zip(result.generations, choices):
+                message = getattr(generation, "message", None)
+                if message is None:
+                    continue
+                lifted: dict = {}
+                self._lift_reasoning(choice.get("message") or {}, lifted)
+                if lifted:
+                    message.additional_kwargs = {
+                        **(getattr(message, "additional_kwargs", None) or {}), **lifted}
+        except Exception:  # noqa: BLE001 — lifting must never break receipt
+            pass
+        return result
+
+
+def _http_default_headers() -> dict[str, str]:
+    """Optional per-request headers for OpenAI-compatible endpoints.
+
+    Some self-hosted gateways (velona.in behind Cloudflare error 1010) ban the
+    OpenAI SDK's default User-Agent while allowing normal HTTP clients, so
+    every call 403s before auth is even evaluated. Set
+    CRUSORAI_HTTP_USER_AGENT to override the wire UA; unset keeps SDK
+    defaults. Read per client construction (standing env rule).
+    """
+    ua = (os.environ.get("CRUSORAI_HTTP_USER_AGENT") or "").strip()
+    return {"User-Agent": ua} if ua else {}
+
+
+def get_llm(provider, model, max_attempts: int | None = None, request_timeout: float | None = None, reasoning_config: dict | None = None):
     """Build a retry-bounded provider client.
 
     ``max_attempts`` / ``request_timeout``: optional PER-CALL overrides for
@@ -876,9 +980,16 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
     hidden retries silently multiply wall time on slow endpoints -- the SDK's
     answer was max_retries=0 and Hermes-owned retry budgets). None = the
     historical defaults (5 attempts, default_request_timeout) -- untouched.
+
+    ``reasoning_config``: optional reasoning/extended-thinking config dict
+    (from ``parse_reasoning_effort()``).  Provider-specific wire parameters
+    are injected via ``model_kwargs``.
     """
+    # Build extra model_kwargs for provider-side thinking.
+    reasoning_kwargs = build_model_kwargs_for_reasoning(provider, model, reasoning_config) if reasoning_config else {}
+
     # Hard timeouts: a hung provider must NEVER wedge a dashboard worker
-    # thread forever. Retries stay with RetryLLMProxy (single owner).
+    # thread forever.  Retries stay with RetryLLMProxy (single owner).
     if provider == "groq":
         llm = ChatGroq(
             model=model,
@@ -886,6 +997,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
             max_retries=0,  # hermes #54465: hidden SDK retries multiply wall time; RetryLLMProxy owns the policy
+            **reasoning_kwargs,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -896,6 +1008,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
             max_retries=0,
+            **reasoning_kwargs,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -907,6 +1020,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
             max_retries=0,
+            **reasoning_kwargs,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -917,6 +1031,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
             max_retries=0,
+            **reasoning_kwargs,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -934,13 +1049,15 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
                 "provider 'cheap' requires CRUSORAI_CHEAP_API_KEY and "
                 "CRUSORAI_CHEAP_BASE_URL (and CRUSORAI_CHEAP_MODEL in the router)"
             )
-        llm = ChatOpenAI(
+        llm = ReasoningAwareOpenAI(
             api_key=cheap_key,
             base_url=cheap_url,
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
             max_retries=0,  # hermes #54465: RetryLLMProxy owns the retry policy
+            default_headers=_http_default_headers() or None,
+            **reasoning_kwargs,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
@@ -963,13 +1080,15 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             effective_timeout = _stream_stall_timeout()
         else:
             effective_timeout = max(10.0, min(timeout, 300.0))
-        llm = ChatOpenAI(
+        llm = ReasoningAwareOpenAI(
             api_key=CUSTOM_API_KEY,
             base_url=CUSTOM_BASE_URL,
             model=model,
             request_timeout=effective_timeout,
             streaming=streaming,
             max_retries=0,  # hermes #54465: the proxy owns retries; SDK-hidden ones multiply wall time
+            default_headers=_http_default_headers() or None,
+            **reasoning_kwargs,
         )
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 

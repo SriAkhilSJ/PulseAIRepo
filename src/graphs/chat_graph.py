@@ -32,7 +32,8 @@ from langgraph.graph.message import add_messages
 # pyrefly: ignore [missing-import]
 from langgraph.prebuilt import ToolNode, InjectedState
 
-from src.config.settings import LLM_PROVIDER, LLM_MODEL
+from src.config.settings import LLM_PROVIDER, LLM_MODEL  # noqa: F401  (REASONING_EFFORT now read at call time)
+from src.config.reasoning_config import parse_reasoning_effort
 from src.llm.factory import (
     get_llm, get_auxiliary_llm, TurnCancelledError, provider_response_info,
 )
@@ -71,6 +72,51 @@ try:
     CRUSOR_TASK_SCHEMA = a2ui.load_schema(_SCHEMAS_DIR / "crusor_task_schema.json")
 except Exception:
     CRUSOR_TASK_SCHEMA = []
+
+
+def _env_reasoning_effort() -> str:
+    """Read REASONING_EFFORT at call time, not import time.
+
+    An env var set after process start (or between turns) must take effect;
+    a module-level constant would freeze the value at first import.
+    """
+    return os.getenv("REASONING_EFFORT", "").strip()
+
+
+def _resolve_reasoning_config(configurable: dict | None = None) -> dict | None:
+    """Resolve the reasoning config for this turn.
+
+    The desktop's Think picker sends ``reasoning_effort`` on every prompt
+    frame; the bridge threads it through ``stream_agent`` into
+    ``configurable``. A manual pick therefore wins over the static
+    ``REASONING_EFFORT`` env var, which remains the fallback for surfaces
+    that do not send one (dashboard, direct graph callers). An unrecognized
+    value falls back the same way instead of breaking the turn.
+
+    Returns a parsed config dict suitable for passing to get_llm(), or None
+    when thinking is not configured (provider default applies).
+
+    Callers pass either the full RunnableConfig (ai_node) or the bare
+    configurable dict (unit tests, direct callers). Accept both shapes: the
+    2026-09-17 field bug was ai_node passing the full config while this
+    function read ``reasoning_effort`` off the top level, so the per-turn
+    Think-picker pick was silently dropped and every request fell back to the
+    static REASONING_EFFORT env var.
+    """
+    if (
+        isinstance(configurable, dict)
+        and isinstance(configurable.get("configurable"), dict)
+    ):
+        configurable = configurable["configurable"]
+    per_turn = str((configurable or {}).get("reasoning_effort") or "").strip()
+    if per_turn:
+        parsed = parse_reasoning_effort(per_turn)
+        if parsed is not None:
+            return parsed
+    env_effort = _env_reasoning_effort()
+    if not env_effort:
+        return None
+    return parse_reasoning_effort(env_effort)
 
 
 def _drop_tool_pairs(messages: list) -> list:
@@ -1005,12 +1051,13 @@ def ai_node(
 
     provider = routed_provider
     model = routed_model
+    reasoning_config = _resolve_reasoning_config(config)
     try:
-        llm = get_llm(provider=routed_provider, model=routed_model)
+        llm = get_llm(provider=routed_provider, model=routed_model, reasoning_config=reasoning_config)
     except Exception:
         # Fallback to the originally configured provider if routing fails
         provider, model = base_provider, base_model
-        llm = get_llm(provider=provider, model=model)
+        llm = get_llm(provider=provider, model=model, reasoning_config=reasoning_config)
 
     execution_mode = cast(ExecutionMode, state.get("execution_mode", "agent"))
 
@@ -1283,7 +1330,7 @@ def ai_node(
         except Exception:
             pass  # diagnostics never break the turn
         provider, model = base_provider, base_model
-        llm = get_llm(provider=provider, model=model)
+        llm = get_llm(provider=provider, model=model, reasoning_config=reasoning_config)
         llm_with_tools = (
             llm if execution_mode == "ask"
             else llm.bind_tools(_resolve_bound_tools(state, config))
@@ -1300,7 +1347,7 @@ def ai_node(
     try:
         result = _invoke_with_token_pump(
             call_llm, messages, session_id, provider, model,
-            strip_tool_blocks=tools_bound,
+            strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
         )
     except Exception as exc:
         # A Stop that fired while the request was in flight wins over provider
@@ -1332,6 +1379,7 @@ def ai_node(
             result = _invoke_with_token_pump(
                 call_llm, _drop_tool_pairs(messages), session_id,
                 provider, model, strip_tool_blocks=tools_bound,
+                reasoning_config=reasoning_config,
             )
         elif (provider, model) == (base_provider, base_model):
             raise
@@ -1370,7 +1418,7 @@ def ai_node(
                     _cr._last_route = {**_route, "provider": provider, "model": model, "failed_over": True}
             except Exception:
                 pass  # diagnostics never break the turn
-            llm = get_llm(provider=provider, model=model)
+            llm = get_llm(provider=provider, model=model, reasoning_config=reasoning_config)
             llm_with_tools = (
                 llm if execution_mode == "ask"
                 else llm.bind_tools(_resolve_bound_tools(state, config))
@@ -1407,6 +1455,7 @@ def ai_node(
                     result = _invoke_with_token_pump(
                         call_llm, messages, session_id, provider, model,
                         strip_tool_blocks=tools_bound,
+                        reasoning_config=reasoning_config,
                     )
                 except Exception as _failover_exc:
                     if _is_tool_messages_rejection(_failover_exc):
@@ -1417,6 +1466,7 @@ def ai_node(
                         result = _invoke_with_token_pump(
                             llm, _drop_tool_pairs(messages), session_id,
                             provider, model, strip_tool_blocks=False,
+                            reasoning_config=reasoning_config,
                         )
                     else:
                         raise
@@ -1486,7 +1536,7 @@ def ai_node(
         try:
             result = _invoke_with_token_pump(
                 call_llm, messages_with_nudge, session_id, provider, model,
-                strip_tool_blocks=tools_bound,
+                strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
             )
             result = repair_text_tool_calls(result, allow=tools_bound)
             # Update state for the retry count (carried via additional_kwargs)
@@ -1521,7 +1571,7 @@ def ai_node(
             result,
             lambda: _invoke_with_token_pump(
                 call_llm, _stripped_for_reinvoke, session_id, provider, model,
-                strip_tool_blocks=tools_bound,
+                strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
             ),
         )
 
@@ -1934,6 +1984,37 @@ def _result_answer_text(result: Any) -> str:
     return ""
 
 
+def _result_reasoning_text(result: Any) -> str:
+    """Hidden-reasoning text of a buffered response. Two carrier shapes:
+    deepseek-style `reasoning_content` on the message/additional_kwargs, and
+    inline `<think>…</think>` spans in the content (the shape DeepSeek-style
+    routers actually send). Tolerant by design — display extraction never
+    raises."""
+    additional = getattr(result, "additional_kwargs", None) or {}
+    raw = (
+        additional.get("reasoning_content")
+        or additional.get("reasoning")
+        or getattr(result, "reasoning_content", None)
+        or ""
+    )
+    if not (isinstance(raw, str) and raw.strip()):
+        # Inline-think shape: pull the spans out of the content. The answer
+        # side keeps them stripped via _THINK_BLOCK_RE at the final-emission
+        # layer; here we surface the thought itself.
+        try:
+            content = getattr(result, "content", "")
+            if isinstance(content, str) and _THINK_OPEN in content:
+                spans = re.findall(
+                    r"<think>(.*?)</think>", content, flags=re.DOTALL
+                )
+                if spans:
+                    return "\n".join(s for s in spans).strip()
+        except Exception:
+            pass
+        raw = raw if isinstance(raw, str) else (str(raw) if raw else "")
+    return raw
+
+
 def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: str) -> bool:
     """Hermes transport discipline: the transcript must show the answer
     regardless of how the endpoint delivered it. An endpoint that buffered
@@ -1946,6 +2027,14 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
     text = _result_answer_text(result)
     if not text.strip():
         return False
+    if _THINK_OPEN in text:
+        # Inline-think routers: the thought rides the content. The Thinking
+        # card already got it via _flush_unstreamed_reasoning — the answer
+        # frame must carry the reply only (same contract as the live
+        # _split_inline_think filter, and as _summary_text_from).
+        text = _THINK_BLOCK_RE.sub("", text).strip()
+        if not text.strip():
+            return False
     if pump.strip_tool_blocks:
         # Same cleaned-text contract as the live stream: blocks the repair
         # layer will consume must not paint the transcript here either —
@@ -1963,10 +2052,33 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
         return False  # a dead bus must not kill a live turn
 
 
+def _flush_unstreamed_reasoning(result: Any, thread_id: str) -> bool:
+    """The Thinking-card twin of _flush_unstreamed_answer: a buffered call
+    carries the model's reasoning ONLY in the response object (no token
+    events ever fire), so without this flush the thought is invisible —
+    field 2026-09-17: reasoning cards never painted on a non-streaming
+    endpoint. One whole-text `reasoning.update` frame (the desktop's
+    reasoning frame REPLACES, so single-frame is the correct shape)."""
+    text = _result_reasoning_text(result)
+    if not text.strip():
+        return False
+    try:
+        event_bus.emit("reasoning.update", {
+            "text": text,
+            "thread_id": thread_id,
+        })
+        return True
+    except Exception:
+        return False  # a dead bus must not kill a live turn
+
+
 # hermes agent/acp_openai_bridge.py:20 — the taught text-dialect block that
 # the repair layer consumes out of a response before display.
 _TOOL_BLOCK_OPEN = "<tool_call>"
 _TOOL_BLOCK_CLOSE = "</tool_call>"
+# Inline-think routers (DeepSeek-style): reasoning inlined in content.
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
 # Unterminated-block safety valve: past this much swallowed stream text with
 # no close tag, the span flushes as display text (a block that size is not a
 # tool call; hermes' non-greedy regex would not match it either).
@@ -1996,6 +2108,13 @@ class _AgentTokenPump(BaseCallbackHandler):
         self._thread_id = thread_id
         self.streamed = False
         self._reasoning_acc = ""
+        # Inline-think router (field 2026-09-17: zero Thinking cards on
+        # deepseek-v4-flash): DeepSeek-style routers do NOT deliver reasoning
+        # as `reasoning_content` chunks — they inline it in the CONTENT as
+        # `<think>…</think>` before the answer. State machine:
+        self._in_think = False
+        self._think_seen = False  # a <think> span was routed this call
+        self._think_tag_carry = ""
         # hermes ACP display contract (field 2026-09-09 @7a7111b9, shots 1-2):
         # when the parser consumes a <tool_call> block out of a response, the
         # UI must show cleaned_text — the raw markup never renders (hermes
@@ -2032,10 +2151,11 @@ class _AgentTokenPump(BaseCallbackHandler):
         The desktop's reasoning frame REPLACES the Thinking text, so each
         update carries reasoning-so-far -- streaming semantics without any
         protocol change. Only fired when the endpoint actually streams
-        reasoning_content (deepseek-style); a model with none stays silent,
-        which is the honest state.
+        reasoning_content (deepseek-style) or inline <think> spans; a model
+        with none stays silent, which is the honest state.
         """
         self._reasoning_acc += piece
+        self._think_seen = True  # reasoning already reached the client
         try:
             event_bus.emit("reasoning.update", {
                 "text": self._reasoning_acc,
@@ -2092,8 +2212,81 @@ class _AgentTokenPump(BaseCallbackHandler):
         self._mark(piece)
         if self.strip_tool_blocks:
             piece = self._filter_piece(piece)
+        if not piece:
+            return
+        # Inline-think routers (DeepSeek-style) carry the reasoning INSIDE
+        # the content stream. Route it to the Thinking card — the answer
+        # must start when the model's reply starts, not with its thoughts.
+        piece = self._split_inline_think(piece)
         if piece:
             self._emit_text(piece)
+
+    # Holdback covers any split of the LONGER tag ("</think>" is 8 chars;
+    # "<think>" 7). Same discipline as the <tool_call> filter below.
+    _THINK_HOLD = 7  # len("</think>") - 1
+
+    def _split_inline_think(self, piece: str) -> str:
+        """Route inline <think>…</think> spans to the Thinking card.
+
+        Returns the ANSWER portion of `piece` (may be empty); reasoning is
+        accumulated and emitted as reasoning.update frames directly. An
+        UNTERMINATED <think> at end-of-stream is flushed by flush_tail() as
+        reasoning (a thought that never closed still shows as thought, never
+        as answer text).
+        """
+        carry = self._think_tag_carry + piece
+        self._think_tag_carry = ""
+        out: list[str] = []
+        while True:
+            if self._in_think:
+                end = carry.find(_THINK_CLOSE)
+                if end != -1:
+                    self._emit_think(carry[:end])
+                    # Same contract as the buffered _THINK_BLOCK_RE
+                    # (`</think>\s*`): whitespace after the thought is
+                    # router layout, not the answer's leading text.
+                    carry = carry[end + len(_THINK_CLOSE):].lstrip()
+                    self._in_think = False
+                    continue
+                # Stay inside the thought; hold back a possible split tag.
+                if len(carry) > self._THINK_HOLD:
+                    keep = carry[-self._THINK_HOLD:]
+                    self._emit_think(carry[:-len(keep)])
+                    self._think_tag_carry = keep
+                else:
+                    self._think_tag_carry = carry
+                break
+            start = carry.find(_THINK_OPEN)
+            if start != -1:
+                out.append(carry[:start])
+                self._in_think = True
+                self._think_seen = True
+                carry = carry[start + len(_THINK_OPEN):]
+                # Leading newline right after the open tag is layout, not thought.
+                carry = carry.lstrip("\r\n") if carry.startswith("\r") or carry.startswith("\n") else carry
+                continue
+            # No open tag in the free portion. Hold back a tail that could
+            # be a split "<think>" tag prefix — SHORT carries can be prefixes
+            # too ("<th" + "ink>…" as separate chunks). Bounded holdback:
+            # flush_tail releases it as answer text if the tag never closes.
+            if "<" in carry:
+                keep = carry[-self._THINK_HOLD:] if len(carry) > self._THINK_HOLD else carry
+                if len(carry) > len(keep):
+                    out.append(carry[:-len(keep)])
+                self._think_tag_carry = keep
+            else:
+                out.append(carry)
+            break
+        return "".join(out)
+
+    def _emit_think(self, piece: str) -> None:
+        """Accumulate + forward one inline-think delta (accumulated text —
+        the desktop's reasoning frame REPLACES)."""
+        if not piece:
+            return
+        self.streamed = True
+        self._mark(piece)
+        self._emit_reasoning(piece)
 
     def _filter_piece(self, piece: str) -> str:
         """Swallow complete <tool_call>…</tool_call> spans from the stream,
@@ -2144,12 +2337,28 @@ class _AgentTokenPump(BaseCallbackHandler):
         unclosed <tool_call> is not parseable — the repair layer ignores it,
         hermes' block regex would not match it either), so it displays as
         text. Bounded: the holdback is at most one partial-tag length.
-        Returns what was flushed (tests assert on it; callers ignore)."""
+        Returns what was flushed (tests assert on it; callers ignore).
+
+        Inline-think discipline: a held-back answer tail flushes as answer
+        text; a thought that never closed flushes as REASONING (never
+        answer), matching the model's own production order. The THINK
+        filter sits DOWNSTREAM of the TOOL filter, so the tool holdback
+        releases THROUGH the think filter — tag-split spans still route."""
         flushed = ""
-        if self._carry:
-            flushed = self._carry
-            self._emit_text(flushed)
-            self._carry = ""
+        tool_tail, self._carry = self._carry, ""
+        if tool_tail:
+            routed = self._split_inline_think(tool_tail)
+            if routed:
+                self._emit_text(routed)
+                flushed += routed
+        think_tail, self._think_tag_carry = self._think_tag_carry, ""
+        if self._in_think:
+            # Unterminated <think>: everything still held is thought.
+            self._in_think = False
+            self._emit_think(think_tail)
+        elif think_tail:
+            flushed += think_tail
+            self._emit_text(think_tail)
         self._in_tool_block = False
         return flushed
 
@@ -2166,7 +2375,7 @@ class _AgentTokenPump(BaseCallbackHandler):
 
 def _invoke_with_token_pump(
     call_llm, messages, thread_id: str, provider: str = "", model: str = "",
-    strip_tool_blocks: bool = False,
+    strip_tool_blocks: bool = False, reasoning_config: dict | None = None,
 ):
     """Agent-node invoke with the live token pump attached (best-effort).
 
@@ -2203,6 +2412,13 @@ def _invoke_with_token_pump(
     _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
         time.monotonic() - _model_t0
     )
+    if not pump._think_seen:
+        # Streamed but thought-less: some routers carry reasoning only on the
+        # AGGREGATED response (reasoning_content), never on chunks. Flush it
+        # FIRST (thought precedes the reply) so the Thinking card paints even
+        # on this shape; when the pump DID route inline think, this is a
+        # no-op (no duplicate card).
+        _flush_unstreamed_reasoning(result, thread_id)
     # Any held-back display text (partial-tag tail, or an unterminated block
     # that repair will NOT consume) flushes before the receipt line.
     pump.flush_tail()
@@ -2226,6 +2442,20 @@ def _invoke_with_token_pump(
                 flush=True,
             )
         else:
+            # A genuinely buffered call (streaming disabled upstream, or the
+            # endpoint answered stream:true with one body — the receipt's
+            # [buffered] marker names that shape). NO speculative retry here:
+            # a second generation double-bills every call on a lane that
+            # never streams (field 2026-09-17 v.txt: the probe fired a hidden
+            # ChatGroq request inside test fakes) and violates the hermes
+            # single-retry-owner discipline — RetryLLMProxy owns retries.
+            # Words-arrive-as-words is the factory's job (streaming defaults
+            # per provider); the transport contract here is only that the
+            # answer PAINTS regardless of delivery mode.
+            # The buffered reasoning flushes BEFORE the answer: thought
+            # precedes the reply in the model's own production order, and the
+            # desktop closes the Thinking card the moment the answer starts.
+            _flush_unstreamed_reasoning(result, thread_id)
             flushed = _flush_unstreamed_answer(pump, result, thread_id)
             if flushed:
                 # The flag means "this call's text already reached the client"
@@ -4635,6 +4865,7 @@ def stream_agent(
     approval_policy: str = "ask",
     turn_id: str | None = None,
     initial_plan: list[dict[str, Any]] | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     from src.context.convention_learner import ConventionLearner
     # P1-fix: warm the conventions cache WITHOUT re-scanning every turn.
@@ -4661,6 +4892,7 @@ def stream_agent(
                 "approval_timeout": approval_timeout,
                 "approval_policy": approval_policy,
                 "turn_id": turn_id,
+                "reasoning_effort": reasoning_effort,
             },
             "recursion_limit": _recursion_limit(),
         }

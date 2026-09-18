@@ -101,7 +101,12 @@ def test_cancel_steer_and_queue_are_distinct():
     assert controls.cancel("s") is True
     assert controls.cancelled("s") is True
     assert controls.drain_steer("s") == ["use the existing file"]
-    assert controls.pop_queued("s") == "then write docs"
+    # Queued prompts ride as (text, reasoning_effort) pairs — the Think pick
+    # travels with its prompt, not the session.
+    assert controls.pop_queued("s") == ("then write docs", None)
+    assert controls.queue("s", "deep dive", "high") == 1
+    assert controls.pop_queued("s") == ("deep dive", "high")
+    assert controls.pop_queued("s") is None
 
 
 def test_tool_transaction_never_executes_when_intent_persistence_fails(monkeypatch):

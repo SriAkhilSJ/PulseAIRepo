@@ -20,6 +20,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
+import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { crusorSessionLabel, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
@@ -95,6 +96,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.restartAttempts = 0;
         this.draft = '';
         this.mode = 'agent';
+        /** Think level ('' = inherit the engine's REASONING_EFFORT env default). */
+        this.reasoningEffort = '';
         this.running = false;
         this.cancelRequested = false;
         /** Live hermes todo_list state, reconciled atomically on {todos, revision}. */
@@ -110,15 +113,18 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
          * turn boundaries with the rest of the turn state.
          */
         this.parts = [];
+        /** Reasoning parts seen this turn — each LLM call that produces reasoning adds a new part. */
+        this.reasoningParts = [];
+        this.reasoningPending = false;
         this.subAgents = new Map();
         this.plan = [];
         this.telemetry = {};
         this.engineSetupError = false;
-        /** Reasoning frames seen this turn. A real reasoning stream sends many; a
-         * transport liveness dress-up (a status line posing as thought) sends one.
-         * The counter is how the renderer can hand a single-frame "reasoning" off
-         * to the llmStatus row without string-matching copy. */
-        this.reasoningFrameCount = 0;
+        /** A provider attempt has been named this turn (llm.request seen).
+         * Reasoning arriving AFTER this is real model thought — a buffered
+         * endpoint delivers it as a single whole-text frame — while reasoning
+         * before any provider attempt is the legacy liveness dress-up. */
+        this.hadProviderAttempt = false;
         this.history = [];
         this.host = {
             setDraft: value => { this.draft = value; },
@@ -127,6 +133,15 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     return;
                 }
                 this.mode = mode;
+                this.render();
+            },
+            // hermes reasoning-effort: a manual pick sticks for the session; it
+            // rides the NEXT prompt frame, so a mid-turn change needs no cancel.
+            setReasoningEffort: value => {
+                if (this.reasoningEffort === value) {
+                    return;
+                }
+                this.reasoningEffort = value;
                 this.render();
             },
             submitPrompt: text => { void this.submitPrompt(text); },
@@ -326,6 +341,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             engineSetupError: this.engineSetupError,
             sessionId: this.sessionId,
             mode: this.mode,
+            reasoningEffort: this.reasoningEffort || undefined,
             running: this.running,
             cancelRequested: this.cancelRequested,
             turnStartedAt: this.turnStartedAt,
@@ -337,13 +353,16 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             voiceHeard: this.voiceHeard,
             llmStatus: this.llmStatus,
             llmHeads: this.llmHeads,
+            // The Thinking card is the FIRST-CLASS thought; the activity row
+            // must not parrot it when reasoning is what the turn is doing.
+            llmReasoningLive: Boolean(this.running && this.reasoningParts.length > 0 && this.hadProviderAttempt),
             stalled: this.stalled,
             degraded: this.degraded,
             turnOutcome: this.turnOutcome,
             userMessage: this.userMessage,
             assistantText: this.assistantText,
             parts: [...this.parts],
-            reasoning: this.reasoning,
+            reasoningParts: [...this.reasoningParts],
             tools: [...this.tools.values()],
             subAgents: [...this.subAgents.values()],
             approval: this.approval,
@@ -630,7 +649,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     userMessage: this.userMessage,
                     assistantText: this.assistantText,
                     parts: [...this.parts],
-                    reasoning: this.reasoning,
+                    reasoningParts: this.reasoningParts,
+                    reasoningPending: this.reasoningPending,
                     tools: [...this.tools.values()],
                     subAgents: [...this.subAgents.values()],
                     turnOutcome: this.turnOutcome,
@@ -640,7 +660,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.userMessage = text;
         this.assistantText = '';
         this.parts = [];
-        this.reasoning = undefined;
+        this.reasoningParts = [];
+        this.reasoningPending = false;
+        this.hadProviderAttempt = false;
         this.tools.clear();
         this.subAgents.clear();
         this.approval = undefined;
@@ -651,7 +673,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.cancelRequested = false;
         this.turnOutcome = 'running';
         this.turnStartedAt = Date.now();
-        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode });
+        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
         this.render();
     }
     /**
@@ -805,24 +827,45 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.llmHeads = undefined;
             this.degraded = undefined;
             this.voiceHeard = undefined;
-            this.reasoningFrameCount = 0;
+            this.hadProviderAttempt = false;
             this.clearStallWatchdog();
             this.armStallWatchdog();
         }
         else if (frame.type === 'token') {
             this.assistantText += frame.text;
             this.appendTextPart(frame.text);
-            // The answer started; whatever was in the Thinking block is done.
-            this.reasoning = undefined;
+            // Reasoning is preserved so the thinking block stays visible in
+            // the transcript after the turn completes.
         }
         else if (frame.type === 'reasoning') {
-            this.reasoning = frame.text;
-            this.reasoningFrameCount += 1;
+            // Hermes pattern: reasoning parts accumulate as an array.
+            const repaired = separateGluedReasoningBlocks(frame.text);
+            const tail = this.reasoningParts[this.reasoningParts.length - 1];
+            if (tail && repaired.startsWith(tail.text)) {
+                tail.text = repaired;
+            }
+            else if (tail && !tail.completedAt) {
+                tail.text = tail.text + repaired;
+            }
+            else {
+                // New reasoning block: record its index in the parts timeline so the
+                // renderer knows exactly where in the turn it occurred (Hermes pattern:
+                // a single ordered parts array for reasoning, text, and tools).
+                const reasoningIndex = this.reasoningParts.length;
+                this.reasoningParts.push({ text: repaired });
+                this.parts.push({ kind: 'reasoning', reasoningIndex });
+            }
+            this.reasoningPending = true;
         }
         else if (frame.type === 'plan_updated') {
             this.plan = frame.steps.map(planStepView);
         }
         else if (frame.type === 'tool_call_start') {
+            // Seal any open reasoning part before the tool call
+            const openReasoning = this.reasoningParts[this.reasoningParts.length - 1];
+            if (openReasoning && !openReasoning.completedAt) {
+                openReasoning.completedAt = Date.now();
+            }
             this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
             this.pushToolPart(frame.tool_id);
         }
@@ -921,6 +964,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 this.assistantText = frame.message;
                 this.appendTextPart(frame.message);
             }
+            // Seal any open reasoning part
+            const openR = this.reasoningParts[this.reasoningParts.length - 1];
+            if (openR && !openR.completedAt) {
+                openR.completedAt = Date.now();
+            }
+            this.reasoningPending = false;
             this.compacting = undefined;
             this.contextStatus = undefined;
             this.llmStatus = undefined;
@@ -948,21 +997,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         else if (frame.type === 'llm.request') {
             this.llmStatus = { model: frame.model ?? '', attempt: frame.attempt ?? 1 };
             this.llmHeads = frame.messages;
-            // The 📡 row now carries the wait (which model, which attempt). The
-            // Thinking block must not parrot it: a status line dressed as
-            // reasoning is exactly the fake-progress the user called out. The
-            // bridge's single liveness frame is transport copy, not thought --
-            // clear it once a real provider attempt is named.
-            if (this.reasoningFrameCount <= 1) {
-                this.reasoning = undefined;
-            }
+            this.hadProviderAttempt = true;
         }
         else if (frame.type === 'llm.response') {
             this.llmStatus = undefined;
             this.llmHeads = undefined;
-            if (this.reasoning && this.reasoning.indexOf('Asking ') === 0) {
-                this.reasoning = undefined;
-            }
         }
         else if (frame.type === 'context_status') {
             const severity = frame.severity === 'warning' ? 'warning' : 'info';

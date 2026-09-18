@@ -111,7 +111,7 @@ def _patch_provider(monkeypatch, replied):
             return replied
 
     import src.graphs.chat_graph as cg
-    monkeypatch.setattr(cg, "get_llm", lambda provider, model: _FakeLLM())
+    monkeypatch.setattr(cg, "get_llm", lambda provider, model, reasoning_config=None, **kw: _FakeLLM())
     monkeypatch.setattr(cg, "get_context_engine", lambda config: _FakeEngine())
     monkeypatch.setattr(cg.cost_router, "route", lambda t, p: ("groq", "m"))
 

@@ -367,7 +367,7 @@ class BridgeServer:
             time.sleep(0.02)
         return max(int(getattr(q, "unfinished_tasks", 0) or 0), 0)
 
-    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent") -> None:
+    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent", reasoning_effort: str | None = None) -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
 
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
@@ -508,6 +508,7 @@ class BridgeServer:
                     approval_policy=approval_policy,
                     turn_id=identity.turn_id,
                     execution_mode=mode,
+                    reasoning_effort=reasoning_effort,
                 )
                 cancelled = turn_controls.cancelled(sid)
                 # Owner-machine diagnosis (2026-09-04 "run never ends, I have
@@ -594,7 +595,7 @@ class BridgeServer:
         from src.runtime.turn_control import turn_controls
         queued = turn_controls.pop_queued(sid)
         if queued and not self._shutdown.is_set():
-            self._run_turn(sid, queued, workspace)
+            self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1])
 
     def handle(self, frame: dict) -> bool:
         kind = frame["type"]
@@ -696,13 +697,18 @@ class BridgeServer:
         elif kind == "prompt":
             text = str(frame.get("text") or frame.get("message") or "").strip()
             mode = str(frame.get("mode") or "agent").strip().lower()
+            # Think-picker effort rides every prompt frame; keep it with the
+            # turn so a mid-session pick applies to that turn only. Queue the
+            # (text, effort) pair so a busy session's queued prompt keeps ITS
+            # pick, not the active turn's.
+            effort = str(frame.get("reasoning_effort") or "").strip() or None
             if not text:
                 self.emit(error_frame("prompt text is required"))
             elif mode not in EXECUTION_MODES:
                 self.emit(error_frame(f"unsupported execution mode: {mode}"))
             elif sid in self._workers and self._workers[sid].is_alive():
                 from src.runtime.turn_control import turn_controls
-                depth = turn_controls.queue(sid, text)
+                depth = turn_controls.queue(sid, text, effort)
                 self.emit({"type": "session_info", "session_id": sid, "queued": depth})
             else:
                 # Warm the heavy turn-path imports on the MAIN thread before
@@ -717,7 +723,7 @@ class BridgeServer:
                     from src.graphs.chat_graph import stream_agent  # noqa: F401
                 worker = threading.Thread(
                     target=self._run_turn,
-                    args=(sid, text, self._sessions[sid]["workspace"], mode),
+                    args=(sid, text, self._sessions[sid]["workspace"], mode, effort),
                     name=f"bridge-turn-{sid}", daemon=True,
                 )
                 self._workers[sid] = worker

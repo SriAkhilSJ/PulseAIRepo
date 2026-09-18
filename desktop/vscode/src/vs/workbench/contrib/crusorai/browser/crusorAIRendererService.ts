@@ -14,6 +14,8 @@ import { CrusorAICommandId } from '../common/crusorAI.js';
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import type { CrusorClarifyQuestion, CrusorClientMethod, CrusorExecutionMode, CrusorServerEvent, CrusorTodoItem } from '../common/crusorAIProtocol.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
+import type { CrusorReasoningEffortValue } from '../common/crusorAIReasoningEffort.js';
+import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAIRendererService, CrusorAISurface } from '../common/crusorAIRendererService.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { crusorSessionLabel, crusorSessionRows, crusorSessionStatusName, type CrusorAISessionFacts, type CrusorAISessionRow } from '../common/crusorAISessionProjection.js';
@@ -90,6 +92,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private pendingPrompt: string | undefined;
 	private draft = '';
 	private mode: CrusorExecutionMode = 'agent';
+	/** Think level ('' = inherit the engine's REASONING_EFFORT env default). */
+	private reasoningEffort: CrusorReasoningEffortValue | '' = '';
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
@@ -114,7 +118,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * turn boundaries with the rest of the turn state.
 	 */
 	private parts: CrusorAITurnPart[] = [];
-	private reasoning: string | undefined;
+	/** Reasoning parts seen this turn — each LLM call that produces reasoning adds a new part. */
+	private reasoningParts: { text: string; completedAt?: number }[] = [];
+	private reasoningPending = false;
 	/**
 	 * Epoch ms the current turn began, or undefined between turns. The tail activity row counts
 	 * from here until the transcript shows something, which is why it is a timestamp on the
@@ -179,11 +185,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * degradation is spoken, never screamed.
 	 */
 	private degraded?: string;
-	/** Reasoning frames seen this turn. A real reasoning stream sends many; a
-	 * transport liveness dress-up (a status line posing as thought) sends one.
-	 * The counter is how the renderer can hand a single-frame "reasoning" off
-	 * to the llmStatus row without string-matching copy. */
-	private reasoningFrameCount = 0;
+
+	/** A provider attempt has been named this turn (llm.request seen).
+	 * Reasoning arriving AFTER this is real model thought — a buffered
+	 * endpoint delivers it as a single whole-text frame — while reasoning
+	 * before any provider attempt is the legacy liveness dress-up. */
+	private hadProviderAttempt = false;
 	private history: CrusorAIRenderModel['history'] = [];
 
 	/**
@@ -198,6 +205,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		setMode: mode => {
 			if (this.running || this.mode === mode) { return; }
 			this.mode = mode;
+			this.render();
+		},
+		// hermes reasoning-effort: a manual pick sticks for the session; it
+		// rides the NEXT prompt frame, so a mid-turn change needs no cancel.
+		setReasoningEffort: value => {
+			if (this.reasoningEffort === value) { return; }
+			this.reasoningEffort = value;
 			this.render();
 		},
 		submitPrompt: text => { void this.submitPrompt(text); },
@@ -393,6 +407,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			engineSetupError: this.engineSetupError,
 			sessionId: this.sessionId,
 			mode: this.mode,
+			reasoningEffort: this.reasoningEffort || undefined,
 			running: this.running,
 			cancelRequested: this.cancelRequested,
 			turnStartedAt: this.turnStartedAt,
@@ -404,13 +419,16 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			voiceHeard: this.voiceHeard,
 			llmStatus: this.llmStatus,
 			llmHeads: this.llmHeads,
+			// The Thinking card is the FIRST-CLASS thought; the activity row
+			// must not parrot it when reasoning is what the turn is doing.
+			llmReasoningLive: Boolean(this.running && this.reasoningParts.length > 0 && this.hadProviderAttempt),
 			stalled: this.stalled,
 			degraded: this.degraded,
 			turnOutcome: this.turnOutcome,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
 			parts: [...this.parts],
-			reasoning: this.reasoning,
+				reasoningParts: [...this.reasoningParts],
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
 			approval: this.approval,
@@ -682,7 +700,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				userMessage: this.userMessage,
 				assistantText: this.assistantText,
 				parts: [...this.parts],
-				reasoning: this.reasoning,
+			reasoningParts: this.reasoningParts,
+			reasoningPending: this.reasoningPending,
 				tools: [...this.tools.values()],
 				subAgents: [...this.subAgents.values()],
 				turnOutcome: this.turnOutcome,
@@ -692,7 +711,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.userMessage = text;
 		this.assistantText = '';
 		this.parts = [];
-		this.reasoning = undefined;
+		this.reasoningParts = [];
+		this.reasoningPending = false;
+		this.hadProviderAttempt = false;
 		this.tools.clear();
 		this.subAgents.clear();
 		this.approval = undefined;
@@ -703,7 +724,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.cancelRequested = false;
 		this.turnOutcome = 'running';
 		this.turnStartedAt = Date.now();
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode });
+		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
 		this.render();
 	}
 
@@ -840,20 +861,40 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.llmHeads = undefined;
 			this.degraded = undefined;
 			this.voiceHeard = undefined;
-			this.reasoningFrameCount = 0;
+
+			this.hadProviderAttempt = false;
 			this.clearStallWatchdog();
 			this.armStallWatchdog();
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
 			this.appendTextPart(frame.text);
-			// The answer started; whatever was in the Thinking block is done.
-			this.reasoning = undefined;
+			// Reasoning is preserved so the thinking block stays visible in
+			// the transcript after the turn completes.
 		} else if (frame.type === 'reasoning') {
-			this.reasoning = frame.text;
-			this.reasoningFrameCount += 1;
+			// Hermes pattern: reasoning parts accumulate as an array.
+			const repaired = separateGluedReasoningBlocks(frame.text);
+			const tail = this.reasoningParts[this.reasoningParts.length - 1];
+			if (tail && repaired.startsWith(tail.text)) {
+				tail.text = repaired;
+			} else if (tail && !tail.completedAt) {
+				tail.text = tail.text + repaired;
+			} else {
+				// New reasoning block: record its index in the parts timeline so the
+				// renderer knows exactly where in the turn it occurred (Hermes pattern:
+				// a single ordered parts array for reasoning, text, and tools).
+				const reasoningIndex = this.reasoningParts.length;
+				this.reasoningParts.push({ text: repaired });
+				this.parts.push({ kind: 'reasoning', reasoningIndex });
+			}
+			this.reasoningPending = true;
 		} else if (frame.type === 'plan_updated') {
 			this.plan = frame.steps.map(planStepView);
 		} else if (frame.type === 'tool_call_start') {
+			// Seal any open reasoning part before the tool call
+			const openReasoning = this.reasoningParts[this.reasoningParts.length - 1];
+			if (openReasoning && !openReasoning.completedAt) {
+				openReasoning.completedAt = Date.now();
+			}
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
 			this.pushToolPart(frame.tool_id);
 		} else if (frame.type === 'tool_call_end') {
@@ -938,6 +979,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				this.assistantText = frame.message;
 				this.appendTextPart(frame.message);
 			}
+			// Seal any open reasoning part
+			const openR = this.reasoningParts[this.reasoningParts.length - 1];
+			if (openR && !openR.completedAt) { openR.completedAt = Date.now(); }
+			this.reasoningPending = false;
 			this.compacting = undefined;
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
@@ -962,16 +1007,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		} else if (frame.type === 'llm.request') {
 			this.llmStatus = { model: frame.model ?? '', attempt: frame.attempt ?? 1 };
 			this.llmHeads = frame.messages;
-			// The 📡 row now carries the wait (which model, which attempt). The
-			// Thinking block must not parrot it: a status line dressed as
-			// reasoning is exactly the fake-progress the user called out. The
-			// bridge's single liveness frame is transport copy, not thought --
-			// clear it once a real provider attempt is named.
-			if (this.reasoningFrameCount <= 1) { this.reasoning = undefined; }
+			this.hadProviderAttempt = true;
 		} else if (frame.type === 'llm.response') {
 			this.llmStatus = undefined;
 			this.llmHeads = undefined;
-			if (this.reasoning && this.reasoning.indexOf('Asking ') === 0) { this.reasoning = undefined; }
 		} else if (frame.type === 'context_status') {
 			const severity = frame.severity === 'warning' ? 'warning' : 'info';
 			if (frame.phase === 'compacted') {

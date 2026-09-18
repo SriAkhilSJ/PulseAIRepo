@@ -100,7 +100,7 @@ export type CrusorClientMethod =
 	| ({ readonly type: 'session_resume' } & CrusorSessionRequest)
 	| ({ readonly type: 'session_list' } & CrusorSessionRequest)
 	| ({ readonly type: 'session_fork' } & CrusorSessionRequest)
-	| ({ readonly type: 'prompt'; readonly text: string; readonly mode?: CrusorExecutionMode } & CrusorSessionRequest)
+	| ({ readonly type: 'prompt'; readonly text: string; readonly mode?: CrusorExecutionMode; readonly reasoning_effort?: string } & CrusorSessionRequest)
 	| ({ readonly type: 'voice_transcribe'; readonly audio_b64: string; readonly filename?: string } & CrusorSessionRequest)
 	| ({ readonly type: 'cancel' } & CrusorSessionRequest)
 	| ({ readonly type: 'steer'; readonly text: string } & CrusorSessionRequest)

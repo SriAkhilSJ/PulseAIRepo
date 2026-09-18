@@ -13,7 +13,9 @@ AbortHandle = Callable[[], None]
 class _Control:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     steer: deque[str] = field(default_factory=deque)
-    queued: deque[str] = field(default_factory=deque)
+    # Queued prompts ride as (text, reasoning_effort) pairs so a turn started
+    # while another is active keeps ITS Think pick, not the active turn's.
+    queued: deque[tuple[str, str | None]] = field(default_factory=deque)
     active: bool = False
     active_depth: int = 0
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -161,13 +163,13 @@ class TurnControlRegistry:
             item.steer.clear()
             return out
 
-    def queue(self, session_id: str, text: str) -> int:
+    def queue(self, session_id: str, text: str, reasoning_effort: str | None = None) -> int:
         item = self._get(session_id)
         with item.lock:
-            item.queued.append(str(text).strip())
+            item.queued.append((str(text).strip(), reasoning_effort))
             return len(item.queued)
 
-    def pop_queued(self, session_id: str) -> str | None:
+    def pop_queued(self, session_id: str) -> tuple[str, str | None] | None:
         item = self._get(session_id)
         with item.lock:
             return item.queued.popleft() if item.queued else None

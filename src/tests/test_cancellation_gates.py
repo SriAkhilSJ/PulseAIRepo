@@ -563,41 +563,46 @@ class TestCancellationGates:
     # ── C-11: cancelled ai_node skips the base-provider failover ──
 
     def test_c11_cancelled_ai_node_skips_base_provider_failover(self):
-        """When Stop fires during the routed provider's in-flight request and
+        """When Stop fires during the configured lane's in-flight request and
         that request then errors, ai_node's exception path must return the
-        cancellation message and must NOT invoke the base provider."""
+        cancellation message and must NOT fail over to another lane.
+
+        Updated for the no-routing contract: ai_node always uses the user's
+        configured main model (cost routing left the main conversation
+        path), so "failover" today means any get_llm construction outside
+        the configured ("fake", "fake") pair — none may happen after Stop."""
         from src.graphs.chat_graph import ai_node
         from langchain_core.messages import AIMessage
 
-        routed_fake = _FakeFailLLM("429 rate limit: try again in 5ms")
+        lane_fake = _FakeFailLLM("429 rate limit: try again in 5ms")
         base_fake = MagicMock()
         base_fake.bind_tools.return_value = base_fake
         base_fake.bind.return_value = base_fake
         base_fake.invoke.return_value = AIMessage(content="base response")
 
-        def _make_llm(provider, model):
-            if provider == "routed":
-                return routed_fake
+        def _make_llm(provider, model, reasoning_config=None):
+            # reasoning_config kwarg accepted (and ignored): the reasoning
+            # effort feature passes it on every get_llm call.
+            if (provider, model) == ("fake", "fake"):
+                return lane_fake
             return base_fake
 
         config = _make_config()
 
         def _run_ai():
             with patch("src.graphs.chat_graph.get_llm", side_effect=_make_llm), \
-                 patch("src.graphs.chat_graph.cost_router") as mock_router, \
                  patch("src.graphs.chat_graph.get_context_engine") as mock_engine, \
                  patch("src.graphs.chat_graph._resolve_bound_tools", return_value=[]):
-                mock_router.route.return_value = ("routed", "routed-model")
                 mock_engine.return_value.build_ai_messages.return_value = []
                 self._c11_result = ai_node(_make_state(), config)
 
         t = threading.Thread(target=_run_ai)
         t.start()
-        assert routed_fake.wait_invoke(timeout=5), "routed LLM invoke never entered"
+        assert lane_fake.wait_invoke(timeout=5), "LLM invoke never entered"
 
-        # Stop fires while the routed request is in flight.
+        # Stop fires while the request is in flight.
         self._tc.cancel(self._session_id)
-        routed_fake.release()  # routed request now errors with a retryable error
+        lane_fake.release()  # request now errors with a retryable error
         t.join(timeout=10)
         assert not t.is_alive(), "ai_node thread did not exit"
 
@@ -605,6 +610,9 @@ class TestCancellationGates:
         assert isinstance(msg, AIMessage)
         assert msg.content == "Operation cancelled by the user."
         assert msg.additional_kwargs.get("crusor_cancelled") is True
+        # No failover: no lane outside the configured pair was ever built or
+        # invoked (the cancellation path must not launch a base request).
+        base_fake.invoke.assert_not_called()
         # The exception path must NOT fail over to the base provider.
         base_fake.invoke.assert_not_called()
 

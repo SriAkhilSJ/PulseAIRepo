@@ -2,6 +2,8 @@
  * Framework-neutral, editor-native Crusor renderer. Both first-party workbench hosts mount this
  * module; no Electron, Node, or Code OSS service is imported across this boundary.
  *--------------------------------------------------------------------------------------------*/
+import { reasoningEffortLabel } from '../common/crusorAIReasoningEffort.js';
+import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
 import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
@@ -1091,15 +1093,14 @@ function createActivityState(tick) {
  * sits to the RIGHT of the label and only the label is the hit target, which is why this is a
  * button-shaped summary over a content-width pill rather than a full-width bar.
  */
-function thinkingBlock(reasoning, openTools, live, seconds) {
-    const key = 'thought';
+function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
+    reasoning = separateGluedReasoningBlocks(reasoning);
+    const key = partKey || 'thought';
     const details = element('details', 'crusorai-thought-row');
     details.dataset.component = 'disclosure';
     details.dataset.conversationScaffold = '';
     details.dataset.disclosureKey = key;
-    // Open while the thinking is happening, so you can read it; folded afterwards, so a long
-    // turn does not leave a wall of prose above the answer.
-    details.open = live || openTools.has(key);
+    details.open = true;
     details.addEventListener('toggle', () => {
         if (details.open) {
             openTools.add(key);
@@ -1108,7 +1109,16 @@ function thinkingBlock(reasoning, openTools, live, seconds) {
             openTools.delete(key);
         }
     });
-    details.append(element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be')), element('div', 'crusorai-thought-body', element('p', undefined, reasoning)));
+    // Split accumulated reasoning into separate blocks (one per LLM call)
+    const body = element('div', 'crusorai-thought-body');
+    const blocks = reasoning.split(/\n\n---\n\n/);
+    for (const block of blocks) {
+        const trimmed = block.trim();
+        if (trimmed) {
+            body.append(element('p', undefined, trimmed));
+        }
+    }
+    details.append(element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be')), body);
     return details;
 }
 /**
@@ -1126,9 +1136,10 @@ function assistantTurn(spec, host, openTools) {
         response.dataset.component = 'session-turn';
     }
     response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
-    if (spec.reasoning) {
-        response.append(thinkingBlock(spec.reasoning, openTools, live, spec.thoughtSeconds));
-    }
+    // Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
+    // chronological position relative to text and tools is always preserved exactly.
+    // This mirrors the Hermes approach (message.content is a single ordered array).
+    const reasoningParts = (spec.reasoningParts || []).filter(p => p && p.text);
     // Parts are the ordering source. A turn that predates them (or somehow
     // carries text without a single text part) falls back to the legacy
     // single-block paint so the answer can never be dropped by a missing
@@ -1151,13 +1162,22 @@ function assistantTurn(spec, host, openTools) {
         if (!run.length) {
             return;
         }
-        // In-message runs drop the "Actions" heading: hermes tool rows carry
-        // their own labels, and a heading wedged between text segments reads
-        // as a second message.
         response.append(toolSection(run, host, openTools, live, false, spec.clarify));
         run = [];
     };
     parts.forEach((part, index) => {
+        if (part.kind === 'reasoning') {
+            // Flush any accumulated tool run BEFORE the reasoning block (preserves order)
+            flushRun();
+            const rp = reasoningParts[part.reasoningIndex];
+            if (rp && rp.text) {
+                // A reasoning block is "live" (spinner + growing text) only when it is the
+                // last part in the timeline and the turn is still running.
+                const isLastPart = index === parts.length - 1;
+                response.append(thinkingBlock(rp.text, openTools, live && isLastPart, spec.thoughtSeconds, `${spec.turnKey || 'turn'}:${part.reasoningIndex}`));
+            }
+            return;
+        }
         if (part.kind === 'tool') {
             const tool = toolsById.get(part.toolId);
             if (tool) {
@@ -1193,13 +1213,14 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     for (const turn of model.history) {
         if (turn.userMessage)
             lane.append(element('div', 'crusorai-user-message', turn.userMessage));
-        if (turn.assistantText || turn.reasoning || turn.parts.length || turn.tools.length) {
+        if (turn.assistantText || turn.parts.length || turn.tools.length) {
             lane.append(assistantTurn({
-                reasoning: turn.reasoning,
+                reasoningParts: turn.reasoningParts,
                 assistantText: turn.assistantText,
                 parts: turn.parts,
                 tools: turn.tools,
                 live: false,
+                turnKey: `history:${model.sessionId || 's'}`,
             }, host, openTools));
         }
         if (turn.subAgents.length) {
@@ -1246,9 +1267,9 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     // claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
     // died on a provider error still printed confident progress. The spinner and the 'Working' label
     // already say the only true thing: the turn is open.
-    if (model.assistantText || model.reasoning || model.running || model.parts.length || model.tools.length) {
+    if (model.assistantText || model.reasoningParts.length || model.running || model.parts.length || model.tools.length) {
         lane.append(assistantTurn({
-            reasoning: model.reasoning,
+            reasoningParts: model.reasoningParts,
             assistantText: model.assistantText,
             parts: model.parts,
             tools: model.tools,
@@ -1257,6 +1278,7 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
             thoughtSeconds: liveThoughtSeconds,
             cancelRequested: model.cancelRequested,
             clarify: model.clarify,
+            turnKey: `current:${model.sessionId || 's'}`,
         }, host, openTools));
     }
     if (model.subAgents.length) {
@@ -1305,7 +1327,10 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     // working (owner run: the row claimed "Waiting on the model" for 4min
     // while dir /s /b was the one grinding); only a truly idle gap between
     // tool and model may fall through to the generic text.
-    if (model.running) {
+    if (model.running && !model.llmReasoningLive) {
+        // `llmReasoningLive`: the Thinking card is the live activity — the row
+        // would narrate the same wait twice (field 2026-09-17: while the model
+        // thinks, the tail showed both a Thinking card and an Asking… row).
         const liveTool = [...model.tools].reverse().find(tool => tool.state === 'running' || tool.state === 'queued');
         let hint;
         let stalled = model.stalled === true;
@@ -2055,6 +2080,42 @@ function modePicker(model, host) {
     details.append(summary, menu);
     return details;
 }
+// hermes desktop lib/reasoning-effort.ts + composer model-pill: the Think
+// scale beside the execution mode. '' (no pick yet) means "inherit the
+// engine default" — the summary shows that honestly instead of guessing.
+const thinkOptions = [
+    { id: 'low', description: 'Quick replies, light reasoning' },
+    { id: 'medium', description: 'Balanced default' },
+    { id: 'high', description: 'Deep reasoning, slower turns' },
+    { id: 'none', description: 'Disable extended thinking' },
+];
+function thinkPicker(model, host) {
+    const details = element('details', 'crusorai-mode-picker crusorai-think-picker');
+    const current = model.reasoningEffort ?? '';
+    const summary = element('summary', 'crusorai-mode-summary', element('span', undefined, current ? reasoningEffortLabel(current) : 'Think'), icon('chevron-down'));
+    summary.setAttribute('aria-label', `Thinking effort: ${current ? reasoningEffortLabel(current) : 'engine default'}`);
+    if (model.running) {
+        summary.setAttribute('aria-disabled', 'true');
+        summary.addEventListener('click', event => event.preventDefault());
+    }
+    const menu = element('div', 'crusorai-mode-menu');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Thinking effort');
+    for (const option of thinkOptions) {
+        const selected = option.id === current;
+        const item = element('button', selected ? 'crusorai-mode-option is-selected' : 'crusorai-mode-option', icon(option.id === 'none' ? 'circle-slash' : 'lightbulb'), element('span', 'crusorai-mode-option-copy', element('strong', undefined, reasoningEffortLabel(option.id)), element('small', undefined, option.description)), selected ? icon('check') : undefined);
+        item.type = 'button';
+        item.setAttribute('role', 'menuitemradio');
+        item.setAttribute('aria-checked', String(selected));
+        item.addEventListener('click', () => {
+            details.open = false;
+            host.setReasoningEffort(option.id);
+        });
+        menu.append(item);
+    }
+    details.append(summary, menu);
+    return details;
+}
 function composer(model, host, manager) {
     const input = element('textarea', 'crusorai-composer-input');
     input.rows = manager ? 2 : 3;
@@ -2095,7 +2156,10 @@ function composer(model, host, manager) {
     if (inputBlocked) {
         send.disabled = true;
     }
-    const toolbar = element('div', 'crusorai-composer-toolbar', modePicker(model, host), send);
+    // hermes composer layout: the Think pill sits beside the execution-mode
+    // picker; the Send button stays right-aligned via the toolbar's spare
+    // `.crusorai-composer-left` grid track.
+    const toolbar = element('div', 'crusorai-composer-toolbar', modePicker(model, host), thinkPicker(model, host), element('span', 'crusorai-composer-left'), send);
     const hint = element('div', 'crusorai-composer-hint', model.noWorkspace
         ? element('span', undefined, model.noWorkspaceHint)
         : model.workspaceSelectionRequired
@@ -2261,8 +2325,8 @@ export function mountCrusorAIRenderer(root, surface, host) {
         return undefined;
     };
     const paintSignature = (model) => {
-        const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text')).join('>');
-        return `${JSON.stringify({ ...model, assistantText: undefined, parts: undefined })}|${shape}`;
+        const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : p.kind === 'reasoning' ? `reasoning:${p.reasoningIndex}` : 'text')).join('>');
+        return `${JSON.stringify({ ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined })}|${shape}`;
     };
     // The activity row's timers outlive individual renders; a tick repaints from the last model,
     // which is what makes the seconds move while the engine is quiet.

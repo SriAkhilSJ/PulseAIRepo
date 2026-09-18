@@ -769,9 +769,14 @@
 	border-radius: 7px;
 	background: var(--vscode-input-background);
 	box-shadow: 0 3px 12px var(--vscode-widget-shadow);
-	overflow: hidden;
+	/* The mode/Think menus pop UP out of this box, so a blanket clip cuts
+	   them at the box edge (field 2026-09-17: dropdown painted truncated).
+	   The clip exists only to round the textarea's resize corner — gate it
+	   to the input and round the toolbar instead. */
+	overflow: visible;
 	transition: border-color 120ms ease, box-shadow 120ms ease;
 }
+
 .crusorai-composer-box:focus-within {
 	border-color: var(--vscode-focusBorder);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent), 0 4px 14px var(--vscode-widget-shadow);
@@ -788,12 +793,19 @@
 	background: transparent;
 	color: var(--vscode-input-foreground);
 	line-height: 1.4;
+	/* Carries the clip the box gave up: rounds the resize corner without
+	   clipping the menus that pop out of the toolbar below. */
+	overflow: hidden;
+	border-radius: 6px 6px 0 0;
 }
 .crusorai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
-.crusorai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; }
+.crusorai-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px 5px 5px; border-radius: 0 0 6px 6px; }
 .crusorai-composer-left { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 160px; }
 
 .crusorai-mode-picker { position: relative; min-width: 0; }
+/* Think pill: the mode label is short (Agent/Plan), so the picker hugs its
+   content; the Think summary labels Low/Med/High read better with a floor. */
+.crusorai-think-picker .crusorai-mode-summary { min-width: 64px; justify-content: space-between; }
 .crusorai-mode-summary {
 	display: inline-flex;
 	align-items: center;
@@ -816,7 +828,7 @@
 .crusorai-mode-picker[open] .crusorai-mode-summary > .codicon:last-child { transform: rotate(180deg); }
 .crusorai-mode-menu {
 	position: absolute;
-	z-index: 40;
+	z-index: 1000;
 	bottom: calc(100% + 6px);
 	left: 0;
 	display: grid;
@@ -828,6 +840,12 @@
 	color: var(--vscode-menu-foreground);
 	box-shadow: 0 4px 16px var(--vscode-widget-shadow);
 }
+/* An open picker rises above sibling chrome while its menu is out: the
+   summary keeps hover, the menu paints over transcript/status rows. The
+   stacking context is scoped to the [open] state so the closed picker
+   never joins the workbench's z-ladder. */
+.crusorai-mode-picker[open] { z-index: 1000; }
+.crusorai-mode-picker[open] .crusorai-mode-summary { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
 .crusorai-mode-option {
 	display: grid;
 	grid-template-columns: 18px minmax(0, 1fr) 16px;

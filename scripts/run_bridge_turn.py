@@ -146,6 +146,8 @@ def main() -> int:
                     help="credit circuit-breaker: cancel when cumulative input tokens pass this")
     ap.add_argument("--max-no-delivery-calls", type=int, default=12,
                     help="cancel a paid build that still has no workspace file at this many LLM requests")
+    ap.add_argument("--reasoning-effort", default=None,
+                    help="per-turn reasoning effort on the prompt frame (desktop Think-picker parity)")
     ap.add_argument("--results-root", default="bench-results")
     args = ap.parse_args()
 
@@ -225,8 +227,11 @@ def main() -> int:
         with open(frames_path, "w", encoding="utf-8") as out:
             send({"type": "hello", "protocol": 2})
             send({"type": "session_create", "session_id": session_id, "workspace": workspace})
-            send({"type": "prompt", "session_id": session_id,
-                  "workspace": workspace, "text": prompt})
+            prompt_frame = {"type": "prompt", "session_id": session_id,
+                            "workspace": workspace, "text": prompt}
+            if args.reasoning_effort:
+                prompt_frame["reasoning_effort"] = args.reasoning_effort
+            send(prompt_frame)
             deadline = time.time() + args.timeout_s
             while time.time() < deadline:
                 remaining = deadline - time.time()
@@ -330,6 +335,7 @@ def main() -> int:
         except Exception:
             proc.kill()
 
+    outcome["reasoning_effort_requested"] = args.reasoning_effort
     outcome["frame_counts"] = counts
     outcome["llm_request_frames"] = llm_calls
     outcome["tokens_in_last_telemetry"] = tokens_in_seen

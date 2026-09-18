@@ -86,7 +86,7 @@ class _FakeEngine:
 def _patch_env(monkeypatch, budget):
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", str(budget))
     llm = _FakeLLM(reply="final text")
-    monkeypatch.setattr(cg, "get_llm", lambda provider, model: llm)
+    monkeypatch.setattr(cg, "get_llm", lambda provider, model, reasoning_config=None, **kw: llm)
     monkeypatch.setattr(cg, "get_context_engine", lambda config: _FakeEngine())
     monkeypatch.setattr(cg.cost_router, "route", lambda t, p: ("groq", "m"))
     return llm
@@ -143,7 +143,7 @@ def test_ai_node_normal_path_binds_tools_and_increments(monkeypatch):
 def _patch_env_tool_reply(monkeypatch, budget, tool_names):
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", str(budget))
     llm = _FakeToolLLM(tool_names)
-    monkeypatch.setattr(cg, "get_llm", lambda provider, model: llm)
+    monkeypatch.setattr(cg, "get_llm", lambda provider, model, reasoning_config=None, **kw: llm)
     monkeypatch.setattr(cg, "get_context_engine", lambda config: _FakeEngine())
     monkeypatch.setattr(cg.cost_router, "route", lambda t, p: ("groq", "m"))
     return llm

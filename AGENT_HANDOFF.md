@@ -187,6 +187,62 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
 
 ## Recent changes
 
+### Live reasoning-effort verification + 2 field fixes (2026-09-17)
+
+Drove the REAL bridge against REAL velona.in calls via `scripts/logging_proxy.py`
+(records every request body) + `run_bridge_turn.py --reasoning-effort`. Lab dirs:
+`lab/test7_reasoning_effort` (stub), `lab/test8_reasoning_effort_real` (velona).
+
+**Bug found & fixed (chat_graph):** `ai_node` passed the full `RunnableConfig` to
+`_resolve_reasoning_config()`, which reads `reasoning_effort` off the top level of the
+`configurable` dict — so the desktop Think-picker's per-turn pick was ALWAYS dropped
+and every request silently used the static `REASONING_EFFORT` env var. The 16 unit
+tests passed because they call the function with the bare configurable. The function
+now accepts both shapes. Wire evidence: frame pick `low` → request body
+`"reasoning_effort": "low"`; no pick → env `high`.
+
+**Bug found & fixed (factory):** velona.in's Cloudflare bans the OpenAI SDK default
+User-Agent (error 1010, `browser_signature_banned`, every call 403s pre-auth). A/B
+curl proved UA is the only differentiator. Added `CRUSORAI_HTTP_USER_AGENT`
+(`_http_default_headers()` → `default_headers` on the `custom` + `cheap` ChatOpenAI
+clients), set in `.env` to a browser-style UA. Unset keeps SDK defaults.
+
+Commands that reproduced everything:
+
+```bash
+uv run python scripts/logging_proxy.py 8766 https://velona.in lab/test8_reasoning_effort_real/proxy_requests.jsonl
+CRUSORAI_LLM_STREAMING=off CRUSORAI_HTTP_USER_AGENT="Mozilla/5.0 ..." \
+  uv run python scripts/run_bridge_turn.py --workspace <ws> --prompt-file <p> \
+  --run-id test8-velona-low-r4 --reasoning-effort low
+```
+
+Result: `turn_done completed=True llm.calls=3`, real `write_file` executed in the
+workspace, per-turn pick visible on every captured request body.
+
+### Per-turn reasoning effort wired end-to-end (2026-09-16)
+
+The desktop's Think picker sent `reasoning_effort` on every prompt frame, but the backend
+never consumed it — the engine only read the static `REASONING_EFFORT` env var, so a picker
+pick silently did nothing. The pick now flows end-to-end:
+
+- `src/bridge/__main__.py`: `prompt` frames carry `reasoning_effort` into `_run_turn` →
+  `stream_agent(..., reasoning_effort=...)`; queued prompts ride as `(text, effort)` pairs
+  (`turn_controls.queue`/`pop_queued` changed shape — **callers must unpack the tuple**).
+- `src/graphs/chat_graph.py`: `_resolve_reasoning_config(config)` prefers the per-turn pick,
+  falls back to `REASONING_EFFORT` — now read at **call time** (`_env_reasoning_effort()`),
+  not import time, so env changes between turns take effect. An unrecognized pick falls back
+  instead of breaking the turn; an explicit `none` (picker Off) disables thinking even when
+  the env var would enable it.
+- Tests: `src/tests/test_reasoning_effort_threading.py` (16 tests). Updated the
+  `turn_controls` queue-shape assertions in `test_hermes_runtime_values.py` and
+  `test_hermes_planning_parity.py`.
+
+**Known pre-existing failure (not from this change):**
+`test_cancellation_gates.py::test_c11_cancelled_ai_node_skips_base_provider_failover` —
+stale premise: `ai_node` no longer routes via `cost_router` on the main conversation path
+(removed in the aux-routing fix), so the test's routed-vs-base setup never engages. Verified
+failing with and without the effort threading.
+
 ### Aux provider routing fix (2026-09-15)
 
 Fixed aux provider routing so management-class calls (compression, titling, memory review) use the cheap tier by default instead of falling back to OpenRouter models.

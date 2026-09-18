@@ -105,6 +105,21 @@ LLM_CONTEXT_WINDOW: str | None = os.getenv("LLM_CONTEXT_WINDOW")
 PROVIDER_SAFE_LIMIT: int = int(os.getenv("PROVIDER_SAFE_LIMIT", "0"))
 
 # =========================================================
+# REASONING / EXTENDED THINKING
+# =========================================================
+# Controls provider-side extended thinking (reasoning tokens sent before the
+# visible answer).  Valid levels: "none", "low", "medium", "high", "xhigh",
+# "max", "ultra".  "none" disables thinking entirely; unset or empty falls
+# back to the provider default (medium for Anthropic, off for most others).
+#
+# Anthropic (Claude 4.6+): sends adaptive thinking + output_config.effort.
+# OpenAI (o-series, GPT-5): sends reasoning_effort in the request body.
+# DeepSeek: sends reasoning_content via streaming delta (already handled by
+# StreamingPump — this knob only affects the *budget* hint on endpoints that
+# support one).
+REASONING_EFFORT: str = os.getenv("REASONING_EFFORT", "").strip()
+
+# =========================================================
 # EMBEDDING (for semantic context, dedup, memory, and scoring)
 # =========================================================
 EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", "local")

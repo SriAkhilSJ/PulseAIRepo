@@ -244,7 +244,7 @@ def test_steer_with_no_tool_result_requeues(monkeypatch):
     chat_graph._inject_steers_after_newest_tool_result(sid, messages, ["do X instead"])
 
     assert len(messages) == 1, "no user row without a tool result to follow"
-    assert turn_controls.pop_queued(sid) == "do X instead"
+    assert turn_controls.pop_queued(sid) == ("do X instead", None)
 
 
 def test_steer_note_in_the_system_prompt_matches_the_delivery_marker():

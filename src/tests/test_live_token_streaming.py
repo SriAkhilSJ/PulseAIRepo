@@ -273,6 +273,34 @@ def test_reasoning_only_stream_still_flushes_the_answer():
         cg.event_bus.emit = original
 
 
+def test_buffered_reasoning_flushes_as_a_thinking_frame():
+    """Field 2026-09-17: a non-streaming endpoint carries the model's
+    reasoning ONLY in the response object — no token events, no Thinking
+    card. The buffered-reasoning flush must emit ONE whole-text
+    reasoning.update frame (the desktop's reasoning frame REPLACES), after
+    which the answer flush still fires on the exact streaming path."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs import chat_graph as cg
+
+    events: list[tuple[str, dict]] = []
+    original = cg.event_bus.emit
+    cg.event_bus.emit = lambda kind, payload=None: (
+        events.append((kind, payload or {})), original(kind, payload))[1]
+    try:
+        result = AIMessage(
+            content="The visible answer.",
+            additional_kwargs={"reasoning_content": "I should look at the file first."},
+        )
+        assert cg._flush_unstreamed_reasoning(result, "buffered-r") is True
+        reasoning = [p for kind, p in events if kind == "reasoning.update"]
+        assert reasoning == [{"text": "I should look at the file first.", "thread_id": "buffered-r"}]
+        # A response with no reasoning must not emit an empty frame.
+        assert cg._flush_unstreamed_reasoning(AIMessage(content="x"), "buffered-r") is False
+    finally:
+        cg.event_bus.emit = original
+
+
 def test_pump_flush_and_stream_loop_fallback_do_not_double_paint():
     """Hermes-port parity check: hermes ends EVERY turn with one authoritative
     message.complete; our equivalent end is turn_done.message fed by
