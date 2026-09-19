@@ -116,6 +116,14 @@ class _BackgroundLoop:
             future.cancel()
             raise
 
+    def submit(self, coro):
+        """Submit a coroutine to run in the background without blocking."""
+        if self._loop is None:
+            if asyncio.iscoroutine(coro):
+                coro.close()
+            return None
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+
     def stop(self) -> None:
         loop = self._loop
         if loop is None:
@@ -193,9 +201,9 @@ class LSPService:
         enabled = os.environ.get("PULSEAI_LSP_ENABLED", "1").strip() not in ("0", "false", "off")
         wait_mode = os.environ.get("PULSEAI_LSP_WAIT_MODE", "document").strip()
         try:
-            wait_timeout = float(os.environ.get("PULSEAI_LSP_WAIT_TIMEOUT", "5.0").strip())
+            wait_timeout = float(os.environ.get("PULSEAI_LSP_WAIT_TIMEOUT", "2.5").strip())
         except (TypeError, ValueError):
-            wait_timeout = 5.0
+            wait_timeout = 2.5
         install_strategy = os.environ.get("PULSEAI_LSP_INSTALL", "auto").strip()
         try:
             idle_timeout = float(os.environ.get("PULSEAI_LSP_IDLE_TIMEOUT", "600").strip())
@@ -266,6 +274,9 @@ class LSPService:
         """
         if not self.enabled_for(file_path):
             return
+        if not os.path.exists(file_path):
+            self._delta_baseline[os.path.abspath(file_path)] = []
+            return
         try:
             # Outer join budget must exceed the inner wait budget or a
             # slow-but-alive server gets falsely marked broken.
@@ -276,6 +287,13 @@ class LSPService:
             logger.debug("baseline snapshot failed for %s: %s", file_path, e)
             self._mark_broken_for_file(file_path, e)
             self._delta_baseline[os.path.abspath(file_path)] = []
+
+    def warmup(self, file_path: Optional[str] = None) -> None:
+        """Asynchronously warm up the LSP client in the background without blocking."""
+        if not self._enabled:
+            return
+        if file_path:
+            self._loop.submit(self._get_or_spawn(file_path))
 
     def get_diagnostics_sync(
         self,

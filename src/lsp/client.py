@@ -86,10 +86,10 @@ def _log(msg: str) -> None:
 
 # Timeouts (seconds) — mirror OpenCode's constants, scaled to seconds.
 INITIALIZE_TIMEOUT = 45.0
-DIAGNOSTICS_DOCUMENT_WAIT = 5.0
+DIAGNOSTICS_DOCUMENT_WAIT = 2.5
 DIAGNOSTICS_FULL_WAIT = 10.0
 DIAGNOSTICS_REQUEST_TIMEOUT = 3.0
-PUSH_DEBOUNCE = 0.15
+PUSH_DEBOUNCE = 0.05
 SHUTDOWN_GRACE = 1.0  # seconds between SIGTERM and SIGKILL
 
 # Retry policy for transient ContentModified errors.
@@ -795,6 +795,8 @@ class LSPClient:
         doc = self._docs.get(abs_path)
 
         if doc is not None and doc.version >= 0:
+            if doc.text == text:
+                return doc.version
             # Re-open: bump version, fire didChangeWatchedFiles + didChange.
             await self._send_notification(
                 "workspace/didChangeWatchedFiles",
@@ -939,45 +941,48 @@ class LSPClient:
         else:
             budget = DIAGNOSTICS_FULL_WAIT if mode == "full" else DIAGNOSTICS_DOCUMENT_WAIT
         _log(f"Waiting for diagnostics (mode={mode}, budget={budget}s)")
-        deadline = asyncio.get_event_loop().time() + budget
         abs_path = os.path.abspath(path)
 
-        while True:
-            if not self._connection_is_open():
-                raise LSPProtocolError(
-                    "server connection closed while waiting for diagnostics"
+        # Fast path: if fresh diagnostics already arrived for this version, return immediately.
+        doc = self._docs.get(abs_path)
+        if doc and doc.version == version and (doc.fresh_push(version) or doc.fresh_pull(version)):
+            return True
+
+        deadline = asyncio.get_event_loop().time() + budget
+
+        pull_task = asyncio.create_task(self._pull_document_diagnostics(abs_path))
+        push_task = asyncio.create_task(self._wait_for_fresh_push(abs_path, version, budget))
+
+        try:
+            while True:
+                if not self._connection_is_open():
+                    raise LSPProtocolError(
+                        "server connection closed while waiting for diagnostics"
+                    )
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return False
+
+                doc = self._docs.get(abs_path)
+                if doc and (doc.fresh_push(version) or doc.fresh_pull(version)):
+                    return True
+
+                tasks_to_wait = [t for t in (push_task, pull_task) if not t.done()]
+                if not tasks_to_wait:
+                    return False
+
+                await asyncio.wait(
+                    tasks_to_wait,
+                    timeout=remaining,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                return False
 
-            # Concurrent: document pull + push wait.
-            pull_task = asyncio.create_task(self._pull_document_diagnostics(abs_path))
-            push_task = asyncio.create_task(self._wait_for_fresh_push(abs_path, version, remaining))
-            done, pending = await asyncio.wait(
-                {pull_task, push_task},
-                timeout=remaining,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for t in pending:
-                t.cancel()
-            for t in pending:
-                try:
-                    await t
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
-
-            # If we got a fresh push for our version, we're done.
-            doc = self._docs.get(abs_path)
-            if doc and doc.fresh_push(version):
-                return True
-
-            # Pull may have answered for the current version — that's
-            # also success.
-            if doc and doc.fresh_pull(version):
-                return True
-
-            # Loop until budget runs out.
+                doc = self._docs.get(abs_path)
+                if doc and (doc.fresh_push(version) or doc.fresh_pull(version)):
+                    return True
+        finally:
+            pull_task.cancel()
+            push_task.cancel()
 
     async def _wait_for_fresh_push(self, path: str, version: int, timeout: float) -> None:
         """Wait until a fresh publishDiagnostics arrives for ``path`` at ``version``+."""
