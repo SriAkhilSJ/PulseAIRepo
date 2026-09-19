@@ -60,11 +60,13 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
   padding: 0.75rem 0.875rem 1.25rem;
-  /* The scroller is the single scroll owner; the browser must not anchor it
-   * while a turn above the viewport is being paged in. */
-  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+  /* Let browser anchor scroll when user reads history; manual stick-to-bottom
+     only when already at bottom — fixes vibration when new tokens stream. */
+  overflow-anchor: auto;
 }
 
 .crusor-thread__list {
@@ -227,36 +229,22 @@
   block-size: 0.75rem;
   border-radius: 2px;
   background: currentColor;
-  animation: crusor-opacity 1.6s ease-in-out infinite;
-}
-
-@keyframes crusor-opacity {
-  0%,
-  100% {
-    opacity: 0.25;
-  }
-
-  50% {
-    opacity: 0.85;
-  }
+  /* No infinite CSS — Hermes pulses via JS Web Animations every 5s (status-pulse.tsx)
+     Renderer sleeps between beats; color unchanged. */
 }
 
 .crusor-shimmer {
+  /* Keep gradient for parity but static — continuous shimmer vibrated whole page. */
   background: linear-gradient(90deg, var(--crusor-scaffold-text) 0%, var(--crusor-text-primary) 45%, var(--crusor-scaffold-text) 90%);
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: crusor-shimmer 2.4s linear infinite;
 }
 
-@keyframes crusor-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-
-  to {
-    background-position: -100% 0;
+@media (prefers-reduced-motion: reduce) {
+  .crusor-scaffold-crusor {
+    opacity: 0.7;
   }
 }
 
@@ -556,6 +544,12 @@
 
 .crusor-tool-glyph--running {
   animation: crusor-spin 1.8s linear infinite;
+  will-change: transform;
+}
+
+:root[data-renderer-animations-paused] .crusor-tool-glyph--running {
+  animation-play-state: paused;
+  will-change: auto;
 }
 
 .crusor-tool-glyph--error {

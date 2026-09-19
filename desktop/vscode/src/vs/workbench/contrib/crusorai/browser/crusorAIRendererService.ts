@@ -783,6 +783,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		// engine wakes after all, its next terminal frame re-runs this
 		// handler and the truth replaces our note.
 		this.clearHardWatchdog();
+		// Hermes parity: soft stall is 5min, but toolless greetings (no tools) should not wait 7min for hard kill.
+		// Match Hermes's immediate `message.complete` settle: if no tools and we have text, fail fast (30s) instead of 7min.
+		const _isGreeting = this.tools.size === 0 && this.assistantText.length > 0;
 		this.hardWatchdog = window.setTimeout(() => {
 			this.hardWatchdog = undefined;
 			if (!this.running) { return; }
@@ -796,7 +799,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
 			this.clearStallWatchdog();
 			this.render();
-		}, 7 * 60 * 1000);
+		}, _isGreeting ? 30 * 1000 : 7 * 60 * 1000);
 	}
 
 	private clearHardWatchdog(): void {

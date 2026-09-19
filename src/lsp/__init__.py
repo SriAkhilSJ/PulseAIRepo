@@ -55,6 +55,13 @@ def get_service() -> Optional[LSPService]:
     return _service if (_service is not None and _service.is_active()) else None
 
 
+def warmup(file_path: Optional[str] = None) -> None:
+    """Trigger background warmup of LSP services."""
+    svc = get_service()
+    if svc is not None:
+        svc.warmup(file_path)
+
+
 def shutdown_service() -> None:
     """Tear down the LSP service if one was started."""
     global _service
@@ -75,4 +82,4 @@ def _atexit_shutdown() -> None:
         logger.debug("atexit LSP shutdown failed: %s", e)
 
 
-__all__ = ["get_service", "shutdown_service", "LSPService"]
+__all__ = ["get_service", "shutdown_service", "warmup", "LSPService"]

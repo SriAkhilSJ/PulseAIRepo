@@ -727,6 +727,8 @@ def _is_syntax_checkable(path: Path) -> bool:
 def _lsp_snapshot(path: Path) -> None:
     """Snapshot pre-edit LSP state for delta filtering. Call BEFORE writing."""
     try:
+        if not path.exists():
+            return
         from src.lsp import get_service
         svc = get_service()
         if svc and svc.enabled_for(path):

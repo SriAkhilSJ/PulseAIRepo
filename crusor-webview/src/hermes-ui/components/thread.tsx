@@ -151,24 +151,21 @@ export function CrusorAgentThread({
   const showEarlier = resolveShowEarlierAction(hiddenCount, olderAvailable);
   const windowValue = useMemo(() => ({ expandWindow: () => onExpandWindow?.(), olderAvailable }), [olderAvailable, onExpandWindow]);
 
-  // Stick to bottom: the transcript follows new content only while the user is
-  // already there, so reading earlier output is never interrupted.
+  // Stick to bottom: follows Hermes — only auto-scroll if user was at bottom (80px)
+  // Uses rAF to coalesce thrash from streaming tokens.
   const onScroll = useCallback(() => {
     const el = scrollerRef.current;
-
-    if (!el) {
-      return;
-    }
-
-    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 32;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
   }, []);
 
   useLayoutEffect(() => {
     const el = scrollerRef.current;
-
-    if (el && atBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (!el || !atBottomRef.current) return;
+    const raf = requestAnimationFrame(() => {
+      if (atBottomRef.current && el) el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages, budget]);
 
   // Timeline rail entries are derived from the SAME message list; the array is
@@ -183,23 +180,25 @@ export function CrusorAgentThread({
 
   const measureOffsets = useCallback(() => {
     const root = scrollerRef.current;
-
-    if (!root) {
-      return;
-    }
-
-    const top = root.getBoundingClientRect().top;
-
-    offsetsRef.current = entries.map(entry => {
-      const node = root.querySelector<HTMLElement>(`[data-turn-id="${attrEscape(entry.id)}"]`);
-
-      return node ? node.getBoundingClientRect().top - top + root.scrollTop : null;
+    if (!root) return;
+    requestAnimationFrame(() => {
+      if (!scrollerRef.current) return;
+      const top = scrollerRef.current.getBoundingClientRect().top;
+      offsetsRef.current = entries.map(entry => {
+        const node = scrollerRef.current!.querySelector<HTMLElement>(`[data-turn-id="${attrEscape(entry.id)}"]`);
+        return node ? node.getBoundingClientRect().top - top + scrollerRef.current!.scrollTop : null;
+      });
+      setActiveEntry(activeTimelineIndex(offsetsRef.current));
     });
-    setActiveEntry(activeTimelineIndex(offsetsRef.current));
   }, [entries]);
 
   useEffect(() => {
     measureOffsets();
+    const root = scrollerRef.current;
+    if (!root) return;
+    const ro = new ResizeObserver(() => measureOffsets());
+    ro.observe(root);
+    return () => ro.disconnect();
   }, [measureOffsets]);
 
   const jumpTo = useCallback(
