@@ -5215,9 +5215,21 @@ def stream_agent(
         # the bridge's terminal frame.
         snap_values: dict[str, Any] = {}
         try:
-            snap = graph.get_state(config)
-            snap_values = dict(snap.values or {})
-            print("[turn] state snapshot ok", flush=True)
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(graph.get_state, config)
+                try:
+                    snap = _fut.result(timeout=1.5)
+                    snap_values = dict(snap.values or {}) if snap else {}
+                    print("[turn] state snapshot ok", flush=True)
+                except _cf.TimeoutError:
+                    print("[turn] state snapshot timeout — returning without snapshot", flush=True)
+                    try:
+                        _fut.cancel()
+                    except Exception:
+                        pass
+                except Exception as _e:
+                    print(f"[turn] state snapshot error: {_e}", flush=True)
         except Exception:
             pass
 

@@ -70,6 +70,24 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 
 > **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
 
+## Recent Changes 2026-09-19 — LSP, Breathing, Scroll, Hermes Parity
+
+**Branch `arena/01a0b5eb-pulseairepo` (commits `66969458` + `057240ab`) + pending desktop/webview fixes pending merge to `main`:**
+
+| Area | Change | Files | Verification |
+|---|---|---|---|
+| **LSP perf** | Baseline snapshot fast-path (<5ms), debounce 0.05s, background `warmup` — type error delta 16-213ms | `src/lsp/client.py`, `manager.py`, `src/tests/test_lsp_performance.py`, `scripts/verify_lsp_perf.py` | `python scripts/verify_lsp_perf.py` → `Cold 1.1s, Baseline 0.91ms, Delta 219ms` + `python -m unittest src.tests.test_lsp_performance` 3/3 |
+| **Breathing UI** | Replaced infinite 1.6s `crusor-opacity` + 2.4s `crusor-shimmer` (vibrating whole page) with Hermes `StatusPulse` — 400ms pulse every 5000ms via Web Animations (shared timer, sleeps when hidden). Preserved `--crusor-*` palette (`#0b6bcb` accent, `#1a1a1a` etc.) | `crusor-webview/src/hermes-ui/components/status-pulse.tsx` (new), `status-line.tsx`, `styles/hermes-ui.css` | Visual: no vibration, renderer sleeps between beats |
+| **Scrolling** | `thread.tsx` stick-to-bottom 32→80px tolerance + `requestAnimationFrame` coalesce + `ResizeObserver`, `hermes-ui.css` `overflow-anchor:auto` + `scrollbar-gutter:stable` | `thread.tsx`, `hermes-ui.css` | Manual read of history no longer forced to bottom |
+| **Frontends** | Removed `pulse-webview/` (79k files, `dist` only, no `src`, untracked, duplicate of `crusor-webview` → `desktop/.../media/crusorai-spa/`) | `pulse-webview/` deleted | `git ls-files pulse-webview` empty, no code refs |
+| **CopilotKit** | Hermes has 0 CopilotKit (`grep @copilotkit` = 0, uses `@assistant-ui`). Disabled by default: `crusorai.copilotWebview.enabled` `true→false` (`crusorAI.contribution.ts:272`) — native `@assistant-ui` owns whole pane, matching `hermes-agent/apps/desktop` (`DESIGN.md:218`) | `desktop/.../crusorAI.contribution.ts` | Setting `false` hides `Agent/Webview` tab, no iframe |
+| **Engine hang (HI 43s)** | `graph.get_state` was blocking on SQLite `~/.crusorai/sessions.db` WAL lock after `finalize done: completed` — `stream_agent` never returned, `turn_done` never sent, UI timer kept 19-43s. Added 1.5s `ThreadPoolExecutor` timeout for `get_state` (`src/graphs/chat_graph.py:5216`) + hard watchdog 7min→30s for greetings (`crusorAIRendererService.ts:786`) | `src/graphs/chat_graph.py`, `crusorAIRendererService.ts` | `python test_hi_fix.py` → `done 5.5s completed=True` (`stream loop ended` + `state snapshot ok`), desktop `Run failed` fallback now 30s not 7min |
+| **Base crash** | `out/vs/base/common/async.js` missing `ResourceQueue` vs `pfs.js:8` import — compiled stale `out/` (ignored except `!/out/vs/workbench/contrib/crusorai/`) | `out/vs/base/common/async.js`, `pfs.js` recompiled | `Uncaught Exception: ResourceQueue` gone |
+
+**Hermes parity:** Desktop `pulse-webview` removed, CopilotKit disabled → native `@assistant-ui` only, matching `D:/hermes/hermes-agent` (no webview tab as primary, webview only for sandboxed URL preview `preview-pane.tsx:763`). Permission handling remains path-based `git check-ignore` (`safety_guard.py:122`) vs Hermes `edit_approval.py` pre-execution diff — not yet ported.
+
+**Next:** Recompile desktop `npx gulp compile` to clear `STALE sha256` warning (currently `2026-09-11` vs `057240ab`), then `Agent/Webview` tab respects new `default:false`.
+
 ## Requirements
 
 ### Python runtime

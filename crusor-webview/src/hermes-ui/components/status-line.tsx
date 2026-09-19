@@ -23,6 +23,7 @@ import type { CrusorMessagePart, CrusorRunState } from '../crusor/types';
 import { cn } from '../lib/cn';
 import { StableText } from './stable-text';
 import { SCAFFOLD_LABEL_CLASS, SCAFFOLD_META_CLASS } from './scaffold-row';
+import { StatusPulse } from './status-pulse';
 
 // Long enough that a tool whose arguments arrive in a few frames never gets to
 // strobe a label, short enough that a real wait is named almost immediately.
@@ -51,11 +52,11 @@ export function ScaffoldStatus({ children, className, label }: { children: React
 }
 
 function Crusor() {
-  return <span aria-hidden className="crusor-scaffold-crusor" />;
+  return <StatusPulse aria-hidden className="crusor-scaffold-crusor" kind="opacity" />;
 }
 
 function HintText({ children }: { children: ReactNode }) {
-  return <span className={cn(SCAFFOLD_LABEL_CLASS, 'crusor-shimmer', 'crusor-scaffold-hint')}>{children}</span>;
+  return <span className={cn(SCAFFOLD_LABEL_CLASS, 'crusor-scaffold-hint')}>{children}</span>;
 }
 
 /** What to call the wait, if it deserves a name. Compaction outranks a draft —
