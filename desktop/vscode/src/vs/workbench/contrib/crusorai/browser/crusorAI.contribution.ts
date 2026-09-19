@@ -13,6 +13,7 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { MenuId, MenuRegistry, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -245,6 +246,44 @@ registerAction2(class extends Action2 {
 		});
 	}
 	run(accessor: ServicesAccessor): Promise<void> { return openCrusorAgent(accessor); }
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: CrusorAICommandId.AcceptDiff,
+			title: localize2('crusorAI.acceptDiff', 'Accept Change'),
+			f1: true,
+			icon: Codicon.check,
+			menu: [{
+				id: MenuId.EditorTitle,
+				group: 'navigation@1',
+				when: ContextKeyExpr.has('crusorai.hasActiveDiff'),
+			}],
+		});
+	}
+	run(accessor: ServicesAccessor): void {
+		accessor.get(ICrusorAIWorkbenchService).acceptActiveDiff();
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: CrusorAICommandId.RejectDiff,
+			title: localize2('crusorAI.rejectDiff', 'Reject Change'),
+			f1: true,
+			icon: Codicon.close,
+			menu: [{
+				id: MenuId.EditorTitle,
+				group: 'navigation@2',
+				when: ContextKeyExpr.has('crusorai.hasActiveDiff'),
+			}],
+		});
+	}
+	run(accessor: ServicesAccessor): void {
+		accessor.get(ICrusorAIWorkbenchService).rejectActiveDiff();
+	}
 });
 
 registerAction2(class extends Action2 {

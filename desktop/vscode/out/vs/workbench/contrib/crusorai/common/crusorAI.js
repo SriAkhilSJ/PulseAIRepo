@@ -13,4 +13,6 @@ export var CrusorAICommandId;
     CrusorAICommandId["OpenCheckpoints"] = "crusorai.openCheckpoints";
     CrusorAICommandId["StopActiveRun"] = "crusorai.stopActiveRun";
     CrusorAICommandId["OpenSettings"] = "crusorai.openSettings";
+    CrusorAICommandId["AcceptDiff"] = "crusorai.acceptDiff";
+    CrusorAICommandId["RejectDiff"] = "crusorai.rejectDiff";
 })(CrusorAICommandId || (CrusorAICommandId = {}));
