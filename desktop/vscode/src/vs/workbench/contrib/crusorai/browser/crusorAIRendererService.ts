@@ -796,13 +796,20 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
-			this.turnOutcome = 'failed';
+			// Hermes parity: greeting already answered — silent complete, not failed
+			if (_isGreeting) {
+				this.turnOutcome = 'completed';
+				this.error = undefined;
+				this.degraded = undefined;
+			} else {
+				this.turnOutcome = 'failed';
+				this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
+			}
 			this.stalled = undefined;
 			this.llmStatus = undefined;
-			this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
 			this.clearStallWatchdog();
 			this.render();
-		}, _isGreeting ? 30 * 1000 : 7 * 60 * 1000);
+		}, _isGreeting ? 12 * 1000 : 7 * 60 * 1000);
 	}
 
 	private clearHardWatchdog(): void {
@@ -1040,7 +1047,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				usagePercent: typeof frame.usage_percent === 'number' ? frame.usage_percent : undefined,
 			};
 		} else if (frame.type === 'runtime_degraded') {
-			this.degraded = frame.reason;
+			// Greeting with no tools — scan budget is irrelevant, don't show yellow degraded bar
+			if (frame.reason && frame.reason.includes('scan budget') && this.tools.size === 0) {
+				// suppress
+			} else {
+				this.degraded = frame.reason;
+			}
 		} else if (frame.type === 'error') {
 			this.error = frame.message;
 		}
