@@ -36,19 +36,28 @@ export function deriveChangedFiles(parts: readonly unknown[]): ChangedFile[] {
     }
 
     const result = parseMaybeObject(part.result);
-    const diff = inlineDiffFromResult(result);
-
-    if (!diff) {
-      continue;
-    }
-
     const path = fileEditPath(parseMaybeObject(part.args), result);
 
     if (!path) {
       continue;
     }
 
-    const stats = countDiffLineStats(diff);
+    const text = typeof part.result === 'string' ? part.result : '';
+    const receiptStats = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(text);
+    let stats: { added: number; removed: number };
+
+    if (receiptStats) {
+      stats = { added: Number(receiptStats[1]), removed: Number(receiptStats[2]) };
+    } else {
+      const diff = inlineDiffFromResult(part.result);
+
+      if (!diff) {
+        continue;
+      }
+
+      stats = countDiffLineStats(diff);
+    }
+
     const existing = byPath.get(path);
 
     if (existing) {

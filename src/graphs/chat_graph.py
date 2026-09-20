@@ -3955,13 +3955,24 @@ class SafeToolNode:
     def _diff_payload(self, tool_call: dict, workspace: str) -> dict | None:
         name = tool_call.get("name", "")
         args = tool_call.get("args", {}) or {}
+        if name in {"run_terminal", "start_terminal", "terminal", "execute_code"}:
+            cmd = str(args.get("command") or args.get("code") or "")
+            from src.context.approval_detection import detect_dangerous_command
+            risk = detect_dangerous_command(cmd) if cmd else None
+            return {
+                "kind": "shell",
+                "command": cmd,
+                "risk": risk or "Approval required before execution",
+            }
         if name not in {"write_file", "edit_file", "copy_file"}:
             return None
         try:
+            import difflib
             from src.tools.file_tools import resolve_workspace_path
             path_arg = args.get("path") or args.get("dst") or ""
             path = resolve_workspace_path(workspace, str(path_arg))
             old = path.read_text(encoding="utf-8") if path.is_file() else None
+            action = "modify" if old is not None else "create"
             if name == "write_file":
                 new = str(args.get("content", ""))
             elif name == "edit_file":
@@ -3969,9 +3980,32 @@ class SafeToolNode:
                 replacement = str(args.get("new_text", ""))
                 new = old.replace(needle, replacement, 1) if old is not None and needle in old else replacement
             else:
+                action = "copy"
                 src = resolve_workspace_path(workspace, str(args.get("src", "")))
                 new = src.read_text(encoding="utf-8", errors="replace") if src.is_file() else ""
-            return {"path": str(path), "old_text": old, "new_text": new}
+
+            old_str = old if old is not None else ""
+            old_lines = old_str.splitlines(keepends=True)
+            new_lines = new.splitlines(keepends=True)
+            diff_lines = list(difflib.unified_diff(
+                old_lines, new_lines,
+                fromfile=f"a/{path_arg}",
+                tofile=f"b/{path_arg}",
+            ))
+            diff_text = "".join(diff_lines)
+            added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+            removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+
+            return {
+                "kind": "file",
+                "path": str(path),
+                "relative_path": str(path_arg),
+                "action": action,
+                "old_text": old,
+                "new_text": new,
+                "diff": diff_text,
+                "stats": {"added": added, "removed": removed},
+            }
         except Exception as exc:
             return {"error": f"could not prepare diff: {exc}"}
 

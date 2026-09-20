@@ -14,4 +14,6 @@ export const enum CrusorAICommandId {
 	OpenCheckpoints = 'crusorai.openCheckpoints',
 	StopActiveRun = 'crusorai.stopActiveRun',
 	OpenSettings = 'crusorai.openSettings',
+	AcceptDiff = 'crusorai.acceptDiff',
+	RejectDiff = 'crusorai.rejectDiff',
 }

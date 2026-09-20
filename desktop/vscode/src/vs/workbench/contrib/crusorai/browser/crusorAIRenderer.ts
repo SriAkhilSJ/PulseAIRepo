@@ -129,7 +129,7 @@ export interface CrusorAIRenderModel {
 	readonly reasoningParts: readonly { readonly text: string; readonly completedAt?: number }[];
 	readonly tools: readonly CrusorAIToolView[];
 	readonly subAgents: readonly CrusorAISubAgentView[];
-	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown };
+	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown; readonly warning?: string };
 	/** Pending hermes clarify batch (the ask tool) awaiting this panel's answer. */
 	readonly clarify?: {
 		readonly requestId: string;
@@ -761,12 +761,10 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 		body.append(element('pre', 'crusorai-tool-pre crusorai-code-preview', content.slice(0, 800)));
 		body.append(element('div', 'crusorai-tool-actions', button('Open file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file'), copyButton(target, host)));
 	} else if (presentation.family === 'file-write') {
-		const diff = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
-		// Counted from the diff that is actually here. The fallback here used to be a
-		// literal invented line count (twelve added, four removed) printed whenever the
-		// engine sent no `change` field -- a number the user could not tell apart from
-		// a measurement. Absent data now renders as absent.
-		const stats = diffStats(diff);
+		const rawText = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
+		const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
+		const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
+		const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
 		const rows: [string, string][] = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
 		// 'syntax valid' was a second always-true row; only surface a receipt the
 		// tool actually reported.
@@ -1587,6 +1585,44 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 	// Allow for session / Always allow… / Reject — is the piece the old flat
 	// button row was missing.
 	const commandText = approvalCommandText(approval.name, approval.diff);
+	const diffRecord = (approval.diff && typeof approval.diff === 'object') ? approval.diff as Record<string, unknown> : undefined;
+	const diffString = typeof approval.diff === 'string' ? approval.diff : (typeof diffRecord?.diff === 'string' ? diffRecord.diff : undefined);
+	const diffStatistics = diffString ? diffStats(diffString) : undefined;
+	const isShell = approval.name === 'run_terminal' || approval.name === 'start_terminal' || approval.name === 'terminal' || approval.name === 'execute_code' || diffRecord?.kind === 'shell';
+
+	let inlineDiffCard: HTMLElement | undefined;
+	if (diffString) {
+		const targetPath = (diffRecord && (diffRecord.relative_path || diffRecord.path))
+			? String(diffRecord.relative_path || diffRecord.path)
+			: displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff });
+		const action = typeof diffRecord?.action === 'string' ? diffRecord.action : 'modify';
+		const actionLabel = action === 'create' ? 'Create' : action === 'delete' ? 'Delete' : action === 'copy' ? 'Copy' : 'Edit';
+
+		const header = element('div', 'crusorai-approval-diff-header',
+			element('span', 'crusorai-approval-action-badge', actionLabel),
+			element('span', 'crusorai-approval-file-path', targetPath),
+		);
+		if (diffStatistics) {
+			const count = element('span', 'crusorai-diff-count');
+			if (diffStatistics.added > 0) { count.append(element('span', 'is-added', `+${diffStatistics.added}`)); }
+			if (diffStatistics.removed > 0) { count.append(element('span', 'is-removed', `−${diffStatistics.removed}`)); }
+			header.append(count);
+		}
+		inlineDiffCard = element('div', 'crusorai-approval-diff-preview', header, diffPreview(diffString));
+	}
+
+	let warningBox: HTMLElement | undefined;
+	if (approval.warning) {
+		warningBox = element('div', 'crusorai-approval-warning', icon('shield'), element('span', undefined, approval.warning));
+	}
+
+	let shellRiskBadge: HTMLElement | undefined;
+	if (isShell) {
+		const riskText = typeof diffRecord?.risk === 'string' ? diffRecord.risk : undefined;
+		if (riskText) {
+			shellRiskBadge = element('div', 'crusorai-approval-risk-badge', icon('shield'), element('span', undefined, riskText));
+		}
+	}
 
 	const runButton = button('Run', 'crusorai-approval-run', () => host.replyToSafety(approval.toolId, true), 'check');
 	runButton.dataset.approveOnce = '';
@@ -1675,15 +1711,20 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 		element('div', 'crusorai-approval-copy', icon('shield'), element('div', undefined,
 			element('strong', undefined, `${crusorAIToolPresentation(approval.name).title} needs approval`),
 			element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })))),
+	);
+	if (warningBox) { dock.append(warningBox); }
+	if (shellRiskBadge) { dock.append(shellRiskBadge); }
+	if (inlineDiffCard) { dock.append(inlineDiffCard); }
+	dock.append(
 		element('div', 'crusorai-approval-bar',
 			pill,
 			reject,
 			approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined,
-			commandText ? commandToggle : undefined,
-		),
-		commandPre,
-		overlay,
+			commandText && !diffString ? commandToggle : undefined,
+		)
 	);
+	if (commandText && !diffString) { dock.append(commandPre); }
+	dock.append(overlay);
 	return dock;
 }
 
@@ -2494,7 +2535,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		return undefined;
 	};
 	const paintSignature = (model: CrusorAIRenderModel): string => {
-		const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : p.kind === 'reasoning' ? `reasoning:${p.reasoningIndex}` : 'text')).join('>');
+		const shape = model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text') + (p.kind === 'reasoning' ? `:r${p.reasoningIndex}` : '')).join('>');
 		return `${JSON.stringify({ ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined })}|${shape}`;
 	};
 	// The activity row's timers outlive individual renders; a tick repaints from the last model,

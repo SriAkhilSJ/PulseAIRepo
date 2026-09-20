@@ -317,13 +317,15 @@ export function reduceCrusorEvent(transcript: CrusorTranscript, frame: unknown):
       // {id, session_id, tool_name, tool_args, diff, status, always_allow,
       // created_at} and chat_graph adds `warning` + `thread_id`.
       const diff = rec(payload.diff);
+      const diffPatch = str(diff, ['patch', 'inline_diff', 'diff']);
+      const diffPath = str(diff, ['path', 'file_path', 'relative_path']);
       const approval: CrusorApproval = {
         alwaysAllow: typeof payload.always_allow === 'boolean' ? payload.always_allow : undefined,
         args: payload.arguments ?? payload.tool_args ?? payload.args,
         created_at: typeof payload.created_at === 'number' ? payload.created_at : undefined,
-        diff: diff.path || diff.patch || diff.inline_diff ? {
-          patch: str(diff, ['patch', 'inline_diff', 'diff']),
-          path: str(diff, ['path', 'file_path']),
+        diff: diffPatch || diffPath ? {
+          patch: diffPatch,
+          path: diffPath,
         } : undefined,
         reason: str(payload, ['warning', 'reason', 'message']) || 'The agent wants to run a guarded action.',
         toolCallId: str(payload, ['tool_id', 'id', 'tool_call_id']) || undefined,

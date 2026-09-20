@@ -12,6 +12,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -114,6 +115,13 @@ function diagnostic(marker: IMarker): CrusorAIDiagnostic {
 	};
 }
 
+interface CrusorActiveDiffEntry {
+	readonly toolId: string;
+	readonly originalUri: URI;
+	readonly modifiedUri: URI;
+	readonly label: string;
+}
+
 export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWorkbenchService {
 	declare readonly _serviceBrand: undefined;
 
@@ -123,9 +131,13 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 	readonly onDidChangeDiagnostics = this._onDidChangeDiagnostics.event;
 	private readonly _onDidChangeTests = this._register(new Emitter<CrusorAITestReceipt>());
 	readonly onDidChangeTests: Event<CrusorAITestReceipt> = this._onDidChangeTests.event;
+	private readonly _onDidResolveDiff = this._register(new Emitter<{ toolId: string; approved: boolean }>());
+	readonly onDidResolveDiff: Event<{ toolId: string; approved: boolean }> = this._onDidResolveDiff.event;
 	private readonly queryBuilder: QueryBuilder;
 	private readonly inlineDiffModels = new Map<string, { content: string; languageResource?: URI }>();
 	private readonly inlineDiffOrder: string[] = [];
+	private readonly activeDiffs = new Map<string, CrusorActiveDiffEntry>();
+	private readonly hasActiveDiffKey: IContextKey<boolean>;
 
 	constructor(
 		@IEditorService private readonly editorService: IEditorService,
@@ -147,9 +159,12 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		@IOpenerService private readonly openerService: IOpenerService,
 		@IWorkspaceTrustManagementService private readonly trustManagementService: IWorkspaceTrustManagementService,
 		@IWorkspaceTrustRequestService private readonly trustRequestService: IWorkspaceTrustRequestService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 	) {
 		super();
+		this.hasActiveDiffKey = new RawContextKey<boolean>('crusorai.hasActiveDiff', false).bindTo(this.contextKeyService);
 		this.queryBuilder = instantiationService.createInstance(QueryBuilder);
+		this._register(this.editorService.onDidActiveEditorChange(() => this.updateActiveDiffContext()));
 		this._register(this.textModelService.registerTextModelContentProvider(CRUSOR_AI_DIFF_SCHEME, {
 			provideTextContent: async resource => {
 				const existing = this.modelService.getModel(resource);
@@ -324,7 +339,60 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		const modified = URI.from({ scheme: CRUSOR_AI_DIFF_SCHEME, authority: 'crusorai', path: `/${key}/after/${fileName}` });
 		this.rememberInlineDiff(original, request.original, languageResource);
 		this.rememberInlineDiff(modified, request.modified, languageResource);
+		this.activeDiffs.set(modified.toString(), {
+			toolId: request.toolId,
+			originalUri: original,
+			modifiedUri: modified,
+			label: request.label,
+		});
 		await this.openNativeDiff(original.toString(), modified.toString(), request.label);
+		this.updateActiveDiffContext();
+	}
+
+	acceptActiveDiff(): void {
+		const diff = this.getActiveDiffForCurrentEditor();
+		if (!diff) { return; }
+		this.activeDiffs.delete(diff.modifiedUri.toString());
+		this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: true });
+		if (this.editorService.activeEditor) {
+			void this.editorService.closeEditor(this.editorService.activeEditor);
+		}
+		this.updateActiveDiffContext();
+	}
+
+	rejectActiveDiff(): void {
+		const diff = this.getActiveDiffForCurrentEditor();
+		if (!diff) { return; }
+		this.activeDiffs.delete(diff.modifiedUri.toString());
+		this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: false });
+		if (this.editorService.activeEditor) {
+			void this.editorService.closeEditor(this.editorService.activeEditor);
+		}
+		this.updateActiveDiffContext();
+	}
+
+	hasActiveDiff(): boolean {
+		return this.getActiveDiffForCurrentEditor() !== undefined;
+	}
+
+	private updateActiveDiffContext(): void {
+		this.hasActiveDiffKey.set(this.hasActiveDiff());
+	}
+
+	private getActiveDiffForCurrentEditor(): CrusorActiveDiffEntry | undefined {
+		const activeEditor = this.editorService.activeEditor;
+		if (!activeEditor) { return undefined; }
+		const modifiedUri = (activeEditor as { modified?: { resource?: URI } })?.modified?.resource?.toString()
+			?? (activeEditor as { resource?: URI })?.resource?.toString();
+		if (modifiedUri && this.activeDiffs.has(modifiedUri)) {
+			return this.activeDiffs.get(modifiedUri);
+		}
+		for (const diff of this.activeDiffs.values()) {
+			if (diff.modifiedUri.toString() === modifiedUri || diff.originalUri.toString() === modifiedUri) {
+				return diff;
+			}
+		}
+		return undefined;
 	}
 
 	async requestWorkspaceTrust(): Promise<boolean> {

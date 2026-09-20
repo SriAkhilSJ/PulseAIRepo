@@ -409,6 +409,14 @@ function htmlPathFromInlineDiff(value: string): string {
 }
 
 export function inlineDiffFromResult(result: unknown): string {
+  if (typeof result === 'string') {
+    if (result.includes('Diff preview:\n')) {
+      return stripInlineDiffChrome(result.split('Diff preview:\n')[1] || '');
+    }
+    if (result.startsWith('@@') || result.startsWith('---') || result.startsWith('diff --git')) {
+      return stripInlineDiffChrome(result);
+    }
+  }
   const record = parseMaybeObject(result);
 
   for (const key of ['inline_diff', 'diff']) {

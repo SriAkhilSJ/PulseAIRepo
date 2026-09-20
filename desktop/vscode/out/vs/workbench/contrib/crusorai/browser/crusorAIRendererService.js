@@ -18,7 +18,8 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
-import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
+import { CrusorAICommandId } from '../common/crusorAI.js';
+import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -193,7 +194,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             selectWorkspace: uri => this.selectWorkspace(uri),
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
-            openEngineSettings: () => { void this.commandService.executeCommand("crusorai.openSettings" /* CrusorAICommandId.OpenSettings */); },
+            openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
             openManager: () => { this.openManagerWindow(); },
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
@@ -206,17 +207,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
         };
         this._register(this.engineService.onDidChangeState(state => {
-            if (state === "ready" /* CrusorAIEngineState.Ready */) {
+            if (state === CrusorAIEngineState.Ready) {
                 this.restartAttempts = 0;
                 this.engineFault = undefined;
             }
-            else if (state === "crashed" /* CrusorAIEngineState.Crashed */ || state === "degraded" /* CrusorAIEngineState.Degraded */) {
+            else if (state === CrusorAIEngineState.Crashed || state === CrusorAIEngineState.Degraded) {
                 // The only trace of a dying sidecar used to be a log line: the process exit is reported by
                 // the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
                 // receives turn_done -- so the panel kept painting a live run that had no engine behind it.
                 // A setup failure already has its own actionable row, so it is not overwritten here.
                 if (!this.engineSetupError) {
-                    this.engineFault = state === "crashed" /* CrusorAIEngineState.Crashed */
+                    this.engineFault = state === CrusorAIEngineState.Crashed
                         ? 'The Crusor engine process stopped while this session was open.'
                         : 'The Crusor engine could not accept the request, so it never reached the model.';
                     if (this.running) {
@@ -229,6 +230,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.render();
         }));
         this._register(this.engineService.onDidReceiveFrame(frame => this.acceptFrame(frame)));
+        this._register(this.workbenchService.onDidResolveDiff(event => {
+            this.host.replyToSafety(event.toolId, event.approved);
+        }));
         this._register(this.workbenchService.onDidChangeCapabilities(() => {
             this.publishHostCapabilities();
             this.render();
@@ -449,7 +453,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }, delay);
     }
     async ensureEngine() {
-        if (this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
+        if (this.engineService.state === CrusorAIEngineState.Ready) {
             return;
         }
         if (this.startPromise) {
@@ -470,7 +474,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (resumeSession && this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
+            if (resumeSession && this.engineService.state === CrusorAIEngineState.Ready) {
                 this.publishHostCapabilities(resumeSession);
                 this.send({ type: 'session_resume', session_id: resumeSession, workspace });
                 this.send({ type: 'events_replay', session_id: resumeSession });
@@ -508,7 +512,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     publishHostCapabilities(sessionId = this.sessionId) {
         const workspace = this.workspacePath;
-        if (!sessionId || !workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (!sessionId || !workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
             return;
         }
         const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
@@ -618,7 +622,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.ensureEngine(),
             new Promise(resolve => setTimeout(resolve, 20_000)),
         ]);
-        if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (this.engineService.state !== CrusorAIEngineState.Ready) {
             // The one dishonest thing the old code did: return silently. The
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,
@@ -734,6 +738,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         // engine wakes after all, its next terminal frame re-runs this
         // handler and the truth replaces our note.
         this.clearHardWatchdog();
+        // Hermes parity: soft stall is 5min, but toolless greetings (no tools) should not wait 7min for hard kill.
+        // Match Hermes's immediate `message.complete` settle: if no tools and we have text, fail fast (30s) instead of 7min.
+        const _isGreeting = this.tools.size === 0 && this.assistantText.length > 0;
         this.hardWatchdog = window.setTimeout(() => {
             this.hardWatchdog = undefined;
             if (!this.running) {
@@ -749,7 +756,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
             this.clearStallWatchdog();
             this.render();
-        }, 7 * 60 * 1000);
+        }, _isGreeting ? 30 * 1000 : 7 * 60 * 1000);
     }
     clearHardWatchdog() {
         if (this.hardWatchdog !== undefined) {
@@ -893,7 +900,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // An approval can arrive without a prior start frame; the card must
             // still have a place in the timeline.
             this.pushToolPart(frame.tool_id);
-            this.approval = { toolId: frame.tool_id, name: frame.name, diff: frame.diff };
+            this.approval = {
+                toolId: frame.tool_id,
+                name: frame.name,
+                diff: frame.diff,
+                warning: typeof frame.warning === 'string' ? frame.warning : undefined,
+            };
         }
         else if (frame.type === 'clarify_request') {
             // Hermes ask-tool card: the batch of questions rides its own frame
@@ -1054,15 +1066,21 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 const value = valueRecord(source);
                 original ??= stringField(source, ['original_uri', 'original', 'before_uri', 'base_uri']);
                 modified ??= stringField(source, ['modified_uri', 'modified', 'after_uri']);
-                resource ??= stringField(source, ['resource', 'file_path', 'path']);
+                resource ??= stringField(source, ['resource', 'file_path', 'path', 'relative_path']);
                 if (originalText === undefined && value && 'old_text' in value && (typeof value.old_text === 'string' || value.old_text === null)) {
                     originalText = typeof value.old_text === 'string' ? value.old_text : '';
                 }
                 if (modifiedText === undefined && typeof value?.new_text === 'string') {
                     modifiedText = value.new_text;
                 }
+                if (modifiedText === undefined && typeof value?.content === 'string') {
+                    modifiedText = value.content;
+                }
             }
             const label = `Crusor: ${tool?.name ?? 'proposed change'}`;
+            if (originalText === undefined && modifiedText !== undefined && resource) {
+                originalText = '';
+            }
             if (originalText !== undefined && modifiedText !== undefined) {
                 await this.workbenchService.openInlineDiff({
                     toolId, label, original: originalText, modified: modifiedText,

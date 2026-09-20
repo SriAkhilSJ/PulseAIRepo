@@ -298,6 +298,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.render();
 		}));
 		this._register(this.engineService.onDidReceiveFrame(frame => this.acceptFrame(frame)));
+		this._register(this.workbenchService.onDidResolveDiff(event => {
+			this.host.replyToSafety(event.toolId, event.approved);
+		}));
 		this._register(this.workbenchService.onDidChangeCapabilities(() => {
 			this.publishHostCapabilities();
 			this.render();
@@ -793,13 +796,20 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
-			this.turnOutcome = 'failed';
+			// Hermes parity: greeting already answered — silent complete, not failed
+			if (_isGreeting) {
+				this.turnOutcome = 'completed';
+				this.error = undefined;
+				this.degraded = undefined;
+			} else {
+				this.turnOutcome = 'failed';
+				this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
+			}
 			this.stalled = undefined;
 			this.llmStatus = undefined;
-			this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
 			this.clearStallWatchdog();
 			this.render();
-		}, _isGreeting ? 30 * 1000 : 7 * 60 * 1000);
+		}, _isGreeting ? 12 * 1000 : 7 * 60 * 1000);
 	}
 
 	private clearHardWatchdog(): void {
@@ -919,7 +929,16 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// An approval can arrive without a prior start frame; the card must
 			// still have a place in the timeline.
 			this.pushToolPart(frame.tool_id);
-			this.approval = { toolId: frame.tool_id, name: frame.name, diff: frame.diff };
+			this.approval = {
+				toolId: frame.tool_id,
+				name: frame.name,
+				diff: frame.diff,
+				warning: typeof frame.warning === 'string' ? frame.warning : undefined,
+			};
+			// 1: Show in editor automatically like Copilot ChatEditingCodeEditorIntegration
+			// (viewZones + diffDecorations on live file) — don't wait for user to click Review.
+			// Best-effort: if diff has inline text, open inline diff preview.
+			try { void this.openDiff(frame.tool_id); } catch { /* best effort */ }
 		} else if (frame.type === 'clarify_request') {
 			// Hermes ask-tool card: the batch of questions rides its own frame
 			// (args alone can't drive the form — no qids to respond with).
@@ -1028,7 +1047,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				usagePercent: typeof frame.usage_percent === 'number' ? frame.usage_percent : undefined,
 			};
 		} else if (frame.type === 'runtime_degraded') {
-			this.degraded = frame.reason;
+			// Greeting with no tools — scan budget is irrelevant, don't show yellow degraded bar
+			if (frame.reason && frame.reason.includes('scan budget') && this.tools.size === 0) {
+				// suppress
+			} else {
+				this.degraded = frame.reason;
+			}
 		} else if (frame.type === 'error') {
 			this.error = frame.message;
 		}
@@ -1060,13 +1084,17 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				const value = valueRecord(source);
 				original ??= stringField(source, ['original_uri', 'original', 'before_uri', 'base_uri']);
 				modified ??= stringField(source, ['modified_uri', 'modified', 'after_uri']);
-				resource ??= stringField(source, ['resource', 'file_path', 'path']);
+				resource ??= stringField(source, ['resource', 'file_path', 'path', 'relative_path']);
 				if (originalText === undefined && value && 'old_text' in value && (typeof value.old_text === 'string' || value.old_text === null)) {
 					originalText = typeof value.old_text === 'string' ? value.old_text : '';
 				}
 				if (modifiedText === undefined && typeof value?.new_text === 'string') { modifiedText = value.new_text; }
+				if (modifiedText === undefined && typeof value?.content === 'string') { modifiedText = value.content; }
 			}
 			const label = `Crusor: ${tool?.name ?? 'proposed change'}`;
+			if (originalText === undefined && modifiedText !== undefined && resource) {
+				originalText = '';
+			}
 			if (originalText !== undefined && modifiedText !== undefined) {
 				await this.workbenchService.openInlineDiff({
 					toolId, label, original: originalText, modified: modifiedText,

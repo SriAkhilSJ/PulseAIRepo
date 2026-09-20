@@ -17,7 +17,7 @@ import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IUtilityProcessWorkerWorkbenchService } from '../../../services/utilityProcess/electron-browser/utilityProcessWorkerWorkbenchService.js';
-import { resolveCrusorAIEngineRoot, } from '../common/crusorAIEngineService.js';
+import { CrusorAIEngineState, resolveCrusorAIEngineRoot, } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_PROTOCOL_VERSION } from '../common/crusorAIProtocol.generated.js';
 import { CRUSOR_AI_WORKER_CHANNEL, CRUSOR_AI_WORKER_MODULE_ID, } from '../common/crusorAIWorkerService.js';
 // Cold-start tolerant (2026-09-05 field: after pulling new engine code the
@@ -33,7 +33,7 @@ let CrusorAIEngineService = class CrusorAIEngineService extends Disposable {
         this.utilityProcessService = utilityProcessService;
         this.configurationService = configurationService;
         this.logService = logService;
-        this._state = "stopped" /* CrusorAIEngineState.Stopped */;
+        this._state = CrusorAIEngineState.Stopped;
         this._onDidChangeState = this._register(new Emitter());
         this.onDidChangeState = this._onDidChangeState.event;
         this._onDidReceiveFrame = this._register(new Emitter());
@@ -46,7 +46,7 @@ let CrusorAIEngineService = class CrusorAIEngineService extends Disposable {
             throw new Error('CrusorAI session requires an opened workspace folder');
         }
         await this.stop();
-        this.setState("starting" /* CrusorAIEngineState.Starting */);
+        this.setState(CrusorAIEngineState.Starting);
         try {
             const worker = await this.utilityProcessService.createWorker({
                 moduleId: CRUSOR_AI_WORKER_MODULE_ID,
@@ -60,14 +60,14 @@ let CrusorAIEngineService = class CrusorAIEngineService extends Disposable {
             this.session.add(processService.onDidWriteStderr(line => this.logService.warn(`[CrusorAI Engine] ${line}`)));
             this.session.add(processService.onDidChangeState(change => {
                 if (change.state === 'crashed') {
-                    this.setState("crashed" /* CrusorAIEngineState.Crashed */);
+                    this.setState(CrusorAIEngineState.Crashed);
                     this.handshakeReject?.(new Error(change.detail ?? 'CrusorAI sidecar crashed'));
                 }
             }));
             void worker.onDidTerminate.then(({ reason }) => {
-                if (this.worker.value === worker && this._state !== "stopped" /* CrusorAIEngineState.Stopped */) {
+                if (this.worker.value === worker && this._state !== CrusorAIEngineState.Stopped) {
                     this.logService.error(`[CrusorAI Engine] utility process terminated: ${reason?.code}/${reason?.signal}`);
-                    this.setState("crashed" /* CrusorAIEngineState.Crashed */);
+                    this.setState(CrusorAIEngineState.Crashed);
                 }
             });
             // P0: the session workspace and the engine package are DIFFERENT.
@@ -94,22 +94,22 @@ let CrusorAIEngineService = class CrusorAIEngineService extends Disposable {
             // 2026-09-05: "send button not working", zero log lines).
             this.logService.error(`[CrusorAI Engine] start failed: ${error instanceof Error ? error.message : String(error)}`);
             await this.releaseWorker();
-            this.setState("crashed" /* CrusorAIEngineState.Crashed */);
+            this.setState(CrusorAIEngineState.Crashed);
             throw error;
         }
     }
     send(frame) {
-        if (this._state !== "ready" /* CrusorAIEngineState.Ready */ || !this.processService) {
+        if (this._state !== CrusorAIEngineState.Ready || !this.processService) {
             throw new Error(`CrusorAI engine cannot send while ${this._state}`);
         }
         void this.processService.send(JSON.stringify(frame)).catch(error => {
             this.logService.error('[CrusorAI Engine] failed to send bridge frame', error);
-            this.setState("degraded" /* CrusorAIEngineState.Degraded */);
+            this.setState(CrusorAIEngineState.Degraded);
         });
     }
     async stop() {
         await this.releaseWorker();
-        this.setState("stopped" /* CrusorAIEngineState.Stopped */);
+        this.setState(CrusorAIEngineState.Stopped);
     }
     async releaseWorker() {
         this.handshakeResolve = undefined;
@@ -137,7 +137,7 @@ let CrusorAIEngineService = class CrusorAIEngineService extends Disposable {
                 if (frame.protocol !== CRUSOR_AI_PROTOCOL_VERSION) {
                     throw new Error(`CrusorAI protocol mismatch: expected ${CRUSOR_AI_PROTOCOL_VERSION}, got ${frame.protocol}`);
                 }
-                this.setState("ready" /* CrusorAIEngineState.Ready */);
+                this.setState(CrusorAIEngineState.Ready);
                 this.handshakeResolve?.();
                 this.handshakeResolve = undefined;
                 this.handshakeReject = undefined;
@@ -148,7 +148,7 @@ let CrusorAIEngineService = class CrusorAIEngineService extends Disposable {
             const failure = error instanceof Error ? error : new Error(String(error));
             this.logService.error('[CrusorAI Engine] invalid bridge frame', failure);
             this.handshakeReject?.(failure);
-            this.setState("degraded" /* CrusorAIEngineState.Degraded */);
+            this.setState(CrusorAIEngineState.Degraded);
         }
     }
     setState(state) {

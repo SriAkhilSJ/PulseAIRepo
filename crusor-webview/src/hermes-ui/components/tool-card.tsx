@@ -414,7 +414,13 @@ export function CrusorToolRow({ completedAt, messageRunning = false, messageId, 
           </span>
         </DisclosureRow>
       </div>
-      {blockedOnApproval && approval && respond && <ApprovalRow approval={approval} onRespond={respond} />}
+      {blockedOnApproval && approval && respond && (
+        <ApprovalRow approval={approval} onRespond={respond}>
+          {approval.diff?.patch && (
+            <FileDiffPanel className="crusor-tool-diff" diff={approval.diff.patch} path={approval.diff.path || (isFileEdit ? view.subtitle : undefined)} />
+          )}
+        </ApprovalRow>
+      )}
       {open && (
         <div className="crusor-tool-body">
           {copyAction.text && (

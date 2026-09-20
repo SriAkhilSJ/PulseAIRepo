@@ -19,9 +19,11 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
+import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
@@ -30,7 +32,9 @@ import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from 
 import { ISCMService } from '../../scm/common/scm.js';
 import { ITestResultService } from '../../testing/common/testResultService.js';
 import { ITestService } from '../../testing/common/testService.js';
+import { TestResultState, TestRunProfileBitset } from '../../testing/common/testTypes.js';
 import { ITaskService } from '../../tasks/common/taskService.js';
+import { TaskRunSource } from '../../tasks/common/tasks.js';
 import { ITerminalService } from '../../terminal/browser/terminal.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -97,7 +101,7 @@ function diagnostic(marker) {
     };
 }
 let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable {
-    constructor(editorService, textFileService, markerService, languageFeaturesService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService) {
+    constructor(editorService, textFileService, markerService, languageFeaturesService, languageService, modelService, textModelService, instantiationService, workspaceContextService, searchService, scmService, testService, testResultService, taskService, terminalService, bulkEditService, openerService, trustManagementService, trustRequestService, contextKeyService) {
         super();
         this.editorService = editorService;
         this.textFileService = textFileService;
@@ -117,15 +121,21 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         this.openerService = openerService;
         this.trustManagementService = trustManagementService;
         this.trustRequestService = trustRequestService;
+        this.contextKeyService = contextKeyService;
         this._onDidChangeCapabilities = this._register(new Emitter());
         this.onDidChangeCapabilities = this._onDidChangeCapabilities.event;
         this._onDidChangeDiagnostics = this._register(new Emitter());
         this.onDidChangeDiagnostics = this._onDidChangeDiagnostics.event;
         this._onDidChangeTests = this._register(new Emitter());
         this.onDidChangeTests = this._onDidChangeTests.event;
+        this._onDidResolveDiff = this._register(new Emitter());
+        this.onDidResolveDiff = this._onDidResolveDiff.event;
         this.inlineDiffModels = new Map();
         this.inlineDiffOrder = [];
+        this.activeDiffs = new Map();
+        this.hasActiveDiffKey = new RawContextKey('crusorai.hasActiveDiff', false).bindTo(this.contextKeyService);
         this.queryBuilder = instantiationService.createInstance(QueryBuilder);
+        this._register(this.editorService.onDidActiveEditorChange(() => this.updateActiveDiffContext()));
         this._register(this.textModelService.registerTextModelContentProvider(CRUSOR_AI_DIFF_SCHEME, {
             provideTextContent: async (resource) => {
                 const existing = this.modelService.getModel(resource);
@@ -299,7 +309,61 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         const modified = URI.from({ scheme: CRUSOR_AI_DIFF_SCHEME, authority: 'crusorai', path: `/${key}/after/${fileName}` });
         this.rememberInlineDiff(original, request.original, languageResource);
         this.rememberInlineDiff(modified, request.modified, languageResource);
+        this.activeDiffs.set(modified.toString(), {
+            toolId: request.toolId,
+            originalUri: original,
+            modifiedUri: modified,
+            label: request.label,
+        });
         await this.openNativeDiff(original.toString(), modified.toString(), request.label);
+        this.updateActiveDiffContext();
+    }
+    acceptActiveDiff() {
+        const diff = this.getActiveDiffForCurrentEditor();
+        if (!diff) {
+            return;
+        }
+        this.activeDiffs.delete(diff.modifiedUri.toString());
+        this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: true });
+        if (this.editorService.activeEditor) {
+            void this.editorService.closeEditor(this.editorService.activeEditor);
+        }
+        this.updateActiveDiffContext();
+    }
+    rejectActiveDiff() {
+        const diff = this.getActiveDiffForCurrentEditor();
+        if (!diff) {
+            return;
+        }
+        this.activeDiffs.delete(diff.modifiedUri.toString());
+        this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: false });
+        if (this.editorService.activeEditor) {
+            void this.editorService.closeEditor(this.editorService.activeEditor);
+        }
+        this.updateActiveDiffContext();
+    }
+    hasActiveDiff() {
+        return this.getActiveDiffForCurrentEditor() !== undefined;
+    }
+    updateActiveDiffContext() {
+        this.hasActiveDiffKey.set(this.hasActiveDiff());
+    }
+    getActiveDiffForCurrentEditor() {
+        const activeEditor = this.editorService.activeEditor;
+        if (!activeEditor) {
+            return undefined;
+        }
+        const modifiedUri = activeEditor?.modified?.resource?.toString()
+            ?? activeEditor?.resource?.toString();
+        if (modifiedUri && this.activeDiffs.has(modifiedUri)) {
+            return this.activeDiffs.get(modifiedUri);
+        }
+        for (const diff of this.activeDiffs.values()) {
+            if (diff.modifiedUri.toString() === modifiedUri || diff.originalUri.toString() === modifiedUri) {
+                return diff;
+            }
+        }
+        return undefined;
     }
     async requestWorkspaceTrust() {
         if (this.trustManagementService.isWorkspaceTrusted()) {
@@ -447,7 +511,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             }
         }
         const result = await this.testService.runTests({
-            group: 2 /* TestRunProfileBitset.Run */,
+            group: TestRunProfileBitset.Run,
             tests: [...selected.values()],
             exclude,
             preserveFocus: true,
@@ -481,7 +545,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         if (!task) {
             throw new Error(`Crusor could not resolve task: ${request.taskId}`);
         }
-        const summary = await this.taskService.run(task, undefined, 5 /* TaskRunSource.ChatAgent */);
+        const summary = await this.taskService.run(task, undefined, TaskRunSource.ChatAgent);
         return {
             taskId: request.taskId,
             state: summary?.exitCode === 0 ? 'passed' : typeof summary?.exitCode === 'number' ? 'failed' : 'unknown',
@@ -577,7 +641,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             hasShellIntegration = true;
             listeners.add(capability.onCommandFinished(finishCommand));
         };
-        const existing = instance.capabilities.get(2 /* TerminalCapability.CommandDetection */);
+        const existing = instance.capabilities.get(TerminalCapability.CommandDetection);
         if (existing) {
             attachCommandDetection(existing);
         }
@@ -619,13 +683,13 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         }
     }
     testReceipt(result) {
-        const failed = result.counts[4 /* TestResultState.Failed */] + result.counts[6 /* TestResultState.Errored */];
+        const failed = result.counts[TestResultState.Failed] + result.counts[TestResultState.Errored];
         return {
             runId: result.id,
             state: result.completedAt === undefined ? 'running' : failed > 0 ? 'failed' : 'passed',
-            passed: result.counts[3 /* TestResultState.Passed */],
+            passed: result.counts[TestResultState.Passed],
             failed,
-            skipped: result.counts[5 /* TestResultState.Skipped */],
+            skipped: result.counts[TestResultState.Skipped],
         };
     }
     async withModel(resource, callback) {
@@ -665,6 +729,7 @@ CrusorAIWorkbenchService = __decorate([
     __param(15, IBulkEditService),
     __param(16, IOpenerService),
     __param(17, IWorkspaceTrustManagementService),
-    __param(18, IWorkspaceTrustRequestService)
+    __param(18, IWorkspaceTrustRequestService),
+    __param(19, IContextKeyService)
 ], CrusorAIWorkbenchService);
 export { CrusorAIWorkbenchService };

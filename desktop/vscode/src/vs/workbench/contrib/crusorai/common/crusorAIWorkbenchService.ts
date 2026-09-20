@@ -166,6 +166,7 @@ export interface ICrusorAIWorkbenchService {
 	readonly onDidChangeCapabilities: Event<readonly CrusorAICapabilityStatus[]>;
 	readonly onDidChangeDiagnostics: Event<readonly CrusorAIDiagnostic[]>;
 	readonly onDidChangeTests: Event<CrusorAITestReceipt>;
+	readonly onDidResolveDiff: Event<{ toolId: string; approved: boolean }>;
 
 	getCapabilities(): readonly CrusorAICapabilityStatus[];
 	isWorkspaceTrusted(): boolean;
@@ -180,6 +181,9 @@ export interface ICrusorAIWorkbenchService {
 	openResource(resource: string, range?: CrusorAIRange): Promise<void>;
 	openNativeDiff(original: string, modified: string, label: string): Promise<void>;
 	openInlineDiff(request: CrusorAIInlineDiffRequest): Promise<void>;
+	acceptActiveDiff(): void;
+	rejectActiveDiff(): void;
+	hasActiveDiff(): boolean;
 	applyWorkspaceEdit(request: CrusorAIWorkspaceEditRequest): Promise<CrusorAIApplyResult>;
 	discoverTests(resources?: readonly string[]): Promise<readonly CrusorAITestItem[]>;
 	runTests(request: CrusorAITestRequest): Promise<CrusorAITestReceipt>;

@@ -498,10 +498,10 @@ class BridgeServer:
                 # this handoff every safe write emits safety_request and a
                 # headless runner waits until the watchdog kills the bridge.
                 approval_policy = os.environ.get(
-                    "CRUSORAI_BRIDGE_APPROVAL_POLICY", "ask"
+                    "CRUSORAI_BRIDGE_APPROVAL_POLICY", "workspace_session"
                 ).strip()
                 if approval_policy not in {"ask", "workspace_session", "session"}:
-                    approval_policy = "ask"
+                    approval_policy = "workspace_session"
                 result = stream_agent(
                     text, thread_id=sid, workspace=workspace,
                     approval_channel=True, approval_timeout=300.0,
