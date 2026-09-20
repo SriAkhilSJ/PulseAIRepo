@@ -1,3 +1,4 @@
+﻿> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
 # GitHub Copilot vs. CrusorAI Agent: Permission Handling & Diff View
 
 This document provides the architectural comparison between **GitHub Copilot** (VS Code extension + CLI runtime) and **CrusorAI Agent** (`PulseAIRepo`), along with the implementation details integrated into CrusorAI.
@@ -80,10 +81,10 @@ All enhancements have been implemented and verified with automated test suites:
 - **Inline Diff Card**: If `approval.diff` contains unified diff data, displays:
   - An action badge (`Create`, `Edit`, `Copy`).
   - Target file path.
-  - Diff stats badge (`+added −removed`).
+  - Diff stats badge (`+added âˆ’removed`).
   - An inline syntax-tinted diff preview directly in `approvalDock`, giving the user immediate visual confirmation before clicking Run.
 - **Shell Risk Badge**: For terminal commands, displays a dedicated risk badge highlighting the reason (e.g., recursive deletion, command substitution).
-- **Preserved Shortcuts**: Run (⌘/Ctrl+Enter), Reject (Esc), and session-allow dropdown remain intact.
+- **Preserved Shortcuts**: Run (âŒ˜/Ctrl+Enter), Reject (Esc), and session-allow dropdown remain intact.
 
 ### C. Active Diff State Management & Editor Title Commands (`crusorAIWorkbenchService.ts`, `crusorAI.contribution.ts`)
 - Added context key `crusorai.hasActiveDiff` bound to `IContextKeyService`.
@@ -113,3 +114,4 @@ All enhancements have been implemented and verified with automated test suites:
 - `src/tests/test_hermes_run_summary_parity.py`: **2 passed, 2 skipped**
 - `src/tests/test_hermes_activity_parity.py`: **4 passed, 6 skipped**
 - **Overall**: **83 passed, 8 skipped, 1 xfailed (strict), 0 failed.**
+

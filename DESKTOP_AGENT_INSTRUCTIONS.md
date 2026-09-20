@@ -1,17 +1,18 @@
-# Desktop Agent Instructions — Hermes parity (merged)
+﻿> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
+# Desktop Agent Instructions â€” Hermes parity (merged)
 
 **Updated:** 2026-09-11
 **Branch:** `arena/01a06408-pulseairepo` (merged to `main` at `bf696a61`)
-**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+**Status:** âœ… **MERGED** â€” PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 **Evidence directory:** `bench-results/hermes-prompt-ui-copilotkit-verification`
 
 ## Budget: 80 credits remain. Spend them like that.
 
-* Run gates A → B → C → D **in order**, and **stop at the first failure**. A failure is the result.
+* Run gates A â†’ B â†’ C â†’ D **in order**, and **stop at the first failure**. A failure is the result.
 * Each gate runs **once**. No flake re-runs, no second attempt after a fix, no "let me try again".
 * Do not run the whole `src/tests` suite or `yarn test`/`yarn compile --watch`. Nothing here needs them.
 * Do not paste logs to me except the named files' last 20 lines; the evidence push carries the rest.
-* If the environment lacks node/`.venv`/`esbuild`, that is a reportable host gap — say so and stop. Do not
+* If the environment lacks node/`.venv`/`esbuild`, that is a reportable host gap â€” say so and stop. Do not
   reinstall the world to make a check go green.
 
 ## Authorization and stop rules
@@ -21,7 +22,7 @@ request, probe, fallback, live Test 5 turn, paid completion, credential inspecti
 deletion is authorized.
 
 Use only the existing repository at `D:\crusorAIagent\PulseAIRepo`. Do not clone, reset, clean, amend
-source, or touch historical evidence. Set `CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE — that is
+source, or touch historical evidence. Set `CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE â€” that is
 the mandatory network/provider guard. **Never** set `CRUSORAI_ALLOW_LIVE_AGENT_TEST=1`
 (`Remove-Item Env:CRUSORAI_ALLOW_LIVE_AGENT_TEST -ErrorAction SilentlyContinue`). Do not edit any source
 file, including to fix a failing gate: report it, push the evidence, stop.
@@ -31,17 +32,17 @@ file, including to fix a failing gate: report it, push the evidence, stop.
 ```powershell
 $ErrorActionPreference = 'Stop'
 cd D:\crusorAIagent\PulseAIRepo
-if ((git branch --show-current) -ne 'arena/01a0564d-pulseairepo') { throw 'Wrong branch — STOP' }
+if ((git branch --show-current) -ne 'arena/01a0564d-pulseairepo') { throw 'Wrong branch â€” STOP' }
 # Tracked changes are the only thing that can corrupt a run. Untracked scratch cannot, and this
 # repo has known, already-accepted untracked files (see the note below), so they are inventoried
 # into the evidence rather than blocking the gate or being committed.
-if (git status --porcelain=v1 -uno) { throw 'Tracked files are modified — preserve them and STOP' }
+if (git status --porcelain=v1 -uno) { throw 'Tracked files are modified â€” preserve them and STOP' }
 git fetch origin arena/01a0564d-pulseairepo
 git merge-base --is-ancestor f7815e473 FETCH_HEAD
-if ($LASTEXITCODE -ne 0) { throw 'The registration slice is not an ancestor — STOP' }
+if ($LASTEXITCODE -ne 0) { throw 'The registration slice is not an ancestor â€” STOP' }
 
 $evidence = 'bench-results\crusor-manager-registration-desktop-r2'
-if (Test-Path $evidence) { throw 'Evidence directory already exists — STOP; never overwrite or retry' }
+if (Test-Path $evidence) { throw 'Evidence directory already exists â€” STOP; never overwrite or retry' }
 New-Item -ItemType Directory -Path $evidence | Out-Null
 
 # Then inventory the untracked scratch, and refuse anything outside the accepted list.
@@ -53,7 +54,7 @@ if ($unexpected) { "Untracked, not on the accepted list: $unexpected" | Tee-Cont
 # Scratch at the root is a note. Untracked *source-shaped* code can change what is being verified,
 # so it stops the run and is reported rather than run over.
 $suspicious = $unexpected | Where-Object { $_ -match '^(desktop/vscode/src|src/|crusor-webview/src/)' }
-if ($suspicious) { throw "Untracked source-shaped file present: $suspicious — STOP and report it" }
+if ($suspicious) { throw "Untracked source-shaped file present: $suspicious â€” STOP and report it" }
 git rev-parse HEAD | Set-Content "$evidence\head.txt" -Encoding ascii
 git log --oneline -6        | Set-Content "$evidence\recent-commits.txt" -Encoding utf8
 node --version              | Set-Content "$evidence\node-version.txt" -Encoding utf8
@@ -63,18 +64,18 @@ node --version              | Set-Content "$evidence\node-version.txt" -Encoding
 
 **Write every evidence file as ASCII** (`Set-Content -Encoding ascii`, and `... | Out-File -Encoding ascii`
 instead of `Tee-Object` for logs). Windows PowerShell's `Tee-Object` defaults to UTF-16, which made round 1's
-`gate-a-tsc.txt` a 60 KB binary blob in the diff — hashed and unreadable. Decoding it by hand confirmed
+`gate-a-tsc.txt` a 60 KB binary blob in the diff â€” hashed and unreadable. Decoding it by hand confirmed
 `Crusor errors: 0` on your host, but evidence has to be checkable without a decoder.
 
 **Why `-uno` and an allowlist, in one line:** `crusor-webview/live-failure.spec.ts` is scratch from the
 *live* e2e round and is already recorded as accepted-untracked in this repo's own findings
-(`bench-results/prompt-ui-live-e2e/findings.md:3-4`, "untracked, not modified… noted and accepted"). It is
+(`bench-results/prompt-ui-live-e2e/findings.md:3-4`, "untracked, not modifiedâ€¦ noted and accepted"). It is
 not in the tree I have, so nobody here can vouch for its bytes, and committing live-provider scratch into
 the source tree is not how a verification round ends. `vitest.config.ts` collects only
 `src/__tests__/**/*.test.{ts,tsx}`, so it is never executed by `npm test` either: leave it alone, list it.
 A round-2 evidence directory is used because the first round's is evidence too, and evidence is never reused.
 
-## 2. Gate A — strict scoped typecheck (proves the registration satisfies the fork's contracts)
+## 2. Gate A â€” strict scoped typecheck (proves the registration satisfies the fork's contracts)
 
 ```powershell
 cd D:\crusorAIagent\PulseAIRepo\desktop\vscode\src        # this directory, or the paths shift
@@ -89,15 +90,15 @@ $mine  = (Select-String -Path $log -Pattern 'contrib/crusorai' | Where-Object Li
 $total = (Select-String -Path $log -Pattern 'error TS').Count
 $files  = (& $tsc -p tsconfig.crusorai-check.json --noEmit --listFilesOnly 2>$null | Select-String 'contrib/crusorai').Count
 "Crusor errors: $mine   all errors: $total   Crusor files in program: $files"
-if ($files -lt 26) { throw "Gate A has no coverage ($files Crusor files in the program) — STOP, this is not a pass" }
+if ($files -lt 26) { throw "Gate A has no coverage ($files Crusor files in the program) â€” STOP, this is not a pass" }
 ```
 
 **PASS = `Crusor errors: 0` AND `Crusor files in program >= 26`.** Other errors are expected (missing
 `@types` in a partial checkout) and are not failures. Never judge this lane by a total of zero: an
-empty log means the compiler or the filter failed, and that is a STOP. Non-zero → skip
+empty log means the compiler or the filter failed, and that is a STOP. Non-zero â†’ skip
 everything below, go to step 5.
 
-## 3. Gate B — the two python lanes that cover this slice
+## 3. Gate B â€” the two python lanes that cover this slice
 
 ```powershell
 cd D:\crusorAIagent\PulseAIRepo
@@ -108,7 +109,7 @@ cd D:\crusorAIagent\PulseAIRepo
 **PASS = zero failures/errors**, and `test_crusor_session_registration_parity.py` contributing **8 passed**.
 Both harness assumptions are gone. `src/tests/_node_loader.py` probes candidates and keeps the first one
 that runs `--version`: `.bin/esbuild`, `.bin/esbuild.cmd`, `@esbuild/<platform>/bin/esbuild.exe`,
-`@esbuild/<platform>/esbuild.exe`, `esbuild/bin/esbuild` — which is where the real binary lives when
+`@esbuild/<platform>/esbuild.exe`, `esbuild/bin/esbuild` â€” which is where the real binary lives when
 `node_modules` was installed on another platform and `.bin` is a POSIX script. If none of those execute,
 the registration lane falls back to `typescript\bin\tsc` (plain JS, no native binary) and the two Hermes
 lanes skip. Round 1 died on the shim, round 3 on the same shim in the other two files; both shapes are now
@@ -116,11 +117,11 @@ pinned at source level, so a future edit cannot reassume them.
 
 `*skipped*` is a host gap to report, never a pass and never something to chase with a reinstall.
 
-Evidence goes to `bench-results\crusor-manager-registration-desktop-r3` — the r2 directory is the record of
+Evidence goes to `bench-results\crusor-manager-registration-desktop-r3` â€” the r2 directory is the record of
 gate A passing and the harness failing, and evidence is never overwritten. Put one line in r3's `gate.txt`:
 `gate A carried forward from r2/gate-a-tsc.txt (sha256 in r2/sha256sums.txt)`.
 
-## 4. Gates C and D — build, then the paint
+## 4. Gates C and D â€” build, then the paint
 
 One command covers the launch, the harness and the row extraction -- use it instead of building
 `Start-Process` argument lists by hand, because Chromium flags take their value with `=` and a bare path
@@ -137,16 +138,16 @@ node scripts\verify_crusor_manager_registration.mjs "bench-results\crusor-manage
 # with the next command to run -- instead of surfacing as a UI failure twelve seconds later.
 ```
 
-Then follow Follow `docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md` §C and §D verbatim: `npm install` (only if
-`desktop\vscode\node_modules` is absent) → `npm run compile` → launch
+Then follow Follow `docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md` Â§C and Â§D verbatim: `npm install` (only if
+`desktop\vscode\node_modules` is absent) â†’ `npm run compile` â†’ launch
 `.\desktop\vscode\.build\electron\CrusorAI.exe --remote-debugging-port=9222` on a fresh
-`--user-data-dir` → `node scripts\validate_crusor_ui_cdp.js bench-results\crusor-manager-registration-desktop\cdp --manager-only`
-→ the Developer-Tools console object for `.crusorai-session-row` (the doc prints the exact snippet).
+`--user-data-dir` â†’ `node scripts\validate_crusor_ui_cdp.js bench-results\crusor-manager-registration-desktop\cdp --manager-only`
+â†’ the Developer-Tools console object for `.crusorai-session-row` (the doc prints the exact snippet).
 Every PASS line and every mismatch is written into `gate-d-findings.md` in the evidence directory.
 
 Read `cdp-ui-result.json` (that is the harness's report filename) rather than trusting the console.
 
-## 5. Evidence, hashes, commit, push — on PASS *and* on FAIL
+## 5. Evidence, hashes, commit, push â€” on PASS *and* on FAIL
 
 ```powershell
 cd D:\crusorAIagent\PulseAIRepo
@@ -159,15 +160,16 @@ Get-ChildItem $evidence -Recurse -File | Where-Object Name -ne 'sha256sums.txt' 
   } | Set-Content "$evidence\sha256sums.txt" -Encoding ascii
 git status --short          # ONLY the evidence directory may appear
 git add -f $evidence
-git commit -m "evidence(desktop): manager session registration — <PASS|FAIL at gate X>"
+git commit -m "evidence(desktop): manager session registration â€” <PASS|FAIL at gate X>"
 git push origin HEAD:arena/01a0564d-pulseairepo
 ```
 
 `bench-results\` is gitignored, so `-f` is required. If `git status --short` shows any source, test,
-lockfile or historical-evidence change, **do not commit it** — leave it in the tree, commit only the
+lockfile or historical-evidence change, **do not commit it** â€” leave it in the tree, commit only the
 evidence directory, and say what is dirty. Never `git stash`, `git clean`, `git reset --hard`, or
 `git push --force`.
 
 Report: which gate stopped it, `gate.txt`, `sha256sums.txt`, the evidence commit SHA, and the last 20
 lines of the failing gate's log. Then stop. Do not open or merge a PR, do not delete a branch, do not
 retry, and do not upgrade a build PASS over a CDP FAIL.
+

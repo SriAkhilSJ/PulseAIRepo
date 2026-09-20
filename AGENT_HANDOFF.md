@@ -1,9 +1,10 @@
-# Agent Handoff — CrusorAI / CopilotKit
+﻿> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
+# Agent Handoff â€” CrusorAI / CopilotKit
 
 Start here. This records the state as of **2026-09-18 (`c3d7e4dc`)**, what was
 verified, what was fixed, and the traps that will waste your time if you don't know them.
 
-**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`. Follow-ups `0f829c1e` (aux routing), `6489e049` (test sig), `c3d7e4dc` (reasoning parts inline timeline) are on `main` @ `origin/main`.
+**Status:** âœ… **MERGED** â€” PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`. Follow-ups `0f829c1e` (aux routing), `6489e049` (test sig), `c3d7e4dc` (reasoning parts inline timeline) are on `main` @ `origin/main`.
 
 Read [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) for the full defect-by-defect
 evidence. This file is the orientation layer on top of it.
@@ -17,10 +18,10 @@ evidence. This file is the orientation layer on top of it.
 **Answer at commit `14b8862b`: No.** The webview mounted, but the agent was unreachable and the
 generative task card painted as an empty white box.
 
-**Answer after `4f88a907`: Yes**, verified end-to-end up to the LLM call. Browser → Copilot
-Runtime → Python LangGraph agent → A2UI card with real content and a live action button.
+**Answer after `4f88a907`: Yes**, verified end-to-end up to the LLM call. Browser â†’ Copilot
+Runtime â†’ Python LangGraph agent â†’ A2UI card with real content and a live action button.
 
-**Still open:** no live LLM turn has ever been executed. Two independent blockers — see
+**Still open:** no live LLM turn has ever been executed. Two independent blockers â€” see
 [Open items](#open-items).
 
 **Now done:** Full hermes parity achieved. All 32 layers ported and merged to `main`. Tool names, prompt text, plan cards, UI rendering, and provider-fetched output caps all working.
@@ -32,21 +33,21 @@ Runtime → Python LangGraph agent → A2UI card with real content and a live ac
 | # | Defect | Root cause | Fix |
 |---|---|---|---|
 | 1 | Card rendered **empty** | Schema used legacy `props`-nested format; A2UI v0.9 destructures `{ id, component, ...properties }`, so props landed under a `props` key and `props.child` was `undefined` | Flattened `src/a2ui_schemas/crusor_task_schema.json` |
-| 2 | Runs **never reached** the Python agent | `server.ts` mixed a v1 `LangGraphHttpAgent` with `CopilotKitIntelligence` → every run routed to `api.intelligence.copilotkit.ai` | Use AG-UI `HttpAgent`; Intelligence now optional |
-| 3 | Agent crashed on first node | `KeyError: 'latest_instruction'`, then `'provider'` — set by CLI/bridge, not by any graph node; AG-UI sends only `messages` | `_latest_instruction_from_messages()` + `_cfg()` helper |
+| 2 | Runs **never reached** the Python agent | `server.ts` mixed a v1 `LangGraphHttpAgent` with `CopilotKitIntelligence` â†’ every run routed to `api.intelligence.copilotkit.ai` | Use AG-UI `HttpAgent`; Intelligence now optional |
+| 3 | Agent crashed on first node | `KeyError: 'latest_instruction'`, then `'provider'` â€” set by CLI/bridge, not by any graph node; AG-UI sends only `messages` | `_latest_instruction_from_messages()` + `_cfg()` helper |
 | 4 | `tsc -b` broken, **12 errors** | `agent=` prop doesn't exist in v2 API; zod **4.5.2** in app vs zod **3.25.76** in a2ui | `agentId`; zod pinned to `3.25.76` |
 | 5 | Action button **inert** | Renderer ignored the bound `action` | `onClick={props.action}` |
 | 6 | Preview unreachable | Hard-coded `runtimeUrl="http://localhost:8200/..."` | Relative URL + Vite proxy |
 | 7 | Runtime **died** on upstream socket close | Unhandled rejection killed the Node process | `unhandledRejection` / `uncaughtException` guards |
 
-`tsc -b`: **12 errors → 0**.
+`tsc -b`: **12 errors â†’ 0**.
 
 ---
 
-## Architecture — the 3-tier stack
+## Architecture â€” the 3-tier stack
 
 ```
-Browser  ──►  Vite :5173  ──proxy /api/copilotkit──►  Copilot Runtime :8200  ──AG-UI──►  FastAPI :8123
+Browser  â”€â”€â–º  Vite :5173  â”€â”€proxy /api/copilotkitâ”€â”€â–º  Copilot Runtime :8200  â”€â”€AG-UIâ”€â”€â–º  FastAPI :8123
                                                        (@copilotkit/runtime v2)          (src/server.py)
                                                        AG-UI HttpAgent                   LangGraph + checkpointer
 ```
@@ -55,8 +56,8 @@ Key facts:
 
 - `src/server.py` exposes an **AG-UI** endpoint (`add_langgraph_fastapi_endpoint`), *not* a
   LangGraph Platform deployment. The runtime must use an AG-UI `HttpAgent` from `@ag-ui/client`.
-- The webview calls a **relative** `runtimeUrl`. Vite proxies `/api/copilotkit` → `:8200`.
-  Never hard-code `localhost` — it breaks every non-localhost origin.
+- The webview calls a **relative** `runtimeUrl`. Vite proxies `/api/copilotkit` â†’ `:8200`.
+  Never hard-code `localhost` â€” it breaks every non-localhost origin.
 - `CopilotKitIntelligence` is **optional**. Set `INTELLIGENCE_API_KEY` to enable Cloud mode;
   without it the runtime runs in `sse` mode, direct to the agent.
 - The A2UI catalog lives in `crusor-webview/src/a2ui/`; the card schema (the agent's contract)
@@ -72,11 +73,11 @@ cd crusor-webview && npm run dev                                       # term 3
 
 ---
 
-## Traps — read this before changing anything
+## Traps â€” read this before changing anything
 
 These cost real time to discover. Don't rediscover them.
 
-1. **A2UI v0.9 props are FLAT.** `{"id","component","child":"col"}` — not
+1. **A2UI v0.9 props are FLAT.** `{"id","component","child":"col"}` â€” not
    `{"id","component","props":{"child":"col"}}`. A nested `props` wrapper produces a card that
    mounts with `data-testid="crusor-task-card"` but is **completely empty**. It fails silently:
    no error, no warning, just a blank box. Guarded by a regression test.
@@ -87,7 +88,7 @@ These cost real time to discover. Don't rediscover them.
    silently breaks every dynamic binding and action. Pin it.
 
 3. **`CopilotKitProvider` has no `agent`/`agentId` prop.** Only `CopilotChat` takes `agentId`.
-   Passing `agent=` to the provider is a silent no-op — the agent never binds.
+   Passing `agent=` to the provider is a silent no-op â€” the agent never binds.
 
 4. **`vite build` passing proves nothing about types.** `npm run build` is `tsc -b && vite build`,
    but esbuild strips types without checking. Always run `npx tsc -b` explicitly.
@@ -124,7 +125,7 @@ button dispatches, the schema stays flat, and the App shell mounts. **It spends 
 
 ## Open items
 
-### 1. 🔴 Credentials are committed and this repo is PUBLIC — rotate immediately
+### 1. ðŸ”´ Credentials are committed and this repo is PUBLIC â€” rotate immediately
 
 `4fe2d33d` added `.env` to `main`; `3dd78a25` deleted the file, but **git history keeps it**.
 Both a Sarvam API key and a CopilotKit Intelligence key are retrievable by anyone:
@@ -133,12 +134,12 @@ Both a Sarvam API key and a CopilotKit Intelligence key are retrievable by anyon
 git clone https://github.com/SriAkhilSJ/PulseAIRepo && git show 4fe2d33d:.env
 ```
 
-**Action, in order:** (a) revoke/rotate both keys — purging history does not un-leak a secret
+**Action, in order:** (a) revoke/rotate both keys â€” purging history does not un-leak a secret
 that has already been pulled; (b) purge with `git filter-repo --path .env --invert-paths` and
 force-push; (c) add a pre-commit secret scan.
 
 `.env` is untracked again as of this handoff (the local copy was kept on disk intentionally for
-verification). **Never commit it.** It is gitignored — if you find yourself reaching for
+verification). **Never commit it.** It is gitignored â€” if you find yourself reaching for
 `git add -f .env`, stop.
 
 ### 2. No live LLM turn has ever run
@@ -154,12 +155,12 @@ To close it, run the three commands above on a machine with network access and s
 Expected SSE sequence:
 
 ```
-RUN_STARTED → STEP_STARTED task_manager → STATE_SNAPSHOT → … → assistant reply → A2UI card
+RUN_STARTED â†’ STEP_STARTED task_manager â†’ STATE_SNAPSHOT â†’ â€¦ â†’ assistant reply â†’ A2UI card
 ```
 
 Currently it reaches `task_manager` successfully and stops at the LLM call.
 
-If credits are a concern, add a mock provider instead — a deterministic fake LLM exercises the
+If credits are a concern, add a mock provider instead â€” a deterministic fake LLM exercises the
 entire pipeline including tool calls and card rendering at zero cost and runs forever in CI.
 
 ### 3. Minor
@@ -177,8 +178,8 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
 | File | Role |
 |---|---|
 | `COPILOTKIT_VERIFICATION.md` | Full defect evidence, measurements, test results |
-| `AGENT_HANDOFF.md` | This file — orientation |
-| `src/a2ui_schemas/crusor_task_schema.json` | Agent→UI card contract (flat v0.9) |
+| `AGENT_HANDOFF.md` | This file â€” orientation |
+| `src/a2ui_schemas/crusor_task_schema.json` | Agentâ†’UI card contract (flat v0.9) |
 | `src/graphs/chat_graph.py` | `_cfg()` + `_latest_instruction_from_messages()` |
 | `crusor-webview/server.ts` | AG-UI `HttpAgent`, optional Intelligence, crash guards |
 | `crusor-webview/src/App.tsx` | `agentId`, relative runtime URL |
@@ -195,16 +196,16 @@ Drove the REAL bridge against REAL velona.in calls via `scripts/logging_proxy.py
 
 **Bug found & fixed (chat_graph):** `ai_node` passed the full `RunnableConfig` to
 `_resolve_reasoning_config()`, which reads `reasoning_effort` off the top level of the
-`configurable` dict — so the desktop Think-picker's per-turn pick was ALWAYS dropped
+`configurable` dict â€” so the desktop Think-picker's per-turn pick was ALWAYS dropped
 and every request silently used the static `REASONING_EFFORT` env var. The 16 unit
 tests passed because they call the function with the bare configurable. The function
-now accepts both shapes. Wire evidence: frame pick `low` → request body
-`"reasoning_effort": "low"`; no pick → env `high`.
+now accepts both shapes. Wire evidence: frame pick `low` â†’ request body
+`"reasoning_effort": "low"`; no pick â†’ env `high`.
 
 **Bug found & fixed (factory):** velona.in's Cloudflare bans the OpenAI SDK default
 User-Agent (error 1010, `browser_signature_banned`, every call 403s pre-auth). A/B
 curl proved UA is the only differentiator. Added `CRUSORAI_HTTP_USER_AGENT`
-(`_http_default_headers()` → `default_headers` on the `custom` + `cheap` ChatOpenAI
+(`_http_default_headers()` â†’ `default_headers` on the `custom` + `cheap` ChatOpenAI
 clients), set in `.env` to a browser-style UA. Unset keeps SDK defaults.
 
 Commands that reproduced everything:
@@ -222,14 +223,14 @@ workspace, per-turn pick visible on every captured request body.
 ### Per-turn reasoning effort wired end-to-end (2026-09-16)
 
 The desktop's Think picker sent `reasoning_effort` on every prompt frame, but the backend
-never consumed it — the engine only read the static `REASONING_EFFORT` env var, so a picker
+never consumed it â€” the engine only read the static `REASONING_EFFORT` env var, so a picker
 pick silently did nothing. The pick now flows end-to-end:
 
-- `src/bridge/__main__.py`: `prompt` frames carry `reasoning_effort` into `_run_turn` →
+- `src/bridge/__main__.py`: `prompt` frames carry `reasoning_effort` into `_run_turn` â†’
   `stream_agent(..., reasoning_effort=...)`; queued prompts ride as `(text, effort)` pairs
-  (`turn_controls.queue`/`pop_queued` changed shape — **callers must unpack the tuple**).
+  (`turn_controls.queue`/`pop_queued` changed shape â€” **callers must unpack the tuple**).
 - `src/graphs/chat_graph.py`: `_resolve_reasoning_config(config)` prefers the per-turn pick,
-  falls back to `REASONING_EFFORT` — now read at **call time** (`_env_reasoning_effort()`),
+  falls back to `REASONING_EFFORT` â€” now read at **call time** (`_env_reasoning_effort()`),
   not import time, so env changes between turns take effect. An unrecognized pick falls back
   instead of breaking the turn; an explicit `none` (picker Off) disables thinking even when
   the env var would enable it.
@@ -238,21 +239,21 @@ pick silently did nothing. The pick now flows end-to-end:
   `test_hermes_planning_parity.py`.
 
 **Known pre-existing failure (not from this change):**
-`test_cancellation_gates.py::test_c11_cancelled_ai_node_skips_base_provider_failover` —
+`test_cancellation_gates.py::test_c11_cancelled_ai_node_skips_base_provider_failover` â€”
 stale premise: `ai_node` no longer routes via `cost_router` on the main conversation path
 (removed in the aux-routing fix), so the test's routed-vs-base setup never engages. Verified
 failing with and without the effort threading.
 
-### Renderer: inline reasoning parts into ordered timeline + recompile (2026-09-18 — `c3d7e4dc`)
+### Renderer: inline reasoning parts into ordered timeline + recompile (2026-09-18 â€” `c3d7e4dc`)
 
 Integrates reasoning/thinking cards **inside** the ordered `parts` timeline (hermes `message.parts` contract) instead of a separate block above assistant text.
 
-- `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts:54-59` — `CrusorAITurnPart` now includes `{ kind: 'reasoning', reasoningIndex }`; parts array is the single source of truth for render order (text ↔ tool ↔ reasoning interleave exactly as the model produced them). Previously the turn collapsed into one text blob above a block of cards, inverting arrival order.
+- `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts:54-59` â€” `CrusorAITurnPart` now includes `{ kind: 'reasoning', reasoningIndex }`; parts array is the single source of truth for render order (text â†” tool â†” reasoning interleave exactly as the model produced them). Previously the turn collapsed into one text blob above a block of cards, inverting arrival order.
 - `crusorAIRenderer.ts` rendering walks `parts` in order; tool bodies stay in `tools` map, tool parts only pin paint position.
-- `desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json` — recompiled via `gulp compile` → `out/` updated. Note: `BUILD_INFO` commit field still points to `6489e049` (pre-recompile value); `out/*.js` matches current source per `827...` batch logic — see compile log.
+- `desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json` â€” recompiled via `gulp compile` â†’ `out/` updated. Note: `BUILD_INFO` commit field still points to `6489e049` (pre-recompile value); `out/*.js` matches current source per `827...` batch logic â€” see compile log.
 - `CRUSORAI_MEMORY=on` added to `.env` (persists AUX self-review preferences).
 
-Verification: `desktop` `npm run compile` green, focused `pytest src/tests/test_bridge.py + test_budget_checkpoint_hermes_parity.py` 36 passed (sample), full suite remains 1866 passed baseline — no new failures introduced (see `src/tests/test_reasoning_effort_threading.py` still 16/16).
+Verification: `desktop` `npm run compile` green, focused `pytest src/tests/test_bridge.py + test_budget_checkpoint_hermes_parity.py` 36 passed (sample), full suite remains 1866 passed baseline â€” no new failures introduced (see `src/tests/test_reasoning_effort_threading.py` still 16/16).
 
 ### Aux provider routing fix (2026-09-15)
 
@@ -290,7 +291,8 @@ c3d7e4dc  fix(renderer): inline reasoning parts into ordered parts timeline; rec
 d886a591  Velona provider, context window priority, tool cap, Windows charmap fix
 bde38d97  hide todo stack above composer + rebuild webview
 8648ddf4  ui: hide plan checklist panel to maximize chat box (todo list already perfect)
-cab30792  chore: add .env for arena verification          ← reverted (untracked again); see Open items #1
+cab30792  chore: add .env for arena verification          â† reverted (untracked again); see Open items #1
 4f88a907  fix(copilotkit): make the Crusor agent actually render end-to-end
 14b8862b  feat: Hermes-grade context/security + CopilotKit desktop fixed-right
 ```
+
