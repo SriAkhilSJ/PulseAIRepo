@@ -236,5 +236,8 @@
 	"builtInExtensionsEnabledWithAutoUpdates": [
 		"GitHub.copilot-chat"
 	],
-	"sessionsWindowAllowedExtensions": []
+	"sessionsWindowAllowedExtensions": [],
+	"configurationDefaults": {
+		"workbench.startupEditor": "none"
+	}
 }
