@@ -928,6 +928,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				diff: frame.diff,
 				warning: typeof frame.warning === 'string' ? frame.warning : undefined,
 			};
+			// 1: Show in editor automatically like Copilot ChatEditingCodeEditorIntegration
+			// (viewZones + diffDecorations on live file) — don't wait for user to click Review.
+			// Best-effort: if diff has inline text, open inline diff preview.
+			try { void this.openDiff(frame.tool_id); } catch { /* best effort */ }
 		} else if (frame.type === 'clarify_request') {
 			// Hermes ask-tool card: the batch of questions rides its own frame
 			// (args alone can't drive the form — no qids to respond with).
