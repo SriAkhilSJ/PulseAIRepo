@@ -29,10 +29,11 @@ _EVENT_FLUSH_TIMEOUT_S = 5.0
 try:
     from pathlib import Path as _dotenv_path
     from dotenv import load_dotenv as _load_dotenv
-    _load_dotenv()  # <engine root>/.env
-    _load_dotenv(str(_dotenv_path.home() / ".crusorai" / ".env"))
-except Exception:
-    pass  # env files are a fallback; their absence must never block boot
+    _load_dotenv(override=True)  # <engine root>/.env — override parent env so .env off wins (9/20 trace ON persisted)
+    _load_dotenv(str(_dotenv_path.home() / ".crusorai" / ".env"), override=True)
+    print(f"[bridge][env] loaded: CRUSORAI_MEMORY={os.getenv('CRUSORAI_MEMORY')!r} LLM_PROVIDER={os.getenv('LLM_PROVIDER')!r} CRUSORAI_SCAN_MAX_FILES={os.getenv('CRUSORAI_SCAN_MAX_FILES')!r}", file=sys.stderr, flush=True)
+except Exception as _e:
+    print(f"[bridge][env] load_dotenv failed: {_e!r}", file=sys.stderr, flush=True)
 
 from src.bridge.protocol import (
     CLIENT_METHODS, EXECUTION_MODES, ProtocolError, check_client_hello, decode_line,
@@ -958,15 +959,26 @@ class BridgeServer:
         opts in (CRUSORAI_MEMORY=on). CLI/dashboard surfaces are not
         affected (this policy lives in the bridge). Must run BEFORE the
         first chat_graph import — the lazy manager reads the env there.
+
+        Fix 2026-09-21: when OFF, also disable boot warmup entirely so no
+        background thread burns 30s+ downloading the embedder on first boot
+        (trace 202.6s wall / 204.4s warmup). Opt-in path keeps warmup.
         """
         opted_in = os.environ.get("CRUSORAI_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
+        print(f"[bridge][memory] policy check: CRUSORAI_MEMORY={os.getenv('CRUSORAI_MEMORY')!r} opted_in={opted_in} DISABLE={os.getenv('CRUSORAI_DISABLE_LONG_TERM_MEMORY')!r}", file=sys.stderr, flush=True)
         if opted_in:
             print("[bridge] long-term memory: ON (CRUSORAI_MEMORY=on)", file=sys.stderr, flush=True)
             return
         os.environ.setdefault("CRUSORAI_DISABLE_LONG_TERM_MEMORY", "1")
+        # Prevent background embedder download when memory is OFF
+        os.environ.setdefault("CRUSORAI_MEMORY_WARMUP_AT_BOOT", "off")
+        # Tight per-call wait so degraded calls don't park 350ms+ each
+        os.environ.setdefault("CRUSORAI_MEMORY_WARMUP_BUDGET_S", "0.35")
+        os.environ.setdefault("CRUSORAI_MEMORY_INIT_BUDGET_S", "30")
         print(
             "[bridge] long-term memory: OFF (desktop default; "
-            "CRUSORAI_MEMORY=on to enable)",
+            "CRUSORAI_MEMORY=on to enable) — boot warmup disabled "
+            f"(DISABLE={os.getenv('CRUSORAI_DISABLE_LONG_TERM_MEMORY')!r} WARMUP_AT_BOOT={os.getenv('CRUSORAI_MEMORY_WARMUP_AT_BOOT')!r})",
             file=sys.stderr, flush=True,
         )
 

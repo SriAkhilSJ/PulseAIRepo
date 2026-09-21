@@ -804,7 +804,7 @@ class RetryLLMProxy:
     def _retry_delay(error: Exception, attempt: int) -> float:
         text = str(error)
 
-        # Groq often says: "Please try again in 3.33s" or "405ms".
+        # Honor server-reported backoff first (Groq: "try again in 3.33s" / 405ms)
         seconds_match = re.search(r"try again in ([0-9.]+)s", text, re.IGNORECASE)
         if seconds_match:
             return min(float(seconds_match.group(1)) + 0.5, 30.0)
@@ -813,7 +813,15 @@ class RetryLLMProxy:
         if millis_match:
             return min(float(millis_match.group(1)) / 1000.0 + 0.5, 30.0)
 
-        return min(2.0 * (attempt + 1), 30.0)
+        # InternalServerError / 500 on deepseek-aux: add jitter so 5 parallel
+        # retries don't thundering-herd the same second (trace: 3 rapid 2.0s retries)
+        import random as _rnd
+        base = 2.0 * (attempt + 1)
+        jitter = _rnd.uniform(0.3, 1.2)
+        # Rate-limit hit gets longer backoff
+        if "rate limit" in text.lower() or "429" in text:
+            base = min(base * 1.8, 30.0)
+        return min(base + jitter, 30.0)
 
 
 def default_request_timeout() -> float:
@@ -839,12 +847,14 @@ def _stream_stall_timeout() -> float:
     the attempt within the budget. Field proof: the owner's endpoint hung
     after a tool call and the generation-sized 180s timeout handed it 3
     minutes of silent "Waiting on the model" per attempt. Env:
-    CRUSORAI_LLM_STALL_TIMEOUT_S, default 45, clamp 10..300, read per call."""
+    CRUSORAI_LLM_STALL_TIMEOUT_S, default 35 (was 45), clamp 10..300, read per call.
+    Trace shows 285s stream for 4223 chunks — hung stream was silent 10+ sec gaps.
+    35s fails fast without cutting slow-but-alive generations."""
     raw = os.environ.get("CRUSORAI_LLM_STALL_TIMEOUT_S", "")
     try:
-        value = float(raw) if raw.strip() else 45.0
+        value = float(raw) if raw.strip() else 35.0
     except (TypeError, ValueError):
-        value = 45.0
+        value = 35.0
     return max(10.0, min(value, 300.0))
 
 

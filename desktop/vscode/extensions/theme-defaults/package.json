@@ -92,7 +92,12 @@
       "chat.disableAIFeatures": true,
       "chat.titleBar.signIn.enabled": false,
       "workbench.welcomePage.experimentalOnboarding": false,
-      "workbench.startupEditor": "none"
+      "workbench.startupEditor": "none",
+      "workbench.welcomePage.walkthroughs.openOnInstall": false,
+      "workbench.tips.enabled": true,
+      "workbench.welcomePage.extraAnnouncements": false,
+      "crusorai.hideBuiltInCopilotUI": true,
+      "crusorai.copilotWebview.enabled": false
     }
   },
   "repository": {

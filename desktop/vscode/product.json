@@ -197,6 +197,12 @@
 	],
 	"onboardingThemes": [
 		{
+			"id": "crusorai-dark",
+			"label": "CrusorAI Dark",
+			"themeId": "CrusorAI Dark",
+			"type": "dark"
+		},
+		{
 			"id": "dark-2026",
 			"label": "Dark 2026",
 			"themeId": "Dark 2026",
@@ -236,5 +242,8 @@
 	"builtInExtensionsEnabledWithAutoUpdates": [
 		"GitHub.copilot-chat"
 	],
-	"sessionsWindowAllowedExtensions": []
+	"sessionsWindowAllowedExtensions": [],
+	"configurationDefaults": {
+		"workbench.startupEditor": "none"
+	}
 }

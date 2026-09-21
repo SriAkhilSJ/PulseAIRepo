@@ -30,9 +30,9 @@ def _init_budget() -> float:
     is loud. 0 disables the watchdog."""
     raw = os.environ.get(_INIT_BUDGET_ENV, "").strip()
     try:
-        value = float(raw) if raw else 180.0
+        value = float(raw) if raw else 30.0
     except (TypeError, ValueError):
-        value = 180.0
+        value = 30.0
     return max(0.0, min(value, 3600.0))
 
 
@@ -41,9 +41,9 @@ def _warmup_budget() -> float:
     read every call — a running process may tighten it without a restart."""
     raw = os.environ.get(_WARMUP_BUDGET_ENV, "").strip()
     try:
-        value = float(raw) if raw else 2.0
+        value = float(raw) if raw else 0.35
     except (TypeError, ValueError):
-        value = 2.0
+        value = 0.35
     return max(0.0, min(value, 120.0))
 
 

@@ -97,9 +97,13 @@ class CrusorHideCopilotContribution implements IWorkbenchContribution {
 	}
 
 	private apply(): void {
-		const hide = this.configurationService.getValue<boolean>(SETTING_ID) !== false
-			// Also honor the upstream "disable AI features" master switch.
-			&& this.configurationService.getValue<boolean>('chat.disableAIFeatures') === true;
+		// CrusorAI fork: hide Copilot if EITHER our setting says hide (default true)
+		// OR the upstream disableAIFeatures master switch is on. Previous AND logic
+		// meant a user who had not yet loaded configurationDefaults would briefly
+		// see CHAT tab / sign-in button. OR logic + earlier phase fixes the flash.
+		const crusorHide = this.configurationService.getValue<boolean>(SETTING_ID) !== false;
+		const upstreamDisabled = this.configurationService.getValue<boolean>('chat.disableAIFeatures') === true;
+		const hide = crusorHide || upstreamDisabled;
 
 		// 1) Tell the entitlement service itself that Copilot is hidden —
 		//    this covers Copilot's own UI gating (onboarding, sign-in prompts).
@@ -151,7 +155,9 @@ class CrusorHideCopilotContribution implements IWorkbenchContribution {
 	}
 }
 
-registerWorkbenchContribution2(CrusorHideCopilotContribution.ID, CrusorHideCopilotContribution, WorkbenchPhase.AfterRestored);
+// BlockRestore (Ready) hides CHAT tab before first paint, preventing flash of VS Code surfaces.
+// Previously AfterRestored caused visible flicker of sign-in / CHAT tab.
+registerWorkbenchContribution2(CrusorHideCopilotContribution.ID, CrusorHideCopilotContribution, WorkbenchPhase.BlockRestore);
 
 // Manual toggle command (Command Palette only) so a power user can flip
 // this without editing settings JSON.

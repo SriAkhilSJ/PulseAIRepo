@@ -1,7 +1,12 @@
 from dotenv import load_dotenv
 import os
+import sys
 
-load_dotenv()
+load_dotenv(override=True)
+try:
+    print(f"[settings] loaded: LLM_PROVIDER={os.getenv('LLM_PROVIDER')!r} LLM_MODEL={os.getenv('LLM_MODEL')!r} CRUSORAI_MEMORY={os.getenv('CRUSORAI_MEMORY')!r} CUSTOM_BASE_URL={os.getenv('CUSTOM_BASE_URL','')[:32]!r}", file=sys.stderr, flush=True)
+except Exception:
+    pass
 
 
 # =========================================================

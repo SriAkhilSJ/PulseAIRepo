@@ -20,11 +20,12 @@ from src.graphs.state import AgentState
 # _budget_grace_call loop) produces the final summary instead of cutting the
 # model off. The budget is the intended safety valve; the graph
 # recursion_limit is sized (via _recursion_limit) well above it so the grace
-# path is always reachable. Default 30; clamped to <=50 regardless of env.
-# 50 gives the retest harness (scaffold + npm install + copy + typecheck with
-# retries) the headroom it needs without a runaway loop burning the budget.
-_ITERATION_BUDGET_DEFAULT = 30
-_ITERATION_BUDGET_CLAMP = 50
+# path is always reachable. Default 45 (was 30); clamped to <=60.
+# Hermes parent is unlimited (sys.maxsize) + subagents 50; 30 cut the luxury
+# site build at 27/30 (trace 1089s) before screenshots. 45 gives the same
+# headroom as hermes retest harness without runaway.
+_ITERATION_BUDGET_DEFAULT = 45
+_ITERATION_BUDGET_CLAMP = 60
 
 # hermes agent/context_compressor.py:261 MAX_ITERATIONS_SUMMARY_REQUEST —
 # VERBATIM. handle_max_iterations (agent/chat_completion_helpers.py:2119)
@@ -218,10 +219,16 @@ def _budget_trip_reason(state: AgentState) -> str:
 
 def _budget_exhausted(state: AgentState) -> bool:
     used = int(state.get("iteration_used", 0))
-    if used >= _iteration_budget():
+    budget = _iteration_budget()
+    if used >= budget:
+        print(f"[budget] exhausted: iterations {used}/{budget} >= budget", flush=True)
         return True
     token_cap = _token_budget()
     if token_cap is None:
         return False
     usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
-    return int(usage.get("total_tokens", 0) or 0) >= token_cap
+    total = int(usage.get("total_tokens", 0) or 0)
+    if total >= token_cap:
+        print(f"[budget] exhausted: tokens {total:,}/{token_cap:,} >= cap", flush=True)
+        return True
+    return False

@@ -354,8 +354,12 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		if (!diff) { return; }
 		this.activeDiffs.delete(diff.modifiedUri.toString());
 		this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: true });
-		if (this.editorService.activeEditor) {
-			void this.editorService.closeEditor(this.editorService.activeEditor);
+		const active = this.editorService.activeEditor;
+		if (active) {
+			const groupId = this.editorService.activeEditorPane?.group.id;
+			if (groupId !== undefined) {
+				void this.editorService.closeEditor({ editor: active, groupId });
+			}
 		}
 		this.updateActiveDiffContext();
 	}
@@ -365,8 +369,12 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		if (!diff) { return; }
 		this.activeDiffs.delete(diff.modifiedUri.toString());
 		this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: false });
-		if (this.editorService.activeEditor) {
-			void this.editorService.closeEditor(this.editorService.activeEditor);
+		const active = this.editorService.activeEditor;
+		if (active) {
+			const groupId = this.editorService.activeEditorPane?.group.id;
+			if (groupId !== undefined) {
+				void this.editorService.closeEditor({ editor: active, groupId });
+			}
 		}
 		this.updateActiveDiffContext();
 	}

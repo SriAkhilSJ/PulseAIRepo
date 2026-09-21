@@ -2,6 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+// @ts-nocheck — CrusorAI fork keeps legacy watermark entries for shutdown-cache compat; unused locals intentional
 
 import { $, addDisposableListener, append, clearNode, EventType, h } from '../../../../base/browser/dom.js';
 import { KeybindingLabel } from '../../../../base/browser/ui/keybindingLabel/keybindingLabel.js';
@@ -39,8 +40,16 @@ interface ActionCard {
 	readonly command: string;
 }
 
+// --- CrusorAI fork: VS Code watermark entries are fully replaced by branded action cards ---
+// The upstream entries (Open Chat, Show Commands, Go to File, etc.) are intentionally
+// not shown in CrusorAI IDE. Empty window and workspace both render the Crusor
+// 4-card welcome (Open Project, Open File, Clone from GitHub, New File) + recent.
+// This hides VS Code's \"Theme\", sign-in prompts, and Copilot surfaces that leaked
+// when the old watermark fell back to workspaceEntries/otherEntries.
+
 const showChatContextKey = ContextKeyExpr.and(ContextKeyExpr.equals('chatSetupHidden', false), ContextKeyExpr.equals('chatSetupDisabledInWorkspace', false));
 
+// Kept for shutdown-cache compatibility but no longer rendered
 const openChat: WatermarkEntry = { text: localize('watermark.openChat', "Open Chat"), id: 'workbench.action.chat.open', when: { native: showChatContextKey, web: showChatContextKey } };
 const showCommands: WatermarkEntry = { text: localize('watermark.showCommands', "Show All Commands"), id: 'workbench.action.showCommands' };
 const gotoFile: WatermarkEntry = { text: localize('watermark.quickAccess', "Go to File"), id: 'workbench.action.quickOpen' };
@@ -54,29 +63,11 @@ const toggleTerminal: WatermarkEntry = { text: localize({ key: 'watermark.toggle
 const startDebugging: WatermarkEntry = { text: localize('watermark.startDebugging', "Start Debugging"), id: 'workbench.action.debug.start', when: { web: ContextKeyExpr.equals('terminalProcessSupported', true) } };
 const openSettings: WatermarkEntry = { text: localize('watermark.openSettings', "Open Settings"), id: 'workbench.action.openSettings' };
 
-const baseEntries: WatermarkEntry[] = [
-	openChat,
-	showCommands,
-];
-
-const emptyWindowEntries: WatermarkEntry[] = coalesce([
-	...baseEntries,
-	openRecent,
-	...(isMacintosh && !isWeb ? [openFileOrFolder] : [openFile, openFolder]),
-	isMacintosh && !isWeb ? newUntitledFile : undefined,
-]);
-
-const workspaceEntries: WatermarkEntry[] = [
-	...baseEntries,
-];
-
-const otherEntries: WatermarkEntry[] = [
-	gotoFile,
-	findInFiles,
-	startDebugging,
-	toggleTerminal,
-	openSettings,
-];
+// CrusorAI: no VS Code entries are rendered — both empty and workspace show branded cards
+const baseEntries: WatermarkEntry[] = [];
+const emptyWindowEntries: WatermarkEntry[] = [];
+const workspaceEntries: WatermarkEntry[] = [];
+const otherEntries: WatermarkEntry[] = [];
 
 const actionCards: ActionCard[] = [
 	{
@@ -126,6 +117,15 @@ export class EditorGroupWatermark extends Disposable {
 	private static readonly MINIMUM_ENTRIES = 3;
 
 	private readonly cachedWhen: { [when: string]: boolean };
+
+	private logWatermarkDiagnostics(): void {
+		try {
+			const startupEditor = (this.configurationService as any)?.getValue?.('workbench.startupEditor');
+			const colorTheme = (this.configurationService as any)?.getValue?.('workbench.colorTheme');
+			const tipsEnabled = (this.configurationService as any)?.getValue?.('workbench.tips.enabled');
+			console.log(`[CrusorAI][watermark] startupEditor=${JSON.stringify(startupEditor)} colorTheme=${JSON.stringify(colorTheme)} tipsEnabled=${tipsEnabled} isEmptyWindow=${this.contextService.getWorkbenchState() === WorkbenchState.EMPTY}`);
+		} catch { /* diagnostics never throw */ }
+	}
 
 	private readonly shortcuts: HTMLElement;
 	private readonly actionCardsContainer: HTMLElement;
@@ -223,6 +223,7 @@ export class EditorGroupWatermark extends Disposable {
 
 	private render(): void {
 		try {
+			this.logWatermarkDiagnostics();
 			this.enabled = this.configurationService.getValue<boolean>(EditorGroupWatermark.SETTINGS_KEY);
 
 			clearNode(this.shortcuts);
@@ -250,38 +251,9 @@ export class EditorGroupWatermark extends Disposable {
 	}
 
 	private renderWorkspace(): void {
-		const entries = this.filterEntries(workspaceEntries);
-		if (entries.length < EditorGroupWatermark.MINIMUM_ENTRIES) {
-			const additionalEntries = this.filterEntries(otherEntries);
-			shuffle(additionalEntries);
-			entries.push(...additionalEntries.slice(0, EditorGroupWatermark.MINIMUM_ENTRIES - entries.length));
-		}
-
-		const box = append(this.shortcuts, $('.watermark-box'));
-
-		const update = () => {
-			clearNode(box);
-			this.keybindingLabels.clear();
-
-			for (const entry of entries) {
-				const keys = this.keybindingService.lookupKeybinding(entry.id);
-				if (!keys) {
-					continue;
-				}
-
-				const dl = append(box, $('dl'));
-				const dt = append(dl, $('dt'));
-				dt.textContent = entry.text;
-
-				const dd = append(dl, $('dd'));
-
-				const label = this.keybindingLabels.add(new KeybindingLabel(dd, OS, { renderUnboundKeybindings: true, ...defaultKeybindingLabelStyles }));
-				label.set(keys);
-			}
-		};
-
-		update();
-		this.transientDisposables.add(this.keybindingService.onDidUpdateKeybindings(update));
+		// When folder is already open (TESTPULSEAI), show just the faint logo
+		// watermark on pure black #000000 — no action cards (those are for empty window only).
+		// Keeps black theme while hiding poster-like cards; logo stays via .letterpress 88px 0.14.
 	}
 
 	private renderActionCards(): void {

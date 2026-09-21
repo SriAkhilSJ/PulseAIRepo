@@ -136,7 +136,9 @@
 	background-size: contain;
 	background-position-x: center;
 	background-repeat: no-repeat;
-	max-width: 120px;
+	max-width: 148px;
+	opacity: 0.42;
+	filter: saturate(0) brightness(1.25) drop-shadow(0 0 12px rgba(255,255,255,0.08));
 }
 
 .monaco-workbench.vs-dark .part.editor > .content .editor-group-container .editor-group-watermark .letterpress {
