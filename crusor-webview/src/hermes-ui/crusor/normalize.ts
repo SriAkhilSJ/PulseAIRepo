@@ -464,6 +464,29 @@ export function reduceCrusorEvent(transcript: CrusorTranscript, frame: unknown):
         };
       }
 
+      // OpenCode parity: restore subagents from session_info (parentMap navigation, env path aware)
+      const subagentsFromInfo = Array.isArray(payload.subagents) ? payload.subagents : [];
+      if (subagentsFromInfo.length > 0) {
+        replayed.run.subagents = subagentsFromInfo.map((raw: unknown, idx: number) => {
+          const r = rec(raw);
+          const id = str(r, ['subagent_id', 'child_thread_id', 'id']) || `sub-${idx}`;
+          const statusRaw = str(r, ['state', 'status']);
+          const mapped = planStatus(statusRaw);
+          return {
+            id,
+            status: (mapped === 'done' ? 'done' : mapped) as any,
+            task: str(r, ['description', 'goal', 'task']) || 'Subtask',
+            description: str(r, ['description']) || undefined,
+            agentName: str(r, ['agent_name', 'mode']) || undefined,
+            childThreadId: str(r, ['child_thread_id']) || id,
+            parentSessionId: str(r, ['parent_session_id']) || undefined,
+            toolCalls: typeof r.tool_calls === 'number' ? r.tool_calls : typeof (r as any).toolCalls === 'number' ? (r as any).toolCalls : undefined,
+            background: Boolean(r.background) || undefined,
+            summary: str(r, ['result', 'summary']) || undefined,
+          };
+        });
+      }
+
       return replayed;
     }
     default:

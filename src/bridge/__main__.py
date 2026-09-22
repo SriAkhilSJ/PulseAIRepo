@@ -692,11 +692,27 @@ class BridgeServer:
                 status = get_agent_status(sid)
             except Exception:
                 events, status = [], {}
+            # OpenCode parity: include subagent list on resume for parentMap navigation
+            subagents_payload = []
+            try:
+                from src.runtime.subagent_store import get_store
+                s_store = get_store()
+                rows = s_store.list_by_parent(sid)
+                subagents_payload = [r.to_dict() for r in rows]
+            except Exception:
+                subagents_payload = []
             self.emit({
                 "type": "session_info", **self._sessions[sid],
                 "resumed": kind == "session_resume",
                 "events": events, "agent_status": status,
+                "subagents": subagents_payload,
             })
+            # Also emit dedicated subagent_list frame for UI that listens specifically
+            if subagents_payload:
+                self.emit({
+                    "type": "subagent_list", "session_id": sid,
+                    "subagents": subagents_payload,
+                })
         elif kind == "session_list":
             self.emit({"type": "session_info", "sessions": list(self._sessions.values())})
         elif kind == "session_fork":

@@ -902,6 +902,31 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			if (typeof frame.build === 'string' && frame.build) { this.engineBuild = frame.build; }
 			if (previousSessionId !== frame.session_id) { this.publishHostCapabilities(frame.session_id); }
 			if (typeof frame.cancel_requested === 'boolean') { this.cancelRequested = frame.cancel_requested; }
+			// OpenCode parity: restore subagents + parentMap on resume (env path aware)
+			for (const row of (frame as any).subagents ?? []) {
+				const sid = row.subagent_id ?? row.child_thread_id;
+				if (!sid) continue;
+				const childId = row.child_thread_id ?? sid;
+				const parentId = row.parent_session_id ?? this.sessionId;
+				if (childId && parentId) this.parentMap.set(childId, parentId);
+				this.subAgents.set(sid, {
+					id: sid,
+					state: (row.state ?? 'pending') as CrusorAISubAgentView['state'],
+					goal: row.goal,
+					description: row.description,
+					mode: row.mode,
+					duration: row.duration,
+					parentSessionId: parentId,
+					childThreadId: childId,
+					background: row.background,
+					toolCalls: row.tool_calls,
+					agentName: row.agent_name,
+					result: row.result,
+				} as any);
+			}
+			if (this.sessionId && this.parentMap.has(this.sessionId)) {
+				this.childParentId = this.parentMap.get(this.sessionId);
+			}
 			for (const event of frame.events ?? []) {
 				const candidate = valueRecord(event);
 				if (typeof candidate?.type === 'string') { this.acceptFrame(event as CrusorServerEvent); }
