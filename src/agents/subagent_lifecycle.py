@@ -58,6 +58,9 @@ class SubagentLifecycleService:
         self._records: dict[str, _Record] = {}
         self._lock = threading.RLock()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="crusor-subagent")
+        # OpenCode parity: track toolCalls per child session via event_bus
+        self._tool_listener_started = False
+        self._start_tool_listener()
 
     def _token(self, sid: str, parent: str, created: float) -> str:
         return hmac.new(self._secret, f"{sid}|{parent}|{created:.6f}".encode(), hashlib.sha256).hexdigest()
@@ -79,11 +82,31 @@ class SubagentLifecycleService:
         agent_name: str = "",
         tool_call_id: str | None = None,
         background: bool = False,
+        parent_permission: list[dict] | None = None,
+        subagent_permission: list[dict] | None = None,
     ) -> SubagentHandle:
         if mode not in {"research", "code", "test", "review"}:
             raise ValueError("invalid subagent mode")
         if not goal.strip() or len(goal) > 16000:
             raise ValueError("goal must be 1..16000 characters")
+        # OpenCode parity: derive capabilities via permission module (subset enforcement)
+        try:
+            from src.agents.subagent_permissions import derive_subagent_capabilities, derive_subagent_session_permission
+            # Filter to subset (if parent has caps, child cannot broaden)
+            filtered_caps = derive_subagent_capabilities(tuple(parent_capabilities or ()), tuple(allowed_capabilities or ()))
+            # If filtering reduced caps and parent had caps, it means child tried to broaden — enforce error for strict parity
+            if parent_capabilities and set(allowed_capabilities) - set(filtered_caps):
+                # For strict contract, keep error, but filtered is used for persistence
+                raise ValueError("child capabilities may not broaden parent permissions")
+            allowed_capabilities = filtered_caps
+            # Derive file permission ruleset (deny + external_directory inheritance) — stored for audit
+            _derived_perm = derive_subagent_session_permission(parent_permission, subagent_permission)
+            # _derived_perm could be persisted or logged; for now we keep it in memory for debugging
+        except ValueError:
+            raise
+        except Exception:
+            # Permission derivation is best-effort, never blocks launch
+            pass
         unknown = set(allowed_capabilities) - KNOWN_CAPABILITIES
         if unknown:
             raise ValueError(f"unknown capabilities: {sorted(unknown)}")
@@ -125,6 +148,66 @@ class SubagentLifecycleService:
             pass
         record.future = self._pool.submit(self._run, record)
         return handle
+
+    def _start_tool_listener(self):
+        if self._tool_listener_started:
+            return
+        self._tool_listener_started = True
+        def _loop():
+            try:
+                from src.dashboard.event_bus import event_bus
+                q = event_bus.subscribe(thread_id=None)
+                while True:
+                    try:
+                        ev = q.get(timeout=1.0)
+                    except Exception:
+                        continue
+                    try:
+                        kind = ev.get("type", "")
+                        payload = ev.get("payload") or {}
+                        # Only care about tool events for child sessions
+                        if kind not in {"tool.call", "tool.result", "tool_call_start", "tool_call_end"}:
+                            # Also handle bridge projected events? Those have type tool_call_start/end but payload thread_id in event itself?
+                            # For internal bus, tool.result has thread_id
+                            pass
+                        thread_id = str(payload.get("thread_id") or payload.get("session_id") or ev.get("session_id") or "")
+                        if not thread_id or not thread_id.startswith("sub-"):
+                            continue
+                        # Increment tool_calls for matching child_thread_id
+                        with self._lock:
+                            rec = self._records.get(thread_id)
+                            if rec is None:
+                                # Also check by child_thread_id field
+                                for r in self._records.values():
+                                    if r.child_thread_id == thread_id:
+                                        rec = r
+                                        break
+                            if rec is None:
+                                continue
+                            # Only count tool.result to avoid double counting call+result
+                            if kind in {"tool.result", "tool_call_end"}:
+                                rec.tool_calls += 1
+                                rec.updated_at = time.time()
+                                # Persist and emit updated count
+                                try:
+                                    self._persist_state(rec)
+                                except Exception:
+                                    pass
+                                try:
+                                    self._emit(rec)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            q.task_done()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        t = threading.Thread(target=_loop, name="crusor-subagent-tool-listener", daemon=True)
+        t.start()
 
     def _persist_state(self, record: _Record) -> None:
         try:

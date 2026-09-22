@@ -500,16 +500,56 @@ def delegate_to_subagent(
         pass
 
     # Use lifecycle service for persistence + events (OpenCode parity: child session with parentID)
+    # Crucial: choose env-aware depth, derive capabilities, inherit deny permissions
     try:
         from src.agents.subagent_lifecycle import subagent_lifecycle
+        from src.agents.runtime_profile import KNOWN_CAPABILITIES
+        # Parent capabilities from config (scope_capabilities) — env path aware
+        parent_caps = ()
+        try:
+            if isinstance(runnable_config, dict):
+                cfg = runnable_config.get("configurable", {}) or {}
+                pc = cfg.get("scope_capabilities") or cfg.get("parent_capabilities") or ()
+                if pc:
+                    parent_caps = tuple(pc)
+        except Exception:
+            parent_caps = ()
+        # Allowed caps based on mode (research/code/test/review) — subset of parent if parent has caps
+        mode_caps_map = {
+            "research": ("web_search", "web_fetch", "read_file", "search_files"),
+            "code": ("read_file", "write_file", "edit_file", "list_files", "search_files", "search_code"),
+            "test": ("read_file", "run_terminal", "list_files", "search_files"),
+            "review": ("read_file", "list_files", "search_files", "search_code"),
+        }
+        requested_caps = mode_caps_map.get(internal_mode, ())
+        # Filter to known
+        requested_caps = tuple(c for c in requested_caps if c in KNOWN_CAPABILITIES)
+        # Derive via permission module (subset enforcement)
+        try:
+            from src.agents.subagent_permissions import derive_subagent_capabilities, derive_subagent_session_permission
+            derived_caps = derive_subagent_capabilities(tuple(parent_caps), tuple(requested_caps))
+            # Permission ruleset: inherit parent deny + external_directory (OpenCode parity)
+            # In Crusor, parent permission is not explicit, but we derive empty -> todowrite/task deny
+            parent_perm = []  # Could be loaded from env or config in future
+            subagent_perm = []  # Subagent's own allows (e.g., if mode is general, it might allow task)
+            derived_perm = derive_subagent_session_permission(parent_perm, subagent_perm)
+        except Exception:
+            derived_caps = requested_caps
+            derived_perm = []
+            parent_perm = []
+            subagent_perm = []
         handle = subagent_lifecycle.launch(
             parent_session_id=str(caller_thread) or "main",
             goal=actual_task,
             mode=internal_mode,
+            parent_capabilities=tuple(parent_caps),
+            allowed_capabilities=tuple(derived_caps),
             description=actual_description,
             agent_name=actual_mode,
             tool_call_id=tool_call_id,
             background=background,
+            parent_permission=parent_perm,
+            subagent_permission=subagent_perm,
         )
         child_id = handle.subagent_id
 

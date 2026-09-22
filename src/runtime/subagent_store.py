@@ -20,8 +20,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-_DEFAULT_DB = Path.home() / ".crusorai" / "sessions.db"
-_MAX_SESSIONS = 1000
+# Env path resolution: choose DB path based on env (CRUSORAI_HOME, CRUSORAI_SESSIONS_DB, or default)
+def _default_db_path() -> Path:
+    # Priority: CRUSORAI_SESSIONS_DB > CRUSORAI_HOME > HOME/.crusorai/sessions.db
+    # This matches how bridge loads .env from engine root and ~/.crusorai/.env
+    # and ensures the store works in containers, custom HOME, or test envs
+    custom = os.getenv("CRUSORAI_SESSIONS_DB") or os.getenv("CRUSORAI_SESSIONS_DB_PATH")
+    if custom:
+        return Path(custom).expanduser()
+    home_override = os.getenv("CRUSORAI_HOME")
+    if home_override:
+        return Path(home_override).expanduser() / "sessions.db"
+    return Path.home() / ".crusorai" / "sessions.db"
+
+_DEFAULT_DB = _default_db_path()
+# Env-aware cap: CRUSORAI_SUBAGENT_STORE_CAP (OpenCode parity, default 1000)
+def _max_sessions_cap() -> int:
+    try:
+        v = os.getenv("CRUSORAI_SUBAGENT_STORE_CAP", "1000")
+        return max(10, min(10000, int(str(v).strip() or "1000")))
+    except Exception:
+        return 1000
+_MAX_SESSIONS = 1000  # legacy constant, actual cap read via _max_sessions_cap() at call time
 
 @dataclass
 class SubagentSessionRow:
@@ -146,10 +166,11 @@ class SubagentStore:
                 (row.result or "")[:32000] if row.result else None,
                 (row.error or "")[:32000] if row.error else None,
             ))
-            # cap eviction: keep newest _MAX_SESSIONS
+            # cap eviction: keep newest cap (env-aware)
+            cap = _max_sessions_cap()
             cnt = self._conn.execute("SELECT COUNT(*) FROM subagent_sessions").fetchone()[0]
-            if cnt > _MAX_SESSIONS:
-                to_del = cnt - _MAX_SESSIONS
+            if cnt > cap:
+                to_del = cnt - cap
                 self._conn.execute("""
                 DELETE FROM subagent_sessions WHERE subagent_id IN (
                     SELECT subagent_id FROM subagent_sessions ORDER BY created_at ASC LIMIT ?
