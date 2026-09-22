@@ -26,6 +26,9 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - **Ctrl/Cmd+L** opens the Crusor agent panel.
 - A top-level **Crusor** menu and title-bar entry expose the primary commands.
 - **Manager button** in the Agent panel header opens the Crusor Manager in a separate Electron window.
+- **Top-right account avatar** `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIAccount.ts` — `MenuId.TitleBar` `Codicon.account` dropdown with Sign in via `crusor.in/login`, Manage Subscription, Model & Provider, Settings, Shortcuts, Themes, Docs, Changelog, Feedback, Sign out. `product.json:linkProtectionTrustedDomains` trusts `https://www.crusor.in`.
+- **Response Ready notification** `browser/crusorAIRendererService.ts` — `turn_done` fires `Response Ready — Crusor` toast with `Open Crusor` action, toggle `crusorai.notifyOnComplete`.
+- **Connectors hub** `browser/crusorAIConnectors.ts` + `skills/*` — MCP (filesystem, github, postgres, puppeteer), github-connector, browser-connector, db/terminal. `Crusor → Connectors` + `Command Palette: Crusor: Show Connectors` lists 10 bundled pinned skills via `src/agents/skill_manager.py`.
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
 - CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `crusor_task_schema.json` generative cards, bound with `CopilotChat agentId="crusor_agent"`. Card schemas use the **flat A2UI v0.9** wire format (`{ id, component, ...props }`) — a `props`-nested wrapper renders an empty card.
@@ -37,6 +40,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 
 ### Agent runtime
 
+- **Enterprise** `src/enterprise/` — `billing_state.py` portal-backed `BillingState` (cached 60s, fail-open `~/.crusorai/auth.json`), `entitlement.py` `FREE_COVERAGE` (video-gen off for free), `monitor.py` latency/cost/tokens ring + `src/observability.py` `turns.jsonl` local (Hermes `relay-shared-metrics.md:204` — no upload). Skills in `skills/` auto-loaded as pinned bundled skills.
 - Plan, execute, recover, replan, and finalize workflow built on LangGraph.
 - Session-scoped cancellation, steering, queues, checkpointing, and provider retries.
 - Workspace-safe file and terminal tools with approval and mutation controls.

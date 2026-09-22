@@ -243,6 +243,11 @@
 		"GitHub.copilot-chat"
 	],
 	"sessionsWindowAllowedExtensions": [],
+	"linkProtectionTrustedDomains": [
+		"https://www.crusor.in",
+		"https://crusor.in",
+		"https://crusor.ai"
+	],
 	"configurationDefaults": {
 		"workbench.startupEditor": "none"
 	}

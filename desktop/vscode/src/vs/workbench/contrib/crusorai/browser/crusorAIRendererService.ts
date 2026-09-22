@@ -11,6 +11,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { CrusorAICommandId } from '../common/crusorAI.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import type { CrusorClarifyQuestion, CrusorClientMethod, CrusorExecutionMode, CrusorServerEvent, CrusorTodoItem } from '../common/crusorAIProtocol.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
@@ -273,6 +274,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		@IClipboardService private readonly clipboardService: IClipboardService,
 		@IAuxiliaryWindowService private readonly auxiliaryWindowService: IAuxiliaryWindowService,
 		@ICrusorAISessionStore private readonly sessionStore: ICrusorAISessionStore,
+		@INotificationService private readonly notificationService: INotificationService,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {
@@ -1011,6 +1013,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.llmHeads = undefined;
 			this.degraded = undefined;
 			this.clearStallWatchdog();
+			// --- Crusor notification: Response Ready (founder request 2026-09-21) ---
+			// Show a native workbench notification when the agent finishes, so a
+			// user who switched windows still knows the task is done. Mirrors
+			// Cursor/Copilot's "Agent finished" toast. Respects `crusorai.notifyOnComplete`.
+			if (!frame.cancelled) {
+				this.notifyResponseReady(frame.message);
+			}
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
@@ -1024,6 +1033,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.llmHeads = undefined;
 			this.degraded = undefined;
 			this.clearStallWatchdog();
+			this.notifyResponseReady(frame.error, true);
 		} else if (frame.type === 'voice_text') {
 			this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
 		} else if (frame.type === 'llm.request') {
@@ -1135,6 +1145,28 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.error = error instanceof Error ? error.message : String(error);
 			this.render();
 		}
+	}
+
+	private notifyResponseReady(detail?: string, isError = false): void {
+		try {
+			if (this.configurationService.getValue<boolean>('crusorai.notifyOnComplete') === false) { return; }
+			const msg = isError ? 'Crusor — task ended with an issue' : 'Response Ready — Crusor';
+			const detailLine = detail ? String(detail).split('\n')[0].slice(0, 160) : '';
+			this.notificationService.notify({
+				severity: isError ? Severity.Warning : Severity.Info,
+				message: msg,
+				source: detailLine ? `${detailLine}` : 'Crusor Agent finished',
+				actions: {
+					primary: [{
+						id: CrusorAICommandId.Focus,
+						label: 'Open Crusor',
+						tooltip: 'Focus Crusor Agent',
+						enabled: true,
+						run: () => { void this.commandService.executeCommand(CrusorAICommandId.Focus); }
+					}]
+				}
+			} as any);
+		} catch { /* notification must never break turn */ }
 	}
 
 	private resourceUri(resource: string): URI {

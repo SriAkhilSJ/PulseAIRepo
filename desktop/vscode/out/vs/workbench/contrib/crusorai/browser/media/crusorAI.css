@@ -572,6 +572,71 @@
 .crusorai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
 
+.crusorai-approval-warning {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	width: 100%;
+	padding: 5px 8px;
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--crusorai-approval) 30%, transparent);
+	background: color-mix(in srgb, var(--crusorai-approval) 12%, transparent);
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-meta);
+	line-height: 1.4;
+}
+.crusorai-approval-warning > .codicon {
+	color: var(--crusorai-approval);
+	flex-shrink: 0;
+	margin-top: 1px;
+}
+.crusorai-approval-risk-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 7px;
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--vscode-testing-iconFailed) 40%, transparent);
+	background: color-mix(in srgb, var(--vscode-testing-iconFailed) 12%, transparent);
+	color: var(--vscode-testing-iconFailed);
+	font-size: var(--crusorai-text-micro);
+	font-weight: 500;
+}
+.crusorai-approval-diff-preview {
+	width: 100%;
+	margin-top: 4px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.2));
+	border-radius: 6px;
+	overflow: hidden;
+	background: var(--vscode-editor-background);
+}
+.crusorai-approval-diff-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--vscode-widget-border, rgba(128,128,128,.15));
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 80%, transparent);
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-approval-action-badge {
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent);
+	color: var(--vscode-focusBorder);
+	font-size: var(--crusorai-text-micro);
+	font-weight: 600;
+	text-transform: uppercase;
+}
+.crusorai-approval-file-path {
+	font-family: var(--crusorai-font-mono);
+	color: var(--vscode-foreground);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1 1 auto;
+}
+
 /* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
 .crusorai-approval-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
 .crusorai-approval-pill {

@@ -15,4 +15,7 @@ export var CrusorAICommandId;
     CrusorAICommandId["OpenSettings"] = "crusorai.openSettings";
     CrusorAICommandId["AcceptDiff"] = "crusorai.acceptDiff";
     CrusorAICommandId["RejectDiff"] = "crusorai.rejectDiff";
+    CrusorAICommandId["AccountSignIn"] = "crusorai.account.signIn";
+    CrusorAICommandId["AccountManage"] = "crusorai.account.manage";
+    CrusorAICommandId["AccountSignOut"] = "crusorai.account.signOut";
 })(CrusorAICommandId || (CrusorAICommandId = {}));

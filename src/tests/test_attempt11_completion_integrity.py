@@ -98,9 +98,11 @@ def test_finalize_uses_latest_instruction_when_current_task_is_absent(monkeypatc
 
     update = finalize_node(state, {"configurable": {}})
 
+    # Hermes parity: no hardcoded "Ended unverified" transcript stamp — verdict
+    # is structural (task_status) and receipts; model owns the words.
     assert update["task_completed"] is False
     assert update["task_status"] == "unverified"
-    assert "Ended unverified" in update["messages"][0].content
+    assert update["messages"] == []
 
 
 def test_finalize_never_completes_with_unresolved_failed_steps(monkeypatch):

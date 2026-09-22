@@ -18,8 +18,8 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
-import { CrusorAICommandId } from '../common/crusorAI.js';
-import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -80,7 +80,7 @@ function stringField(source, keys) {
     return undefined;
 }
 let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
-    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore) {
+    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService) {
         super();
         this.engineService = engineService;
         this.workbenchService = workbenchService;
@@ -90,6 +90,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.clipboardService = clipboardService;
         this.auxiliaryWindowService = auxiliaryWindowService;
         this.sessionStore = sessionStore;
+        this.notificationService = notificationService;
         this.mounts = new Set();
         this.tools = new Map();
         this.seenEventIds = new Set();
@@ -194,7 +195,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             selectWorkspace: uri => this.selectWorkspace(uri),
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
-            openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
+            openEngineSettings: () => { void this.commandService.executeCommand("crusorai.openSettings" /* CrusorAICommandId.OpenSettings */); },
             openManager: () => { this.openManagerWindow(); },
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
@@ -207,17 +208,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
         };
         this._register(this.engineService.onDidChangeState(state => {
-            if (state === CrusorAIEngineState.Ready) {
+            if (state === "ready" /* CrusorAIEngineState.Ready */) {
                 this.restartAttempts = 0;
                 this.engineFault = undefined;
             }
-            else if (state === CrusorAIEngineState.Crashed || state === CrusorAIEngineState.Degraded) {
+            else if (state === "crashed" /* CrusorAIEngineState.Crashed */ || state === "degraded" /* CrusorAIEngineState.Degraded */) {
                 // The only trace of a dying sidecar used to be a log line: the process exit is reported by
                 // the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
                 // receives turn_done -- so the panel kept painting a live run that had no engine behind it.
                 // A setup failure already has its own actionable row, so it is not overwritten here.
                 if (!this.engineSetupError) {
-                    this.engineFault = state === CrusorAIEngineState.Crashed
+                    this.engineFault = state === "crashed" /* CrusorAIEngineState.Crashed */
                         ? 'The Crusor engine process stopped while this session was open.'
                         : 'The Crusor engine could not accept the request, so it never reached the model.';
                     if (this.running) {
@@ -453,7 +454,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }, delay);
     }
     async ensureEngine() {
-        if (this.engineService.state === CrusorAIEngineState.Ready) {
+        if (this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         if (this.startPromise) {
@@ -474,7 +475,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (resumeSession && this.engineService.state === CrusorAIEngineState.Ready) {
+            if (resumeSession && this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
                 this.publishHostCapabilities(resumeSession);
                 this.send({ type: 'session_resume', session_id: resumeSession, workspace });
                 this.send({ type: 'events_replay', session_id: resumeSession });
@@ -512,7 +513,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     publishHostCapabilities(sessionId = this.sessionId) {
         const workspace = this.workspacePath;
-        if (!sessionId || !workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (!sessionId || !workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
@@ -622,7 +623,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.ensureEngine(),
             new Promise(resolve => setTimeout(resolve, 20_000)),
         ]);
-        if (this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             // The one dishonest thing the old code did: return silently. The
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,
@@ -750,13 +751,21 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.cancelRequested = false;
             this.turnStartedAt = undefined;
             this.turnEndedAt = Date.now();
-            this.turnOutcome = 'failed';
+            // Hermes parity: greeting already answered — silent complete, not failed
+            if (_isGreeting) {
+                this.turnOutcome = 'completed';
+                this.error = undefined;
+                this.degraded = undefined;
+            }
+            else {
+                this.turnOutcome = 'failed';
+                this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
+            }
             this.stalled = undefined;
             this.llmStatus = undefined;
-            this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
             this.clearStallWatchdog();
             this.render();
-        }, _isGreeting ? 30 * 1000 : 7 * 60 * 1000);
+        }, _isGreeting ? 12 * 1000 : 7 * 60 * 1000);
     }
     clearHardWatchdog() {
         if (this.hardWatchdog !== undefined) {
@@ -906,6 +915,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 diff: frame.diff,
                 warning: typeof frame.warning === 'string' ? frame.warning : undefined,
             };
+            // 1: Show in editor automatically like Copilot ChatEditingCodeEditorIntegration
+            // (viewZones + diffDecorations on live file) — don't wait for user to click Review.
+            // Best-effort: if diff has inline text, open inline diff preview.
+            try {
+                void this.openDiff(frame.tool_id);
+            }
+            catch { /* best effort */ }
         }
         else if (frame.type === 'clarify_request') {
             // Hermes ask-tool card: the batch of questions rides its own frame
@@ -988,6 +1004,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.llmHeads = undefined;
             this.degraded = undefined;
             this.clearStallWatchdog();
+            // --- Crusor notification: Response Ready (founder request 2026-09-21) ---
+            // Show a native workbench notification when the agent finishes, so a
+            // user who switched windows still knows the task is done. Mirrors
+            // Cursor/Copilot's "Agent finished" toast. Respects `crusorai.notifyOnComplete`.
+            if (!frame.cancelled) {
+                this.notifyResponseReady(frame.message);
+            }
         }
         else if (frame.type === 'turn_failed') {
             this.running = false;
@@ -1002,6 +1025,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.llmHeads = undefined;
             this.degraded = undefined;
             this.clearStallWatchdog();
+            this.notifyResponseReady(frame.error, true);
         }
         else if (frame.type === 'voice_text') {
             this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
@@ -1031,7 +1055,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             };
         }
         else if (frame.type === 'runtime_degraded') {
-            this.degraded = frame.reason;
+            // Greeting with no tools — scan budget is irrelevant, don't show yellow degraded bar
+            if (frame.reason && frame.reason.includes('scan budget') && this.tools.size === 0) {
+                // suppress
+            }
+            else {
+                this.degraded = frame.reason;
+            }
         }
         else if (frame.type === 'error') {
             this.error = frame.message;
@@ -1119,6 +1149,30 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.render();
         }
     }
+    notifyResponseReady(detail, isError = false) {
+        try {
+            if (this.configurationService.getValue('crusorai.notifyOnComplete') === false) {
+                return;
+            }
+            const msg = isError ? 'Crusor — task ended with an issue' : 'Response Ready — Crusor';
+            const detailLine = detail ? String(detail).split('\n')[0].slice(0, 160) : '';
+            this.notificationService.notify({
+                severity: isError ? Severity.Warning : Severity.Info,
+                message: msg,
+                source: detailLine ? `${detailLine}` : 'Crusor Agent finished',
+                actions: {
+                    primary: [{
+                            id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+                            label: 'Open Crusor',
+                            tooltip: 'Focus Crusor Agent',
+                            enabled: true,
+                            run: () => { void this.commandService.executeCommand("crusorai.focus" /* CrusorAICommandId.Focus */); }
+                        }]
+                }
+            });
+        }
+        catch { /* notification must never break turn */ }
+    }
     resourceUri(resource) {
         const folder = this.workspaceContextService.getWorkspace().folders[0];
         // Windows drive letters ("D:\repo", "D:/repo") and UNC paths are
@@ -1156,6 +1210,7 @@ CrusorAIRendererService = __decorate([
     __param(4, ICommandService),
     __param(5, IClipboardService),
     __param(6, IAuxiliaryWindowService),
-    __param(7, ICrusorAISessionStore)
+    __param(7, ICrusorAISessionStore),
+    __param(8, INotificationService)
 ], CrusorAIRendererService);
 export { CrusorAIRendererService };

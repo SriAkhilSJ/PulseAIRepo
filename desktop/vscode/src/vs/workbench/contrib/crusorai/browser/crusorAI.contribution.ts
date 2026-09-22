@@ -54,6 +54,10 @@ import './media/crusorAI.css';
 // when Crusor is the primary AI. No Copilot source is modified; this file
 // forces Copilot's own "hidden" context keys at startup.
 import './crusorAIHideCopilot.js';
+// Top-right account avatar + dropdown — AI-IDE essentials at title bar (image-2 parity)
+import './crusorAIAccount.js';
+// Connectors hub — MCP/connectors visible in fork (Hermes hub parity)
+import './crusorAIConnectors.js';
 
 const CRUSOR_AI_MENU_ID = new MenuId('MenubarCrusorAI');
 
@@ -209,6 +213,12 @@ registerAction2(class extends Action2 {
 	}
 });
 
+MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
+	command: { id: 'crusorai.showConnectors', title: localize('crusorAI.menu.connectors', 'Connectors') },
+	group: '1_session',
+	order: 3,
+});
+
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
@@ -325,6 +335,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 85,
 			scope: ConfigurationScope.APPLICATION,
 			description: localize('crusorai.copilotWebview.height.desc', "Share of the Crusor view given to the CopilotKit webview, in percent. The native Agent renderer keeps the rest."),
+		},
+		'crusorai.notifyOnComplete': {
+			type: 'boolean',
+			default: true,
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('crusorAI.notifyOnComplete.desc', "Show a 'Response Ready — Crusor' notification when the agent finishes a run. Disable to keep runs silent."),
 		},
 	},
 });

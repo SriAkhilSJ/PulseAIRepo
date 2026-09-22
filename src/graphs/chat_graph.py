@@ -1854,9 +1854,12 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # turn). Everything it carried now rides structure: the verdict in
     # task_completed/task_status (terminal frame + receipt row), per-step
     # outcomes in the tool cards, suggestions in the `suggestions` event.
-    # Only genuine DEVIATIONS keep words here — an unverified or failed run
-    # must say so plainly (D9 honesty), because the model's own answer may
-    # claim success.
+    # Only genuine DEVIATIONS keep words here — a budget-hit or
+    # unrecovered trailing failure says so (hermes explainer pattern).
+    # Unverified code NO LONGER injects a hard-coded stamp: hermes
+    # (turn_finalizer.py, conversation_loop.py:8452) keeps the model's words
+    # as the transcript and drives a bounded synthetic nudge loop instead;
+    # honesty rides `task_status="unverified"` + tool-card receipts.
     lines: list[str] = []
     # Word-boundary truncation (field 2026-09-10: "don't rea" — the 70-char
     # cut landed mid-word and the stamp read like corruption).
@@ -1886,15 +1889,15 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         )
         lines.append("")
     elif did_work and unverified:
-        lines.append(f"## ⚠️ Ended unverified: {task_display}")
-        lines.append("")
-        lines.append(
-            "**This run did NOT pass verification.** Code was written but "
-            "no check proved it sound — typecheck failed or never ran, and "
-            "the app was not proven to render. Do not treat this as a "
-            "working deliverable until verification passes."
-        )
-        lines.append("")
+        # Hermes parity (D:\hermes\hermes-agent\agent\turn_finalizer.py:546-602,
+        # conversation_loop.py:8452-8509): missing verification NEVER appends a
+        # hardcoded stamp to the transcript. Hermes keeps the model's own words
+        # as the turn answer and, when needed, drives a synthetic
+        # `verification_required` loop (max 2 nudges, stripped before persistence).
+        # CrusorAI's equivalent loop is gates.finish_gate/should_continue
+        # (verify_nudges). The structured verdict `task_status="unverified"` +
+        # tool-card receipts carry honesty — no injected markdown.
+        pass
     elif did_work and trailing_failed:
         # Only UNRECOVERED failures stamp the transcript (trailing batch):
         # recovered error history shows in the tool cards, hermes-style —

@@ -66,6 +66,7 @@ class SkillManager:
         # every build in the dashboard's worker threads.
         self._save_lock = threading.Lock()
         self._load()
+        self._load_bundled_skills()
 
     # =========================================================
     # PERSISTENCE
@@ -96,6 +97,51 @@ class SkillManager:
                 self._skills = [self._ensure_metadata(s) for s in raw if isinstance(s, dict)]
         except Exception:
             self._skills = []
+
+    def _load_bundled_skills(self) -> None:
+        """Load enterprise SKILL.md from PulseAIRepo/skills/*/SKILL.md (hermes parity).
+
+        Each SKILL.md with `**Triggers:**` line becomes a pinned, enabled skill.
+        Bundled skills are `created_by=bundled` and never auto-archived.
+        """
+        try:
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            skills_dir = os.path.join(repo_root, "skills")
+            if not os.path.isdir(skills_dir):
+                return
+            for entry in os.listdir(skills_dir):
+                md = os.path.join(skills_dir, entry, "SKILL.md")
+                if not os.path.isfile(md):
+                    continue
+                text = open(md, encoding="utf-8").read()
+                # Parse Triggers line
+                triggers: list[str] = []
+                for line in text.splitlines():
+                    if line.strip().lower().startswith("**triggers:**"):
+                        raw = line.split(":", 1)[-1]
+                        triggers = [t.strip().lower() for t in raw.replace(",", " ").split() if t.strip()]
+                        break
+                if not triggers:
+                    triggers = [entry.lower()]
+                # Avoid duplicate
+                if any(s["name"] == entry for s in self._skills):
+                    continue
+                # Extract instruction = whole file without title
+                instruction = text.strip()[:2000]
+                self._skills.append(self._ensure_metadata({
+                    "name": entry,
+                    "triggers": triggers,
+                    "instruction": instruction,
+                    "enabled": True,
+                    "created_by": "bundled",
+                    "pinned": True,
+                    "state": "active",
+                    "created_at": _NOW(),
+                    "updated_at": _NOW(),
+                    "last_activity_at": _NOW(),
+                }))
+        except Exception:
+            pass
 
     def _save(self) -> None:
         with self._save_lock:

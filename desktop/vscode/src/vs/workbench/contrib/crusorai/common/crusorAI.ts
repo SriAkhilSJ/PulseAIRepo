@@ -16,4 +16,7 @@ export const enum CrusorAICommandId {
 	OpenSettings = 'crusorai.openSettings',
 	AcceptDiff = 'crusorai.acceptDiff',
 	RejectDiff = 'crusorai.rejectDiff',
+	AccountSignIn = 'crusorai.account.signIn',
+	AccountManage = 'crusorai.account.manage',
+	AccountSignOut = 'crusorai.account.signOut',
 }

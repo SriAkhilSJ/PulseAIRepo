@@ -8,8 +8,9 @@ AND hard-coded tail text ("hardcoded text at last", 2026-09-04 screenshots).
 Hermes appends nothing after the model's answer: the streamed words ARE the
 turn. Everything the stamp carried rides structure now — verdict in
 task_completed/task_status, per-step outcomes in tool cards, suggestions in
-the `suggestions` event. Only DEVIATIONS keep words: an unverified or failed
-run says so plainly (D9), because the model's own answer may claim success.
+the `suggestions` event. Only DEVIATIONS keep words: a budget hit or
+unrecovered trailing failure says so (hermes explainer); unverified rides
+`task_status="unverified"` with no hardcoded transcript injection.
 """
 from __future__ import annotations
 

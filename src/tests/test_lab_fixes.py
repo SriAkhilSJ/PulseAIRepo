@@ -568,9 +568,11 @@ def test_verify_gate_tsc_skip_is_not_evidence():
 
 
 def test_finalize_unverified_stamps_warning_not_finished():
-    """D9: finalize_node stamped "## ✅ Finished" unconditionally — a
-    budget-exhausted run with a failing typecheck closed with a green
-    checkmark. Unverified finalize must say so plainly."""
+    """Hermes parity (turn_finalizer.py:546-602, conversation_loop.py:8452-8509):
+    finalize no longer injects a hardcoded 'unverified' stamp. Honesty rides
+    the structured verdict (task_status='unverified') and tool-card receipts;
+    the model owns the transcript. The verify loop (gates.finish_gate) nudges
+    up to 2 times; finalize is silent."""
     from src.graphs.chat_graph import finalize_node, should_continue
     from langchain_core.messages import AIMessage, ToolMessage
     msgs = [
@@ -593,11 +595,10 @@ def test_finalize_unverified_stamps_warning_not_finished():
     }
     # The gate must fire (unverified + execution task)
     assert should_continue(state) == "finish_gate"
-    # And if the run somehow finalizes anyway, the message is honest
+    # Hermes parity: finalize is silent — verdict is structured, not a stamp
     out = finalize_node(dict(state), {"configurable": {}})
-    final_text = out["messages"][0].content
-    assert "## ✅ Finished" not in final_text
-    assert "unverified" in final_text
+    assert out["messages"] == []
+    assert out["task_status"] == "unverified"
     assert out["task_completed"] is False
 
 

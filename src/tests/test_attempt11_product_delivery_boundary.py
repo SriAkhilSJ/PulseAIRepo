@@ -103,9 +103,10 @@ def test_passing_ui_receipt_cannot_hide_attempt11_unresolved_dependencies():
     state["plan"] = []
     state["failed_steps"] = []
     update = finalize_node(state, {"configurable": {}})
+    # Hermes parity: finalize is silent on unverified — structured verdict only
     assert update["task_completed"] is False
     assert update["task_status"] == "unverified"
-    assert "Ended unverified" in update["messages"][0].content
+    assert update["messages"] == []
 
 
 def test_landed_write_payloads_are_compacted_without_mutating_history():
