@@ -58,6 +58,9 @@ class SubAgentCoordinator:
         provider: str = LLM_PROVIDER,
         model: str = LLM_MODEL,
         allowed_capabilities: tuple[str, ...] | None = None,
+        description: str = "",
+        background: bool = False,
+        tool_call_id: str | None = None,
     ) -> str:
         """
         Spawn a sub-agent with a focused task.
@@ -129,14 +132,47 @@ class SubAgentCoordinator:
             self._active_agents[agent_id] = {
                 "mode": mode,
                 "task": task,
+                "description": (description or task[:50])[:200],
                 "result": result,
                 "parent": parent_thread_id,
+                "child_thread_id": agent_id,
+                "tool_call_id": tool_call_id,
+                "background": background,
+                "agent_name": mode,
             }
             # Belt-and-braces bound: if an invoke raises mid-delegation (the
             # entry then never gets popped), cap the registry at the newest
             # 50 — dicts keep insertion order, oldest orphans evicted first.
             while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
                 self._active_agents.pop(next(iter(self._active_agents)))
+
+        # Persist to store as well (OpenCode parity)
+        try:
+            from src.runtime.subagent_store import get_store, SubagentSessionRow
+            import time
+            store = get_store()
+            # Only create if not already created by lifecycle (lifecycle creates first)
+            if not store.get(agent_id):
+                store.create(SubagentSessionRow(
+                    subagent_id=agent_id,
+                    parent_session_id=parent_thread_id,
+                    child_thread_id=agent_id,
+                    mode=mode,
+                    goal=task,
+                    description=(description or task[:50])[:200],
+                    agent_name=mode,
+                    state="succeeded",
+                    created_at=time.time(),
+                    updated_at=time.time(),
+                    tool_call_id=tool_call_id,
+                    tool_calls=0,
+                    background=background,
+                    result=result[:32000],
+                ))
+            else:
+                store.update(agent_id, result=result[:32000], state="succeeded", updated_at=time.time())
+        except Exception:
+            pass
 
         return agent_id
 
@@ -181,7 +217,9 @@ class SubAgentCoordinator:
         def _one(index: int, task: str) -> str:
             return self.spawn(mode=mode, task=task,
                               parent_thread_id=parent_thread_id,
-                              provider=provider, model=model)
+                              provider=provider, model=model,
+                              description=task[:50],
+                              background=False)
 
         with ThreadPoolExecutor(max_workers=workers,
                                 thread_name_prefix="crusorai-sub") as pool:

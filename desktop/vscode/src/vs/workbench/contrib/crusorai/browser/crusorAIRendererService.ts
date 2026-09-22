@@ -132,6 +132,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private turnEndedAt: number | undefined;
 	private approval: CrusorAIRenderModel['approval'];
 	private subAgents = new Map<string, CrusorAISubAgentView>();
+	/** OpenCode parity: parentMap child_thread_id -> parent_session_id for navigation */
+	private parentMap = new Map<string, string>();
+	/** Child session tracking: this session is child if in parentMap or startsWith sub- */
+	private childParentId: string | undefined;
 	private plan: readonly CrusorAIPlanStepView[] = [];
 	private verification: string | undefined;
 	private telemetry: CrusorAIRenderModel['telemetry'] = {};
@@ -263,6 +267,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// owns the privileged path; never let clipboard trouble throw.
 			try { this.clipboardService.writeText(text); } catch { /* best effort */ }
 		},
+		navigateToSession: (sessionId: string) => { this.navigateToSession(sessionId); },
+		isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
 	};
 
 	constructor(
@@ -383,6 +389,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.pendingPrompt = undefined;
 			this.tools.clear();
 			this.subAgents.clear();
+			this.parentMap.clear();
+			this.childParentId = undefined;
 			this.history = [];
 			this.plan = [];
 			this.verification = undefined;
@@ -436,6 +444,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				reasoningParts: [...this.reasoningParts],
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
+			isChild: !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
+			parentSessionId: this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined),
+			parentMap: new Map(this.parentMap),
 			approval: this.approval,
 			clarify: this.clarify,
 			todos: this.todos,
@@ -463,6 +474,43 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * `noteSession()` is the only writer. Both the manager's own rows and the workbench's Agent
 	 * Sessions list come through here, so the two surfaces cannot disagree about what exists.
 	 */
+	private navigateToSession(targetSessionId: string): void {
+		if (!targetSessionId) return;
+		// If target is child, remember parent for back navigation
+		if (this.sessionId) {
+			// When navigating to child, keep parent mapping
+			if (!this.parentMap.has(targetSessionId)) {
+				this.parentMap.set(targetSessionId, this.sessionId);
+			}
+			// When navigating back to parent, set childParentId
+			if (this.parentMap.has(this.sessionId)) {
+				this.childParentId = this.parentMap.get(this.sessionId);
+			}
+		}
+		// Check if navigating to parent
+		if (this.parentMap.has(targetSessionId)) {
+			// Navigating to a known session, not necessarily child
+			// If target is parent of current, clear childParentId after?
+		}
+		// Actually if target is parent of current child, we want to go back
+		if (this.childParentId && targetSessionId === this.childParentId) {
+			this.childParentId = this.parentMap.get(targetSessionId);
+		}
+		this.sessionId = targetSessionId;
+		// If target is child, set childParentId
+		if (this.parentMap.has(targetSessionId)) {
+			this.childParentId = this.parentMap.get(targetSessionId);
+		} else if (!targetSessionId.startsWith('sub-')) {
+			this.childParentId = undefined;
+		}
+		// Request load from engine
+		const workspace = this.workspacePath;
+		if (workspace) {
+			this.send({ type: 'session_load', session_id: targetSessionId, workspace } as any);
+		}
+		this.render();
+	}
+
 	private sessionRows(): readonly CrusorAISessionRow[] {
 		const readState = new Map<string, boolean>();
 		for (const facts of this.sessionStore.records()) {
@@ -969,17 +1017,69 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			const state = (frame as any).state ?? existing.state;
 			const duration = (frame as any).duration;
 			const result = (frame as any).result;
+			const childId = (frame as any).child_thread_id ?? subagent_id;
+			const parentId = (frame as any).parent_session_id ?? (frame as any).parentSessionId ?? this.sessionId;
+			const desc = (frame as any).description ?? existing.description;
+			if (childId && parentId) {
+				this.parentMap.set(childId, parentId);
+			}
+			// Detect if current session is child
+			if (this.sessionId && this.parentMap.has(this.sessionId)) {
+				this.childParentId = this.parentMap.get(this.sessionId);
+			}
 			this.subAgents.set(subagent_id, {
 				...existing,
 				id: subagent_id,
 				state: state as CrusorAISubAgentView['state'],
 				goal: (frame as any).goal ?? existing.goal,
+				description: desc ?? (existing as any).description,
 				mode: (frame as any).mode ?? existing.mode,
 				progress: (frame as any).progress ?? existing.progress,
 				result: result ?? existing.result,
 				duration: duration ?? existing.duration,
-				parentSessionId: (frame as any).parent_session_id ?? existing.parentSessionId,
+				parentSessionId: parentId ?? existing.parentSessionId,
+				childThreadId: childId ?? (existing as any).childThreadId,
+				background: (frame as any).background ?? (existing as any).background,
+				toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
+				agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
 			});
+		} else if (frame.type === 'subagent_list') {
+			// OpenCode parity: list children for parent
+			for (const row of (frame as any).subagents ?? []) {
+				const sid = row.subagent_id ?? row.child_thread_id;
+				if (!sid) continue;
+				const childId = row.child_thread_id ?? sid;
+				const parentId = row.parent_session_id ?? this.sessionId;
+				if (childId && parentId) this.parentMap.set(childId, parentId);
+				this.subAgents.set(sid, {
+					id: sid,
+					state: (row.state ?? 'pending') as CrusorAISubAgentView['state'],
+					goal: row.goal,
+					description: row.description,
+					mode: row.mode,
+					duration: row.duration,
+					parentSessionId: parentId,
+					childThreadId: childId,
+					background: row.background,
+					toolCalls: row.tool_calls,
+					agentName: row.agent_name,
+					result: row.result,
+				} as any);
+			}
+		} else if (frame.type === 'subagent_background_completed') {
+			// Background task finished, inject into transcript as token + update subagent
+			const subId = (frame as any).subagent_id;
+			const text = (frame as any).text ?? '';
+			if (text) {
+				this.assistantText += text;
+				this.appendTextPart(text);
+			}
+			if (subId) {
+				const existing = this.subAgents.get(subId);
+				if (existing) {
+					this.subAgents.set(subId, { ...existing, state: 'completed' as const, result: text } as any);
+				}
+			}
 		} else if (frame.type === 'verification_updated') {
 			this.verification = frame.status;
 		} else if (frame.type === 'telemetry') {

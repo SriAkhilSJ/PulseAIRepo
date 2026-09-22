@@ -54,6 +54,10 @@ export interface UseCrusorTranscriptResult {
   respondApproval: (choice: 'always' | 'once' | 'session' | 'deny', approval?: CrusorApproval) => void;
   submit: (text: string) => void;
   stop: () => void;
+  sessionId: string;
+  isChild: boolean;
+  parentSessionId?: string;
+  navigateToSession?: (id: string) => void;
 }
 
 function interruptToApproval(value: unknown): CrusorApproval | undefined {
@@ -82,6 +86,9 @@ export function useCrusorTranscript({ agent = null, initialFrames, listenForBrid
   const [agentTick, setAgentTick] = useState(0);
   const [localDecisions, setLocalDecisions] = useState<Record<string, 'always' | 'deny' | 'once' | 'session'>>({});
   const lastSignature = useRef('');
+  const [sessionId, setSessionId] = useState('default');
+  const [parentMap, setParentMap] = useState<Map<string, string>>(new Map());
+  const [childParentId, setChildParentId] = useState<string | undefined>(undefined);
 
   const applyFrame = useCallback((frame: unknown) => {
     setFrames(current => [...current, frame]);
@@ -102,10 +109,26 @@ export function useCrusorTranscript({ agent = null, initialFrames, listenForBrid
       applyFrame(data.frame);
     };
 
-    window.addEventListener('message', onMessage);
+    const onNavigate = (event: Event) => {
+      try {
+        const ce = event as CustomEvent<{ sessionId: string }>;
+        const sid = ce.detail?.sessionId;
+        if (sid) {
+          // For webview, navigation is just updating sessionId if host wants
+          // Emit to parent as well
+          window.parent?.postMessage?.({ source: 'crusor-ui', frame: { type: 'navigate', session_id: sid } }, '*');
+        }
+      } catch {}
+    };
 
-    return () => window.removeEventListener('message', onMessage);
-  }, [applyFrame, listenForBridgeFrames]);
+    window.addEventListener('message', onMessage);
+    window.addEventListener('crusorai:navigate-to-session' as any, onNavigate);
+
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.removeEventListener('crusorai:navigate-to-session' as any, onNavigate);
+    };
+  }, [applyFrame]);
 
   // Re-render on whatever the agent publishes. Upstream leans on assistant-ui
   // store throttling (`throttleMs` on useAgent); this tier coalesces by
@@ -157,6 +180,60 @@ export function useCrusorTranscript({ agent = null, initialFrames, listenForBrid
     return next;
   }, [agent, agentTick, frames, localDecisions]);
 
+  // Derive session meta from frames (OpenCode parity: parentMap)
+  useEffect(() => {
+    let curSid = sessionId;
+    let curParentMap = new Map(parentMap);
+    let curChildParent = childParentId;
+    let changed = false;
+
+    for (const frame of frames) {
+      try {
+        const f: any = frame as any;
+        const payload = f.payload ?? f;
+        const type = f.type ?? payload.type;
+        if (type === 'session_info' || type === 'turn_started' || type === 'turn_done') {
+          const sid = payload.session_id || payload.thread_id || payload.sessionId;
+          if (sid && sid !== curSid) {
+            curSid = sid;
+            changed = true;
+          }
+        }
+        if (type === 'subagent_updated' || type === 'subagent_list') {
+          const list = type === 'subagent_list' ? (payload.subagents || []) : [payload];
+          for (const item of list) {
+            const childId = item.child_thread_id || item.childThreadId || item.subagent_id || item.id;
+            const parentId = item.parent_session_id || item.parentSessionId || curSid;
+            if (childId && parentId && !curParentMap.has(childId)) {
+              curParentMap.set(childId, parentId);
+              changed = true;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    if (curParentMap.has(curSid)) {
+      const parent = curParentMap.get(curSid);
+      if (parent !== curChildParent) {
+        curChildParent = parent;
+        changed = true;
+      }
+    } else if (curSid.startsWith('sub-') && curChildParent === undefined) {
+      curChildParent = 'parent';
+      changed = true;
+    } else if (!curParentMap.has(curSid) && !curSid.startsWith('sub-') && curChildParent !== undefined) {
+      curChildParent = undefined;
+      changed = true;
+    }
+
+    if (changed) {
+      setSessionId(curSid);
+      setParentMap(curParentMap);
+      setChildParentId(curChildParent);
+    }
+  }, [frames, sessionId, parentMap, childParentId]);
+
   const respondApproval = useCallback(
     (choice: 'always' | 'once' | 'session' | 'deny', approval?: CrusorApproval) => {
       const approved = choice !== 'deny';
@@ -191,10 +268,15 @@ export function useCrusorTranscript({ agent = null, initialFrames, listenForBrid
         return;
       }
 
+      // Child lock: don't submit if child
+      if (childParentId || sessionId.startsWith('sub-') || parentMap.has(sessionId)) {
+        return;
+      }
+
       agent.addMessage({ content: value, id: `user-${String(Date.now())}`, role: 'user' });
       void agent.runAgent?.();
     },
-    [agent]
+    [agent, childParentId, sessionId, parentMap]
   );
 
   const stop = useCallback(() => {
@@ -210,6 +292,16 @@ export function useCrusorTranscript({ agent = null, initialFrames, listenForBrid
     [agent, transcript.approvals.length, transcript.run.busy, transcript.run.turnStartedAt]
   );
 
+  const isChild = !!(childParentId || sessionId.startsWith('sub-') || parentMap.has(sessionId));
+
+  const navigateToSession = useCallback((id: string) => {
+    try {
+      const ev = new CustomEvent('crusorai:navigate-to-session', { detail: { sessionId: id } });
+      window.dispatchEvent(ev);
+      window.parent?.postMessage?.({ source: 'crusor-ui', frame: { type: 'navigate', session_id: id } }, '*');
+    } catch {}
+  }, []);
+
   return {
     agent: agent ?? null,
     applyFrame,
@@ -219,6 +311,10 @@ export function useCrusorTranscript({ agent = null, initialFrames, listenForBrid
     stop,
     submit,
     transcript,
+    sessionId,
+    isChild,
+    parentSessionId: childParentId,
+    navigateToSession,
   } as UseCrusorTranscriptResult;
 }
 

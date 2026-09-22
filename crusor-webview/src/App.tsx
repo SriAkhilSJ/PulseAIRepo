@@ -56,6 +56,9 @@ function CrusorWorkspace({ surface }: { surface: Surface }) {
           onSubmit={thread.submit}
           onStop={thread.stop}
           signals={thread.signals}
+          isChild={thread.isChild}
+          parentSessionId={thread.parentSessionId}
+          onBackToParent={thread.parentSessionId ? () => thread.navigateToSession?.(thread.parentSessionId!) : undefined}
         />
       }
       signals={thread.signals}
