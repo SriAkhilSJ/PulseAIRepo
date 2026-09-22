@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aurora — ship your product faster</title>
+<!--
+  Lab fixture: "the UI the agent created".
+
+  This page is the *target* of the preview, not part of the product. It stands in for whatever an
+  agent builds in a real session (a landing page, a dashboard, a form) so the inspect-and-fix flow
+  can be exercised end to end without a provider call.
+
+  The proxy injects the overlay and a <base href>; nothing here knows about Crusor.
+  `preview-overrides.css` is served from the lab runtime directory and is where the MOCK agent
+  writes its edits — the stand-in for real source edits.
+-->
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="preview-overrides.css" />
+</head>
+<body>
+<header class="nav" data-crusor-source="src/components/Nav.tsx" data-crusor-line="18">
+  <a class="brand" href="#top">
+    <svg class="brand-mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M12 2.6 21 7.4v9.2L12 21.4 3 16.6V7.4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M8.4 10.2v3.6l3.6 2 3.6-2v-3.6L12 8.2z" fill="currentColor"/>
+    </svg>
+    <span class="brand-name">Aurora</span>
+  </a>
+  <nav class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#docs">Docs</a>
+    <a href="#changelog">Changelog</a>
+  </nav>
+  <div class="nav-actions">
+    <button class="btn btn-ghost" type="button">Sign in</button>
+    <button class="btn btn-primary" type="button" data-testid="nav-cta">Get started</button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <p class="eyebrow">Now in public beta</p>
+    <h1 class="hero-title">Ship your product faster, without the busywork</h1>
+    <p class="hero-copy">
+      Aurora turns a plain-language request into a working interface, tests it, and hands you the
+      diff. You keep the taste — it keeps the typing.
+    </p>
+    <div class="hero-actions">
+      <button class="btn btn-primary btn-lg" type="button" data-testid="hero-cta">Start building free</button>
+      <button class="btn btn-outline btn-lg" type="button">Watch the 2-minute tour</button>
+    </div>
+    <p class="hero-note">No credit card · Free for solo builders</p>
+  </section>
+
+  <section class="stats" aria-label="Key numbers">
+    <div class="stat"><span class="stat-value">4.2×</span><span class="stat-label">faster first draft</span></div>
+    <div class="stat"><span class="stat-value">38k</span><span class="stat-label">interfaces shipped</span></div>
+    <div class="stat"><span class="stat-value">99.2%</span><span class="stat-label">builds pass first try</span></div>
+  </section>
+
+  <section class="features" id="features">
+    <h2 class="section-title">Everything in one loop</h2>
+    <div class="feature-grid">
+      <article class="card" data-crusor-source="src/components/FeatureCard.tsx" data-crusor-line="9">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 6h16M4 12h10M4 18h13" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>
+        </span>
+        <h3 class="card-title">Describe it</h3>
+        <p class="card-copy">Write what you want in plain language. Aurora picks the components and wires the state.</p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 12.5 9.5 17 19 7" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <h3 class="card-title">Verify it</h3>
+        <p class="card-copy">Every change is checked against the running app before it reaches you.</p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M7 8 3.5 12 7 16M17 8l3.5 4-3.5 4M13.5 5l-3 14" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <h3 class="card-title">Own the code</h3>
+        <p class="card-copy">Plain files in your repo. No lock-in, no runtime to import.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="cta-band" id="pricing">
+    <h2 class="cta-title">Ready when you are</h2>
+    <p class="cta-copy">Start with the free tier. Upgrade only when your team does.</p>
+    <button class="btn btn-primary btn-lg" type="button" data-testid="cta-band-button">Create your workspace</button>
+  </section>
+</main>
+
+<footer class="footer" id="docs">
+  <span class="footer-copy">© 2026 Aurora Labs · Built by Crusor in this session</span>
+  <nav class="footer-links">
+    <a href="#privacy">Privacy</a>
+    <a href="#terms">Terms</a>
+    <a href="#status">Status</a>
+  </nav>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

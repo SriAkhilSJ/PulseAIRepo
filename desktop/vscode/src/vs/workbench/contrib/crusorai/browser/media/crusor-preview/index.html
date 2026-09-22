@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crusor Preview</title>
+<!--
+	Crusor Preview window content.
+
+	Hosted from the workbench's OWN origin (FileAccess.asBrowserUri) inside an auxiliary window,
+	so the workbench CSP `frame-src 'self' vscode-webview:` admits it with no policy change.
+	This document writes its OWN CSP because it frames the page the agent built, which lives on
+	an arbitrary origin (a dev server on localhost, or the Crusor preview proxy serving a static
+	file out of the workspace).
+
+	Colors: derived tokens only (--crusorai-* -> --vscode-* -> seed), the same discipline as
+	browser/media/crusorAI-tokens.css. Icons: inline SVG sprite, 20x20 grid, currentColor.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+	default-src 'none';
+	img-src data: blob: https: http:;
+	style-src 'self' 'unsafe-inline';
+	script-src 'self';
+	font-src 'self' data:;
+	connect-src 'self' http://127.0.0.1:* http://localhost:*;
+	frame-src *;
+" />
+<link rel="stylesheet" href="./preview.css" />
+</head>
+<body data-viewport="responsive">
+
+<!-- ── SVG icon sprite (the Crusor icon grammar: 20x20, currentColor, square caps) ────────── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+	<defs>
+		<symbol id="cp-i-preview" viewBox="0 0 20 20">
+			<path d="M2.08 4.58h15.84v10.84H2.08z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+			<path d="M2.08 6.67h15.84" stroke="currentColor" stroke-linecap="square"/>
+			<path d="M4.17 5.62h.01M5.83 5.62h.01M7.5 5.62h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+			<path d="M5.42 9.58h4.16M5.42 12.08h7.5" stroke="currentColor" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-edit" viewBox="0 0 20 20">
+			<path d="M17.08 17.08v.5h.5v-.5h-.5ZM2.92 17.08h-.5v.5h.5v-.5ZM9.58 3.42h.5v-1h-.5v1ZM17.58 10.42v-.5h-1v.5h1Z" fill="currentColor"/>
+			<path d="M10.42 7.08h-.5v2.5h3v-.5h-2.5v-2ZM10.42 7.08 15.42 2.08l2.5 2.5-5 5" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-reload" viewBox="0 0 20 20">
+			<path d="M16.25 10a6.25 6.25 0 1 1-1.83-4.42" stroke="currentColor" fill="none" stroke-linecap="square"/>
+			<path d="M16.67 2.5v3.75h-3.75" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-desktop" viewBox="0 0 20 20">
+			<path d="M2.5 3.75h15v9.58h-15z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+			<path d="M7.08 16.25h5.84M10 13.33v2.92" stroke="currentColor" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-tablet" viewBox="0 0 20 20">
+			<path d="M4.58 2.5h10.84v15H4.58z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+			<path d="M9.17 15.42h1.66" stroke="currentColor" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-phone" viewBox="0 0 20 20">
+			<path d="M6.25 2.08h7.5v15.84h-7.5z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+			<path d="M9.17 15.83h1.66" stroke="currentColor" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-responsive" viewBox="0 0 20 20">
+			<path d="M2.5 4.17h10.83v8.33H2.5z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+			<path d="M14.58 8.33h2.92v7.5h-2.92z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-check" viewBox="0 0 20 20">
+			<path d="M6.5 11.44 8.97 13.5 13.5 6.5" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-close" viewBox="0 0 20 20">
+			<path d="M3.75 3.75 16.25 16.25M16.25 3.75 3.75 16.25" stroke="currentColor" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-review" viewBox="0 0 20 20">
+			<path d="M7 14.5h6M7 8h6M18 18V2H2v16h16Z" stroke="currentColor" fill="none"/>
+			<path d="M10 5.5v5" stroke="currentColor" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-send" viewBox="0 0 20 20">
+			<path d="M9.9999 2.2412 16.0921 8.3334 15.2083 9.2173 10.6249 4.6339V17.5h-1.25V4.634L4.7916 9.2173 3.9077 8.3334z" fill="currentColor"/>
+		</symbol>
+		<symbol id="cp-i-source" viewBox="0 0 20 20">
+			<path d="M8.75 7.5 6.25 10l2.5 2.5M11.25 7.5l2.5 2.5-2.5 2.5M2.92 2.92h14.16v14.16H2.92z" stroke="currentColor" fill="none"/>
+		</symbol>
+		<symbol id="cp-i-trash" viewBox="0 0 20 20">
+			<path d="M3.75 5.42h12.5M7.92 5.42V3.75h4.16v1.67M5.42 5.42l.83 10.83h7.5l.83-10.83" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-target" viewBox="0 0 20 20">
+			<path d="M10 2.5V5M10 15v2.5M2.5 10H5M15 10h2.5" stroke="currentColor" stroke-linecap="square"/>
+			<rect x="5" y="5" width="10" height="10" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-external" viewBox="0 0 20 20">
+			<path d="M4.58 10.42v5h10.84v-10.84h-5M9.99 10 17.5 2.5M12.5 2.5h5v5" stroke="currentColor" fill="none" stroke-linecap="square"/>
+		</symbol>
+		<symbol id="cp-i-mark" viewBox="0 0 20 20">
+			<path d="M10 2.5 17 6.25v7.5L10 17.5 3 13.75v-7.5z" stroke="currentColor" fill="none" stroke-linejoin="round"/>
+			<path d="M6.8 8.2v3.6l3.2 1.8 3.2-1.8V8.2L10 6.4z" fill="currentColor"/>
+		</symbol>
+	</defs>
+</svg>
+
+<div class="cpw" id="cpw">
+	<!-- ── title bar ─────────────────────────────────────────────────────────────────────── -->
+	<header class="cpw-title" data-drag="true">
+		<span class="cpw-mark"><svg class="cpw-glyph" aria-hidden="true"><use href="#cp-i-mark"/></svg></span>
+		<span class="cpw-title-text">Crusor Preview</span>
+		<span class="cpw-target" id="cpw-target" title="">no target</span>
+		<span class="cpw-spacer"></span>
+		<span class="cpw-state" id="cpw-state" data-state="idle" title="Preview state">
+			<span class="cpw-state-dot"></span><span id="cpw-state-text">idle</span>
+		</span>
+		<button class="cpw-icon-btn" id="cpw-close" type="button" title="Close preview" aria-label="Close preview">
+			<svg aria-hidden="true"><use href="#cp-i-close"/></svg>
+		</button>
+	</header>
+
+	<!-- ── toolbar ───────────────────────────────────────────────────────────────────────── -->
+	<div class="cpw-toolbar">
+		<button class="cpw-icon-btn" id="cpw-reload" type="button" title="Reload preview" aria-label="Reload preview">
+			<svg aria-hidden="true"><use href="#cp-i-reload"/></svg>
+		</button>
+
+		<div class="cpw-url" title="Preview target">
+			<svg class="cpw-url-glyph" aria-hidden="true"><use href="#cp-i-target"/></svg>
+			<input id="cpw-url-input" type="text" spellcheck="false" autocomplete="off"
+				placeholder="http://localhost:5173 or a workspace .html file" aria-label="Preview target URL" />
+			<button class="cpw-url-go" id="cpw-url-go" type="button" title="Load target">Load</button>
+		</div>
+
+		<div class="cpw-viewports" role="group" aria-label="Viewport preset">
+			<button class="cpw-vp" type="button" data-viewport="responsive" title="Responsive — fill the window" aria-label="Responsive viewport">
+				<svg aria-hidden="true"><use href="#cp-i-responsive"/></svg>
+			</button>
+			<button class="cpw-vp" type="button" data-viewport="desktop" title="Desktop 1440×900" aria-label="Desktop viewport">
+				<svg aria-hidden="true"><use href="#cp-i-desktop"/></svg>
+			</button>
+			<button class="cpw-vp" type="button" data-viewport="tablet" title="Tablet 834×1112" aria-label="Tablet viewport">
+				<svg aria-hidden="true"><use href="#cp-i-tablet"/></svg>
+			</button>
+			<button class="cpw-vp" type="button" data-viewport="phone" title="Phone 390×844" aria-label="Phone viewport">
+				<svg aria-hidden="true"><use href="#cp-i-phone"/></svg>
+			</button>
+		</div>
+
+		<span class="cpw-sep" aria-hidden="true"></span>
+
+		<!-- Step 4 of the flow: the button that arms inspect-and-edit. -->
+		<button class="cpw-btn cpw-btn-accent" id="cpw-inspect" type="button" aria-pressed="false"
+			title="Edit UI — click any element in the preview to describe a fix (Esc exits)">
+			<svg aria-hidden="true"><use href="#cp-i-edit"/></svg>
+			<span>Edit UI</span>
+		</button>
+	</div>
+
+	<!-- ── stage ─────────────────────────────────────────────────────────────────────────── -->
+	<main class="cpw-stage" id="cpw-stage">
+		<div class="cpw-frame" id="cpw-frame">
+			<iframe id="cpw-view" title="Crusor preview of the UI the agent built" referrerpolicy="no-referrer"></iframe>
+		</div>
+		<div class="cpw-empty" id="cpw-empty">
+			<svg class="cpw-empty-glyph" aria-hidden="true"><use href="#cp-i-preview"/></svg>
+			<p class="cpw-empty-title">No preview target yet</p>
+			<p class="cpw-empty-copy" id="cpw-empty-copy">
+				Ask Crusor to build a UI, or point the field above at a running dev server
+				(or an <code>.html</code> file in the workspace).
+			</p>
+		</div>
+	</main>
+
+	<!-- ── pending-fix tray ──────────────────────────────────────────────────────────────── -->
+	<footer class="cpw-tray" id="cpw-tray" hidden>
+		<span class="cpw-tray-count">
+			<span class="cpw-tray-badge" id="cpw-tray-badge">0</span>
+			<span id="cpw-tray-label">fixes pending</span>
+		</span>
+		<ul class="cpw-tray-list" id="cpw-tray-list"></ul>
+		<span class="cpw-spacer"></span>
+		<button class="cpw-btn" id="cpw-clear" type="button" title="Discard all pending fixes">Clear</button>
+		<button class="cpw-btn cpw-btn-accent" id="cpw-review" type="button" title="Review the pending fixes">
+			<svg aria-hidden="true"><use href="#cp-i-review"/></svg><span>Review</span>
+		</button>
+	</footer>
+</div>
+
+<!-- ── review sheet ──────────────────────────────────────────────────────────────────────── -->
+<div class="cpw-sheet-backdrop" id="cpw-sheet-backdrop" hidden>
+	<section class="cpw-sheet" role="dialog" aria-modal="true" aria-labelledby="cpw-sheet-title">
+		<header class="cpw-sheet-head">
+			<h2 id="cpw-sheet-title">Review fixes</h2>
+			<p class="cpw-sheet-sub" id="cpw-sheet-sub">Sent to Crusor as one scoped turn — each fix names the element it belongs to.</p>
+			<button class="cpw-icon-btn" id="cpw-sheet-close" type="button" aria-label="Close review">
+				<svg aria-hidden="true"><use href="#cp-i-close"/></svg>
+			</button>
+		</header>
+		<div class="cpw-sheet-body" id="cpw-sheet-body"></div>
+		<footer class="cpw-sheet-foot">
+			<span class="cpw-sheet-note" id="cpw-sheet-note"></span>
+			<span class="cpw-spacer"></span>
+			<button class="cpw-btn" id="cpw-sheet-cancel" type="button">Keep editing</button>
+			<button class="cpw-btn cpw-btn-accent" id="cpw-sheet-send" type="button">
+				<svg aria-hidden="true"><use href="#cp-i-send"/></svg><span>Send to Crusor</span>
+			</button>
+		</footer>
+	</section>
+</div>
+
+<script src="./preview.js"></script>
+</body>
+</html>

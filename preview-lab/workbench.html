@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crusor Preview — lab</title>
+<!--
+  Preview lab harness: a MOCK of the CrusorAI IDE window, used to exercise the real Preview
+  artifacts (window chrome, injected overlay, proxy, prompt builder) in a plain browser, because
+  the desktop app itself needs Electron and a built Code OSS.
+
+  What is real here                      what is mocked
+  -------------------------------------  -----------------------------------------
+  media/crusor-preview/* (window chrome)  the workbench shell around it
+  media/.../overlay/*overlay.js          the auxiliary WINDOW (a floating div here)
+  src/preview/server.py (proxy)           the Agent turn (preview-lab/mock_agent.py)
+  src/preview/inject.py (injection)       the editor pane, transcript history
+  src/preview/prompt.py (scoped prompt)
+-->
+<link rel="stylesheet" href="/lab/workbench.css" />
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="wb-i-mark" viewBox="0 0 20 20">
+      <path d="M10 2.5 17 6.25v7.5L10 17.5 3 13.75v-7.5z" stroke="currentColor" fill="none" stroke-linejoin="round"/>
+      <path d="M6.8 8.2v3.6l3.2 1.8 3.2-1.8V8.2L10 6.4z" fill="currentColor"/>
+    </symbol>
+    <symbol id="wb-i-preview" viewBox="0 0 20 20">
+      <path d="M2.08 4.58h15.84v10.84H2.08z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+      <path d="M2.08 6.67h15.84" stroke="currentColor" stroke-linecap="square"/>
+      <path d="M5.42 9.58h4.16M5.42 12.08h7.5" stroke="currentColor" stroke-linecap="square"/>
+    </symbol>
+    <symbol id="wb-i-send" viewBox="0 0 20 20">
+      <path d="M9.9999 2.2412 16.0921 8.3334 15.2083 9.2173 10.6249 4.6339V17.5h-1.25V4.634L4.7916 9.2173 3.9077 8.3334z" fill="currentColor"/>
+    </symbol>
+    <symbol id="wb-i-reload" viewBox="0 0 20 20">
+      <path d="M16.25 10a6.25 6.25 0 1 1-1.83-4.42" stroke="currentColor" fill="none" stroke-linecap="square"/>
+      <path d="M16.67 2.5v3.75h-3.75" stroke="currentColor" fill="none" stroke-linecap="square"/>
+    </symbol>
+    <symbol id="wb-i-file" viewBox="0 0 20 20">
+      <path d="M11.67 2.5H4.58v15h10.84V6.25z" stroke="currentColor" fill="none" stroke-linecap="square"/>
+      <path d="M11.25 2.5v3.75h4.17" stroke="currentColor" fill="none" stroke-linecap="square"/>
+    </symbol>
+    <symbol id="wb-i-check" viewBox="0 0 20 20">
+      <path d="M6.5 11.44 8.97 13.5 13.5 6.5" stroke="currentColor" fill="none" stroke-linecap="square"/>
+    </symbol>
+    <symbol id="wb-i-close" viewBox="0 0 20 20">
+      <path d="M3.75 3.75 16.25 16.25M16.25 3.75 3.75 16.25" stroke="currentColor" stroke-linecap="square"/>
+    </symbol>
+    <symbol id="wb-i-terminal" viewBox="0 0 20 20">
+      <path d="M2 18h16V2H2zM6.5 8 8.64 10 6.5 12M10.93 12H13.5" stroke="currentColor" fill="none" stroke-linecap="square"/>
+    </symbol>
+    <symbol id="wb-i-target" viewBox="0 0 20 20">
+      <path d="M10 2.5V5M10 15v2.5M2.5 10H5M15 10h2.5" stroke="currentColor" stroke-linecap="square"/>
+      <rect x="5" y="5" width="10" height="10" stroke="currentColor" fill="none" stroke-linecap="square"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wb">
+  <!-- ── title bar ─────────────────────────────────────────────────────────────────── -->
+  <header class="wb-titlebar">
+    <span class="wb-mark"><svg><use href="#wb-i-mark"/></svg></span>
+    <span class="wb-title">CrusorAI IDE</span>
+    <span class="wb-crumb">aurora-landing — <span class="wb-crumb-weak">src/components/Hero.tsx</span></span>
+    <span class="wb-spacer"></span>
+    <span class="wb-lab-chip" title="This page mocks the IDE shell; the preview artifacts are real">LAB</span>
+    <button class="wb-ghost-btn" id="wb-reset" type="button" title="Clear the mock agent's edits">
+      <svg><use href="#wb-i-reload"/></svg><span>Reset demo</span>
+    </button>
+  </header>
+
+  <div class="wb-body">
+    <!-- ── editor pane ───────────────────────────────────────────────────────────────── -->
+    <section class="wb-editor">
+      <div class="wb-editor-tabs">
+        <span class="wb-tab is-active"><svg><use href="#wb-i-file"/></svg><span id="wb-tab-name">Hero.tsx</span></span>
+        <span class="wb-tab wb-tab-hint" id="wb-source-hint" hidden></span>
+      </div>
+      <pre class="wb-code" id="wb-code"><code></code></pre>
+      <div class="wb-statusbar">
+        <span id="wb-status-left">ready</span>
+        <span class="wb-spacer"></span>
+        <span id="wb-status-right">Crusor · Agent</span>
+      </div>
+    </section>
+
+    <!-- ── Crusor Agent panel (auxiliary bar, fixed right) ───────────────────────────── -->
+    <aside class="wb-agent" id="wb-agent">
+      <header class="wb-agent-head">
+        <span class="wb-agent-title">Crusor</span>
+        <span class="wb-agent-mode">Agent</span>
+        <span class="wb-spacer"></span>
+        <!-- STEP 1: the Agent UI shows that a preview is available. -->
+        <button class="wb-preview-cta" id="wb-open-preview" type="button" data-state="off"
+          title="Open the Crusor Preview window">
+          <span class="wb-preview-dot"></span>
+          <svg><use href="#wb-i-preview"/></svg>
+          <span id="wb-preview-cta-text">Preview</span>
+        </button>
+      </header>
+
+      <div class="wb-transcript" id="wb-transcript">
+        <article class="wb-msg wb-msg-user">
+          <p>Build me a landing page for a product called Aurora — hero, three feature cards, a pricing band and a footer.</p>
+        </article>
+
+        <article class="wb-msg wb-msg-agent">
+          <div class="wb-tool">
+            <span class="wb-tool-name"><svg><use href="#wb-i-file"/></svg>write_file</span>
+            <span class="wb-tool-arg">src/components/Hero.tsx</span>
+            <span class="wb-tool-status is-ok"><svg><use href="#wb-i-check"/></svg></span>
+          </div>
+          <div class="wb-tool">
+            <span class="wb-tool-name"><svg><use href="#wb-i-file"/></svg>write_file</span>
+            <span class="wb-tool-arg">src/styles/tokens.css</span>
+            <span class="wb-tool-status is-ok"><svg><use href="#wb-i-check"/></svg></span>
+          </div>
+          <div class="wb-tool">
+            <span class="wb-tool-name"><svg><use href="#wb-i-terminal"/></svg>run</span>
+            <span class="wb-tool-arg">npm run dev</span>
+            <span class="wb-tool-status is-ok"><svg><use href="#wb-i-check"/></svg></span>
+          </div>
+          <p class="wb-msg-copy">
+            Landing page is up. The dev server is listening on <code id="wb-dev-url">localhost</code> — the UI is
+            ready to look at.
+          </p>
+
+          <!-- STEP 1 (cont.): the availability card the transcript shows once UI exists. -->
+          <div class="wb-preview-card" id="wb-preview-card" data-state="off">
+            <span class="wb-preview-card-icon"><svg><use href="#wb-i-preview"/></svg></span>
+            <span class="wb-preview-card-main">
+              <span class="wb-preview-card-title">Preview available</span>
+              <span class="wb-preview-card-sub" id="wb-preview-card-sub">the UI Crusor just built</span>
+            </span>
+            <button class="wb-btn wb-btn-accent" id="wb-preview-card-open" type="button">Open preview</button>
+          </div>
+        </article>
+      </div>
+
+      <!-- The reviewed batch, attached to the composer (STEP 9). -->
+      <div class="wb-attachments" id="wb-attachments" hidden></div>
+
+      <footer class="wb-composer">
+        <div class="wb-composer-modes" role="group" aria-label="Run mode">
+          <button class="wb-mode is-active" type="button">Agent</button>
+          <button class="wb-mode" type="button">Plan</button>
+          <button class="wb-mode" type="button">Debug</button>
+          <button class="wb-mode" type="button">Ask</button>
+        </div>
+        <textarea class="wb-input" id="wb-input" rows="3"
+          placeholder="Ask Crusor… (a reviewed preview batch lands here)"></textarea>
+        <div class="wb-composer-foot">
+          <span class="wb-composer-hint" id="wb-composer-hint">Enter to send</span>
+          <span class="wb-spacer"></span>
+          <button class="wb-btn wb-btn-accent" id="wb-send" type="button">
+            <svg><use href="#wb-i-send"/></svg><span>Send</span>
+          </button>
+        </div>
+      </footer>
+    </aside>
+  </div>
+</div>
+
+<!-- ── the Preview window (STEP 2). In the IDE this is a real auxiliary window; here it floats. ── -->
+<div class="wb-pwin" id="wb-pwin" hidden>
+  <div class="wb-pwin-caption">
+    <span class="wb-pwin-caption-dot"></span>
+    <span>Crusor Preview — auxiliary window</span>
+    <span class="wb-spacer"></span>
+    <button class="wb-icon-btn" id="wb-pwin-close" type="button" aria-label="Close preview window">
+      <svg><use href="#wb-i-close"/></svg>
+    </button>
+  </div>
+  <iframe id="wb-pwin-frame" title="Crusor Preview window" src="about:blank"></iframe>
+</div>
+
+<div class="wb-toast" id="wb-toast" role="status" hidden></div>
+
+<script src="/lab/workbench.js"></script>
+</body>
+</html>

@@ -18,6 +18,7 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
+import { ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { installCrusorTheme } from './crusorTheme.js';
 
 /**
@@ -55,6 +56,7 @@ export class CrusorAIViewPane extends ViewPane {
 		@IThemeService private readonly crusorThemeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 		@ICrusorAIRendererService private readonly crusorAIRendererService: ICrusorAIRendererService,
+		@ICrusorAIPreviewService private readonly crusorAIPreviewService: ICrusorAIPreviewService,
 	) {
 		super(
 			options,
@@ -94,6 +96,25 @@ export class CrusorAIViewPane extends ViewPane {
 		webviewTab.type = 'button';
 		webviewTab.textContent = 'Webview';
 		webviewTab.disabled = this.webviewFrame === undefined;
+		// "Preview is available" lives in the Agent UI and only lights up when the session actually
+		// built something previewable — a dev server it started, or an HTML file it wrote.
+		const previewButton = DOM.append(tabs, DOM.$('button.crusorai-view-tab.crusorai-preview-open')) as HTMLButtonElement;
+		previewButton.type = 'button';
+		previewButton.textContent = 'Preview';
+		previewButton.disabled = true;
+		previewButton.dataset.available = 'false';
+		const applyPreviewAvailability = () => {
+			const availability = this.crusorAIPreviewService.availability;
+			previewButton.disabled = !availability.available;
+			previewButton.dataset.available = String(availability.available);
+			previewButton.title = availability.available
+				? `Open the preview window — ${availability.label ?? 'the UI Crusor built'}`
+				: 'No preview yet: when Crusor builds UI or starts a dev server, it appears here.';
+		};
+		this._register(this.crusorAIPreviewService.onDidChangeAvailability(() => applyPreviewAvailability()));
+		this._register(addDisposableListener(previewButton, 'click', () => { void this.crusorAIPreviewService.openPreview(); }));
+		applyPreviewAvailability();
+
 		const show = (surface: 'native' | 'webview') => {
 			root.style.display = surface === 'native' ? '' : 'none';
 			if (this.webviewSlot) { this.webviewSlot.style.display = surface === 'webview' ? '' : 'none'; }

@@ -22,6 +22,7 @@ import { KeybindingWeight } from '../../../../platform/keybinding/common/keybind
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { ICrusorAISessionStore, CrusorAISessionStore } from '../common/crusorAISessionStore.js';
+import { CrusorAIPreviewService, ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import './crusorAISessionController.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
@@ -70,6 +71,9 @@ registerSingleton(ICrusorAIRendererService, CrusorAIRendererService, Instantiati
 // this store. It is a singleton rather than renderer state so that a session the user ran is
 // remembered even while neither surface is mounted.
 registerSingleton(ICrusorAISessionStore, CrusorAISessionStore, InstantiationType.Delayed);
+// Crusor Preview: availability from what the session actually built, the separate preview window, and
+// the reviewed-batch handoff back into the Agent (steps 1, 2 and 9 of the flow; 3-8 live in the window).
+registerSingleton(ICrusorAIPreviewService, CrusorAIPreviewService, InstantiationType.Delayed);
 
 // --- Crusor container (right-side auxiliary bar) ---------------------------
 // Lives on the right (secondary) sidebar — same default location as Cursor's
@@ -217,6 +221,23 @@ MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
 	command: { id: 'crusorai.showConnectors', title: localize('crusorAI.menu.connectors', 'Connectors') },
 	group: '1_session',
 	order: 3,
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'crusorai.openPreview',
+			title: localize2('crusorAI.openPreview', 'Open Crusor Preview'),
+			f1: true,
+			icon: Codicon.openPreview,
+			menu: [{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 4 }],
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		// Opens the SEPARATE desktop window for the UI the agent built. It is a no-op with a log line
+		// when nothing previewable exists yet, which is the honest answer rather than an empty window.
+		await accessor.get(ICrusorAIPreviewService).openPreview();
+	}
 });
 
 registerAction2(class extends Action2 {
