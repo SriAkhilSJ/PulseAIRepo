@@ -475,6 +475,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * Sessions list come through here, so the two surfaces cannot disagree about what exists.
 	 */
 	private navigateToSession(targetSessionId: string): void {
+		console.log('[CrusorAI] navigateToSession', { from: this.sessionId, to: targetSessionId, parentMap: Array.from(this.parentMap.entries()), childParentId: this.childParentId });
 		if (!targetSessionId) return;
 		// If target is child, remember parent for back navigation
 		if (this.sessionId) {

@@ -789,9 +789,12 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	card.tabIndex = 0;
 	card.setAttribute('role', 'button');
 	card.setAttribute('aria-label', `Open sub-agent ${description}`);
+	console.log('[CrusorAI] taskToolCard render', { description, agentName, childId, navId, state });
 	const navigate = () => {
+		console.log('[CrusorAI] taskToolCard click -> navigateToSession', { description, childId, navId, target: childId ?? navId });
 		const target = childId ?? navId;
 		if (host.navigateToSession && target) host.navigateToSession(String(target));
+		else console.warn('[CrusorAI] navigateToSession not available or no target', { host: !!host.navigateToSession, target });
 	};
 	card.addEventListener('click', navigate);
 	card.addEventListener('keydown', (e: KeyboardEvent) => {

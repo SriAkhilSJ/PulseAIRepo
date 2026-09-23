@@ -1874,3 +1874,10 @@
 	line-height: 1.4;
 }
 
+
+/* UI Polish — flat, hover, not hard-coded */
+.crusorai-agent-shell { border-radius: 8px; overflow: hidden; }
+.crusorai-task-tool-card { border-radius: 8px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-editorWidget-background); transition: border-color 120ms, box-shadow 120ms, background 120ms; }
+.crusorai-task-tool-card.is-clickable:hover { border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: var(--vscode-list-hoverBackground); }
+.crusorai-task-tool-card.is-clickable:active { transform: scale(0.99); }
+
