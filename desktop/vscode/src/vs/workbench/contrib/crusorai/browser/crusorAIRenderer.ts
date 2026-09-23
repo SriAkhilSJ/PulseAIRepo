@@ -2672,6 +2672,9 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
 		const activeElement = document.activeElement;
 		const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
+		// Don't steal focus from ask tool (clarify card) — vibrations/streaming re-renders were
+		// yanking focus back to the main composer while user typed in the card
+		const isClarifyInput = activeComposer?.closest('.crusorai-clarify-card') !== null;
 		const selectionStart = activeComposer?.selectionStart;
 		const selectionEnd = activeComposer?.selectionEnd;
 		root.replaceChildren();
@@ -2680,10 +2683,17 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		else { renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; }); }
 		const nextScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
 		if (nextScroll) { nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop; }
-		if (activeComposer) {
+		if (activeComposer && !isClarifyInput && activeComposer.classList.contains('crusorai-composer-input')) {
 			const input = root.querySelector<HTMLTextAreaElement>('.crusorai-composer-input');
 			input?.focus({ preventScroll: true });
 			if (input && selectionStart !== undefined && selectionEnd !== undefined) { input.setSelectionRange(selectionStart, selectionEnd); }
+		} else if (isClarifyInput && activeComposer) {
+			// Restore focus to the clarify card's textarea (it was recreated by replaceChildren)
+			const nextClarify = root.querySelector<HTMLTextAreaElement>('.crusorai-clarify-card textarea');
+			if (nextClarify) {
+				nextClarify.focus({ preventScroll: true });
+				if (selectionStart !== undefined && selectionEnd !== undefined) { nextClarify.setSelectionRange(selectionStart, selectionEnd); }
+			}
 		}
 		lastPaint = { signature, text: lastTextPart(model)?.text ?? '' };
 
