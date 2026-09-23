@@ -164,6 +164,7 @@ class BridgeServer:
             "checkpoint.created": "checkpoint_event",
             "verification.updated": "verification_updated",
             "subagent.updated": "subagent_updated",
+            "subagent.background_completed": "subagent_background_completed",
             "runtime.degraded": "runtime_degraded",
             "context.status": "context_status",
         }
@@ -186,6 +187,18 @@ class BridgeServer:
         tool_id = raw_tool_id[len(prefix):] if raw_tool_id.startswith(prefix) else raw_tool_id
         name = str(payload.get("name") or payload.get("tool_name") or "")
 
+        if target == "subagent_background_completed":
+            # OpenCode parity: background task completion injects <task> result into parent transcript
+            # Emit as token (for transcript) + also keep subagent_updated semantics via base payload
+            # The bridge forwarder will emit this frame; renderer can show completion
+            return {
+                **base,
+                "type": "subagent_background_completed",
+                "subagent_id": payload.get("subagent_id"),
+                "child_thread_id": payload.get("child_thread_id"),
+                "text": payload.get("text", ""),
+                "description": payload.get("description", ""),
+            }
         if target == "token":
             return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
         if target == "tool_call_start":
@@ -252,6 +265,18 @@ class BridgeServer:
             "workspace_id": event.get("workspace_id"),
             "tool_id": str(event.get("tool_call_id") or payload.get("tool_id") or ""),
         }
+        if target == "subagent_background_completed":
+            # OpenCode parity: background task completion injects <task> result into parent transcript
+            # Emit as token (for transcript) + also keep subagent_updated semantics via base payload
+            # The bridge forwarder will emit this frame; renderer can show completion
+            return {
+                **base,
+                "type": "subagent_background_completed",
+                "subagent_id": payload.get("subagent_id"),
+                "child_thread_id": payload.get("child_thread_id"),
+                "text": payload.get("text", ""),
+                "description": payload.get("description", ""),
+            }
         if target == "token":
             return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
         name = str(payload.get("name") or payload.get("tool_name") or "")
@@ -667,11 +692,27 @@ class BridgeServer:
                 status = get_agent_status(sid)
             except Exception:
                 events, status = [], {}
+            # OpenCode parity: include subagent list on resume for parentMap navigation
+            subagents_payload = []
+            try:
+                from src.runtime.subagent_store import get_store
+                s_store = get_store()
+                rows = s_store.list_by_parent(sid)
+                subagents_payload = [r.to_dict() for r in rows]
+            except Exception:
+                subagents_payload = []
             self.emit({
                 "type": "session_info", **self._sessions[sid],
                 "resumed": kind == "session_resume",
                 "events": events, "agent_status": status,
+                "subagents": subagents_payload,
             })
+            # Also emit dedicated subagent_list frame for UI that listens specifically
+            if subagents_payload:
+                self.emit({
+                    "type": "subagent_list", "session_id": sid,
+                    "subagents": subagents_payload,
+                })
         elif kind == "session_list":
             self.emit({"type": "session_info", "sessions": list(self._sessions.values())})
         elif kind == "session_fork":
@@ -761,31 +802,110 @@ class BridgeServer:
             )
             self.emit({"type": "session_info", "session_id": sid, "clarify_resolved": ok})
         elif kind == "subagent_launch":
-            from src.agents.subagent_lifecycle import subagent_lifecycle
-            handle = subagent_lifecycle.launch(
-                parent_session_id=sid,
-                goal=str(frame.get("goal") or ""),
-                mode=str(frame.get("mode") or "research"),
-                parent_capabilities=tuple(frame.get("parent_capabilities") or ()),
-                allowed_capabilities=tuple(frame.get("allowed_capabilities") or ()),
-            )
-            self._subagents[handle.subagent_id] = handle
-            self.emit({
-                "type": "subagent_updated", "session_id": sid,
-                "subagent_id": handle.subagent_id, "state": "pending",
-            })
+            # Depth check (OpenCode parity: subagent_depth, default 1)
+            try:
+                from src.runtime.subagent_store import get_store
+                import os as _depth_os
+                _store = get_store()
+                _depth = _store.depth_of(str(sid))
+                if str(sid).startswith("sub-"):
+                    _depth = max(_depth, 1)
+                _max_depth = int(_depth_os.getenv("CRUSORAI_SUBAGENT_DEPTH", "1") or "1")
+                if _depth >= _max_depth:
+                    self.emit({
+                        "type": "subagent_updated", "session_id": sid,
+                        "subagent_id": f"depth-denied-{sid}",
+                        "state": "failed",
+                        "error": f"Subagent depth limit reached ({_max_depth})",
+                    })
+                    self.emit(error_frame(f"Subagent depth limit reached ({_max_depth})"))
+                else:
+                    from src.agents.subagent_lifecycle import subagent_lifecycle
+                    handle = subagent_lifecycle.launch(
+                        parent_session_id=sid,
+                        goal=str(frame.get("goal") or frame.get("prompt") or ""),
+                        mode=str(frame.get("mode") or frame.get("subagent_type") or "research"),
+                        parent_capabilities=tuple(frame.get("parent_capabilities") or ()),
+                        allowed_capabilities=tuple(frame.get("allowed_capabilities") or ()),
+                        description=str(frame.get("description") or "")[:200],
+                        agent_name=str(frame.get("subagent_type") or frame.get("mode") or "research"),
+                        tool_call_id=str(frame.get("tool_call_id") or "") or None,
+                        background=bool(frame.get("background", False)),
+                    )
+                    self._subagents[handle.subagent_id] = handle
+                    self.emit({
+                        "type": "subagent_updated", "session_id": sid,
+                        "subagent_id": handle.subagent_id,
+                        "child_thread_id": handle.subagent_id,
+                        "parent_session_id": sid,
+                        "state": "pending",
+                        "description": str(frame.get("description") or "")[:200],
+                        "mode": str(frame.get("mode") or "research"),
+                        "agent_name": str(frame.get("subagent_type") or frame.get("mode") or "research"),
+                        "background": bool(frame.get("background", False)),
+                    })
+            except Exception as _launch_exc:
+                # If depth check failed or launch threw, ensure error emitted (depth case already emitted)
+                if "depth limit" not in str(_launch_exc).lower():
+                    try:
+                        self.emit({
+                            "type": "subagent_updated", "session_id": sid,
+                            "subagent_id": f"launch-failed-{sid}",
+                            "state": "failed",
+                            "error": str(_launch_exc)[:500],
+                        })
+                    except Exception:
+                        pass
+
+        elif kind == "subagent_list":
+            # OpenCode parity: list child sessions for a parent
+            try:
+                from src.runtime.subagent_store import get_store
+                store = get_store()
+                rows = store.list_by_parent(sid)
+                payload = [r.to_dict() for r in rows]
+                self.emit({
+                    "type": "subagent_list", "session_id": sid,
+                    "subagents": payload,
+                })
+            except Exception as exc:
+                self.emit({
+                    "type": "subagent_list", "session_id": sid,
+                    "subagents": [], "error": str(exc),
+                })
         elif kind in {"subagent_status", "subagent_cancel", "subagent_result"}:
             from src.agents.subagent_lifecycle import subagent_lifecycle
             sub_id = str(frame.get("subagent_id") or "")
             handle = self._subagents.get(sub_id)
             if handle is None:
-                payload = {"state": "unknown"}
+                # Try to recover from store (process restart)
+                try:
+                    from src.runtime.subagent_store import get_store
+                    store = get_store()
+                    row = store.get(sub_id) or store.get_by_child(sub_id)
+                    if row:
+                        payload = row.to_dict()
+                    else:
+                        payload = {"state": "unknown"}
+                except Exception:
+                    payload = {"state": "unknown"}
             elif kind == "subagent_status":
                 payload = subagent_lifecycle.status(handle)
             elif kind == "subagent_cancel":
                 payload = {"cancel_accepted": subagent_lifecycle.cancel(handle), **subagent_lifecycle.status(handle)}
             else:
                 payload = subagent_lifecycle.result(handle)
+            # Extend with store data if available for UI richness
+            try:
+                from src.runtime.subagent_store import get_store
+                store = get_store()
+                row = store.get(sub_id) or store.get_by_child(sub_id)
+                if row:
+                    base = row.to_dict()
+                    # Merge lifecycle payload over store base
+                    payload = {**base, **payload}
+            except Exception:
+                pass
             self.emit({
                 "type": "subagent_updated", "session_id": sid,
                 "subagent_id": sub_id, **payload,

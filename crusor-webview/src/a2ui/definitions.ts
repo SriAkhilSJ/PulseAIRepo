@@ -52,4 +52,21 @@ export const definitions = {
         .optional(),
     }),
   },
+  TaskToolCard: {
+    description: "Sub-agent task card — clickable navigation to child session (OpenCode parity)",
+    props: z.object({
+      description: DynString.optional(),
+      subagent_type: DynString.optional(),
+      agent_name: DynString.optional(),
+      mode: DynString.optional(),
+      status: DynString.optional(),
+      sessionId: DynString.optional(),
+      child_thread_id: DynString.optional(),
+      toolCalls: z.number().optional(),
+      tool_calls: z.number().optional(),
+      background: z.boolean().optional(),
+      prompt: DynString.optional(),
+      goal: DynString.optional(),
+    }),
+  },
 } satisfies CatalogDefinitions;
