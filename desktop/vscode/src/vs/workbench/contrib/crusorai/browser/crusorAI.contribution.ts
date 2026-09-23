@@ -36,7 +36,6 @@ import {
 } from '../../../common/views.js';
 import { EditorExtensions, IEditorFactoryRegistry } from '../../../common/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { IViewsService } from '../../../services/views/common/viewsService.js';
 import {
 	CRUSOR_AI_VIEW_CONTAINER_ID,
 	CRUSOR_AI_VIEW_ID,
