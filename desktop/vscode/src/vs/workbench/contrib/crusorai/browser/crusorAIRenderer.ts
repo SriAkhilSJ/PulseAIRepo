@@ -1630,8 +1630,13 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				: button('Retry', 'crusorai-link-button', host.retryEngine),
 		));
 	}
-	// OpenCode parity: child view lock banner
+	// OpenCode parity: child view lock banner + agent-designed prompt as user message
 	if (model.isChild) {
+		// Show the agent's delegated task as the first user bubble — not the original user prompt
+		const delegatedTask = (model as any).userMessage || (model as any).subAgentGoal || '';
+		if (delegatedTask) {
+			lane.append(element('div', 'crusorai-user-message', delegatedTask.slice(0, 800)));
+		}
 		const banner = element('div', 'crusorai-child-banner');
 		banner.dataset.component = 'child-banner';
 		banner.append(icon('info'), element('span', undefined, 'Sub-agent session — prompt disabled'));
