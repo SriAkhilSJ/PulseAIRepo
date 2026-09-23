@@ -805,6 +805,12 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	surface.append(element('span', 'crusorai-task-tool-title', agentName.charAt(0).toUpperCase() + agentName.slice(1)));
 	const subtitleText = description + (isBackground ? ' (background)' : '') + (toolCalls ? ` · ${toolCalls} calls` : '');
 	surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
+	// Breathing when sub-agent is running — main shows live process
+	if (running) {
+		const breath = element('span', 'crusorai-scaffold-crusor');
+		breath.style.marginLeft = '6px';
+		surface.append(breath);
+	}
 
 	card.append(surface);
 	// Show full task prompt below subtitle so user can see what the sub-agent is doing (was only short "Research")
@@ -812,7 +818,6 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	if (fullTask && fullTask !== description) {
 		card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
 	} else if (fullTask) {
-		// Even if same as description, still show it in a body for visibility
 		card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
 	}
 	if (childId) {
