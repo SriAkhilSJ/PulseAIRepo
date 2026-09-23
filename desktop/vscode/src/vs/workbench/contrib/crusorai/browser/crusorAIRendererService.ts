@@ -1068,7 +1068,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
 				agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
 			});
-		} else if (frame.type === 'subagent_list') {
+		} else if ((frame as any).type === 'subagent_list') {
 			// OpenCode parity: list children for parent
 			for (const row of (frame as any).subagents ?? []) {
 				const sid = row.subagent_id ?? row.child_thread_id;
@@ -1091,7 +1091,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 					result: row.result,
 				} as any);
 			}
-		} else if (frame.type === 'subagent_background_completed') {
+		} else if ((frame as any).type === 'subagent_background_completed') {
 			// Background task finished, inject into transcript as token + update subagent
 			const subId = (frame as any).subagent_id;
 			const text = (frame as any).text ?? '';
