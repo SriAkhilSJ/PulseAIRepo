@@ -405,20 +405,21 @@ def delegate_to_subagent(
     config: RunnableConfig = None,  # type: ignore
 ) -> str:
     """
-    Delegate a focused sub-task to a specialized sub-agent.
+    Delegate a focused sub-task to a specialized sub-agent - PREFERRED FOR PARALLEL WORK.
 
-    WHEN TO USE:
-    - The task has a clear separable piece (research, coding, testing, review)
-    - You want parallel exploration of different approaches
-    - The sub-task is complex enough to benefit from focused attention
+    WHEN TO USE (STRONGLY PREFERRED):
+    - Analyzing multiple folders/files - spawn ONE sub-agent per folder IN PARALLEL (like opencode: Spawn agents to analyze folders -> 5x Explore in parallel)
+    - Any task with separable pieces that can run in parallel (research, coding, testing)
+    - Example: "Analyze dog folders" -> delegate_to_subagent for each folder: playground, PulseAIRepo, pulse-res, etc. IN ONE BATCH CALL
+    - Use delegate_to_subagent_batch for multiple at once
 
     WHEN NOT TO USE:
     - Trivial one-step tasks
     - Tasks that depend on your immediate previous action
 
     OpenCode parity extensions:
-    - description: short 3-5 words label (for UI card)
-    - subagent_type: alias for mode (general, explore, etc.)
+    - description: short 3-5 words label (for UI card, e.g., "Analyze playground folder")
+    - subagent_type: alias for mode (general, explore, etc.) - use "explore" or "research" for folder analysis
     - background: run async, returns immediately
     - prompt: alias for task (OpenCode shape)
     """
