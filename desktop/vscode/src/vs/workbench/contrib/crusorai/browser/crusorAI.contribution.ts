@@ -21,6 +21,9 @@ import { IInstantiationService, ServicesAccessor } from '../../../../platform/in
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { ICrusorAISessionStore, CrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import './crusorAISessionController.js';
@@ -96,6 +99,15 @@ Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews
 	canMoveView: false,
 	ctorDescriptor: new SyncDescriptor(CrusorAIViewPane),
 }], container);
+
+// Fixed agent — hidden until Ctrl+L (no auto-open, no title card)
+class CrusorAutoHideContribution implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.crusorai.autoHide';
+	constructor(@IViewsService viewsService: IViewsService) {
+		try { viewsService.closeView(CRUSOR_AI_VIEW_ID); } catch { }
+	}
+}
+registerWorkbenchContribution2(CrusorAutoHideContribution.ID, CrusorAutoHideContribution, WorkbenchPhase.AfterRestored);
 
 // --- Crusor Manager (full-width editor tab, Copilot "Agents Window" analogue)
 Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(
@@ -189,10 +201,16 @@ registerAction2(class extends Action2 {
 			title: localize2('crusorAI.newSession', 'New Agent Session'),
 			f1: true,
 			icon: Codicon.add,
-			menu: [{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 1 }],
+			menu: [
+				{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 1 },
+				{ id: MenuId.ViewTitle, when: ContextKeyExpr.equals('view', CRUSOR_AI_VIEW_ID), group: 'navigation', order: 0 }
+			],
 		});
 	}
-	run(accessor: ServicesAccessor): Promise<void> { return openCrusorAgent(accessor); }
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await openCrusorAgent(accessor);
+		try { (accessor.get(ICrusorAISessionStore) as any)._onDidChange?.fire?.(); } catch { }
+	}
 });
 
 registerAction2(class extends Action2 {
@@ -310,6 +328,43 @@ registerAction2(class extends Action2 {
 		await accessor.get(ICommandService).executeCommand('workbench.action.openSettings', 'crusorai');
 	}
 });
+
+console.log('[CrusorAI] Verify: registering ViewTitle history + new session');
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'crusorai.showHistory',
+			title: localize2('crusorAI.showHistory', 'Crusor: Show Session History'),
+			f1: true,
+			category: localize2('crusorAI.category', 'Crusor'),
+			icon: Codicon.history,
+			menu: [{
+				id: MenuId.ViewTitle,
+				when: ContextKeyExpr.equals('view', CRUSOR_AI_VIEW_ID),
+				group: 'navigation',
+				order: 1
+			}]
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		console.log('[CrusorAI] History clicked, opening QuickPick');
+		const quickInput = accessor.get(IQuickInputService);
+		const store = accessor.get(ICrusorAISessionStore);
+		const viewsService = accessor.get(IViewsService);
+		const sessions = store.records();
+		console.log('[CrusorAI] sessions:', sessions.length, sessions.slice(0,2));
+		const picks = (Array.isArray(sessions) ? sessions : []).slice(0, 20).map((s: any) => ({
+			label: s.label || s.sessionId || 'Untitled session',
+			description: s.workspaceLabel || '',
+			id: s.sessionId
+		}));
+		if (picks.length === 0) picks.push({ label: 'No sessions yet', description: 'Start a chat with Ctrl+L', id: '' });
+		const pick: any = await quickInput.pick(picks as any, { placeHolder: 'Crusor Session History — pick to open' });
+		console.log('[CrusorAI] pick:', pick);
+		if (pick && pick.id) await viewsService.openView(CRUSOR_AI_VIEW_ID, true);
+	}
+});
+console.log('[CrusorAI] history registered');
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'crusorai',
