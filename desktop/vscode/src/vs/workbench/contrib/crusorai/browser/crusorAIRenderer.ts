@@ -782,20 +782,21 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	const card = element('div', 'crusorai-task-tool-card');
 	card.dataset.component = 'task-tool-card';
 	card.style.setProperty('--task-agent-color', agentColor(agentName));
-	if (childId) {
-		card.dataset.sessionId = String(childId);
-		card.classList.add('is-clickable');
-		card.tabIndex = 0;
-		card.setAttribute('role', 'button');
-		card.setAttribute('aria-label', `Open sub-agent ${description}`);
-		const navigate = () => {
-			if (host.navigateToSession) host.navigateToSession(String(childId));
-		};
-		card.addEventListener('click', navigate);
-		card.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(); }
-		});
-	}
+	// Always clickable — even while sub-agent is still starting (childId not yet in result)
+	const navId = childId ?? (tool as any).toolCallId ?? tool.id;
+	card.dataset.sessionId = String(navId);
+	card.classList.add('is-clickable');
+	card.tabIndex = 0;
+	card.setAttribute('role', 'button');
+	card.setAttribute('aria-label', `Open sub-agent ${description}`);
+	const navigate = () => {
+		const target = childId ?? navId;
+		if (host.navigateToSession && target) host.navigateToSession(String(target));
+	};
+	card.addEventListener('click', navigate);
+	card.addEventListener('keydown', (e: KeyboardEvent) => {
+		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(); }
+	});
 
 	const surface = element('div', 'crusorai-task-tool-surface');
 	const iconWrap = element('span', running ? 'crusorai-task-tool-spinner' : 'crusorai-task-tool-icon');
