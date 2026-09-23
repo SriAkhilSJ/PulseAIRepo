@@ -119,6 +119,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.reasoningParts = [];
         this.reasoningPending = false;
         this.subAgents = new Map();
+        /** OpenCode parity: parentMap child_thread_id -> parent_session_id for navigation */
+        this.parentMap = new Map();
         this.plan = [];
         this.telemetry = {};
         this.engineSetupError = false;
@@ -206,6 +208,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 }
                 catch { /* best effort */ }
             },
+            navigateToSession: (sessionId) => { this.navigateToSession(sessionId); },
+            isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
         };
         this._register(this.engineService.onDidChangeState(state => {
             if (state === "ready" /* CrusorAIEngineState.Ready */) {
@@ -319,6 +323,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.pendingPrompt = undefined;
             this.tools.clear();
             this.subAgents.clear();
+            this.parentMap.clear();
+            this.childParentId = undefined;
             this.history = [];
             this.plan = [];
             this.verification = undefined;
@@ -370,6 +376,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             reasoningParts: [...this.reasoningParts],
             tools: [...this.tools.values()],
             subAgents: [...this.subAgents.values()],
+            isChild: !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
+            parentSessionId: this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined),
+            parentMap: new Map(this.parentMap),
             approval: this.approval,
             clarify: this.clarify,
             todos: this.todos,
@@ -396,6 +405,44 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      * `noteSession()` is the only writer. Both the manager's own rows and the workbench's Agent
      * Sessions list come through here, so the two surfaces cannot disagree about what exists.
      */
+    navigateToSession(targetSessionId) {
+        if (!targetSessionId)
+            return;
+        // If target is child, remember parent for back navigation
+        if (this.sessionId) {
+            // When navigating to child, keep parent mapping
+            if (!this.parentMap.has(targetSessionId)) {
+                this.parentMap.set(targetSessionId, this.sessionId);
+            }
+            // When navigating back to parent, set childParentId
+            if (this.parentMap.has(this.sessionId)) {
+                this.childParentId = this.parentMap.get(this.sessionId);
+            }
+        }
+        // Check if navigating to parent
+        if (this.parentMap.has(targetSessionId)) {
+            // Navigating to a known session, not necessarily child
+            // If target is parent of current, clear childParentId after?
+        }
+        // Actually if target is parent of current child, we want to go back
+        if (this.childParentId && targetSessionId === this.childParentId) {
+            this.childParentId = this.parentMap.get(targetSessionId);
+        }
+        this.sessionId = targetSessionId;
+        // If target is child, set childParentId
+        if (this.parentMap.has(targetSessionId)) {
+            this.childParentId = this.parentMap.get(targetSessionId);
+        }
+        else if (!targetSessionId.startsWith('sub-')) {
+            this.childParentId = undefined;
+        }
+        // Request load from engine
+        const workspace = this.workspacePath;
+        if (workspace) {
+            this.send({ type: 'session_load', session_id: targetSessionId, workspace });
+        }
+        this.render();
+    }
     sessionRows() {
         const readState = new Map();
         for (const facts of this.sessionStore.records()) {
@@ -818,6 +865,33 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (typeof frame.cancel_requested === 'boolean') {
                 this.cancelRequested = frame.cancel_requested;
             }
+            // OpenCode parity: restore subagents + parentMap on resume (env path aware)
+            for (const row of frame.subagents ?? []) {
+                const sid = row.subagent_id ?? row.child_thread_id;
+                if (!sid)
+                    continue;
+                const childId = row.child_thread_id ?? sid;
+                const parentId = row.parent_session_id ?? this.sessionId;
+                if (childId && parentId)
+                    this.parentMap.set(childId, parentId);
+                this.subAgents.set(sid, {
+                    id: sid,
+                    state: (row.state ?? 'pending'),
+                    goal: row.goal,
+                    description: row.description,
+                    mode: row.mode,
+                    duration: row.duration,
+                    parentSessionId: parentId,
+                    childThreadId: childId,
+                    background: row.background,
+                    toolCalls: row.tool_calls,
+                    agentName: row.agent_name,
+                    result: row.result,
+                });
+            }
+            if (this.sessionId && this.parentMap.has(this.sessionId)) {
+                this.childParentId = this.parentMap.get(this.sessionId);
+            }
             for (const event of frame.events ?? []) {
                 const candidate = valueRecord(event);
                 if (typeof candidate?.type === 'string') {
@@ -955,17 +1029,73 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             const state = frame.state ?? existing.state;
             const duration = frame.duration;
             const result = frame.result;
+            const childId = frame.child_thread_id ?? subagent_id;
+            const parentId = frame.parent_session_id ?? frame.parentSessionId ?? this.sessionId;
+            const desc = frame.description ?? existing.description;
+            if (childId && parentId) {
+                this.parentMap.set(childId, parentId);
+            }
+            // Detect if current session is child
+            if (this.sessionId && this.parentMap.has(this.sessionId)) {
+                this.childParentId = this.parentMap.get(this.sessionId);
+            }
             this.subAgents.set(subagent_id, {
                 ...existing,
                 id: subagent_id,
                 state: state,
                 goal: frame.goal ?? existing.goal,
+                description: desc ?? existing.description,
                 mode: frame.mode ?? existing.mode,
                 progress: frame.progress ?? existing.progress,
                 result: result ?? existing.result,
                 duration: duration ?? existing.duration,
-                parentSessionId: frame.parent_session_id ?? existing.parentSessionId,
+                parentSessionId: parentId ?? existing.parentSessionId,
+                childThreadId: childId ?? existing.childThreadId,
+                background: frame.background ?? existing.background,
+                toolCalls: frame.tool_calls ?? frame.toolCalls ?? existing.toolCalls,
+                agentName: frame.agent_name ?? frame.agentName ?? existing.mode,
             });
+        }
+        else if (frame.type === 'subagent_list') {
+            // OpenCode parity: list children for parent
+            for (const row of frame.subagents ?? []) {
+                const sid = row.subagent_id ?? row.child_thread_id;
+                if (!sid)
+                    continue;
+                const childId = row.child_thread_id ?? sid;
+                const parentId = row.parent_session_id ?? this.sessionId;
+                if (childId && parentId)
+                    this.parentMap.set(childId, parentId);
+                this.subAgents.set(sid, {
+                    id: sid,
+                    state: (row.state ?? 'pending'),
+                    goal: row.goal,
+                    description: row.description,
+                    mode: row.mode,
+                    duration: row.duration,
+                    parentSessionId: parentId,
+                    childThreadId: childId,
+                    background: row.background,
+                    toolCalls: row.tool_calls,
+                    agentName: row.agent_name,
+                    result: row.result,
+                });
+            }
+        }
+        else if (frame.type === 'subagent_background_completed') {
+            // Background task finished, inject into transcript as token + update subagent
+            const subId = frame.subagent_id;
+            const text = frame.text ?? '';
+            if (text) {
+                this.assistantText += text;
+                this.appendTextPart(text);
+            }
+            if (subId) {
+                const existing = this.subAgents.get(subId);
+                if (existing) {
+                    this.subAgents.set(subId, { ...existing, state: 'completed', result: text });
+                }
+            }
         }
         else if (frame.type === 'verification_updated') {
             this.verification = frame.status;
