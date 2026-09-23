@@ -806,6 +806,14 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
 
 	card.append(surface);
+	// Show full task prompt below subtitle so user can see what the sub-agent is doing (was only short "Research")
+	const fullTask = firstString(args, ['prompt', 'task', 'description', 'goal']) ?? '';
+	if (fullTask && fullTask !== description) {
+		card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+	} else if (fullTask) {
+		// Even if same as description, still show it in a body for visibility
+		card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+	}
 	if (childId) {
 		const action = element('div', 'crusorai-task-tool-action', icon('arrow-up-right'));
 		card.append(action);

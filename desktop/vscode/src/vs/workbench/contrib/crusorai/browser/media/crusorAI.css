@@ -1863,3 +1863,14 @@
 	font-size: var(--crusorai-text-meta);
 }
 .crusorai-child-banner .codicon { color: var(--vscode-editorWarning-foreground, #cca700); }
+
+/* Sub-agent task prompt visible — user could not see task (was only short 'Research') */
+.crusorai-task-tool-task {
+	padding: 6px 10px 8px;
+	font-size: var(--crusorai-text-meta);
+	color: var(--vscode-descriptionForeground);
+	white-space: pre-wrap;
+	word-break: break-word;
+	line-height: 1.4;
+}
+
