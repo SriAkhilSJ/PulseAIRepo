@@ -816,12 +816,38 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	}
 
 	card.append(surface);
-	// Show full task prompt below subtitle so user can see what the sub-agent is doing (was only short "Research")
-	const fullTask = firstString(args, ['prompt', 'task', 'description', 'goal']) ?? '';
-	if (fullTask && fullTask !== description) {
-		card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
-	} else if (fullTask) {
-		card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+	// For batch: show each task as clickable row that navigates to its sub-agent session
+	const batchTasks = (args as any).tasks;
+	if (Array.isArray(batchTasks) && batchTasks.length > 0) {
+		const batchList = element('div', 'crusorai-task-tool-batch');
+		for (let i = 0; i < batchTasks.length; i++) {
+			const t = String(batchTasks[i] ?? '');
+			const short = t.slice(0, 80);
+			const row = element('div', 'crusorai-task-tool-batch-row', element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`), element('span', undefined, short));
+			row.title = t;
+			row.style.cursor = 'pointer';
+			// Try to find sub-agent id for this task by matching goal/description in host's subAgents
+			row.addEventListener('click', () => {
+				const subs: any[] = (host as any).getSubAgents?.() ?? (host as any).subAgents ?? [];
+				let target: string | undefined;
+				for (const s of subs) {
+					if (s.goal && t.includes(s.goal.slice(0, 20))) { target = s.id ?? s.subagent_id; break; }
+					if (s.description && t.includes(s.description.slice(0, 20))) { target = s.id; break; }
+				}
+				if (!target) target = childId ?? navId;
+				if (target && host.navigateToSession) host.navigateToSession(String(target));
+			});
+			batchList.append(row);
+		}
+		card.append(batchList);
+	} else {
+		// Show full task prompt below subtitle so user can see what the sub-agent is doing (was only short "Research")
+		const fullTask = firstString(args, ['prompt', 'task', 'description', 'goal']) ?? '';
+		if (fullTask && fullTask !== description) {
+			card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+		} else if (fullTask) {
+			card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+		}
 	}
 	if (childId) {
 		const action = element('div', 'crusorai-task-tool-action', icon('arrow-up-right'));
