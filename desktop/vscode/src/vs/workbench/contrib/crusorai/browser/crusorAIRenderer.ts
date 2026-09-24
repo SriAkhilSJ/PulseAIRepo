@@ -1633,10 +1633,20 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				: button('Retry', 'crusorai-link-button', host.retryEngine),
 		));
 	}
-	// OpenCode parity: child view lock banner + agent-designed prompt as user message
+	// OpenCode parity: child header parent / child + agent-designed prompt as user message
 	if (model.isChild) {
-		// Show the agent's delegated task as the first user bubble — not the original user prompt
 		const delegatedTask = (model as any).userMessage || (model as any).subAgentGoal || '';
+		const parentTitle = (model as any).parentTitle || 'Main';
+		const childTitle = delegatedTask.slice(0, 60) || 'Sub-agent';
+		// Header like opencode: Spawn agents to analyze folders / Analyze playground folder
+		const header = element('div', 'crusorai-child-header');
+		const parentBtn = element('button', 'crusorai-child-header-parent', parentTitle);
+		if ((model as any).parentSessionId && host.navigateToSession) {
+			const pId = (model as any).parentSessionId;
+			parentBtn.addEventListener('click', () => host.navigateToSession!(pId));
+		}
+		header.append(parentBtn, element('span', undefined, ' / '), element('h1', 'crusorai-child-header-child', childTitle));
+		lane.prepend(header);
 		if (delegatedTask) {
 			lane.append(element('div', 'crusorai-user-message', delegatedTask.slice(0, 800)));
 		}
