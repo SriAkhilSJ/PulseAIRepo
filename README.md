@@ -37,6 +37,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Crusor setting/command.
 - **CrusorAI Dark** is the bundled default theme.
 - Engine root auto-detection: when neither `crusorai.engineRoot` nor `CRUSORAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
+- **Sub-agent pipeline** `src/graphs/chat_graph.py:398` `delegate_to_subagent` / `delegate_to_subagent_batch` — parallel `Explore` (opencode `Spawn agents to analyze folders`), isolated `parentMap` `crusorAIRendererService.ts:477`, `taskToolCard` clickable to sub-agent `Agent` UI (`crusorAIRenderer.ts:766`), `Back to Parent` banner `1634`, prompt disabled in child, `CRUSORAI_SUBAGENT_DEPTH` depth guard.
 
 ### Agent runtime
 
