@@ -182,7 +182,24 @@ def darken(image: Image.Image, factor: float) -> Image.Image:
         for x in range(width):
             red, green, blue, alpha = px[x, y]
             if alpha:
-                px[x, y] = (int(red * factor), int(green * factor), int(blue * factor), alpha)
+                px[x, y] = (
+                    min(255, int(red * factor)),
+                    min(255, int(green * factor)),
+                    min(255, int(blue * factor)),
+                    alpha,
+                )
+    return out
+
+
+def _boost_blue(image: Image.Image, factor: float) -> Image.Image:
+    out = image.convert("RGBA")
+    px = out.load()
+    width, height = out.size
+    for y in range(height):
+        for x in range(width):
+            red, green, blue, alpha = px[x, y]
+            if alpha:
+                px[x, y] = (red, green, min(255, int(blue * factor)), alpha)
     return out
 
 
@@ -226,7 +243,9 @@ def main() -> None:
     icons["folder"] = folder_icon(False)
     icons["folder-open"] = folder_icon(True)
     if "react" in icons:
-        icons["react"] = darken(icons["react"], 0.88)
+        # A little lighter than the sheet navy, still dark blue. Not TypeScript blue.
+        icons["react"] = darken(icons["react"], 1.07)
+        icons["react"] = _boost_blue(icons["react"], 1.06)
 
     for name, image in icons.items():
         image.save(IMG / filename(name), optimize=True)
