@@ -244,7 +244,7 @@ def main() -> None:
     icons["folder-open"] = folder_icon(True)
     if "react" in icons:
         # A little lighter than the sheet navy, still dark blue. Not TypeScript blue.
-        icons["react"] = darken(icons["react"], 1.07)
+        icons["react"] = darken(icons["react"], 1.20)
         icons["react"] = _boost_blue(icons["react"], 1.06)
 
     for name, image in icons.items():
