@@ -160,18 +160,25 @@ def extract_sheet(path: Path, names: list[str] | dict[str, tuple[int, int]]) -> 
 
 
 def folder_icon(open_: bool) -> Image.Image:
+    """Filled folder. The cyan cap is thick enough to survive a 16px explorer slot."""
     im = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    silver = (224, 224, 224, 255)
     cyan = (34, 211, 238, 255)
-    shade = (168, 168, 168, 255)
+    silver = (226, 226, 226, 255)
+    shade = (150, 156, 162, 255)
     if not open_:
-        d.rounded_rectangle((16, 48, 112, 104), radius=8, fill=silver)
-        d.polygon([(18, 52), (30, 34), (62, 34), (74, 52)], fill=cyan)
+        d.rounded_rectangle((16, 8, 64, 40), radius=8, fill=cyan)
+        d.rounded_rectangle((8, 32, 120, 120), radius=10, fill=silver)
+        d.rectangle((8, 32, 120, 56), fill=cyan)
+        d.pieslice((8, 32, 28, 52), 180, 270, fill=cyan)
+        d.pieslice((100, 32, 120, 52), 270, 360, fill=cyan)
     else:
-        d.polygon([(20, 46), (32, 32), (64, 32), (76, 46), (108, 46), (100, 72), (18, 72)], fill=shade)
-        d.polygon([(20, 46), (32, 32), (64, 32), (76, 46)], fill=cyan)
-        d.rounded_rectangle((12, 58, 116, 108), radius=8, fill=silver)
+        d.rounded_rectangle((16, 4, 64, 36), radius=8, fill=cyan)
+        d.rounded_rectangle((8, 24, 120, 64), radius=10, fill=shade)
+        d.rectangle((8, 24, 120, 48), fill=cyan)
+        d.pieslice((8, 24, 28, 44), 180, 270, fill=cyan)
+        d.pieslice((100, 24, 120, 44), 270, 360, fill=cyan)
+        d.rounded_rectangle((8, 56, 120, 120), radius=10, fill=silver)
     return im
 
 
