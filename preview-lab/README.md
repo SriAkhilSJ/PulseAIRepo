@@ -1,5 +1,8 @@
 # Crusor Preview — lab
 
+> Setting this up on your own machine (including the full desktop-app flow): see
+> [`../CRUSOR_PREVIEW_SETUP.md`](../CRUSOR_PREVIEW_SETUP.md).
+
 Runs the whole preview flow in a browser, with **the real feature code on the path** and only the
 model turn mocked. There is no Electron here, so this lab is how the flow is demonstrated and
 eyeballed on a machine that cannot launch the desktop app.
