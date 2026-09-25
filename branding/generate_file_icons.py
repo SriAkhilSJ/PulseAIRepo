@@ -160,26 +160,30 @@ def extract_sheet(path: Path, names: list[str] | dict[str, tuple[int, int]]) -> 
 
 
 def folder_icon(open_: bool) -> Image.Image:
-    """Filled folder. The cyan cap is thick enough to survive a 16px explorer slot."""
+    """Flat folder in the same cyan and weight as the other glyphs."""
     im = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    cyan = (34, 211, 238, 255)
-    silver = (226, 226, 226, 255)
-    shade = (150, 156, 162, 255)
+    cyan = (76, 184, 204, 255)
     if not open_:
-        d.rounded_rectangle((16, 8, 64, 40), radius=8, fill=cyan)
-        d.rounded_rectangle((8, 32, 120, 120), radius=10, fill=silver)
-        d.rectangle((8, 32, 120, 56), fill=cyan)
-        d.pieslice((8, 32, 28, 52), 180, 270, fill=cyan)
-        d.pieslice((100, 32, 120, 52), 270, 360, fill=cyan)
+        d.rounded_rectangle((26, 30, 64, 48), radius=6, fill=cyan)
+        d.rounded_rectangle((18, 44, 110, 102), radius=9, fill=cyan)
     else:
-        d.rounded_rectangle((16, 4, 64, 36), radius=8, fill=cyan)
-        d.rounded_rectangle((8, 24, 120, 64), radius=10, fill=shade)
-        d.rectangle((8, 24, 120, 48), fill=cyan)
-        d.pieslice((8, 24, 28, 44), 180, 270, fill=cyan)
-        d.pieslice((100, 24, 120, 44), 270, 360, fill=cyan)
-        d.rounded_rectangle((8, 56, 120, 120), radius=10, fill=silver)
+        d.rounded_rectangle((26, 20, 64, 38), radius=6, fill=cyan)
+        d.rounded_rectangle((18, 34, 110, 58), radius=7, fill=cyan)
+        d.rounded_rectangle((18, 68, 110, 108), radius=9, fill=cyan)
     return im
+
+
+def darken(image: Image.Image, factor: float) -> Image.Image:
+    out = image.convert("RGBA")
+    px = out.load()
+    width, height = out.size
+    for y in range(height):
+        for x in range(width):
+            red, green, blue, alpha = px[x, y]
+            if alpha:
+                px[x, y] = (int(red * factor), int(green * factor), int(blue * factor), alpha)
+    return out
 
 
 def filename(name: str) -> str:
@@ -221,6 +225,8 @@ def main() -> None:
     icons.update(extract_sheet(SHEET_DIR / "crusor-seti-rest-5.png", REST5_CELLS))
     icons["folder"] = folder_icon(False)
     icons["folder-open"] = folder_icon(True)
+    if "react" in icons:
+        icons["react"] = darken(icons["react"], 0.88)
 
     for name, image in icons.items():
         image.save(IMG / filename(name), optimize=True)
