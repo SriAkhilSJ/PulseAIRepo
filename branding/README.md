@@ -19,3 +19,5 @@ The UI accent palette is unchanged from the previous identity; the logomark itse
 Run `python branding/generate_icons.py` after replacing the canonical logo. It derives the Windows, macOS, Linux, server, and browser assets consumed by the canonical fork (`desktop/vscode/resources/`) from `crusorai-mark.png`. Pillow is required only for this branding generation step.
 
 The app icon intentionally contains no text so it remains legible at 16–32 px. Product copy uses **CrusorAI IDE**; the in-product agent remains **Crusor**.
+
+File icons live in `desktop/vscode/extensions/theme-crusor-icons` and are the default `workbench.iconTheme` (`crusor`). Regenerate them from the approved sheets with `python branding/generate_file_icons.py`.
