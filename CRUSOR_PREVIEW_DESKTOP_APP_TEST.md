@@ -27,7 +27,7 @@ them would conflict with what is committed.
 $ErrorActionPreference = 'Stop'
 cd D:\crusorAIagent\PulseAIRepo
 git fetch origin arena/01a0ca7c-pulseairepo
-git merge-base --is-ancestor 5d13484e FETCH_HEAD    # the tip this doc ships in; later tips keep it as an ancestor
+git merge-base --is-ancestor 2b2880f8 FETCH_HEAD    # the tip this doc ships in; later tips keep it as an ancestor
 if ($LASTEXITCODE -ne 0) { git pull --ff-only origin arena/01a0ca7c-pulseairepo }
 ```
 
