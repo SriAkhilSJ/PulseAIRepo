@@ -519,6 +519,12 @@ def search_files(
     Literal substring match, case-insensitive (hermes' regex/glob/output
     modes are a separate port — this schema does not advertise them).
 
+    Write the text as it appears in the file: `.btn`, NOT `\.btn`. A
+    backslash is an ordinary character to this tool, so a regex escape
+    searches for a character that is usually not there and returns nothing
+    (a measured field run then guessed a class that did not exist and
+    spent the rest of the turn in the terminal — see the note below).
+
     WHEN TO USE:
     - To find functions, classes, imports, config keys, errors, or examples.
     - To locate where a file, symbol, or message appears.
@@ -529,6 +535,22 @@ def search_files(
     - Do not search the whole repo with vague queries if the repo map points to a file.
     """
     needle = (pattern or query or "").strip()
+
+    # The model routinely writes a regex escape into this literal matcher (`\.btn`, `\d+`,
+    # `btn|button`). Nothing matches, the run sees only an empty result, and it starts guessing;
+    # a field run then invented a class that exists nowhere and finished the turn in the terminal.
+    # When the needle carries regex intent, de-escaped candidates are checked IN THE SAME PASS and
+    # the miss is turned into a teaching error naming a pattern that does match. Plain needles —
+    # the common case — pay nothing for this.
+    hint_candidates: list[str] = []
+    if "\\" in needle or "|" in needle:
+        for candidate in [
+            needle.replace("\\", ""),
+            *[part.strip().replace("\\", "") for part in needle.split("|")],
+        ]:
+            if candidate and candidate != needle and candidate not in hint_candidates:
+                hint_candidates.append(candidate)
+    hint_hits: dict[str, str] = {}
 
     workspace = config["configurable"]["workspace"]
 
@@ -578,16 +600,16 @@ def search_files(
             # Skip binary/unreadable files
             continue
 
+        base = safe_path if safe_path.is_dir() else safe_path.parent
+
         for line_number, line in enumerate(
             content.splitlines(),
             start=1
         ):
-            if needle.lower() in line.lower():
+            lowered = line.lower()
+            if needle.lower() in lowered:
 
-                relative_path = file_path.relative_to(
-                    safe_path if safe_path.is_dir()
-                    else safe_path.parent
-                )
+                relative_path = file_path.relative_to(base)
 
                 # hermes tools/file_operations_search.py caps EACH match's
                 # content at 500 chars (:234/:241, SearchMatch(content=...[:500])).
@@ -599,16 +621,37 @@ def search_files(
                 results.append(
                     f"{relative_path}:{line_number}: {line.strip()[:500]}"
                 )
+                continue
+
+            if hint_candidates:
+                for candidate in hint_candidates:
+                    if candidate not in hint_hits and candidate.lower() in lowered:
+                        hint_hits[candidate] = (
+                            f"{file_path.relative_to(base)}:{line_number}: {line.strip()[:160]}"
+                        )
 
     if not results:
-        return f"No results found for '{query}' in '{path}'."
+        # Name the pattern that was actually used. This reported `query` — the legacy alias, which
+        # is empty whenever the caller sends `pattern` — so every miss read as
+        # "No results found for '' in '.'": it looked like the tool had dropped the argument, and
+        # the model's only recovery was to guess.
+        message = f"No results found for '{needle}' in '{path}'."
+        for candidate in hint_candidates:
+            if candidate in hint_hits:
+                message += (
+                    "\nNote: this tool matches literal text, not regular expressions — "
+                    f"'{needle}' searched for those characters literally. "
+                    f"'{candidate}' matches, e.g. {hint_hits[candidate]}"
+                    "\nRetry with the un-escaped pattern."
+                )
+                break
+        return message
 
     if len(results) > _SEARCH_MAX_RESULTS:
         results = results[:_SEARCH_MAX_RESULTS]
         results.append(f"... truncated at {_SEARCH_MAX_RESULTS} matches")
 
     return "\n".join(results)
-    # Keep your EXISTING search logic below this point.
 
 
 @tool

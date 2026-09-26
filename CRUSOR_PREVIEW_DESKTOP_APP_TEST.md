@@ -327,6 +327,26 @@ Two things that will confuse you if you do not know them:
   comparison of file contents, with line counts and a short unified diff per changed file, and it says
   `no file changed (N file(s) compared)` when that is the truth.
 
+**If the agent searches with a regex escape, this is why.** A live run sent `search_files(pattern=\.btn)`
+and got `No results found for '' in '.'` three times, then invented a class that exists nowhere and
+spent the rest of the turn in the terminal. Two long-standing defects in the tool produced that:
+
+- the miss message named the legacy `query` argument, which is empty whenever the caller sends
+  `pattern` — so every miss read as *empty pattern*, and the real pattern was never shown;
+- `search_files` matches **literal** text, not regular expressions, and said nothing about it, so
+  `\.btn` searched for a backslash that is not in any file.
+
+Both are fixed: the message names the pattern that was used, and when a de-escaped form of it would
+have matched, the miss says so and shows a real line. If you see the hint in a run, the agent is
+about to retry correctly instead of guessing. (Reordered arguments were the first theory and are
+false — the tool receives a dict, so key order cannot matter; the reordered calls in that log were
+simply the escaped ones.)
+
+**If a run times out, leave nothing behind.** The harness kills the engine's whole process tree, not
+just the engine: a model that backgrounds a command (`python -m http.server &`) would otherwise leave
+a listening process behind after the turn. On POSIX that is a process group; on Windows `taskkill /T`.
+The run prints which was used (`engine stopped: process group (whole tree)`).
+
 **What this does not cover:** the fixture is static HTML and CSS. The harder cases — a component
 library, Tailwind utilities, CSS-in-JS, where the class in the DOM is not the class in the source — are
 untested against a real model, and they are exactly where the fingerprints matter most. If your project

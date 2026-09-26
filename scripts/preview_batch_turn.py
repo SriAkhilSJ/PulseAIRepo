@@ -30,6 +30,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,45 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: Windows: give the direct child its own group so taskkill can address the tree; POSIX: a new
+#: session, so killpg reaches grandchildren. Same technique as src/context/git_context.py, which
+#: needs it because a killed parent does NOT take its children with it (measured field report: the
+#: agent backgrounded `python -m http.server` in the workspace and the server outlived the turn).
+_CREATION_FLAGS = 0x08000000 | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+
+
+def kill_process_tree(proc: subprocess.Popen) -> str:
+    """Kill the engine process AND everything it spawned. Returns what was used.
+
+    ``proc.kill()`` reaps the direct child only: a backgrounded command the model started
+    (`python -m http.server &`, a watcher, a dev server) survives it, and on a real ``--workspace``
+    run that leaves a listening process behind after the harness exits. The tree is what has to go.
+    """
+    if proc.poll() is not None:
+        return "already exited"
+    if os.name == "nt":
+        try:
+            done = subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=20,
+            )
+            if done.returncode == 0:
+                return "taskkill /T (whole tree)"
+        except Exception:  # pragma: no cover - taskkill missing
+            pass
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return "process group (whole tree)"
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    try:
+        proc.kill()
+        return "direct child only (tree kill unavailable)"
+    except Exception:  # pragma: no cover
+        return "kill failed"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -140,6 +180,8 @@ class Bridge:
             [sys.executable, "-m", "src.bridge"],
             cwd=str(REPO_ROOT), env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
+            creationflags=_CREATION_FLAGS,
         )
         self._frames: queue.Queue = queue.Queue()
         self._stderr: list[str] = []
@@ -181,11 +223,9 @@ class Bridge:
     def diagnostics(self) -> list[str]:
         return self._stderr
 
-    def stop(self) -> None:
-        try:
-            self.proc.kill()
-        except Exception:  # pragma: no cover
-            pass
+    def stop(self) -> str:
+        """Tear down the engine and its children. Returns a description for the run log."""
+        return kill_process_tree(self.proc)
 
 
 def _short(value: object, limit: int = 160) -> str:
@@ -416,7 +456,8 @@ def main() -> int:
         print("\nInterrupted — stopping the engine.")
         terminal, seen = {}, []
     finally:
-        bridge.stop()
+        teardown = bridge.stop()
+        print(f"\nengine stopped: {teardown}")
 
     if args.diff:
         print("\n--- what changed in the workspace (read from the files, not from git) ---")
@@ -444,6 +485,8 @@ def main() -> int:
         print(f"\nRESULT: the turn ended as {terminal.get('type')} — see the message above.")
         return 1
     print("\nRESULT: no terminal frame — the engine never finished. Check scripts/check_provider.py --live.")
+    print("If the agent had started a long-running command (a dev server, a watcher), the tree was just")
+    print("killed with the engine; if you ran --workspace, check that folder for leftover build output.")
     return 1
 
 

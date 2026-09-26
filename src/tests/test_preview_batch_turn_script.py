@@ -22,6 +22,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -177,3 +178,63 @@ def test_demo_mode_never_points_at_the_repository(harness) -> None:
         assert os.path.commonpath([str(made), str(FIXTURE)]) != str(FIXTURE)
     finally:
         made.rmdir()
+
+
+# --------------------------------------------------------------- teardown must reach grandchildren
+
+def test_kill_process_tree_reaches_a_grandchild(harness) -> None:
+    """`http.server &` style: the engine starts a process, and killing the engine must take it too.
+
+    A direct-child kill leaves the backgrounded command running — on a real `--workspace` run that is
+    a listening server left behind after the harness exits (a field report from run 6). The POSIX
+    branch (process group) is asserted fully here; the Windows branch uses `taskkill /T /F`, the same
+    technique as `src/context/git_context.py`, and cannot be executed in this sandbox — it is covered
+    by the "did not use the direct-child fallback" assertion only.
+    """
+    if os.name == "nt":
+        pytest.skip("process-group semantics are POSIX; the Windows branch uses taskkill /T (unverified here)")
+
+    # A parent that starts a grandchild and waits, printing the grandchild's pid.
+    script = (
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+        "print(child.pid, flush=True)\n"
+        "time.sleep(300)\n"
+    )
+    parent = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True,
+        start_new_session=True,
+    )
+    try:
+        grandchild_pid = int(parent.stdout.readline().strip())
+
+        def alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except (ProcessLookupError, PermissionError):
+                return False
+            return True
+
+        assert alive(grandchild_pid), "the grandchild did not start"
+
+        how = harness.kill_process_tree(parent)
+        assert "whole tree" in how, f"fell back to a direct-child kill: {how}"
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and alive(grandchild_pid):
+            time.sleep(0.05)
+        assert not alive(grandchild_pid), "the grandchild outlived the tree kill — a stray server"
+    finally:
+        try:
+            parent.kill()
+        except Exception:
+            pass
+
+
+def test_kill_process_tree_is_safe_on_an_exited_process(harness) -> None:
+    done = subprocess.run([sys.executable, "-c", "pass"], timeout=60)
+    class _Fake:
+        pid = 999_999
+        def poll(self):
+            return 0 if done.returncode == 0 else None
+    assert harness.kill_process_tree(_Fake()) == "already exited"
