@@ -1,0 +1,55 @@
+From 87030b4a9a8abcb3977382144f5a39afe09029ea Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 03:58:12 +0000
+Subject: [PATCH] fix(preview): drop two dead declarations Gate A flags, and
+ run Gate A properly
+
+The previous commit compiled the two files with a scratch tsconfig of mine. That
+was the wrong instrument twice over: it disabled noUnusedLocals (which the fork
+sets in src/tsconfig.base.json) and it used TypeScript 5.8.2 while the fork pins
+`typescript: npm:@typescript/typescript6@^6.0.2`, a shim over `typescript@^6`
+(6.0.3 is the newest 6.x on the registry).
+
+Run the way the repo defines it -- from desktop/vscode/src:
+
+  node <tsc-6.0.3>/lib/tsc.js -p tsconfig.crusorai-check.json --noEmit
+
+and the tree reports two more errors in this file:
+
+  crusorAIPreviewService.ts(87) TS6133  ENDPOINT_FRESH_MS is never read
+  crusorAIPreviewService.ts(89) TS6196  PreviewWindowHost is never used
+
+Both are leftovers: staleness is implemented further down by sorting on
+`started_at` and warning past 12 hours, so the 30-second constant was dead, and
+the interface was never referenced (the window host is a
+MutableDisposable<DisposableStore>). Deleted.
+
+Gate A now: Crusor errors: 0, Crusor files in program: 34 (>= 26 required). The
+363 other errors are the documented partial-checkout noise (@types/trusted-types
+and friends) and are not failures.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ .../contrib/crusorai/browser/crusorAIPreviewService.ts      | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
+index 78cc08b7..80cfebc6 100644
+--- a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
++++ b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
+@@ -84,12 +84,6 @@ export interface ICrusorAIPreviewService {
+ /** The preview window chrome, as shipped inside the app. */
+ const PREVIEW_WINDOW_RESOURCE = 'vs/workbench/contrib/crusorai/browser/media/crusor-preview/index.html';
+ const ENDPOINT_DIR = ['preview'];
+-const ENDPOINT_FRESH_MS = 30_000;
+-
+-interface PreviewWindowHost {
+-	readonly frame: HTMLIFrameElement;
+-	readonly store: DisposableStore;
+-}
+ 
+ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPreviewService {
+ 	declare readonly _serviceBrand: undefined;
+-- 
+2.39.5
+
