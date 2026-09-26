@@ -1,0 +1,512 @@
+From a9df690147a29c69c1b0f21b740cd3b711600e12 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 13:43:45 +0000
+Subject: [PATCH] fix(tools): search_files reported an empty pattern on every
+ miss, and taught nothing
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Run 6 of the preview batch harness sent three searches with regex escapes —
+
+    search_files(path=., pattern=\.btn-primary)     ->  No results found for '' in '.'
+    search_files(path=., pattern=btn-primary|\.btn) ->  No results found for '' in '.'
+    search_files(path=., pattern=\.btn)             ->  No results found for '' in '.'
+
+— then invented a class that exists nowhere (`btn-lg`) and spent the rest of the turn in the
+terminal, timing out with no terminal frame. Two long-standing defects produced that, and the first
+one is why the log is confusing to read:
+
+* **the message named the wrong variable.** `No results found for '{query}'` — `query` is the legacy
+  crusor alias, and it is empty whenever the caller sends `pattern`, which is what the schema
+  requires. So every miss printed an empty pattern: it looked like the tool had dropped the
+  argument, and the model's only recovery was to guess. It now names the pattern actually used.
+* **the miss taught nothing.** This tool is a literal, case-insensitive substring match, so `\.btn`
+  searches for a backslash that is not in any file — a wrong search that returns *empty*, not an
+  error. The docstring said "literal substring match" and the model, under pressure, did not act on
+  it. When the needle carries regex intent, de-escaped candidates are now checked in the same pass
+  and the miss becomes a teaching error naming a pattern that does match, with a real example line
+  (`'.btn'` matches, e.g. `styles.css:74: .btn-primary { … }`). Plain needles pay nothing: the
+  candidate work only runs when the needle contains a backslash or `|`.
+
+Also removed a dead scaffold comment ("Keep your EXISTING search logic below this point") left after
+the function's return by an earlier auto-edit.
+
+**The reordering theory is refuted and pinned.** The first reading of that log was that `path`-first
+calls dropped the pattern. `_run_one` invokes `tool.invoke(args_dict)` and `coerce_tool_arg_aliases`
+only renames aliases for *missing* keys, so key order cannot matter — measured: pattern-first and
+path-first return identical output, hits and misses alike. The reordered calls in the log were simply
+the escaped ones. `test_argument_order_is_irrelevant` encodes that so nobody reintroduces positional
+handling on the strength of that log.
+
+Ten pins in src/tests/test_search_files_literal_matching.py, driven through the real tool against the
+lab fixture: the miss names the sent pattern (never an empty one), the three field-run patterns each
+get the literal correction with a real example, a de-escaped form that matches nothing is *not*
+suggested (honesty over helpfulness), a plain miss stays short, hits and the `search_code` alias are
+unchanged, and the escaped form of a working search is still a miss. Verified to fail when either
+defect is restored (3 failures each).
+
+The harness also stops leaving strays behind. Run 6's agent backgrounded `python -m http.server` in
+the workspace and it outlived the turn: `proc.kill()` reaps the direct child only. The harness now
+spawns the engine in its own process group (POSIX) / process group on Windows and tears the whole
+tree down, printing which was used (`engine stopped: process group (whole tree)`), and says what to
+check when a turn ends without a terminal frame. Same technique as src/context/git_context.py, which
+needed it for the same reason. The grandchild test spawns a real grandchild, reads its pid, kills the
+tree and asserts the pid is gone — verified to fail against a direct-child kill. The Windows branch
+(`taskkill /T /F`) cannot run in this sandbox and is honestly skipped there.
+
+143 passed, 1 skipped. §7.5 of the runbook now explains both symptoms for the next run.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md            |  20 +++
+ scripts/preview_batch_turn.py                 |  55 +++++++-
+ src/tests/test_preview_batch_turn_script.py   |  61 +++++++++
+ .../test_search_files_literal_matching.py     | 124 ++++++++++++++++++
+ src/tools/file_tools.py                       |  57 +++++++-
+ 5 files changed, 304 insertions(+), 13 deletions(-)
+ create mode 100644 src/tests/test_search_files_literal_matching.py
+
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index 90355dd9..fb079aa7 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -327,6 +327,26 @@ Two things that will confuse you if you do not know them:
+   comparison of file contents, with line counts and a short unified diff per changed file, and it says
+   `no file changed (N file(s) compared)` when that is the truth.
+ 
++**If the agent searches with a regex escape, this is why.** A live run sent `search_files(pattern=\.btn)`
++and got `No results found for '' in '.'` three times, then invented a class that exists nowhere and
++spent the rest of the turn in the terminal. Two long-standing defects in the tool produced that:
++
++- the miss message named the legacy `query` argument, which is empty whenever the caller sends
++  `pattern` — so every miss read as *empty pattern*, and the real pattern was never shown;
++- `search_files` matches **literal** text, not regular expressions, and said nothing about it, so
++  `\.btn` searched for a backslash that is not in any file.
++
++Both are fixed: the message names the pattern that was used, and when a de-escaped form of it would
++have matched, the miss says so and shows a real line. If you see the hint in a run, the agent is
++about to retry correctly instead of guessing. (Reordered arguments were the first theory and are
++false — the tool receives a dict, so key order cannot matter; the reordered calls in that log were
++simply the escaped ones.)
++
++**If a run times out, leave nothing behind.** The harness kills the engine's whole process tree, not
++just the engine: a model that backgrounds a command (`python -m http.server &`) would otherwise leave
++a listening process behind after the turn. On POSIX that is a process group; on Windows `taskkill /T`.
++The run prints which was used (`engine stopped: process group (whole tree)`).
++
+ **What this does not cover:** the fixture is static HTML and CSS. The harder cases — a component
+ library, Tailwind utilities, CSS-in-JS, where the class in the DOM is not the class in the source — are
+ untested against a real model, and they are exactly where the fingerprints matter most. If your project
+diff --git a/scripts/preview_batch_turn.py b/scripts/preview_batch_turn.py
+index 631b1ac9..69458ad5 100644
+--- a/scripts/preview_batch_turn.py
++++ b/scripts/preview_batch_turn.py
+@@ -30,6 +30,7 @@ import json
+ import os
+ import queue
+ import shutil
++import signal
+ import subprocess
+ import sys
+ import tempfile
+@@ -38,6 +39,45 @@ import time
+ from pathlib import Path
+ 
+ REPO_ROOT = Path(__file__).resolve().parents[1]
++
++#: Windows: give the direct child its own group so taskkill can address the tree; POSIX: a new
++#: session, so killpg reaches grandchildren. Same technique as src/context/git_context.py, which
++#: needs it because a killed parent does NOT take its children with it (measured field report: the
++#: agent backgrounded `python -m http.server` in the workspace and the server outlived the turn).
++_CREATION_FLAGS = 0x08000000 | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
++
++
++def kill_process_tree(proc: subprocess.Popen) -> str:
++    """Kill the engine process AND everything it spawned. Returns what was used.
++
++    ``proc.kill()`` reaps the direct child only: a backgrounded command the model started
++    (`python -m http.server &`, a watcher, a dev server) survives it, and on a real ``--workspace``
++    run that leaves a listening process behind after the harness exits. The tree is what has to go.
++    """
++    if proc.poll() is not None:
++        return "already exited"
++    if os.name == "nt":
++        try:
++            done = subprocess.run(
++                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
++                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
++                timeout=20,
++            )
++            if done.returncode == 0:
++                return "taskkill /T (whole tree)"
++        except Exception:  # pragma: no cover - taskkill missing
++            pass
++    else:
++        try:
++            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
++            return "process group (whole tree)"
++        except (ProcessLookupError, PermissionError, OSError):
++            pass
++    try:
++        proc.kill()
++        return "direct child only (tree kill unavailable)"
++    except Exception:  # pragma: no cover
++        return "kill failed"
+ if str(REPO_ROOT) not in sys.path:
+     sys.path.insert(0, str(REPO_ROOT))
+ 
+@@ -140,6 +180,8 @@ class Bridge:
+             [sys.executable, "-m", "src.bridge"],
+             cwd=str(REPO_ROOT), env=env,
+             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++            start_new_session=(os.name != "nt"),
++            creationflags=_CREATION_FLAGS,
+         )
+         self._frames: queue.Queue = queue.Queue()
+         self._stderr: list[str] = []
+@@ -181,11 +223,9 @@ class Bridge:
+     def diagnostics(self) -> list[str]:
+         return self._stderr
+ 
+-    def stop(self) -> None:
+-        try:
+-            self.proc.kill()
+-        except Exception:  # pragma: no cover
+-            pass
++    def stop(self) -> str:
++        """Tear down the engine and its children. Returns a description for the run log."""
++        return kill_process_tree(self.proc)
+ 
+ 
+ def _short(value: object, limit: int = 160) -> str:
+@@ -416,7 +456,8 @@ def main() -> int:
+         print("\nInterrupted — stopping the engine.")
+         terminal, seen = {}, []
+     finally:
+-        bridge.stop()
++        teardown = bridge.stop()
++        print(f"\nengine stopped: {teardown}")
+ 
+     if args.diff:
+         print("\n--- what changed in the workspace (read from the files, not from git) ---")
+@@ -444,6 +485,8 @@ def main() -> int:
+         print(f"\nRESULT: the turn ended as {terminal.get('type')} — see the message above.")
+         return 1
+     print("\nRESULT: no terminal frame — the engine never finished. Check scripts/check_provider.py --live.")
++    print("If the agent had started a long-running command (a dev server, a watcher), the tree was just")
++    print("killed with the engine; if you ran --workspace, check that folder for leftover build output.")
+     return 1
+ 
+ 
+diff --git a/src/tests/test_preview_batch_turn_script.py b/src/tests/test_preview_batch_turn_script.py
+index c5eca95d..39f8a847 100644
+--- a/src/tests/test_preview_batch_turn_script.py
++++ b/src/tests/test_preview_batch_turn_script.py
+@@ -22,6 +22,7 @@ import importlib.util
+ import os
+ import subprocess
+ import sys
++import time
+ from pathlib import Path
+ 
+ import pytest
+@@ -177,3 +178,63 @@ def test_demo_mode_never_points_at_the_repository(harness) -> None:
+         assert os.path.commonpath([str(made), str(FIXTURE)]) != str(FIXTURE)
+     finally:
+         made.rmdir()
++
++
++# --------------------------------------------------------------- teardown must reach grandchildren
++
++def test_kill_process_tree_reaches_a_grandchild(harness) -> None:
++    """`http.server &` style: the engine starts a process, and killing the engine must take it too.
++
++    A direct-child kill leaves the backgrounded command running — on a real `--workspace` run that is
++    a listening server left behind after the harness exits (a field report from run 6). The POSIX
++    branch (process group) is asserted fully here; the Windows branch uses `taskkill /T /F`, the same
++    technique as `src/context/git_context.py`, and cannot be executed in this sandbox — it is covered
++    by the "did not use the direct-child fallback" assertion only.
++    """
++    if os.name == "nt":
++        pytest.skip("process-group semantics are POSIX; the Windows branch uses taskkill /T (unverified here)")
++
++    # A parent that starts a grandchild and waits, printing the grandchild's pid.
++    script = (
++        "import subprocess, sys, time\n"
++        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
++        "print(child.pid, flush=True)\n"
++        "time.sleep(300)\n"
++    )
++    parent = subprocess.Popen(
++        [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True,
++        start_new_session=True,
++    )
++    try:
++        grandchild_pid = int(parent.stdout.readline().strip())
++
++        def alive(pid: int) -> bool:
++            try:
++                os.kill(pid, 0)
++            except (ProcessLookupError, PermissionError):
++                return False
++            return True
++
++        assert alive(grandchild_pid), "the grandchild did not start"
++
++        how = harness.kill_process_tree(parent)
++        assert "whole tree" in how, f"fell back to a direct-child kill: {how}"
++
++        deadline = time.monotonic() + 5.0
++        while time.monotonic() < deadline and alive(grandchild_pid):
++            time.sleep(0.05)
++        assert not alive(grandchild_pid), "the grandchild outlived the tree kill — a stray server"
++    finally:
++        try:
++            parent.kill()
++        except Exception:
++            pass
++
++
++def test_kill_process_tree_is_safe_on_an_exited_process(harness) -> None:
++    done = subprocess.run([sys.executable, "-c", "pass"], timeout=60)
++    class _Fake:
++        pid = 999_999
++        def poll(self):
++            return 0 if done.returncode == 0 else None
++    assert harness.kill_process_tree(_Fake()) == "already exited"
+diff --git a/src/tests/test_search_files_literal_matching.py b/src/tests/test_search_files_literal_matching.py
+new file mode 100644
+index 00000000..c4df4e7a
+--- /dev/null
++++ b/src/tests/test_search_files_literal_matching.py
+@@ -0,0 +1,124 @@
++"""CrusorAI — ``search_files`` must report and repair what it searched for.
++
++A field run of the Crusor Preview batch harness (third live session) showed the failure this file
++pins. The agent, told to locate `btn btn-primary`, sent three reordered searches with regex escapes:
++
++    search_files(path=., pattern=\\.btn-primary)   ->  No results found for '' in '.'
++    search_files(path=., pattern=btn-primary|\\.btn) ->  No results found for '' in '.'
++    search_files(path=., pattern=\\.btn)            ->  No results found for '' in '.'
++
++and then invented a class that exists nowhere (`btn-lg`) and spent the rest of the turn in the
++terminal. Two defects, both here, both now pinned:
++
++* **the message named the wrong variable.** ``search_files`` reports ``query`` — the legacy alias,
++  empty whenever the caller sends ``pattern`` — so every miss read as *empty pattern*. It looked like
++  the tool had dropped the argument; the real pattern was never shown and the model's only recovery
++  was to guess.
++* **the miss taught nothing.** ``pattern`` is a literal substring match, so ``\\.btn`` searches for a
++  backslash that is not in the file. Nothing said so. The miss now names a pattern that *does* match,
++  with a real example line, whenever a de-escaped form of the needle hits.
++
++Reordering was the first theory for this and it is false: ``tool.invoke`` receives a dict, so key
++order cannot matter, and the log's "reversed order" calls were simply the regex ones. That is pinned
++here too, so nobody re-introduces positional argument handling on the strength of that log.
++"""
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from src.tools.file_tools import search_code, search_files
++
++FIXTURE = Path(__file__).resolve().parents[2] / "preview-lab" / "demo-app"
++
++
++@pytest.fixture()
++def config():
++    assert FIXTURE.is_dir(), f"the lab fixture moved: {FIXTURE}"
++    return {"configurable": {"workspace": str(FIXTURE), "task_id": "search-files-test"}}
++
++
++def search(pattern: str, config, path: str = ".") -> str:
++    return search_files.invoke({"pattern": pattern, "path": path}, config=config)
++
++
++# ── the miss must name the pattern that was actually used ────────────────────────────────
++
++def test_a_miss_names_the_pattern_the_caller_sent(config) -> None:
++    message = search("hero-titel", config)  # a typo, not regex
++    assert "hero-titel" in message, message
++    assert "for '' in" not in message, "an empty pattern was reported instead of the real one"
++    assert message.startswith("No results found for 'hero-titel' in '.'"), message
++
++
++def test_the_legacy_alias_reports_the_same_way(config) -> None:
++    """`search_code` forwards its `query` into `pattern`; the message must still name it."""
++    message = search_code.invoke({"query": "nope-not-here", "path": "."}, config=config)
++    assert "nope-not-here" in message, message
++    assert "for '' in" not in message
++
++
++# ── the miss must teach the repair, but only when the repair is provable ─────────────────
++
++@pytest.mark.parametrize("pattern, expected", [
++    (r"\.btn-primary", ".btn-primary"),
++    (r"btn-primary|\.btn", "btn-primary"),
++    (r"\.btn", ".btn"),
++])
++def test_a_regex_escaped_pattern_points_at_the_literal_one(config, pattern: str, expected: str) -> None:
++    """Exactly the three searches the field run sent. Each has a literal form that does match."""
++    message = search(pattern, config)
++    assert pattern in message, f"the pattern actually used must be shown: {message}"
++    assert expected in message, f"the literal form must be named: {message}"
++    assert "literal text" in message and "Retry with the un-escaped pattern" in message, message
++    # The teaching is only worth anything if it carries evidence: a real line from a real file.
++    assert any(marker in message for marker in ("styles.css:", "index.html:", "app.js:")), message
++
++
++def test_the_hint_is_not_claimed_when_the_literal_form_does_not_match_either(config) -> None:
++    """Honesty over helpfulness: a de-escaped form that finds nothing must not be suggested."""
++    message = search(r"\d{4}-\d{2}-\d{2}", config)
++    assert "Retry with the un-escaped pattern" not in message, message
++    assert message.startswith(r"No results found for '\d{4}-\d{2}-\d{2}'"), message
++
++
++def test_a_plain_miss_stays_short(config) -> None:
++    """No noise on the ordinary path: a literal search that simply found nothing says only that."""
++    message = search("nothing-like-this-exists", config)
++    assert "Note:" not in message, message
++    assert "literal text" not in message, message
++    assert message.endswith("in '.'."), message
++
++
++# ── hits are untouched ──────────────────────────────────────────────────────────────────
++
++def test_a_literal_pattern_still_returns_matches(config) -> None:
++    output = search("hero-title", config)
++    assert "index.html:45" in output and "hero-title" in output, output
++
++
++def test_the_escaped_form_of_a_working_search_is_still_a_miss(config) -> None:
++    """The point of the bug: the same intent, escaped, is a different (empty) search."""
++    # `.btn-primary` (with the dot, as it appears in the stylesheet) matches…
++    assert "styles.css:74" in search(".btn-primary", config)
++    # …and escaping the dot — the same intent the model had — finds nothing at all.
++    assert "No results found" in search(r"\.btn-primary", config)
++
++
++# ── the refuted theory, pinned so it cannot come back ───────────────────────────────────
++
++def test_argument_order_is_irrelevant(config) -> None:
++    """The log looked like arg reordering dropped the pattern. It did not.
++
++    `_run_one` invokes `tool.invoke(args_dict)`, so key order is irrelevant; the calls that
++    returned nothing were the regex-escaped ones, which is a different bug with a different fix.
++    """
++    pattern_first = search_files.invoke({"pattern": "hero-title", "path": "."}, config=config)
++    path_first = search_files.invoke({"path": ".", "pattern": "hero-title"}, config=config)
++    assert pattern_first == path_first
++
++    miss_pattern_first = search_files.invoke({"pattern": r"\.btn", "path": "."}, config=config)
++    miss_path_first = search_files.invoke({"path": ".", "pattern": r"\.btn"}, config=config)
++    assert miss_pattern_first == miss_path_first
++    assert "No results found" in miss_pattern_first
+diff --git a/src/tools/file_tools.py b/src/tools/file_tools.py
+index 73b27b17..d9ee51e8 100644
+--- a/src/tools/file_tools.py
++++ b/src/tools/file_tools.py
+@@ -519,6 +519,12 @@ def search_files(
+     Literal substring match, case-insensitive (hermes' regex/glob/output
+     modes are a separate port — this schema does not advertise them).
+ 
++    Write the text as it appears in the file: `.btn`, NOT `\.btn`. A
++    backslash is an ordinary character to this tool, so a regex escape
++    searches for a character that is usually not there and returns nothing
++    (a measured field run then guessed a class that did not exist and
++    spent the rest of the turn in the terminal — see the note below).
++
+     WHEN TO USE:
+     - To find functions, classes, imports, config keys, errors, or examples.
+     - To locate where a file, symbol, or message appears.
+@@ -530,6 +536,22 @@ def search_files(
+     """
+     needle = (pattern or query or "").strip()
+ 
++    # The model routinely writes a regex escape into this literal matcher (`\.btn`, `\d+`,
++    # `btn|button`). Nothing matches, the run sees only an empty result, and it starts guessing;
++    # a field run then invented a class that exists nowhere and finished the turn in the terminal.
++    # When the needle carries regex intent, de-escaped candidates are checked IN THE SAME PASS and
++    # the miss is turned into a teaching error naming a pattern that does match. Plain needles —
++    # the common case — pay nothing for this.
++    hint_candidates: list[str] = []
++    if "\\" in needle or "|" in needle:
++        for candidate in [
++            needle.replace("\\", ""),
++            *[part.strip().replace("\\", "") for part in needle.split("|")],
++        ]:
++            if candidate and candidate != needle and candidate not in hint_candidates:
++                hint_candidates.append(candidate)
++    hint_hits: dict[str, str] = {}
++
+     workspace = config["configurable"]["workspace"]
+ 
+     safe_path = resolve_workspace_path(
+@@ -578,16 +600,16 @@ def search_files(
+             # Skip binary/unreadable files
+             continue
+ 
++        base = safe_path if safe_path.is_dir() else safe_path.parent
++
+         for line_number, line in enumerate(
+             content.splitlines(),
+             start=1
+         ):
+-            if needle.lower() in line.lower():
++            lowered = line.lower()
++            if needle.lower() in lowered:
+ 
+-                relative_path = file_path.relative_to(
+-                    safe_path if safe_path.is_dir()
+-                    else safe_path.parent
+-                )
++                relative_path = file_path.relative_to(base)
+ 
+                 # hermes tools/file_operations_search.py caps EACH match's
+                 # content at 500 chars (:234/:241, SearchMatch(content=...[:500])).
+@@ -599,16 +621,37 @@ def search_files(
+                 results.append(
+                     f"{relative_path}:{line_number}: {line.strip()[:500]}"
+                 )
++                continue
++
++            if hint_candidates:
++                for candidate in hint_candidates:
++                    if candidate not in hint_hits and candidate.lower() in lowered:
++                        hint_hits[candidate] = (
++                            f"{file_path.relative_to(base)}:{line_number}: {line.strip()[:160]}"
++                        )
+ 
+     if not results:
+-        return f"No results found for '{query}' in '{path}'."
++        # Name the pattern that was actually used. This reported `query` — the legacy alias, which
++        # is empty whenever the caller sends `pattern` — so every miss read as
++        # "No results found for '' in '.'": it looked like the tool had dropped the argument, and
++        # the model's only recovery was to guess.
++        message = f"No results found for '{needle}' in '{path}'."
++        for candidate in hint_candidates:
++            if candidate in hint_hits:
++                message += (
++                    "\nNote: this tool matches literal text, not regular expressions — "
++                    f"'{needle}' searched for those characters literally. "
++                    f"'{candidate}' matches, e.g. {hint_hits[candidate]}"
++                    "\nRetry with the un-escaped pattern."
++                )
++                break
++        return message
+ 
+     if len(results) > _SEARCH_MAX_RESULTS:
+         results = results[:_SEARCH_MAX_RESULTS]
+         results.append(f"... truncated at {_SEARCH_MAX_RESULTS} matches")
+ 
+     return "\n".join(results)
+-    # Keep your EXISTING search logic below this point.
+ 
+ 
+ @tool
+-- 
+2.39.5
+
