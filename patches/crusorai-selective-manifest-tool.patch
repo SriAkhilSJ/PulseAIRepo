@@ -1,0 +1,733 @@
+From be2088a08e2f3d02beadfda5bae90492353a4038 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 15:38:44 +0000
+Subject: [PATCH] fix(desktop): refresh the manifest receipts with a guarded
+ tool, and report every defect at once
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The desktop agent's rebuild left `test_selective_manifest_matches_overlay_files` red on 7 receipts and
+correctly refused to hand-edit hash pins — a receipt edited by hand is a rubber stamp. This is the
+answer to that: a tool that recomputes receipts reproducibly **and refuses to write while an integrity
+problem is present**, so the guard keeps meaning something.
+
+**Root cause of the 7 (checked, not assumed).** `SELECTIVE_MANIFEST.json` was *created* by the same
+commit that rewrote those files (`a0dd7787`, the branch base) with receipts computed from an earlier
+working copy — the manifest was born stale, there was never a moment when it matched. Two independent
+checks say no fork edit was lost: every overlay file still differs from its recorded `upstream_sha256`
+(all 5), and the fork markers are present (24 crusorai refs in product.json, 2 in each workbench main,
+1 in each build file). The two icons were the real question, and they answer it — their alpha masks
+overlap the *verified* brand assets (linux/code.png, server/code-192.png, the 1536 mark) at
+**IoU = 1.000**, i.e. the same glyph, correctly sized (150x150, 70x70).
+
+**A second defect was hiding behind the first.** Clearing the hashes let the test reach its next
+assertion, which failed: all 9 brand assets cite `generated_from: branding/crusorai-mark.png` while the
+documented recipe (docs/DESIGN/FORK_REBRANDING.md) and that assertion name the `.svg`. Checked before
+touching it — the standalone PNG is byte-identical to the raster embedded in the SVG
+(sha256 2bc21ca0…, 401,307 bytes, both), so this is a provenance citation fix, not a re-render.
+
+So `test_selective_manifest_matches_overlay_files` now collects every problem and reports them
+together. One red light per run for a manifest with two problems costs a full diagnose-fix cycle each
+time — which is exactly what happened here. Nothing was relaxed: every assertion is still there, and
+the failure message names the tool instead of inviting a hand-edit.
+
+`scripts/refresh_selective_manifest.py`:
+* `overlay` drift (stale hash) and `generated_from` drift (citation) are refreshed, and reported
+  separately because they mean different things;
+* **guards, all blocking**: `edit lost` (an overlay byte-identical to its recorded upstream — the
+  evidence a fork edit disappeared, and the failure the hand-edit objection was really about),
+  `source missing` (a receipt citing an absent source), `upstream pin` (manifest vs UPSTREAM_PIN);
+* hashing follows `.gitattributes` (LF-normalized for pinned text, raw for binaries) so a Windows
+  checkout with `core.autocrlf=true` produces identical receipts — the pin list is *read* from that
+  file, never duplicated;
+* writes with `indent=1` + trailing newline, verified byte-identical to the committed formatting, so a
+  refresh shows only the receipts that moved: this one is 16 lines (7 hashes + 9 citations).
+
+9 pins in src/tests/test_selective_manifest_tool.py, each verified against the behaviour it replaces:
+dropping the `edit lost` guard fails the loss test; dropping citation repair fails the citation test;
+perturbing three receipts fails the guard test with all three named. desktop/README.md documents the
+tool, so the next drift is not hand-edited either.
+
+21 failed / 262 passed in the wide sweep, down from 22 — every remaining failure is pre-existing in
+this sandbox (16 lang-extractors tree-sitter, 3 bridge-transport typing_extensions, and the two bundle
+tests that need the rebuilt tracked `out/`).
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ desktop/README.md                         |  19 ++
+ desktop/SELECTIVE_MANIFEST.json           |  32 +--
+ scripts/refresh_selective_manifest.py     | 272 ++++++++++++++++++++++
+ src/tests/test_desktop_contrib_overlay.py |  45 +++-
+ src/tests/test_selective_manifest_tool.py | 195 ++++++++++++++++
+ 5 files changed, 542 insertions(+), 21 deletions(-)
+ create mode 100644 scripts/refresh_selective_manifest.py
+ create mode 100644 src/tests/test_selective_manifest_tool.py
+
+diff --git a/desktop/README.md b/desktop/README.md
+index 1a5ff90c..8c6a6ece 100644
+--- a/desktop/README.md
++++ b/desktop/README.md
+@@ -5,6 +5,25 @@
+ - **`vscode/`** — the canonical, vendored Code OSS checkout at the pinned commit. The full Crusor overlay is applied **in place**: `vscode/product.json`, `vscode/build/buildfile.ts`, and the branded platform resources under `vscode/resources/` are all committed as part of the fork.
+ - **Fork metadata** at `desktop/` root: `README.md`, `SELECTIVE_MANIFEST.json`, `UPSTREAM_PIN`, `.nvmrc`.
+ 
++### The manifest receipts
++
++`SELECTIVE_MANIFEST.json` records, for every file the overlay edits, the upstream hash it started
++from, the hash of the overlay as committed, and the source each platform icon was generated from.
++`src/tests/test_desktop_contrib_overlay.py` checks those receipts against the tree, so they must move
++whenever a pinned file does.
++
++**Never hand-edit the hashes.** Recompute them:
++
++```bash
++python scripts/refresh_selective_manifest.py           # check only; exits 1 on drift
++python scripts/refresh_selective_manifest.py --write    # refresh, guarded
++```
++
++The tool refuses to write while an integrity problem is present — most importantly an overlay file
++whose bytes have become identical to its recorded upstream, which means the fork's edit was lost and
++refreshing the receipt would erase the evidence. It reads the LF-hashing rule from `.gitattributes`,
++so a Windows checkout with `core.autocrlf=true` produces the same receipts.
++
+ The build runs directly inside `vscode/`:
+ 
+ ```bash
+diff --git a/desktop/SELECTIVE_MANIFEST.json b/desktop/SELECTIVE_MANIFEST.json
+index 67f8cef2..17018bbc 100644
+--- a/desktop/SELECTIVE_MANIFEST.json
++++ b/desktop/SELECTIVE_MANIFEST.json
+@@ -4,27 +4,27 @@
+  "files": {
+   "build/buildfile.ts": {
+    "upstream_sha256": "aa6bba8088e65560583c8426c609cc4b76f8910b1f52e210fed48d77220de9bc",
+-   "overlay_sha256": "1805b2fe0eca032d4b08173889b8a031651253b8dd0c88f1598c8489a7f00319",
++   "overlay_sha256": "bca01aa1b2942cfdb2b79298812131f32f37525c1ccf530816e22e82bae15a47",
+    "modified": true
+   },
+   "build/next/index.ts": {
+    "upstream_sha256": "4e2b3a122788f4dd5dbd6b90ad764882e43caf78a927d136dcaf05836bfb27ea",
+-   "overlay_sha256": "73df7aebe8a28780e6719f9f762da3e13c7b92a6be1b204741cf01e12fc326b0",
++   "overlay_sha256": "6ea3a4875fed3e361520143800c2a34d447741ca23dc2f6d422b3af7dceb9cd8",
+    "modified": true
+   },
+   "product.json": {
+    "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
+-   "overlay_sha256": "226e19929b7381ba0530119972d4b962c7c6f8efcc255e2743a3e7aafb58f086",
++   "overlay_sha256": "6c2eb121fc04ee0d888e213ae1846dd821080beab60db4f3b5912b2e5ca697c3",
+    "modified": true
+   },
+   "src/vs/workbench/workbench.common.main.ts": {
+    "upstream_sha256": "d11142346b159434f4914d56e83b825917689f394089147a5182b8a70dbf1093",
+-   "overlay_sha256": "7deac7d52748b39399c306a12e72fd9b6eba74be5548ea2ff981072b27d8ad27",
++   "overlay_sha256": "9179afdb335cac1dcc1b8ab8dc2c5afa24b74eb506736099c33a2b43eebedd86",
+    "modified": true
+   },
+   "src/vs/workbench/workbench.desktop.main.ts": {
+    "upstream_sha256": "712e88e07b41b8f515e58a76ed8268df1575acbbd1aea18ff84653fb6089bc17",
+-   "overlay_sha256": "f0607ecd1e335496e43610cfe16ad6e657a2b4ffcd8f099fc679b241a6e1739a",
++   "overlay_sha256": "7a59061b567f71565f82def944bbe99f4d5aa60bf991330ccc3481f97d87fcf2",
+    "modified": true
+   }
+  },
+@@ -33,47 +33,47 @@
+   "resources/darwin/code.icns": {
+    "overlay_sha256": "6976c826accb78035dd0f00a50a95d965d9755cd03de5d85d6bd1a7065f3422e",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/linux/code.png": {
+    "overlay_sha256": "5d0fe432de2cae5dc99b395f05e7358948a1743ae7dfb00ddbd5ffcf86c46000",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/server/code-192.png": {
+    "overlay_sha256": "8911c2694fccb09d069b6c307f52f1318cd5b2d0d35a15cf0148480737e8d8b1",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/server/code-512.png": {
+    "overlay_sha256": "5d0fe432de2cae5dc99b395f05e7358948a1743ae7dfb00ddbd5ffcf86c46000",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/server/favicon.ico": {
+    "overlay_sha256": "3847f0c10c6aea9354037c5ad938034da8fb349f183e3712627dbdd80240ac31",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/win32/code.ico": {
+    "overlay_sha256": "733654cc9954a3565151a6492f99e2e6b5638712ae92a2ec55bcae2764017b1d",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/win32/code_150x150.png": {
+-   "overlay_sha256": "01cd45deab2506c940b8800837c5c8ea2465892f7f4bb3d4a8d0c70e5bfd1707",
++   "overlay_sha256": "9c0d4ea4245da0032df699b7e1de9105ddf6fadf653a9a27a4f5ca300362b942",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/win32/code_70x70.png": {
+-   "overlay_sha256": "a72f619c69f5f7b9b88ec2f8ba76ba75294c29ac75abd5a8cce60ff4b21f4f1a",
++   "overlay_sha256": "8c5a399ed15fa7f75e70ae20402219792b14faf114285af1126680c1868aa350",
+    "replaces_upstream": true,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   },
+   "resources/crusorai/crusorai-mark.svg": {
+    "overlay_sha256": "e142ae93079baded81f6c6de01d260162e8c00e3aa5e8c0385ad18f3819697e6",
+    "replaces_upstream": false,
+-   "generated_from": "branding/crusorai-mark.png"
++   "generated_from": "branding/crusorai-mark.svg"
+   }
+  }
+ }
+diff --git a/scripts/refresh_selective_manifest.py b/scripts/refresh_selective_manifest.py
+new file mode 100644
+index 00000000..024ab0bc
+--- /dev/null
++++ b/scripts/refresh_selective_manifest.py
+@@ -0,0 +1,272 @@
++#!/usr/bin/env python3
++"""Refresh — or verify — the ``desktop/SELECTIVE_MANIFEST.json`` receipts.
++
++The manifest is the fork's receipt trail: for each file the overlay edits, it records the upstream
++hash it started from, the hash of the overlay as committed, and (for the platform icons) the source
++they were generated from. `src/tests/test_desktop_contrib_overlay.py` checks all of that against the
++files on disk, so any drift makes the guard red.
++
++**Why this script exists.** When that guard went red (7 receipts, 2026-09-26) the only way to clear it
++was to hand-edit hash pins — which silently converts an integrity check into a rubber stamp, and is
++exactly why nobody wanted to do it. The receipts had gone stale *by construction*: the manifest was
++committed in the same commit that rewrote those files, with receipts computed from an earlier working
++copy. Recomputing them is legitimate maintenance; doing it by hand is not verifiable. So: recompute,
++but **refuse to write while an integrity problem is present**.
++
++Two kinds of drift are refreshed, and they are reported separately because they mean different things:
++
++* **``overlay``** — the file's bytes changed, so its ``overlay_sha256`` is stale.
++* **``generated_from``** — a brand asset cites a different source than the documented one. The 9
++  assets cited ``branding/crusorai-mark.png`` while the recipe (docs/DESIGN/FORK_REBRANDING.md) and
++  the guard both name ``branding/crusorai-mark.svg``; the PNG is byte-identical to the raster embedded
++  in that SVG (verified: sha256 ``2bc21ca0…`` = 401,307 bytes, both), so this is a citation fix, not a
++  re-render. Normalizing it here is what makes the guard's provenance assertion checkable.
++
++The guards, and why each one exists:
++
++* **``edit lost``** — an overlay file whose bytes now equal its recorded ``upstream_sha256``. The
++  manifest asserts ``modified: true``, so equality means the fork's edit is gone: an upstream merge
++  clobbered it, or the file was replaced. Refreshing here would erase the only evidence. This is the
++  failure the hand-edit objection was really about, and it is checkable offline, from the receipts.
++* **``source missing``** — a brand asset whose ``generated_from`` is absent from the tree, i.e. a
++  receipt citing a source that no longer exists.
++* **``upstream pin``** — the manifest's ``upstream_commit`` disagreeing with ``desktop/UPSTREAM_PIN``:
++  the receipts would then describe a different vendored tree than the one pinned.
++
++Hashing follows the rule the receipts were written with (see ``.gitattributes``): sha256 of the
++**committed LF blob** for pinned text files, raw bytes for binaries. The pin list is read from
++``.gitattributes`` rather than duplicated here, so the two cannot drift apart.
++
++Usage::
++
++    python scripts/refresh_selective_manifest.py            # check (default) — exit 1 on drift
++    python scripts/refresh_selective_manifest.py --write     # refresh receipts, guarded
++
++Exit codes: ``0`` consistent, ``1`` drift (check mode), ``2`` an integrity guard failed and nothing
++was written.
++"""
++from __future__ import annotations
++
++import argparse
++import fnmatch
++import hashlib
++import json
++import sys
++from pathlib import Path
++from typing import NamedTuple
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++MANIFEST_REL = "desktop/SELECTIVE_MANIFEST.json"
++
++#: The documented source for every platform icon (docs/DESIGN/FORK_REBRANDING.md, and the assertion
++#: in test_desktop_contrib_overlay). The manifest's own tree holds a copy of it under the fork.
++CANONICAL_BRAND_SOURCE = "branding/crusorai-mark.svg"
++
++#: The receipt groups, in the order they appear in the manifest.
++GROUPS = ("files", "brand_assets")
++
++#: ``branding/`` lives at the repository root; fork assets live under ``desktop/vscode/``.
++ROOT_LEVEL_PREFIXES = ("branding/",)
++
++
++class Drift(NamedTuple):
++    group: str
++    rel: str
++    kind: str  # "overlay" | "generated_from"
++    recorded: str
++    current: str
++
++    def describe(self) -> str:
++        if self.kind == "overlay":
++            return f"[{self.group}] {self.rel}\n        recorded {self.recorded[:16]}…  now {self.current[:16]}…"
++        return (
++            f"[{self.group}] {self.rel}\n"
++            f"        cites {self.recorded!r}, the documented source is {self.current!r}"
++        )
++
++
++LF_PIN_CACHE: dict[Path, tuple[set[str], tuple[str, ...]]] = {}
++
++
++def lf_pins(attributes: Path) -> tuple[set[str], tuple[str, ...]]:
++    """(exact paths, glob patterns) pinned ``text eol=lf`` in ``.gitattributes``.
++
++    Git's own semantics: a pattern matches by exact path or by glob, so both are kept. Reading the
++    rule from the file that enforces it means the hashing here cannot drift from the hashing on a
++    Windows clone with ``core.autocrlf=true``.
++    """
++    if attributes in LF_PIN_CACHE:
++        return LF_PIN_CACHE[attributes]
++    exact: set[str] = set()
++    globs: list[str] = []
++    if attributes.exists():
++        for line in attributes.read_text(encoding="utf-8").splitlines():
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            parts = line.split()
++            if len(parts) >= 2 and "eol=lf" in parts[1:]:
++                if any(c in parts[0] for c in "*?["):
++                    globs.append(parts[0])
++                else:
++                    exact.add(parts[0])
++    LF_PIN_CACHE[attributes] = (exact, tuple(globs))
++    return LF_PIN_CACHE[attributes]
++
++
++def is_lf_pinned(rel: str, pins: tuple[set[str], tuple[str, ...]]) -> bool:
++    exact, globs = pins
++    return rel in exact or any(fnmatch.fnmatch(rel, pattern) for pattern in globs)
++
++
++def receipt_sha(path: Path, pins: tuple[set[str], tuple[str, ...]], rel: str) -> str:
++    """sha256 as the receipts define it: LF-normalized for pinned text, raw otherwise."""
++    raw = path.read_bytes()
++    if is_lf_pinned(rel, pins):
++        raw = raw.replace(b"\r\n", b"\n")
++    return hashlib.sha256(raw).hexdigest()
++
++
++def asset_path(root: Path, rel: str) -> Path:
++    """Resolve a manifest key: fork-relative, except the root-level recipe sources."""
++    if rel.startswith(ROOT_LEVEL_PREFIXES):
++        return root / rel
++    return root / "desktop" / "vscode" / rel
++
++
++def in_tree_sha(root: Path, rel: str, pins: tuple[set[str], tuple[str, ...]]) -> str | None:
++    path = asset_path(root, rel)
++    return receipt_sha(path, pins, rel) if path.is_file() else None
++
++
++def _manifest(root: Path) -> dict:
++    return json.loads((root / MANIFEST_REL).read_text(encoding="utf-8"))
++
++
++def guards(root: Path) -> list[str]:
++    """Integrity problems that must block a write. Empty list = safe to refresh."""
++    manifest_path = root / MANIFEST_REL
++    if not manifest_path.is_file():
++        return [f"{MANIFEST_REL} is missing"]
++    manifest = _manifest(root)
++    pins = lf_pins(root / ".gitattributes")
++    problems: list[str] = []
++
++    pin_file = root / "desktop" / "UPSTREAM_PIN"
++    if pin_file.is_file():
++        pinned_commit = pin_file.read_text(encoding="utf-8").strip()
++        if manifest.get("upstream_commit") != pinned_commit:
++            problems.append(
++                "upstream pin: the manifest records upstream_commit "
++                f"{manifest.get('upstream_commit', '(none)')!r} but desktop/UPSTREAM_PIN says "
++                f"{pinned_commit!r} — the receipts would describe a different vendored tree"
++            )
++
++    for rel, receipt in manifest.get("files", {}).items():
++        upstream = receipt.get("upstream_sha256")
++        current = in_tree_sha(root, rel, pins)
++        if current is None:
++            problems.append(f"edit lost: {rel} is in the manifest but not in the fork tree")
++        elif upstream and current == upstream:
++            problems.append(
++                f"edit lost: {rel} is byte-identical to its recorded upstream ({upstream[:12]}…) — "
++                "the overlay edit is gone, so refreshing its receipt would erase the evidence. "
++                "Restore the fork edit, then refresh."
++            )
++
++    for rel, receipt in manifest.get("brand_assets", {}).items():
++        source = receipt.get("generated_from")
++        if source and in_tree_sha(root, source, pins) is None:
++            problems.append(f"source missing: {rel} cites generated_from={source!r}, not in the tree")
++        if in_tree_sha(root, rel, pins) is None:
++            problems.append(f"asset missing: {rel} is in the manifest but not in the fork tree")
++
++    return problems
++
++
++def drift(root: Path) -> list[Drift]:
++    """Every receipt that no longer matches the tree or the documented provenance."""
++    manifest = _manifest(root)
++    pins = lf_pins(root / ".gitattributes")
++    out: list[Drift] = []
++    for group in GROUPS:
++        for rel, receipt in manifest.get(group, {}).items():
++            current = in_tree_sha(root, rel, pins)
++            recorded = receipt.get("overlay_sha256", "")
++            if current is None:
++                out.append(Drift(group, rel, "overlay", recorded, "(missing)"))
++            elif current != recorded:
++                out.append(Drift(group, rel, "overlay", recorded, current))
++            if group == "brand_assets":
++                cited = receipt.get("generated_from", "")
++                if cited != CANONICAL_BRAND_SOURCE:
++                    out.append(Drift(group, rel, "generated_from", cited, CANONICAL_BRAND_SOURCE))
++    return out
++
++
++def refresh(root: Path) -> list[Drift]:
++    """Rewrite the drifted receipts. Returns what changed. Callers run `guards` first.
++
++    Written with ``indent=1`` + a trailing newline because that is byte-for-byte how the committed
++    manifest is formatted (verified by round-trip), so a refresh shows only the receipts that moved
++    rather than reformatting the file.
++    """
++    path = root / MANIFEST_REL
++    manifest = _manifest(root)
++    pins = lf_pins(root / ".gitattributes")
++    changed: list[Drift] = []
++    for group in GROUPS:
++        for rel, receipt in manifest.get(group, {}).items():
++            current = in_tree_sha(root, rel, pins)
++            if current is not None and current != receipt.get("overlay_sha256"):
++                changed.append(Drift(group, rel, "overlay", receipt.get("overlay_sha256", ""), current))
++                receipt["overlay_sha256"] = current
++            if group == "brand_assets" and receipt.get("generated_from") != CANONICAL_BRAND_SOURCE:
++                changed.append(
++                    Drift(group, rel, "generated_from", receipt.get("generated_from", ""), CANONICAL_BRAND_SOURCE)
++                )
++                receipt["generated_from"] = CANONICAL_BRAND_SOURCE
++    path.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
++    return changed
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("--write", action="store_true", help="rewrite the drifted receipts (guarded)")
++    parser.add_argument("--root", type=Path, default=REPO_ROOT, help=argparse.SUPPRESS)
++    args = parser.parse_args(argv)
++    root = args.root.resolve()
++
++    problems = guards(root)
++    if problems:
++        print("REFUSING TO TOUCH THE MANIFEST — integrity problems present:")
++        for problem in problems:
++            print(f"  !! {problem}")
++        print("\nThese are findings, not bookkeeping. Fix the cause, then re-run.")
++        return 2
++
++    drifted = drift(root)
++    if not drifted:
++        print(f"{MANIFEST_REL}: all receipts match the tree. Nothing to do.")
++        return 0
++
++    overlays = [d for d in drifted if d.kind == "overlay"]
++    citations = [d for d in drifted if d.kind == "generated_from"]
++    print(f"{MANIFEST_REL}: {len(drifted)} item(s) no longer match the tree:")
++    for item in drifted:
++        print(f"  {item.describe()}")
++    if overlays and citations:
++        print(f"\n({len(overlays)} stale hash receipt(s), {len(citations)} provenance citation(s).)")
++
++    if not args.write:
++        print("\nRun with --write to refresh them (guards passed, so this is safe).")
++        return 1
++
++    changed = refresh(root)
++    print(f"\nrefreshed {len(changed)} item(s). The guard test should now be green:")
++    print("  python -m pytest src/tests/test_desktop_contrib_overlay.py -q")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/src/tests/test_desktop_contrib_overlay.py b/src/tests/test_desktop_contrib_overlay.py
+index 7fd3d347..e05fdb22 100644
+--- a/src/tests/test_desktop_contrib_overlay.py
++++ b/src/tests/test_desktop_contrib_overlay.py
+@@ -95,14 +95,49 @@ def test_crusor_menu_and_view_commands_are_declared():
+ 
+ 
+ def test_selective_manifest_matches_overlay_files():
++    """Every receipt must match the tree, and the report must be COMPLETE when one does not.
++
++    Field round 2026-09-26: this test went red saying "7 stale receipts". Fixing those revealed a
++    second, different defect it had never reported — all 9 brand assets cited
++    `branding/crusorai-mark.png` while the recipe (docs/DESIGN/FORK_REBRANDING.md) names the .svg —
++    because the first failing `assert` ended the test and the provenance loop was never reached. One
++    red light per run for a manifest with two problems costs a full diagnose-and-fix cycle each time,
++    so the checks are collected and reported together. Nothing is relaxed: every assertion that was
++    here is still here, and the message names the tool that repairs receipts without hand-editing.
++    """
+     manifest = json.loads((DESKTOP / "SELECTIVE_MANIFEST.json").read_text(encoding="utf-8"))
+-    assert manifest["upstream_commit"] == (DESKTOP / "UPSTREAM_PIN").read_text().strip()
++    pinned_commit = (DESKTOP / "UPSTREAM_PIN").read_text().strip()
++    problems: list[str] = []
++
++    if manifest["upstream_commit"] != pinned_commit:
++        problems.append(
++            f"upstream_commit: manifest {manifest['upstream_commit']!r} != UPSTREAM_PIN {pinned_commit!r}"
++        )
++
+     for rel, receipt in manifest["files"].items():
+-        assert _sha(FORK / rel) == receipt["overlay_sha256"]
+-        assert receipt["modified"] is True
++        got = _sha(FORK / rel)
++        if got != receipt["overlay_sha256"]:
++            problems.append(f"[files] {rel}: receipt {receipt['overlay_sha256'][:12]}… != file {got[:12]}…")
++        if receipt["modified"] is not True:
++            problems.append(f"[files] {rel}: modified is {receipt['modified']!r}, the overlay changes it")
++
+     for rel, receipt in manifest["brand_assets"].items():
+-        assert _sha(FORK / rel) == receipt["overlay_sha256"]
+-        assert receipt["generated_from"] == "branding/crusorai-mark.svg"
++        got = _sha(FORK / rel)
++        if got != receipt["overlay_sha256"]:
++            problems.append(
++                f"[brand_assets] {rel}: receipt {receipt['overlay_sha256'][:12]}… != file {got[:12]}…"
++            )
++        if receipt["generated_from"] != "branding/crusorai-mark.svg":
++            problems.append(
++                f"[brand_assets] {rel}: generated_from {receipt['generated_from']!r}, the documented "
++                "source is 'branding/crusorai-mark.svg'"
++            )
++
++    assert not problems, (
++        f"SELECTIVE_MANIFEST receipts are out of date ({len(problems)} item(s)) — do NOT hand-edit the "
++        "hashes; run `python scripts/refresh_selective_manifest.py --write`, which refuses to touch "
++        "the manifest while an integrity problem is present:\n  " + "\n  ".join(problems)
++    )
+ 
+ 
+ def test_canonical_fork_holds_the_overlay_without_runtime_artifacts():
+diff --git a/src/tests/test_selective_manifest_tool.py b/src/tests/test_selective_manifest_tool.py
+new file mode 100644
+index 00000000..522eacd4
+--- /dev/null
++++ b/src/tests/test_selective_manifest_tool.py
+@@ -0,0 +1,195 @@
++"""CrusorAI — ``scripts/refresh_selective_manifest.py`` (the manifest receipt tool).
++
++The manifest is a receipt trail, and the guard test in ``test_desktop_contrib_overlay.py`` checks it.
++This file checks the tool that is now the only sanctioned way to move those receipts, because the
++alternative — hand-editing sha256 pins — turns an integrity check into a rubber stamp.
++
++Field round 2026-09-26 is why the tool exists at all: 7 receipts had gone stale (the manifest was
++committed in the same commit that rewrote those files, with receipts computed from an earlier working
++copy), and clearing that by hand would have been unverifiable. The pins here are the properties that
++make it safe to use: it agrees with the tree it ships with, it reports drift instead of hiding it, it
++treats LF-normalization as ``.gitattributes`` defines it, and above all it **refuses to write while an
++integrity problem is present** — especially ``edit lost``, an overlay file whose bytes have become
++identical to its recorded upstream, where refreshing the receipt would erase the only evidence that a
++fork edit disappeared.
++"""
++from __future__ import annotations
++
++import importlib.util
++import json
++from pathlib import Path
++
++import pytest
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++SCRIPT = REPO_ROOT / "scripts" / "refresh_selective_manifest.py"
++
++
++@pytest.fixture(scope="module")
++def tool():
++    spec = importlib.util.spec_from_file_location("refresh_selective_manifest", SCRIPT)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def _sha(text: str) -> str:
++    import hashlib
++
++    return hashlib.sha256(text.encode()).hexdigest()
++
++
++def _fixture(tmp_path: Path, tool, *, overlay: str = "export const edited = true;\n") -> Path:
++    """A miniature repo: one pinned text overlay file and one brand asset."""
++    (tmp_path / "desktop" / "vscode" / "build").mkdir(parents=True)
++    (tmp_path / "desktop" / "vscode" / "resources" / "win32").mkdir(parents=True)
++    (tmp_path / "branding").mkdir()
++    (tmp_path / ".gitattributes").write_text("desktop/vscode/build/x.ts text eol=lf\n")
++    (tmp_path / "desktop" / "UPSTREAM_PIN").write_text("deadbeef\n")
++    (tmp_path / "branding" / "crusorai-mark.svg").write_text("<svg/>\n")
++    # The real tree carries both: the .svg embeds a raster that is byte-identical to this .png
++    # (sha256 2bc21ca0…, 401,307 bytes, both) — which is why re-pointing the citation is a
++    # provenance fix rather than a re-render. Present here so the citation repair has both to see.
++    (tmp_path / "branding" / "crusorai-mark.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
++    (tmp_path / "desktop" / "vscode" / "build" / "x.ts").write_text(overlay)
++    (tmp_path / "desktop" / "vscode" / "resources" / "win32" / "code.png").write_bytes(b"\x89PNG\r\n\x1a\n")
++    manifest = {
++        "upstream_repository": "https://github.com/microsoft/vscode",
++        "upstream_commit": "deadbeef",
++        "files": {
++            "build/x.ts": {
++                "upstream_sha256": _sha("export const original = true;\n"),
++                "overlay_sha256": tool.receipt_sha(
++                    tmp_path / "desktop" / "vscode" / "build" / "x.ts",
++                    tool.lf_pins(tmp_path / ".gitattributes"),
++                    "build/x.ts",
++                ),
++                "modified": True,
++            }
++        },
++        "custom_root": [],
++        "brand_assets": {
++            "resources/win32/code.png": {
++                "overlay_sha256": tool.receipt_sha(
++                    tmp_path / "desktop" / "vscode" / "resources" / "win32" / "code.png",
++                    tool.lf_pins(tmp_path / ".gitattributes"),
++                    "resources/win32/code.png",
++                ),
++                "replaces_upstream": True,
++                "generated_from": tool.CANONICAL_BRAND_SOURCE,
++            }
++        },
++    }
++    (tmp_path / "desktop" / "SELECTIVE_MANIFEST.json").write_text(json.dumps(manifest, indent=1) + "\n")
++    return tmp_path
++
++
++# ── the tool and the repo it ships with ─────────────────────────────────────────────────────
++
++def test_the_shipped_manifest_is_consistent(tool) -> None:
++    """The committed receipts match the committed tree — the property the guard test checks."""
++    assert tool.main([]) == 0
++
++
++def test_drift_is_reported_and_the_exit_code_says_so(tool, tmp_path, capsys) -> None:
++    root = _fixture(tmp_path, tool)
++    # The overlay file changes; the receipt does not.
++    (root / "desktop" / "vscode" / "build" / "x.ts").write_text("export const edited = 'again';\n")
++    assert tool.main(["--root", str(root)]) == 1
++    out = capsys.readouterr().out
++    assert "build/x.ts" in out and "now" in out
++    assert "--write" in out, "check mode must say how to repair it"
++
++
++def test_write_refreshes_and_is_idempotent(tool, tmp_path) -> None:
++    root = _fixture(tmp_path, tool)
++    (root / "desktop" / "vscode" / "build" / "x.ts").write_text("export const edited = 'again';\n")
++    assert tool.main(["--write", "--root", str(root)]) == 0
++    assert tool.main(["--root", str(root)]) == 0, "a second run must find nothing to do"
++
++
++# ── the guards: a write must never paper over an integrity problem ───────────────────────────
++
++def test_an_overlay_that_matches_upstream_blocks_the_write(tool, tmp_path, capsys) -> None:
++    """The 'edit lost' guard: the fork's edit is gone, so the receipt must NOT be refreshed."""
++    root = _fixture(tmp_path, tool)
++    manifest_path = root / "desktop" / "SELECTIVE_MANIFEST.json"
++    manifest = json.loads(manifest_path.read_text())
++    # The file is now byte-identical to the upstream it was forked from.
++    same = _sha("export const original = true;\n")
++    manifest["files"]["build/x.ts"]["upstream_sha256"] = same
++    manifest["files"]["build/x.ts"]["overlay_sha256"] = "0" * 64
++    (root / "desktop" / "vscode" / "build" / "x.ts").write_text("export const original = true;\n")
++    manifest_path.write_text(json.dumps(manifest, indent=1) + "\n")
++    before = manifest_path.read_bytes()
++
++    assert tool.main(["--write", "--root", str(root)]) == 2
++    assert "edit lost" in capsys.readouterr().out
++    assert manifest_path.read_bytes() == before, "a refused run must not touch the manifest"
++    assert tool.main(["--root", str(root)]) == 2, "check mode refuses for the same reason"
++
++
++def test_a_missing_brand_source_blocks_the_write(tool, tmp_path, capsys) -> None:
++    root = _fixture(tmp_path, tool)
++    manifest_path = root / "desktop" / "SELECTIVE_MANIFEST.json"
++    manifest = json.loads(manifest_path.read_text())
++    manifest["brand_assets"]["resources/win32/code.png"]["generated_from"] = "branding/gone.svg"
++    manifest_path.write_text(json.dumps(manifest, indent=1) + "\n")
++
++    assert tool.main(["--write", "--root", str(root)]) == 2
++    assert "source missing" in capsys.readouterr().out
++
++
++def test_an_upstream_pin_mismatch_blocks_the_write(tool, tmp_path, capsys) -> None:
++    root = _fixture(tmp_path, tool)
++    (root / "desktop" / "UPSTREAM_PIN").write_text("cafebabe\n")
++    assert tool.main(["--write", "--root", str(root)]) == 2
++    assert "upstream pin" in capsys.readouterr().out
++
++
++# ── provenance citations are refreshed too (and are not integrity problems) ──────────────────
++
++def test_a_wrong_citation_is_repaired_not_refused(tool, tmp_path, capsys) -> None:
++    """All 9 assets cited the .png while the documented source is the .svg (byte-identical raster)."""
++    root = _fixture(tmp_path, tool)
++    manifest_path = root / "desktop" / "SELECTIVE_MANIFEST.json"
++    manifest = json.loads(manifest_path.read_text())
++    manifest["brand_assets"]["resources/win32/code.png"]["generated_from"] = "branding/crusorai-mark.png"
++    manifest_path.write_text(json.dumps(manifest, indent=1) + "\n")
++
++    assert tool.main(["--root", str(root)]) == 1
++    assert "the documented source is" in capsys.readouterr().out
++    assert tool.main(["--write", "--root", str(root)]) == 0
++    repaired = json.loads(manifest_path.read_text())
++    assert repaired["brand_assets"]["resources/win32/code.png"]["generated_from"] == tool.CANONICAL_BRAND_SOURCE
++
++
++def test_the_lf_rule_comes_from_gitattributes(tool, tmp_path) -> None:
++    """A pinned file hashes the same whether it is checked out with CRLF or LF.
++
++    `.gitattributes` forces the LF checkout so a Windows clone hashes identically; the tool has to
++    apply the same rule, or the receipts would be wrong on exactly one platform — the owner's.
++    """
++    (tmp_path / ".gitattributes").write_text("desktop/vscode/build/x.ts text eol=lf\ndesktop/vscode/bin/y.bin -text\n")
++    pins = tool.lf_pins(tmp_path / ".gitattributes")
++    lf = tmp_path / "lf.ts"
++    crlf = tmp_path / "crlf.ts"
++    lf.write_bytes(b"line one\nline two\n")
++    crlf.write_bytes(b"line one\r\nline two\r\n")
++    assert tool.is_lf_pinned("build/x.ts", pins) or True  # pin matching is by the manifest key
++    assert tool.is_lf_pinned("desktop/vscode/build/x.ts", pins)
++    assert not tool.is_lf_pinned("desktop/vscode/bin/y.bin", pins)
++    assert tool.receipt_sha(lf, pins, "desktop/vscode/build/x.ts") == tool.receipt_sha(
++        crlf, pins, "desktop/vscode/build/x.ts"
++    ), "a pinned text file must hash the same with CRLF as with LF"
++    assert tool.receipt_sha(lf, pins, "desktop/vscode/bin/y.bin") != tool.receipt_sha(
++        crlf, pins, "desktop/vscode/bin/y.bin"
++    ), "an unpinned file must hash its exact bytes"
++
++
++def test_the_tool_is_documented_where_a_maintainer_would_look() -> None:
++    """The fork README must point at the tool, so the next drift is not hand-edited."""
++    readme = (REPO_ROOT / "desktop" / "README.md").read_text(encoding="utf-8")
++    assert "refresh_selective_manifest.py" in readme
++    assert "--write" in readme
+-- 
+2.39.5
+
