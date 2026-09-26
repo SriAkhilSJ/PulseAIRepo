@@ -95,14 +95,49 @@ def test_crusor_menu_and_view_commands_are_declared():
 
 
 def test_selective_manifest_matches_overlay_files():
+    """Every receipt must match the tree, and the report must be COMPLETE when one does not.
+
+    Field round 2026-09-26: this test went red saying "7 stale receipts". Fixing those revealed a
+    second, different defect it had never reported — all 9 brand assets cited
+    `branding/crusorai-mark.png` while the recipe (docs/DESIGN/FORK_REBRANDING.md) names the .svg —
+    because the first failing `assert` ended the test and the provenance loop was never reached. One
+    red light per run for a manifest with two problems costs a full diagnose-and-fix cycle each time,
+    so the checks are collected and reported together. Nothing is relaxed: every assertion that was
+    here is still here, and the message names the tool that repairs receipts without hand-editing.
+    """
     manifest = json.loads((DESKTOP / "SELECTIVE_MANIFEST.json").read_text(encoding="utf-8"))
-    assert manifest["upstream_commit"] == (DESKTOP / "UPSTREAM_PIN").read_text().strip()
+    pinned_commit = (DESKTOP / "UPSTREAM_PIN").read_text().strip()
+    problems: list[str] = []
+
+    if manifest["upstream_commit"] != pinned_commit:
+        problems.append(
+            f"upstream_commit: manifest {manifest['upstream_commit']!r} != UPSTREAM_PIN {pinned_commit!r}"
+        )
+
     for rel, receipt in manifest["files"].items():
-        assert _sha(FORK / rel) == receipt["overlay_sha256"]
-        assert receipt["modified"] is True
+        got = _sha(FORK / rel)
+        if got != receipt["overlay_sha256"]:
+            problems.append(f"[files] {rel}: receipt {receipt['overlay_sha256'][:12]}… != file {got[:12]}…")
+        if receipt["modified"] is not True:
+            problems.append(f"[files] {rel}: modified is {receipt['modified']!r}, the overlay changes it")
+
     for rel, receipt in manifest["brand_assets"].items():
-        assert _sha(FORK / rel) == receipt["overlay_sha256"]
-        assert receipt["generated_from"] == "branding/crusorai-mark.svg"
+        got = _sha(FORK / rel)
+        if got != receipt["overlay_sha256"]:
+            problems.append(
+                f"[brand_assets] {rel}: receipt {receipt['overlay_sha256'][:12]}… != file {got[:12]}…"
+            )
+        if receipt["generated_from"] != "branding/crusorai-mark.svg":
+            problems.append(
+                f"[brand_assets] {rel}: generated_from {receipt['generated_from']!r}, the documented "
+                "source is 'branding/crusorai-mark.svg'"
+            )
+
+    assert not problems, (
+        f"SELECTIVE_MANIFEST receipts are out of date ({len(problems)} item(s)) — do NOT hand-edit the "
+        "hashes; run `python scripts/refresh_selective_manifest.py --write`, which refuses to touch "
+        "the manifest while an integrity problem is present:\n  " + "\n  ".join(problems)
+    )
 
 
 def test_canonical_fork_holds_the_overlay_without_runtime_artifacts():

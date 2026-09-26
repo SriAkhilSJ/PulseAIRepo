@@ -5,6 +5,25 @@
 - **`vscode/`** — the canonical, vendored Code OSS checkout at the pinned commit. The full Crusor overlay is applied **in place**: `vscode/product.json`, `vscode/build/buildfile.ts`, and the branded platform resources under `vscode/resources/` are all committed as part of the fork.
 - **Fork metadata** at `desktop/` root: `README.md`, `SELECTIVE_MANIFEST.json`, `UPSTREAM_PIN`, `.nvmrc`.
 
+### The manifest receipts
+
+`SELECTIVE_MANIFEST.json` records, for every file the overlay edits, the upstream hash it started
+from, the hash of the overlay as committed, and the source each platform icon was generated from.
+`src/tests/test_desktop_contrib_overlay.py` checks those receipts against the tree, so they must move
+whenever a pinned file does.
+
+**Never hand-edit the hashes.** Recompute them:
+
+```bash
+python scripts/refresh_selective_manifest.py           # check only; exits 1 on drift
+python scripts/refresh_selective_manifest.py --write    # refresh, guarded
+```
+
+The tool refuses to write while an integrity problem is present — most importantly an overlay file
+whose bytes have become identical to its recorded upstream, which means the fork's edit was lost and
+refreshing the receipt would erase the evidence. It reads the LF-hashing rule from `.gitattributes`,
+so a Windows checkout with `core.autocrlf=true` produces the same receipts.
+
 The build runs directly inside `vscode/`:
 
 ```bash

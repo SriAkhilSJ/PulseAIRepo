@@ -4,27 +4,27 @@
  "files": {
   "build/buildfile.ts": {
    "upstream_sha256": "aa6bba8088e65560583c8426c609cc4b76f8910b1f52e210fed48d77220de9bc",
-   "overlay_sha256": "1805b2fe0eca032d4b08173889b8a031651253b8dd0c88f1598c8489a7f00319",
+   "overlay_sha256": "bca01aa1b2942cfdb2b79298812131f32f37525c1ccf530816e22e82bae15a47",
    "modified": true
   },
   "build/next/index.ts": {
    "upstream_sha256": "4e2b3a122788f4dd5dbd6b90ad764882e43caf78a927d136dcaf05836bfb27ea",
-   "overlay_sha256": "73df7aebe8a28780e6719f9f762da3e13c7b92a6be1b204741cf01e12fc326b0",
+   "overlay_sha256": "6ea3a4875fed3e361520143800c2a34d447741ca23dc2f6d422b3af7dceb9cd8",
    "modified": true
   },
   "product.json": {
    "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
-   "overlay_sha256": "226e19929b7381ba0530119972d4b962c7c6f8efcc255e2743a3e7aafb58f086",
+   "overlay_sha256": "6c2eb121fc04ee0d888e213ae1846dd821080beab60db4f3b5912b2e5ca697c3",
    "modified": true
   },
   "src/vs/workbench/workbench.common.main.ts": {
    "upstream_sha256": "d11142346b159434f4914d56e83b825917689f394089147a5182b8a70dbf1093",
-   "overlay_sha256": "7deac7d52748b39399c306a12e72fd9b6eba74be5548ea2ff981072b27d8ad27",
+   "overlay_sha256": "9179afdb335cac1dcc1b8ab8dc2c5afa24b74eb506736099c33a2b43eebedd86",
    "modified": true
   },
   "src/vs/workbench/workbench.desktop.main.ts": {
    "upstream_sha256": "712e88e07b41b8f515e58a76ed8268df1575acbbd1aea18ff84653fb6089bc17",
-   "overlay_sha256": "f0607ecd1e335496e43610cfe16ad6e657a2b4ffcd8f099fc679b241a6e1739a",
+   "overlay_sha256": "7a59061b567f71565f82def944bbe99f4d5aa60bf991330ccc3481f97d87fcf2",
    "modified": true
   }
  },
@@ -33,47 +33,47 @@
   "resources/darwin/code.icns": {
    "overlay_sha256": "6976c826accb78035dd0f00a50a95d965d9755cd03de5d85d6bd1a7065f3422e",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/linux/code.png": {
    "overlay_sha256": "5d0fe432de2cae5dc99b395f05e7358948a1743ae7dfb00ddbd5ffcf86c46000",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/server/code-192.png": {
    "overlay_sha256": "8911c2694fccb09d069b6c307f52f1318cd5b2d0d35a15cf0148480737e8d8b1",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/server/code-512.png": {
    "overlay_sha256": "5d0fe432de2cae5dc99b395f05e7358948a1743ae7dfb00ddbd5ffcf86c46000",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/server/favicon.ico": {
    "overlay_sha256": "3847f0c10c6aea9354037c5ad938034da8fb349f183e3712627dbdd80240ac31",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/win32/code.ico": {
    "overlay_sha256": "733654cc9954a3565151a6492f99e2e6b5638712ae92a2ec55bcae2764017b1d",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/win32/code_150x150.png": {
-   "overlay_sha256": "01cd45deab2506c940b8800837c5c8ea2465892f7f4bb3d4a8d0c70e5bfd1707",
+   "overlay_sha256": "9c0d4ea4245da0032df699b7e1de9105ddf6fadf653a9a27a4f5ca300362b942",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/win32/code_70x70.png": {
-   "overlay_sha256": "a72f619c69f5f7b9b88ec2f8ba76ba75294c29ac75abd5a8cce60ff4b21f4f1a",
+   "overlay_sha256": "8c5a399ed15fa7f75e70ae20402219792b14faf114285af1126680c1868aa350",
    "replaces_upstream": true,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   },
   "resources/crusorai/crusorai-mark.svg": {
    "overlay_sha256": "e142ae93079baded81f6c6de01d260162e8c00e3aa5e8c0385ad18f3819697e6",
    "replaces_upstream": false,
-   "generated_from": "branding/crusorai-mark.png"
+   "generated_from": "branding/crusorai-mark.svg"
   }
  }
 }
