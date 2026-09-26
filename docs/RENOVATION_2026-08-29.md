@@ -34,7 +34,7 @@
 * `npm run typecheck-client --prefix desktop/vscode` PASS; `npx tsc --noEmit --project crusor-webview/tsconfig.json` PASS.
 * `curl http://localhost:8200/api/copilotkit/info` → `{"crusor_agent","default"} mode:intelligence a2uiEnabled:true` (after `dotenv/config` fix).
 * `curl http://localhost:8123/health` → `{"status":"ok"}` (after `MemorySaver` fix for `SqliteSaver async`).
-* `http://localhost:5173` — first load blank `Agent default not found` → fixed `server.ts` alias + `App.tsx agent="crusor_agent"` → header `CrusorAI — Crusor Agent` + `CopilotChat` input + user `hello` bubble rendered (`D:\crusorAIagent\browser-verify.png` 22806 bytes, `e2e-verify.spec.ts` 1 passed). `Failed to fetch` on POST is transient when `8123` not ready before `5173` load.
+* `http://localhost:5173` — first load blank `Agent default not found` → fixed `server.ts` alias + `App.tsx agent="crusor_agent"` → header `CrusorAI — Crusor Agent` + `CopilotChat` input + user `hello` bubble rendered (`D:\pulseAIagent\browser-verify.png` 22806 bytes, `e2e-verify.spec.ts` 1 passed). `Failed to fetch` on POST is transient when `8123` not ready before `5173` load.
 
 ## 3. Sarvam API — cheapness guard
 

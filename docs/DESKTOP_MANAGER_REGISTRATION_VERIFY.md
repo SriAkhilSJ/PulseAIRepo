@@ -112,9 +112,9 @@ does as `%CODE% . %*`; a dev build is bare Electron and reads its first position
 lone folder path comes back as `Cannot find module`):
 ```powershell
 Start-Process -FilePath ".\desktop\vscode\.build\electron\CrusorAI.exe" `
-  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\crusorAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\crusorAIagent\playground'
+  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\pulseAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\pulseAIagent\playground'
 ```
-If that still yields no folder, pass the folder as `--folder-uri=file:///D:/crusorAIagent/playground` instead of
+If that still yields no folder, pass the folder as `--folder-uri=file:///D:/pulseAIagent/playground` instead of
 a trailing positional -- `scripts\verify_crusor_manager_registration.mjs --folder-uri` does exactly that.)
 
 (`--user-data-dir` on a fresh profile is what makes `window.commandCenter: true` and

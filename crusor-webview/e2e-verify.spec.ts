@@ -14,7 +14,7 @@ test('crusor webview renders and chats', async ({ page }) => {
   await page.waitForTimeout(12000);
   const body = await page.content();
   console.log('BODY LEN', body.length);
-  await page.screenshot({ path: 'D:/crusorAIagent/browser-verify.png', fullPage: true });
+  await page.screenshot({ path: 'D:/pulseAIagent/browser-verify.png', fullPage: true });
   // check for no error boundary
   await expect(page.locator('text=Agent default not found')).toHaveCount(0);
 });

@@ -166,7 +166,7 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
 ### 3. Minor
 
 - `crusor-webview/e2e-verify.spec.ts` writes screenshots to a hard-coded Windows path
-  (`D:/crusorAIagent/...`) and sleeps 12s waiting for an LLM. It will not pass as written.
+  (`D:/pulseAIagent/...`) and sleeps 12s waiting for an LLM. It will not pass as written.
 - `README.md` still says Node 24.18.0 / Vite 7 for the webview; the app actually builds on
   Node 22.22 with Vite 8. Worth reconciling.
 - The `ui/` directory is referenced by some tests but does not exist in the tree.

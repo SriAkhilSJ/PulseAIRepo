@@ -80,13 +80,13 @@ export default function App() {
         <div data-slot="crusorai_assistant-message-content" className="flex flex-col gap-(--turn-block-gap)">
           <ThinkingRow meta="1.2s" />
 
-          <ToolRunRow command="cd D:\\crusorAIagent\\PulseAIRepo && dir /b" output={DIR_OUTPUT} meta="0.8s · exit 0" />
+          <ToolRunRow command="cd D:\\pulseAIagent\\PulseAIRepo && dir /b" output={DIR_OUTPUT} meta="0.8s · exit 0" />
 
           <QuestionCard
             title="I need a bit more clarity:"
             question="Which directory would you like me to list files in?"
             options={[
-              'The workspace root: D:\\crusorAIagent\\PulseAIRepo',
+              'The workspace root: D:\\pulseAIagent\\PulseAIRepo',
               'The current working directory (if different)',
               'A specific subfolder',
             ]}

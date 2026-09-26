@@ -52,6 +52,6 @@ echo === Done ===
 echo Open http://localhost:5173  (type hello)
 echo Desktop: F1 ^> View: Crusor Agent (right AuxiliaryBar fixed, canMoveView:false)
 echo Close the 3 black windows with Ctrl+C to stop.
-echo Screenshot: D:\crusorAIagent\browser-verify.png
+echo Screenshot: D:\pulseAIagent\browser-verify.png
 echo.
 pause

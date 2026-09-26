@@ -15,7 +15,7 @@ cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\pulse
 sleep 15 && curl -s http://localhost:9222/json/version | head -2
 
 # 4. Run tests (from CDP_test dir)
-cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_final.js
+cd D:/pulseAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_final.js
 ```
 
 ## Prerequisites
@@ -24,13 +24,13 @@ cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_fin
 |------|-------|--------|
 | Python venv | `D:\pulseAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
 | Node.js | v24+ | `node --version` |
-| ws module | `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
+| ws module | `D:\pulseAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
 | CrusorAI.exe | `desktop/vscode/.build/electron/CrusorAI.exe` | `ls -la` |
 | CDP port | 9222 | `curl -s http://localhost:9222/json/version` |
 
 ## Test Scripts (copy-paste ready)
 
-All scripts are in `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\`:
+All scripts are in `D:\pulseAIagent\crusor-res\cancel-session-artifacts\CDP_test\`:
 
 | Script | What it tests | Duration |
 |--------|--------------|----------|
@@ -40,7 +40,7 @@ All scripts are in `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_tes
 
 ### Run all tests:
 ```bash
-cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test
+cd D:/pulseAIagent/crusor-res/cancel-session-artifacts/CDP_test
 
 # Step 1: Trust folder (user must click "Yes, I trust" in app)
 # Step 2: Run main test

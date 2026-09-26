@@ -3,7 +3,7 @@
 ## Why direct `.\.venv\Scripts\python.exe` was `Access is denied`
 
 - `D:\` drive is blocked for execution by Windows Code Integrity / WDAC hardening (`DeviceGuard VirtualizationBasedSecurity:2`, Symlinked execution denied on `D:\`).
-- Proof: same `python.exe` (hash `868b57fd`, 45 KB `uv` stub) fails on `D:\crusorAIagent\python_test.exe` but succeeds when copied to `C:\Temp\test_python.exe` → `print(123)` OK.
+- Proof: same `python.exe` (hash `868b57fd`, 45 KB `uv` stub) fails on `D:\pulseAIagent\python_test.exe` but succeeds when copied to `C:\Temp\test_python.exe` → `print(123)` OK.
 - `uv run python` also fails because it spawns the `D:\.venv` stub.
 
 ## Fix Applied

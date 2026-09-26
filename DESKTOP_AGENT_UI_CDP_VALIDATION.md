@@ -9,7 +9,7 @@
 
 ## Correction
 
-R2 proved source/build integrity but did not run the GUI. The repository already documents raw CDP automation in `CDP_TEST_GUIDE.md`, and the Windows host has the established `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test` setup. The prior “human-only” conclusion was incorrect.
+R2 proved source/build integrity but did not run the GUI. The repository already documents raw CDP automation in `CDP_TEST_GUIDE.md`, and the Windows host has the established `D:\pulseAIagent\crusor-res\cancel-session-artifacts\CDP_test` setup. The prior “human-only” conclusion was incorrect.
 
 This handoff performs the remaining runtime smoke through Electron's Chrome DevTools Protocol. The committed script uses Node's built-in `fetch` and `WebSocket`; it does not require Playwright, Selenium, AutoIt, or a provider.
 
