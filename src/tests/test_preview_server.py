@@ -99,9 +99,14 @@ def workspace(tmp_path_factory) -> Path:
 	return root
 
 
+TEST_SECRET = "test-secret-not-a-real-one"
+
+
 @pytest.fixture(scope="module")
 def proxy(workspace: Path):
-	server = PreviewServer(workspace, host="127.0.0.1", port=0).start()
+	# Runs WITH a secret, because that is how the CLI starts it (`--endpoint-session` generates one) and
+	# the gate is the only thing standing between a web page and the workspace through this proxy.
+	server = PreviewServer(workspace, host="127.0.0.1", port=0, secret=TEST_SECRET).start()
 	yield server
 	server.stop()
 
@@ -129,11 +134,13 @@ def get_noredirect(url: str, *, timeout: float = 10.0):
 		return exc.code, dict(exc.headers or {}), exc.read()
 
 
-def post(url: str, payload: dict, *, timeout: float = 10.0):
-	request = urllib.request.Request(
-		url, method="POST", data=json.dumps(payload).encode(),
-		headers={"Content-Type": "application/json"},
-	)
+def post(url: str, payload: dict, *, timeout: float = 10.0, secret: str | None = None, origin: str | None = None):
+	headers = {"Content-Type": "application/json"}
+	if secret:
+		headers["X-Crusor-Preview-Secret"] = secret
+	if origin:
+		headers["Origin"] = origin
+	request = urllib.request.Request(url, method="POST", data=json.dumps(payload).encode(), headers=headers)
 	try:
 		with urllib.request.urlopen(request, timeout=timeout) as response:
 			return response.status, json.loads(response.read().decode() or "{}")
@@ -141,8 +148,22 @@ def post(url: str, payload: dict, *, timeout: float = 10.0):
 		return exc.code, json.loads(exc.read().decode() or "{}")
 
 
+def preflight(url: str, *, timeout: float = 10.0):
+	"""Exactly what Chromium sends before the preview window's cross-origin registration POST."""
+	request = urllib.request.Request(url, method="OPTIONS", headers={
+		"Origin": "null",
+		"Access-Control-Request-Method": "POST",
+		"Access-Control-Request-Headers": "content-type,x-crusor-preview-secret",
+	})
+	try:
+		with urllib.request.urlopen(request, timeout=timeout) as response:
+			return response.status, dict(response.headers)
+	except urllib.error.HTTPError as exc:
+		return exc.code, dict(exc.headers or {})
+
+
 def register(proxy: PreviewServer, **payload) -> dict:
-	status, body = post(f"{proxy.origin}/crusor-preview/target", payload)
+	status, body = post(f"{proxy.origin}/crusor-preview/target", payload, secret=TEST_SECRET)
 	assert status == 200, body
 	return body
 
@@ -227,10 +248,10 @@ def test_file_target_is_served_from_the_workspace_with_the_overlay(proxy: Previe
 
 
 def test_file_targets_cannot_escape_the_workspace(proxy: PreviewServer) -> None:
-	status, body = post(f"{proxy.origin}/crusor-preview/target", {"file": "../../etc/passwd"})
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"file": "../../etc/passwd"}, secret=TEST_SECRET)
 	assert status == 400
 	assert "workspace" in body["error"]
-	status, body = post(f"{proxy.origin}/crusor-preview/target", {"file": "missing.html"})
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"file": "missing.html"}, secret=TEST_SECRET)
 	assert status == 400
 
 	# The deliberate boundary: a registered page may pull its own subresources from anywhere inside the
@@ -245,17 +266,17 @@ def test_file_targets_cannot_escape_the_workspace(proxy: PreviewServer) -> None:
 
 
 def test_remote_targets_are_refused_by_default(proxy: PreviewServer) -> None:
-	status, body = post(f"{proxy.origin}/crusor-preview/target", {"url": "https://example.com/"})
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"url": "https://example.com/"}, secret=TEST_SECRET)
 	assert status == 400
 	assert "non-local" in body["error"]
 
 
 def test_registration_validates_its_input(proxy: PreviewServer) -> None:
-	status, body = post(f"{proxy.origin}/crusor-preview/target", {"url": "not-a-url"})
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"url": "not-a-url"}, secret=TEST_SECRET)
 	assert status == 400 and "http" in body["error"]
-	status, body = post(f"{proxy.origin}/crusor-preview/target", {})
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {}, secret=TEST_SECRET)
 	assert status == 400 and "url" in body["error"]
-	status, body = post(f"{proxy.origin}/crusor-preview/target", {"file": "missing.html"})
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"file": "missing.html"}, secret=TEST_SECRET)
 	assert status == 400 and "no such workspace file" in body["error"]
 
 
@@ -287,3 +308,60 @@ def test_overlay_and_window_assets_are_shipped_from_the_desktop_tree(proxy: Prev
 def test_asset_traversal_is_refused(proxy: PreviewServer) -> None:
 	status, _, _ = get(f"{proxy.origin}/crusor-preview/ui/../../../package.json")
 	assert status in {403, 404}
+
+
+def test_preflight_answer_lets_the_preview_window_register(proxy: PreviewServer) -> None:
+	"""Chromium preflights the window's registration POST (opaque origin, JSON body, custom header).
+
+	Without a preflight answer the browser never sends the real request, and the preview window can
+	only say "could not register this target" — the feature would look broken on first launch.
+	"""
+	status, headers = preflight(f"{proxy.origin}/crusor-preview/target")
+	assert status in {200, 204}
+	assert headers["Access-Control-Allow-Origin"] == "*"
+	assert "POST" in headers["Access-Control-Allow-Methods"]
+	allowed = headers["Access-Control-Allow-Headers"].lower()
+	assert "content-type" in allowed
+	assert "x-crusor-preview-secret" in allowed, "the secret header must be allowed or the POST is blocked"
+	assert int(headers["Access-Control-Max-Age"]) > 0
+
+
+def test_registration_replies_are_readable_cross_origin(proxy: PreviewServer, dev_server: str) -> None:
+	# The window is served from the app's opaque origin (vscode-file://), so `*` is the only value that
+	# works: a specific origin cannot be echoed back to "null" without also matching hostile sandboxes.
+	status, headers, _ = get(f"{proxy.origin}/crusor-preview/health")
+	assert status == 200 and headers["Access-Control-Allow-Origin"] == "*"
+
+	request = urllib.request.Request(
+		f"{proxy.origin}/crusor-preview/target", method="POST",
+		data=json.dumps({"url": dev_server + "/"}).encode(),
+		headers={
+			"Content-Type": "application/json",
+			"X-Crusor-Preview-Secret": TEST_SECRET,
+			"Origin": "null",  # what the app's opaque (vscode-file://) origin sends
+		},
+	)
+	with urllib.request.urlopen(request, timeout=10) as response:
+		assert response.status == 200
+		assert response.headers["Access-Control-Allow-Origin"] == "*"
+
+
+def test_registration_without_the_run_secret_is_refused(proxy: PreviewServer, dev_server: str) -> None:
+	# The attack this stops: any page in the user's browser POSTs a file target and then reads it back
+	# through the proxy. The secret is published only in the 0600 endpoint file and the window's URL.
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"url": dev_server + "/"})
+	assert status == 403
+	assert "secret" in body["error"]
+	assert "endpoint file" in body["hint"]
+
+	status, body = post(f"{proxy.origin}/crusor-preview/target", {"url": dev_server + "/"}, secret="wrong")
+	assert status == 403, "a wrong secret is not a secret"
+
+
+def test_proxied_pages_still_need_their_token_not_the_secret(proxy: PreviewServer, dev_server: str) -> None:
+	"""Two different capabilities: the secret registers a target, the token reads one."""
+	target = register(proxy, url=dev_server + "/")
+	status, _, body = get(proxy.origin + target["previewUrl"])          # no secret on this request
+	assert status == 200 and b"Agent built this" in body
+	status, _, _ = get(f"{proxy.origin}/p/{'x' * 22}/")
+	assert status == 404

@@ -60,6 +60,7 @@ import {
 	detectPreviewAvailability,
 	evidenceFromToolCall,
 	isBatchEmpty,
+	previewWindowQuery,
 	summarizeBatch,
 } from '../common/crusorAIPreview.js';
 import { installCrusorTheme } from './crusorTheme.js';
@@ -224,16 +225,22 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 
 		const kind: CrusorPreviewKind = resolved.file ? 'file' : 'url';
 		const uri = FileAccess.asBrowserUri(PREVIEW_WINDOW_RESOURCE as never).toString(true);
-		const url = `${uri}?endpoint=${encodeURIComponent(endpoint.origin)}` +
-			`&kind=${kind}` +
-			(resolved.url ? `&target=${encodeURIComponent(resolved.url)}` : `&file=${encodeURIComponent(resolved.file!)}`) +
-			(resolved.label ? `&label=${encodeURIComponent(resolved.label)}` : '') +
-			(endpoint.session_id ? `&session=${encodeURIComponent(endpoint.session_id)}` : '');
+		const query = previewWindowQuery(endpoint, {
+			kind,
+			target: resolved.url ?? '',
+			file: resolved.file ?? '',
+			label: resolved.label ?? '',
+			session: endpoint.session_id ?? '',
+		});
+		const url = `${uri}?${query}`;
 
 		const auxiliary = await this.auxiliaryWindows.open({
-			// A preview wants room: it is a page rendered at a real size, not a panel.
+			// A preview wants room: it is a page rendered at a real size, not a panel. The OS titlebar
+			// stays: it is how the window is moved and closed, since the preview iframe covers the
+			// window's content area and our own chrome cannot drag a frameless window from inside a frame.
 			bounds: { width: 1180, height: 840 },
-			nativeTitlebar: false,
+			nativeTitlebar: true,
+			backgroundColor: '#1f1f1f',
 		});
 		const store = new DisposableStore();
 		store.add(auxiliary);
@@ -241,10 +248,13 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		const frame = auxiliary.window.document.createElement('iframe');
 		frame.className = 'crusor-preview-window-frame';
 		frame.setAttribute('title', 'Crusor Preview');
-		frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:#1f1f1f;';
+		// Absolute, over the auxiliary window's content area. The window's own `container` div is left
+		// alone on purpose: it is positioned and laid out by the workbench, and overwriting its styles
+		// from here is how an auxiliary window ends up unable to render its own parts.
+		frame.style.cssText = 'position:absolute;inset:0;z-index:100;display:block;width:100%;height:100%;border:0;background:#1f1f1f;';
 		frame.setAttribute('src', url);
-		auxiliary.container.style.cssText = 'display:block;width:100%;height:100%;overflow:hidden;';
-		auxiliary.container.appendChild(frame);
+		const host = auxiliary.window.document.body;
+		host.appendChild(frame);
 		// The same derived-token machine the Agent pane runs, on this window's container: the preview
 		// chrome and the injected overlay wear the live theme, not a palette of their own.
 		store.add(installCrusorTheme(auxiliary.container, this.themeService));

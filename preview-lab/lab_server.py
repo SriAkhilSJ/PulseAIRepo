@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import secrets
 import sys
 import threading
 import urllib.parse
@@ -40,6 +41,9 @@ from src.preview.server import PreviewServer  # noqa: E402
 DEMO_APP = LAB_ROOT / "demo-app"
 RUNTIME = LAB_ROOT / ".runtime"
 SESSION_ID = "lab-session-preview"
+#: Same gate the IDE path exercises: registration needs this, so the lab cannot be turned into a
+#: workspace file reader by a page in the user's browser (the lab binds a reachable interface).
+RUN_SECRET = secrets.token_urlsafe(24)
 
 
 def _load_mock_agent():
@@ -149,6 +153,7 @@ def lab_routes(demo_app_origin: str):
                 "proxyOrigin": "",
                 "demoAppOrigin": demo_app_origin,
                 "session": SESSION_ID,
+                "secret": RUN_SECRET,
                 "workspace": str(LAB_ROOT),
                 "mockAgent": True,
                 "targets": {
@@ -194,6 +199,9 @@ def lab_routes(demo_app_origin: str):
 
         if path == "/lab/target/file" and method == "POST":
             # The second supported target kind: a static HTML file the agent wrote, no dev server.
+            if not handler._authorised():  # noqa: SLF001 - lab harness, same family
+                handler._json(403, {"ok": False, "error": "preview registration requires the run secret"})  # noqa: SLF001
+                return True
             spec = handler.preview.register_file("demo-app/index.html", label="aurora-landing · workspace file")
             handler._json(200, {  # noqa: SLF001
                 "ok": True, "token": spec.token, "kind": spec.kind, "label": spec.label,
@@ -218,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         LAB_ROOT,
         host=args.host,
         port=args.port,
+        secret=RUN_SECRET,
         extra_handler=lab_routes(demo_origin),
     ).start()
 

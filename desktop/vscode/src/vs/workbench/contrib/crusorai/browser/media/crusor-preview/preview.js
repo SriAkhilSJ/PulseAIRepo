@@ -559,11 +559,16 @@
 	 * document's own `connect-src` does not allow. The workbench passes the target and the proxy origin
 	 * along in the URL; the window that is allowed to talk to the proxy does the talking.
 	 */
-	function registerTarget(endpoint, payload) {
+	function registerTarget(endpoint, payload, secret) {
 		var base = String(endpoint || '').replace(/\/+$/, '');
+		var headers = { 'Content-Type': 'application/json' };
+		// The window's own origin is opaque (the app serves it from vscode-file://), so the proxy cannot
+		// tell this window from any other page by origin. It asks for the run secret instead, which the
+		// workbench read from the 0600 endpoint file and handed over in this window's URL.
+		if (secret) { headers['X-Crusor-Preview-Secret'] = secret; }
 		return fetch(base + '/crusor-preview/target', {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: headers,
 			body: JSON.stringify(payload),
 		}).then(function (response) {
 			return response.json().then(function (body) {
@@ -581,6 +586,7 @@
 		var label = params.get('label') || '';
 		var kind = params.get('kind') || '';
 		state.sessionId = params.get('session') || '';
+		var secret = params.get('secret') || '';
 		if (params.get('theme')) {
 			try { applyTheme(JSON.parse(params.get('theme'))); } catch (_) { /* ignore malformed theme */ }
 		}
@@ -594,7 +600,7 @@
 				file: file || undefined,
 				label: label,
 				session_id: state.sessionId,
-			}).then(function (result) {
+			}, secret).then(function (result) {
 				var registration = result.registration;
 				state.kind = registration.kind || kind || 'url';
 				// previewUrl is root-relative, so it survives the window being served from the app, a
@@ -605,8 +611,17 @@
 				});
 			}).catch(function (error) {
 				empty.hidden = false;
-				emptyCopy.textContent = 'The preview proxy could not register this target: ' + error.message +
-					'. Is the preview server still running (python -m src.preview.server --endpoint-session …)?';
+				var message = String(error && error.message || error);
+				if (/secret/i.test(message)) {
+					// The one failure a user can act on: the window was opened without the secret, which
+					// happens when the URL was hand-edited or a stale window outlived a proxy restart.
+					emptyCopy.textContent = 'Registration was refused (' + message + '). Close this window and ' +
+						'open the preview again from the Agent panel — the run secret changes every time the ' +
+						'preview server restarts.';
+				} else {
+					emptyCopy.textContent = 'The preview proxy could not register this target: ' + message +
+						'. Is the preview server still running (python -m src.preview.server --endpoint-session …)?';
+				}
 				setState('error', 'no proxy');
 				toast('Preview proxy unavailable', 'failed', 'close');
 			});

@@ -122,7 +122,10 @@ export class CrusorAIViewPane extends ViewPane {
 			webviewTab.classList.toggle('is-active', surface === 'webview');
 			nativeTab.setAttribute('aria-current', String(surface === 'native'));
 			webviewTab.setAttribute('aria-current', String(surface === 'webview'));
-			tabs.classList.toggle('is-hidden', this.webviewFrame === undefined);
+			// Only the two tab BUTTONS hide when there is a single surface: the row also carries the
+			// "a preview is available" chip, which must stay visible with the CopilotKit webview off.
+			nativeTab.classList.toggle('is-hidden', this.webviewFrame === undefined);
+			webviewTab.classList.toggle('is-hidden', this.webviewFrame === undefined);
 		};
 		this._register(addDisposableListener(nativeTab, 'click', () => show('native')));
 		this._register(addDisposableListener(webviewTab, 'click', () => show('webview')));

@@ -34,7 +34,7 @@
 	var sourceHint = doc.getElementById("wb-source-hint");
 	var codeEl = doc.querySelector("#wb-code code");
 
-	var lab = { proxy: "", demoApp: "", session: "lab-session", token: "", previewUrl: "", batch: null };
+	var lab = { proxy: "", demoApp: "", session: "lab-session", secret: "", token: "", previewUrl: "", batch: null };
 
 	/* ── theme: the derived palette, pushed to the preview window exactly like the IDE does ── */
 	function derivedTheme() {
@@ -131,7 +131,12 @@
 	/* ── STEP 2: the window ────────────────────────────────────────────────────────────── */
 	function openPreviewWindow() {
 		if (!lab.previewUrl) { toast("No preview target yet", "failed"); return; }
-		var ui = lab.proxy + "/crusor-preview/ui/?target=" + encodeURIComponent(lab.previewUrl) +
+		// Same URL shape the workbench builds: the window registers its own target, so it needs the
+		// endpoint origin and the run secret (see crusorAIPreviewService.ts / preview.js).
+		var ui = lab.proxy + "/crusor-preview/ui/" +
+			"?endpoint=" + encodeURIComponent(lab.proxy) +
+			"&secret=" + encodeURIComponent(lab.secret) +
+			"&target=" + encodeURIComponent(lab.previewUrl) +
 			"&label=" + encodeURIComponent(lab.label || lab.previewUrl) +
 			"&kind=url&session=" + encodeURIComponent(lab.session);
 		pwin.hidden = false;
@@ -386,11 +391,12 @@
 			lab.proxy = state.proxyOrigin;
 			lab.demoApp = state.demoAppOrigin;
 			lab.session = state.session || lab.session;
+			lab.secret = state.secret || "";
 			devUrlEl.textContent = state.demoAppOrigin.replace(/^https?:\/\//, "");
 
 			var registered = await fetch(lab.proxy + "/crusor-preview/target", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", "X-Crusor-Preview-Secret": lab.secret },
 				body: JSON.stringify({ url: state.demoAppOrigin + "/", label: "aurora-landing · dev server", session_id: lab.session }),
 			});
 			var target = await registered.json();

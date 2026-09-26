@@ -5,7 +5,7 @@ capability token, so the workbench cannot guess either one. It publishes them th
 the runtime publishes machine state: a small JSON file under ``$CRUSORAI_HOME/preview`` (default
 ``~/.crusorai/preview``), named by session.
 
-    { "session_id": "...", "origin": "http://127.0.0.1:8931", "token": "...",
+    { "session_id": "...", "origin": "http://127.0.0.1:8931", "secret": "...",
       "workspace": "/abs/path", "pid": 4711, "started_at": 1760000000.0 }
 
 Why a file and not a protocol frame: Bridge Protocol v2 is a *session* channel (prompts, tools,
@@ -13,8 +13,8 @@ approvals), and the preview endpoint is machine state that must survive a render
 window move, or a bridge restart without any of them having to renegotiate. A file is also
 inspectable by a human with ``cat`` when the preview will not load — which is exactly when you
 need it. Writes are atomic (temp + ``os.replace``) so a reader never sees half a document, and
-the file is ``0600``: the token in it is the only thing between a stray browser tab and the
-workspace.
+the file is ``0600``: the secret in it is what lets the IDE's own window register a target, and
+without it a stray browser tab cannot turn the proxy into a workspace file reader.
 
 The TypeScript side (``contrib/crusorai/browser/crusorAIPreviewService.ts``) reads this file; the
 CLI in :mod:`src.preview.server` writes it.
@@ -74,6 +74,7 @@ def write_endpoint(
     origin: str,
     token: str = "",
     workspace: str | Path | None = None,
+    secret: str = "",
     extra: dict[str, Any] | None = None,
 ) -> Path:
     """Publish the endpoint atomically. Returns the path written."""
@@ -83,6 +84,9 @@ def write_endpoint(
         "session_id": str(session_id),
         "origin": str(origin).rstrip("/"),
         "token": str(token),
+        #: Registration capability. Required by the proxy on POST /crusor-preview/target (see
+        #: preview/server.py on why CORS + a secret rather than an origin allow-list).
+        "secret": str(secret),
         "workspace": str(workspace) if workspace is not None else "",
         "pid": os.getpid(),
         "started_at": time.time(),

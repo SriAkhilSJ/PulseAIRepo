@@ -42,7 +42,7 @@ def isolated_home(tmp_path, monkeypatch):
 
 def test_round_trip() -> None:
 	path = write_endpoint(
-		"sess-1", origin="http://127.0.0.1:8931/", token="tok-abc",
+		"sess-1", origin="http://127.0.0.1:8931/", token="tok-abc", secret="s3cret",
 		workspace="/tmp/ws", extra={"note": "lab"},
 	)
 	assert path == endpoint_path("sess-1")
@@ -50,6 +50,7 @@ def test_round_trip() -> None:
 	assert payload is not None
 	assert payload["origin"] == "http://127.0.0.1:8931", "trailing slash is normalised away"
 	assert payload["token"] == "tok-abc"
+	assert payload["secret"] == "s3cret", "the registration capability the preview window needs"
 	assert payload["workspace"] == "/tmp/ws"
 	assert payload["ui_path"] == "/crusor-preview/ui/"
 	assert payload["note"] == "lab"
@@ -145,6 +146,6 @@ def test_endpoint_shape_matches_the_typescript_contract() -> None:
 	interface = source.split("export interface CrusorPreviewEndpoint", 1)[1].split("}", 1)[0]
 	payload = write_endpoint("contract", origin="http://127.0.0.1:1/", token="t", workspace="/ws")
 	written = json.loads(Path(payload).read_text(encoding="utf-8"))
-	for key in ("session_id", "origin", "token", "workspace", "ui_path", "health_path", "started_at", "pid"):
+	for key in ("session_id", "origin", "token", "secret", "workspace", "ui_path", "health_path", "started_at", "pid"):
 		assert key in interface, f"{key} missing from the TypeScript endpoint contract"
 		assert key in written, f"{key} missing from the published endpoint"

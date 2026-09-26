@@ -150,6 +150,8 @@ export interface CrusorPreviewEndpoint {
 	readonly session_id: string;
 	readonly origin: string;
 	readonly token?: string;
+	/** registration capability, handed to the preview window (see src/preview/endpoint.py) */
+	readonly secret?: string;
 	readonly workspace?: string;
 	readonly ui_path?: string;
 	readonly health_path?: string;
@@ -173,6 +175,20 @@ export function previewWindowUrl(
 	if (options.kind) { query.push('kind=' + encodeURIComponent(options.kind)); }
 	if (options.sessionId) { query.push('session=' + encodeURIComponent(options.sessionId)); }
 	return query.length ? base + '?' + query.join('&') : base;
+}
+
+/**
+ * Query string the preview window needs in order to reach its proxy: the endpoint origin (because the
+ * window registers the target itself) and the run secret (because registration is gated — the window's
+ * origin is opaque, so the proxy cannot tell our window from a hostile one by origin alone).
+ */
+export function previewWindowQuery(endpoint: Pick<CrusorPreviewEndpoint, 'origin' | 'secret'>, extra: Record<string, string> = {}): string {
+	const query: string[] = [['endpoint', String(endpoint.origin || '').replace(/\/+$/, '')]];
+	if (endpoint.secret) { query.push(['secret', endpoint.secret]); }
+	for (const key of Object.keys(extra)) {
+		if (extra[key]) { query.push([key, extra[key]]); }
+	}
+	return query.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
 }
 
 /** The proxied URL for a registered target — what the preview window frames. */

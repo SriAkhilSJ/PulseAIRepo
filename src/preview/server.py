@@ -23,6 +23,13 @@ Safety rails (all enforced here, not by convention)
 * ``file`` targets are confined to the workspace root (resolved, then prefix-checked, so ``..`` and
   symlink escapes are rejected);
 * only ``GET``/``HEAD`` are proxied, and the proxy never follows a redirect off-host;
+* registration is gated by a per-run **secret** (``--secret``/``--endpoint-session`` generates one).
+  The preview window is served from the app's own origin, which in Chromium is *opaque*
+  (``vscode-file://``), so its ``fetch`` to this proxy is cross-origin and needs CORS. Answering CORS
+  is what makes ``Access-Control-Allow-Origin: *`` necessary, and ``*`` is what makes a secret
+  necessary: without it, any page in the user's browser could register a target and then read files
+  out of the workspace through the proxy. The secret never leaves the machine — it is published in the
+  ``0600`` endpoint file (src/preview/endpoint.py) and handed to the preview window in its URL;
 * upstream ``X-Frame-Options`` / ``Content-Security-Policy`` are dropped (they exist to stop
   *third parties* framing a site; this is the developer's own machine and their own dev server).
 
@@ -36,6 +43,7 @@ the target is registered) or point the IDE at the published endpoint file.
 from __future__ import annotations
 
 import argparse
+import hmac
 import ipaddress
 import json
 import os
@@ -140,11 +148,16 @@ class PreviewServer:
         port: int = 0,
         asset_root: Path | str = PREVIEW_ASSET_ROOT,
         allow_remote: bool = False,
+        secret: str = "",
         extra_handler: Callable[[str, str, "PreviewRequestHandler"], bool] | None = None,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.asset_root = Path(asset_root).resolve()
         self.allow_remote = allow_remote
+        #: Required on ``POST /crusor-preview/target``. Empty disables the check, which is only
+        #: appropriate for a proxy that nothing else can reach (the tests bind an ephemeral
+        #: loopback port); the CLI and the lab always set one.
+        self.secret = secret
         self.extra_handler = extra_handler
         self._targets: dict[str, TargetSpec] = {}
         self._lock = threading.Lock()
@@ -275,7 +288,34 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _json(self, status: int, payload: dict[str, Any]) -> None:
-        self._send(status, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+        # Every JSON reply is CORS-readable. That is safe precisely because the read is not a
+        # capability on its own: registration needs the secret, and a proxied path needs its token.
+        self._send(
+            status, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            "application/json; charset=utf-8", _cors_headers(self.headers.get("Origin")),
+        )
+
+    def do_OPTIONS(self) -> None:  # noqa: N802 - stdlib signature
+        """Answer the preflight the preview window's cross-origin registration triggers.
+
+        Chromium preflights a ``POST`` carrying ``Content-Type: application/json`` and our secret
+        header, from the app's opaque origin. Without this the browser never sends the real request,
+        and the window can only report "could not register this target" -- which is exactly the
+        failure this handler exists to prevent.
+        """
+        self.send_response(204)
+        for key, value in _cors_headers(self.headers.get("Origin"), preflight=True).items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _authorised(self) -> bool:
+        """Is this registration request allowed to change the proxy's state?"""
+        expected = self.preview.secret
+        if not expected:
+            return True
+        supplied = self.headers.get("X-Crusor-Preview-Secret") or ""
+        return hmac.compare_digest(supplied, expected)
 
     def _text(self, status: int, message: str) -> None:
         self._send(status, message.encode("utf-8"), "text/plain; charset=utf-8")
@@ -345,6 +385,15 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
     # -- handlers ------------------------------------------------------------------------------
 
     def _register_target(self) -> None:
+        if not self._authorised():
+            self._json(403, {
+                "ok": False,
+                "error": "preview registration requires the run secret",
+                "hint": "the secret is published in the IDE's endpoint file "
+                        "(~/.crusorai/preview/<session>.json) and passed to the preview window by the "
+                        "workbench; a page that is not the IDE's own preview window does not have it",
+            })
+            return
         try:
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b"{}"
@@ -519,6 +568,24 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
         )
 
 
+def _cors_headers(origin: str | None, *, preflight: bool = False) -> dict[str, str]:
+    """CORS for the API endpoints.
+
+    ``*`` rather than an allow-list because the IDE's preview window has an *opaque* origin
+    (``vscode-file://`` sends ``Origin: null``), which an allow-list cannot distinguish from any
+    sandboxed iframe on the internet. Capability, not origin, is what protects this server: a run
+    secret for registration, a per-target token for reading a proxied page.
+    """
+    headers = {"Access-Control-Allow-Origin": "*", "Vary": "Origin"}
+    if preflight:
+        headers.update({
+            "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "content-type, x-crusor-preview-secret",
+            "Access-Control-Max-Age": "600",
+        })
+    return headers
+
+
 def _guess_type(name: str) -> str:
     suffix = Path(name).suffix.lower()
     return {
@@ -557,6 +624,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--url", help="register a dev-server URL as a preview target")
     parser.add_argument("--file", help="register a workspace HTML file as a preview target")
     parser.add_argument("--endpoint-session", help="publish the handshake file for this session id")
+    parser.add_argument(
+        "--secret", default="",
+        help="required on target registration; 'auto' (the default with --endpoint-session) generates one",
+    )
     parser.add_argument("--prune-endpoints", action="store_true", help="drop stale handshake files and exit")
     parser.add_argument("--allow-remote", action="store_true", help="permit non-local upstream targets")
     args = parser.parse_args(argv)
@@ -566,7 +637,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"pruned {len(removed)} stale endpoint file(s)")
         return 0
 
-    server = PreviewServer(args.workspace, host=args.host, port=args.port, allow_remote=args.allow_remote).start()
+    secret = args.secret
+    if secret == "auto" or (not secret and args.endpoint_session):
+        secret = secrets.token_urlsafe(24)
+    server = PreviewServer(
+        args.workspace, host=args.host, port=args.port,
+        allow_remote=args.allow_remote, secret=secret,
+    ).start()
     print(f"Crusor Preview proxy on {server.origin}")
     print(f"  preview window : {server.origin}{_UI_PREFIX}")
     if args.url:
@@ -579,11 +656,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.endpoint_session:
         path = write_endpoint(
             args.endpoint_session, origin=server.origin, token="", workspace=server.workspace,
-            extra={"port": server.port},
+            secret=secret, extra={"port": server.port},
         )
         print(f"  endpoint file  : {path}")
         # The endpoint names the server, not a target: each target carries its own capability token,
-        # so a leaked endpoint file alone grants no access to any page.
+        # so the endpoint file alone grants no access to any page. It does carry the registration
+        # secret, which is why it is written 0600 and lives under the user's own runtime home.
 
     try:
         server.serve_forever()
