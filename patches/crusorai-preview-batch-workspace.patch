@@ -1,0 +1,595 @@
+From d1c64ccaf5e3d456bb45471627acedc1c0b90a06 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 07:49:25 +0000
+Subject: [PATCH] =?UTF-8?q?fix(preview):=20Send=20to=20Crusor=20would=20ha?=
+ =?UTF-8?q?ve=20failed=20every=20time=20=E2=80=94=20the=20frame=20had=20no?=
+ =?UTF-8?q?=20workspace?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Found by building the thing that was missing: a way to run a preview batch through a REAL bridge
+without the IDE (scripts/preview_batch_turn.py). Its first real run came back
+
+    [ERROR] workspace required: open a project folder before starting a Crusor session
+
+`prompt` is in the bridge's _WORKSPACE_REQUIRED_METHODS and the check runs per frame, before the
+session is even resolved. The workbench's own composer sends one
+(crusorAIRendererService.ts: `workspace: this.workspacePath`); the preview batch frame did not. So
+step 9 — the entire payoff of the feature — would have died on every click of *Send to Crusor*, and
+nothing in the suite could see it: the frame is assembled in TypeScript, and the refusal only
+happens inside a running engine.
+
+Two more things fell out of the same inspection:
+
+* the service resolved its workspace with `folders[0]` — the exact pattern the contribution's P0
+  rule forbids ("never silently pick folders[0]"). It now shares one `workspacePath` getter that
+  declines in a multi-root workspace instead of guessing, and refuses to send with an honest log
+  line rather than dispatching a frame the engine will reject.
+* `resolveEndpoint` treated an unresolvable workspace as "match anything", so with no folder open —
+  or in a multi-root workspace — the window could frame *another project's* proxy. It now accepts
+  only endpoints whose `workspace` is one of the folders actually open.
+
+The Python builder takes `workspace` as a REQUIRED keyword: a builder that can silently emit a frame
+the engine rejects is a trap, and one call site had already walked into it. The lab and the harness
+pass their workspace explicitly.
+
+Pins, both verified to fail when the fix is reverted (checked): the contract test isolates the frame
+literal inside `sendBatchToAgent` and requires the workspace to come from `workspacePath`, and the
+prompt test asserts the frame carries it and that the builder refuses a blank one.
+
+The harness itself is worth stating plainly, because it is the only end-to-end proof of this feature
+that runs without Electron: it prints the exact prompt, spawns `python -m src.bridge` the way the
+workbench does, streams reasoning/tool-calls/tokens, and diffs the workspace afterwards. Its own
+first version hung — stderr was never drained, so the child blocked on a full 64 KB pipe; it now
+drains stderr in a thread and decodes binary pipes, both lessons copied from
+src/tests/test_bridge_transport.py. `--demo` edits a temp copy of the lab fixture, so nothing in the
+repo is touched.
+
+Gate A: Crusor errors: 0, 34 files in program (TS 6.0.3). 121 passed, 1 skipped.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ .../browser/crusorAIPreviewService.ts         |  36 +-
+ preview-lab/lab_server.py                     |   2 +
+ scripts/preview_batch_turn.py                 | 328 ++++++++++++++++++
+ src/preview/prompt.py                         |  11 +
+ src/tests/test_preview_contract.py            |  27 ++
+ src/tests/test_preview_prompt.py              |  20 +-
+ 6 files changed, 419 insertions(+), 5 deletions(-)
+ create mode 100644 scripts/preview_batch_turn.py
+
+diff --git a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
+index 80cfebc6..3e393768 100644
+--- a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
++++ b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
+@@ -157,8 +157,26 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
+ 	 * the workbench is not told which session id owns the local proxy, so the workspace path decides:
+ 	 * a preview server started for THIS folder is the one worth framing.
+ 	 */
++	/**
++	 * The folder this session is bound to, by the contribution's P0 rule (the same one
++	 * `crusorAIRendererService.sessionFolder` applies to the composer): zero folders means no
++	 * workspace, one folder is unambiguous, and a multi-root workspace is NEVER silently resolved to
++	 * `folders[0]` — this service owns no folder picker, so it declines rather than guesses.
++	 *
++	 * The engine enforces this path in two directions: `prompt` frames may not omit it (the bridge
++	 * answers `workspace required: open a project folder before starting a Crusor session`), and a
++	 * frame whose workspace differs from the session's bound one is refused as a workspace switch.
++	 */
++	private get workspacePath(): string | undefined {
++		const folders = this.workspaceService.getWorkspace().folders;
++		return folders.length === 1 ? folders[0].uri.fsPath : undefined;
++	}
++
+ 	private async resolveEndpoint(): Promise<CrusorPreviewEndpoint | undefined> {
+-		const workspace = this.workspaceService.getWorkspace().folders[0]?.uri.fsPath ?? '';
++		const open = this.workspaceService.getWorkspace().folders.map(folder => folder.uri.fsPath);
++		if (!open.length) {
++			return undefined;
++		}
+ 		const directory = this.endpointDirectory();
+ 		let children;
+ 		try {
+@@ -178,7 +196,10 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
+ 				if (!endpoint?.origin) {
+ 					continue;
+ 				}
+-				if (workspace && endpoint.workspace && endpoint.workspace !== workspace) {
++				// An endpoint names the workspace its proxy serves. Accept only one of the folders that
++				// are actually open: with an empty `open` this used to accept ANY endpoint, so a
++				// multi-root workspace (or no folder at all) could frame a different project's proxy.
++				if (endpoint.workspace && !open.includes(endpoint.workspace)) {
+ 					continue;
+ 				}
+ 				candidates.push({ endpoint, path: child.resource });
+@@ -360,10 +381,21 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
+ 		if (isBatchEmpty(batch)) {
+ 			return;
+ 		}
++		// The bridge rejects a `prompt` frame without a workspace (`_WORKSPACE_REQUIRED_METHODS`), so
++		// this is refused here with an honest log line instead of being sent to die as an error card.
++		const workspace = this.workspacePath;
++		if (!workspace) {
++			this.logService.warn(
++				'[crusor-preview] batch not sent: no single project folder is open '
++				+ '(open one folder, or pick one in a multi-root workspace) — a preview turn must name its workspace'
++			);
++			return;
++		}
+ 		const text = buildPreviewPrompt(batch);
+ 		const frame = {
+ 			type: 'prompt',
+ 			session_id: batch.sessionId || this.latestSessionId() || '',
++			workspace,
+ 			text,
+ 			mode: 'agent',
+ 			preview_batch: {
+diff --git a/preview-lab/lab_server.py b/preview-lab/lab_server.py
+index 222d42b4..67c918f6 100644
+--- a/preview-lab/lab_server.py
++++ b/preview-lab/lab_server.py
+@@ -176,6 +176,8 @@ def lab_routes(demo_app_origin: str):
+                 frame = build_prompt_frame(
+                     batch,
+                     session_id=str(payload.get("session_id") or SESSION_ID),
++                    # The lab stands in for a session bound to the fixture it previews.
++                    workspace=str(DEMO_APP),
+                     mode=str(payload.get("mode") or "agent"),
+                 )
+             except ValueError as exc:
+diff --git a/scripts/preview_batch_turn.py b/scripts/preview_batch_turn.py
+new file mode 100644
+index 00000000..649bef18
+--- /dev/null
++++ b/scripts/preview_batch_turn.py
+@@ -0,0 +1,328 @@
++#!/usr/bin/env python3
++"""CrusorAI — run a Crusor Preview fix batch through the REAL agent.
++
++The preview window's last step is a prompt: the batch of clicked-element fixes is rendered by
++:mod:`src.preview.prompt` and sent as an ordinary bridge v2 ``prompt`` frame. The desktop app does
++that from the window; this script does it from a terminal, so the *prompt itself* can be tested
++without launching the IDE — and, more to the point, so the question "does the agent find the element
++the user clicked, or does it repaint the page?" has an answer that is not a hope.
++
++What it does, in order:
++
++1. builds the batch (``--batch file.json``, or ``--demo`` for a batch drawn from the lab fixture);
++2. prints the exact prompt text the agent will receive — that text is the whole feature;
++3. spawns ``python -m src.bridge`` exactly as the workbench does (cwd = engine root, env inherited);
++4. sends ``hello`` → ``session_create`` → the prompt frame, and streams what comes back, including
++   every tool call, so you can watch it grep for the fingerprints;
++5. prints the final answer and, with ``--diff``, what changed in the workspace.
++
++Costs a real model call. Run ``scripts/check_provider.py --live`` first; a missing key fails here as
++a classified provider error rather than a silent stall.
++
++    python scripts/preview_batch_turn.py --demo            # safe: edits a temp copy of the fixture
++    python scripts/preview_batch_turn.py --workspace C:\\path\\to\\scratch-project --batch batch.json
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import shutil
++import queue
++import subprocess
++import sys
++import tempfile
++import threading
++import time
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++
++PROTOCOL_VERSION = 2
++#: A real turn can legitimately take minutes; this is a ceiling, not an expectation.
++DEFAULT_TIMEOUT_S = 900.0
++FIXTURE = REPO_ROOT / "preview-lab" / "demo-app"
++
++
++def demo_batch() -> dict:
++    """A batch shaped like one the window produces from the lab fixture.
++
++    Two fixes, chosen to exercise both mapping paths the prompt supports: one element the fixture
++    stamps with ``data-crusor-source`` (precise), and one that carries only fingerprints (the
++    heuristic path — the one that has to work in the user's own project).
++    """
++    return {
++        "sessionId": "preview-batch-turn",
++        "target": "http://localhost:5173/",
++        "targetLabel": "aurora-landing (lab fixture) · dev server",
++        "kind": "url",
++        "viewport": "desktop",
++        "createdAt": "2026-01-01T00:00:00Z",
++        "fixes": [
++            {
++                "id": "fix_1", "order": 1,
++                "instruction": "make this button rounded, blue, and a bit bigger",
++                "label": '<button> "Get started"',
++                "element": {
++                    "selector": "header nav-actions > button.btn.btn-primary",
++                    "tag": "button", "classes": ["btn", "btn-primary"], "text": "Get started",
++                    "outerHtml": '<button class="btn btn-primary" type="button" data-testid="nav-cta">Get started</button>',
++                    "styles": {"background-color": "rgb(60, 60, 60)", "color": "rgb(255, 255, 255)",
++                               "border-radius": "10px", "font-size": "14px", "padding": "8px 16px"},
++                    "fingerprint": {
++                        "tag": "button", "classes": ["btn", "btn-primary"], "text": "Get started",
++                        "attrs": [{"name": "data-testid", "value": "nav-cta"}],
++                    },
++                    "rect": {"x": 1180, "y": 14, "width": 108, "height": 38},
++                    "viewport": {"width": 1440, "height": 900},
++                },
++            },
++            {
++                "id": "fix_2", "order": 2,
++                "instruction": "the hero heading is too close to the paragraph below it — add breathing room",
++                "label": '<h1> "Ship your product faster…"',
++                "element": {
++                    "selector": "main section.hero > h1.hero-title",
++                    "tag": "h1", "classes": ["hero-title"],
++                    "text": "Ship your product faster, without the busywork",
++                    "outerHtml": '<h1 class="hero-title">Ship your product faster, without the busywork</h1>',
++                    "styles": {"font-size": "48px", "margin": "0px 0px 4px", "color": "rgb(255, 255, 255)"},
++                    "fingerprint": {"tag": "h1", "classes": ["hero-title"],
++                                    "text": "Ship your product faster", "attrs": []},
++                    "rect": {"x": 120, "y": 220, "width": 520, "height": 58},
++                    "viewport": {"width": 1440, "height": 900},
++                },
++            },
++        ],
++    }
++
++
++class Bridge:
++    """Minimal protocol v2 client — the same handshake the workbench performs.
++
++    Two things here are not optional, and both come from the repo's own transport tests
++    (``src/tests/test_bridge_transport.py``):
++
++    * **stderr is drained by a thread.** The engine writes diagnostics to stderr continuously; with
++      nobody reading it the OS pipe buffer fills at ~64 KB and the child blocks on write, so stdout
++      goes quiet forever. The first version of this script hung exactly that way.
++    * **pipes are binary**, and lines are decoded here. Text-mode pipes were measured to drop frames
++      on Windows when children are spawned and killed repeatedly.
++    """
++
++    def __init__(self, workspace: Path) -> None:
++        env = dict(os.environ)
++        env.setdefault("PYTHONIOENCODING", "utf-8")
++        env["PYTHONUNBUFFERED"] = "1"
++        self.workspace = workspace
++        self.proc = subprocess.Popen(
++            [sys.executable, "-m", "src.bridge"],
++            cwd=str(REPO_ROOT), env=env,
++            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++        )
++        self._frames: queue.Queue = queue.Queue()
++        self._stderr: list[str] = []
++        threading.Thread(target=self._read_stdout, name="bridge-stdout", daemon=True).start()
++        threading.Thread(target=self._drain_stderr, name="bridge-stderr", daemon=True).start()
++
++    def _read_stdout(self) -> None:
++        assert self.proc.stdout is not None
++        try:
++            for raw in self.proc.stdout:
++                line = raw.decode("utf-8", errors="replace").strip()
++                if not line:
++                    continue
++                try:
++                    self._frames.put(json.loads(line))
++                except json.JSONDecodeError:
++                    # A diagnostic that leaked onto stdout: keep it for the failure report.
++                    self._stderr.append(f"(stdout) {line}")
++        finally:
++            self._frames.put(None)  # end of stream
++
++    def _drain_stderr(self) -> None:
++        assert self.proc.stderr is not None
++        for raw in self.proc.stderr:
++            text = raw.decode("utf-8", errors="replace").rstrip()
++            if text:
++                self._stderr.append(text)
++
++    def send(self, frame: dict) -> None:
++        assert self.proc.stdin is not None
++        self.proc.stdin.write((json.dumps(frame) + "\n").encode("utf-8"))
++        self.proc.stdin.flush()
++
++    def read(self, timeout: float = 120.0) -> dict | None:
++        """Next frame, or None at end of stream. Raises ``queue.Empty`` on timeout."""
++        return self._frames.get(timeout=timeout)
++
++    @property
++    def diagnostics(self) -> list[str]:
++        return self._stderr
++
++    def stop(self) -> None:
++        try:
++            self.proc.kill()
++        except Exception:  # pragma: no cover
++            pass
++
++
++def _short(value: object, limit: int = 160) -> str:
++    text = str(value or "").replace("\n", " ").strip()
++    return text[:limit] + ("…" if len(text) > limit else "")
++
++
++def render(frame: dict, *, show_tools: bool = True) -> str | None:
++    """One readable line per frame, or None for frames worth ignoring."""
++    kind = frame.get("type")
++    if kind == "reasoning":
++        return f"  [reasoning] {_short(frame.get('text'), 120)}"
++    if kind == "token":
++        return f"  [text] {_short(frame.get('text'), 200)}"
++    if kind == "tool_call_start" and show_tools:
++        args = frame.get("arguments")
++        if isinstance(args, dict):
++            args = ", ".join(f"{k}={_short(v, 60)}" for k, v in list(args.items())[:4])
++        return f"  [tool] {frame.get('name')}({_short(args, 140)})"
++    if kind == "tool_call_end" and show_tools:
++        return f"  [tool done] {frame.get('name')} → {_short(frame.get('result'), 120)}"
++    if kind == "safety_request":
++        return f"  [APPROVAL NEEDED] {_short(frame.get('reason') or frame, 200)}"
++    if kind == "runtime_degraded":
++        return f"  [degraded] {_short(frame.get('reason'), 200)}"
++    if kind in {"error", "turn_failed"}:
++        return f"  [ERROR] {_short(frame.get('message') or frame, 300)}"
++    if kind == "turn_done":
++        return f"  [done] {_short(frame.get('message'), 400)}"
++    return None
++
++
++def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> dict:
++    """Send the prompt and stream until the turn ends. Returns the terminal frame."""
++    bridge.send({"type": "hello", "protocol": PROTOCOL_VERSION})
++    bridge.send({"type": "session_create", "session_id": session_id, "workspace": str(bridge.workspace)})
++    bridge.send(frame)
++
++    deadline = time.monotonic() + timeout
++    terminal: dict = {}
++    started = False
++    while time.monotonic() < deadline:
++        try:
++            incoming = bridge.read(timeout=min(120.0, max(1.0, deadline - time.monotonic())))
++        except queue.Empty:
++            print(f"\n... still waiting ({timeout:.0f}s budget) ...")
++            continue
++        if incoming is None:
++            print("\nThe engine closed its output — the process ended.")
++            break
++        kind = incoming.get("type")
++        if kind == "turn_started":
++            started = True
++            print("\n--- turn started ---")
++        line = render(incoming, show_tools=show_tools)
++        if line:
++            print(line)
++        if kind in {"turn_done", "turn_failed", "error"} and started:
++            terminal = incoming
++            break
++    else:
++        print(f"\nTimed out after {timeout:.0f}s with no terminal frame.")
++    return terminal
++
++
++def git_diff_stat(workspace: Path) -> str:
++    try:
++        done = subprocess.run(
++            ["git", "diff", "--stat"], cwd=str(workspace),
++            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
++        )
++        return done.stdout.strip() or "(git reported no changes)"
++    except Exception as exc:  # pragma: no cover
++        return f"(could not run git diff: {exc})"
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("--workspace", type=Path,
++                        help="project the agent should edit. Use a scratch copy — this edits files.")
++    parser.add_argument("--batch", type=Path, help="a preview batch JSON (as the window would send it)")
++    parser.add_argument("--demo", action="store_true",
++                        help="copy the lab fixture to a temp dir and use that (nothing in the repo is touched)")
++    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S)
++    parser.add_argument("--no-tools", action="store_true", help="hide tool traffic, show only the answer")
++    parser.add_argument("--diff", action="store_true", help="print `git diff --stat` in the workspace afterwards")
++    args = parser.parse_args()
++
++    if not args.workspace and not args.demo:
++        parser.error("give --workspace or --demo (the agent edits files in whatever you point it at)")
++
++    if args.batch:
++        batch = json.loads(args.batch.read_text(encoding="utf-8"))
++        if not isinstance(batch, dict):
++            parser.error("the batch file must contain a JSON object")
++    else:
++        batch = demo_batch()
++
++    cleanup: Path | None = None
++    if args.demo:
++        cleanup = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-"))
++        workspace = cleanup / "project"
++        shutil.copytree(FIXTURE, workspace)
++        print(f"workspace: {workspace}  (temp copy of the lab fixture — safe to edit)")
++    else:
++        workspace = args.workspace.expanduser().resolve()
++        if not workspace.is_dir():
++            parser.error(f"not a directory: {workspace}")
++        print(f"workspace: {workspace}")
++
++    if (os.environ.get("CRUSORAI_BRIDGE_RUNNER") or "").strip().lower() == "echo":
++        print("\nCRUSORAI_BRIDGE_RUNNER=echo is set: the agent will ECHO this prompt instead of acting on")
++        print("it. That tests the transport, not the prompt. Remove it and set a provider key to test")
++        print("the real thing (scripts/check_provider.py --live proves the key first).")
++
++    from src.preview.prompt import build_prompt_frame
++
++    session_id = "preview-batch-turn"
++    frame = build_prompt_frame(batch, session_id=session_id, workspace=str(workspace), mode="agent")
++
++    print("\n" + "=" * 78)
++    print("THE PROMPT THE AGENT RECEIVES (this text is the feature)")
++    print("=" * 78)
++    print(frame["text"])
++    print("=" * 78)
++    print(f"frames: prompt + preview_batch receipt ({frame['preview_batch']['count']} fixes)")
++
++    bridge = Bridge(workspace)
++    try:
++        terminal = run_turn(bridge, frame, session_id, args.timeout, show_tools=not args.no_tools)
++    except KeyboardInterrupt:
++        print("\nInterrupted — stopping the engine.")
++        terminal = {}
++    finally:
++        bridge.stop()
++
++    if args.diff:
++        print("\n--- what changed in the workspace ---")
++        print(git_diff_stat(workspace))
++    if cleanup is not None:
++        print(f"\n(the edited copy is still at {cleanup} if you want to look at it)")
++
++    if terminal.get("type") != "turn_done" and bridge.diagnostics:
++        print("\n--- engine diagnostics (stderr, last 20 lines) ---")
++        for line in bridge.diagnostics[-20:]:
++            print("  " + line)
++
++    if terminal.get("type") == "turn_done":
++        print("\nRESULT: the turn completed.")
++        return 0
++    if terminal:
++        print(f"\nRESULT: the turn ended as {terminal.get('type')} — see the message above.")
++        return 1
++    print("\nRESULT: no terminal frame — the engine never finished. Check scripts/check_provider.py --live.")
++    return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/preview/prompt.py b/src/preview/prompt.py
+index 2410749c..079d4577 100644
+--- a/src/preview/prompt.py
++++ b/src/preview/prompt.py
+@@ -231,19 +231,30 @@ def build_prompt_frame(
+     batch: Mapping[str, Any],
+     *,
+     session_id: str,
++    workspace: str,
+     mode: str = "agent",
+     reasoning_effort: str | None = None,
+ ) -> dict[str, Any]:
+     """Wrap the prompt in a bridge v2 ``prompt`` frame.
+ 
++    ``workspace`` is **required**, not optional, because the bridge requires it: ``prompt`` is in
++    ``_WORKSPACE_REQUIRED_METHODS`` and the check runs per frame, before the session is even
++    resolved, so a prompt frame without it is refused with
++    ``workspace required: open a project folder before starting a Crusor session``. A builder that
++    can silently emit a frame the engine rejects is a trap, and one shipped call site walked into
++    it, which is why this is a required keyword rather than a default of ``""``.
++
+     Raises ``ValueError`` for an empty batch so callers never fire a blank turn at the engine.
+     """
+     text = build_preview_prompt(batch)
+     if not text:
+         raise ValueError("preview fix batch is empty — nothing to send")
++    if not str(workspace or "").strip():
++        raise ValueError("preview prompt needs the workspace path the session is bound to")
+     frame: dict[str, Any] = {
+         "type": "prompt",
+         "session_id": session_id,
++        "workspace": str(workspace),
+         "text": text,
+         "mode": mode,
+         "preview_batch": {
+diff --git a/src/tests/test_preview_contract.py b/src/tests/test_preview_contract.py
+index 8b8e8d43..16d9ee45 100644
+--- a/src/tests/test_preview_contract.py
++++ b/src/tests/test_preview_contract.py
+@@ -37,6 +37,8 @@ WINDOW_JS = MEDIA / "preview.js"
+ WINDOW_HTML = MEDIA / "index.html"
+ WINDOW_CSS = MEDIA / "preview.css"
+ 
++TS_SERVICE = CRUSORAI / "browser" / "crusorAIPreviewService.ts"
++
+ NODE = shutil.which("node")
+ 
+ EMOJI = re.compile(
+@@ -340,3 +342,28 @@ def test_the_preview_window_query_is_a_list_of_pairs() -> None:
+ 	# Keys are the literal `key=value` pairs, in order — a character-destructured bug turns this into `e=`/`n=`.
+ 	assert payload["query"].startswith("endpoint=http%3A%2F%2F127.0.0.1%3A8931&secret=s3cr3t%2F%2B%26%3D&")
+ 	assert "endpoint=" in payload["query"] and "n=d" not in payload["query"]
++
++
++def test_the_batch_frame_names_its_workspace_in_both_languages() -> None:
++	"""``prompt`` is a workspace-required bridge method, and the check runs per frame.
++
++	The engine answers a workspace-less prompt with
++	``workspace required: open a project folder before starting a Crusor session``. The workbench's
++	own composer always sends one (``crusorAIRendererService.ts``: ``workspace: this.workspacePath``);
++	the preview batch frame did not, so *Send to Crusor* would have failed on every use — a dead step 9
++	that no other test in this suite could see, because the frame is assembled in TypeScript and the
++	failure only happens inside a running engine. It was found by driving a real batch through a real
++	bridge (``scripts/preview_batch_turn.py``).
++
++	Both halves are pinned here: the Python builder refuses without a workspace, and the TypeScript
++	service sends one — a source-level pin, because that file has no unit-test harness of its own.
++	"""
++	service = read(TS_SERVICE)
++	# Isolate the frame literal inside sendBatchToAgent, so an unrelated `workspace` elsewhere in the
++	# file cannot satisfy this.
++	body = service.split("async sendBatchToAgent(", 1)[1].split("this.engine.send(", 1)[0]
++	assert re.search(r"type:\s*'prompt'", body), "sendBatchToAgent no longer builds a prompt frame"
++	assert re.search(r"^\s*workspace,\s*$", body, re.MULTILINE), (
++		"the preview prompt frame must carry `workspace` — the bridge refuses a prompt without it"
++	)
++	assert "workspacePath" in body, "…and it must come from the service's P0 workspace resolution"
+diff --git a/src/tests/test_preview_prompt.py b/src/tests/test_preview_prompt.py
+index 7cb04751..bfaff334 100644
+--- a/src/tests/test_preview_prompt.py
++++ b/src/tests/test_preview_prompt.py
+@@ -143,7 +143,7 @@ def test_summary_and_element_labels_read_like_the_ui() -> None:
+ 
+ 
+ def test_frame_is_a_plain_protocol_v2_prompt_with_a_receipt() -> None:
+-	frame = build_prompt_frame(batch(fix("make it blue")), session_id="s-1", mode="agent")
++	frame = build_prompt_frame(batch(fix("make it blue")), session_id="s-1", workspace="/ws", mode="agent")
+ 	assert frame["type"] == "prompt", "a preview turn is an ordinary prompt: no protocol change"
+ 	assert frame["session_id"] == "s-1"
+ 	assert frame["mode"] == "agent"
+@@ -155,11 +155,25 @@ def test_frame_is_a_plain_protocol_v2_prompt_with_a_receipt() -> None:
+ 	assert json.dumps(frame), "the frame must be JSON-serialisable for the bridge"
+ 
+ 
++def test_frame_names_the_workspace_the_bridge_requires() -> None:
++	"""`prompt` is in the bridge's `_WORKSPACE_REQUIRED_METHODS`, so a frame without this is refused.
++
++	The parameter is required (not defaulted) because the alternative shipped: a call site omitted it
++	and every *Send to Crusor* would have ended in `workspace required: open a project folder…`.
++	"""
++	frame = build_prompt_frame(batch(fix("a")), session_id="s", workspace="/home/me/project")
++	assert frame["workspace"] == "/home/me/project"
++	with pytest.raises(TypeError):
++		build_prompt_frame(batch(fix("a")), session_id="s")  # type: ignore[call-arg]
++	with pytest.raises(ValueError, match="workspace"):
++		build_prompt_frame(batch(fix("a")), session_id="s", workspace="   ")
++
++
+ def test_frame_carries_reasoning_effort_when_asked() -> None:
+-	frame = build_prompt_frame(batch(fix("a")), session_id="s", reasoning_effort="high")
++	frame = build_prompt_frame(batch(fix("a")), session_id="s", workspace="/ws", reasoning_effort="high")
+ 	assert frame["reasoning_effort"] == "high"
+ 
+ 
+ def test_frame_refuses_an_empty_batch() -> None:
+ 	with pytest.raises(ValueError, match="empty"):
+-		build_prompt_frame(batch(), session_id="s")
++		build_prompt_frame(batch(), session_id="s", workspace="/ws")
+-- 
+2.39.5
+
