@@ -1,0 +1,75 @@
+From 9e4fb795a085ca632d8fb226145a1950c23677ab Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 17:02:40 +0000
+Subject: [PATCH] =?UTF-8?q?fix(tests):=20the=20last=20two=20Windows-only?=
+ =?UTF-8?q?=20failures=20=E2=80=94=20short=20temp=20paths,=20and=20byte-ex?=
+ =?UTF-8?q?act=20diagnostics?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Both test-side; no product code changed. Run 9's gate was `2 failed / 58 passed` with everything
+substantive green (engine-hash, overlay-manifest, the whole preview lane — and the completed turn).
+
+* **`demo_mode…`**: mkdtemp returns the 8.3 SHORT name (`ADMINI~1`) while `gettempdir().resolve()`
+  expands to the long one (`Administrator`) — one directory, two spellings, so the comparison failed
+  for a reason unrelated to the code. Both sides are now resolved once, up front. (Still not
+  `os.path.commonpath`: TEMP on C:, checkout on D:, and it raises across drives.)
+* **`snapshot…`**: the assertion checks the file's own bytes on disk *and* the exact literals, and the
+  message prints `snapshot returned … disk holds …` — so if a platform hands back different bytes, the
+  next report says which ones instead of costing another round trip.
+
+21 passed here.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ src/tests/test_preview_batch_turn_script.py | 25 ++++++++++++++-------
+ 1 file changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/src/tests/test_preview_batch_turn_script.py b/src/tests/test_preview_batch_turn_script.py
+index 9d764375..0b091c32 100644
+--- a/src/tests/test_preview_batch_turn_script.py
++++ b/src/tests/test_preview_batch_turn_script.py
+@@ -107,8 +107,14 @@ def test_snapshot_reads_content_and_skips_dependency_noise(harness, tmp_path) ->
+ 
+     files = harness.snapshot(tmp_path)
+     assert set(files) == {"src/app.css", "src/legacy.css"}, files
+-    assert files["src/app.css"] == b"body{}\n"
+-    assert files["src/legacy.css"] == b"a{}\r\nb{}\r\n", "snapshot must not normalize line endings"
++    # What went in is what comes out: the file's own bytes, never a text-mode reinterpretation.
++    for rel in ("src/app.css", "src/legacy.css"):
++        on_disk = (tmp_path / rel).read_bytes()
++        assert files[rel] == on_disk, f"{rel}: snapshot returned {files[rel]!r}, disk holds {on_disk!r}"
++    assert files["src/app.css"] == b"body{}\n", f"got {files['src/app.css']!r}"
++    assert files["src/legacy.css"] == b"a{}\r\nb{}\r\n", (
++        f"line endings were altered: got {files['src/legacy.css']!r}"
++    )
+ 
+ 
+ def test_git_diff_stat_is_none_outside_a_repository(harness, tmp_path) -> None:
+@@ -181,13 +187,16 @@ def test_demo_mode_never_points_at_the_repository(harness) -> None:
+     # The copy is made with tempfile.mkdtemp, so assert the mechanism the script relies on.
+     import tempfile
+ 
+-    made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-"))
++    # Resolved ONCE, on both sides. Windows hands back the 8.3 short name (ADMINI~1) from mkdtemp
++    # while gettempdir().resolve() expands to the long name (Administrator) — the same directory, two
++    # spellings, so comparing them unresolved failed for a reason that has nothing to do with the code.
++    # Deliberately NOT os.path.commonpath: TEMP is on C: and this checkout on D:, and commonpath
++    # RAISES across drives.
++    made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-")).resolve()
++    temp_root = Path(tempfile.gettempdir()).resolve()
+     try:
+-        assert made.resolve() != FIXTURE.resolve()
+-        # Deliberately NOT os.path.commonpath: on Windows TEMP is on C: and this checkout on D:, and
+-        # commonpath RAISES ValueError across drives — the test failed there for that reason alone.
+-        # is_relative_to answers the same question and returns False instead of raising.
+-        assert made.is_relative_to(Path(tempfile.gettempdir()).resolve())
++        assert made != FIXTURE.resolve()
++        assert made.is_relative_to(temp_root), f"{made} is not under {temp_root}"
+         assert not made.is_relative_to(FIXTURE.resolve()), "the copy must not land inside the repo"
+     finally:
+         made.rmdir()
+-- 
+2.39.5
+
