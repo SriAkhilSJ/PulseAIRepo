@@ -203,7 +203,13 @@ python -m src.preview.server --workspace /path/to/your/project --port 8931 --end
 
 ---
 
-## 7. Known gaps (read before filing anything as broken)
+## 7. First launch of the IDE fork
+
+Once the app is up, work through [`CRUSOR_PREVIEW_LAUNCH_CHECKS.md`](CRUSOR_PREVIEW_LAUNCH_CHECKS.md):
+one line per thing to look at, with the pass condition, the likely cause, and what to send back if it
+fails. It starts from `npm run typecheck-client` and ends at the agent landing the edit.
+
+## 8. Known gaps (read before filing anything as broken)
 
 1. **The TypeScript layer has not been compiled on our side.** No `node_modules` and no Code OSS
    build were possible in the environment where this was written, so
