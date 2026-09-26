@@ -30,6 +30,20 @@ def test_dev_server_commands_refused_with_the_pivot():
         "uvicorn main:app",
         "python -m http.server 8000",
         "docker compose up",
+        # Field 2026-09-26 (preview batch harness, run 7): `npx <pkg>` bypassed the
+        # npm|pnpm|yarn|bun pattern, so this ran foreground to "verify" the agent's edit, blocked
+        # until the harness timeout, and the turn ended with the fix unproven. Refusing it zero
+        # seconds in with the start_terminal pivot is the difference between a proven edit and a
+        # timed-out turn.
+        "npx serve . -p 4444",
+        "npx --yes serve .",
+        "serve -s build",
+        "cd build && serve -s .",
+        "npx http-server -p 8080",
+        "npx live-server",
+        "php -S localhost:8000",
+        "flask run",
+        "python manage.py runserver",
     ):
         msg = _foreground_background_guidance(cmd)
         assert msg is not None, cmd
@@ -45,6 +59,14 @@ def test_bounded_commands_pass_through():
         "node -e console.log(1)",
         "git status",
         "ls .next/BUILD_ID 2>/dev/null || echo no",
+        # The word "serve" is common in ordinary commands; the patterns must name invocations, not
+        # words, or a refusal starts blocking legitimate work.
+        "rg serve src/",
+        'grep -rn "serve" docs/',
+        "cat serve.log",
+        "ls dist/serve",
+        "npx tsc --noEmit",
+        "npm run build && ls -la dist",
     ):
         assert _foreground_background_guidance(cmd) is None, cmd
 
@@ -53,6 +75,7 @@ def test_help_and_version_exempt():
     assert _looks_like_help_or_version_command("npx next dev --help")
     assert _looks_like_help_or_version_command("vite --version")
     assert _foreground_background_guidance("npx next dev --help") is None
+    assert _foreground_background_guidance("npx serve --help") is None
     assert not _looks_like_help_or_version_command("next dev --port 3000")
 
 

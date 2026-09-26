@@ -459,6 +459,18 @@ _LONG_LIVED_FOREGROUND_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
     r"\buvicorn\b",
     r"\bgunicorn\b",
     r"\bpython(?:3)?\s+-m\s+http\.server\b",
+    # ── crusor additions to hermes' list (2026-09-26), from a measured field failure ──
+    # `npx <pkg>` bypasses the npm|pnpm|yarn|bun pattern above, and that is how run 7 of the preview
+    # harness ended: the agent ran `npx serve . -p 4444` foreground to verify its edit, the call
+    # blocked, and the turn died on the harness timeout with the fix unproven ("recovery proven,
+    # completion not"). These package names bind a port and never exit; `--help`/`--version` remain
+    # exempt above, and a longer timeout is promoted to a tracked background process below rather
+    # than refused, so only the genuinely unbounded foreground server is refused here.
+    r"(?:^|[|&;]\s*)(?:serve|http-server|live-server)\b",
+    r"\bnpx\s+(?:-y\s+|--yes\s+)?(?:serve|http-server|live-server|sirv|vite|nodemon|webpack-dev-server)(?:@[\w.]+)?\b",
+    r"\bphp\s+-S\b",
+    r"\bflask\s+run\b",
+    r"\bmanage\.py\s+runserver\b",
 ))
 
 
