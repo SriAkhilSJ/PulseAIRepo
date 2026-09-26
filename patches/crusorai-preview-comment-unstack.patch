@@ -1,0 +1,56 @@
+From 6ebc0cdfa6cc4ff27d3cccf3af5250b8509bebe0 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 11:50:45 +0000
+Subject: [PATCH] docs(preview): unstack the two doc comments my last commit
+ left on one declaration
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Re-reading d1c64cca found a defect it introduced: the insert put `workspacePath` between
+`resolveEndpoint`'s doc comment and `resolveEndpoint` itself. TypeScript attaches a JSDoc block to the
+declaration that follows it, so the result was two stacked comments over the getter and a
+`resolveEndpoint` with no documentation at all — the comment that explains why it filters endpoints by
+workspace ("a preview server started for THIS folder is the one worth framing") was sitting on the
+getter, where it is wrong.
+
+Comments moved back to the declarations they describe. Checked mechanically rather than by eye: no
+JSDoc block in the file is followed by another block or by a blank line, and both `workspacePath` and
+`resolveEndpoint` have exactly one comment directly above them. Gate A: Crusor errors: 0.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ .../contrib/crusorai/browser/crusorAIPreviewService.ts | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
+index 3e393768..97b4ae80 100644
+--- a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
++++ b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts
+@@ -152,11 +152,6 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
+ 		return URI.joinPath(this.pathService.userHome({ preferLocal: true }), '.crusorai', ...ENDPOINT_DIR);
+ 	}
+ 
+-	/**
+-	 * The freshest published endpoint for this workspace. The proxy writes one file per session, and
+-	 * the workbench is not told which session id owns the local proxy, so the workspace path decides:
+-	 * a preview server started for THIS folder is the one worth framing.
+-	 */
+ 	/**
+ 	 * The folder this session is bound to, by the contribution's P0 rule (the same one
+ 	 * `crusorAIRendererService.sessionFolder` applies to the composer): zero folders means no
+@@ -172,6 +167,11 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
+ 		return folders.length === 1 ? folders[0].uri.fsPath : undefined;
+ 	}
+ 
++	/**
++	 * The freshest published endpoint for this workspace. The proxy writes one file per session, and
++	 * the workbench is not told which session id owns the local proxy, so the workspace path decides:
++	 * a preview server started for THIS folder is the one worth framing.
++	 */
+ 	private async resolveEndpoint(): Promise<CrusorPreviewEndpoint | undefined> {
+ 		const open = this.workspaceService.getWorkspace().folders.map(folder => folder.uri.fsPath);
+ 		if (!open.length) {
+-- 
+2.39.5
+
