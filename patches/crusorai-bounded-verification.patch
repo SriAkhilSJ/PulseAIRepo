@@ -1,0 +1,350 @@
+From d3469545a64ea52efd1a9bbe16fa909bebfc7943 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 16:05:37 +0000
+Subject: [PATCH] fix(preview): bound verification in the prompt, and fix the
+ two Windows-only test failures
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Run 8 answered the search question (the teaching error fired twice; the agent switched to literal
+patterns) and the refusal question (⛔ instantly on `npx serve`, then `start_terminal` — the fix, as the
+desktop agent correctly read it). It also repeated run 7's shape: no terminal frame, mid-verify, edits
+landed (`M index.html +1 -1`, `M styles.css +1 -1`). Recovery proven twice; completion unreached twice.
+
+**Why it never finishes: nothing bounds verification — and the close invited it.** The prompt ended
+"After editing, re-render the preview so the change can be checked in place", which reads as an
+instruction to render, i.e. to start something. Run 7 started `npx serve`; run 8 was refused it,
+pivoted correctly, and was still polling when the budget ended. The close now says what is enough and
+what is not:
+
+    After editing, re-read the lines you changed to confirm them. Do not start a dev server, watcher,
+    or any other long-running process to check your work — the preview window re-renders the page
+    itself, and the user sees the result in place.
+
+Mirrored byte-for-byte in crusorAIPreview.ts (verified: `node --experimental-strip-types` renders it
+and the parity pin compares a distinctive fragment in both), and the old assertion in
+test_preview_prompt.py that pinned the previous wording is updated with the evidence for the change.
+
+**The two Windows failures were mine, and both were tests asserting the platform instead of the code:**
+
+* `test_snapshot_reads_content…` wrote a fixture with `write_text`, which translates `\n` to `\r\n` on
+  Windows, then asserted LF bytes — green here, red there. Now written and compared as bytes, and it
+  also pins that `snapshot()` must NOT normalize line endings (CRLF in, CRLF out).
+* `test_demo_mode_never_points_at_the_repository` used `os.path.commonpath`, which RAISES ValueError
+  across drives — and TEMP is on C: while the checkout is on D: on the owner's machine. Replaced with
+  `is_relative_to`, which answers the same question and returns False instead of raising.
+
+**`--diff` no longer calls a line-ending change a rewrite.** A Windows checkout hands the workspace
+CRLF; an agent-written edit may land LF; comparing raw bytes then printed the whole file as
+removed-and-re-added, burying the one line that actually changed — the opposite of this tool's job. An
+EOL-only difference is now named (`M styles.css   (line endings only — CRLF/LF, no text change)`).
+Narrow on purpose: CRLF-normalize both sides and require equality, so a real edit cannot hide. Verified
+both ways here without a Windows machine — the CRLF bytes are written directly, and the control that
+removes the rule fails the new test while the "real edit next to an EOL difference" case still reports
+`+1 -1` with the changed line.
+
+**The budget is now visible.** Run 8 was reported as hitting "the 300 s budget" while the default has
+always been 900 (`DEFAULT_TIMEOUT_S`); nothing in the harness or runbook says 300, so the cap came from
+the invocation or an assumption. The run prints `turn budget: 900s (default 900s; override with
+--timeout)` before it starts, and a timeout now reports how much work had happened
+(`the engine had sent N frame(s), M tool call(s), and was still working`) plus the flag that raises it,
+so "stuck" and "slow" are told apart instead of guessed.
+
+21 pins in the harness test file, 54 passed across the prompt/contract/harness/terminal-guard lanes.
+The 5 failures in the wide sweep are the known sandbox-only set (3 bridge-transport typing_extensions,
+2 bundle tests needing a rebuilt tracked `out/`), unchanged from the previous tip.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md            | 15 ++++
+ .../crusorai/common/crusorAIPreview.ts        |  4 +-
+ scripts/preview_batch_turn.py                 | 28 ++++++-
+ src/preview/prompt.py                         | 11 ++-
+ src/tests/test_preview_batch_turn_script.py   | 78 +++++++++++++++++--
+ src/tests/test_preview_contract.py            |  4 +
+ src/tests/test_preview_prompt.py              |  9 ++-
+ 7 files changed, 140 insertions(+), 9 deletions(-)
+
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index 7043626e..38af2f52 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -364,6 +364,21 @@ just the engine: a model that backgrounds a command (`python -m http.server &`)
+ a listening process behind after the turn. On POSIX that is a process group; on Windows `taskkill /T`.
+ The run prints which was used (`engine stopped: process group (whole tree)`).
+ 
++**Give a completion run the full budget.** The turn budget defaults to **900 s** and the run prints it
++before it starts (`turn budget: 900s (default 900s; override with --timeout)`). A run that dies on the
++clock reports *how much work had happened* (`the engine had sent 118 frame(s), 41 tool call(s), and was
++still working`) so "stuck" and "slow" are told apart. Two runs were reported as hitting "the 300 s
++budget": if you pass `--timeout 300`, that is the cap — for a completion run leave the default, or
++raise it, and only the *recovery* question is answered by a short run.
++
++**A run should not try to render anything.** The prompt now ends by telling the agent to confirm its
++edit by re-reading the lines it changed, and explicitly not to start a dev server, watcher, or any
++other long-running process — the preview window is what re-renders, and the user sees the result there.
++So in a healthy run: the agent edits, reads the file back, lists what it changed, and stops. If you see
++it reaching for `serve`/`npm run dev`/`http.server`, the terminal guard refuses it instantly and hands
++back the `start_terminal` pivot; that is the guard working, but it also means the prompt's close was
++ignored — worth sending me.
++
+ **Every run is a fresh session, on purpose.** The engine keys conversation checkpoints by session id
+ (`~/.crusorai/sessions.db`, the langgraph `thread_id`), so a *fixed* id made each run resume the
+ previous one: the model saw the files already edited, made **zero tool calls** and answered "I already
+diff --git a/desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIPreview.ts b/desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIPreview.ts
+index 37bb8335..186b47c3 100644
+--- a/desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIPreview.ts
++++ b/desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIPreview.ts
+@@ -322,7 +322,9 @@ export function buildPreviewPrompt(batch: CrusorPreviewBatch, options?: { readon
+ 	if (dropped) {
+ 		parts.push(`\n(${dropped} further fix${dropped === 1 ? '' : 'es'} were left out to stay inside the prompt budget — ask me to re-send them.)`);
+ 	}
+-	parts.push('\nAfter editing, re-render the preview so the change can be checked in place.');
++	parts.push('\nAfter editing, re-read the lines you changed to confirm them. Do not start a dev '
++		+ 'server, watcher, or any other long-running process to check your work — the preview window '
++		+ 're-renders the page itself, and the user sees the result in place.');
+ 	return parts.join('\n').trim() + '\n';
+ }
+ 
+diff --git a/scripts/preview_batch_turn.py b/scripts/preview_batch_turn.py
+index 2b03c6a1..28d2bb91 100644
+--- a/scripts/preview_batch_turn.py
++++ b/scripts/preview_batch_turn.py
+@@ -337,7 +337,13 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
+             terminal = incoming
+             break
+     else:
+-        print(f"\nTimed out after {timeout:.0f}s with no terminal frame.")
++        tools = sum(1 for kind in seen if kind == "tool_call_start")
++        print(
++            f"\nTimed out after {timeout:.0f}s with no terminal frame — the engine had sent {len(seen)} "
++            f"frame(s), {tools} tool call(s), and was still working."
++            "\nIf the agent was mid-verify rather than stuck, re-run with a larger budget:"
++            f" --timeout {int(max(timeout, DEFAULT_TIMEOUT_S) * 2)}"
++        )
+     return terminal, seen
+ 
+ 
+@@ -375,6 +381,20 @@ def snapshot(root: Path) -> dict[str, bytes]:
+     return files
+ 
+ 
++def _eol_only(before: bytes, after: bytes) -> bool:
++    """True when two revisions differ *only* in line endings.
++
++    A Windows checkout hands the workspace CRLF while an agent-written edit may land LF (or the
++    reverse). Raw bytes differ, so `--diff` would print every line as removed-and-re-added — noise
++    that buries the one line that actually changed, which is the opposite of this tool's job. The
++    comparison is exact and narrow: normalize CRLF to LF on both sides and require equality, so a
++    real edit can never hide behind it.
++    """
++    if before == after:
++        return False
++    return before.replace(b"\r\n", b"\n") == after.replace(b"\r\n", b"\n")
++
++
+ def _line_counts(before: bytes, after: bytes) -> tuple[int, int] | None:
+     """(+added, -removed) for a text file, or None when it is binary."""
+     if b"\0" in before or b"\0" in after:
+@@ -400,6 +420,11 @@ def describe_changes(before: dict[str, bytes], after: dict[str, bytes], *, previ
+ 
+     lines: list[str] = []
+     for path in modified:
++        if _eol_only(before[path], after[path]):
++            # Said plainly rather than shown as a whole-file rewrite: on Windows this is what a
++            # CRLF/LF mismatch looks like, and it is not a UI change.
++            lines.append(f"  M {path}   (line endings only — CRLF/LF, no text change)")
++            continue
+         counts = _line_counts(before[path], after[path])
+         lines.append(f"  M {path}" + (f"   +{counts[0]} -{counts[1]}" if counts else "   (binary)"))
+         if counts:
+@@ -482,6 +507,7 @@ def main() -> int:
+     session_id = batch_session_id()
+     frame = build_prompt_frame(batch, session_id=session_id, workspace=str(workspace), mode="agent")
+     print(f"session: {session_id} (fresh — this run shares no history with any other)")
++    print(f"turn budget: {args.timeout:.0f}s (default {DEFAULT_TIMEOUT_S:.0f}s; override with --timeout)")
+ 
+     print("\n" + "=" * 78)
+     print("THE PROMPT THE AGENT RECEIVES (this text is the feature)")
+diff --git a/src/preview/prompt.py b/src/preview/prompt.py
+index 079d4577..b48f7f48 100644
+--- a/src/preview/prompt.py
++++ b/src/preview/prompt.py
+@@ -222,7 +222,16 @@ def build_preview_prompt(batch: Mapping[str, Any]) -> str:
+             " were left out to stay inside the prompt budget — ask me to re-send them.)"
+         )
+     parts.append(
+-        "\nAfter editing, re-render the preview so the change can be checked in place."
++        # Two live runs (2026-09-26, harness runs 7 and 8) spent their whole turn budget in a
++        # self-invented verification ritual instead of finishing: run 7 blocked on `npx serve` and
++        # died on the harness timeout, run 8 was refused the same command, correctly switched to
++        # start_terminal, and was still polling when its budget ran out. Nothing here bounded that —
++        # and the old wording ("re-render the preview so the change can be checked") could be read as
++        # an instruction to render, i.e. to start something. The preview window is the thing that
++        # renders; the agent's job ends with the edit confirmed by reading it back.
++        "\nAfter editing, re-read the lines you changed to confirm them. Do not start a dev server, "
++        "watcher, or any other long-running process to check your work — the preview window "
++        "re-renders the page itself, and the user sees the result in place."
+     )
+     return "\n".join(parts).strip() + "\n"
+ 
+diff --git a/src/tests/test_preview_batch_turn_script.py b/src/tests/test_preview_batch_turn_script.py
+index 2c32a931..9d764375 100644
+--- a/src/tests/test_preview_batch_turn_script.py
++++ b/src/tests/test_preview_batch_turn_script.py
+@@ -20,6 +20,7 @@ from __future__ import annotations
+ 
+ import importlib.util
+ import os
++import queue
+ import subprocess
+ import sys
+ import time
+@@ -91,15 +92,23 @@ def test_describe_changes_says_so_honestly_when_nothing_changed(harness) -> None
+ 
+ 
+ def test_snapshot_reads_content_and_skips_dependency_noise(harness, tmp_path) -> None:
++    """snapshot() is byte-exact, and its output must not depend on the platform's text mode.
++
++    Written with ``write_bytes`` on purpose: ``write_text`` translates ``\n`` to ``\r\n`` on Windows,
++    which made the old assertion red on the owner's machine while green here — a test that asserted
++    the platform instead of the code. The bytes are the contract; a CRLF file must come back CRLF.
++    """
+     (tmp_path / "src").mkdir()
+-    (tmp_path / "src" / "app.css").write_text("body{}\n", encoding="utf-8")
++    (tmp_path / "src" / "app.css").write_bytes(b"body{}\n")
++    (tmp_path / "src" / "legacy.css").write_bytes(b"a{}\r\nb{}\r\n")
+     for noise in ("node_modules", ".git", "__pycache__", ".venv"):
+         (tmp_path / noise).mkdir()
+         (tmp_path / noise / "junk.js").write_text("junk", encoding="utf-8")
+ 
+     files = harness.snapshot(tmp_path)
+-    assert set(files) == {"src/app.css"}, files
++    assert set(files) == {"src/app.css", "src/legacy.css"}, files
+     assert files["src/app.css"] == b"body{}\n"
++    assert files["src/legacy.css"] == b"a{}\r\nb{}\r\n", "snapshot must not normalize line endings"
+ 
+ 
+ def test_git_diff_stat_is_none_outside_a_repository(harness, tmp_path) -> None:
+@@ -174,8 +183,12 @@ def test_demo_mode_never_points_at_the_repository(harness) -> None:
+ 
+     made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-"))
+     try:
+-        assert made != FIXTURE
+-        assert os.path.commonpath([str(made), str(FIXTURE)]) != str(FIXTURE)
++        assert made.resolve() != FIXTURE.resolve()
++        # Deliberately NOT os.path.commonpath: on Windows TEMP is on C: and this checkout on D:, and
++        # commonpath RAISES ValueError across drives — the test failed there for that reason alone.
++        # is_relative_to answers the same question and returns False instead of raising.
++        assert made.is_relative_to(Path(tempfile.gettempdir()).resolve())
++        assert not made.is_relative_to(FIXTURE.resolve()), "the copy must not land inside the repo"
+     finally:
+         made.rmdir()
+ 
+@@ -323,7 +336,12 @@ class _ScriptedBridge:
+         self.sent.append(frame)
+ 
+     def read(self, timeout: float | None = None) -> dict | None:
+-        return self._frames.pop(0) if self._frames else None
++        # The real Bridge raises queue.Empty when nothing arrives before the timeout and returns None
++        # only when the engine closes its stream; mirroring that is what makes the quiet-engine
++        # (heartbeat -> timeout report) path reachable here.
++        if not self._frames:
++            raise queue.Empty
++        return self._frames.pop(0)
+ 
+ 
+ def _run_scripted(harness, frames: list[dict]) -> tuple[dict, list[str]]:
+@@ -355,3 +373,53 @@ def test_a_fresh_session_says_nothing_extra(harness, capsys) -> None:
+         {"type": "turn_done"},
+     ])
+     assert "SESSION NOT FRESH" not in capsys.readouterr().out
++
++
++# ─────────────────────────────────────────── the diff must stay honest on a Windows checkout
++def test_eol_only_changes_are_named_not_shown_as_a_rewrite(harness) -> None:
++    """A CRLF workspace + an LF edit must not read as "every line changed".
++
++    This is the Windows case, reproduced here by writing the bytes directly: the checkout hands the
++    file CRLF, the agent's edit lands LF, and a byte-comparing report would print the whole file as
++    removed-and-re-added — burying the one line that actually changed. The report names it instead.
++    """
++    before = {"styles.css": b".btn {\r\n  color: red;\r\n}\r\n"}
++    after = {"styles.css": b".btn {\n  color: red;\n}\n"}
++    report = harness.describe_changes(before, after)
++    assert "line endings only" in report, report
++    assert "-.btn" not in report and "+.btn" not in report, "no fake line-by-line rewrite"
++
++
++def test_a_real_edit_next_to_an_eol_difference_is_still_shown(harness) -> None:
++    """The narrowness that makes the rule safe: a genuine change must never hide behind it."""
++    before = {"styles.css": b".btn {\r\n  color: red;\r\n}\r\n"}
++    after = {"styles.css": b".btn {\n  color: blue;\n}\n"}
++    report = harness.describe_changes(before, after)
++    assert "line endings only" not in report, "a real edit must not be dismissed as EOL noise"
++    # splitlines() strips the EOL characters, so the changed line is the ONLY one counted — the
++    # CRLF->LF difference contributes nothing and the reader sees exactly what changed.
++    assert "+1 -1" in report, report
++    assert "color: blue" in report and "color: red" in report
++
++
++def test_the_run_prints_its_turn_budget(harness) -> None:
++    """Run 8 was reported as "the 300s budget" while the default is 900s.
++
++    Whatever the cause — an explicit `--timeout`, or an assumption — the run should never leave the
++    reader guessing which cap they are hitting, so the budget is printed up front.
++    """
++    assert harness.DEFAULT_TIMEOUT_S == 900.0, "the documented default is 900s"
++    source = SCRIPT.read_text(encoding="utf-8")
++    assert "turn budget:" in source
++    assert "--timeout" in source
++
++
++def test_the_timeout_report_says_how_much_work_had_happened(harness, capsys) -> None:
++    """A timeout must distinguish "stuck" from "still working" — that is the difference between a bug
++    and a budget, and it decides whether the next run should raise `--timeout`."""
++    frames = [{"type": "turn_started"}] + [{"type": "tool_call_start", "name": "read_file"}] * 3
++    harness.run_turn(_ScriptedBridge(frames), {"type": "prompt", "text": "x"}, "sid", 0.3, show_tools=False)
++    out = capsys.readouterr().out
++    assert "Timed out after 0s" in out, out
++    assert "3 tool call(s)" in out, out
++    assert "--timeout" in out, "the report must name the flag that raises the budget"
+diff --git a/src/tests/test_preview_contract.py b/src/tests/test_preview_contract.py
+index 16d9ee45..554609d2 100644
+--- a/src/tests/test_preview_contract.py
++++ b/src/tests/test_preview_contract.py
+@@ -289,6 +289,10 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
+ 		'selector: [data-testid="nav-cta"]',
+ 		"change ONLY the named elements",
+ 		'source: src/components/Nav.tsx → line 18',
++		# Run 8: the turn must not become a self-invented verification ritual. The sentence exists in
++		# both copies, and the TS copy is what the composer shows before dispatch, so drift would show
++		# the user a prompt the engine does not send.
++		'Do not start a dev server, watcher, or any other long-running process',
+ 		"box: 108×38 at (1180,14)",
+ 	):
+ 		assert field in ts_prompt, f"missing from the TypeScript prompt: {field}"
+diff --git a/src/tests/test_preview_prompt.py b/src/tests/test_preview_prompt.py
+index bfaff334..2702d686 100644
+--- a/src/tests/test_preview_prompt.py
++++ b/src/tests/test_preview_prompt.py
+@@ -92,7 +92,14 @@ def test_instruction_is_verbatim_and_scope_is_explicit() -> None:
+ 	assert "instruction: make the CTA blue, not indigo — client asked" in text
+ 	assert "change ONLY the named elements" in text
+ 	assert "grep the classes, the text, the data attributes" in text
+-	assert text.rstrip().endswith("so the change can be checked in place.")
++	# The close was re-worded after two live runs (2026-09-26, harness runs 7 and 8) spent their whole
++	# budget in a self-invented verification ritual: run 7 blocked on `npx serve`, run 8 was refused it,
++	# correctly switched to start_terminal, and was still polling when the budget ran out. The old
++	# wording ("re-render the preview so the change can be checked") could be read as an instruction to
++	# render — i.e. to start something. The prompt now bounds verification explicitly.
++	assert text.rstrip().endswith("and the user sees the result in place.")
++	assert "Do not start a dev server, watcher, or any other long-running process" in text
++	assert "re-read the lines you changed" in text
+ 
+ 
+ def test_source_hint_appears_when_the_project_stamps_source_positions() -> None:
+-- 
+2.39.5
+
