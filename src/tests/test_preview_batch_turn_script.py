@@ -238,3 +238,120 @@ def test_kill_process_tree_is_safe_on_an_exited_process(harness) -> None:
         def poll(self):
             return 0 if done.returncode == 0 else None
     assert harness.kill_process_tree(_Fake()) == "already exited"
+
+
+# ─────────────────────────────────────── the parent's own stdout must survive the run
+def _child(body: str) -> str:
+    """Source for a child that loads the real harness by path, then runs `body`."""
+    return (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('preview_batch_turn', {str(SCRIPT)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        + body
+    )
+
+
+def test_the_parent_survives_a_cp1252_console() -> None:
+    """A Windows console is cp1252 when redirected, and this script prints what cp1252 lacks.
+
+    `render()` emits `[tool done] name → result`, and the model's own text carries `…` and curly
+    quotes. Printing one of those raised `UnicodeEncodeError` and killed a live run. Encoded in the
+    child's own code page: stdout AND stderr must both come back as valid UTF-8 with the arrow
+    intact, and stderr must still be line-buffered (the reconfigure must not drop that).
+    """
+    if sys.version_info < (3, 7):  # pragma: no cover - reconfigure is 3.7+
+        pytest.skip("TextIOWrapper.reconfigure needs 3.7")
+    child = subprocess.run(
+        [sys.executable, "-c", _child(
+            "module.enable_unbuffered_output()  # idempotent; import already ran it\n"
+            "print('  [tool done] read_file → 42 lines')\n"
+            "print('  [tool done] →', file=sys.stderr)\n"
+            "print('line_buffering:', sys.stdout.line_buffering, file=sys.stderr)\n"
+        )],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert child.returncode == 0, (
+        "the parent died encoding its own output:\n" + child.stderr.decode("utf-8", "replace")
+    )
+    # Both streams are UTF-8 now, so decoding them as such is the assertion, not a hope.
+    assert "→ 42 lines" in child.stdout.decode("utf-8")
+    assert "→" in child.stderr.decode("utf-8"), "stderr was not reconfigured with stdout"
+    assert b"line_buffering: True" in child.stderr, "reconfigure dropped line buffering"
+
+
+def test_each_run_is_a_fresh_session() -> None:
+    """The engine keys durable history by session id, so a fixed one makes run N resume run N-1.
+
+    Two separate invocations (different processes) must never share an id. This is the hunk that
+    stopped the model answering "I already did that in the previous turn" with zero tool calls.
+    """
+    ids = []
+    for _ in range(2):
+        child = subprocess.run(
+            [sys.executable, "-c", _child("print(module.batch_session_id())\n")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+        )
+        assert child.returncode == 0, child.stderr.decode("utf-8", "replace")
+        ids.append(child.stdout.decode().strip())
+    assert ids[0] != ids[1], f"two invocations shared a session id: {ids[0]!r}"
+    assert all(i.startswith("preview-batch-turn-") for i in ids), ids
+    assert all(i != "preview-batch-turn" for i in ids), "the old fixed id came back"
+
+
+def test_the_harness_never_uses_the_demos_own_session_field(harness) -> None:
+    """`demo_batch()` carries a `sessionId` for payload shape; the frame must not adopt it."""
+    from src.preview.prompt import build_prompt_frame
+
+    frame = build_prompt_frame(
+        harness.demo_batch(), session_id="fresh-123", workspace="/ws", mode="agent"
+    )
+    assert frame["session_id"] == "fresh-123"
+
+
+class _ScriptedBridge:
+    """The smallest thing `run_turn` needs: a workspace, a send sink, and a frame queue."""
+
+    workspace = "/ws"
+
+    def __init__(self, frames: list[dict]) -> None:
+        self._frames = list(frames)
+        self.sent: list[dict] = []
+
+    def send(self, frame: dict) -> None:
+        self.sent.append(frame)
+
+    def read(self, timeout: float | None = None) -> dict | None:
+        return self._frames.pop(0) if self._frames else None
+
+
+def _run_scripted(harness, frames: list[dict]) -> tuple[dict, list[str]]:
+    return harness.run_turn(
+        _ScriptedBridge(frames), {"type": "prompt", "text": "x"}, "sid-1", 5.0, show_tools=True
+    )
+
+
+def test_a_resumed_session_is_never_silent(harness, capsys) -> None:
+    """The engine reports `prior_checkpoints`; a non-zero count must be shouted about.
+
+    This is the guard, not the fix: the id is fresh, so a non-zero count means the engine answered a
+    conversation this run did not start, and every conclusion drawn from the run is suspect.
+    """
+    terminal, _ = _run_scripted(harness, [
+        {"type": "session_info", "session_id": "sid-1", "prior_checkpoints": 3},
+        {"type": "turn_started"},
+        {"type": "turn_done"},
+    ])
+    out = capsys.readouterr().out
+    assert "SESSION NOT FRESH" in out and "3 prior checkpoint" in out, out
+    assert terminal.get("type") == "turn_done"
+
+
+def test_a_fresh_session_says_nothing_extra(harness, capsys) -> None:
+    _run_scripted(harness, [
+        {"type": "session_info", "session_id": "sid-1", "prior_checkpoints": 0},
+        {"type": "turn_started"},
+        {"type": "turn_done"},
+    ])
+    assert "SESSION NOT FRESH" not in capsys.readouterr().out

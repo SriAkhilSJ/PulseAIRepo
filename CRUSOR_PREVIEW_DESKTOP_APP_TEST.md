@@ -184,7 +184,8 @@ Then, in the window:
 | 6.2 | Send any prompt, e.g. `hi` | a reply appears, instantly (or after `CRUSORAI_ECHO_DELAY_MS`), and `Stop` is offered while it runs | the engine never started: read the pane's error line. `CrusorAI engine root is not configured: set crusorai.engineRoot or CRUSORAI_ENGINE_ROOT, or open a workspace that contains src/bridge.` means the opened folder is not the checkout and no setting points at it |
 | 6.3 | Confirm which python it used | `PulseAIRepo\.venv\Scripts\python.exe` if it exists, else `CRUSORAI_PYTHON_PATH`, else `python` on PATH | if your `.venv` is elsewhere, set `CRUSORAI_PYTHON_PATH` before launching |
 | 6.4 | Send a second prompt while the first is still running (needs 6.2 with the delay) | the turn queues or refuses cleanly — no silent drop | a silent drop is a real finding: send me the pane text |
-| 6.5 | The provider-free pass is done | now do a **real** turn: §7 below. It costs money and needs a key, which is why it is a separate section rather than an extra row here | — |
+| 6.5 | Look at the engine chip at the bottom of the pane | it reads `ui 2026-09-26` and there is no `STALE` next to it | `STALE` means the `out/` you launched is older than this UI round: rebuild (§5) and relaunch. The stamp bumps with every workbench UI round (`CRUSORAI_UI_STAMP` in `crusorAIRenderer.ts`) |
+| 6.6 | The provider-free pass is done | now do a **real** turn: §7 below. It costs money and needs a key, which is why it is a separate section rather than an extra row here | — |
 
 The agent's reply arriving in the app is the whole point of this gate: it proves the workbench →
 worker process → bridge → back path survives the build, which no pytest can.
@@ -346,6 +347,14 @@ simply the escaped ones.)
 just the engine: a model that backgrounds a command (`python -m http.server &`) would otherwise leave
 a listening process behind after the turn. On POSIX that is a process group; on Windows `taskkill /T`.
 The run prints which was used (`engine stopped: process group (whole tree)`).
+
+**Every run is a fresh session, on purpose.** The engine keys conversation checkpoints by session id
+(`~/.crusorai/sessions.db`, the langgraph `thread_id`), so a *fixed* id made each run resume the
+previous one: the model saw the files already edited, made **zero tool calls** and answered "I already
+did that in the previous turn" — the run then measured its own memory, not the prompt. The harness now
+generates an id per invocation (`preview-batch-turn-<pid>-<ns>`) and prints it. The engine's
+`session_info` reply carries `prior_checkpoints`; the harness shouts `SESSION NOT FRESH` if it is ever
+non-zero, because that means the run is replaying a conversation it did not start.
 
 **What this does not cover:** the fixture is static HTML and CSS. The harder cases — a component
 library, Tailwind utilities, CSS-in-JS, where the class in the DOM is not the class in the source — are

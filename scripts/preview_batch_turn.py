@@ -82,17 +82,29 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 def enable_unbuffered_output() -> None:
-    """Make this script's own output appear as it happens.
+    """Make this script's own output appear as it happens, in characters it can express.
 
-    Piped through PowerShell, a tee, or a file, Python block-buffers stdout: a slow (or wedged) run
-    shows *nothing* until it exits, which reads exactly like a hang carrying no information. The first
-    live run of this script was reported that way — 600 seconds, zero lines. The child engine already
-    gets ``PYTHONUNBUFFERED=1``; this is the same courtesy for the parent, and it runs at import so
-    even an early failure is visible.
+    Two measured failures, one setup:
+
+    * **Buffering.** Piped through PowerShell, a tee, or a file, Python block-buffers stdout: a slow
+      (or wedged) run shows *nothing* until it exits, which reads exactly like a hang carrying no
+      information. The first live run was reported that way — 600 seconds, zero lines.
+    * **Encoding.** A Windows console is cp1252 when redirected, and cp1252 cannot express what this
+      script prints: the model's own output carries ``→``, ``…`` and curly quotes, and printing one
+      raised ``UnicodeEncodeError`` and killed the run (observed on the owner's machine, run 1).
+      ``errors="replace"`` means a character the destination cannot render becomes ``?`` — visible,
+      never fatal.
+
+    The child engine already gets ``PYTHONUNBUFFERED=1``; this is the same courtesy for the parent,
+    and it runs at import so even an early failure is visible. One ``reconfigure`` call rather than
+    two: parameters left out keep their current settings, so this is order-independent by
+    construction instead of by convention (and ``line_buffering`` is asserted preserved by a test).
     """
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+            stream.reconfigure(  # type: ignore[union-attr]
+                encoding="utf-8", errors="replace", line_buffering=True,
+            )
         except (AttributeError, ValueError):  # pragma: no cover - non-standard stream
             pass
 
@@ -113,6 +125,8 @@ def demo_batch() -> dict:
     heuristic path — the one that has to work in the user's own project).
     """
     return {
+        # Payload shape only: `build_prompt_frame` takes the session id as an argument and uses that
+        # (pinned in test_preview_prompt.py), so this field cannot smuggle a stale session into a run.
         "sessionId": "preview-batch-turn",
         "target": "http://localhost:5173/",
         "targetLabel": "aurora-landing (lab fixture) · dev server",
@@ -258,6 +272,24 @@ def render(frame: dict, *, show_tools: bool = True) -> str | None:
     return None
 
 
+def batch_session_id() -> str:
+    """A fresh session id per invocation. Never a fixed string.
+
+    The engine persists conversation state in ``~/.crusorai/sessions.db``, keyed by session id (the
+    langgraph checkpointer's ``thread_id``), and ``BridgeServer._prior_checkpoint_count`` reads that
+    table by exactly this key. So a FIXED id makes run N+1 resume run N's history: the model sees
+    that the files were already edited and answers "I already did that in the previous turn" without
+    calling a single tool, and the run then measures the memory instead of the prompt. Measured on
+    the owner's machine (a rerun made zero tool calls), and the engine's own note records the same
+    class from a benchmark: "a fixed id made each benchmark run replay every prior run (+3 calls /
+    +~10k tokens per run, linear)".
+
+    ``pid`` + nanosecond clock: readable, greppable, and collision-proof for sequential runs
+    (``int(time.time())`` alone repeats within a second; a pid alone is recycled by the OS).
+    """
+    return f"preview-batch-turn-{os.getpid()}-{time.time_ns()}"
+
+
 def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> tuple[dict, list[str]]:
     """Send the prompt and stream until the turn ends. Returns (terminal frame, frames seen)."""
     bridge.send({"type": "hello", "protocol": PROTOCOL_VERSION})
@@ -285,6 +317,16 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
             break
         kind = incoming.get("type")
         seen.append(str(kind))
+        if kind == "session_info":
+            # The engine tells us whether this id had durable history (the create reply carries
+            # `prior_checkpoints` so a resume can never be silent). A fresh id means zero; anything
+            # else means the run is replaying an earlier conversation and proves nothing.
+            prior = incoming.get("prior_checkpoints")
+            if prior:
+                print(
+                    f"\n!! SESSION NOT FRESH: {prior} prior checkpoint(s) for '{session_id}' — this run "
+                    "resumes earlier conversation and is NOT an independent test of the prompt."
+                )
         if kind == "turn_started":
             started = True
             print("\n--- turn started ---")
@@ -437,8 +479,9 @@ def main() -> int:
 
     from src.preview.prompt import build_prompt_frame
 
-    session_id = "preview-batch-turn"
+    session_id = batch_session_id()
     frame = build_prompt_frame(batch, session_id=session_id, workspace=str(workspace), mode="agent")
+    print(f"session: {session_id} (fresh — this run shares no history with any other)")
 
     print("\n" + "=" * 78)
     print("THE PROMPT THE AGENT RECEIVES (this text is the feature)")

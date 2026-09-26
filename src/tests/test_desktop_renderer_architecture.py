@@ -699,9 +699,17 @@ def test_markdown_block_grammar_ported():
     assert ".crusorai-md .crusorai-md-link" in css
 
 
-def test_ui_stamp_bumped_for_the_card_format_round():
+def test_ui_stamp_bumped_for_the_preview_chrome_round():
+    """The stamp moves with EVERY workbench UI round — this one is the preview chrome.
+
+    The stamp is a hand-maintained constant precisely so a stale `out/` can be told from a current
+    one: the chip reads `ui <stamp>` and appends STALE when the engine build date is newer. That
+    makes forgetting to bump it a *false* STALE, which is what happened — the preview chrome landed
+    on 2026-09-26 (crusorAIPreviewService.ts, the overlay, the media) while the stamp still said
+    2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
+    """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-09-11';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-09-26';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -841,7 +849,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-09-11'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-09-26'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
