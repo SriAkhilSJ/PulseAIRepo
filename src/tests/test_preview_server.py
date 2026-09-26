@@ -17,9 +17,11 @@ proxy honest by using the same constraint.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -365,3 +367,56 @@ def test_proxied_pages_still_need_their_token_not_the_secret(proxy: PreviewServe
 	assert status == 200 and b"Agent built this" in body
 	status, _, _ = get(f"{proxy.origin}/p/{'x' * 22}/")
 	assert status == 404
+
+
+def test_a_refused_registration_leaves_the_connection_usable(proxy: PreviewServer) -> None:
+	"""A refusal must consume its request body before replying.
+
+	This looked like a flake and was not one. The handler answered 403 *without reading the body*, and a
+	close with unread data in the socket turns into an RST rather than a FIN: the client then sees
+	ECONNRESET *after* a perfectly good response (measured 5 in 300 requests under load, which is a
+	failing test in anyone's suite, on someone else's machine, at the worst possible moment).
+
+	The deterministic view of the same bug is below: a keep-alive connection cannot serve the next
+	request cleanly if the previous body is still sitting in the socket. One connection, no reconnect —
+	which only works when the body was consumed.
+	"""
+	parsed = urllib.parse.urlsplit(proxy.origin)
+	connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+	try:
+		# A body big enough that its unread bytes are unambiguously detectable as a stray request line.
+		body = json.dumps({"url": "http://127.0.0.1:1/", "label": "x" * 512}).encode()
+		connection.request("POST", "/crusor-preview/target", body=body, headers={"Content-Type": "application/json"})
+		refused = connection.getresponse()
+		assert refused.status == 403
+		refused.read()
+
+		connection.request("GET", "/crusor-preview/health")
+		followed = connection.getresponse()
+		assert followed.status == 200, (
+			"the connection could not serve the next request: the refused POST left its body in the socket"
+		)
+		assert json.loads(followed.read())["service"] == "crusor-preview"
+	finally:
+		connection.close()
+
+
+def test_a_long_run_of_refusals_never_resets_the_connection(proxy: PreviewServer) -> None:
+	"""The statistical view: refusals may not surface as connection errors at all."""
+	body = json.dumps({"url": "http://127.0.0.1:1/"}).encode()
+	failures: list[str] = []
+	for _ in range(60):
+		request = urllib.request.Request(
+			f"{proxy.origin}/crusor-preview/target", method="POST", data=body,
+			headers={"Content-Type": "application/json"},
+		)
+		try:
+			with urllib.request.urlopen(request, timeout=10) as response:
+				failures.append(f"expected a refusal, got {response.status}")
+		except urllib.error.HTTPError as exc:
+			if exc.code != 403:
+				failures.append(f"expected 403, got {exc.code}")
+			exc.read()
+		except (ConnectionResetError, urllib.error.URLError) as exc:
+			failures.append(f"connection error: {exc!r}")
+	assert not failures, failures[:5]

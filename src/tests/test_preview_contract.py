@@ -187,7 +187,10 @@ def test_node_accepts_both_shipped_scripts() -> None:
 	# The overlay is injected as classic script and the window chrome loads with `defer`: neither goes
 	# through a bundler, so a syntax error is a blank preview window in production and nothing else.
 	for path in (OVERLAY, WINDOW_JS):
-		result = subprocess.run([NODE, "--check", str(path)], capture_output=True, text=True, timeout=60)
+		result = subprocess.run(
+			[NODE, "--check", str(path)], capture_output=True, text=True,
+			encoding="utf-8", errors="replace", timeout=60,
+		)
 		assert result.returncode == 0, f"{path.name}: {result.stderr}"
 
 
@@ -213,7 +216,7 @@ def test_overlay_pure_helpers_behave_without_a_dom() -> None:
 	"""
 	result = subprocess.run(
 		[NODE, "--input-type=commonjs", "-e", harness, str(OVERLAY)],
-		capture_output=True, text=True, timeout=60,
+		capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
 	)
 	assert result.returncode == 0, result.stderr
 	payload = json.loads(result.stdout)
@@ -250,7 +253,10 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
 		}],
 	}
 	harness = """
-	const mod = await import(process.argv[1]);
+	import { pathToFileURL } from 'node:url';
+	// A bare filesystem path is not a legal ESM specifier (it works on POSIX by accident and fails on
+	// Windows with ERR_UNSUPPORTED_ESM_URL_SCHEME), so the path is converted rather than interpolated.
+	const mod = await import(pathToFileURL(process.argv[1]).href);
 	const batch = JSON.parse(process.argv[2]);
 	const evidence = [
 		{ kind: 'file', path: 'src/components/Hero.tsx' },
@@ -268,7 +274,7 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
 	result = subprocess.run(
 		[NODE, "--experimental-strip-types", "--input-type=module", "-e",
 		 harness.replace("process.argv[1]", json.dumps(str(TS_CONTRACT))).replace("process.argv[2]", json.dumps(json.dumps(batch)))],
-		capture_output=True, text=True, timeout=120,
+		capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
 	)
 	assert result.returncode == 0, result.stderr
 	payload = json.loads(result.stdout)
@@ -294,3 +300,43 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
 	assert payload["describe"] == '<button> "Get started"'
 	assert payload["summary"] == "1 preview fix · aurora-landing · dev server"
 	assert payload["empty"] is True
+
+@pytest.mark.skipif(NODE is None, reason="node is required for the headless half of this contract")
+def test_the_preview_window_query_is_a_list_of_pairs() -> None:
+	"""The window URL is assembled from pairs and percent-encoded, and nothing pinned the value until
+	now: `typecheck-client` caught the annotation (pairs assigned to `string[]`, which type-erases into
+	a working URL and therefore never failed at runtime) but the encoding and the trimmed origin were
+	only ever verified by hand."""
+	harness = """
+	import { pathToFileURL } from 'node:url';
+	const mod = await import(pathToFileURL(process.argv[1]).href);
+	const query = mod.previewWindowQuery(
+		{ origin: 'http://127.0.0.1:8931/', secret: 's3cr3t/+&=' },
+		{ target: 'http://localhost:5173/', mode: 'inspect' },
+	);
+	const parsed = new URLSearchParams(query);
+	process.stdout.write(JSON.stringify({
+		query,
+		endpoint: parsed.get('endpoint'),
+		secret: parsed.get('secret'),
+		target: parsed.get('target'),
+		mode: parsed.get('mode'),
+		missing: parsed.get('dropped'),
+	}));
+	"""
+	result = subprocess.run(
+		[NODE, "--experimental-strip-types", "--input-type=module", "-e",
+		 harness.replace("process.argv[1]", json.dumps(str(TS_CONTRACT)))],
+		capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+	)
+	assert result.returncode == 0, result.stderr
+	payload = json.loads(result.stdout)
+
+	assert payload["endpoint"] == "http://127.0.0.1:8931", "the trailing slash is trimmed before encoding"
+	assert payload["secret"] == "s3cr3t/+&=", "reserved characters must survive the round trip"
+	assert payload["target"] == "http://localhost:5173/"
+	assert payload["mode"] == "inspect"
+	assert payload["missing"] is None, "an absent key must not be emitted"
+	# Keys are the literal `key=value` pairs, in order — a character-destructured bug turns this into `e=`/`n=`.
+	assert payload["query"].startswith("endpoint=http%3A%2F%2F127.0.0.1%3A8931&secret=s3cr3t%2F%2B%26%3D&")
+	assert "endpoint=" in payload["query"] and "n=d" not in payload["query"]

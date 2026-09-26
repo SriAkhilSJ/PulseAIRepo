@@ -149,3 +149,55 @@ def test_endpoint_shape_matches_the_typescript_contract() -> None:
 	for key in ("session_id", "origin", "token", "secret", "workspace", "ui_path", "health_path", "started_at", "pid"):
 		assert key in interface, f"{key} missing from the TypeScript endpoint contract"
 		assert key in written, f"{key} missing from the published endpoint"
+
+
+def test_write_retries_a_transient_replace_failure(monkeypatch, tmp_path) -> None:
+	"""A contended rename must not lose the endpoint.
+
+	On Windows `os.replace` can fail with PermissionError while another process holds the destination
+	open (a reader mid-read, a virus scanner, the search indexer). Losing that race deletes the only
+	map from "this workspace" to "the running preview proxy", and the IDE then reports no proxy while
+	one is running — a symptom nobody can diagnose from the outside.
+	"""
+	import os as _os
+
+	real_replace = _os.replace
+	attempts = {"count": 0}
+
+	def flaky_replace(src, dst):
+		attempts["count"] += 1
+		if attempts["count"] <= 3:
+			raise PermissionError(13, "the destination is open in another process")
+		return real_replace(src, dst)
+
+	# A scoped patch, NOT monkeypatch.undo(): undoing the fixture's monkeypatch would also lift its
+	# CRUSORAI_HOME override, and the read below would then look in the developer's real ~/.crusorai.
+	with pytest.MonkeyPatch.context() as patcher:
+		patcher.setattr(_os, "replace", flaky_replace)
+		write_endpoint("contended", origin="http://127.0.0.1:7/", secret="s")
+
+	assert attempts["count"] == 4, "three failures, then the successful attempt"
+	printed = read_endpoint("contended")
+	assert printed is not None and printed["origin"] == "http://127.0.0.1:7"
+
+
+def test_write_still_publishes_when_renames_never_succeed(monkeypatch) -> None:
+	"""The pathological case degrades to a direct write instead of leaving no endpoint at all."""
+	import os as _os
+
+	def never(src, dst):
+		raise PermissionError(13, "locked forever")
+
+	with pytest.MonkeyPatch.context() as patcher:
+		patcher.setattr(_os, "replace", never)
+		write_endpoint("unrenamable", origin="http://127.0.0.1:8/", secret="s")
+
+	payload = read_endpoint("unrenamable")
+	assert payload is not None, "an un-renamable destination must still end up holding the endpoint"
+	assert payload["origin"] == "http://127.0.0.1:8"
+
+
+def test_no_temp_files_are_left_behind() -> None:
+	write_endpoint("tidy", origin="http://127.0.0.1:9/", secret="s")
+	leftovers = [path.name for path in preview_home().glob("*.tmp")]
+	assert leftovers == [], f"temp files left in the runtime home: {leftovers}"

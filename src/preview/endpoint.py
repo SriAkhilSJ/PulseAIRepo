@@ -68,6 +68,40 @@ def endpoint_path(session_id: str) -> Path:
     return preview_home() / f"{_safe(session_id)}.json"
 
 
+#: How hard to try before giving up on an atomic publish, and how long to wait between attempts.
+#: The contended window is milliseconds (a reader mid-read, a virus scanner, the search indexer).
+_REPLACE_ATTEMPTS = 10
+_REPLACE_BACKOFF_SECONDS = 0.01
+
+
+def _publish(temp: Path, path: Path) -> None:
+    """Atomically replace `path` with `temp`, retrying the transient failures.
+
+    ``os.replace`` is atomic, but on Windows it is not *guaranteed* to succeed: a destination that
+    another process holds open raises ``PermissionError``. Losing that race would delete the only map
+    from "this workspace" to "the running preview proxy", and the IDE would report no proxy at all
+    while one is running — a symptom nobody can debug from the outside. So the write retries, and only
+    a pathological lock (ten attempts, ~0.5s) falls back to a direct write.
+    """
+    last: OSError | None = None
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(temp, path)
+            return
+        except OSError as exc:
+            last = exc
+            time.sleep(_REPLACE_BACKOFF_SECONDS * (attempt + 1))
+    # Last resort: a direct write can be seen half-finished by a concurrent reader, which
+    # `read_endpoint` reports as "no endpoint" (`None`), so this degrades rather than corrupts.
+    # Reaching here means the filesystem is refusing atomic renames outright.
+    try:
+        path.write_text(temp.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        if last is not None:
+            raise last
+        raise
+
+
 def write_endpoint(
     session_id: str,
     *,
@@ -98,13 +132,22 @@ def write_endpoint(
     if extra:
         payload.update(extra)
     path = endpoint_path(session_id)
-    temp = path.with_suffix(f".{os.getpid()}.tmp")
+    # The temp name carries a counter as well as the pid: a crashed writer can leave one behind, and a
+    # reused name would be written to (and renamed) by the next run.
+    temp = path.with_suffix(f".{os.getpid()}.{int(time.time() * 1000) % 100000}.tmp")
     temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     try:
         os.chmod(temp, 0o600)
     except OSError:  # pragma: no cover - Windows/odd filesystems
         pass
-    os.replace(temp, path)
+    try:
+        _publish(temp, path)
+    finally:
+        if temp.exists() and temp != path:
+            try:
+                temp.unlink()
+            except OSError:  # pragma: no cover - racing deletion
+                pass
     return path
 
 
