@@ -27,7 +27,7 @@ Run only this targeted manager check. `--manager-only` submits no prompt, so thi
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\crusorAIagent\PulseAIRepo'
+$repo = 'D:\pulseAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }

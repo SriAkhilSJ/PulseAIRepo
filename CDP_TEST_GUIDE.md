@@ -6,10 +6,10 @@
 
 ```bash
 # 1. Verify Python works
-D:/crusorAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
+D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
 
 # 2. Launch app with CDP
-cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\crusorAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set CRUSORAI_ENGINE_ROOT=D:\\crusorAIagent\\PulseAIRepo&&scripts\\code.bat D:\\crusorAIagent\\PulseAIRepo --remote-debugging-port=9222" &
+cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\pulseAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set CRUSORAI_ENGINE_ROOT=D:\\pulseAIagent\\PulseAIRepo&&scripts\\code.bat D:\\pulseAIagent\\PulseAIRepo --remote-debugging-port=9222" &
 
 # 3. Wait 15s, verify CDP
 sleep 15 && curl -s http://localhost:9222/json/version | head -2
@@ -22,7 +22,7 @@ cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_fin
 
 | Item | Value | Verify |
 |------|-------|--------|
-| Python venv | `D:\crusorAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
+| Python venv | `D:\pulseAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
 | Node.js | v24+ | `node --version` |
 | ws module | `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
 | CrusorAI.exe | `desktop/vscode/.build/electron/CrusorAI.exe` | `ls -la` |
@@ -176,8 +176,8 @@ D:\crusor-res\r03-<timestamp>\
 ## Environment Variables
 
 ```bash
-export CRUSORAI_PYTHON_PATH='D:/crusorAIagent/PulseAIRepo/.venv/Scripts/python.exe'
-export CRUSORAI_ENGINE_ROOT='D:/crusorAIagent/PulseAIRepo'
+export CRUSORAI_PYTHON_PATH='D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe'
+export CRUSORAI_ENGINE_ROOT='D:/pulseAIagent/PulseAIRepo'
 ```
 
 ## Shutdown Cleanup

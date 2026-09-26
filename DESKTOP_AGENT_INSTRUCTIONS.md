@@ -21,7 +21,7 @@ This is a provider-free type/build/CDP validation of the Manager's session regis
 request, probe, fallback, live Test 5 turn, paid completion, credential inspection, merge, or branch
 deletion is authorized.
 
-Use only the existing repository at `D:\crusorAIagent\PulseAIRepo`. Do not clone, reset, clean, amend
+Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone, reset, clean, amend
 source, or touch historical evidence. Set `CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE â€” that is
 the mandatory network/provider guard. **Never** set `CRUSORAI_ALLOW_LIVE_AGENT_TEST=1`
 (`Remove-Item Env:CRUSORAI_ALLOW_LIVE_AGENT_TEST -ErrorAction SilentlyContinue`). Do not edit any source
@@ -31,7 +31,7 @@ file, including to fix a failing gate: report it, push the evidence, stop.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 if ((git branch --show-current) -ne 'arena/01a0564d-pulseairepo') { throw 'Wrong branch â€” STOP' }
 # Tracked changes are the only thing that can corrupt a run. Untracked scratch cannot, and this
 # repo has known, already-accepted untracked files (see the note below), so they are inventoried
@@ -78,7 +78,7 @@ A round-2 evidence directory is used because the first round's is evidence too, 
 ## 2. Gate A â€” strict scoped typecheck (proves the registration satisfies the fork's contracts)
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode\src        # this directory, or the paths shift
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode\src        # this directory, or the paths shift
 $tsc = if (Test-Path ..\node_modules\.bin\tsc) { '..\node_modules\.bin\tsc' } else { '..\..\..\crusor-webview\node_modules\.bin\tsc' }
 & $tsc -p tsconfig.crusorai-check.json --noEmit 2>&1 | Out-File -Encoding ascii "$PWD\..\..\..\$evidence\gate-a-tsc.txt"
 $log = "$PWD\..\..\..\$evidence\gate-a-tsc.txt"
@@ -101,7 +101,7 @@ everything below, go to step 5.
 ## 3. Gate B â€” the two python lanes that cover this slice
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 .\.venv\Scripts\python.exe -m pytest src\tests\test_crusor_session_registration_parity.py src\tests\test_desktop_renderer_architecture.py -q 2>&1 |
   Tee-Object "bench-results\crusor-manager-registration-desktop\gate-b-pytest.txt"
 ```
@@ -129,7 +129,7 @@ after `--user-data-dir` becomes a positional that the build reads as "what to lo
 open" (that mistake ended round 5, and the workbench looked broken when only the argv was).
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 node scripts\verify_crusor_manager_registration.mjs "bench-results\crusor-manager-registration-desktop-r8\cdp"
 # A dev build of this fork is bare Electron, so the script passes the app directory (desktop\vscode) as the
 # FIRST positional exactly as scripts\code.bat does, then the flags, then the folder. If the workbench still
@@ -150,7 +150,7 @@ Read `cdp-ui-result.json` (that is the harness's report filename) rather than tr
 ## 5. Evidence, hashes, commit, push â€” on PASS *and* on FAIL
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 $evidence = 'bench-results\crusor-manager-registration-desktop-r2'
 Set-Content "$evidence\gate.txt" -Value "reached: <A|B|C|D>; result: <PASS|FAIL>; first failure: <gate + one line>" -Encoding utf8
 Get-ChildItem $evidence -Recurse -File | Where-Object Name -ne 'sha256sums.txt' | Sort-Object FullName |

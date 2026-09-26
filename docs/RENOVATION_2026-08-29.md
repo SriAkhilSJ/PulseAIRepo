@@ -44,13 +44,13 @@
 
 ```powershell
 # Terminal 1 — 8200
-Set-Location -LiteralPath "D:\crusorAIagent\PulseAIRepo"; & "C:\Program Files\nodejs\npx.cmd" --yes tsx crusor-webview/server.ts
+Set-Location -LiteralPath "D:\pulseAIagent\PulseAIRepo"; & "C:\Program Files\nodejs\npx.cmd" --yes tsx crusor-webview/server.ts
 # Terminal 2 — 8123
-Set-Location -LiteralPath "D:\crusorAIagent\PulseAIRepo"; uv run python -m src.server
+Set-Location -LiteralPath "D:\pulseAIagent\PulseAIRepo"; uv run python -m src.server
 # Terminal 3 — verify
 curl http://localhost:8200/api/copilotkit/info; curl http://localhost:8123/health
 # Terminal 4 — 5173
-Set-Location -LiteralPath "D:\crusorAIagent\PulseAIRepo\crusor-webview"; npm run dev
+Set-Location -LiteralPath "D:\pulseAIagent\PulseAIRepo\crusor-webview"; npm run dev
 # open http://localhost:5173 → CopilotChat, hard refresh Ctrl+Shift+R
 ```
 

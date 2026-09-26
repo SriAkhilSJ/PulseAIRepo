@@ -14,7 +14,7 @@ This is a provider-free visual/structural verification of the Copilot-hiding lay
 and Crusor-only UI. No provider request, probe, fallback, live Test 5 turn,
 credential inspection, merge, branch deletion, or source edit is authorized.
 
-Use only the existing repository at `D:\crusorAIagent\PulseAIRepo`. Do not clone,
+Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone,
 reset, clean, amend source, or touch historical evidence. Set
 `CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE; this is the mandatory
 network/provider guard. A failure remains evidence and must not be overwritten
@@ -26,7 +26,7 @@ by a retry.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 
 if ((git branch --show-current) -ne 'main') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Checkout is not clean — preserve it and STOP' }
@@ -93,12 +93,12 @@ Launch the IDE with echo runner and CDP:
 
 ```powershell
 $env:CRUSORAI_PYTHON_PATH = $python
-$env:CRUSORAI_ENGINE_ROOT = 'D:\crusorAIagent\PulseAIRepo'
+$env:CRUSORAI_ENGINE_ROOT = 'D:\pulseAIagent\PulseAIRepo'
 $env:CRUSORAI_BRIDGE_RUNNER = 'echo'
 $env:CRUSORAI_CDP_PORT = '9222'
 
 $desktop = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', `
-  "set CRUSORAI_BRIDGE_RUNNER=echo&&set CRUSORAI_PYTHON_PATH=$python&&set CRUSORAI_ENGINE_ROOT=D:\crusorAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\crusorAIagent\PulseAIRepo --remote-debugging-port=9222" `
+  "set CRUSORAI_BRIDGE_RUNNER=echo&&set CRUSORAI_PYTHON_PATH=$python&&set CRUSORAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\pulseAIagent\PulseAIRepo --remote-debugging-port=9222" `
   -PassThru
 ```
 

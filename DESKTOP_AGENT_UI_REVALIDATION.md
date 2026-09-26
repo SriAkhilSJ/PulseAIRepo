@@ -2,7 +2,7 @@
 
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required repair ancestor:** `b790a29d`  
-**Existing checkout only:** `D:\crusorAIagent\PulseAIRepo` if unchanged  
+**Existing checkout only:** `D:\pulseAIagent\PulseAIRepo` if unchanged  
 **Provider authorization:** none; zero provider/model requests  
 **Prior evidence:** `bench-results/agent-ui-validation-desktop/` is immutable FAIL evidence  
 **PR #9:** keep open and unmerged
@@ -28,7 +28,7 @@ Validate the repaired source once. If compilation passes, complete the provider-
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\crusorAIagent\PulseAIRepo'
+$repo = 'D:\pulseAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — preserve it and STOP' }

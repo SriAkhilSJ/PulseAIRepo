@@ -93,9 +93,9 @@ taskkill /F /IM "CrusorAI.exe"
 
 # Launch with engine config
 cd desktop/vscode
-set CRUSORAI_PYTHON_PATH=D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe
-set CRUSORAI_ENGINE_ROOT=D:\crusorAIagent\PulseAIRepo
-start /b .build\electron\CrusorAI.exe . --remote-debugging-port=9222 D:\crusorAIagent\PulseAIRepo
+set CRUSORAI_PYTHON_PATH=D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe
+set CRUSORAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo
+start /b .build\electron\CrusorAI.exe . --remote-debugging-port=9222 D:\pulseAIagent\PulseAIRepo
 ```
 
 Or simply open the workspace — the engine auto-detects from workspace path.

@@ -25,7 +25,7 @@ Harness commit `a8ec019d` makes `--manager-only` purely DOM-driven. It performs 
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\crusorAIagent\PulseAIRepo'
+$repo = 'D:\pulseAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }

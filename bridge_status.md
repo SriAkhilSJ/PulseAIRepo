@@ -22,7 +22,7 @@ Thread [bridge-turn-<sid>] (most recent call first):
   ... <frozen importlib._bootstrap> in create_module
   File "...\numpy\_core\multiarray.py", line 11 in <module>   <-- BLOCKED
   ... transformers\utils\... -> langchain_core\language_models\base.py
-  File "D:\crusorAIagent\PulseAIRepo\src\bridge\__main__.py" in _run_turn
+  File "D:\pulseAIagent\PulseAIRepo\src\bridge\__main__.py" in _run_turn
 ```
 
 The `bridge-turn-*` worker thread deadlocked inside **numpy's C-extension init**

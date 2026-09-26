@@ -25,7 +25,7 @@ them would conflict with what is committed.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 git fetch origin arena/01a0ca7c-pulseairepo
 git merge-base --is-ancestor 2b2880f8 FETCH_HEAD    # the tip this doc ships in; later tips keep it as an ancestor
 if ($LASTEXITCODE -ne 0) { git pull --ff-only origin arena/01a0ca7c-pulseairepo }
@@ -66,7 +66,7 @@ This is the fork's own lane for `contrib/crusorai` (`browser/` + `common/`), so 
 preview code without a full `node_modules` tree. Run it from `desktop\vscode\src`:
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode\src
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode\src
 $tsc = if (Test-Path ..\node_modules\.bin\tsc.cmd) { '..\node_modules\.bin\tsc.cmd' }
        elseif (Test-Path ..\..\..\crusor-webview\node_modules\.bin\tsc.cmd) { '..\..\..\crusor-webview\node_modules\.bin\tsc.cmd' }
        else { throw 'No tsc — run npm install in desktop\vscode first (see §4)' }
@@ -103,7 +103,7 @@ that actually failed on the tip you pulled: `src/tsconfig.json` includes `./vs/*
 `contrib/crusorai` is in the program.
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
 npm run typecheck-client      # tsc -p ./src/tsconfig.json --noEmit --skipLibCheck
 ```
 
@@ -113,7 +113,7 @@ this one must be completely clean.
 ## 4. Gate B — the python lane for this feature **[here: 67 passed]**
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 .\.venv\Scripts\python.exe -m pytest src\tests\test_preview_inject.py src\tests\test_preview_prompt.py `
   src\tests\test_preview_server.py src\tests\test_preview_endpoint.py src\tests\test_preview_contract.py -q
 ```
@@ -139,7 +139,7 @@ libraries, so 3 of the 23 failed on `typing_extensions` alone. Bring your own co
 ## 5. Gate C — build the app **[host]**
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
 node --version                 # .nvmrc pins 24.18.0; node 22 works, record what you used
 npm install                    # only if node_modules is absent
 npm run typecheck-client       # Gate A' — must be clean
@@ -164,7 +164,7 @@ model call and touches no credential. Setting it in this shell is enough — the
 (`crusorAIWorkerProcessService.ts:156`), so the variable is inherited by the engine process.
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 Remove-Item Env:CRUSORAI_ALLOW_LIVE_AGENT_TEST -ErrorAction SilentlyContinue   # never set this
 $env:CRUSORAI_BRIDGE_RUNNER = 'echo'
 $env:CRUSORAI_ECHO_DELAY_MS = '1500'    # optional: a turn slow enough to see the Stop button
@@ -375,7 +375,7 @@ that part for free (§8) and spend credits only on the turn.
 The preview needs a proxy running for the **same folder** you opened — nothing starts it for you:
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 python -m src.preview.server --workspace "D:\work\your-project" --port 8931 --endpoint-session ide
 ```
 

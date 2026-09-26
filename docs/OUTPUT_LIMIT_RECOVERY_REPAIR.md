@@ -74,7 +74,7 @@ pytest -q \
 
 ### Windows deterministic validation
 
-The existing Windows checkout at `D:\crusorAIagent\PulseAIRepo` independently
+The existing Windows checkout at `D:\pulseAIagent\PulseAIRepo` independently
 validated repair commit `0bb00413f4a03b0172c4f6214018bad156fb1d2a`:
 
 ```text

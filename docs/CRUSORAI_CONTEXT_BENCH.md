@@ -1,6 +1,6 @@
 # CrusorAI Context Engine — Bench (Hermes Deps + CrusorAI vs Hermes)
 
-**Date:** 2026-09-11 — live bench from `D:\crusorAIagent\PulseAIRepo` venv (separate from `D:\hermes`).
+**Date:** 2026-09-11 — live bench from `D:\pulseAIagent\PulseAIRepo` venv (separate from `D:\hermes`).
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
 
 ## 1. Hermes Dependencies — Setup
@@ -28,7 +28,7 @@ Crusor `pyproject.toml:8` adds `sentence-transformers`, `sqlite-vec`, `tree-sitt
 
 ## 2. CrusorAI Live Bench (this machine)
 
-Run `D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -c` with `ContextEngine(max_tokens=8000)`:
+Run `D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -c` with `ContextEngine(max_tokens=8000)`:
 
 - **Build:** `34.9s` cold (includes `get_repo_map` 1200 tokens + `relevant_chunks` 5 hits) → **14 msgs** `1593 tokens` (`token_budget.py:17` tiktoken fallback `chars/4` for `sarvam-105b-conversations`).
 - **Retrieval:** `ChunkIndex.search('auth callback', top_k=5)` `7.1s` cold (first embedding encode + FTS), warm hybrid ≤20ms@20K per `chunk_index.py:1036`.

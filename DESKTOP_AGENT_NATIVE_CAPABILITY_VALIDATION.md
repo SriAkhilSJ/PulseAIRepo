@@ -3,7 +3,7 @@
 **Date:** 2026-08-26  
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required implementation ancestor:** `b270f8cd`  
-**Repository:** use the existing correct repository folder only (`D:\crusorAIagent\PulseAIRepo` if unchanged)  
+**Repository:** use the existing correct repository folder only (`D:\pulseAIagent\PulseAIRepo` if unchanged)  
 **Provider authorization:** none; zero model/provider requests  
 **PR #9:** open; do not merge
 
@@ -57,7 +57,7 @@ Mutation, terminal execution, tasks/tests execution, extension tools, MCP, remot
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\crusorAIagent\PulseAIRepo'
+$repo = 'D:\pulseAIagent\PulseAIRepo'
 cd $repo
 
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') {

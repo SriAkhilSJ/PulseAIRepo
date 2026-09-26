@@ -3,7 +3,7 @@
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required source ancestor:** `b790a29d`  
 **Required CDP script ancestor:** commit containing `scripts/validate_crusor_ui_cdp.js`  
-**Existing checkout:** `D:\crusorAIagent\PulseAIRepo`  
+**Existing checkout:** `D:\pulseAIagent\PulseAIRepo`  
 **Provider authorization:** none; use only the echo runner  
 **Evidence directory:** `bench-results/agent-ui-cdp-desktop/`
 
@@ -26,7 +26,7 @@ This handoff performs the remaining runtime smoke through Electron's Chrome DevT
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\crusorAIagent\PulseAIRepo'
+$repo = 'D:\pulseAIagent\PulseAIRepo'
 cd $repo
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
 if (git status --porcelain=v1) { throw 'Dirty checkout — preserve it and STOP' }

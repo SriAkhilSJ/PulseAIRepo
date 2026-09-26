@@ -21,7 +21,7 @@ so the whole job costs two builds' worth of waiting and about a dozen short comm
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 git status --porcelain=v1 -uno     # must be empty; untracked scratch is inventoried, never committed
 git fetch origin arena/01a0564d-pulseairepo
 git checkout arena/01a0564d-pulseairepo
@@ -43,7 +43,7 @@ proves the new registration actually satisfies the workbench's contracts
 (`IChatSessionItemController`, `IChatSessionItem`, `ChatSessionStatus`, `sessionOpenerRegistry`).
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
 ..\..\crusor-webview\node_modules\.bin\tsc -p src\tsconfig.crusorai-check.json --noEmit 2>&1 |
   Tee-Object -FilePath $env:TEMP\crusorai-tsc.txt | Out-Null
 $mine = Select-String -Path $env:TEMP\crusorai-tsc.txt -Pattern '^vs/workbench/contrib/crusorai'
@@ -62,7 +62,7 @@ partial checkout) and are not failures — only lines starting `vs/workbench/con
 ## B. Gate B — python lanes, only the two that touch this slice
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 .\.venv\Scripts\python.exe -m pytest src\tests\test_crusor_session_registration_parity.py src\tests\test_desktop_renderer_architecture.py -q
 ```
 
@@ -75,7 +75,7 @@ it means node or `crusor-webview\node_modules\.bin\esbuild` is missing, so run
 ## C. Gate C — build (the long one; only after A and B are clean)
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
 npm install          # first time only; if node_modules already exists, skip
 npm run compile 2>&1 | Tee-Object -FilePath $env:TEMP\crusorai-compile.txt
 Test-Path .build\electron\CrusorAI.exe
@@ -92,7 +92,7 @@ Launch the fork with CDP on 9222, then run the existing manager-only validator (
 turn and waits for `.crusorai-manager-shell`):
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 node scripts\verify_crusor_manager_registration.mjs bench-results\crusor-manager-registration-desktop-r2\cdp
 
 # It builds the argv, waits for the workbench page target, runs the harness above with --manager-only,
@@ -112,7 +112,7 @@ does as `%CODE% . %*`; a dev build is bare Electron and reads its first position
 lone folder path comes back as `Cannot find module`):
 ```powershell
 Start-Process -FilePath ".\desktop\vscode\.build\electron\CrusorAI.exe" `
-  -ArgumentList 'D:\crusorAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\crusorAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\crusorAIagent\playground'
+  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\crusorAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\crusorAIagent\playground'
 ```
 If that still yields no folder, pass the folder as `--folder-uri=file:///D:/crusorAIagent/playground` instead of
 a trailing positional -- `scripts\verify_crusor_manager_registration.mjs --folder-uri` does exactly that.)
@@ -166,7 +166,7 @@ spinner rather than a crusor. Tell me if you want Crusor hidden there — the re
 ## 5. If any gate failed: push the evidence, change nothing
 
 ```powershell
-cd D:\crusorAIagent\PulseAIRepo
+cd D:\pulseAIagent\PulseAIRepo
 $e = 'bench-results\crusor-manager-registration-desktop\retry-forbidden'
 New-Item -ItemType Directory -Force -Path $e | Out-Null
 git rev-parse HEAD | Set-Content "$e\head.txt"

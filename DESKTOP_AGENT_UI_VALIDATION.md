@@ -3,7 +3,7 @@
 **Date:** 2026-08-26  
 **Required branch:** `arena/01a03741-pulseairepo`  
 **Required UI implementation ancestor:** `0f84d2df`  
-**Repository:** use the existing correct repository folder only (`D:\crusorAIagent\PulseAIRepo` if unchanged)  
+**Repository:** use the existing correct repository folder only (`D:\pulseAIagent\PulseAIRepo` if unchanged)  
 **Provider authorization:** none; zero model/provider requests  
 **PR #9:** open; do not merge
 
@@ -30,7 +30,7 @@ The UI increment adds a stronger session header, readable transcript lane, expan
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\crusorAIagent\PulseAIRepo'
+$repo = 'D:\pulseAIagent\PulseAIRepo'
 cd $repo
 
 if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
