@@ -337,7 +337,13 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
             terminal = incoming
             break
     else:
-        print(f"\nTimed out after {timeout:.0f}s with no terminal frame.")
+        tools = sum(1 for kind in seen if kind == "tool_call_start")
+        print(
+            f"\nTimed out after {timeout:.0f}s with no terminal frame — the engine had sent {len(seen)} "
+            f"frame(s), {tools} tool call(s), and was still working."
+            "\nIf the agent was mid-verify rather than stuck, re-run with a larger budget:"
+            f" --timeout {int(max(timeout, DEFAULT_TIMEOUT_S) * 2)}"
+        )
     return terminal, seen
 
 
@@ -375,6 +381,20 @@ def snapshot(root: Path) -> dict[str, bytes]:
     return files
 
 
+def _eol_only(before: bytes, after: bytes) -> bool:
+    """True when two revisions differ *only* in line endings.
+
+    A Windows checkout hands the workspace CRLF while an agent-written edit may land LF (or the
+    reverse). Raw bytes differ, so `--diff` would print every line as removed-and-re-added — noise
+    that buries the one line that actually changed, which is the opposite of this tool's job. The
+    comparison is exact and narrow: normalize CRLF to LF on both sides and require equality, so a
+    real edit can never hide behind it.
+    """
+    if before == after:
+        return False
+    return before.replace(b"\r\n", b"\n") == after.replace(b"\r\n", b"\n")
+
+
 def _line_counts(before: bytes, after: bytes) -> tuple[int, int] | None:
     """(+added, -removed) for a text file, or None when it is binary."""
     if b"\0" in before or b"\0" in after:
@@ -400,6 +420,11 @@ def describe_changes(before: dict[str, bytes], after: dict[str, bytes], *, previ
 
     lines: list[str] = []
     for path in modified:
+        if _eol_only(before[path], after[path]):
+            # Said plainly rather than shown as a whole-file rewrite: on Windows this is what a
+            # CRLF/LF mismatch looks like, and it is not a UI change.
+            lines.append(f"  M {path}   (line endings only — CRLF/LF, no text change)")
+            continue
         counts = _line_counts(before[path], after[path])
         lines.append(f"  M {path}" + (f"   +{counts[0]} -{counts[1]}" if counts else "   (binary)"))
         if counts:
@@ -482,6 +507,7 @@ def main() -> int:
     session_id = batch_session_id()
     frame = build_prompt_frame(batch, session_id=session_id, workspace=str(workspace), mode="agent")
     print(f"session: {session_id} (fresh — this run shares no history with any other)")
+    print(f"turn budget: {args.timeout:.0f}s (default {DEFAULT_TIMEOUT_S:.0f}s; override with --timeout)")
 
     print("\n" + "=" * 78)
     print("THE PROMPT THE AGENT RECEIVES (this text is the feature)")

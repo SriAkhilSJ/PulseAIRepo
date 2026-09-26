@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import queue
 import subprocess
 import sys
 import time
@@ -91,15 +92,23 @@ def test_describe_changes_says_so_honestly_when_nothing_changed(harness) -> None
 
 
 def test_snapshot_reads_content_and_skips_dependency_noise(harness, tmp_path) -> None:
+    """snapshot() is byte-exact, and its output must not depend on the platform's text mode.
+
+    Written with ``write_bytes`` on purpose: ``write_text`` translates ``\n`` to ``\r\n`` on Windows,
+    which made the old assertion red on the owner's machine while green here — a test that asserted
+    the platform instead of the code. The bytes are the contract; a CRLF file must come back CRLF.
+    """
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "app.css").write_text("body{}\n", encoding="utf-8")
+    (tmp_path / "src" / "app.css").write_bytes(b"body{}\n")
+    (tmp_path / "src" / "legacy.css").write_bytes(b"a{}\r\nb{}\r\n")
     for noise in ("node_modules", ".git", "__pycache__", ".venv"):
         (tmp_path / noise).mkdir()
         (tmp_path / noise / "junk.js").write_text("junk", encoding="utf-8")
 
     files = harness.snapshot(tmp_path)
-    assert set(files) == {"src/app.css"}, files
+    assert set(files) == {"src/app.css", "src/legacy.css"}, files
     assert files["src/app.css"] == b"body{}\n"
+    assert files["src/legacy.css"] == b"a{}\r\nb{}\r\n", "snapshot must not normalize line endings"
 
 
 def test_git_diff_stat_is_none_outside_a_repository(harness, tmp_path) -> None:
@@ -174,8 +183,12 @@ def test_demo_mode_never_points_at_the_repository(harness) -> None:
 
     made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-"))
     try:
-        assert made != FIXTURE
-        assert os.path.commonpath([str(made), str(FIXTURE)]) != str(FIXTURE)
+        assert made.resolve() != FIXTURE.resolve()
+        # Deliberately NOT os.path.commonpath: on Windows TEMP is on C: and this checkout on D:, and
+        # commonpath RAISES ValueError across drives — the test failed there for that reason alone.
+        # is_relative_to answers the same question and returns False instead of raising.
+        assert made.is_relative_to(Path(tempfile.gettempdir()).resolve())
+        assert not made.is_relative_to(FIXTURE.resolve()), "the copy must not land inside the repo"
     finally:
         made.rmdir()
 
@@ -323,7 +336,12 @@ class _ScriptedBridge:
         self.sent.append(frame)
 
     def read(self, timeout: float | None = None) -> dict | None:
-        return self._frames.pop(0) if self._frames else None
+        # The real Bridge raises queue.Empty when nothing arrives before the timeout and returns None
+        # only when the engine closes its stream; mirroring that is what makes the quiet-engine
+        # (heartbeat -> timeout report) path reachable here.
+        if not self._frames:
+            raise queue.Empty
+        return self._frames.pop(0)
 
 
 def _run_scripted(harness, frames: list[dict]) -> tuple[dict, list[str]]:
@@ -355,3 +373,53 @@ def test_a_fresh_session_says_nothing_extra(harness, capsys) -> None:
         {"type": "turn_done"},
     ])
     assert "SESSION NOT FRESH" not in capsys.readouterr().out
+
+
+# ─────────────────────────────────────────── the diff must stay honest on a Windows checkout
+def test_eol_only_changes_are_named_not_shown_as_a_rewrite(harness) -> None:
+    """A CRLF workspace + an LF edit must not read as "every line changed".
+
+    This is the Windows case, reproduced here by writing the bytes directly: the checkout hands the
+    file CRLF, the agent's edit lands LF, and a byte-comparing report would print the whole file as
+    removed-and-re-added — burying the one line that actually changed. The report names it instead.
+    """
+    before = {"styles.css": b".btn {\r\n  color: red;\r\n}\r\n"}
+    after = {"styles.css": b".btn {\n  color: red;\n}\n"}
+    report = harness.describe_changes(before, after)
+    assert "line endings only" in report, report
+    assert "-.btn" not in report and "+.btn" not in report, "no fake line-by-line rewrite"
+
+
+def test_a_real_edit_next_to_an_eol_difference_is_still_shown(harness) -> None:
+    """The narrowness that makes the rule safe: a genuine change must never hide behind it."""
+    before = {"styles.css": b".btn {\r\n  color: red;\r\n}\r\n"}
+    after = {"styles.css": b".btn {\n  color: blue;\n}\n"}
+    report = harness.describe_changes(before, after)
+    assert "line endings only" not in report, "a real edit must not be dismissed as EOL noise"
+    # splitlines() strips the EOL characters, so the changed line is the ONLY one counted — the
+    # CRLF->LF difference contributes nothing and the reader sees exactly what changed.
+    assert "+1 -1" in report, report
+    assert "color: blue" in report and "color: red" in report
+
+
+def test_the_run_prints_its_turn_budget(harness) -> None:
+    """Run 8 was reported as "the 300s budget" while the default is 900s.
+
+    Whatever the cause — an explicit `--timeout`, or an assumption — the run should never leave the
+    reader guessing which cap they are hitting, so the budget is printed up front.
+    """
+    assert harness.DEFAULT_TIMEOUT_S == 900.0, "the documented default is 900s"
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "turn budget:" in source
+    assert "--timeout" in source
+
+
+def test_the_timeout_report_says_how_much_work_had_happened(harness, capsys) -> None:
+    """A timeout must distinguish "stuck" from "still working" — that is the difference between a bug
+    and a budget, and it decides whether the next run should raise `--timeout`."""
+    frames = [{"type": "turn_started"}] + [{"type": "tool_call_start", "name": "read_file"}] * 3
+    harness.run_turn(_ScriptedBridge(frames), {"type": "prompt", "text": "x"}, "sid", 0.3, show_tools=False)
+    out = capsys.readouterr().out
+    assert "Timed out after 0s" in out, out
+    assert "3 tool call(s)" in out, out
+    assert "--timeout" in out, "the report must name the flag that raises the budget"

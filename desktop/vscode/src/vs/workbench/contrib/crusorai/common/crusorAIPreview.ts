@@ -322,7 +322,9 @@ export function buildPreviewPrompt(batch: CrusorPreviewBatch, options?: { readon
 	if (dropped) {
 		parts.push(`\n(${dropped} further fix${dropped === 1 ? '' : 'es'} were left out to stay inside the prompt budget — ask me to re-send them.)`);
 	}
-	parts.push('\nAfter editing, re-render the preview so the change can be checked in place.');
+	parts.push('\nAfter editing, re-read the lines you changed to confirm them. Do not start a dev '
+		+ 'server, watcher, or any other long-running process to check your work — the preview window '
+		+ 're-renders the page itself, and the user sees the result in place.');
 	return parts.join('\n').trim() + '\n';
 }
 

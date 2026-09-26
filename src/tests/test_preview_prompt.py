@@ -92,7 +92,14 @@ def test_instruction_is_verbatim_and_scope_is_explicit() -> None:
 	assert "instruction: make the CTA blue, not indigo — client asked" in text
 	assert "change ONLY the named elements" in text
 	assert "grep the classes, the text, the data attributes" in text
-	assert text.rstrip().endswith("so the change can be checked in place.")
+	# The close was re-worded after two live runs (2026-09-26, harness runs 7 and 8) spent their whole
+	# budget in a self-invented verification ritual: run 7 blocked on `npx serve`, run 8 was refused it,
+	# correctly switched to start_terminal, and was still polling when the budget ran out. The old
+	# wording ("re-render the preview so the change can be checked") could be read as an instruction to
+	# render — i.e. to start something. The prompt now bounds verification explicitly.
+	assert text.rstrip().endswith("and the user sees the result in place.")
+	assert "Do not start a dev server, watcher, or any other long-running process" in text
+	assert "re-read the lines you changed" in text
 
 
 def test_source_hint_appears_when_the_project_stamps_source_positions() -> None:

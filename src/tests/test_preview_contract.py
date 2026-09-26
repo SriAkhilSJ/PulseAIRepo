@@ -289,6 +289,10 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
 		'selector: [data-testid="nav-cta"]',
 		"change ONLY the named elements",
 		'source: src/components/Nav.tsx → line 18',
+		# Run 8: the turn must not become a self-invented verification ritual. The sentence exists in
+		# both copies, and the TS copy is what the composer shows before dispatch, so drift would show
+		# the user a prompt the engine does not send.
+		'Do not start a dev server, watcher, or any other long-running process',
 		"box: 108×38 at (1180,14)",
 	):
 		assert field in ts_prompt, f"missing from the TypeScript prompt: {field}"

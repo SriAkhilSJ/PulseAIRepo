@@ -222,7 +222,16 @@ def build_preview_prompt(batch: Mapping[str, Any]) -> str:
             " were left out to stay inside the prompt budget — ask me to re-send them.)"
         )
     parts.append(
-        "\nAfter editing, re-render the preview so the change can be checked in place."
+        # Two live runs (2026-09-26, harness runs 7 and 8) spent their whole turn budget in a
+        # self-invented verification ritual instead of finishing: run 7 blocked on `npx serve` and
+        # died on the harness timeout, run 8 was refused the same command, correctly switched to
+        # start_terminal, and was still polling when its budget ran out. Nothing here bounded that —
+        # and the old wording ("re-render the preview so the change can be checked") could be read as
+        # an instruction to render, i.e. to start something. The preview window is the thing that
+        # renders; the agent's job ends with the edit confirmed by reading it back.
+        "\nAfter editing, re-read the lines you changed to confirm them. Do not start a dev server, "
+        "watcher, or any other long-running process to check your work — the preview window "
+        "re-renders the page itself, and the user sees the result in place."
     )
     return "\n".join(parts).strip() + "\n"
 

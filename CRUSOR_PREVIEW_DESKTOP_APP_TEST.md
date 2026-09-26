@@ -364,6 +364,21 @@ just the engine: a model that backgrounds a command (`python -m http.server &`) 
 a listening process behind after the turn. On POSIX that is a process group; on Windows `taskkill /T`.
 The run prints which was used (`engine stopped: process group (whole tree)`).
 
+**Give a completion run the full budget.** The turn budget defaults to **900 s** and the run prints it
+before it starts (`turn budget: 900s (default 900s; override with --timeout)`). A run that dies on the
+clock reports *how much work had happened* (`the engine had sent 118 frame(s), 41 tool call(s), and was
+still working`) so "stuck" and "slow" are told apart. Two runs were reported as hitting "the 300 s
+budget": if you pass `--timeout 300`, that is the cap — for a completion run leave the default, or
+raise it, and only the *recovery* question is answered by a short run.
+
+**A run should not try to render anything.** The prompt now ends by telling the agent to confirm its
+edit by re-reading the lines it changed, and explicitly not to start a dev server, watcher, or any
+other long-running process — the preview window is what re-renders, and the user sees the result there.
+So in a healthy run: the agent edits, reads the file back, lists what it changed, and stops. If you see
+it reaching for `serve`/`npm run dev`/`http.server`, the terminal guard refuses it instantly and hands
+back the `start_terminal` pivot; that is the guard working, but it also means the prompt's close was
+ignored — worth sending me.
+
 **Every run is a fresh session, on purpose.** The engine keys conversation checkpoints by session id
 (`~/.crusorai/sessions.db`, the langgraph `thread_id`), so a *fixed* id made each run resume the
 previous one: the model saw the files already edited, made **zero tool calls** and answered "I already
