@@ -285,6 +285,18 @@ def test_echo_turn_emits_progress_then_turn_done(tmp_path):
         assert "token" in kinds, kinds
         assert kinds[-1] == "turn_done", kinds
         assert frames[-1]["completed"] is True
+
+        # The echo turn must announce that it is an echo. A user running the provider-free guard
+        # otherwise watches their own sentence come back as the answer and reasonably concludes the
+        # agent is broken — this was a real report from the desktop-app round.
+        notices = [f for f in frames if f["type"] == "runtime_degraded"]
+        assert len(notices) == 1, [f["type"] for f in frames]
+        reason = notices[0]["reason"]
+        assert "CRUSORAI_BRIDGE_RUNNER=echo" in reason, reason
+        assert "echoed back" in reason, reason
+        # ...and before the echoed text, or the notice arrives under a reply that already confused
+        # the reader.
+        assert kinds.index("runtime_degraded") < kinds.index("token"), kinds
     finally:
         _stop_bridge(proc)
 

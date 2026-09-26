@@ -455,6 +455,20 @@ class BridgeServer:
                             "completed": False, "cancelled": True, "stub": False,
                         })
                         return
+                # Say that no model was called, in the transcript, BEFORE the echo lands. Without
+                # this the user's own words come back as the reply and the app looks broken rather
+                # than deliberately provider-free; `test_runner` on the token frame is not rendered
+                # anywhere, so the notice bar (the runtime_degraded channel, which the renderer
+                # paints as an honest receipt rather than an error) is the only place the user
+                # actually looks.
+                self.emit({
+                    "type": "runtime_degraded", **identity.event_fields(),
+                    "reason": (
+                        "Test mode (CRUSORAI_BRIDGE_RUNNER=echo): no model was called, and the reply "
+                        "below is your own message echoed back. Clear that variable and relaunch for "
+                        "real answers. (The engine is fine; this is a deliberate test seam.)"
+                    ),
+                })
                 self.emit({
                     "type": "token", **identity.event_fields(),
                     "text": text, "test_runner": "echo",

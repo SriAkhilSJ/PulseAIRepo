@@ -108,7 +108,14 @@ def test_sidecar_hello_then_real_runtime_shape(sidecar):
     # workspace.bound may interleave (async bind evidence) — assert it AND the
     # core sequence separately.
     kinds = [f["type"] for f in frames if f["type"] != "workspace.bound"]
-    assert kinds == ["turn_started", "token", "turn_done"]
+    # The echo seam now announces itself before the echoed text: without that, a user running the
+    # provider-free guard watches their own sentence come back as the answer and reports a broken
+    # agent (exactly what happened in the desktop-app round). Echo-only — a real turn never emits
+    # this frame, and the one graded "exactly one runtime_degraded" check (PBR-004) runs on the
+    # bridge lane, which the echo lane is not allowed to cover.
+    assert kinds == ["turn_started", "runtime_degraded", "token", "turn_done"], kinds
+    notice = next(f for f in frames if f["type"] == "runtime_degraded")
+    assert "CRUSORAI_BRIDGE_RUNNER=echo" in notice["reason"], notice["reason"]
     bound = [f for f in frames if f["type"] == "workspace.bound"]
     assert bound and bound[0]["hops"] == "."
     done = frames[-1]
