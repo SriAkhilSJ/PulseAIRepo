@@ -1,0 +1,425 @@
+From 1d8ac21264b8ffe9c27aa57242de521456def70d Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 05:50:13 +0000
+Subject: [PATCH] =?UTF-8?q?feat(scripts):=20check=5Fprovider.py=20?=
+ =?UTF-8?q?=E2=80=94=20prove=20the=20key=20before=20the=20app=20blames=20i?=
+ =?UTF-8?q?t?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Going live with a real provider had no way to fail well. The app spawns the
+engine, the pane shows an error card, and the cause is several layers away:
+a missing key, a key with no credit, a model id the account does not serve, or
+CRUSORAI_BRIDGE_RUNNER still set — all of which look like "the agent is broken"
+from inside the window.
+
+The check resolves settings the same way the engine does, so what it prints is
+what the app will see. Dry run by default (no network, no cost, no provider
+SDK import); --live sends one 2-token request through `get_llm` — the engine's
+own client, so a pass means the agent's path works, not merely that some HTTP
+call succeeded. Failures go through the repo's own error classifier, which
+names the fix (auth, billing, unknown model id). Keys are never printed: last
+four characters and the length.
+
+It also prints the fact that explains most "I set the key and it still fails":
+src/config/settings.py loads .env with override=True, so the repo-root .env
+beats an exported variable.
+
+Four pins in src/tests/test_check_provider_script.py. Two matter: the
+redaction never reveals a key (verified to fail when the redaction is
+deliberately removed), and the provider list cannot drift from the factory —
+parsed out of factory.py's `provider == "..."` dispatch, so adding a provider
+there fails this test until the doctor knows it. A diagnostic that says "not
+one of them" about a valid provider is worse than no diagnostic.
+
+Also §7 of the desktop app-test runbook: where the key goes, why LLM_MODEL
+matters as much as the key, running the check under .venv, relaunching (env
+changes do not reach an already-spawned bridge), what each failure looks like
+in the pane, and how to get back to free echo testing.
+
+Verified here: dry run with a key present (exit 0), with nothing configured
+(exit 1, names the missing variable), a typo'd LLM_PROVIDER, `custom` without
+CUSTOM_BASE_URL, --live without the SDKs, and a leak check against a fake key
+(absent from stdout and stderr). The live success path needs a real account and
+is unverified by me. 119 passed, 1 skipped across the lanes that run here.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md      | 112 +++++++++++++++++-
+ scripts/check_provider.py               | 149 ++++++++++++++++++++++++
+ src/tests/test_check_provider_script.py |  72 ++++++++++++
+ 3 files changed, 330 insertions(+), 3 deletions(-)
+ create mode 100644 scripts/check_provider.py
+ create mode 100644 src/tests/test_check_provider_script.py
+
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index d69c8e24..81cf65f7 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -184,12 +184,118 @@ Then, in the window:
+ | 6.2 | Send any prompt, e.g. `hi` | a reply appears, instantly (or after `CRUSORAI_ECHO_DELAY_MS`), and `Stop` is offered while it runs | the engine never started: read the pane's error line. `CrusorAI engine root is not configured: set crusorai.engineRoot or CRUSORAI_ENGINE_ROOT, or open a workspace that contains src/bridge.` means the opened folder is not the checkout and no setting points at it |
+ | 6.3 | Confirm which python it used | `PulseAIRepo\.venv\Scripts\python.exe` if it exists, else `CRUSORAI_PYTHON_PATH`, else `python` on PATH | if your `.venv` is elsewhere, set `CRUSORAI_PYTHON_PATH` before launching |
+ | 6.4 | Send a second prompt while the first is still running (needs 6.2 with the delay) | the turn queues or refuses cleanly — no silent drop | a silent drop is a real finding: send me the pane text |
+-| 6.5 | Turn the guard off and repeat once (`Remove-Item Env:CRUSORAI_BRIDGE_RUNNER`) | **do not do this** — it makes real model calls and spends credits. Only if you intend to test the live provider | — |
++| 6.5 | The provider-free pass is done | now do a **real** turn: §7 below. It costs money and needs a key, which is why it is a separate section rather than an extra row here | — |
+ 
+ The agent's reply arriving in the app is the whole point of this gate: it proves the workbench →
+ worker process → bridge → back path survives the build, which no pytest can.
+ 
+-## 7. Then the preview, in the same window **[host]**
++## 7. A real turn — the live provider **[host, costs money]**
++
++Everything above runs keyless on purpose. This is the one lane that talks to a model, and it is how
++you find out whether the app can hold a real conversation.
++
++Two rules first: **never paste a key into this chat**, and **do not export a key in a shell you also
++launch from if a `.env` already exists** — `src/config/settings.py` loads `.env` with
++`override=True`, so the file wins over your exported variable. That single line explains most "I set
++the key and it still fails" reports.
++
++### 7.1 Put the key where the engine looks for it
++
++The engine reads `PulseAIRepo/.env` (a file, not a shell variable). Open it, or create it from the
++template:
++
++```powershell
++cd D:\pulseAIagent\PulseAIRepo
++if (-not (Test-Path .env)) { Copy-Item .env.example .env }
++notepad .env
++```
++
++Fill in the provider you actually have, and the model that account can serve:
++
++```ini
++LLM_PROVIDER=groq
++LLM_MODEL=<a model your account has>
++GROQ_API_KEY=<your key>
++```
++
++- `groq` is the engine default and has a free tier, so it is the cheapest first run. `openai`,
++  `gemini`, `nvidia` work the same way with their own variable (`OPENAI_API_KEY`, `GEMINI_API_KEY`,
++  `NVIDIA_API_KEY`). A local OpenAI-compatible server needs `LLM_PROVIDER=custom` plus
++  `CUSTOM_BASE_URL` and `CUSTOM_API_KEY`, and costs nothing.
++- **`LLM_MODEL` matters as much as the key.** `.env.example` ships `qwen/qwen3.6-27b`, which is the
++  code default and may not exist on your account. If your provider's model list does not have it,
++  the turn fails with a model error. Use a model id you can see in your provider's console — I cannot
++  see your account, so I cannot pick it for you.
++
++### 7.2 Prove the key before you launch the app — `scripts/check_provider.py`
++
++A bad key inside the app is a vague error card several layers from the cause. This check runs the
++*engine's own* client, so a pass means the agent's path works:
++
++```powershell
++cd D:\pulseAIagent\PulseAIRepo
++.\.venv\Scripts\python.exe scripts\check_provider.py            # config only: no network, no cost
++.\.venv\Scripts\python.exe scripts\check_provider.py --live     # one 2-token request: fraction of a cent
++```
++
++What you should see (the dry run, with a key present):
++
++```text
++provider      : groq
++model         : <your model>
++GROQ_API_KEY  : set, ...9f8e (33 chars)
++.env file     : present (…\.env)
++                note: .env overrides exported variables (load_dotenv(override=True))
++ok    configuration is complete. Re-run with --live to prove the key works:
++```
++
++Then `--live` ends either with `ok    groq/<model> answered in 1.2s: 'READY'` — launch the app — or
++with `FAIL`, the provider's own message, and a classification line that names the fix: a wrong key,
++a billing/credit refusal, or a model id that does not exist for that account. The key is never
++printed; only its last four characters and its length.
++
++Run it with `.venv\Scripts\python.exe`, not a bare `python`: the live probe imports the provider
++SDKs, and a system interpreter does not have them (`FAIL provider SDKs are not importable` says so).
++
++### 7.3 Launch without the guard
++
++```powershell
++Remove-Item Env:CRUSORAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
++$env:CRUSORAI_BRIDGE_RUNNER    # must print nothing — confirm before launching
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
++.\scripts\code.bat "D:\work\your-project"
++```
++
++The engine process inherits your shell (`env: { ...process.env }` in
++`crusorAIWorkerProcessService.ts`), so a variable you remove here is genuinely gone — but if the app
++is already running, **quit and relaunch it**: the bridge is spawned at startup, and env changes do
++not reach a process that is already up.
++
++### 7.4 Send one real message
++
++Ask something small and unambiguous — `say hello and nothing else`. A pass is: a reply that is *not*
++your own sentence, arriving word by word, with `Stop` available while it runs. The "test mode"
++notice from §6 will not appear; that notice only ever comes from the echo seam.
++
++| What you see | What it means |
++| --- | --- |
++| Your own words come back | the guard is still set — `$env:CRUSORAI_BRIDGE_RUNNER` printed something, or the app was not relaunched |
++| A red error card naming a model or a 404 | `LLM_MODEL` is not a model your account serves |
++| An error card naming auth/401 | the key is wrong, expired, or from a different provider than `LLM_PROVIDER` |
++| An error about credits/quota/billing | the key works, the account has no balance |
++| Nothing at all, then a stall message | the provider was reached but never answered — the message is the evidence, send it |
++| A real reply | done: the app, the engine, your key and your account all work together |
++
++### 7.5 Getting back to free testing
++
++```powershell
++$env:CRUSORAI_BRIDGE_RUNNER = 'echo'    # and relaunch
++```
++
++Every later pass — the preview window, the inspect flow, Send to Crusor — works in echo mode, so do
++that part for free (§8) and spend credits only on the turn.
++
++## 8. Then the preview, in the same window **[host]**
+ 
+ The preview needs a proxy running for the **same folder** you opened — nothing starts it for you:
+ 
+@@ -211,7 +317,7 @@ Two things worth knowing before you start, so a correct behaviour is not reporte
+ - the composer showing the batch prompt is the contract working, not a bug: the engine prompt and
+   the window's copy are pinned to each other by `test_preview_contract.py`.
+ 
+-## 8. Evidence and stop rules
++## 9. Evidence and stop rules
+ 
+ Write evidence as **ASCII** (`Set-Content -Encoding ascii`; plain `Tee-Object` emits UTF-16 and turns
+ a 60 KB log into an unreadable blob). Never overwrite a previous run's directory.
+diff --git a/scripts/check_provider.py b/scripts/check_provider.py
+new file mode 100644
+index 00000000..b19ded7d
+--- /dev/null
++++ b/scripts/check_provider.py
+@@ -0,0 +1,149 @@
++#!/usr/bin/env python3
++"""CrusorAI — provider readiness check, run before a real turn.
++
++The desktop app is a bad place to discover that a key is missing: the engine spawns,
++the pane shows an error card, and the reason is several layers away from the symptom.
++This script answers the question in one command, outside the app.
++
++    python scripts/check_provider.py            # no network, no cost: what is configured
++    python scripts/check_provider.py --live     # one real 2-token request
++
++Resolved through ``src.config.settings``, so what it prints is what the engine sees —
++including the part that surprises people: ``.env`` is loaded with ``override=True``, so a
++key sitting in the repo-root ``.env`` *beats* one exported in your shell. If the app and
++your terminal disagree, that file is why.
++
++Secrets are never printed. The live probe is opt-in (``--live``) so that running this by
++accident cannot spend anything, and it is the only path that imports the provider SDKs.
++Exit code: 0 = ready, 1 = not ready.
++"""
++from __future__ import annotations
++
++import argparse
++import sys
++import time
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++
++#: Which variable each provider reads. `cheap` is the env-configured OpenAI-compatible
++#: offload (a local server counts), `custom` is a named OpenAI-compatible endpoint.
++KEY_VARS = {
++    "groq": ("GROQ_API_KEY", None),
++    "openai": ("OPENAI_API_KEY", None),
++    "gemini": ("GEMINI_API_KEY", None),
++    "nvidia": ("NVIDIA_API_KEY", None),
++    "custom": ("CUSTOM_API_KEY", "CUSTOM_BASE_URL"),
++    "cheap": ("CRUSORAI_CHEAP_API_KEY", "CRUSORAI_CHEAP_BASE_URL"),
++}
++
++#: Providers whose client the factory can actually build. Anything else is a typo in
++#: LLM_PROVIDER, which otherwise fails deep inside the turn.
++KNOWN_PROVIDERS = tuple(KEY_VARS)
++
++
++def redact(value: str | None) -> str:
++    """Show enough to tell two keys apart, never enough to use one."""
++    if not value:
++        return "(not set)"
++    tail = value[-4:] if len(value) > 4 else ""
++    return f"set, ...{tail} ({len(value)} chars)" if tail else "set (short!)"
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument(
++        "--live", action="store_true",
++        help="send one tiny real request (costs a fraction of a cent) instead of only reporting config",
++    )
++    args = parser.parse_args()
++
++    # Importing settings is what loads .env — in the same order the engine loads it.
++    try:
++        from src.config import settings
++    except Exception as exc:  # pragma: no cover - a broken checkout, reported not traced
++        print(f"FAIL  could not import src.config.settings: {exc}")
++        return 1
++
++    provider = (settings.LLM_PROVIDER or "").strip().lower()
++    model = (settings.LLM_MODEL or "").strip()
++    print(f"provider      : {provider or '(unset)'}")
++    print(f"model         : {model or '(unset)'}")
++
++    key_var, url_var = KEY_VARS.get(provider, (None, None))
++    if key_var is None:
++        print(f"known providers: {', '.join(KNOWN_PROVIDERS)}")
++        print(f"FAIL  LLM_PROVIDER={provider!r} is not one of them — set it in {REPO_ROOT / '.env'}")
++        return 1
++
++    key = getattr(settings, key_var, None)
++    print(f"{key_var:<14}: {redact(key)}")
++    if url_var:
++        base = getattr(settings, url_var, None) or ""
++        print(f"{url_var:<14}: {base or '(not set)'}")
++
++    env_file = REPO_ROOT / ".env"
++    print(f".env file     : {'present' if env_file.is_file() else 'absent'} ({env_file})")
++    print("                note: .env overrides exported variables (load_dotenv(override=True))")
++
++    missing = []
++    if not key:
++        missing.append(key_var)
++    if not model:
++        missing.append("LLM_MODEL")
++    if url_var and not (getattr(settings, url_var, None) or "").strip():
++        missing.append(url_var)
++    if missing:
++        print(f"FAIL  missing: {', '.join(missing)}")
++        print(f"      fill them in {env_file} (copy .env.example if it does not exist yet)")
++        return 1
++
++    if not args.live:
++        print("ok    configuration is complete. Re-run with --live to prove the key works:")
++        print("        python scripts/check_provider.py --live")
++        return 0
++
++    # --- the only network path -------------------------------------------------
++    print("live  sending one 2-token request through the engine's own client ...")
++    try:
++        from src.llm.factory import get_llm
++    except Exception as exc:
++        print(f"FAIL  provider SDKs are not importable: {exc}")
++        print("      run this with the engine's venv (python in the repo .venv), not a bare interpreter")
++        return 1
++
++    started = time.monotonic()
++    try:
++        llm = get_llm(provider, model, max_attempts=1, request_timeout=30.0)
++        reply = llm.invoke("Reply with only the single word READY.")
++        text = getattr(reply, "content", reply)
++        elapsed = time.monotonic() - started
++        preview = str(text).strip().replace("\n", " ")[:80]
++        print(f"ok    {provider}/{model} answered in {elapsed:.1f}s: {preview!r}")
++        print("      real turns will work in the app. Launch WITHOUT CRUSORAI_BRIDGE_RUNNER.")
++        return 0
++    except Exception as exc:  # noqa: BLE001 - classified below, never re-raised raw
++        elapsed = time.monotonic() - started
++        print(f"FAIL  {type(exc).__name__} after {elapsed:.1f}s")
++        detail = str(exc).strip().replace("\n", " ")[:300]
++        print(f"      {detail}")
++        try:
++            from src.llm.error_classifier import classify_api_error
++
++            verdict = classify_api_error(exc, provider=provider, model=model)
++            print(f"      classified as: {verdict.reason.value} (retryable={verdict.retryable})")
++            if verdict.is_auth:
++                print(f"      -> the key is wrong, expired, or belongs to another provider: {key_var}")
++            elif verdict.billing_unverified:
++                print("      -> the provider refused for billing/credit reasons. Check your plan balance.")
++            elif verdict.status_code == 404:
++                print(f"      -> the model id is likely wrong for this account: {model!r}")
++        except Exception:  # pragma: no cover - classifier is best-effort
++            pass
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/tests/test_check_provider_script.py b/src/tests/test_check_provider_script.py
+new file mode 100644
+index 00000000..d02e0747
+--- /dev/null
++++ b/src/tests/test_check_provider_script.py
+@@ -0,0 +1,72 @@
++"""CrusorAI — the provider readiness check (``scripts/check_provider.py``).
++
++The script itself is a diagnostic, so the interesting things to pin are not its output
++format but two properties that are easy to lose later:
++
++* **a key is never printed**, in part or in whole — the check runs in terminals, in
++  pasted evidence, and in CI logs, and the last four characters are the most a doctor
++  should ever reveal;
++* **the provider list cannot drift from the factory**. If a provider is added to
++  ``get_llm`` and not to the doctor, the doctor starts reporting "not one of them" for a
++  perfectly valid configuration — a diagnostic that lies is worse than none.
++
++The module is imported rather than executed, so this lane needs neither a network nor the
++provider SDKs (``dotenv`` and the SDKs are imported inside ``main``, not at module level).
++"""
++from __future__ import annotations
++
++import importlib.util
++import re
++from pathlib import Path
++
++import pytest
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++SCRIPT = REPO_ROOT / "scripts" / "check_provider.py"
++
++
++@pytest.fixture(scope="module")
++def doctor():
++    spec = importlib.util.spec_from_file_location("check_provider", SCRIPT)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def test_redaction_keeps_the_tail_and_drops_the_secret(doctor) -> None:
++    secret = "gsk_verysecretvalue1234"
++    shown = doctor.redact(secret)
++    assert "verysecret" not in shown, shown
++    assert secret not in shown
++    assert shown.startswith("set, ..."), shown
++    assert "1234" in shown, "the tail is there to tell two keys apart"
++    assert "23 chars" in shown, "the length is the other fingerprint, and it is not secret"
++
++
++def test_redaction_is_honest_about_absence_and_short_values(doctor) -> None:
++    assert doctor.redact(None) == "(not set)"
++    assert doctor.redact("") == "(not set)"
++    # A 4-char value has no tail worth showing: revealing it would reveal the whole key.
++    short = doctor.redact("1234")
++    assert "1234" not in short.replace("(short!)", ""), short
++
++
++def test_the_doctor_knows_every_provider_the_factory_can_build(doctor) -> None:
++    factory_source = (REPO_ROOT / "src" / "llm" / "factory.py").read_text(encoding="utf-8")
++    dispatched = set(re.findall(r'provider == "([a-z]+)"', factory_source))
++    assert dispatched, "the factory dispatch could not be read — this pin is not verifying anything"
++
++    covered = set(doctor.KEY_VARS)
++    assert covered == dispatched, (
++        f"the doctor and the factory disagree: only in factory={sorted(dispatched - covered)}, "
++        f"only in doctor={sorted(covered - dispatched)}"
++    )
++
++
++def test_every_provider_has_a_key_variable_to_read(doctor) -> None:
++    for provider, (key_var, url_var) in doctor.KEY_VARS.items():
++        assert key_var and isinstance(key_var, str), provider
++        # GROQ_API_KEY, CUSTOM_API_KEY, CRUSORAI_CHEAP_API_KEY … but never a blank slot.
++        assert key_var.isupper() and "_" in key_var, key_var
++        assert url_var is None or url_var.isupper(), url_var
+-- 
+2.39.5
+
