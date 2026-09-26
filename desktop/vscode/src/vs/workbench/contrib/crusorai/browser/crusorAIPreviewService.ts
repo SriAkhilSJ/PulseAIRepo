@@ -30,15 +30,15 @@
  *    allowed to talk to the proxy does the talking.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileAccess } from '../../../../base/common/network.js';
-import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -102,12 +102,12 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 	/** Evidence accumulates for the whole session: a dev server started ten turns ago still counts. */
 	private readonly evidence: CrusorPreviewEvidence[] = [];
 	private _availability: CrusorPreviewAvailability = { available: false, reason: '' };
-	private readonly host = this._register(new MutableDisposable<DisposableStore>>());
+	private readonly host = this._register(new MutableDisposable<DisposableStore>());
 
 	constructor(
 		@ICrusorAIEngineService private readonly engine: ICrusorAIEngineService,
 		@IAuxiliaryWindowService private readonly auxiliaryWindows: IAuxiliaryWindowService,
-		@IEnvironmentService private readonly environmentService: IEnvironmentService,
+		@IPathService private readonly pathService: IPathService,
 		@IFileService private readonly fileService: IFileService,
 		@IThemeService private readonly themeService: IThemeService,
 		@IWorkspaceContextService private readonly workspaceService: IWorkspaceContextService,
@@ -155,7 +155,7 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 	// ── the endpoint (src/preview/endpoint.py publishes it; the IDE only reads) ───────────────
 
 	private endpointDirectory(): URI {
-		return URI.joinPath(this.environmentService.userHome, '.crusorai', ...ENDPOINT_DIR);
+		return URI.joinPath(this.pathService.userHome({ preferLocal: true }), '.crusorai', ...ENDPOINT_DIR);
 	}
 
 	/**
@@ -321,7 +321,7 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 	}
 
 	/** Messages from the preview window: the batch, a source request, and the window's own chrome. */
-	private listen(frame: HTMLIFrameElement): Disposable {
+	private listen(frame: HTMLIFrameElement): IDisposable {
 		const listener = (event: MessageEvent) => {
 			const data = event?.data as { source?: string; type?: string } & Record<string, unknown> | undefined;
 			if (!data || data.source !== CrusorPreviewSource.Window) {

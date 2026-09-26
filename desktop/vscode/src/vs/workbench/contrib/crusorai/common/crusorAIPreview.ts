@@ -183,7 +183,10 @@ export function previewWindowUrl(
  * origin is opaque, so the proxy cannot tell our window from a hostile one by origin alone).
  */
 export function previewWindowQuery(endpoint: Pick<CrusorPreviewEndpoint, 'origin' | 'secret'>, extra: Record<string, string> = {}): string {
-	const query: string[] = [['endpoint', String(endpoint.origin || '').replace(/\/+$/, '')]];
+	// A list of pairs, not a list of strings: `query.map(([key, value]) => ...)` destructures pairs, and a
+	// flat string destructures into its first two characters instead — which is how a URL silently turns
+	// into `e=n&n=d&d=p…` while every test still passes.
+	const query: [string, string][] = [['endpoint', String(endpoint.origin || '').replace(/\/+$/, '')]];
 	if (endpoint.secret) { query.push(['secret', endpoint.secret]); }
 	for (const key of Object.keys(extra)) {
 		if (extra[key]) { query.push([key, extra[key]]); }
