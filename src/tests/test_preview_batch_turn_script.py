@@ -107,8 +107,14 @@ def test_snapshot_reads_content_and_skips_dependency_noise(harness, tmp_path) ->
 
     files = harness.snapshot(tmp_path)
     assert set(files) == {"src/app.css", "src/legacy.css"}, files
-    assert files["src/app.css"] == b"body{}\n"
-    assert files["src/legacy.css"] == b"a{}\r\nb{}\r\n", "snapshot must not normalize line endings"
+    # What went in is what comes out: the file's own bytes, never a text-mode reinterpretation.
+    for rel in ("src/app.css", "src/legacy.css"):
+        on_disk = (tmp_path / rel).read_bytes()
+        assert files[rel] == on_disk, f"{rel}: snapshot returned {files[rel]!r}, disk holds {on_disk!r}"
+    assert files["src/app.css"] == b"body{}\n", f"got {files['src/app.css']!r}"
+    assert files["src/legacy.css"] == b"a{}\r\nb{}\r\n", (
+        f"line endings were altered: got {files['src/legacy.css']!r}"
+    )
 
 
 def test_git_diff_stat_is_none_outside_a_repository(harness, tmp_path) -> None:
@@ -181,13 +187,16 @@ def test_demo_mode_never_points_at_the_repository(harness) -> None:
     # The copy is made with tempfile.mkdtemp, so assert the mechanism the script relies on.
     import tempfile
 
-    made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-"))
+    # Resolved ONCE, on both sides. Windows hands back the 8.3 short name (ADMINI~1) from mkdtemp
+    # while gettempdir().resolve() expands to the long name (Administrator) — the same directory, two
+    # spellings, so comparing them unresolved failed for a reason that has nothing to do with the code.
+    # Deliberately NOT os.path.commonpath: TEMP is on C: and this checkout on D:, and commonpath
+    # RAISES across drives.
+    made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-")).resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
     try:
-        assert made.resolve() != FIXTURE.resolve()
-        # Deliberately NOT os.path.commonpath: on Windows TEMP is on C: and this checkout on D:, and
-        # commonpath RAISES ValueError across drives — the test failed there for that reason alone.
-        # is_relative_to answers the same question and returns False instead of raising.
-        assert made.is_relative_to(Path(tempfile.gettempdir()).resolve())
+        assert made != FIXTURE.resolve()
+        assert made.is_relative_to(temp_root), f"{made} is not under {temp_root}"
         assert not made.is_relative_to(FIXTURE.resolve()), "the copy must not land inside the repo"
     finally:
         made.rmdir()
