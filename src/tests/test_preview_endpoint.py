@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -94,35 +95,119 @@ def test_clear_is_idempotent() -> None:
 
 
 def test_reads_never_see_a_half_written_file() -> None:
-	"""A concurrent reader must always see a complete document, or nothing at all."""
-	write_endpoint("sess-4", origin="http://127.0.0.1:1/", token="t0")
-	stop = threading.Event()
-	problems: list[str] = []
+	"""A concurrent reader must always see a complete document, or nothing at all.
 
-	def reader() -> None:
-		while not stop.is_set():
+	Two platform facts shape this test, and the second one cost a Windows run to learn:
+
+	* POSIX renames never disturb a reader, so on Linux this only ever caught a writer that was
+	  non-atomic by construction;
+	* on Windows a *tight-loop reader* is part of the problem: it holds the destination open, and
+	  Windows refuses to replace a destination somebody holds open (``os.replace`` ->
+	  ``PermissionError``, which is why the writer retries). Reading while a replace is in flight can
+	  also fail outright, and ``read_endpoint`` reports that as ``None`` — so a transient ``None`` is
+	  one of the two outcomes this test's contract allows ("a complete document, or nothing at all"),
+	  not a defect. Asserting that ``None`` never happens made this test a Linux-only test.
+
+	So the readers pace themselves (they do not hold the file open in a loop), a ``None`` read is
+	tolerated and counted, and the strength moves to the reads that *did* succeed: each one must be a
+	document that belongs to exactly one write. ``token`` and ``n`` are written together, so a payload
+	where they disagree is torn even though it parses as JSON — that is the failure the atomic write
+	exists to prevent, and it fails here on any platform.
+
+	The writer's own failures are collected rather than left to die in a thread: ``write_endpoint``
+	can raise when even its fallback fails, and a silently dead writer would look exactly like a
+	passing test.
+
+	What the count assertion can and cannot do, stated plainly because the first version of this test
+	passed against a deliberately non-atomic writer: a torn document mostly surfaces as an
+	*unreadable* file, and a measured tear rate of 20% still left 240 of 300 reads complete — so
+	"some reads worked" proves nothing. On POSIX it does not have to prove anything by counting:
+	``os.replace`` is atomic and never disturbs a reader holding the old file, so a single unreadable
+	read *is* the regression, and that is asserted exactly. Windows is where a paced reader can be
+	refused the file while a replace is in flight — a transient "nothing at all", not a tear — so there
+	the count is merely bounded. The writer's mechanism is pinned deterministically, on either
+	platform, by the two monkeypatched tests above.
+	"""
+	origin = "http://127.0.0.1:1"
+	write_endpoint("sess-4", origin=f"{origin}/", token="t0", extra={"n": 0})
+
+	# The readers only read *while the writer is running* — that is the only interesting window — so
+	# the write count decides how much of the test is real. At ~200us a write this is ~0.5s of
+	# contention, i.e. ~100 reads per reader at the 5ms pacing below; far more on Windows, where the
+	# same loop is slowed by exactly the replace failures this test exists for.
+	writes = 3000
+	pacing_seconds = 0.005
+	attempts_each = 20_000  # a cap, not a target: the writer finishing is what ends a reader
+	writer_done = threading.Event()
+	counters = [{"ok": 0, "none": 0} for _ in range(3)]
+	problems: list[str] = []
+	writer_errors: list[BaseException] = []
+
+	def reader(counter: dict[str, int]) -> None:
+		for _ in range(attempts_each):
+			if writer_done.is_set():
+				return
 			payload = read_endpoint("sess-4")
 			if payload is None:
-				problems.append("read returned None while the writer was active")
-				return
-			if not payload.get("token", "").startswith("t"):
-				problems.append(f"torn payload: {payload!r}")
-				return
+				# Allowed: nothing at all. Counted, and bounded by the assertion below.
+				counter["none"] += 1
+			else:
+				token = str(payload.get("token", ""))
+				index = token[1:] if token.startswith("t") else ""
+				if not index.isdigit():
+					problems.append(f"torn payload: {payload!r}")
+					return
+				if payload.get("n") != int(index):
+					problems.append(
+						f"mixed write: token={token!r} belongs to a different document than "
+						f"n={payload.get('n')!r} — the reader saw two writes in one file"
+					)
+					return
+				if payload.get("origin") != origin:
+					problems.append(f"unexpected origin: {payload.get('origin')!r}")
+					return
+				counter["ok"] += 1
+			time.sleep(pacing_seconds)
 
 	def writer() -> None:
-		for index in range(400):
-			write_endpoint("sess-4", origin="http://127.0.0.1:1/", token=f"t{index}", extra={"n": index})
+		try:
+			for index in range(writes):
+				write_endpoint("sess-4", origin=f"{origin}/", token=f"t{index}", extra={"n": index})
+		except BaseException as exc:  # noqa: BLE001 - reported, never swallowed
+			writer_errors.append(exc)
+		finally:
+			writer_done.set()
 
-	readers = [threading.Thread(target=reader) for _ in range(3)]
+	threads = [threading.Thread(target=reader, args=(counter,)) for counter in counters]
 	writer_thread = threading.Thread(target=writer)
-	for thread in readers:
+	for thread in threads:
 		thread.start()
 	writer_thread.start()
-	writer_thread.join(timeout=30)
-	stop.set()
-	for thread in readers:
-		thread.join(timeout=5)
+	writer_thread.join(timeout=60)
+	for thread in threads:
+		thread.join(timeout=30)
+
+	assert not writer_thread.is_alive(), (
+		f"the writer never finished {writes} publishes in 60s — the publish retry is not converging"
+	)
+	assert not writer_errors, writer_errors[:1]
 	assert not problems, problems[:3]
+	complete = sum(counter["ok"] for counter in counters)
+	unreadable = sum(counter["none"] for counter in counters)
+	attempts = complete + unreadable
+
+	if sys.platform != "win32":
+		# See the docstring: on POSIX an atomic replace cannot hide the file from a reader, so one
+		# unreadable read means the publish stopped being atomic. This is what fails on a regressed
+		# `_publish` (measured: 25 unreadable reads out of 122 with the atomic rename removed).
+		assert unreadable == 0, (
+			f"{unreadable} unreadable read(s) out of {attempts} on {sys.platform}, where os.replace is "
+			"atomic — the endpoint is being rewritten in place rather than renamed into position"
+		)
+	assert complete >= 100, (
+		f"only {complete} complete reads out of {attempts} attempts "
+		f"({unreadable} returns of None) — the endpoint was effectively unreadable"
+	)
 
 
 def test_prune_removes_only_stale_endpoints() -> None:
