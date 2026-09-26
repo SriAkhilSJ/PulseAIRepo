@@ -184,12 +184,118 @@ Then, in the window:
 | 6.2 | Send any prompt, e.g. `hi` | a reply appears, instantly (or after `CRUSORAI_ECHO_DELAY_MS`), and `Stop` is offered while it runs | the engine never started: read the pane's error line. `CrusorAI engine root is not configured: set crusorai.engineRoot or CRUSORAI_ENGINE_ROOT, or open a workspace that contains src/bridge.` means the opened folder is not the checkout and no setting points at it |
 | 6.3 | Confirm which python it used | `PulseAIRepo\.venv\Scripts\python.exe` if it exists, else `CRUSORAI_PYTHON_PATH`, else `python` on PATH | if your `.venv` is elsewhere, set `CRUSORAI_PYTHON_PATH` before launching |
 | 6.4 | Send a second prompt while the first is still running (needs 6.2 with the delay) | the turn queues or refuses cleanly — no silent drop | a silent drop is a real finding: send me the pane text |
-| 6.5 | Turn the guard off and repeat once (`Remove-Item Env:CRUSORAI_BRIDGE_RUNNER`) | **do not do this** — it makes real model calls and spends credits. Only if you intend to test the live provider | — |
+| 6.5 | The provider-free pass is done | now do a **real** turn: §7 below. It costs money and needs a key, which is why it is a separate section rather than an extra row here | — |
 
 The agent's reply arriving in the app is the whole point of this gate: it proves the workbench →
 worker process → bridge → back path survives the build, which no pytest can.
 
-## 7. Then the preview, in the same window **[host]**
+## 7. A real turn — the live provider **[host, costs money]**
+
+Everything above runs keyless on purpose. This is the one lane that talks to a model, and it is how
+you find out whether the app can hold a real conversation.
+
+Two rules first: **never paste a key into this chat**, and **do not export a key in a shell you also
+launch from if a `.env` already exists** — `src/config/settings.py` loads `.env` with
+`override=True`, so the file wins over your exported variable. That single line explains most "I set
+the key and it still fails" reports.
+
+### 7.1 Put the key where the engine looks for it
+
+The engine reads `PulseAIRepo/.env` (a file, not a shell variable). Open it, or create it from the
+template:
+
+```powershell
+cd D:\pulseAIagent\PulseAIRepo
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
+```
+
+Fill in the provider you actually have, and the model that account can serve:
+
+```ini
+LLM_PROVIDER=groq
+LLM_MODEL=<a model your account has>
+GROQ_API_KEY=<your key>
+```
+
+- `groq` is the engine default and has a free tier, so it is the cheapest first run. `openai`,
+  `gemini`, `nvidia` work the same way with their own variable (`OPENAI_API_KEY`, `GEMINI_API_KEY`,
+  `NVIDIA_API_KEY`). A local OpenAI-compatible server needs `LLM_PROVIDER=custom` plus
+  `CUSTOM_BASE_URL` and `CUSTOM_API_KEY`, and costs nothing.
+- **`LLM_MODEL` matters as much as the key.** `.env.example` ships `qwen/qwen3.6-27b`, which is the
+  code default and may not exist on your account. If your provider's model list does not have it,
+  the turn fails with a model error. Use a model id you can see in your provider's console — I cannot
+  see your account, so I cannot pick it for you.
+
+### 7.2 Prove the key before you launch the app — `scripts/check_provider.py`
+
+A bad key inside the app is a vague error card several layers from the cause. This check runs the
+*engine's own* client, so a pass means the agent's path works:
+
+```powershell
+cd D:\pulseAIagent\PulseAIRepo
+.\.venv\Scripts\python.exe scripts\check_provider.py            # config only: no network, no cost
+.\.venv\Scripts\python.exe scripts\check_provider.py --live     # one 2-token request: fraction of a cent
+```
+
+What you should see (the dry run, with a key present):
+
+```text
+provider      : groq
+model         : <your model>
+GROQ_API_KEY  : set, ...9f8e (33 chars)
+.env file     : present (…\.env)
+                note: .env overrides exported variables (load_dotenv(override=True))
+ok    configuration is complete. Re-run with --live to prove the key works:
+```
+
+Then `--live` ends either with `ok    groq/<model> answered in 1.2s: 'READY'` — launch the app — or
+with `FAIL`, the provider's own message, and a classification line that names the fix: a wrong key,
+a billing/credit refusal, or a model id that does not exist for that account. The key is never
+printed; only its last four characters and its length.
+
+Run it with `.venv\Scripts\python.exe`, not a bare `python`: the live probe imports the provider
+SDKs, and a system interpreter does not have them (`FAIL provider SDKs are not importable` says so).
+
+### 7.3 Launch without the guard
+
+```powershell
+Remove-Item Env:CRUSORAI_BRIDGE_RUNNER -ErrorAction SilentlyContinue
+$env:CRUSORAI_BRIDGE_RUNNER    # must print nothing — confirm before launching
+cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
+.\scripts\code.bat "D:\work\your-project"
+```
+
+The engine process inherits your shell (`env: { ...process.env }` in
+`crusorAIWorkerProcessService.ts`), so a variable you remove here is genuinely gone — but if the app
+is already running, **quit and relaunch it**: the bridge is spawned at startup, and env changes do
+not reach a process that is already up.
+
+### 7.4 Send one real message
+
+Ask something small and unambiguous — `say hello and nothing else`. A pass is: a reply that is *not*
+your own sentence, arriving word by word, with `Stop` available while it runs. The "test mode"
+notice from §6 will not appear; that notice only ever comes from the echo seam.
+
+| What you see | What it means |
+| --- | --- |
+| Your own words come back | the guard is still set — `$env:CRUSORAI_BRIDGE_RUNNER` printed something, or the app was not relaunched |
+| A red error card naming a model or a 404 | `LLM_MODEL` is not a model your account serves |
+| An error card naming auth/401 | the key is wrong, expired, or from a different provider than `LLM_PROVIDER` |
+| An error about credits/quota/billing | the key works, the account has no balance |
+| Nothing at all, then a stall message | the provider was reached but never answered — the message is the evidence, send it |
+| A real reply | done: the app, the engine, your key and your account all work together |
+
+### 7.5 Getting back to free testing
+
+```powershell
+$env:CRUSORAI_BRIDGE_RUNNER = 'echo'    # and relaunch
+```
+
+Every later pass — the preview window, the inspect flow, Send to Crusor — works in echo mode, so do
+that part for free (§8) and spend credits only on the turn.
+
+## 8. Then the preview, in the same window **[host]**
 
 The preview needs a proxy running for the **same folder** you opened — nothing starts it for you:
 
@@ -211,7 +317,7 @@ Two things worth knowing before you start, so a correct behaviour is not reporte
 - the composer showing the batch prompt is the contract working, not a bug: the engine prompt and
   the window's copy are pinned to each other by `test_preview_contract.py`.
 
-## 8. Evidence and stop rules
+## 9. Evidence and stop rules
 
 Write evidence as **ASCII** (`Set-Content -Encoding ascii`; plain `Tee-Object` emits UTF-16 and turns
 a 60 KB log into an unreadable blob). Never overwrite a previous run's directory.
