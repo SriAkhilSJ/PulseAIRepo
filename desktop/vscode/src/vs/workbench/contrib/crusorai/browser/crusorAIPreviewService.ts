@@ -84,12 +84,6 @@ export interface ICrusorAIPreviewService {
 /** The preview window chrome, as shipped inside the app. */
 const PREVIEW_WINDOW_RESOURCE = 'vs/workbench/contrib/crusorai/browser/media/crusor-preview/index.html';
 const ENDPOINT_DIR = ['preview'];
-const ENDPOINT_FRESH_MS = 30_000;
-
-interface PreviewWindowHost {
-	readonly frame: HTMLIFrameElement;
-	readonly store: DisposableStore;
-}
 
 export class CrusorAIPreviewService extends Disposable implements ICrusorAIPreviewService {
 	declare readonly _serviceBrand: undefined;
