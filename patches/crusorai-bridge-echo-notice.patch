@@ -1,0 +1,116 @@
+From 9124ded82388b31d7db46f19060035a9946a46d6 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 05:44:47 +0000
+Subject: [PATCH] fix(bridge): an echo turn says it is an echo
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Reported from the desktop-app round: "the response reaching the LLM is the same
+as what I prompted". Nothing was broken — that is CRUSORAI_BRIDGE_RUNNER=echo,
+the provider-free guard the runbook tells you to launch under, and the echo path
+emits `token` with the user's own text. But the app had no way to say so:
+`test_runner: "echo"` on the token frame is rendered by nothing, so a working
+seam is indistinguishable from a dead agent, and the reasonable conclusion is
+that the model is broken.
+
+The echo turn now states it, in the transcript, before the echoed text: a
+runtime_degraded frame — the channel the renderer paints as an honest notice
+rather than the fatal error card — with the reason naming the guard and the way
+out. It lands after the cancel check, so a cancelled echo turn still emits
+exactly turn_started + turn_done(cancelled).
+
+Two pins assert it, and both fail when the notice is removed (checked):
+test_bridge.py's core-sequence test now expects the frame and reads its reason,
+and the transport echo test asserts it precedes the token. That sequence test is
+the one deliberate wire-shape change here, and it is echo-only: a real turn
+returns before this branch, and the single graded "exactly one runtime_degraded"
+check (PBR-004, single-degraded-receipt) runs on the bridge lane — LANE_ORDER
+keeps the echo lane from covering it, so its count cannot be disturbed. The
+echo-lane scenario (PBR-012) grades cancellation, llm.request-after-cancel and
+process growth, none of which count degradations.
+
+Baselines, same host, before -> after: test_bridge 22 -> 22 passed,
+protocol_v2 8 -> 8, runtime_protocol 3 -> 3, stall_watchdog 6 -> 6, transport
+3 failed/12 passed -> unchanged (all three need typing_extensions, absent in this
+sandbox), workspace_routing 11 -> 11, desktop_workspace_boundary 9 passed/1
+skipped -> unchanged, preview 67 -> 67.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ src/bridge/__main__.py             | 14 ++++++++++++++
+ src/tests/test_bridge.py           |  9 ++++++++-
+ src/tests/test_bridge_transport.py | 12 ++++++++++++
+ 3 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/src/bridge/__main__.py b/src/bridge/__main__.py
+index 21a1ce16..e2c8c489 100644
+--- a/src/bridge/__main__.py
++++ b/src/bridge/__main__.py
+@@ -455,6 +455,20 @@ class BridgeServer:
+                             "completed": False, "cancelled": True, "stub": False,
+                         })
+                         return
++                # Say that no model was called, in the transcript, BEFORE the echo lands. Without
++                # this the user's own words come back as the reply and the app looks broken rather
++                # than deliberately provider-free; `test_runner` on the token frame is not rendered
++                # anywhere, so the notice bar (the runtime_degraded channel, which the renderer
++                # paints as an honest receipt rather than an error) is the only place the user
++                # actually looks.
++                self.emit({
++                    "type": "runtime_degraded", **identity.event_fields(),
++                    "reason": (
++                        "Test mode (CRUSORAI_BRIDGE_RUNNER=echo): no model was called, and the reply "
++                        "below is your own message echoed back. Clear that variable and relaunch for "
++                        "real answers. (The engine is fine; this is a deliberate test seam.)"
++                    ),
++                })
+                 self.emit({
+                     "type": "token", **identity.event_fields(),
+                     "text": text, "test_runner": "echo",
+diff --git a/src/tests/test_bridge.py b/src/tests/test_bridge.py
+index f952f3c8..705aedf0 100644
+--- a/src/tests/test_bridge.py
++++ b/src/tests/test_bridge.py
+@@ -108,7 +108,14 @@ def test_sidecar_hello_then_real_runtime_shape(sidecar):
+     # workspace.bound may interleave (async bind evidence) — assert it AND the
+     # core sequence separately.
+     kinds = [f["type"] for f in frames if f["type"] != "workspace.bound"]
+-    assert kinds == ["turn_started", "token", "turn_done"]
++    # The echo seam now announces itself before the echoed text: without that, a user running the
++    # provider-free guard watches their own sentence come back as the answer and reports a broken
++    # agent (exactly what happened in the desktop-app round). Echo-only — a real turn never emits
++    # this frame, and the one graded "exactly one runtime_degraded" check (PBR-004) runs on the
++    # bridge lane, which the echo lane is not allowed to cover.
++    assert kinds == ["turn_started", "runtime_degraded", "token", "turn_done"], kinds
++    notice = next(f for f in frames if f["type"] == "runtime_degraded")
++    assert "CRUSORAI_BRIDGE_RUNNER=echo" in notice["reason"], notice["reason"]
+     bound = [f for f in frames if f["type"] == "workspace.bound"]
+     assert bound and bound[0]["hops"] == "."
+     done = frames[-1]
+diff --git a/src/tests/test_bridge_transport.py b/src/tests/test_bridge_transport.py
+index bb75bd0e..00a8599f 100644
+--- a/src/tests/test_bridge_transport.py
++++ b/src/tests/test_bridge_transport.py
+@@ -285,6 +285,18 @@ def test_echo_turn_emits_progress_then_turn_done(tmp_path):
+         assert "token" in kinds, kinds
+         assert kinds[-1] == "turn_done", kinds
+         assert frames[-1]["completed"] is True
++
++        # The echo turn must announce that it is an echo. A user running the provider-free guard
++        # otherwise watches their own sentence come back as the answer and reasonably concludes the
++        # agent is broken — this was a real report from the desktop-app round.
++        notices = [f for f in frames if f["type"] == "runtime_degraded"]
++        assert len(notices) == 1, [f["type"] for f in frames]
++        reason = notices[0]["reason"]
++        assert "CRUSORAI_BRIDGE_RUNNER=echo" in reason, reason
++        assert "echoed back" in reason, reason
++        # ...and before the echoed text, or the notice arrives under a reply that already confused
++        # the reader.
++        assert kinds.index("runtime_degraded") < kinds.index("token"), kinds
+     finally:
+         _stop_bridge(proc)
+ 
+-- 
+2.39.5
+
