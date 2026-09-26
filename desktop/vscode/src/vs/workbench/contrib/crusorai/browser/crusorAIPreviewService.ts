@@ -153,11 +153,6 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 	}
 
 	/**
-	 * The freshest published endpoint for this workspace. The proxy writes one file per session, and
-	 * the workbench is not told which session id owns the local proxy, so the workspace path decides:
-	 * a preview server started for THIS folder is the one worth framing.
-	 */
-	/**
 	 * The folder this session is bound to, by the contribution's P0 rule (the same one
 	 * `crusorAIRendererService.sessionFolder` applies to the composer): zero folders means no
 	 * workspace, one folder is unambiguous, and a multi-root workspace is NEVER silently resolved to
@@ -172,6 +167,11 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		return folders.length === 1 ? folders[0].uri.fsPath : undefined;
 	}
 
+	/**
+	 * The freshest published endpoint for this workspace. The proxy writes one file per session, and
+	 * the workbench is not told which session id owns the local proxy, so the workspace path decides:
+	 * a preview server started for THIS folder is the one worth framing.
+	 */
 	private async resolveEndpoint(): Promise<CrusorPreviewEndpoint | undefined> {
 		const open = this.workspaceService.getWorkspace().folders.map(folder => folder.uri.fsPath);
 		if (!open.length) {
