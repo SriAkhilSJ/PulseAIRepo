@@ -1,0 +1,204 @@
+From 9b950214ba9e6aae19b5609fdefff9a3a3909ce7 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 14:01:41 +0000
+Subject: [PATCH] =?UTF-8?q?chore(docs):=20the=20parent=20folder=20is=20D:\?=
+ =?UTF-8?q?pulseAIagent=20=E2=80=94=20move=20the=20last=2015=20references?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Owner-confirmed: `D:\crusorAIagent` does not exist on the host at all (not merely "the repo is
+elsewhere"), and `D:\pulseAIagent` does. The previous commit moved the 69 repo-root references and
+deliberately left parent-only paths alone, because their validity was not established then. It is now,
+so they move too — none of them can work as written.
+
+* `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\...` — CDP_TEST_GUIDE.md (4 sites),
+  the setup DESKTOP_AGENT_UI_CDP_VALIDATION.md cites by name
+* `D:\crusorAIagent\browser-verify.png` — run-all.bat:55 and crusor-webview/e2e-verify.spec.ts:17
+  (the spec's screenshot destination; still an absolute path outside the repo, a separate fragility
+  left alone on purpose)
+* the `--user-data-dir` argument and `file:///D:/crusorAIagent/playground` in
+  docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
+* `D:\crusorAIagent\python_test.exe` — src/tests/TEST_AGENT_GUIDE.md
+* `D:/crusorAIagent/...` — AGENT_HANDOFF.md
+* `webapp/src/App.tsx` — two user-visible mock strings ("The workspace root: D:\..."), so the demo
+  never displays a path that cannot exist
+* docs/RENOVATION_2026-08-29.md — a dated log citing the old screenshot path. It was accurate when
+  written and is dead now; a reader copying it would fail, so it moves with the rest.
+
+`patches/*.patch` still carry the old strings, and must: they are byte-faithful exports of commits
+already reviewed, and editing them would break `git am`. The docs-host-root patch message describes
+these parent paths as left alone — true of that commit; this commit is the follow-up it asked for.
+
+Verified: the combined sweep (lang-extractors + preview + bridge + desktop + search + harness) is
+22 failed / 239 passed here AND at the pristine previous tip in a clean worktree — byte-identical, so
+this pass changes no behaviour. All 22 are pre-existing in this sandbox (langgraph, typing_extensions,
+the stale tracked `out/`).
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ AGENT_HANDOFF.md                            | 2 +-
+ CDP_TEST_GUIDE.md                           | 8 ++++----
+ DESKTOP_AGENT_UI_CDP_VALIDATION.md          | 2 +-
+ crusor-webview/e2e-verify.spec.ts           | 2 +-
+ docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md | 4 ++--
+ docs/RENOVATION_2026-08-29.md               | 2 +-
+ run-all.bat                                 | 2 +-
+ src/tests/TEST_AGENT_GUIDE.md               | 2 +-
+ webapp/src/App.tsx                          | 4 ++--
+ 9 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/AGENT_HANDOFF.md b/AGENT_HANDOFF.md
+index a1595c18..08f5ba59 100644
+--- a/AGENT_HANDOFF.md
++++ b/AGENT_HANDOFF.md
+@@ -166,7 +166,7 @@ entire pipeline including tool calls and card rendering at zero cost and runs fo
+ ### 3. Minor
+ 
+ - `crusor-webview/e2e-verify.spec.ts` writes screenshots to a hard-coded Windows path
+-  (`D:/crusorAIagent/...`) and sleeps 12s waiting for an LLM. It will not pass as written.
++  (`D:/pulseAIagent/...`) and sleeps 12s waiting for an LLM. It will not pass as written.
+ - `README.md` still says Node 24.18.0 / Vite 7 for the webview; the app actually builds on
+   Node 22.22 with Vite 8. Worth reconciling.
+ - The `ui/` directory is referenced by some tests but does not exist in the tree.
+diff --git a/CDP_TEST_GUIDE.md b/CDP_TEST_GUIDE.md
+index d7407eda..6b8c04ba 100644
+--- a/CDP_TEST_GUIDE.md
++++ b/CDP_TEST_GUIDE.md
+@@ -15,7 +15,7 @@ cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\pulse
+ sleep 15 && curl -s http://localhost:9222/json/version | head -2
+ 
+ # 4. Run tests (from CDP_test dir)
+-cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_final.js
++cd D:/pulseAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_final.js
+ ```
+ 
+ ## Prerequisites
+@@ -24,13 +24,13 @@ cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_fin
+ |------|-------|--------|
+ | Python venv | `D:\pulseAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
+ | Node.js | v24+ | `node --version` |
+-| ws module | `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
++| ws module | `D:\pulseAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
+ | CrusorAI.exe | `desktop/vscode/.build/electron/CrusorAI.exe` | `ls -la` |
+ | CDP port | 9222 | `curl -s http://localhost:9222/json/version` |
+ 
+ ## Test Scripts (copy-paste ready)
+ 
+-All scripts are in `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\`:
++All scripts are in `D:\pulseAIagent\crusor-res\cancel-session-artifacts\CDP_test\`:
+ 
+ | Script | What it tests | Duration |
+ |--------|--------------|----------|
+@@ -40,7 +40,7 @@ All scripts are in `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_tes
+ 
+ ### Run all tests:
+ ```bash
+-cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test
++cd D:/pulseAIagent/crusor-res/cancel-session-artifacts/CDP_test
+ 
+ # Step 1: Trust folder (user must click "Yes, I trust" in app)
+ # Step 2: Run main test
+diff --git a/DESKTOP_AGENT_UI_CDP_VALIDATION.md b/DESKTOP_AGENT_UI_CDP_VALIDATION.md
+index c82929df..3a584899 100644
+--- a/DESKTOP_AGENT_UI_CDP_VALIDATION.md
++++ b/DESKTOP_AGENT_UI_CDP_VALIDATION.md
+@@ -9,7 +9,7 @@
+ 
+ ## Correction
+ 
+-R2 proved source/build integrity but did not run the GUI. The repository already documents raw CDP automation in `CDP_TEST_GUIDE.md`, and the Windows host has the established `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test` setup. The prior “human-only” conclusion was incorrect.
++R2 proved source/build integrity but did not run the GUI. The repository already documents raw CDP automation in `CDP_TEST_GUIDE.md`, and the Windows host has the established `D:\pulseAIagent\crusor-res\cancel-session-artifacts\CDP_test` setup. The prior “human-only” conclusion was incorrect.
+ 
+ This handoff performs the remaining runtime smoke through Electron's Chrome DevTools Protocol. The committed script uses Node's built-in `fetch` and `WebSocket`; it does not require Playwright, Selenium, AutoIt, or a provider.
+ 
+diff --git a/crusor-webview/e2e-verify.spec.ts b/crusor-webview/e2e-verify.spec.ts
+index 33c01726..eb9fd613 100644
+--- a/crusor-webview/e2e-verify.spec.ts
++++ b/crusor-webview/e2e-verify.spec.ts
+@@ -14,7 +14,7 @@ test('crusor webview renders and chats', async ({ page }) => {
+   await page.waitForTimeout(12000);
+   const body = await page.content();
+   console.log('BODY LEN', body.length);
+-  await page.screenshot({ path: 'D:/crusorAIagent/browser-verify.png', fullPage: true });
++  await page.screenshot({ path: 'D:/pulseAIagent/browser-verify.png', fullPage: true });
+   // check for no error boundary
+   await expect(page.locator('text=Agent default not found')).toHaveCount(0);
+ });
+diff --git a/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md b/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
+index 9a39bfe1..cb5f46a3 100644
+--- a/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
++++ b/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
+@@ -112,9 +112,9 @@ does as `%CODE% . %*`; a dev build is bare Electron and reads its first position
+ lone folder path comes back as `Cannot find module`):
+ ```powershell
+ Start-Process -FilePath ".\desktop\vscode\.build\electron\CrusorAI.exe" `
+-  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\crusorAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\crusorAIagent\playground'
++  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\pulseAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\pulseAIagent\playground'
+ ```
+-If that still yields no folder, pass the folder as `--folder-uri=file:///D:/crusorAIagent/playground` instead of
++If that still yields no folder, pass the folder as `--folder-uri=file:///D:/pulseAIagent/playground` instead of
+ a trailing positional -- `scripts\verify_crusor_manager_registration.mjs --folder-uri` does exactly that.)
+ 
+ (`--user-data-dir` on a fresh profile is what makes `window.commandCenter: true` and
+diff --git a/docs/RENOVATION_2026-08-29.md b/docs/RENOVATION_2026-08-29.md
+index a48aa10a..78a7fceb 100644
+--- a/docs/RENOVATION_2026-08-29.md
++++ b/docs/RENOVATION_2026-08-29.md
+@@ -34,7 +34,7 @@
+ * `npm run typecheck-client --prefix desktop/vscode` PASS; `npx tsc --noEmit --project crusor-webview/tsconfig.json` PASS.
+ * `curl http://localhost:8200/api/copilotkit/info` → `{"crusor_agent","default"} mode:intelligence a2uiEnabled:true` (after `dotenv/config` fix).
+ * `curl http://localhost:8123/health` → `{"status":"ok"}` (after `MemorySaver` fix for `SqliteSaver async`).
+-* `http://localhost:5173` — first load blank `Agent default not found` → fixed `server.ts` alias + `App.tsx agent="crusor_agent"` → header `CrusorAI — Crusor Agent` + `CopilotChat` input + user `hello` bubble rendered (`D:\crusorAIagent\browser-verify.png` 22806 bytes, `e2e-verify.spec.ts` 1 passed). `Failed to fetch` on POST is transient when `8123` not ready before `5173` load.
++* `http://localhost:5173` — first load blank `Agent default not found` → fixed `server.ts` alias + `App.tsx agent="crusor_agent"` → header `CrusorAI — Crusor Agent` + `CopilotChat` input + user `hello` bubble rendered (`D:\pulseAIagent\browser-verify.png` 22806 bytes, `e2e-verify.spec.ts` 1 passed). `Failed to fetch` on POST is transient when `8123` not ready before `5173` load.
+ 
+ ## 3. Sarvam API — cheapness guard
+ 
+diff --git a/run-all.bat b/run-all.bat
+index bc707584..7b474051 100644
+--- a/run-all.bat
++++ b/run-all.bat
+@@ -52,6 +52,6 @@ echo === Done ===
+ echo Open http://localhost:5173  (type hello)
+ echo Desktop: F1 ^> View: Crusor Agent (right AuxiliaryBar fixed, canMoveView:false)
+ echo Close the 3 black windows with Ctrl+C to stop.
+-echo Screenshot: D:\crusorAIagent\browser-verify.png
++echo Screenshot: D:\pulseAIagent\browser-verify.png
+ echo.
+ pause
+diff --git a/src/tests/TEST_AGENT_GUIDE.md b/src/tests/TEST_AGENT_GUIDE.md
+index f376e1f5..368a8107 100644
+--- a/src/tests/TEST_AGENT_GUIDE.md
++++ b/src/tests/TEST_AGENT_GUIDE.md
+@@ -3,7 +3,7 @@
+ ## Why direct `.\.venv\Scripts\python.exe` was `Access is denied`
+ 
+ - `D:\` drive is blocked for execution by Windows Code Integrity / WDAC hardening (`DeviceGuard VirtualizationBasedSecurity:2`, Symlinked execution denied on `D:\`).
+-- Proof: same `python.exe` (hash `868b57fd`, 45 KB `uv` stub) fails on `D:\crusorAIagent\python_test.exe` but succeeds when copied to `C:\Temp\test_python.exe` → `print(123)` OK.
++- Proof: same `python.exe` (hash `868b57fd`, 45 KB `uv` stub) fails on `D:\pulseAIagent\python_test.exe` but succeeds when copied to `C:\Temp\test_python.exe` → `print(123)` OK.
+ - `uv run python` also fails because it spawns the `D:\.venv` stub.
+ 
+ ## Fix Applied
+diff --git a/webapp/src/App.tsx b/webapp/src/App.tsx
+index 71817e15..22c41b21 100644
+--- a/webapp/src/App.tsx
++++ b/webapp/src/App.tsx
+@@ -80,13 +80,13 @@ export default function App() {
+         <div data-slot="crusorai_assistant-message-content" className="flex flex-col gap-(--turn-block-gap)">
+           <ThinkingRow meta="1.2s" />
+ 
+-          <ToolRunRow command="cd D:\\crusorAIagent\\PulseAIRepo && dir /b" output={DIR_OUTPUT} meta="0.8s · exit 0" />
++          <ToolRunRow command="cd D:\\pulseAIagent\\PulseAIRepo && dir /b" output={DIR_OUTPUT} meta="0.8s · exit 0" />
+ 
+           <QuestionCard
+             title="I need a bit more clarity:"
+             question="Which directory would you like me to list files in?"
+             options={[
+-              'The workspace root: D:\\crusorAIagent\\PulseAIRepo',
++              'The workspace root: D:\\pulseAIagent\\PulseAIRepo',
+               'The current working directory (if different)',
+               'A specific subfolder',
+             ]}
+-- 
+2.39.5
+
