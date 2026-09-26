@@ -1,0 +1,370 @@
+From 28770c90536110e8967210657c2f4a9895572342 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 13:54:04 +0000
+Subject: [PATCH] =?UTF-8?q?fix(preview):=20take=20the=20desktop=20agent's?=
+ =?UTF-8?q?=20three=20hunks=20=E2=80=94=20UI=20stamp,=20cp1252=20stdout,?=
+ =?UTF-8?q?=20fresh=20session=20per=20run?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The desktop agent's parked commit `bf47e441`, read hunk by hunk and verified against the tip before
+applying. All three were needed. Two were strengthened, one gained a guard, and none of it is a rebase
+of their commit: their field evidence drove the change, the code is this branch's.
+
+**1. `CRUSORAI_UI_STAMP` 2026-09-11 → 2026-09-26 (`crusorAIRenderer.ts`).** The chip reads
+`ui <stamp>` and appends STALE when the engine build date is newer, so forgetting the bump makes a
+freshly compiled workbench accuse itself of being old — which is what the owner saw. The convention is
+documented in the pins that must move with it, `test_ui_stamp_bumped_for_the_*_round`; the preview
+chrome landed 2026-09-26 and the stamp did not move, so both pins were still asserting the old value.
+The pins are updated, the round is named, and the docstring says why.
+
+**2. stdout/stderr reconfigured with `encoding="utf-8", errors="replace"`.** Complements the existing
+`line_buffering=True` — now the same call, so the two cannot drift apart. This is a real kill, not a
+hypothetical: `render()` prints `[tool done] name → result`, and cp1252 (a Windows console when
+redirected) cannot encode `→`, `…` or curly quotes. Reproduced here: with the encoding fix removed the
+child dies with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'` — byte for byte
+the owner's run-1 kill. `errors="replace"` degrades such a character to `?` instead.
+
+**3. A fresh session id per invocation.** Their diagnosis is right, and the engine agrees: the bridge
+keys durable state in `~/.crusorai/sessions.db` by session id (`_prior_checkpoint_count` counts it per
+`thread_id`), and the engine's own note records this class from a benchmark — "a fixed id made each
+benchmark run replay every prior run (+3 calls / +~10k tokens per run, linear)". `batch_session_id()`
+returns `preview-batch-turn-<pid>-<ns>`: `pid + int(time.time())` (as patched) can repeat within a
+second, so the clock is nanosecond. The harness prints the id, and now **refuses to be silent about a
+resume**: `session_info` carries `prior_checkpoints`, and a non-zero count prints SESSION NOT FRESH —
+a run that replays history proves nothing about the prompt, which is this harness's entire purpose.
+
+Also: `demo_batch()`'s own `sessionId` field is payload shape only (`build_prompt_frame` uses its
+argument, pinned in test_preview_prompt.py), commented so nobody "fixes" the wrong line.
+
+5 new pins (17 in the file): the cp1252 child asserts stdout AND stderr return as UTF-8 with the arrow
+intact and `line_buffering` still True; two separate invocations must not share an id; a scripted
+bridge proves a resumed session is shouted about and a fresh one is not. Each was checked against the
+behaviour it replaces — no encoding → `UnicodeEncodeError`; a fixed id → "two invocations shared a
+session id"; warning silenced → the guard fails.
+
+236 passed in the preview+bridge+desktop sweep. The 6 failures there are pre-existing and identical at
+the previous tip (verified in a pristine worktree): 4 are sandbox venv gaps (`langgraph`,
+`typing_extensions`) and 2 are the tracked `out/` being stale against the current contrib sources —
+which is also why the chip reads an old stamp, and which the §5 rebuild regenerates.
+
+Runbook: §6 gained the chip row (it must read `ui 2026-09-26` with no STALE after the rebuild), §7.5
+explains why every run is a fresh session.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md            |  11 +-
+ .../crusorai/browser/crusorAIRenderer.ts      |   2 +-
+ scripts/preview_batch_turn.py                 |  61 +++++++--
+ .../test_desktop_renderer_architecture.py     |  14 ++-
+ src/tests/test_preview_batch_turn_script.py   | 117 ++++++++++++++++++
+ 5 files changed, 191 insertions(+), 14 deletions(-)
+
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index fb079aa7..c48875c3 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -184,7 +184,8 @@ Then, in the window:
+ | 6.2 | Send any prompt, e.g. `hi` | a reply appears, instantly (or after `CRUSORAI_ECHO_DELAY_MS`), and `Stop` is offered while it runs | the engine never started: read the pane's error line. `CrusorAI engine root is not configured: set crusorai.engineRoot or CRUSORAI_ENGINE_ROOT, or open a workspace that contains src/bridge.` means the opened folder is not the checkout and no setting points at it |
+ | 6.3 | Confirm which python it used | `PulseAIRepo\.venv\Scripts\python.exe` if it exists, else `CRUSORAI_PYTHON_PATH`, else `python` on PATH | if your `.venv` is elsewhere, set `CRUSORAI_PYTHON_PATH` before launching |
+ | 6.4 | Send a second prompt while the first is still running (needs 6.2 with the delay) | the turn queues or refuses cleanly — no silent drop | a silent drop is a real finding: send me the pane text |
+-| 6.5 | The provider-free pass is done | now do a **real** turn: §7 below. It costs money and needs a key, which is why it is a separate section rather than an extra row here | — |
++| 6.5 | Look at the engine chip at the bottom of the pane | it reads `ui 2026-09-26` and there is no `STALE` next to it | `STALE` means the `out/` you launched is older than this UI round: rebuild (§5) and relaunch. The stamp bumps with every workbench UI round (`CRUSORAI_UI_STAMP` in `crusorAIRenderer.ts`) |
++| 6.6 | The provider-free pass is done | now do a **real** turn: §7 below. It costs money and needs a key, which is why it is a separate section rather than an extra row here | — |
+ 
+ The agent's reply arriving in the app is the whole point of this gate: it proves the workbench →
+ worker process → bridge → back path survives the build, which no pytest can.
+@@ -347,6 +348,14 @@ just the engine: a model that backgrounds a command (`python -m http.server &`)
+ a listening process behind after the turn. On POSIX that is a process group; on Windows `taskkill /T`.
+ The run prints which was used (`engine stopped: process group (whole tree)`).
+ 
++**Every run is a fresh session, on purpose.** The engine keys conversation checkpoints by session id
++(`~/.crusorai/sessions.db`, the langgraph `thread_id`), so a *fixed* id made each run resume the
++previous one: the model saw the files already edited, made **zero tool calls** and answered "I already
++did that in the previous turn" — the run then measured its own memory, not the prompt. The harness now
++generates an id per invocation (`preview-batch-turn-<pid>-<ns>`) and prints it. The engine's
++`session_info` reply carries `prior_checkpoints`; the harness shouts `SESSION NOT FRESH` if it is ever
++non-zero, because that means the run is replaying a conversation it did not start.
++
+ **What this does not cover:** the fixture is static HTML and CSS. The harder cases — a component
+ library, Tailwind utilities, CSS-in-JS, where the class in the DOM is not the class in the source — are
+ untested against a real model, and they are exactly where the fingerprints matter most. If your project
+diff --git a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts
+index 54ca65e0..f94c888d 100644
+--- a/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts
++++ b/desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts
+@@ -291,7 +291,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
+ // URL ERRs) and nothing on screen could tell. This constant lives in this
+ // source file, so any compile of current source carries it while a stale
+ // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
+-const CRUSORAI_UI_STAMP = '2026-09-11';
++const CRUSORAI_UI_STAMP = '2026-09-26';
+ 
+ function markdownCopy(text: string, slot?: string): HTMLElement {
+ 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
+diff --git a/scripts/preview_batch_turn.py b/scripts/preview_batch_turn.py
+index 69458ad5..2b03c6a1 100644
+--- a/scripts/preview_batch_turn.py
++++ b/scripts/preview_batch_turn.py
+@@ -82,17 +82,29 @@ if str(REPO_ROOT) not in sys.path:
+     sys.path.insert(0, str(REPO_ROOT))
+ 
+ def enable_unbuffered_output() -> None:
+-    """Make this script's own output appear as it happens.
+-
+-    Piped through PowerShell, a tee, or a file, Python block-buffers stdout: a slow (or wedged) run
+-    shows *nothing* until it exits, which reads exactly like a hang carrying no information. The first
+-    live run of this script was reported that way — 600 seconds, zero lines. The child engine already
+-    gets ``PYTHONUNBUFFERED=1``; this is the same courtesy for the parent, and it runs at import so
+-    even an early failure is visible.
++    """Make this script's own output appear as it happens, in characters it can express.
++
++    Two measured failures, one setup:
++
++    * **Buffering.** Piped through PowerShell, a tee, or a file, Python block-buffers stdout: a slow
++      (or wedged) run shows *nothing* until it exits, which reads exactly like a hang carrying no
++      information. The first live run was reported that way — 600 seconds, zero lines.
++    * **Encoding.** A Windows console is cp1252 when redirected, and cp1252 cannot express what this
++      script prints: the model's own output carries ``→``, ``…`` and curly quotes, and printing one
++      raised ``UnicodeEncodeError`` and killed the run (observed on the owner's machine, run 1).
++      ``errors="replace"`` means a character the destination cannot render becomes ``?`` — visible,
++      never fatal.
++
++    The child engine already gets ``PYTHONUNBUFFERED=1``; this is the same courtesy for the parent,
++    and it runs at import so even an early failure is visible. One ``reconfigure`` call rather than
++    two: parameters left out keep their current settings, so this is order-independent by
++    construction instead of by convention (and ``line_buffering`` is asserted preserved by a test).
+     """
+     for stream in (sys.stdout, sys.stderr):
+         try:
+-            stream.reconfigure(line_buffering=True)  # type: ignore[union-attr]
++            stream.reconfigure(  # type: ignore[union-attr]
++                encoding="utf-8", errors="replace", line_buffering=True,
++            )
+         except (AttributeError, ValueError):  # pragma: no cover - non-standard stream
+             pass
+ 
+@@ -113,6 +125,8 @@ def demo_batch() -> dict:
+     heuristic path — the one that has to work in the user's own project).
+     """
+     return {
++        # Payload shape only: `build_prompt_frame` takes the session id as an argument and uses that
++        # (pinned in test_preview_prompt.py), so this field cannot smuggle a stale session into a run.
+         "sessionId": "preview-batch-turn",
+         "target": "http://localhost:5173/",
+         "targetLabel": "aurora-landing (lab fixture) · dev server",
+@@ -258,6 +272,24 @@ def render(frame: dict, *, show_tools: bool = True) -> str | None:
+     return None
+ 
+ 
++def batch_session_id() -> str:
++    """A fresh session id per invocation. Never a fixed string.
++
++    The engine persists conversation state in ``~/.crusorai/sessions.db``, keyed by session id (the
++    langgraph checkpointer's ``thread_id``), and ``BridgeServer._prior_checkpoint_count`` reads that
++    table by exactly this key. So a FIXED id makes run N+1 resume run N's history: the model sees
++    that the files were already edited and answers "I already did that in the previous turn" without
++    calling a single tool, and the run then measures the memory instead of the prompt. Measured on
++    the owner's machine (a rerun made zero tool calls), and the engine's own note records the same
++    class from a benchmark: "a fixed id made each benchmark run replay every prior run (+3 calls /
++    +~10k tokens per run, linear)".
++
++    ``pid`` + nanosecond clock: readable, greppable, and collision-proof for sequential runs
++    (``int(time.time())`` alone repeats within a second; a pid alone is recycled by the OS).
++    """
++    return f"preview-batch-turn-{os.getpid()}-{time.time_ns()}"
++
++
+ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> tuple[dict, list[str]]:
+     """Send the prompt and stream until the turn ends. Returns (terminal frame, frames seen)."""
+     bridge.send({"type": "hello", "protocol": PROTOCOL_VERSION})
+@@ -285,6 +317,16 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
+             break
+         kind = incoming.get("type")
+         seen.append(str(kind))
++        if kind == "session_info":
++            # The engine tells us whether this id had durable history (the create reply carries
++            # `prior_checkpoints` so a resume can never be silent). A fresh id means zero; anything
++            # else means the run is replaying an earlier conversation and proves nothing.
++            prior = incoming.get("prior_checkpoints")
++            if prior:
++                print(
++                    f"\n!! SESSION NOT FRESH: {prior} prior checkpoint(s) for '{session_id}' — this run "
++                    "resumes earlier conversation and is NOT an independent test of the prompt."
++                )
+         if kind == "turn_started":
+             started = True
+             print("\n--- turn started ---")
+@@ -437,8 +479,9 @@ def main() -> int:
+ 
+     from src.preview.prompt import build_prompt_frame
+ 
+-    session_id = "preview-batch-turn"
++    session_id = batch_session_id()
+     frame = build_prompt_frame(batch, session_id=session_id, workspace=str(workspace), mode="agent")
++    print(f"session: {session_id} (fresh — this run shares no history with any other)")
+ 
+     print("\n" + "=" * 78)
+     print("THE PROMPT THE AGENT RECEIVES (this text is the feature)")
+diff --git a/src/tests/test_desktop_renderer_architecture.py b/src/tests/test_desktop_renderer_architecture.py
+index 9eb587ff..7f0ac6f8 100644
+--- a/src/tests/test_desktop_renderer_architecture.py
++++ b/src/tests/test_desktop_renderer_architecture.py
+@@ -699,9 +699,17 @@ def test_markdown_block_grammar_ported():
+     assert ".crusorai-md .crusorai-md-link" in css
+ 
+ 
+-def test_ui_stamp_bumped_for_the_card_format_round():
++def test_ui_stamp_bumped_for_the_preview_chrome_round():
++    """The stamp moves with EVERY workbench UI round — this one is the preview chrome.
++
++    The stamp is a hand-maintained constant precisely so a stale `out/` can be told from a current
++    one: the chip reads `ui <stamp>` and appends STALE when the engine build date is newer. That
++    makes forgetting to bump it a *false* STALE, which is what happened — the preview chrome landed
++    on 2026-09-26 (crusorAIPreviewService.ts, the overlay, the media) while the stamp still said
++    2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
++    """
+     renderer = _text("browser", "crusorAIRenderer.ts")
+-    assert "const CRUSORAI_UI_STAMP = '2026-09-11';" in renderer, (
++    assert "const CRUSORAI_UI_STAMP = '2026-09-26';" in renderer, (
+         "a stale out/ must be flaggable against this UI round"
+     )
+ 
+@@ -841,7 +849,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
+     """The freshness stamp bumps with EVERY workbench UI round — a stale
+     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
+     renderer = _text("browser", "crusorAIRenderer.ts")
+-    assert "CRUSORAI_UI_STAMP = '2026-09-11'" in renderer
++    assert "CRUSORAI_UI_STAMP = '2026-09-26'" in renderer
+ 
+ 
+ def test_plan_card_renders_a_task_list_never_arg_json():
+diff --git a/src/tests/test_preview_batch_turn_script.py b/src/tests/test_preview_batch_turn_script.py
+index 39f8a847..2c32a931 100644
+--- a/src/tests/test_preview_batch_turn_script.py
++++ b/src/tests/test_preview_batch_turn_script.py
+@@ -238,3 +238,120 @@ def test_kill_process_tree_is_safe_on_an_exited_process(harness) -> None:
+         def poll(self):
+             return 0 if done.returncode == 0 else None
+     assert harness.kill_process_tree(_Fake()) == "already exited"
++
++
++# ─────────────────────────────────────── the parent's own stdout must survive the run
++def _child(body: str) -> str:
++    """Source for a child that loads the real harness by path, then runs `body`."""
++    return (
++        "import importlib.util, sys\n"
++        f"spec = importlib.util.spec_from_file_location('preview_batch_turn', {str(SCRIPT)!r})\n"
++        "module = importlib.util.module_from_spec(spec)\n"
++        "spec.loader.exec_module(module)\n"
++        + body
++    )
++
++
++def test_the_parent_survives_a_cp1252_console() -> None:
++    """A Windows console is cp1252 when redirected, and this script prints what cp1252 lacks.
++
++    `render()` emits `[tool done] name → result`, and the model's own text carries `…` and curly
++    quotes. Printing one of those raised `UnicodeEncodeError` and killed a live run. Encoded in the
++    child's own code page: stdout AND stderr must both come back as valid UTF-8 with the arrow
++    intact, and stderr must still be line-buffered (the reconfigure must not drop that).
++    """
++    if sys.version_info < (3, 7):  # pragma: no cover - reconfigure is 3.7+
++        pytest.skip("TextIOWrapper.reconfigure needs 3.7")
++    child = subprocess.run(
++        [sys.executable, "-c", _child(
++            "module.enable_unbuffered_output()  # idempotent; import already ran it\n"
++            "print('  [tool done] read_file → 42 lines')\n"
++            "print('  [tool done] →', file=sys.stderr)\n"
++            "print('line_buffering:', sys.stdout.line_buffering, file=sys.stderr)\n"
++        )],
++        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
++        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
++    )
++    assert child.returncode == 0, (
++        "the parent died encoding its own output:\n" + child.stderr.decode("utf-8", "replace")
++    )
++    # Both streams are UTF-8 now, so decoding them as such is the assertion, not a hope.
++    assert "→ 42 lines" in child.stdout.decode("utf-8")
++    assert "→" in child.stderr.decode("utf-8"), "stderr was not reconfigured with stdout"
++    assert b"line_buffering: True" in child.stderr, "reconfigure dropped line buffering"
++
++
++def test_each_run_is_a_fresh_session() -> None:
++    """The engine keys durable history by session id, so a fixed one makes run N resume run N-1.
++
++    Two separate invocations (different processes) must never share an id. This is the hunk that
++    stopped the model answering "I already did that in the previous turn" with zero tool calls.
++    """
++    ids = []
++    for _ in range(2):
++        child = subprocess.run(
++            [sys.executable, "-c", _child("print(module.batch_session_id())\n")],
++            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
++        )
++        assert child.returncode == 0, child.stderr.decode("utf-8", "replace")
++        ids.append(child.stdout.decode().strip())
++    assert ids[0] != ids[1], f"two invocations shared a session id: {ids[0]!r}"
++    assert all(i.startswith("preview-batch-turn-") for i in ids), ids
++    assert all(i != "preview-batch-turn" for i in ids), "the old fixed id came back"
++
++
++def test_the_harness_never_uses_the_demos_own_session_field(harness) -> None:
++    """`demo_batch()` carries a `sessionId` for payload shape; the frame must not adopt it."""
++    from src.preview.prompt import build_prompt_frame
++
++    frame = build_prompt_frame(
++        harness.demo_batch(), session_id="fresh-123", workspace="/ws", mode="agent"
++    )
++    assert frame["session_id"] == "fresh-123"
++
++
++class _ScriptedBridge:
++    """The smallest thing `run_turn` needs: a workspace, a send sink, and a frame queue."""
++
++    workspace = "/ws"
++
++    def __init__(self, frames: list[dict]) -> None:
++        self._frames = list(frames)
++        self.sent: list[dict] = []
++
++    def send(self, frame: dict) -> None:
++        self.sent.append(frame)
++
++    def read(self, timeout: float | None = None) -> dict | None:
++        return self._frames.pop(0) if self._frames else None
++
++
++def _run_scripted(harness, frames: list[dict]) -> tuple[dict, list[str]]:
++    return harness.run_turn(
++        _ScriptedBridge(frames), {"type": "prompt", "text": "x"}, "sid-1", 5.0, show_tools=True
++    )
++
++
++def test_a_resumed_session_is_never_silent(harness, capsys) -> None:
++    """The engine reports `prior_checkpoints`; a non-zero count must be shouted about.
++
++    This is the guard, not the fix: the id is fresh, so a non-zero count means the engine answered a
++    conversation this run did not start, and every conclusion drawn from the run is suspect.
++    """
++    terminal, _ = _run_scripted(harness, [
++        {"type": "session_info", "session_id": "sid-1", "prior_checkpoints": 3},
++        {"type": "turn_started"},
++        {"type": "turn_done"},
++    ])
++    out = capsys.readouterr().out
++    assert "SESSION NOT FRESH" in out and "3 prior checkpoint" in out, out
++    assert terminal.get("type") == "turn_done"
++
++
++def test_a_fresh_session_says_nothing_extra(harness, capsys) -> None:
++    _run_scripted(harness, [
++        {"type": "session_info", "session_id": "sid-1", "prior_checkpoints": 0},
++        {"type": "turn_started"},
++        {"type": "turn_done"},
++    ])
++    assert "SESSION NOT FRESH" not in capsys.readouterr().out
+-- 
+2.39.5
+

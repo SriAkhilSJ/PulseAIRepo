@@ -1,0 +1,602 @@
+From d4c338cc233f03befeaa8eec712b47eb6e645875 Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 13:54:30 +0000
+Subject: [PATCH] docs: the host repo root is D:\pulseAIagent\PulseAIRepo, not
+ crusorAIagent
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The owner's checkout is not at `D:\crusorAIagent\PulseAIRepo` — that path does not exist on the host, so
+every command in these docs dies at `cd`. 69 repo-root references rewritten across 18 files, in all
+three spellings the docs use: `\`, the doubled `\\` inside code blocks, and `/`. That includes §6 of
+the desktop runbook, which the owner runs by hand.
+
+**Scope: repo-root references only, deliberately.** Parent-only paths are left alone, because "the repo
+is not under `D:\crusorAIagent`" does not establish that the parent folder is gone — the repo may simply
+have moved. Rewriting these could break a command that still works:
+`D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test` (CDP_TEST_GUIDE.md),
+`D:\crusorAIagent\browser-verify.png` (run-all.bat:55 and crusor-webview/e2e-verify.spec.ts:17),
+`D:/crusorAIagent/playground` (DESKTOP_MANAGER_REGISTRATION_VERIFY.md), and
+`D:\crusorAIagent\python_test.exe` (TEST_AGENT_GUIDE.md). They are flagged to the owner: if the parent
+was renamed rather than the repo moved, these move too and I will do them in one pass.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CDP_TEST_GUIDE.md                             | 10 +++---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md            | 14 ++++----
+ DESKTOP_AGENT_INSTRUCTIONS.md                 | 12 +++----
+ DESKTOP_AGENT_NATIVE_CAPABILITY_VALIDATION.md |  4 +--
+ DESKTOP_AGENT_UI_CDP_DOM_FINAL.md             |  2 +-
+ DESKTOP_AGENT_UI_CDP_FINAL.md                 |  2 +-
+ DESKTOP_AGENT_UI_CDP_REVALIDATION.md          |  2 +-
+ DESKTOP_AGENT_UI_CDP_VALIDATION.md            |  4 +--
+ DESKTOP_AGENT_UI_REVALIDATION.md              |  4 +--
+ DESKTOP_AGENT_UI_VALIDATION.md                |  4 +--
+ bridge_status.md                              |  2 +-
+ docs/CRUSORAI_CONTEXT_BENCH.md                |  4 +--
+ docs/DESKTOP_AGENT_VERIFICATION.md            |  8 ++---
+ docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md   | 14 ++++----
+ docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md          |  2 +-
+ docs/RENOVATION_2026-08-29.md                 |  6 ++--
+ docs/SESSION_LOG_2026-08-28.md                |  6 ++--
+ src/tests/TEST_AGENT_GUIDE.md                 | 32 +++++++++----------
+ 18 files changed, 66 insertions(+), 66 deletions(-)
+
+diff --git a/CDP_TEST_GUIDE.md b/CDP_TEST_GUIDE.md
+index 45494933..d7407eda 100644
+--- a/CDP_TEST_GUIDE.md
++++ b/CDP_TEST_GUIDE.md
+@@ -6,10 +6,10 @@
+ 
+ ```bash
+ # 1. Verify Python works
+-D:/crusorAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
++D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe -c "import langchain_core; print('ok')"
+ 
+ # 2. Launch app with CDP
+-cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\crusorAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set CRUSORAI_ENGINE_ROOT=D:\\crusorAIagent\\PulseAIRepo&&scripts\\code.bat D:\\crusorAIagent\\PulseAIRepo --remote-debugging-port=9222" &
++cd PulseAIRepo/desktop/vscode && cmd.exe //c "set CRUSORAI_PYTHON_PATH=D:\\pulseAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe&&set CRUSORAI_ENGINE_ROOT=D:\\pulseAIagent\\PulseAIRepo&&scripts\\code.bat D:\\pulseAIagent\\PulseAIRepo --remote-debugging-port=9222" &
+ 
+ # 3. Wait 15s, verify CDP
+ sleep 15 && curl -s http://localhost:9222/json/version | head -2
+@@ -22,7 +22,7 @@ cd D:/crusorAIagent/crusor-res/cancel-session-artifacts/CDP_test && node r03_fin
+ 
+ | Item | Value | Verify |
+ |------|-------|--------|
+-| Python venv | `D:\crusorAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
++| Python venv | `D:\pulseAIagent\PulseAIRepo\.venv` | `python.exe -c "import langchain_core; print('ok')"` |
+ | Node.js | v24+ | `node --version` |
+ | ws module | `D:\crusorAIagent\crusor-res\cancel-session-artifacts\CDP_test\node_modules\ws` | `ls node_modules/ws/package.json` |
+ | CrusorAI.exe | `desktop/vscode/.build/electron/CrusorAI.exe` | `ls -la` |
+@@ -176,8 +176,8 @@ D:\crusor-res\r03-<timestamp>\
+ ## Environment Variables
+ 
+ ```bash
+-export CRUSORAI_PYTHON_PATH='D:/crusorAIagent/PulseAIRepo/.venv/Scripts/python.exe'
+-export CRUSORAI_ENGINE_ROOT='D:/crusorAIagent/PulseAIRepo'
++export CRUSORAI_PYTHON_PATH='D:/pulseAIagent/PulseAIRepo/.venv/Scripts/python.exe'
++export CRUSORAI_ENGINE_ROOT='D:/pulseAIagent/PulseAIRepo'
+ ```
+ 
+ ## Shutdown Cleanup
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index c48875c3..268a6fa9 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -25,7 +25,7 @@ them would conflict with what is committed.
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ git fetch origin arena/01a0ca7c-pulseairepo
+ git merge-base --is-ancestor 2b2880f8 FETCH_HEAD    # the tip this doc ships in; later tips keep it as an ancestor
+ if ($LASTEXITCODE -ne 0) { git pull --ff-only origin arena/01a0ca7c-pulseairepo }
+@@ -66,7 +66,7 @@ This is the fork's own lane for `contrib/crusorai` (`browser/` + `common/`), so
+ preview code without a full `node_modules` tree. Run it from `desktop\vscode\src`:
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode\src
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode\src
+ $tsc = if (Test-Path ..\node_modules\.bin\tsc.cmd) { '..\node_modules\.bin\tsc.cmd' }
+        elseif (Test-Path ..\..\..\crusor-webview\node_modules\.bin\tsc.cmd) { '..\..\..\crusor-webview\node_modules\.bin\tsc.cmd' }
+        else { throw 'No tsc — run npm install in desktop\vscode first (see §4)' }
+@@ -103,7 +103,7 @@ that actually failed on the tip you pulled: `src/tsconfig.json` includes `./vs/*
+ `contrib/crusorai` is in the program.
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
+ npm run typecheck-client      # tsc -p ./src/tsconfig.json --noEmit --skipLibCheck
+ ```
+ 
+@@ -113,7 +113,7 @@ this one must be completely clean.
+ ## 4. Gate B — the python lane for this feature **[here: 67 passed]**
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ .\.venv\Scripts\python.exe -m pytest src\tests\test_preview_inject.py src\tests\test_preview_prompt.py `
+   src\tests\test_preview_server.py src\tests\test_preview_endpoint.py src\tests\test_preview_contract.py -q
+ ```
+@@ -139,7 +139,7 @@ libraries, so 3 of the 23 failed on `typing_extensions` alone. Bring your own co
+ ## 5. Gate C — build the app **[host]**
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
+ node --version                 # .nvmrc pins 24.18.0; node 22 works, record what you used
+ npm install                    # only if node_modules is absent
+ npm run typecheck-client       # Gate A' — must be clean
+@@ -164,7 +164,7 @@ model call and touches no credential. Setting it in this shell is enough — the
+ (`crusorAIWorkerProcessService.ts:156`), so the variable is inherited by the engine process.
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ Remove-Item Env:CRUSORAI_ALLOW_LIVE_AGENT_TEST -ErrorAction SilentlyContinue   # never set this
+ $env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+ $env:CRUSORAI_ECHO_DELAY_MS = '1500'    # optional: a turn slow enough to see the Stop button
+@@ -375,7 +375,7 @@ that part for free (§8) and spend credits only on the turn.
+ The preview needs a proxy running for the **same folder** you opened — nothing starts it for you:
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ python -m src.preview.server --workspace "D:\work\your-project" --port 8931 --endpoint-session ide
+ ```
+ 
+diff --git a/DESKTOP_AGENT_INSTRUCTIONS.md b/DESKTOP_AGENT_INSTRUCTIONS.md
+index ab553ddd..b34e65aa 100644
+--- a/DESKTOP_AGENT_INSTRUCTIONS.md
++++ b/DESKTOP_AGENT_INSTRUCTIONS.md
+@@ -21,7 +21,7 @@ This is a provider-free type/build/CDP validation of the Manager's session regis
+ request, probe, fallback, live Test 5 turn, paid completion, credential inspection, merge, or branch
+ deletion is authorized.
+ 
+-Use only the existing repository at `D:\crusorAIagent\PulseAIRepo`. Do not clone, reset, clean, amend
++Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone, reset, clean, amend
+ source, or touch historical evidence. Set `CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE â€” that is
+ the mandatory network/provider guard. **Never** set `CRUSORAI_ALLOW_LIVE_AGENT_TEST=1`
+ (`Remove-Item Env:CRUSORAI_ALLOW_LIVE_AGENT_TEST -ErrorAction SilentlyContinue`). Do not edit any source
+@@ -31,7 +31,7 @@ file, including to fix a failing gate: report it, push the evidence, stop.
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ if ((git branch --show-current) -ne 'arena/01a0564d-pulseairepo') { throw 'Wrong branch â€” STOP' }
+ # Tracked changes are the only thing that can corrupt a run. Untracked scratch cannot, and this
+ # repo has known, already-accepted untracked files (see the note below), so they are inventoried
+@@ -78,7 +78,7 @@ A round-2 evidence directory is used because the first round's is evidence too,
+ ## 2. Gate A â€” strict scoped typecheck (proves the registration satisfies the fork's contracts)
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode\src        # this directory, or the paths shift
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode\src        # this directory, or the paths shift
+ $tsc = if (Test-Path ..\node_modules\.bin\tsc) { '..\node_modules\.bin\tsc' } else { '..\..\..\crusor-webview\node_modules\.bin\tsc' }
+ & $tsc -p tsconfig.crusorai-check.json --noEmit 2>&1 | Out-File -Encoding ascii "$PWD\..\..\..\$evidence\gate-a-tsc.txt"
+ $log = "$PWD\..\..\..\$evidence\gate-a-tsc.txt"
+@@ -101,7 +101,7 @@ everything below, go to step 5.
+ ## 3. Gate B â€” the two python lanes that cover this slice
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ .\.venv\Scripts\python.exe -m pytest src\tests\test_crusor_session_registration_parity.py src\tests\test_desktop_renderer_architecture.py -q 2>&1 |
+   Tee-Object "bench-results\crusor-manager-registration-desktop\gate-b-pytest.txt"
+ ```
+@@ -129,7 +129,7 @@ after `--user-data-dir` becomes a positional that the build reads as "what to lo
+ open" (that mistake ended round 5, and the workbench looked broken when only the argv was).
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ node scripts\verify_crusor_manager_registration.mjs "bench-results\crusor-manager-registration-desktop-r8\cdp"
+ # A dev build of this fork is bare Electron, so the script passes the app directory (desktop\vscode) as the
+ # FIRST positional exactly as scripts\code.bat does, then the flags, then the folder. If the workbench still
+@@ -150,7 +150,7 @@ Read `cdp-ui-result.json` (that is the harness's report filename) rather than tr
+ ## 5. Evidence, hashes, commit, push â€” on PASS *and* on FAIL
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ $evidence = 'bench-results\crusor-manager-registration-desktop-r2'
+ Set-Content "$evidence\gate.txt" -Value "reached: <A|B|C|D>; result: <PASS|FAIL>; first failure: <gate + one line>" -Encoding utf8
+ Get-ChildItem $evidence -Recurse -File | Where-Object Name -ne 'sha256sums.txt' | Sort-Object FullName |
+diff --git a/DESKTOP_AGENT_NATIVE_CAPABILITY_VALIDATION.md b/DESKTOP_AGENT_NATIVE_CAPABILITY_VALIDATION.md
+index 29d20dda..c9c842dd 100644
+--- a/DESKTOP_AGENT_NATIVE_CAPABILITY_VALIDATION.md
++++ b/DESKTOP_AGENT_NATIVE_CAPABILITY_VALIDATION.md
+@@ -3,7 +3,7 @@
+ **Date:** 2026-08-26  
+ **Required branch:** `arena/01a03741-pulseairepo`  
+ **Required implementation ancestor:** `b270f8cd`  
+-**Repository:** use the existing correct repository folder only (`D:\crusorAIagent\PulseAIRepo` if unchanged)  
++**Repository:** use the existing correct repository folder only (`D:\pulseAIagent\PulseAIRepo` if unchanged)  
+ **Provider authorization:** none; zero model/provider requests  
+ **PR #9:** open; do not merge
+ 
+@@ -57,7 +57,7 @@ Mutation, terminal execution, tasks/tests execution, extension tools, MCP, remot
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ 
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') {
+diff --git a/DESKTOP_AGENT_UI_CDP_DOM_FINAL.md b/DESKTOP_AGENT_UI_CDP_DOM_FINAL.md
+index 3a2ca201..6e95f650 100644
+--- a/DESKTOP_AGENT_UI_CDP_DOM_FINAL.md
++++ b/DESKTOP_AGENT_UI_CDP_DOM_FINAL.md
+@@ -25,7 +25,7 @@ Harness commit `a8ec019d` makes `--manager-only` purely DOM-driven. It performs
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+ if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
+diff --git a/DESKTOP_AGENT_UI_CDP_FINAL.md b/DESKTOP_AGENT_UI_CDP_FINAL.md
+index 0ab8eb48..a77e241e 100644
+--- a/DESKTOP_AGENT_UI_CDP_FINAL.md
++++ b/DESKTOP_AGENT_UI_CDP_FINAL.md
+@@ -27,7 +27,7 @@ Run only this targeted manager check. `--manager-only` submits no prompt, so thi
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+ if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
+diff --git a/DESKTOP_AGENT_UI_CDP_REVALIDATION.md b/DESKTOP_AGENT_UI_CDP_REVALIDATION.md
+index 2e1512bc..767ff3ce 100644
+--- a/DESKTOP_AGENT_UI_CDP_REVALIDATION.md
++++ b/DESKTOP_AGENT_UI_CDP_REVALIDATION.md
+@@ -25,7 +25,7 @@ Commit `927d8eb4` makes Manager columns intrinsically shrinkable and adds editor
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+ if (git status --porcelain=v1) { throw 'Dirty checkout — STOP without cleaning' }
+diff --git a/DESKTOP_AGENT_UI_CDP_VALIDATION.md b/DESKTOP_AGENT_UI_CDP_VALIDATION.md
+index f7548d08..c82929df 100644
+--- a/DESKTOP_AGENT_UI_CDP_VALIDATION.md
++++ b/DESKTOP_AGENT_UI_CDP_VALIDATION.md
+@@ -3,7 +3,7 @@
+ **Required branch:** `arena/01a03741-pulseairepo`  
+ **Required source ancestor:** `b790a29d`  
+ **Required CDP script ancestor:** commit containing `scripts/validate_crusor_ui_cdp.js`  
+-**Existing checkout:** `D:\crusorAIagent\PulseAIRepo`  
++**Existing checkout:** `D:\pulseAIagent\PulseAIRepo`  
+ **Provider authorization:** none; use only the echo runner  
+ **Evidence directory:** `bench-results/agent-ui-cdp-desktop/`
+ 
+@@ -26,7 +26,7 @@ This handoff performs the remaining runtime smoke through Electron's Chrome DevT
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+ if (git status --porcelain=v1) { throw 'Dirty checkout — preserve it and STOP' }
+diff --git a/DESKTOP_AGENT_UI_REVALIDATION.md b/DESKTOP_AGENT_UI_REVALIDATION.md
+index 072f6a45..ff4f8b7c 100644
+--- a/DESKTOP_AGENT_UI_REVALIDATION.md
++++ b/DESKTOP_AGENT_UI_REVALIDATION.md
+@@ -2,7 +2,7 @@
+ 
+ **Required branch:** `arena/01a03741-pulseairepo`  
+ **Required repair ancestor:** `b790a29d`  
+-**Existing checkout only:** `D:\crusorAIagent\PulseAIRepo` if unchanged  
++**Existing checkout only:** `D:\pulseAIagent\PulseAIRepo` if unchanged  
+ **Provider authorization:** none; zero provider/model requests  
+ **Prior evidence:** `bench-results/agent-ui-validation-desktop/` is immutable FAIL evidence  
+ **PR #9:** keep open and unmerged
+@@ -28,7 +28,7 @@ Validate the repaired source once. If compilation passes, complete the provider-
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+ if (git status --porcelain=v1) { throw 'Dirty checkout — preserve it and STOP' }
+diff --git a/DESKTOP_AGENT_UI_VALIDATION.md b/DESKTOP_AGENT_UI_VALIDATION.md
+index 6144e4d4..86cfdcaa 100644
+--- a/DESKTOP_AGENT_UI_VALIDATION.md
++++ b/DESKTOP_AGENT_UI_VALIDATION.md
+@@ -3,7 +3,7 @@
+ **Date:** 2026-08-26  
+ **Required branch:** `arena/01a03741-pulseairepo`  
+ **Required UI implementation ancestor:** `0f84d2df`  
+-**Repository:** use the existing correct repository folder only (`D:\crusorAIagent\PulseAIRepo` if unchanged)  
++**Repository:** use the existing correct repository folder only (`D:\pulseAIagent\PulseAIRepo` if unchanged)  
+ **Provider authorization:** none; zero model/provider requests  
+ **PR #9:** open; do not merge
+ 
+@@ -30,7 +30,7 @@ The UI increment adds a stronger session header, readable transcript lane, expan
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-$repo = 'D:\crusorAIagent\PulseAIRepo'
++$repo = 'D:\pulseAIagent\PulseAIRepo'
+ cd $repo
+ 
+ if ((git branch --show-current) -ne 'arena/01a03741-pulseairepo') { throw 'Wrong branch — STOP' }
+diff --git a/bridge_status.md b/bridge_status.md
+index 9f8edf8e..63f97232 100644
+--- a/bridge_status.md
++++ b/bridge_status.md
+@@ -22,7 +22,7 @@ Thread [bridge-turn-<sid>] (most recent call first):
+   ... <frozen importlib._bootstrap> in create_module
+   File "...\numpy\_core\multiarray.py", line 11 in <module>   <-- BLOCKED
+   ... transformers\utils\... -> langchain_core\language_models\base.py
+-  File "D:\crusorAIagent\PulseAIRepo\src\bridge\__main__.py" in _run_turn
++  File "D:\pulseAIagent\PulseAIRepo\src\bridge\__main__.py" in _run_turn
+ ```
+ 
+ The `bridge-turn-*` worker thread deadlocked inside **numpy's C-extension init**
+diff --git a/docs/CRUSORAI_CONTEXT_BENCH.md b/docs/CRUSORAI_CONTEXT_BENCH.md
+index 9470577b..c38bc228 100644
+--- a/docs/CRUSORAI_CONTEXT_BENCH.md
++++ b/docs/CRUSORAI_CONTEXT_BENCH.md
+@@ -1,6 +1,6 @@
+ # CrusorAI Context Engine — Bench (Hermes Deps + CrusorAI vs Hermes)
+ 
+-**Date:** 2026-09-11 — live bench from `D:\crusorAIagent\PulseAIRepo` venv (separate from `D:\hermes`).
++**Date:** 2026-09-11 — live bench from `D:\pulseAIagent\PulseAIRepo` venv (separate from `D:\hermes`).
+ **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+ 
+ ## 1. Hermes Dependencies — Setup
+@@ -28,7 +28,7 @@ Crusor `pyproject.toml:8` adds `sentence-transformers`, `sqlite-vec`, `tree-sitt
+ 
+ ## 2. CrusorAI Live Bench (this machine)
+ 
+-Run `D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -c` with `ContextEngine(max_tokens=8000)`:
++Run `D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -c` with `ContextEngine(max_tokens=8000)`:
+ 
+ - **Build:** `34.9s` cold (includes `get_repo_map` 1200 tokens + `relevant_chunks` 5 hits) → **14 msgs** `1593 tokens` (`token_budget.py:17` tiktoken fallback `chars/4` for `sarvam-105b-conversations`).
+ - **Retrieval:** `ChunkIndex.search('auth callback', top_k=5)` `7.1s` cold (first embedding encode + FTS), warm hybrid ≤20ms@20K per `chunk_index.py:1036`.
+diff --git a/docs/DESKTOP_AGENT_VERIFICATION.md b/docs/DESKTOP_AGENT_VERIFICATION.md
+index ebd84023..7a59d246 100644
+--- a/docs/DESKTOP_AGENT_VERIFICATION.md
++++ b/docs/DESKTOP_AGENT_VERIFICATION.md
+@@ -14,7 +14,7 @@ This is a provider-free visual/structural verification of the Copilot-hiding lay
+ and Crusor-only UI. No provider request, probe, fallback, live Test 5 turn,
+ credential inspection, merge, branch deletion, or source edit is authorized.
+ 
+-Use only the existing repository at `D:\crusorAIagent\PulseAIRepo`. Do not clone,
++Use only the existing repository at `D:\pulseAIagent\PulseAIRepo`. Do not clone,
+ reset, clean, amend source, or touch historical evidence. Set
+ `CRUSORAI_BRIDGE_RUNNER=echo` before launching the IDE; this is the mandatory
+ network/provider guard. A failure remains evidence and must not be overwritten
+@@ -26,7 +26,7 @@ by a retry.
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ 
+ if ((git branch --show-current) -ne 'main') { throw 'Wrong branch — STOP' }
+ if (git status --porcelain=v1) { throw 'Checkout is not clean — preserve it and STOP' }
+@@ -93,12 +93,12 @@ Launch the IDE with echo runner and CDP:
+ 
+ ```powershell
+ $env:CRUSORAI_PYTHON_PATH = $python
+-$env:CRUSORAI_ENGINE_ROOT = 'D:\crusorAIagent\PulseAIRepo'
++$env:CRUSORAI_ENGINE_ROOT = 'D:\pulseAIagent\PulseAIRepo'
+ $env:CRUSORAI_BRIDGE_RUNNER = 'echo'
+ $env:CRUSORAI_CDP_PORT = '9222'
+ 
+ $desktop = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', `
+-  "set CRUSORAI_BRIDGE_RUNNER=echo&&set CRUSORAI_PYTHON_PATH=$python&&set CRUSORAI_ENGINE_ROOT=D:\crusorAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\crusorAIagent\PulseAIRepo --remote-debugging-port=9222" `
++  "set CRUSORAI_BRIDGE_RUNNER=echo&&set CRUSORAI_PYTHON_PATH=$python&&set CRUSORAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo&&desktop\vscode\scripts\code.bat D:\pulseAIagent\PulseAIRepo --remote-debugging-port=9222" `
+   -PassThru
+ ```
+ 
+diff --git a/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md b/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
+index c13a9dcf..9a39bfe1 100644
+--- a/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
++++ b/docs/DESKTOP_MANAGER_REGISTRATION_VERIFY.md
+@@ -21,7 +21,7 @@ so the whole job costs two builds' worth of waiting and about a dozen short comm
+ 
+ ```powershell
+ $ErrorActionPreference = 'Stop'
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ git status --porcelain=v1 -uno     # must be empty; untracked scratch is inventoried, never committed
+ git fetch origin arena/01a0564d-pulseairepo
+ git checkout arena/01a0564d-pulseairepo
+@@ -43,7 +43,7 @@ proves the new registration actually satisfies the workbench's contracts
+ (`IChatSessionItemController`, `IChatSessionItem`, `ChatSessionStatus`, `sessionOpenerRegistry`).
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
+ ..\..\crusor-webview\node_modules\.bin\tsc -p src\tsconfig.crusorai-check.json --noEmit 2>&1 |
+   Tee-Object -FilePath $env:TEMP\crusorai-tsc.txt | Out-Null
+ $mine = Select-String -Path $env:TEMP\crusorai-tsc.txt -Pattern '^vs/workbench/contrib/crusorai'
+@@ -62,7 +62,7 @@ partial checkout) and are not failures — only lines starting `vs/workbench/con
+ ## B. Gate B — python lanes, only the two that touch this slice
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ .\.venv\Scripts\python.exe -m pytest src\tests\test_crusor_session_registration_parity.py src\tests\test_desktop_renderer_architecture.py -q
+ ```
+ 
+@@ -75,7 +75,7 @@ it means node or `crusor-webview\node_modules\.bin\esbuild` is missing, so run
+ ## C. Gate C — build (the long one; only after A and B are clean)
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo\desktop\vscode
++cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
+ npm install          # first time only; if node_modules already exists, skip
+ npm run compile 2>&1 | Tee-Object -FilePath $env:TEMP\crusorai-compile.txt
+ Test-Path .build\electron\CrusorAI.exe
+@@ -92,7 +92,7 @@ Launch the fork with CDP on 9222, then run the existing manager-only validator (
+ turn and waits for `.crusorai-manager-shell`):
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ node scripts\verify_crusor_manager_registration.mjs bench-results\crusor-manager-registration-desktop-r2\cdp
+ 
+ # It builds the argv, waits for the workbench page target, runs the harness above with --manager-only,
+@@ -112,7 +112,7 @@ does as `%CODE% . %*`; a dev build is bare Electron and reads its first position
+ lone folder path comes back as `Cannot find module`):
+ ```powershell
+ Start-Process -FilePath ".\desktop\vscode\.build\electron\CrusorAI.exe" `
+-  -ArgumentList 'D:\crusorAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\crusorAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\crusorAIagent\playground'
++  -ArgumentList 'D:\pulseAIagent\PulseAIRepo\desktop\vscode','--remote-debugging-port=9222','--user-data-dir=D:\crusorAIagent\crusor-profile','--disable-workspace-trust','--disable-extensions','D:\crusorAIagent\playground'
+ ```
+ If that still yields no folder, pass the folder as `--folder-uri=file:///D:/crusorAIagent/playground` instead of
+ a trailing positional -- `scripts\verify_crusor_manager_registration.mjs --folder-uri` does exactly that.)
+@@ -166,7 +166,7 @@ spinner rather than a crusor. Tell me if you want Crusor hidden there — the re
+ ## 5. If any gate failed: push the evidence, change nothing
+ 
+ ```powershell
+-cd D:\crusorAIagent\PulseAIRepo
++cd D:\pulseAIagent\PulseAIRepo
+ $e = 'bench-results\crusor-manager-registration-desktop\retry-forbidden'
+ New-Item -ItemType Directory -Force -Path $e | Out-Null
+ git rev-parse HEAD | Set-Content "$e\head.txt"
+diff --git a/docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md b/docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md
+index cc37fc24..9a98c0a0 100644
+--- a/docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md
++++ b/docs/OUTPUT_LIMIT_RECOVERY_REPAIR.md
+@@ -74,7 +74,7 @@ pytest -q \
+ 
+ ### Windows deterministic validation
+ 
+-The existing Windows checkout at `D:\crusorAIagent\PulseAIRepo` independently
++The existing Windows checkout at `D:\pulseAIagent\PulseAIRepo` independently
+ validated repair commit `0bb00413f4a03b0172c4f6214018bad156fb1d2a`:
+ 
+ ```text
+diff --git a/docs/RENOVATION_2026-08-29.md b/docs/RENOVATION_2026-08-29.md
+index 5fa6d009..a48aa10a 100644
+--- a/docs/RENOVATION_2026-08-29.md
++++ b/docs/RENOVATION_2026-08-29.md
+@@ -44,13 +44,13 @@
+ 
+ ```powershell
+ # Terminal 1 — 8200
+-Set-Location -LiteralPath "D:\crusorAIagent\PulseAIRepo"; & "C:\Program Files\nodejs\npx.cmd" --yes tsx crusor-webview/server.ts
++Set-Location -LiteralPath "D:\pulseAIagent\PulseAIRepo"; & "C:\Program Files\nodejs\npx.cmd" --yes tsx crusor-webview/server.ts
+ # Terminal 2 — 8123
+-Set-Location -LiteralPath "D:\crusorAIagent\PulseAIRepo"; uv run python -m src.server
++Set-Location -LiteralPath "D:\pulseAIagent\PulseAIRepo"; uv run python -m src.server
+ # Terminal 3 — verify
+ curl http://localhost:8200/api/copilotkit/info; curl http://localhost:8123/health
+ # Terminal 4 — 5173
+-Set-Location -LiteralPath "D:\crusorAIagent\PulseAIRepo\crusor-webview"; npm run dev
++Set-Location -LiteralPath "D:\pulseAIagent\PulseAIRepo\crusor-webview"; npm run dev
+ # open http://localhost:5173 → CopilotChat, hard refresh Ctrl+Shift+R
+ ```
+ 
+diff --git a/docs/SESSION_LOG_2026-08-28.md b/docs/SESSION_LOG_2026-08-28.md
+index 2ea8aee8..06dda1e8 100644
+--- a/docs/SESSION_LOG_2026-08-28.md
++++ b/docs/SESSION_LOG_2026-08-28.md
+@@ -93,9 +93,9 @@ taskkill /F /IM "CrusorAI.exe"
+ 
+ # Launch with engine config
+ cd desktop/vscode
+-set CRUSORAI_PYTHON_PATH=D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe
+-set CRUSORAI_ENGINE_ROOT=D:\crusorAIagent\PulseAIRepo
+-start /b .build\electron\CrusorAI.exe . --remote-debugging-port=9222 D:\crusorAIagent\PulseAIRepo
++set CRUSORAI_PYTHON_PATH=D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe
++set CRUSORAI_ENGINE_ROOT=D:\pulseAIagent\PulseAIRepo
++start /b .build\electron\CrusorAI.exe . --remote-debugging-port=9222 D:\pulseAIagent\PulseAIRepo
+ ```
+ 
+ Or simply open the workspace — the engine auto-detects from workspace path.
+diff --git a/src/tests/TEST_AGENT_GUIDE.md b/src/tests/TEST_AGENT_GUIDE.md
+index b8444d3d..f376e1f5 100644
+--- a/src/tests/TEST_AGENT_GUIDE.md
++++ b/src/tests/TEST_AGENT_GUIDE.md
+@@ -11,42 +11,42 @@
+ Moved real venv to `C:\venvs\PulseAIRepo-venv` and created directory symlinks (fixes `D:\` WDAC `Access is denied` for `CreateProcess`):
+ 
+ ```cmd
+-Move-Item D:\crusorAIagent\PulseAIRepo\.venv C:\venvs\PulseAIRepo-venv
+-cmd /c "mklink /D D:\crusorAIagent\PulseAIRepo\.venv C:\venvs\PulseAIRepo-venv"
+-cmd /c "mklink /D C:\PulseAIRepo D:\crusorAIagent\PulseAIRepo"
++Move-Item D:\pulseAIagent\PulseAIRepo\.venv C:\venvs\PulseAIRepo-venv
++cmd /c "mklink /D D:\pulseAIagent\PulseAIRepo\.venv C:\venvs\PulseAIRepo-venv"
++cmd /c "mklink /D C:\PulseAIRepo D:\pulseAIagent\PulseAIRepo"
+ ```
+ 
+-Now `D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe` and `C:\PulseAIRepo\.venv\Scripts\python.exe` both resolve to `C:\venvs\...` and execute (validated `print(123)` → `123`). Single `src/tests/test_bridge_workspace_routing.py::test_session_create_without_workspace_is_rejected` now passes from `C:\PulseAIRepo`, but the 4-suite combined still shows `3 failed 18 errors` (`PermissionError WinError5` at `subprocess.py:1553` for `test_bridge_transport.py:73` etc.) in restricted agent shell — run from truly unrestricted PowerShell for green.
++Now `D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe` and `C:\PulseAIRepo\.venv\Scripts\python.exe` both resolve to `C:\venvs\...` and execute (validated `print(123)` → `123`). Single `src/tests/test_bridge_workspace_routing.py::test_session_create_without_workspace_is_rejected` now passes from `C:\PulseAIRepo`, but the 4-suite combined still shows `3 failed 18 errors` (`PermissionError WinError5` at `subprocess.py:1553` for `test_bridge_transport.py:73` etc.) in restricted agent shell — run from truly unrestricted PowerShell for green.
+ 
+ Also fixed dropdown resizing: `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css:414` `.crusorai-composer-select` now `width:92px; flex:0 0 auto` (was `flex:1 1 auto` stretching with panel), so `Auto model`/`Ask` stay fixed like `contrib/chat` (`chatViewPane.css:73`).
+ 
+ If symlink breaks, recreate it or use the `C:\Temp\venv_python.exe` copy with:
+ 
+ ```powershell
+-$env:PYTHONPATH="D:\crusorAIagent\PulseAIRepo\.venv\Lib\site-packages"
+-$env:VIRTUAL_ENV="D:\crusorAIagent\PulseAIRepo\.venv"
++$env:PYTHONPATH="D:\pulseAIagent\PulseAIRepo\.venv\Lib\site-packages"
++$env:VIRTUAL_ENV="D:\pulseAIagent\PulseAIRepo\.venv"
+ C:\Temp\venv_python.exe -m pytest --collect-only -q
+ ```
+ 
+ ## Correct Command for Success (use `.venv` path)
+ 
+-From repo root `D:\crusorAIagent\PulseAIRepo` (or `C:\PulseAIRepo` symlink):
++From repo root `D:\pulseAIagent\PulseAIRepo` (or `C:\PulseAIRepo` symlink):
+ 
+ ```powershell
+ # Preferred — works after symlink fix
+-D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop
++D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop
+ C:\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop
+ 
+ # With explicit excludes for fixture import errors
+-D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop --ignore=desktop/vscode/extensions/copilot/test
++D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest -q --ignore=desktop --ignore=desktop/vscode/extensions/copilot/test
+ 
+ # Collect only
+-D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest --collect-only -q
++D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest --collect-only -q
+ # → 813 collected
+ 
+ # Final 4-suite check (main agent) — must be run in normal PowerShell, not agent shell
+-Set-Location D:\crusorAIagent\PulseAIRepo
+-$Py = "D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe"
++Set-Location D:\pulseAIagent\PulseAIRepo
++$Py = "D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe"
+ $Evidence = "D:\crusor-res\final-unrestricted-tests.txt"
+ & $Py -m pytest -q src/tests/test_bridge_transport.py src/tests/test_bridge_workspace_routing.py src/tests/test_git_context.py src/tests/test_desktop_workspace_boundary.py *> $Evidence
+ $TestExit=$LASTEXITCODE; Get-Content $Evidence; "exit_code=$TestExit" | Tee-Object -Append $Evidence
+@@ -58,12 +58,12 @@ Config: `pytest.ini` sets `testpaths = src/tests`, `pythonpath = .` so `from src
+ ## Verification
+ 
+ ```powershell
+-Set-Location D:\crusorAIagent\PulseAIRepo
+-D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -c "import langchain_core; print('ok')"
++Set-Location D:\pulseAIagent\PulseAIRepo
++D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -c "import langchain_core; print('ok')"
+ # → ok
+ 
+-D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest --collect-only -q
++D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest --collect-only -q
+ # → 813 tests collected in ~11s (warnings: DeprecationWarning google.genai.types)
+ ```
+ 
+-Do not use `C:\Users\...\uv\python\...\python.exe` directly — it lacks `langchain_core`. Always go through `D:\crusorAIagent\PulseAIRepo\.venv\Scripts\python.exe` (symlink to `C:\venvs`).
++Do not use `C:\Users\...\uv\python\...\python.exe` directly — it lacks `langchain_core`. Always go through `D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe` (symlink to `C:\venvs`).
+-- 
+2.39.5
+
