@@ -37,6 +37,8 @@ WINDOW_JS = MEDIA / "preview.js"
 WINDOW_HTML = MEDIA / "index.html"
 WINDOW_CSS = MEDIA / "preview.css"
 
+TS_SERVICE = CRUSORAI / "browser" / "crusorAIPreviewService.ts"
+
 NODE = shutil.which("node")
 
 EMOJI = re.compile(
@@ -340,3 +342,28 @@ def test_the_preview_window_query_is_a_list_of_pairs() -> None:
 	# Keys are the literal `key=value` pairs, in order — a character-destructured bug turns this into `e=`/`n=`.
 	assert payload["query"].startswith("endpoint=http%3A%2F%2F127.0.0.1%3A8931&secret=s3cr3t%2F%2B%26%3D&")
 	assert "endpoint=" in payload["query"] and "n=d" not in payload["query"]
+
+
+def test_the_batch_frame_names_its_workspace_in_both_languages() -> None:
+	"""``prompt`` is a workspace-required bridge method, and the check runs per frame.
+
+	The engine answers a workspace-less prompt with
+	``workspace required: open a project folder before starting a Crusor session``. The workbench's
+	own composer always sends one (``crusorAIRendererService.ts``: ``workspace: this.workspacePath``);
+	the preview batch frame did not, so *Send to Crusor* would have failed on every use — a dead step 9
+	that no other test in this suite could see, because the frame is assembled in TypeScript and the
+	failure only happens inside a running engine. It was found by driving a real batch through a real
+	bridge (``scripts/preview_batch_turn.py``).
+
+	Both halves are pinned here: the Python builder refuses without a workspace, and the TypeScript
+	service sends one — a source-level pin, because that file has no unit-test harness of its own.
+	"""
+	service = read(TS_SERVICE)
+	# Isolate the frame literal inside sendBatchToAgent, so an unrelated `workspace` elsewhere in the
+	# file cannot satisfy this.
+	body = service.split("async sendBatchToAgent(", 1)[1].split("this.engine.send(", 1)[0]
+	assert re.search(r"type:\s*'prompt'", body), "sendBatchToAgent no longer builds a prompt frame"
+	assert re.search(r"^\s*workspace,\s*$", body, re.MULTILINE), (
+		"the preview prompt frame must carry `workspace` — the bridge refuses a prompt without it"
+	)
+	assert "workspacePath" in body, "…and it must come from the service's P0 workspace resolution"

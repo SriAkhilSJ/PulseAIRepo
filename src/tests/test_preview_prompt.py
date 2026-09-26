@@ -143,7 +143,7 @@ def test_summary_and_element_labels_read_like_the_ui() -> None:
 
 
 def test_frame_is_a_plain_protocol_v2_prompt_with_a_receipt() -> None:
-	frame = build_prompt_frame(batch(fix("make it blue")), session_id="s-1", mode="agent")
+	frame = build_prompt_frame(batch(fix("make it blue")), session_id="s-1", workspace="/ws", mode="agent")
 	assert frame["type"] == "prompt", "a preview turn is an ordinary prompt: no protocol change"
 	assert frame["session_id"] == "s-1"
 	assert frame["mode"] == "agent"
@@ -155,11 +155,25 @@ def test_frame_is_a_plain_protocol_v2_prompt_with_a_receipt() -> None:
 	assert json.dumps(frame), "the frame must be JSON-serialisable for the bridge"
 
 
+def test_frame_names_the_workspace_the_bridge_requires() -> None:
+	"""`prompt` is in the bridge's `_WORKSPACE_REQUIRED_METHODS`, so a frame without this is refused.
+
+	The parameter is required (not defaulted) because the alternative shipped: a call site omitted it
+	and every *Send to Crusor* would have ended in `workspace required: open a project folder…`.
+	"""
+	frame = build_prompt_frame(batch(fix("a")), session_id="s", workspace="/home/me/project")
+	assert frame["workspace"] == "/home/me/project"
+	with pytest.raises(TypeError):
+		build_prompt_frame(batch(fix("a")), session_id="s")  # type: ignore[call-arg]
+	with pytest.raises(ValueError, match="workspace"):
+		build_prompt_frame(batch(fix("a")), session_id="s", workspace="   ")
+
+
 def test_frame_carries_reasoning_effort_when_asked() -> None:
-	frame = build_prompt_frame(batch(fix("a")), session_id="s", reasoning_effort="high")
+	frame = build_prompt_frame(batch(fix("a")), session_id="s", workspace="/ws", reasoning_effort="high")
 	assert frame["reasoning_effort"] == "high"
 
 
 def test_frame_refuses_an_empty_batch() -> None:
 	with pytest.raises(ValueError, match="empty"):
-		build_prompt_frame(batch(), session_id="s")
+		build_prompt_frame(batch(), session_id="s", workspace="/ws")

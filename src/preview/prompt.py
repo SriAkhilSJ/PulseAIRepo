@@ -231,19 +231,30 @@ def build_prompt_frame(
     batch: Mapping[str, Any],
     *,
     session_id: str,
+    workspace: str,
     mode: str = "agent",
     reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Wrap the prompt in a bridge v2 ``prompt`` frame.
+
+    ``workspace`` is **required**, not optional, because the bridge requires it: ``prompt`` is in
+    ``_WORKSPACE_REQUIRED_METHODS`` and the check runs per frame, before the session is even
+    resolved, so a prompt frame without it is refused with
+    ``workspace required: open a project folder before starting a Crusor session``. A builder that
+    can silently emit a frame the engine rejects is a trap, and one shipped call site walked into
+    it, which is why this is a required keyword rather than a default of ``""``.
 
     Raises ``ValueError`` for an empty batch so callers never fire a blank turn at the engine.
     """
     text = build_preview_prompt(batch)
     if not text:
         raise ValueError("preview fix batch is empty — nothing to send")
+    if not str(workspace or "").strip():
+        raise ValueError("preview prompt needs the workspace path the session is bound to")
     frame: dict[str, Any] = {
         "type": "prompt",
         "session_id": session_id,
+        "workspace": str(workspace),
         "text": text,
         "mode": mode,
         "preview_batch": {

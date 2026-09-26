@@ -157,8 +157,26 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 	 * the workbench is not told which session id owns the local proxy, so the workspace path decides:
 	 * a preview server started for THIS folder is the one worth framing.
 	 */
+	/**
+	 * The folder this session is bound to, by the contribution's P0 rule (the same one
+	 * `crusorAIRendererService.sessionFolder` applies to the composer): zero folders means no
+	 * workspace, one folder is unambiguous, and a multi-root workspace is NEVER silently resolved to
+	 * `folders[0]` — this service owns no folder picker, so it declines rather than guesses.
+	 *
+	 * The engine enforces this path in two directions: `prompt` frames may not omit it (the bridge
+	 * answers `workspace required: open a project folder before starting a Crusor session`), and a
+	 * frame whose workspace differs from the session's bound one is refused as a workspace switch.
+	 */
+	private get workspacePath(): string | undefined {
+		const folders = this.workspaceService.getWorkspace().folders;
+		return folders.length === 1 ? folders[0].uri.fsPath : undefined;
+	}
+
 	private async resolveEndpoint(): Promise<CrusorPreviewEndpoint | undefined> {
-		const workspace = this.workspaceService.getWorkspace().folders[0]?.uri.fsPath ?? '';
+		const open = this.workspaceService.getWorkspace().folders.map(folder => folder.uri.fsPath);
+		if (!open.length) {
+			return undefined;
+		}
 		const directory = this.endpointDirectory();
 		let children;
 		try {
@@ -178,7 +196,10 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 				if (!endpoint?.origin) {
 					continue;
 				}
-				if (workspace && endpoint.workspace && endpoint.workspace !== workspace) {
+				// An endpoint names the workspace its proxy serves. Accept only one of the folders that
+				// are actually open: with an empty `open` this used to accept ANY endpoint, so a
+				// multi-root workspace (or no folder at all) could frame a different project's proxy.
+				if (endpoint.workspace && !open.includes(endpoint.workspace)) {
 					continue;
 				}
 				candidates.push({ endpoint, path: child.resource });
@@ -360,10 +381,21 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		if (isBatchEmpty(batch)) {
 			return;
 		}
+		// The bridge rejects a `prompt` frame without a workspace (`_WORKSPACE_REQUIRED_METHODS`), so
+		// this is refused here with an honest log line instead of being sent to die as an error card.
+		const workspace = this.workspacePath;
+		if (!workspace) {
+			this.logService.warn(
+				'[crusor-preview] batch not sent: no single project folder is open '
+				+ '(open one folder, or pick one in a multi-root workspace) — a preview turn must name its workspace'
+			);
+			return;
+		}
 		const text = buildPreviewPrompt(batch);
 		const frame = {
 			type: 'prompt',
 			session_id: batch.sessionId || this.latestSessionId() || '',
+			workspace,
 			text,
 			mode: 'agent',
 			preview_batch: {

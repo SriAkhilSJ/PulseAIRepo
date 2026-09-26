@@ -176,6 +176,8 @@ def lab_routes(demo_app_origin: str):
                 frame = build_prompt_frame(
                     batch,
                     session_id=str(payload.get("session_id") or SESSION_ID),
+                    # The lab stands in for a session bound to the fixture it previews.
+                    workspace=str(DEMO_APP),
                     mode=str(payload.get("mode") or "agent"),
                 )
             except ValueError as exc:
