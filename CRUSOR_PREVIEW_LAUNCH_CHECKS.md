@@ -4,9 +4,13 @@ Run these in order the first time the desktop app runs with Crusor Preview. Each
 to *look at*, what a pass looks like, and what a failure means — so nothing here needs me in the
 loop to diagnose.
 
+The pull, the two typecheck lanes, the build, the launch with the provider guard and the in-app agent
+checks are in **`CRUSOR_PREVIEW_DESKTOP_APP_TEST.md`** — do that file first; this one starts when the
+app is up and the agent answers.
+
 Every check is tagged:
 
-- **[code]** — pinned by the test suite (`python -m pytest src/tests/test_preview_*.py -q` → 61 passed),
+- **[code]** — pinned by the test suite (`python -m pytest src/tests/test_preview_*.py -q` → 67 passed),
   so a failure here means something in the environment or the build, not the logic;
 - **[host]** — depends on the real Electron/workbench, and could not be verified before launch.
 
@@ -16,8 +20,8 @@ Every check is tagged:
 
 | # | Check | Pass looks like | If it fails |
 | --- | --- | --- | --- |
-| 0.1 | **[host]** `npm run typecheck-client` in `desktop/vscode` | clean | the only place the preview code has never been compiled. Send me the errors — expect small mechanical fixes (unused imports, `IAuxiliaryWindow` member names) |
-| 0.2 | **[code]** `python -m pytest src/tests/test_preview_*.py -q` | `61 passed` | if not, the engine side is broken independently of the app |
+| 0.1 | **[code]** `tsc -p tsconfig.crusorai-check.json --noEmit` from `desktop/vscode/src` | `Crusor errors: 0`, 34 files in program | this lane was red until `d0603692`/`87030b4a` (six sites: an unbalanced generic, `userHome`, `IDisposable`, a pair-typed query, two dead declarations). Now 0 — non-zero means the pulled tree is not what this doc was written against. Full `npm run typecheck-client` must also be clean once `node_modules` exists |
+| 0.2 | **[code]** `python -m pytest src/tests/test_preview_*.py -q` | `67 passed` | if not, the engine side is broken independently of the app |
 | 0.3 | Proxy running for the **same folder** you open in the app | `python -m src.preview.server --workspace <opened folder> --port 8931 --endpoint-session ide` printed an origin and an endpoint path | no endpoint file → the IDE will find no proxy (§2.1) |
 
 ---

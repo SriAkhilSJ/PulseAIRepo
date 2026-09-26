@@ -64,7 +64,7 @@ python -m pytest src/tests/test_preview_inject.py src/tests/test_preview_prompt.
                  src/tests/test_preview_contract.py -q
 ```
 
-**Expected: `57 passed`.** These are the real checks — the proxy runs over real sockets, the contract
+**Expected: `67 passed`.** These are the real checks — the proxy runs over real sockets, the contract
 test loads the shipped JavaScript through node and pins the message names in both directions.
 
 ---
