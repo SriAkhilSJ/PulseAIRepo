@@ -1,0 +1,27 @@
+From b0a46ea6ac1030abc277f0f650ea825238c4b3ab Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 03:59:54 +0000
+Subject: [PATCH] docs(preview): anchor the app-test runbook to the tip it
+ ships in
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index c106873e..d474479e 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -27,7 +27,7 @@ them would conflict with what is committed.
+ $ErrorActionPreference = 'Stop'
+ cd D:\crusorAIagent\PulseAIRepo
+ git fetch origin arena/01a0ca7c-pulseairepo
+-git merge-base --is-ancestor d91743cb FETCH_HEAD    # the tip this doc was written against
++git merge-base --is-ancestor 5d13484e FETCH_HEAD    # the tip this doc ships in; later tips keep it as an ancestor
+ if ($LASTEXITCODE -ne 0) { git pull --ff-only origin arena/01a0ca7c-pulseairepo }
+ ```
+ 
+-- 
+2.39.5
+
