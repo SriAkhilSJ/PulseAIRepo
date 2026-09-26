@@ -1,0 +1,538 @@
+From 909a427165dead0f979f1722c83070fce6eee80c Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 12:10:19 +0000
+Subject: [PATCH] fix(scripts): the harness reports live, and its --diff stops
+ lying
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two defects the first live runs hit, both mine, both reproduced here before fixing.
+
+**"600s with zero log output."** Piped through PowerShell or a tee, Python block-buffers stdout, so a
+slow-but-working turn printed nothing until it exited — indistinguishable from a hang. The script now
+reconfigures stdout/stderr to line buffering *at import* (the child engine already got
+PYTHONUNBUFFERED=1; this is the same courtesy for the parent, and at import it covers early failures
+too). Verified: with stdout on a pipe, the first line arrives in 0.03s while the process is still
+running. The heartbeat also says something useful now — elapsed time, frames received, and the last
+frame type — every 30s instead of a bare "still waiting" every 120s, so a quiet provider can be told
+apart from a dead one.
+
+**"`--diff` still prints its vacuous 'no changes'."** It shelled out to `git diff --stat`, which prints
+nothing and exits 128 outside a repository; only the *exception* was caught, never the exit code, so
+`--demo` (a temp copy, never a repo) reported no changes while the agent had in fact edited the CSS.
+A diff that lies is worse than no diff. The evidence now comes from the filesystem: a before/after
+snapshot of content, reported as `M styles.css +6 -0` with a short unified diff per file, `A`/`D` for
+added and removed files, and an honest `no file changed (N file(s) compared)` when nothing moved.
+Dependency noise (.git, node_modules, .venv, __pycache__ …) is skipped and files over 4 MB are
+compared by size. `git diff --stat` still prints as *extra* context when the workspace really is a
+repository — and now checks the exit code before believing it.
+
+Also: the demo batch's first selector was not valid CSS (`header nav-actions`, where nav-actions is a
+class), and `run_turn` returns a tuple now, so its docstring says so.
+
+Ten pins in src/tests/test_preview_batch_turn_script.py. Three matter: line buffering is asserted in a
+child process with a piped stdout (in-process pytest would not answer the question), verified to fail
+when the import-time call is removed; the diff is driven through modify/add/remove and
+`git_diff_stat` is asserted to return None outside a repository (the vacuous report reproduced exactly
+as "git reported no changes"); and every fingerprint in the demo batch is asserted to still exist in
+the lab fixture — drift there is invisible and would look like a prompt-engineering failure instead of
+a stale fixture.
+
+The runbook gains §7.5: what the harness is, the two commands, what a pass looks like (the agent
+searched for the fingerprint classes, edited only the stylesheet, verified), the two gotchas above, and
+what it does not cover — the fixture is static HTML/CSS, so component libraries, Tailwind and
+CSS-in-JS are untested against a real model, which is exactly where fingerprints matter most.
+
+83 passed. No TypeScript in this change, so Gate A is untouched by it.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ CRUSOR_PREVIEW_DESKTOP_APP_TEST.md          |  48 +++++-
+ scripts/preview_batch_turn.py               | 153 +++++++++++++++--
+ src/tests/test_preview_batch_turn_script.py | 179 ++++++++++++++++++++
+ 3 files changed, 364 insertions(+), 16 deletions(-)
+ create mode 100644 src/tests/test_preview_batch_turn_script.py
+
+diff --git a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+index 81cf65f7..90355dd9 100644
+--- a/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
++++ b/CRUSOR_PREVIEW_DESKTOP_APP_TEST.md
+@@ -286,7 +286,53 @@ notice from §6 will not appear; that notice only ever comes from the echo seam.
+ | Nothing at all, then a stall message | the provider was reached but never answered — the message is the evidence, send it |
+ | A real reply | done: the app, the engine, your key and your account all work together |
+ 
+-### 7.5 Getting back to free testing
++### 7.5 Test the prompt itself, without the IDE — `scripts/preview_batch_turn.py`
++
++The preview window's last step is a prompt, and the only question that matters about it is whether the
++agent finds the element the user clicked — or repaints the page. This harness answers that in a
++terminal: it builds a batch, prints the exact prompt text, spawns `python -m src.bridge` the way the
++workbench does, streams what comes back (reasoning, every tool call, tokens), and then reports what
++changed in the workspace.
++
++```powershell
++cd D:\pulseAIagent\PulseAIRepo
++# safe first run: edits a TEMP copy of the lab fixture, nothing in the repo is touched
++.\.venv\Scripts\python.exe scripts\preview_batch_turn.py --demo --diff
++
++# then a real project — use a scratch copy, this edits files
++.\.venv\Scripts\python.exe scripts\preview_batch_turn.py --workspace C:\work\scratch-project --diff
++```
++
++**What a pass looks like**, from two independent sessions against the fixture:
++
++1. `search_files(pattern=btn btn-primary)` and `search_files(pattern=hero-title)` — it searched for the
++   **fingerprints**, which is the whole reason the prompt lists classes, text and attributes;
++2. a few reads to locate the rules (`read_file`, `grep -n btn styles.css`, targeted offset reads);
++3. `edit_file` on the stylesheet only — the markup was never touched, which is the scope rule working;
++4. a verification pass, then a summary.
++
++The batch's first fix names an element the fixture stamps with `data-crusor-source` (the precise path)
++and its second does not (the heuristic path) — the second is the one that has to work in your own
++project, and it did: the agent used the fingerprint attribute as its own selector.
++
++Two things that will confuse you if you do not know them:
++
++- **Output is live.** If nothing appears for minutes, the provider is slow, not the script: the
++  heartbeat prints elapsed time, the number of frames received, and what the engine sent last.
++  (The first live run before this was added reported "600 seconds, zero lines" — a buffered pipe hid a
++  turn that was working.) For the same reason the first turn can legitimately take minutes: the engine
++  warms its heavy imports before it answers.
++- **`--diff` reads the files, not git.** `--demo` edits a temp copy that is not a repository, so a
++  git-based diff there reports "no changes" no matter what happened — the report is a before/after
++  comparison of file contents, with line counts and a short unified diff per changed file, and it says
++  `no file changed (N file(s) compared)` when that is the truth.
++
++**What this does not cover:** the fixture is static HTML and CSS. The harder cases — a component
++library, Tailwind utilities, CSS-in-JS, where the class in the DOM is not the class in the source — are
++untested against a real model, and they are exactly where the fingerprints matter most. If your project
++is one of those, run the second command above against a scratch copy and send the tool-call lines.
++
++### 7.6 Getting back to free testing
+ 
+ ```powershell
+ $env:CRUSORAI_BRIDGE_RUNNER = 'echo'    # and relaunch
+diff --git a/scripts/preview_batch_turn.py b/scripts/preview_batch_turn.py
+index 649bef18..631b1ac9 100644
+--- a/scripts/preview_batch_turn.py
++++ b/scripts/preview_batch_turn.py
+@@ -25,10 +25,11 @@ a classified provider error rather than a silent stall.
+ from __future__ import annotations
+ 
+ import argparse
++import difflib
+ import json
+ import os
+-import shutil
+ import queue
++import shutil
+ import subprocess
+ import sys
+ import tempfile
+@@ -40,6 +41,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
+ if str(REPO_ROOT) not in sys.path:
+     sys.path.insert(0, str(REPO_ROOT))
+ 
++def enable_unbuffered_output() -> None:
++    """Make this script's own output appear as it happens.
++
++    Piped through PowerShell, a tee, or a file, Python block-buffers stdout: a slow (or wedged) run
++    shows *nothing* until it exits, which reads exactly like a hang carrying no information. The first
++    live run of this script was reported that way — 600 seconds, zero lines. The child engine already
++    gets ``PYTHONUNBUFFERED=1``; this is the same courtesy for the parent, and it runs at import so
++    even an early failure is visible.
++    """
++    for stream in (sys.stdout, sys.stderr):
++        try:
++            stream.reconfigure(line_buffering=True)  # type: ignore[union-attr]
++        except (AttributeError, ValueError):  # pragma: no cover - non-standard stream
++            pass
++
++
++enable_unbuffered_output()
++
+ PROTOCOL_VERSION = 2
+ #: A real turn can legitimately take minutes; this is a ceiling, not an expectation.
+ DEFAULT_TIMEOUT_S = 900.0
+@@ -66,7 +85,7 @@ def demo_batch() -> dict:
+                 "instruction": "make this button rounded, blue, and a bit bigger",
+                 "label": '<button> "Get started"',
+                 "element": {
+-                    "selector": "header nav-actions > button.btn.btn-primary",
++                    "selector": "header .nav-actions > button.btn.btn-primary",
+                     "tag": "button", "classes": ["btn", "btn-primary"], "text": "Get started",
+                     "outerHtml": '<button class="btn btn-primary" type="button" data-testid="nav-cta">Get started</button>',
+                     "styles": {"background-color": "rgb(60, 60, 60)", "color": "rgb(255, 255, 255)",
+@@ -199,8 +218,8 @@ def render(frame: dict, *, show_tools: bool = True) -> str | None:
+     return None
+ 
+ 
+-def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> dict:
+-    """Send the prompt and stream until the turn ends. Returns the terminal frame."""
++def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> tuple[dict, list[str]]:
++    """Send the prompt and stream until the turn ends. Returns (terminal frame, frames seen)."""
+     bridge.send({"type": "hello", "protocol": PROTOCOL_VERSION})
+     bridge.send({"type": "session_create", "session_id": session_id, "workspace": str(bridge.workspace)})
+     bridge.send(frame)
+@@ -208,16 +227,24 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
+     deadline = time.monotonic() + timeout
+     terminal: dict = {}
+     started = False
++    seen: list[str] = []
+     while time.monotonic() < deadline:
+         try:
+-            incoming = bridge.read(timeout=min(120.0, max(1.0, deadline - time.monotonic())))
++            incoming = bridge.read(timeout=min(30.0, max(1.0, deadline - time.monotonic())))
+         except queue.Empty:
+-            print(f"\n... still waiting ({timeout:.0f}s budget) ...")
++            # A quiet provider is normal. No frames at all is the thing worth telling apart, so the
++            # heartbeat carries elapsed time, how much has arrived, and what the engine last sent.
++            elapsed = timeout - max(0.0, deadline - time.monotonic())
++            print(
++                f"\n... waiting {elapsed:.0f}s of {timeout:.0f}s · frames: {len(seen)}"
++                f" · last: {seen[-1] if seen else '(none)'} ..."
++            )
+             continue
+         if incoming is None:
+             print("\nThe engine closed its output — the process ended.")
+             break
+         kind = incoming.get("type")
++        seen.append(str(kind))
+         if kind == "turn_started":
+             started = True
+             print("\n--- turn started ---")
+@@ -229,18 +256,104 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
+             break
+     else:
+         print(f"\nTimed out after {timeout:.0f}s with no terminal frame.")
+-    return terminal
++    return terminal, seen
++
++
++#: Directory names that are noise for "what did the agent change".
++_SKIP_DIRS = frozenset({
++    ".git", ".venv", "venv", "node_modules", "__pycache__", ".next", ".cache", ".turbo", "dist", "build",
++})
++#: Files above this size are compared by size only, not read into memory.
++_BIG_FILE_BYTES = 4 * 1024 * 1024
+ 
+ 
+-def git_diff_stat(workspace: Path) -> str:
++def snapshot(root: Path) -> dict[str, bytes]:
++    """Relative path -> content for every file worth comparing.
++
++    The first version of `--diff` shelled out to `git diff --stat`, which prints nothing and exits
++    128 outside a repository — and because only the *exception* was caught, not the exit code, a
++    `--demo` run (a temp copy, never a repo) reported "(git reported no changes)" while the agent had
++    in fact edited the CSS. A diff that lies is worse than no diff, so the evidence is now taken from
++    the filesystem: content in, content out, no VCS assumptions.
++    """
++    files: dict[str, bytes] = {}
++    for path in sorted(root.rglob("*")):
++        if not path.is_file():
++            continue
++        relative = path.relative_to(root)
++        if any(part in _SKIP_DIRS for part in relative.parts):
++            continue
++        try:
++            size = path.stat().st_size
++            files[relative.as_posix()] = path.read_bytes() if size <= _BIG_FILE_BYTES else b""
++            if size > _BIG_FILE_BYTES:
++                files[relative.as_posix()] = f"<{size} bytes>".encode("ascii")
++        except OSError:
++            continue
++    return files
++
++
++def _line_counts(before: bytes, after: bytes) -> tuple[int, int] | None:
++    """(+added, -removed) for a text file, or None when it is binary."""
++    if b"\0" in before or b"\0" in after:
++        return None
++    left = before.decode("utf-8", errors="replace").splitlines()
++    right = after.decode("utf-8", errors="replace").splitlines()
++    added = removed = 0
++    for line in difflib.unified_diff(left, right, n=0, lineterm=""):
++        if line.startswith("+") and not line.startswith("+++"):
++            added += 1
++        elif line.startswith("-") and not line.startswith("---"):
++            removed += 1
++    return added, removed
++
++
++def describe_changes(before: dict[str, bytes], after: dict[str, bytes], *, preview_lines: int = 14) -> str:
++    """What the turn actually edited, from the files themselves."""
++    added = sorted(set(after) - set(before))
++    removed = sorted(set(before) - set(after))
++    modified = sorted(path for path in set(before) & set(after) if before[path] != after[path])
++    if not (added or removed or modified):
++        return f"no file changed ({len(after)} file(s) compared)"
++
++    lines: list[str] = []
++    for path in modified:
++        counts = _line_counts(before[path], after[path])
++        lines.append(f"  M {path}" + (f"   +{counts[0]} -{counts[1]}" if counts else "   (binary)"))
++        if counts:
++            left = before[path].decode("utf-8", errors="replace").splitlines()
++            right = after[path].decode("utf-8", errors="replace").splitlines()
++            shown = 0
++            for line in difflib.unified_diff(left, right, n=1, lineterm=""):
++                if line.startswith(("+++", "---")):
++                    continue
++                lines.append("      " + line)
++                shown += 1
++                if shown >= preview_lines:
++                    lines.append("      ...")
++                    break
++    lines.extend(f"  A {path}" for path in added)
++    lines.extend(f"  D {path}" for path in removed)
++    lines.append(f"  ({len(after)} file(s) compared)")
++    return "\n".join(lines)
++
++
++def git_diff_stat(workspace: Path) -> str | None:
++    """`git diff --stat` when the workspace really is a repository, else None.
++
++    The exit code is the point: outside a repo git prints nothing and exits non-zero, and reporting
++    that as "no changes" is the bug this function used to have.
++    """
+     try:
+         done = subprocess.run(
+             ["git", "diff", "--stat"], cwd=str(workspace),
+             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+         )
+-        return done.stdout.strip() or "(git reported no changes)"
+-    except Exception as exc:  # pragma: no cover
+-        return f"(could not run git diff: {exc})"
++    except Exception:  # pragma: no cover - no git on PATH
++        return None
++    if done.returncode != 0:
++        return None
++    return done.stdout.strip() or None
+ 
+ 
+ def main() -> int:
+@@ -294,21 +407,31 @@ def main() -> int:
+     print("=" * 78)
+     print(f"frames: prompt + preview_batch receipt ({frame['preview_batch']['count']} fixes)")
+ 
++    before = snapshot(workspace) if args.diff else {}
++
+     bridge = Bridge(workspace)
+     try:
+-        terminal = run_turn(bridge, frame, session_id, args.timeout, show_tools=not args.no_tools)
++        terminal, seen = run_turn(bridge, frame, session_id, args.timeout, show_tools=not args.no_tools)
+     except KeyboardInterrupt:
+         print("\nInterrupted — stopping the engine.")
+-        terminal = {}
++        terminal, seen = {}, []
+     finally:
+         bridge.stop()
+ 
+     if args.diff:
+-        print("\n--- what changed in the workspace ---")
+-        print(git_diff_stat(workspace))
++        print("\n--- what changed in the workspace (read from the files, not from git) ---")
++        print(describe_changes(before, snapshot(workspace)))
++        git_stat = git_diff_stat(workspace)
++        if git_stat:
++            print("\n--- git diff --stat (extra context; the workspace is a repository) ---")
++            print(git_stat)
+     if cleanup is not None:
+         print(f"\n(the edited copy is still at {cleanup} if you want to look at it)")
+ 
++    if seen:
++        tools = sum(1 for kind in seen if kind == "tool_call_start")
++        print(f"\nframes: {len(seen)} · tool calls: {tools} · tokens: {seen.count('token')}")
++
+     if terminal.get("type") != "turn_done" and bridge.diagnostics:
+         print("\n--- engine diagnostics (stderr, last 20 lines) ---")
+         for line in bridge.diagnostics[-20:]:
+diff --git a/src/tests/test_preview_batch_turn_script.py b/src/tests/test_preview_batch_turn_script.py
+new file mode 100644
+index 00000000..c5eca95d
+--- /dev/null
++++ b/src/tests/test_preview_batch_turn_script.py
+@@ -0,0 +1,179 @@
++"""CrusorAI — ``scripts/preview_batch_turn.py`` (the preview batch harness).
++
++This script is how a preview fix batch gets tested against a real agent without the IDE, so the
++things worth pinning are the ones that made its first live run hard to trust:
++
++* **its output must appear as it happens.** Piped, Python block-buffers stdout, and a slow run then
++  looks like a hang: the first live run was reported as "600s with zero log output", which hid a turn
++  that was actually progressing. The fix runs at import, so this test asserts it on import;
++* **its `--diff` must never lie.** It shelled out to `git diff --stat`, which exits 128 outside a
++  repository, and because only the exception was caught the run reported "no changes" while the agent
++  had in fact edited the CSS. The evidence now comes from the filesystem, so the test drives
++  add/modify/delete directly;
++* **its demo batch must match the fixture.** The batch hardcodes the classes, text and attributes of
++  ``preview-lab/demo-app``; if the fixture drifts, the prompt sends fingerprints that are not in the
++  page and the agent has nothing to grep for — a silent, confusing failure.
++
++Importing the module is safe: everything runs under ``main()``.
++"""
++from __future__ import annotations
++
++import importlib.util
++import os
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++SCRIPT = REPO_ROOT / "scripts" / "preview_batch_turn.py"
++FIXTURE = REPO_ROOT / "preview-lab" / "demo-app"
++
++
++@pytest.fixture(scope="module")
++def harness():
++    spec = importlib.util.spec_from_file_location("preview_batch_turn", SCRIPT)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++# --------------------------------------------------------------- output must not be buffered
++
++def test_importing_the_harness_enables_line_buffering() -> None:
++    """The real assertion is about a *pipe*, so it runs in a child process with piped stdout.
++
++    In-process, pytest replaces stdout with its own object and the question is not answered. A child
++    whose stdout is a pipe has ``line_buffering == False`` unless something changes it, which is
++    exactly the state the first live run was in.
++    """
++    code = (
++        "import importlib.util, sys\n"
++        f"spec = importlib.util.spec_from_file_location('h', r'{SCRIPT}')\n"
++        "mod = importlib.util.module_from_spec(spec)\n"
++        "spec.loader.exec_module(mod)\n"
++        "print('LINE_BUFFERING', sys.stdout.line_buffering)\n"
++    )
++    done = subprocess.run(
++        [sys.executable, "-c", code], cwd=str(REPO_ROOT), capture_output=True,
++        text=True, encoding="utf-8", errors="replace", timeout=120,
++    )
++    assert done.returncode == 0, done.stderr
++    assert "LINE_BUFFERING True" in done.stdout, (
++        f"stdout is buffered when piped — a slow run would print nothing until it exits: {done.stdout!r}"
++    )
++
++
++# --------------------------------------------------------------- the diff must be honest
++
++def test_describe_changes_detects_modified_added_and_removed(harness) -> None:
++    before = {"styles.css": b"a\nb\n", "keep.txt": b"same\n"}
++    after = {"styles.css": b"a\nB\nc\n", "keep.txt": b"same\n", "new.txt": b"hello\n"}
++    report = harness.describe_changes(before, after)
++    assert "M styles.css" in report
++    assert "+2 -1" in report, report          # b -> B, plus the new c line
++    assert "A new.txt" in report
++    assert "keep.txt" not in report, "an unchanged file must not be reported as changed"
++
++
++def test_describe_changes_reports_a_deletion(harness) -> None:
++    report = harness.describe_changes({"gone.txt": b"x\n"}, {})
++    assert "D gone.txt" in report
++
++
++def test_describe_changes_says_so_honestly_when_nothing_changed(harness) -> None:
++    report = harness.describe_changes({"a.css": b"x\n"}, {"a.css": b"x\n"})
++    assert report.startswith("no file changed"), report
++    assert "1 file(s) compared" in report, "…and it must say what it actually looked at"
++
++
++def test_snapshot_reads_content_and_skips_dependency_noise(harness, tmp_path) -> None:
++    (tmp_path / "src").mkdir()
++    (tmp_path / "src" / "app.css").write_text("body{}\n", encoding="utf-8")
++    for noise in ("node_modules", ".git", "__pycache__", ".venv"):
++        (tmp_path / noise).mkdir()
++        (tmp_path / noise / "junk.js").write_text("junk", encoding="utf-8")
++
++    files = harness.snapshot(tmp_path)
++    assert set(files) == {"src/app.css"}, files
++    assert files["src/app.css"] == b"body{}\n"
++
++
++def test_git_diff_stat_is_none_outside_a_repository(harness, tmp_path) -> None:
++    """The bug: git exits 128 with empty stdout here, and the old code called that "no changes"."""
++    assert harness.git_diff_stat(tmp_path) is None
++
++
++def test_git_diff_stat_reports_inside_a_repository(harness, tmp_path) -> None:
++    if subprocess.run(["git", "--version"], capture_output=True).returncode != 0:
++        pytest.skip("git is not installed")
++    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
++    (tmp_path / "file.txt").write_text("one\n", encoding="utf-8")
++    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
++    subprocess.run(
++        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "init"],
++        cwd=tmp_path, check=True,
++    )
++    (tmp_path / "file.txt").write_text("one\ntwo\n", encoding="utf-8")
++    stat = harness.git_diff_stat(tmp_path)
++    assert stat is not None and "file.txt" in stat, stat
++
++
++# --------------------------------------------------------------- the demo batch must fit the fixture
++
++def test_demo_batch_fingerprints_exist_in_the_fixture(harness) -> None:
++    """Every fingerprint the demo prompt sends must be greppable in the page it describes.
++
++    Drift here is invisible and expensive: the model gets a class name that is not in the file, its
++    searches come back empty, and the failure looks like a prompt-engineering problem instead of a
++    stale fixture.
++    """
++    markup = " ".join(
++        path.read_text(encoding="utf-8")
++        for path in (FIXTURE / "index.html", FIXTURE / "styles.css", FIXTURE / "app.js")
++    )
++    fixes = harness.demo_batch()["fixes"]
++    assert fixes, "the demo batch is empty"
++
++    for fix in fixes:
++        element = fix["element"]
++        for css_class in element["classes"]:
++            assert css_class in markup, f"{fix['id']}: class {css_class!r} is not in the fixture"
++        text = str(element.get("text") or "")[:24]
++        if text:
++            assert text in markup, f"{fix['id']}: text {text!r} is not in the fixture"
++        for attr in element["fingerprint"].get("attrs") or []:
++            assert attr["value"] in markup, f"{fix['id']}: {attr['value']!r} is not in the fixture"
++
++    # The selector shown to the model should at least name elements the fixture has.
++    selectors = [fix["element"]["selector"] for fix in fixes]
++    assert any("btn-primary" in selector for selector in selectors)
++    assert any("hero-title" in selector for selector in selectors)
++
++
++def test_demo_batch_is_a_complete_batch_for_the_frame_builder(harness) -> None:
++    """It must be usable as-is: the window's batch shape, with the fields the prompt reads."""
++    batch = harness.demo_batch()
++    for key in ("sessionId", "target", "targetLabel", "kind", "viewport", "fixes"):
++        assert key in batch, key
++    for fix in batch["fixes"]:
++        assert fix["instruction"].strip()
++        assert fix["element"]["rect"]["width"] > 0
++        assert fix["element"]["viewport"]["width"] > 0
++
++
++def test_demo_mode_never_points_at_the_repository(harness) -> None:
++    """`--demo` copies the fixture to a temp dir; the repo must not be the editing target."""
++    assert FIXTURE.is_dir()
++    assert harness.FIXTURE == FIXTURE
++    # The copy is made with tempfile.mkdtemp, so assert the mechanism the script relies on.
++    import tempfile
++
++    made = Path(tempfile.mkdtemp(prefix="crusor-preview-agent-test-"))
++    try:
++        assert made != FIXTURE
++        assert os.path.commonpath([str(made), str(FIXTURE)]) != str(FIXTURE)
++    finally:
++        made.rmdir()
+-- 
+2.39.5
+
