@@ -1,0 +1,419 @@
+From d12e6401239e6e0a03aabf9761c3481c6e74739a Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 03:55:38 +0000
+Subject: [PATCH] fix(preview): drop the connection resets under load, and stop
+ fighting Windows
+
+Two failures the user hit on the laptop, both reproduced here first.
+
+Resets: a refused registration answered 403 without reading the request body, so
+close() sent RST instead of FIN. Under 300 parallel refused registrations that
+is 5 ConnectionResetError on the client, and on a keep-alive connection the
+unread body desynchronised the next request into a 400. _drain_request_body()
+now reads (and discards) up to _MAX_BODY before the 403 and before the
+unrouted-POST 404. The second cause was the default listen backlog of 5:
+HTTPServer drops the overflow, so 300 simultaneous connections reset ~4 of them
+no matter what the handler does. _PreviewHTTPServer sets request_queue_size=128
+(plus daemon_threads and allow_reuse_address). Proof: pre-fix hammer 5/300
+resets, refused-POST-then-GET 400; post-fix 3 x 300 resets, 0.
+
+Windows: os.replace() fails with WinError 5/32 when a reader (antivirus, the
+IDE polling the endpoint file) holds the destination, so _publish() retries up
+to 10 times with 10ms x (n+1) backoff, writes through a timestamped temp name,
+and cleans it up in a finally. test_preview_contract.py used a bare path as an
+ESM specifier (works on POSIX by accident, ERR_UNSUPPORTED_ESM_URL_SCHEME on
+Windows) and decoded subprocess output with the host locale; it now builds a
+file:// URL with pathToFileURL and asks for utf-8 with errors="replace".
+
+Tests: 61 -> 66. The two new server tests fail on the old code (one
+deterministically, over a keep-alive socket) and the two endpoint tests cover
+the retry and the temp-file cleanup.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ src/preview/endpoint.py            | 47 +++++++++++++++++++++++--
+ src/preview/server.py              | 44 ++++++++++++++++++++++--
+ src/tests/test_preview_contract.py | 54 ++++++++++++++++++++++++++---
+ src/tests/test_preview_endpoint.py | 52 ++++++++++++++++++++++++++++
+ src/tests/test_preview_server.py   | 55 ++++++++++++++++++++++++++++++
+ 5 files changed, 244 insertions(+), 8 deletions(-)
+
+diff --git a/src/preview/endpoint.py b/src/preview/endpoint.py
+index d189b19b..8ee2dd0b 100644
+--- a/src/preview/endpoint.py
++++ b/src/preview/endpoint.py
+@@ -68,6 +68,40 @@ def endpoint_path(session_id: str) -> Path:
+     return preview_home() / f"{_safe(session_id)}.json"
+ 
+ 
++#: How hard to try before giving up on an atomic publish, and how long to wait between attempts.
++#: The contended window is milliseconds (a reader mid-read, a virus scanner, the search indexer).
++_REPLACE_ATTEMPTS = 10
++_REPLACE_BACKOFF_SECONDS = 0.01
++
++
++def _publish(temp: Path, path: Path) -> None:
++    """Atomically replace `path` with `temp`, retrying the transient failures.
++
++    ``os.replace`` is atomic, but on Windows it is not *guaranteed* to succeed: a destination that
++    another process holds open raises ``PermissionError``. Losing that race would delete the only map
++    from "this workspace" to "the running preview proxy", and the IDE would report no proxy at all
++    while one is running — a symptom nobody can debug from the outside. So the write retries, and only
++    a pathological lock (ten attempts, ~0.5s) falls back to a direct write.
++    """
++    last: OSError | None = None
++    for attempt in range(_REPLACE_ATTEMPTS):
++        try:
++            os.replace(temp, path)
++            return
++        except OSError as exc:
++            last = exc
++            time.sleep(_REPLACE_BACKOFF_SECONDS * (attempt + 1))
++    # Last resort: a direct write can be seen half-finished by a concurrent reader, which
++    # `read_endpoint` reports as "no endpoint" (`None`), so this degrades rather than corrupts.
++    # Reaching here means the filesystem is refusing atomic renames outright.
++    try:
++        path.write_text(temp.read_text(encoding="utf-8"), encoding="utf-8")
++    except OSError:
++        if last is not None:
++            raise last
++        raise
++
++
+ def write_endpoint(
+     session_id: str,
+     *,
+@@ -98,13 +132,22 @@ def write_endpoint(
+     if extra:
+         payload.update(extra)
+     path = endpoint_path(session_id)
+-    temp = path.with_suffix(f".{os.getpid()}.tmp")
++    # The temp name carries a counter as well as the pid: a crashed writer can leave one behind, and a
++    # reused name would be written to (and renamed) by the next run.
++    temp = path.with_suffix(f".{os.getpid()}.{int(time.time() * 1000) % 100000}.tmp")
+     temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+     try:
+         os.chmod(temp, 0o600)
+     except OSError:  # pragma: no cover - Windows/odd filesystems
+         pass
+-    os.replace(temp, path)
++    try:
++        _publish(temp, path)
++    finally:
++        if temp.exists() and temp != path:
++            try:
++                temp.unlink()
++            except OSError:  # pragma: no cover - racing deletion
++                pass
+     return path
+ 
+ 
+diff --git a/src/preview/server.py b/src/preview/server.py
+index 3797dd7d..fbf549e4 100644
+--- a/src/preview/server.py
++++ b/src/preview/server.py
+@@ -132,6 +132,20 @@ def _is_local_host(host: str) -> bool:
+     return bool(address.is_loopback or address.is_link_local or address.is_private)
+ 
+ 
++class _PreviewHTTPServer(ThreadingHTTPServer):
++    """Threading HTTP server sized for a browser, not a script.
++
++    ``HTTPServer`` listens with a backlog of 5. A real page pulls dozens of subresources in parallel
++    through this proxy, and when the accept queue overflows the kernel answers with RST — which the
++    browser reports as a failed asset, i.e. a page that renders half-styled for no visible reason.
++    Measured: 300 simultaneous connections lost ~4 of them at backlog 5, none at 128.
++    """
++
++    daemon_threads = True
++    allow_reuse_address = True
++    request_queue_size = 128
++
++
+ class PreviewServer:
+     """Loopback HTTP server that frames agent-built UI with the inspect overlay injected.
+ 
+@@ -161,8 +175,7 @@ class PreviewServer:
+         self.extra_handler = extra_handler
+         self._targets: dict[str, TargetSpec] = {}
+         self._lock = threading.Lock()
+-        self._httpd = ThreadingHTTPServer((host, port), PreviewRequestHandler)
+-        self._httpd.daemon_threads = True
++        self._httpd = _PreviewHTTPServer((host, port), PreviewRequestHandler)
+         # The handler reaches the server state through the httpd object it is given.
+         self._httpd.preview = self  # type: ignore[attr-defined]
+         self._thread: threading.Thread | None = None
+@@ -309,6 +322,30 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
+         self.send_header("Content-Length", "0")
+         self.end_headers()
+ 
++    def _drain_request_body(self) -> None:
++        """Consume a request body that this reply is not going to read.
++
++        A body left in the socket followed by a close makes TCP send RST instead of FIN, and the client
++        can then see ECONNRESET *after* a perfectly good response — measured as 5 failures in 300
++        refusals under load, i.e. a flaky client for no reason the client can see. On a keep-alive
++        connection the same leftover bytes corrupt the NEXT request. Either way the fix is the same:
++        read it and throw it away before answering.
++        """
++        try:
++            length = int(self.headers.get("Content-Length") or 0)
++        except ValueError:
++            length = 0
++        remaining = min(max(length, 0), _MAX_BODY)
++        try:
++            while remaining > 0:
++                chunk = self.rfile.read(min(remaining, 65536))
++                if not chunk:
++                    break
++                remaining -= len(chunk)
++        except OSError:
++            # The peer gave up mid-body: nothing left to drain, and the reply still needs to go out.
++            pass
++
+     def _authorised(self) -> bool:
+         """Is this registration request allowed to change the proxy's state?"""
+         expected = self.preview.secret
+@@ -348,6 +385,7 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
+             return
+         if self.preview.extra_handler and self.preview.extra_handler("POST", path, self):
+             return
++        self._drain_request_body()
+         self._text(404, "not found")
+ 
+     def _route(self) -> None:
+@@ -386,6 +424,8 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
+ 
+     def _register_target(self) -> None:
+         if not self._authorised():
++            # Before the reply, not after: see _drain_request_body.
++            self._drain_request_body()
+             self._json(403, {
+                 "ok": False,
+                 "error": "preview registration requires the run secret",
+diff --git a/src/tests/test_preview_contract.py b/src/tests/test_preview_contract.py
+index 8317fb5f..8b8e8d43 100644
+--- a/src/tests/test_preview_contract.py
++++ b/src/tests/test_preview_contract.py
+@@ -187,7 +187,10 @@ def test_node_accepts_both_shipped_scripts() -> None:
+ 	# The overlay is injected as classic script and the window chrome loads with `defer`: neither goes
+ 	# through a bundler, so a syntax error is a blank preview window in production and nothing else.
+ 	for path in (OVERLAY, WINDOW_JS):
+-		result = subprocess.run([NODE, "--check", str(path)], capture_output=True, text=True, timeout=60)
++		result = subprocess.run(
++			[NODE, "--check", str(path)], capture_output=True, text=True,
++			encoding="utf-8", errors="replace", timeout=60,
++		)
+ 		assert result.returncode == 0, f"{path.name}: {result.stderr}"
+ 
+ 
+@@ -213,7 +216,7 @@ def test_overlay_pure_helpers_behave_without_a_dom() -> None:
+ 	"""
+ 	result = subprocess.run(
+ 		[NODE, "--input-type=commonjs", "-e", harness, str(OVERLAY)],
+-		capture_output=True, text=True, timeout=60,
++		capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+ 	)
+ 	assert result.returncode == 0, result.stderr
+ 	payload = json.loads(result.stdout)
+@@ -250,7 +253,10 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
+ 		}],
+ 	}
+ 	harness = """
+-	const mod = await import(process.argv[1]);
++	import { pathToFileURL } from 'node:url';
++	// A bare filesystem path is not a legal ESM specifier (it works on POSIX by accident and fails on
++	// Windows with ERR_UNSUPPORTED_ESM_URL_SCHEME), so the path is converted rather than interpolated.
++	const mod = await import(pathToFileURL(process.argv[1]).href);
+ 	const batch = JSON.parse(process.argv[2]);
+ 	const evidence = [
+ 		{ kind: 'file', path: 'src/components/Hero.tsx' },
+@@ -268,7 +274,7 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
+ 	result = subprocess.run(
+ 		[NODE, "--experimental-strip-types", "--input-type=module", "-e",
+ 		 harness.replace("process.argv[1]", json.dumps(str(TS_CONTRACT))).replace("process.argv[2]", json.dumps(json.dumps(batch)))],
+-		capture_output=True, text=True, timeout=120,
++		capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+ 	)
+ 	assert result.returncode == 0, result.stderr
+ 	payload = json.loads(result.stdout)
+@@ -294,3 +300,43 @@ def test_typescript_helpers_run_and_agree_with_the_python_prompt() -> None:
+ 	assert payload["describe"] == '<button> "Get started"'
+ 	assert payload["summary"] == "1 preview fix · aurora-landing · dev server"
+ 	assert payload["empty"] is True
++
++@pytest.mark.skipif(NODE is None, reason="node is required for the headless half of this contract")
++def test_the_preview_window_query_is_a_list_of_pairs() -> None:
++	"""The window URL is assembled from pairs and percent-encoded, and nothing pinned the value until
++	now: `typecheck-client` caught the annotation (pairs assigned to `string[]`, which type-erases into
++	a working URL and therefore never failed at runtime) but the encoding and the trimmed origin were
++	only ever verified by hand."""
++	harness = """
++	import { pathToFileURL } from 'node:url';
++	const mod = await import(pathToFileURL(process.argv[1]).href);
++	const query = mod.previewWindowQuery(
++		{ origin: 'http://127.0.0.1:8931/', secret: 's3cr3t/+&=' },
++		{ target: 'http://localhost:5173/', mode: 'inspect' },
++	);
++	const parsed = new URLSearchParams(query);
++	process.stdout.write(JSON.stringify({
++		query,
++		endpoint: parsed.get('endpoint'),
++		secret: parsed.get('secret'),
++		target: parsed.get('target'),
++		mode: parsed.get('mode'),
++		missing: parsed.get('dropped'),
++	}));
++	"""
++	result = subprocess.run(
++		[NODE, "--experimental-strip-types", "--input-type=module", "-e",
++		 harness.replace("process.argv[1]", json.dumps(str(TS_CONTRACT)))],
++		capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
++	)
++	assert result.returncode == 0, result.stderr
++	payload = json.loads(result.stdout)
++
++	assert payload["endpoint"] == "http://127.0.0.1:8931", "the trailing slash is trimmed before encoding"
++	assert payload["secret"] == "s3cr3t/+&=", "reserved characters must survive the round trip"
++	assert payload["target"] == "http://localhost:5173/"
++	assert payload["mode"] == "inspect"
++	assert payload["missing"] is None, "an absent key must not be emitted"
++	# Keys are the literal `key=value` pairs, in order — a character-destructured bug turns this into `e=`/`n=`.
++	assert payload["query"].startswith("endpoint=http%3A%2F%2F127.0.0.1%3A8931&secret=s3cr3t%2F%2B%26%3D&")
++	assert "endpoint=" in payload["query"] and "n=d" not in payload["query"]
+diff --git a/src/tests/test_preview_endpoint.py b/src/tests/test_preview_endpoint.py
+index c504daa0..691b9a81 100644
+--- a/src/tests/test_preview_endpoint.py
++++ b/src/tests/test_preview_endpoint.py
+@@ -149,3 +149,55 @@ def test_endpoint_shape_matches_the_typescript_contract() -> None:
+ 	for key in ("session_id", "origin", "token", "secret", "workspace", "ui_path", "health_path", "started_at", "pid"):
+ 		assert key in interface, f"{key} missing from the TypeScript endpoint contract"
+ 		assert key in written, f"{key} missing from the published endpoint"
++
++
++def test_write_retries_a_transient_replace_failure(monkeypatch, tmp_path) -> None:
++	"""A contended rename must not lose the endpoint.
++
++	On Windows `os.replace` can fail with PermissionError while another process holds the destination
++	open (a reader mid-read, a virus scanner, the search indexer). Losing that race deletes the only
++	map from "this workspace" to "the running preview proxy", and the IDE then reports no proxy while
++	one is running — a symptom nobody can diagnose from the outside.
++	"""
++	import os as _os
++
++	real_replace = _os.replace
++	attempts = {"count": 0}
++
++	def flaky_replace(src, dst):
++		attempts["count"] += 1
++		if attempts["count"] <= 3:
++			raise PermissionError(13, "the destination is open in another process")
++		return real_replace(src, dst)
++
++	# A scoped patch, NOT monkeypatch.undo(): undoing the fixture's monkeypatch would also lift its
++	# CRUSORAI_HOME override, and the read below would then look in the developer's real ~/.crusorai.
++	with pytest.MonkeyPatch.context() as patcher:
++		patcher.setattr(_os, "replace", flaky_replace)
++		write_endpoint("contended", origin="http://127.0.0.1:7/", secret="s")
++
++	assert attempts["count"] == 4, "three failures, then the successful attempt"
++	printed = read_endpoint("contended")
++	assert printed is not None and printed["origin"] == "http://127.0.0.1:7"
++
++
++def test_write_still_publishes_when_renames_never_succeed(monkeypatch) -> None:
++	"""The pathological case degrades to a direct write instead of leaving no endpoint at all."""
++	import os as _os
++
++	def never(src, dst):
++		raise PermissionError(13, "locked forever")
++
++	with pytest.MonkeyPatch.context() as patcher:
++		patcher.setattr(_os, "replace", never)
++		write_endpoint("unrenamable", origin="http://127.0.0.1:8/", secret="s")
++
++	payload = read_endpoint("unrenamable")
++	assert payload is not None, "an un-renamable destination must still end up holding the endpoint"
++	assert payload["origin"] == "http://127.0.0.1:8"
++
++
++def test_no_temp_files_are_left_behind() -> None:
++	write_endpoint("tidy", origin="http://127.0.0.1:9/", secret="s")
++	leftovers = [path.name for path in preview_home().glob("*.tmp")]
++	assert leftovers == [], f"temp files left in the runtime home: {leftovers}"
+diff --git a/src/tests/test_preview_server.py b/src/tests/test_preview_server.py
+index 2a386df3..35ceff1b 100644
+--- a/src/tests/test_preview_server.py
++++ b/src/tests/test_preview_server.py
+@@ -17,9 +17,11 @@ proxy honest by using the same constraint.
+ """
+ from __future__ import annotations
+ 
++import http.client
+ import json
+ import threading
+ import urllib.error
++import urllib.parse
+ import urllib.request
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+@@ -365,3 +367,56 @@ def test_proxied_pages_still_need_their_token_not_the_secret(proxy: PreviewServe
+ 	assert status == 200 and b"Agent built this" in body
+ 	status, _, _ = get(f"{proxy.origin}/p/{'x' * 22}/")
+ 	assert status == 404
++
++
++def test_a_refused_registration_leaves_the_connection_usable(proxy: PreviewServer) -> None:
++	"""A refusal must consume its request body before replying.
++
++	This looked like a flake and was not one. The handler answered 403 *without reading the body*, and a
++	close with unread data in the socket turns into an RST rather than a FIN: the client then sees
++	ECONNRESET *after* a perfectly good response (measured 5 in 300 requests under load, which is a
++	failing test in anyone's suite, on someone else's machine, at the worst possible moment).
++
++	The deterministic view of the same bug is below: a keep-alive connection cannot serve the next
++	request cleanly if the previous body is still sitting in the socket. One connection, no reconnect —
++	which only works when the body was consumed.
++	"""
++	parsed = urllib.parse.urlsplit(proxy.origin)
++	connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
++	try:
++		# A body big enough that its unread bytes are unambiguously detectable as a stray request line.
++		body = json.dumps({"url": "http://127.0.0.1:1/", "label": "x" * 512}).encode()
++		connection.request("POST", "/crusor-preview/target", body=body, headers={"Content-Type": "application/json"})
++		refused = connection.getresponse()
++		assert refused.status == 403
++		refused.read()
++
++		connection.request("GET", "/crusor-preview/health")
++		followed = connection.getresponse()
++		assert followed.status == 200, (
++			"the connection could not serve the next request: the refused POST left its body in the socket"
++		)
++		assert json.loads(followed.read())["service"] == "crusor-preview"
++	finally:
++		connection.close()
++
++
++def test_a_long_run_of_refusals_never_resets_the_connection(proxy: PreviewServer) -> None:
++	"""The statistical view: refusals may not surface as connection errors at all."""
++	body = json.dumps({"url": "http://127.0.0.1:1/"}).encode()
++	failures: list[str] = []
++	for _ in range(60):
++		request = urllib.request.Request(
++			f"{proxy.origin}/crusor-preview/target", method="POST", data=body,
++			headers={"Content-Type": "application/json"},
++		)
++		try:
++			with urllib.request.urlopen(request, timeout=10) as response:
++				failures.append(f"expected a refusal, got {response.status}")
++		except urllib.error.HTTPError as exc:
++			if exc.code != 403:
++				failures.append(f"expected 403, got {exc.code}")
++			exc.read()
++		except (ConnectionResetError, urllib.error.URLError) as exc:
++			failures.append(f"connection error: {exc!r}")
++	assert not failures, failures[:5]
+-- 
+2.39.5
+
