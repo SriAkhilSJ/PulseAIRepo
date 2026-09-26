@@ -286,7 +286,53 @@ notice from §6 will not appear; that notice only ever comes from the echo seam.
 | Nothing at all, then a stall message | the provider was reached but never answered — the message is the evidence, send it |
 | A real reply | done: the app, the engine, your key and your account all work together |
 
-### 7.5 Getting back to free testing
+### 7.5 Test the prompt itself, without the IDE — `scripts/preview_batch_turn.py`
+
+The preview window's last step is a prompt, and the only question that matters about it is whether the
+agent finds the element the user clicked — or repaints the page. This harness answers that in a
+terminal: it builds a batch, prints the exact prompt text, spawns `python -m src.bridge` the way the
+workbench does, streams what comes back (reasoning, every tool call, tokens), and then reports what
+changed in the workspace.
+
+```powershell
+cd D:\pulseAIagent\PulseAIRepo
+# safe first run: edits a TEMP copy of the lab fixture, nothing in the repo is touched
+.\.venv\Scripts\python.exe scripts\preview_batch_turn.py --demo --diff
+
+# then a real project — use a scratch copy, this edits files
+.\.venv\Scripts\python.exe scripts\preview_batch_turn.py --workspace C:\work\scratch-project --diff
+```
+
+**What a pass looks like**, from two independent sessions against the fixture:
+
+1. `search_files(pattern=btn btn-primary)` and `search_files(pattern=hero-title)` — it searched for the
+   **fingerprints**, which is the whole reason the prompt lists classes, text and attributes;
+2. a few reads to locate the rules (`read_file`, `grep -n btn styles.css`, targeted offset reads);
+3. `edit_file` on the stylesheet only — the markup was never touched, which is the scope rule working;
+4. a verification pass, then a summary.
+
+The batch's first fix names an element the fixture stamps with `data-crusor-source` (the precise path)
+and its second does not (the heuristic path) — the second is the one that has to work in your own
+project, and it did: the agent used the fingerprint attribute as its own selector.
+
+Two things that will confuse you if you do not know them:
+
+- **Output is live.** If nothing appears for minutes, the provider is slow, not the script: the
+  heartbeat prints elapsed time, the number of frames received, and what the engine sent last.
+  (The first live run before this was added reported "600 seconds, zero lines" — a buffered pipe hid a
+  turn that was working.) For the same reason the first turn can legitimately take minutes: the engine
+  warms its heavy imports before it answers.
+- **`--diff` reads the files, not git.** `--demo` edits a temp copy that is not a repository, so a
+  git-based diff there reports "no changes" no matter what happened — the report is a before/after
+  comparison of file contents, with line counts and a short unified diff per changed file, and it says
+  `no file changed (N file(s) compared)` when that is the truth.
+
+**What this does not cover:** the fixture is static HTML and CSS. The harder cases — a component
+library, Tailwind utilities, CSS-in-JS, where the class in the DOM is not the class in the source — are
+untested against a real model, and they are exactly where the fingerprints matter most. If your project
+is one of those, run the second command above against a scratch copy and send the tool-call lines.
+
+### 7.6 Getting back to free testing
 
 ```powershell
 $env:CRUSORAI_BRIDGE_RUNNER = 'echo'    # and relaunch

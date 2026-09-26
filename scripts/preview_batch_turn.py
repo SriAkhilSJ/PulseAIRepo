@@ -25,10 +25,11 @@ a classified provider error rather than a silent stall.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
-import shutil
 import queue
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,24 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+def enable_unbuffered_output() -> None:
+    """Make this script's own output appear as it happens.
+
+    Piped through PowerShell, a tee, or a file, Python block-buffers stdout: a slow (or wedged) run
+    shows *nothing* until it exits, which reads exactly like a hang carrying no information. The first
+    live run of this script was reported that way — 600 seconds, zero lines. The child engine already
+    gets ``PYTHONUNBUFFERED=1``; this is the same courtesy for the parent, and it runs at import so
+    even an early failure is visible.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+        except (AttributeError, ValueError):  # pragma: no cover - non-standard stream
+            pass
+
+
+enable_unbuffered_output()
 
 PROTOCOL_VERSION = 2
 #: A real turn can legitimately take minutes; this is a ceiling, not an expectation.
@@ -66,7 +85,7 @@ def demo_batch() -> dict:
                 "instruction": "make this button rounded, blue, and a bit bigger",
                 "label": '<button> "Get started"',
                 "element": {
-                    "selector": "header nav-actions > button.btn.btn-primary",
+                    "selector": "header .nav-actions > button.btn.btn-primary",
                     "tag": "button", "classes": ["btn", "btn-primary"], "text": "Get started",
                     "outerHtml": '<button class="btn btn-primary" type="button" data-testid="nav-cta">Get started</button>',
                     "styles": {"background-color": "rgb(60, 60, 60)", "color": "rgb(255, 255, 255)",
@@ -199,8 +218,8 @@ def render(frame: dict, *, show_tools: bool = True) -> str | None:
     return None
 
 
-def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> dict:
-    """Send the prompt and stream until the turn ends. Returns the terminal frame."""
+def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_tools: bool) -> tuple[dict, list[str]]:
+    """Send the prompt and stream until the turn ends. Returns (terminal frame, frames seen)."""
     bridge.send({"type": "hello", "protocol": PROTOCOL_VERSION})
     bridge.send({"type": "session_create", "session_id": session_id, "workspace": str(bridge.workspace)})
     bridge.send(frame)
@@ -208,16 +227,24 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
     deadline = time.monotonic() + timeout
     terminal: dict = {}
     started = False
+    seen: list[str] = []
     while time.monotonic() < deadline:
         try:
-            incoming = bridge.read(timeout=min(120.0, max(1.0, deadline - time.monotonic())))
+            incoming = bridge.read(timeout=min(30.0, max(1.0, deadline - time.monotonic())))
         except queue.Empty:
-            print(f"\n... still waiting ({timeout:.0f}s budget) ...")
+            # A quiet provider is normal. No frames at all is the thing worth telling apart, so the
+            # heartbeat carries elapsed time, how much has arrived, and what the engine last sent.
+            elapsed = timeout - max(0.0, deadline - time.monotonic())
+            print(
+                f"\n... waiting {elapsed:.0f}s of {timeout:.0f}s · frames: {len(seen)}"
+                f" · last: {seen[-1] if seen else '(none)'} ..."
+            )
             continue
         if incoming is None:
             print("\nThe engine closed its output — the process ended.")
             break
         kind = incoming.get("type")
+        seen.append(str(kind))
         if kind == "turn_started":
             started = True
             print("\n--- turn started ---")
@@ -229,18 +256,104 @@ def run_turn(bridge: Bridge, frame: dict, session_id: str, timeout: float, show_
             break
     else:
         print(f"\nTimed out after {timeout:.0f}s with no terminal frame.")
-    return terminal
+    return terminal, seen
 
 
-def git_diff_stat(workspace: Path) -> str:
+#: Directory names that are noise for "what did the agent change".
+_SKIP_DIRS = frozenset({
+    ".git", ".venv", "venv", "node_modules", "__pycache__", ".next", ".cache", ".turbo", "dist", "build",
+})
+#: Files above this size are compared by size only, not read into memory.
+_BIG_FILE_BYTES = 4 * 1024 * 1024
+
+
+def snapshot(root: Path) -> dict[str, bytes]:
+    """Relative path -> content for every file worth comparing.
+
+    The first version of `--diff` shelled out to `git diff --stat`, which prints nothing and exits
+    128 outside a repository — and because only the *exception* was caught, not the exit code, a
+    `--demo` run (a temp copy, never a repo) reported "(git reported no changes)" while the agent had
+    in fact edited the CSS. A diff that lies is worse than no diff, so the evidence is now taken from
+    the filesystem: content in, content out, no VCS assumptions.
+    """
+    files: dict[str, bytes] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if any(part in _SKIP_DIRS for part in relative.parts):
+            continue
+        try:
+            size = path.stat().st_size
+            files[relative.as_posix()] = path.read_bytes() if size <= _BIG_FILE_BYTES else b""
+            if size > _BIG_FILE_BYTES:
+                files[relative.as_posix()] = f"<{size} bytes>".encode("ascii")
+        except OSError:
+            continue
+    return files
+
+
+def _line_counts(before: bytes, after: bytes) -> tuple[int, int] | None:
+    """(+added, -removed) for a text file, or None when it is binary."""
+    if b"\0" in before or b"\0" in after:
+        return None
+    left = before.decode("utf-8", errors="replace").splitlines()
+    right = after.decode("utf-8", errors="replace").splitlines()
+    added = removed = 0
+    for line in difflib.unified_diff(left, right, n=0, lineterm=""):
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return added, removed
+
+
+def describe_changes(before: dict[str, bytes], after: dict[str, bytes], *, preview_lines: int = 14) -> str:
+    """What the turn actually edited, from the files themselves."""
+    added = sorted(set(after) - set(before))
+    removed = sorted(set(before) - set(after))
+    modified = sorted(path for path in set(before) & set(after) if before[path] != after[path])
+    if not (added or removed or modified):
+        return f"no file changed ({len(after)} file(s) compared)"
+
+    lines: list[str] = []
+    for path in modified:
+        counts = _line_counts(before[path], after[path])
+        lines.append(f"  M {path}" + (f"   +{counts[0]} -{counts[1]}" if counts else "   (binary)"))
+        if counts:
+            left = before[path].decode("utf-8", errors="replace").splitlines()
+            right = after[path].decode("utf-8", errors="replace").splitlines()
+            shown = 0
+            for line in difflib.unified_diff(left, right, n=1, lineterm=""):
+                if line.startswith(("+++", "---")):
+                    continue
+                lines.append("      " + line)
+                shown += 1
+                if shown >= preview_lines:
+                    lines.append("      ...")
+                    break
+    lines.extend(f"  A {path}" for path in added)
+    lines.extend(f"  D {path}" for path in removed)
+    lines.append(f"  ({len(after)} file(s) compared)")
+    return "\n".join(lines)
+
+
+def git_diff_stat(workspace: Path) -> str | None:
+    """`git diff --stat` when the workspace really is a repository, else None.
+
+    The exit code is the point: outside a repo git prints nothing and exits non-zero, and reporting
+    that as "no changes" is the bug this function used to have.
+    """
     try:
         done = subprocess.run(
             ["git", "diff", "--stat"], cwd=str(workspace),
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
-        return done.stdout.strip() or "(git reported no changes)"
-    except Exception as exc:  # pragma: no cover
-        return f"(could not run git diff: {exc})"
+    except Exception:  # pragma: no cover - no git on PATH
+        return None
+    if done.returncode != 0:
+        return None
+    return done.stdout.strip() or None
 
 
 def main() -> int:
@@ -294,20 +407,30 @@ def main() -> int:
     print("=" * 78)
     print(f"frames: prompt + preview_batch receipt ({frame['preview_batch']['count']} fixes)")
 
+    before = snapshot(workspace) if args.diff else {}
+
     bridge = Bridge(workspace)
     try:
-        terminal = run_turn(bridge, frame, session_id, args.timeout, show_tools=not args.no_tools)
+        terminal, seen = run_turn(bridge, frame, session_id, args.timeout, show_tools=not args.no_tools)
     except KeyboardInterrupt:
         print("\nInterrupted — stopping the engine.")
-        terminal = {}
+        terminal, seen = {}, []
     finally:
         bridge.stop()
 
     if args.diff:
-        print("\n--- what changed in the workspace ---")
-        print(git_diff_stat(workspace))
+        print("\n--- what changed in the workspace (read from the files, not from git) ---")
+        print(describe_changes(before, snapshot(workspace)))
+        git_stat = git_diff_stat(workspace)
+        if git_stat:
+            print("\n--- git diff --stat (extra context; the workspace is a repository) ---")
+            print(git_stat)
     if cleanup is not None:
         print(f"\n(the edited copy is still at {cleanup} if you want to look at it)")
+
+    if seen:
+        tools = sum(1 for kind in seen if kind == "tool_call_start")
+        print(f"\nframes: {len(seen)} · tool calls: {tools} · tokens: {seen.count('token')}")
 
     if terminal.get("type") != "turn_done" and bridge.diagnostics:
         print("\n--- engine diagnostics (stderr, last 20 lines) ---")
