@@ -1,0 +1,123 @@
+From 4a3fc4c8ee08aba614f923db017b73e58abaa98d Mon Sep 17 00:00:00 2001
+From: SriAkhilSJ <206201543+SriAkhilSJ@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 15:41:24 +0000
+Subject: [PATCH] =?UTF-8?q?fix(tools):=20refuse=20the=20foreground=20serve?=
+ =?UTF-8?q?r=20that=20ended=20run=207=20=E2=80=94=20`npx=20serve`=20bypass?=
+ =?UTF-8?q?ed=20the=20guard?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Run 7 proved the search fix (the agent read the literal-match note, switched to `.btn`, and edited the
+right files) and then failed to *finish*, which the desktop agent reported honestly: the agent ran
+`npx serve . -p 4444` foreground to verify its work, the call blocked, and the 300s harness timeout
+ended the turn. Recovery proven, completion not.
+
+The guard that exists for exactly this never saw it. `_foreground_background_guidance` refuses a
+foreground command that "would hang until the timeout (it never exits)" and hands back the
+`start_terminal` pivot, but its pattern list names `npm|pnpm|yarn|bun … dev|start|serve|watch` —
+**`npx` is not in it**. Measured before the fix:
+
+    npx serve . -p 4444    -> passes through (will block)     ← run 7
+    npx http-server -p 8080 -> passes through (will block)
+    serve -s build          -> passes through (will block)
+    php -S localhost:8000   -> passes through (will block)
+
+That is the same class as the search failure: a wrong move that returns *nothing* instead of an error,
+leaving the model to discover the cost by burning the turn. Same fix in kind — refuse in zero seconds
+and say what to run instead.
+
+Patterns added (marked in the source as crusor additions to hermes' list, with the field evidence):
+`npx <server package>` (serve, http-server, live-server, sirv, vite, nodemon, webpack-dev-server,
+including `-y`/`--yes` and `@version`), a standalone `serve|http-server|live-server` at the start of a
+command or after `|`/`&`/`;`, `php -S`, `flask run`, `manage.py runserver`. `--help`/`--version` stay
+exempt, and an over-cap timeout is still *promoted* to a tracked background process rather than
+refused, so this only catches the genuinely unbounded foreground server.
+
+False positives were the risk, so the negatives are pinned too: `rg serve src/`, `grep -rn "serve"`
+docs/`, `cat serve.log`, `ls dist/serve`, `npx tsc --noEmit`, `npm run build && ls -la dist` all pass
+through, and `npx serve --help` is exempt. Verified to fail without the fix: the new pin goes red when
+the additions are removed.
+
+50 passed across the hermes/terminal lanes.
+
+Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>
+---
+ src/tests/test_hermes_terminal_guard.py | 23 +++++++++++++++++++++++
+ src/tools/terminal_tools.py             | 12 ++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/src/tests/test_hermes_terminal_guard.py b/src/tests/test_hermes_terminal_guard.py
+index 255781e1..e46bc954 100644
+--- a/src/tests/test_hermes_terminal_guard.py
++++ b/src/tests/test_hermes_terminal_guard.py
+@@ -30,6 +30,20 @@ def test_dev_server_commands_refused_with_the_pivot():
+         "uvicorn main:app",
+         "python -m http.server 8000",
+         "docker compose up",
++        # Field 2026-09-26 (preview batch harness, run 7): `npx <pkg>` bypassed the
++        # npm|pnpm|yarn|bun pattern, so this ran foreground to "verify" the agent's edit, blocked
++        # until the harness timeout, and the turn ended with the fix unproven. Refusing it zero
++        # seconds in with the start_terminal pivot is the difference between a proven edit and a
++        # timed-out turn.
++        "npx serve . -p 4444",
++        "npx --yes serve .",
++        "serve -s build",
++        "cd build && serve -s .",
++        "npx http-server -p 8080",
++        "npx live-server",
++        "php -S localhost:8000",
++        "flask run",
++        "python manage.py runserver",
+     ):
+         msg = _foreground_background_guidance(cmd)
+         assert msg is not None, cmd
+@@ -45,6 +59,14 @@ def test_bounded_commands_pass_through():
+         "node -e console.log(1)",
+         "git status",
+         "ls .next/BUILD_ID 2>/dev/null || echo no",
++        # The word "serve" is common in ordinary commands; the patterns must name invocations, not
++        # words, or a refusal starts blocking legitimate work.
++        "rg serve src/",
++        'grep -rn "serve" docs/',
++        "cat serve.log",
++        "ls dist/serve",
++        "npx tsc --noEmit",
++        "npm run build && ls -la dist",
+     ):
+         assert _foreground_background_guidance(cmd) is None, cmd
+ 
+@@ -53,6 +75,7 @@ def test_help_and_version_exempt():
+     assert _looks_like_help_or_version_command("npx next dev --help")
+     assert _looks_like_help_or_version_command("vite --version")
+     assert _foreground_background_guidance("npx next dev --help") is None
++    assert _foreground_background_guidance("npx serve --help") is None
+     assert not _looks_like_help_or_version_command("next dev --port 3000")
+ 
+ 
+diff --git a/src/tools/terminal_tools.py b/src/tools/terminal_tools.py
+index 9aad5efa..bf623ab4 100644
+--- a/src/tools/terminal_tools.py
++++ b/src/tools/terminal_tools.py
+@@ -459,6 +459,18 @@ _LONG_LIVED_FOREGROUND_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+     r"\buvicorn\b",
+     r"\bgunicorn\b",
+     r"\bpython(?:3)?\s+-m\s+http\.server\b",
++    # ── crusor additions to hermes' list (2026-09-26), from a measured field failure ──
++    # `npx <pkg>` bypasses the npm|pnpm|yarn|bun pattern above, and that is how run 7 of the preview
++    # harness ended: the agent ran `npx serve . -p 4444` foreground to verify its edit, the call
++    # blocked, and the turn died on the harness timeout with the fix unproven ("recovery proven,
++    # completion not"). These package names bind a port and never exit; `--help`/`--version` remain
++    # exempt above, and a longer timeout is promoted to a tracked background process below rather
++    # than refused, so only the genuinely unbounded foreground server is refused here.
++    r"(?:^|[|&;]\s*)(?:serve|http-server|live-server)\b",
++    r"\bnpx\s+(?:-y\s+|--yes\s+)?(?:serve|http-server|live-server|sirv|vite|nodemon|webpack-dev-server)(?:@[\w.]+)?\b",
++    r"\bphp\s+-S\b",
++    r"\bflask\s+run\b",
++    r"\bmanage\.py\s+runserver\b",
+ ))
+ 
+ 
+-- 
+2.39.5
+
