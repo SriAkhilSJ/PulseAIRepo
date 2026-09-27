@@ -1151,3 +1151,47 @@ def test_shipped_manifest_lets_the_engine_name_stale_files():
                                          / "contrib" / "crusorai" / "browser"
                                          / "SOURCES_HASH").read_text(encoding="utf-8").strip()
     assert isinstance(parsed.get("files"), dict) and parsed["files"]
+
+
+def test_bundle_emitter_copies_the_media_the_app_loads_by_url():
+    """Field 2026-09-27 (owner: "preview is created but website is always
+    not launched properly"): the app boots its preview window from
+    FileAccess.asBrowserUri('.../browser/media/crusor-preview/index.html') —
+    a path under `out/`, the tree the app actually runs from. The scoped
+    emitter copied ONLY `.ts`, so that document existed in src/ and NOWHERE
+    in out/: the button opened a window whose frame pointed at a missing
+    file, the site never rendered, and every check stayed green — the
+    sources hash covers media SOURCES (it hashed the src file happily), the
+    emit tests only grepped emitted JS, and out/ is gitignored so no diff
+    showed the hole. The emitter must copy every non-.ts file VERBATIM and
+    refuse to ship when one fails to land."""
+    emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
+    assert "copyMedia" in emitter and "media file(s)" in emitter
+    assert "refusing to ship" in emitter, "a media gap must fail the emitter, never ship quietly"
+    assert "fs.writeFileSync(out, bytes)" in emitter, "verbatim bytes — a text round-trip corrupts fonts"
+    assert "fs.readFileSync(out).equals(bytes)" in emitter, "verify the copy landed byte-identical"
+    # The two trees the app frames by URL must exist as sources to copy.
+    for rel in ("browser/media/crusor-preview/index.html",
+                "browser/media/crusorai-spa/index.html"):
+        assert (CRUSOR / rel).is_file(), rel
+    # The preview window's boot files also travel INSIDE the committed
+    # bundle (the app updates by git pull), so out/ must carry them too.
+    preview_src = CRUSOR / "browser" / "media" / "crusor-preview"
+    preview_out = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai"
+                   / "browser" / "media" / "crusor-preview")
+    for rel in ("index.html", "preview.js", "preview.css", "overlay/crusor-preview-overlay.js"):
+        src = (preview_src / rel).read_bytes().replace(b"\r\n", b"\n")
+        out = (preview_out / rel).read_bytes().replace(b"\r\n", b"\n")
+        assert src == out, f"{rel} in out/ is not the source the window loads"
+
+
+def test_pipeline_audit_fails_loudly_when_out_is_incomplete():
+    """The audit NAMED the missing media all along — 543 of 587 sources had
+    no out/ counterpart, printed line by line — and still exited 0, so the
+    blank preview shipped while the audit looked like a pass. An audit that
+    reports an incomplete app tree must fail."""
+    audit = (FORK / "scripts" / "audit-preview-pipeline.mjs").read_text(encoding="utf-8")
+    assert "process.exitCode = 1" in audit, "reporting without a verdict is what hid this"
+    assert "is not a complete image of src/" in audit
+    assert "emit-crusorai-bundle.mjs" in audit, "name the one-command fix in the failure text"
+    assert "missingMedia" in audit, "call out the media the app loads by URL, not just any file"

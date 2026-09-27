@@ -1,5 +1,5 @@
 {
-	"sourcesHash": "52c11fcd77e9321de6c98121794f00a1c94054db43128852e8cdb3160ae1ca23",
+	"sourcesHash": "1f8a7f39ab6f25b03baeb34cc988fe4aa0c9c0e5b6e42967513dc3a9c1e240b6",
 	"files": {
 		"src/vs/workbench/contrib/crusorai/README.md": "d0231cf4f21f80de5daba9454f128fe7042bfbbb4dad42d20676df09098249e2",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "ae4b168328ded1984317cf3470a01673db3e077d72ea7d67348eab305efcf11c",

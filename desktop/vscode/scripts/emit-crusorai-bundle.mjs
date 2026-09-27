@@ -82,6 +82,47 @@ function emit(dir) {
 }
 emit(SRC_ROOT);
 
+// Media — everything `tsc` can NEVER emit: the preview window's html/css/js
+// boot files, the workbench CSS, and the whole built crusorai-spa tree the
+// Agent pane iframes (index.html + hashed assets + fonts + icons).
+//
+// Field 2026-09-27, the blank-preview report: the app boots its preview
+// window with FileAccess.asBrowserUri('.../browser/media/crusor-preview/
+// index.html') — resolved against `out/`, the tree the app actually runs
+// from. This script copied ONLY `.ts`, so that path existed nowhere: the
+// button opened a window whose frame pointed at a missing file, the site
+// never rendered, and NOTHING failed loudly — the sources hash covers
+// SOURCES (media included, so it stayed green), the panel's own emit tests
+// only grepped JS, and `out/` is gitignored so no diff showed the hole.
+// The full fork build (`npm run compile` -> gulpfile.mjs copyResources)
+// was the only thing that ever wrote these files; every machine that
+// updated by pulling the committed bundle got the JS and none of the
+// media. Copy them here, VERBATIM (raw bytes — they are loaded as-is, and
+// an EOL rewrite would corrupt binary assets), and verify the copy so a
+// gap fails THIS script instead of failing quietly in the app.
+let mediaCount = 0;
+const mediaFailures = [];
+function copyMedia(dir) {
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		const src = path.join(dir, entry.name);
+		if (entry.isDirectory()) { copyMedia(src); continue; }
+		if (entry.name.endsWith('.ts')) { continue; }
+		const out = path.join(OUT_ROOT, path.relative(SRC_ROOT, src));
+		const bytes = fs.readFileSync(src);
+		fs.mkdirSync(path.dirname(out), { recursive: true });
+		fs.writeFileSync(out, bytes);
+		mediaCount += 1;
+		if (!fs.readFileSync(out).equals(bytes)) {
+			mediaFailures.push(path.relative(SRC_ROOT, src));
+		}
+	}
+}
+copyMedia(SRC_ROOT);
+if (mediaFailures.length) {
+	throw new Error(`[emit] refusing to ship: ${mediaFailures.length} media file(s) did not land in out/ byte-identical (${mediaFailures.slice(0, 5).join(', ')})`);
+}
+console.log(`[emit] copied ${mediaCount} media file(s) to out/ (css / html / preview boot files / crusorai-spa assets) — the panel and the preview window load these by URL`);
+
 // Sources hash: sha256 over EVERYTHING under the contrib tree (ts + css +
 // media — CSS changes the UI too) plus this script, in a deterministic
 // order. BUILD_INFO carries it and the ENGINE recomputes it from the pulled
