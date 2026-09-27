@@ -1,0 +1,28 @@
+{
+	"name": "theme-crusor-icons",
+	"private": true,
+	"version": "1.0.0",
+	"displayName": "%displayName%",
+	"description": "%description%",
+	"publisher": "crusorai",
+	"license": "MIT",
+	"engines": {
+		"vscode": "*"
+	},
+	"categories": [
+		"Themes"
+	],
+	"contributes": {
+		"iconThemes": [
+			{
+				"id": "crusor",
+				"label": "%themeLabel%",
+				"path": "./fileicons/crusor-icon-theme.json"
+			}
+		]
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SriAkhilSJ/PulseAIRepo.git"
+	}
+}
