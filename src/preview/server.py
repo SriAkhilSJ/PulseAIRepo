@@ -524,7 +524,14 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_upstream(self, spec: TargetSpec, rest: str, query: str) -> None:
         base = urllib.parse.urlsplit(spec.url)
-        target_path = urllib.parse.urljoin(base.path or "/", "/" + rest)
+        # RELATIVE join, and only when there IS a rest: the registered target
+        # may live under a path (/luxury/), and the frame's injected <base>
+        # maps every page-relative URL into /p/<token>/<rest> — so 'style.css'
+        # must resolve to /luxury/style.css, not /. Field 2026-09-27: prepending
+        # "/" collapsed every frame request onto the site root (directory
+        # listing instead of the app; 404 stylesheets). urljoin(base, '') is
+        # the base itself, so the empty rest lands on the registered path.
+        target_path = urllib.parse.urljoin(base.path or "/", rest)
         upstream = urllib.parse.urlunsplit((base.scheme, base.netloc, target_path, query, ""))
         request = urllib.request.Request(upstream, headers={
             "User-Agent": "CrusorPreview/1",

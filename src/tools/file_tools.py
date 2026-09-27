@@ -507,7 +507,7 @@ def search_files(
     config: RunnableConfig,
     query: str = "",
 ) -> str:
-    """
+    r"""
     Search for text within files inside the current workspace. Use this
     instead of grep / rg / findstr / Select-String in the terminal.
 
@@ -849,6 +849,10 @@ def _esbuild_check(code: str, loader: str) -> str | None:
         proc = subprocess.run(
             [node, "-e", script, loader],
             input=code, capture_output=True, text=True, timeout=20, env=env,
+            # Field 2026-09-27: text=True alone decodes/encodes through the
+            # platform codec (cp1252 on Windows) and a 🛒 in page content
+            # crashed the writer thread mid-turn. Content is UTF-8 both ways.
+            encoding="utf-8", errors="replace",
         )
     except Exception:
         _esbuild_probe = False

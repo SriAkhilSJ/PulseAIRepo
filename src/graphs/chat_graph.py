@@ -5120,6 +5120,17 @@ def stream_agent(
 
                         tool_id = f"{thread_id}-{tool_call.get('id', '')}"
 
+                        # Field 2026-09-27: custom OpenAI-compatible endpoints
+                        # (velona.in/deepseek) intermittently stream tool calls
+                        # with EMPTY names (args intact). The request sanitizer
+                        # drops them from the NEXT request's history, but this
+                        # frame still reached the UI, which painted a "Unknown"
+                        # card with raw JSON args. Skip the ghost here — the
+                        # sanitizer will drop the pairing on the next turn.
+                        if not str(tool_name or "").strip():
+                            print("[ui] skipped nameless tool-call frame (endpoint glitch)", flush=True)
+                            continue
+
                         # Emit tool call event
                         event_bus.emit("tool.call", {
                             "tool_id": tool_id,

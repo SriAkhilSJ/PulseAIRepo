@@ -69,15 +69,27 @@ def test_typescript_contract_owns_the_message_names() -> None:
 	assert set(ts_object("CrusorPreviewOverlayCommand")) == {
 		"Configure", "Inspect", "Pins", "ClearPins", "Flash", "ClosePanel",
 	}
-	assert set(ts_object("CrusorPreviewOverlayEvent")) == {"Ready", "Inspect", "Selected", "Fix", "PinClick"}
+	assert set(ts_object("CrusorPreviewOverlayEvent")) == {"Ready", "Inspect", "Selected", "Fix", "PinClick", "Reload"}
 	assert set(ts_object("CrusorPreviewWindowCommand")) == {
 		"Configure", "Theme", "SetTarget", "Inspect", "AgentApplied", "Toast",
 	}
 	assert set(ts_object("CrusorPreviewWindowEvent")) == {
 		"Ready", "Navigate", "ThemeApplied", "Inspect", "ElementSelected", "FixAdded",
 		"OverlayReady", "ReviewOpen", "ReviewClose", "ReviewSubmit", "OpenSource", "CloseRequest", "Viewport",
-		"TargetError",
+		"TargetError", "TargetOk",
 	}
+
+
+def test_relaunch_prompt_pins_the_agent_contract() -> None:
+	"""The red-tab relaunch turn must teach the agent the full restart loop."""
+	text = read(ROOT / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "common" / "crusorAIPreview.ts")
+	for needle in (
+		"invoke_host_capability",
+		"target_reachable",
+		"HTTP 200",
+		"background",
+	):
+		assert needle in text, f"relaunch prompt must mention {needle!r}"
 
 
 def test_overlay_and_window_speak_the_same_protocol() -> None:
