@@ -76,6 +76,7 @@ def test_typescript_contract_owns_the_message_names() -> None:
 	assert set(ts_object("CrusorPreviewWindowEvent")) == {
 		"Ready", "Navigate", "ThemeApplied", "Inspect", "ElementSelected", "FixAdded",
 		"OverlayReady", "ReviewOpen", "ReviewClose", "ReviewSubmit", "OpenSource", "CloseRequest", "Viewport",
+		"TargetError",
 	}
 
 

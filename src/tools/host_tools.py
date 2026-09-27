@@ -32,8 +32,12 @@ def invoke_host_capability(
 
     Allowed first-stage capabilities are workspace trust, active editor/dirty
     context, diagnostics, symbols, definitions, references, bounded workspace
-    search, and SCM state. Mutation, execution, secrets, extension tools, and
-    MCP tools are intentionally unavailable through this operation.
+    search, SCM state, and preview.open (opens the CrusorAI Preview window on
+    the user's screen; optional `url` argument frames that URL, e.g. the dev
+    server you just started — use it when the user asks to "show", "open" or
+    "preview" the running app in the IDE). Mutation, execution, secrets,
+    extension tools, and MCP tools are intentionally unavailable through this
+    operation.
     """
     from src.runtime.host_capabilities import host_capability_broker
 

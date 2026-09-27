@@ -407,6 +407,53 @@ def stop_browser_recording_for_thread(thread_id: str) -> Optional[str]:
     return stop_browser_recording(_session_name(thread_id))
 
 
+def close_browser_session(session: str) -> bool:
+    """Close one session's browser (windows and every tab); the daemon stays
+    up, so the next navigate cold-opens a fresh single-tab browser. Best
+    effort: failure is debug noise, never a tool error."""
+    result = run_browser_command(session, "close", [], timeout=20)
+    return bool(result.get("success"))
+
+
+def close_browser_for_thread(thread_id: str) -> bool:
+    """Turn-end hook (chat_graph), the second half of hermes cleanup_browser:
+    after the recording is saved, CLOSE the browser so a testing turn leaves
+    no headed window or tab cluster behind — the user asked for visible
+    tests, not a desktop full of leftover pages."""
+    try:
+        return close_browser_session(_session_name(thread_id))
+    except Exception:
+        return False
+
+
+def _consolidate_tabs(session: str) -> int:
+    """hermes' one-tab rule: repeated browser_navigate calls used to leave a
+    tab cluster behind (open used to spawn a page per call). Before a warm
+    navigation, park on the first tab and close every other one so the
+    session always tests in exactly ONE tab. Returns how many were closed;
+    failures are debug noise."""
+    listing = run_browser_command(session, "tab", ["list", "--json"], timeout=15)
+    if not listing.get("success"):
+        return 0
+    payload = listing.get("data")
+    tabs = payload.get("tabs") if isinstance(payload, dict) else payload
+    if not isinstance(tabs, list) or len(tabs) <= 1:
+        return 0
+    run_browser_command(session, "tab", ["t1"], timeout=10)
+    closed = 0
+    for tab in tabs:
+        ref = ""
+        if isinstance(tab, dict):
+            ref = str(tab.get("id") or tab.get("label") or tab.get("targetId") or "")
+        else:
+            ref = str(tab or "")
+        if not ref or ref == "t1":
+            continue
+        if run_browser_command(session, "tab", ["close", ref], timeout=10).get("success"):
+            closed += 1
+    return closed
+
+
 def _command_env(session_name: str) -> Dict[str, str]:
     env = dict(os.environ)
     env["AGENT_BROWSER_SOCKET_DIR"] = _session_socket_dir(session_name)
@@ -849,6 +896,11 @@ def browser_navigate(
         _FIRST_NAV_SEEN.add(session)
     if not result.get("success"):
         return _failed_response(result, "Navigation failed")
+    if not is_first_nav:
+        # One tab per test (hermes' one-tab rule): the new URL is already the
+        # live tab, so fold the leftover pages from earlier navigations — same
+        # end state as tidying first, without delaying the navigation itself.
+        _consolidate_tabs(session)
     data = result.get("data", {}) or {}
     title = data.get("title", "")
     final_url = data.get("url", url)

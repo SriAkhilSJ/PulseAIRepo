@@ -16,6 +16,7 @@ READ_ONLY_CAPABILITIES = frozenset({
     "workspace.trust", "editor.activeSelection", "editor.dirtyText",
     "diagnostics.markers", "language.symbols", "language.definitions",
     "language.references", "search.workspace", "scm.state",
+    "preview.open",
 })
 _MAX_ARGUMENT_CHARS = 16_000
 _MAX_RESULT_CHARS = 128_000

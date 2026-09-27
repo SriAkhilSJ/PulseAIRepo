@@ -218,7 +218,8 @@ def _spawn_tracked_background(command: str, config: RunnableConfig) -> str:
         errors="replace",
     )
     if _IS_WINDOWS:
-        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) \
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     else:
         popen_kwargs["start_new_session"] = True
     process = subprocess.Popen(_bg_argv if _bg_argv is not None else command, **popen_kwargs)

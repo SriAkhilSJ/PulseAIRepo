@@ -5234,6 +5234,17 @@ def stream_agent(
                 print(f"[turn] browser recording saved: {_saved}", flush=True)
         except Exception as _rec_exc:
             print(f"[turn] browser recording save skipped: {type(_rec_exc).__name__}: {_rec_exc}", flush=True)
+        # Second half of hermes cleanup_browser: CLOSE the browser after the
+        # recording is saved. A testing turn used to leave the headed window
+        # and every navigation tab open on the user's desktop; the test is
+        # over, the .webm is the artifact — the window is not. Best effort,
+        # bounded: this must never block or fail the turn end.
+        try:
+            from src.tools.browser_tools import close_browser_for_thread
+            if close_browser_for_thread(thread_id):
+                print("[turn] browser closed (tab/window cleanup)", flush=True)
+        except Exception as _close_exc:
+            print(f"[turn] browser close skipped: {type(_close_exc).__name__}: {_close_exc}", flush=True)
         event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # D38: post-run bounded background self-curation (memory review on the
         # aux model). Never blocks the response — state is snapshotted from the
