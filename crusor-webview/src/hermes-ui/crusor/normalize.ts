@@ -347,16 +347,78 @@ export function reduceCrusorEvent(transcript: CrusorTranscript, frame: unknown):
       break;
     }
     case 'subagent_updated': {
-      const id = str(payload, ['id', 'agent_id', 'subagent_id']) || `sub-${next.run.subagents.length}`;
+      const id = str(payload, ['id', 'agent_id', 'subagent_id', 'child_thread_id']) || `sub-${next.run.subagents.length}`;
       const existing = next.run.subagents.find(agent => agent.id === id);
+      const statusRaw = str(payload, ['status']);
+      const mappedStatus = planStatus(statusRaw);
+      const status = (mappedStatus === 'done' ? 'done' : mappedStatus) as CrusorRunState['subagents'][number]['status'];
+      // OpenCode parity: description, agent_name, tool_calls, background, parent_session_id, child_thread_id
+      const description = str(payload, ['description']);
+      const agentName = str(payload, ['agent_name', 'agentName', 'mode']);
+      const childThreadId = str(payload, ['child_thread_id', 'childThreadId']);
+      const parentSessionId = str(payload, ['parent_session_id', 'parentSessionId', 'thread_id']);
+      const toolCalls = typeof payload.tool_calls === 'number' ? payload.tool_calls : typeof payload.toolCalls === 'number' ? payload.toolCalls : undefined;
+      const background = typeof payload.background === 'boolean' ? payload.background : false;
       const updated = {
         id,
-        status: (planStatus(str(payload, ['status'])) === 'done' ? 'done' : planStatus(str(payload, ['status']))) as CrusorRunState['subagents'][number]['status'],
+        status,
         summary: str(payload, ['summary', 'result']) || existing?.summary,
-        task: str(payload, ['task', 'goal']) || existing?.task || 'Subtask',
-      };
+        task: description || str(payload, ['task', 'goal']) || existing?.task || 'Subtask',
+        description: description || undefined,
+        agentName: agentName || undefined,
+        childThreadId: childThreadId || id,
+        parentSessionId: parentSessionId || undefined,
+        toolCalls: toolCalls,
+        background: background || undefined,
+      } as any;
 
-      next.run.subagents = existing ? next.run.subagents.map(agent => (agent.id === id ? updated : agent)) : [...next.run.subagents, updated];
+      next.run.subagents = existing ? next.run.subagents.map(agent => (agent.id === id ? {...existing, ...updated} : agent)) : [...next.run.subagents, updated as any];
+      break;
+    }
+    case 'subagent_list': {
+      const list = Array.isArray(payload.subagents) ? payload.subagents : [];
+      next.run.subagents = list.map((raw: unknown, idx: number) => {
+        const r = rec(raw);
+        const id = str(r, ['subagent_id', 'child_thread_id', 'id']) || `sub-${idx}`;
+        const statusRaw = str(r, ['state', 'status']);
+        const mapped = planStatus(statusRaw);
+        return {
+          id,
+          status: (mapped === 'done' ? 'done' : mapped) as any,
+          task: str(r, ['description', 'goal', 'task']) || 'Subtask',
+          description: str(r, ['description']) || undefined,
+          agentName: str(r, ['agent_name', 'mode']) || undefined,
+          childThreadId: str(r, ['child_thread_id']) || id,
+          parentSessionId: str(r, ['parent_session_id']) || undefined,
+          toolCalls: typeof r.tool_calls === 'number' ? r.tool_calls : typeof (r as any).toolCalls === 'number' ? (r as any).toolCalls : undefined,
+          background: Boolean(r.background) || undefined,
+          summary: str(r, ['result', 'summary']) || undefined,
+        };
+      });
+      break;
+    }
+    case 'subagent_background_completed': {
+      const id = str(payload, ['subagent_id', 'child_thread_id', 'id']) || `sub-bg-${next.run.subagents.length}`;
+      const text = str(payload, ['text', 'result', 'summary']);
+      // Append synthetic message for transcript (OpenCode <task> injection)
+      if (text) {
+        const message = tail();
+        replaceTail({ ...message, content: [...message.content, { text, type: 'text' }] });
+      }
+      // Also update subagent status to done
+      const existing = next.run.subagents.find(agent => agent.id === id);
+      if (existing) {
+        next.run.subagents = next.run.subagents.map(agent => agent.id === id ? { ...agent, status: 'done' as any, summary: text || agent.summary } : agent);
+      } else {
+        next.run.subagents = [...next.run.subagents, {
+          id,
+          status: 'done' as any,
+          task: str(payload, ['description']) || 'Background task',
+          summary: text,
+          childThreadId: str(payload, ['child_thread_id']) || id,
+          background: true as any,
+        } as any];
+      }
       break;
     }
     case 'reasoning': {
@@ -400,6 +462,29 @@ export function reduceCrusorEvent(transcript: CrusorTranscript, frame: unknown):
           ...replayed,
           run: { ...replayed.run, model: str(status, ['model']) || replayed.run.model, provider: str(status, ['provider']) || replayed.run.provider },
         };
+      }
+
+      // OpenCode parity: restore subagents from session_info (parentMap navigation, env path aware)
+      const subagentsFromInfo = Array.isArray(payload.subagents) ? payload.subagents : [];
+      if (subagentsFromInfo.length > 0) {
+        replayed.run.subagents = subagentsFromInfo.map((raw: unknown, idx: number) => {
+          const r = rec(raw);
+          const id = str(r, ['subagent_id', 'child_thread_id', 'id']) || `sub-${idx}`;
+          const statusRaw = str(r, ['state', 'status']);
+          const mapped = planStatus(statusRaw);
+          return {
+            id,
+            status: (mapped === 'done' ? 'done' : mapped) as any,
+            task: str(r, ['description', 'goal', 'task']) || 'Subtask',
+            description: str(r, ['description']) || undefined,
+            agentName: str(r, ['agent_name', 'mode']) || undefined,
+            childThreadId: str(r, ['child_thread_id']) || id,
+            parentSessionId: str(r, ['parent_session_id']) || undefined,
+            toolCalls: typeof r.tool_calls === 'number' ? r.tool_calls : typeof (r as any).toolCalls === 'number' ? (r as any).toolCalls : undefined,
+            background: Boolean(r.background) || undefined,
+            summary: str(r, ['result', 'summary']) || undefined,
+          };
+        });
       }
 
       return replayed;

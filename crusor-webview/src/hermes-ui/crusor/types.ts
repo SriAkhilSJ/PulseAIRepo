@@ -58,6 +58,12 @@ export interface CrusorSubAgent {
   status: 'failed' | 'running' | 'queued' | 'done';
   summary?: string;
   task: string;
+  description?: string;
+  agentName?: string;
+  childThreadId?: string;
+  parentSessionId?: string;
+  toolCalls?: number;
+  background?: boolean;
 }
 
 export interface CrusorRunState {

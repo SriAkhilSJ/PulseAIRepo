@@ -145,3 +145,15 @@ EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", "local")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 EMBEDDING_DEVICE: str = os.getenv("EMBEDDING_DEVICE", "cpu")
 
+# =========================================================
+# SUBAGENT PIPELINE — OpenCode parity (Phase 0-6)
+# =========================================================
+# Depth of nested subagent delegation (OpenCode cfg subagent_depth, default 1)
+# Stored as env var for runtime checks, but also exposed as constant.
+SUBAGENT_DEPTH: int = int(os.getenv("CRUSORAI_SUBAGENT_DEPTH", "1") or "1")
+# Experimental feature flags (OpenCode parity)
+SUBAGENT_NAVIGATION_ENABLED: bool = os.getenv("CRUSORAI_EXPERIMENTAL_SUBAGENT_NAVIGATION", "").lower() in {"1", "true", "yes", "on"}
+BACKGROUND_SUBAGENTS_ENABLED: bool = os.getenv("CRUSORAI_EXPERIMENTAL_BACKGROUND_SUBAGENTS", "").lower() in {"1", "true", "yes", "on"}
+# Cap for persisted subagent sessions (OpenCode: separate table, cap 1000)
+SUBAGENT_STORE_CAP: int = int(os.getenv("CRUSORAI_SUBAGENT_STORE_CAP", "1000") or "1000")
+

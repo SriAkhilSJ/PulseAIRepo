@@ -174,6 +174,13 @@ function planGlyph(status: string): string {
   }
 }
 
+function agentColor(name: string): string {
+  const palette = ['#0b6bcb', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+  let hash = 0;
+  for (let i = 0; i < (name||'').length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length];
+}
+
 export function RunStatusPanel({ run }: { run: CrusorRunState }) {
   // User request 2026-09-12: plan checklist makes chat box small, todo list UI
   // already displays perfectly via tool cards. Hide the scaffold plan panel
@@ -188,13 +195,48 @@ export function RunStatusPanel({ run }: { run: CrusorRunState }) {
     return false; // default hidden per user request
   })();
 
+  const hasSubagents = (run.subagents?.length ?? 0) > 0;
+  const hasVerification = (run.verification?.length ?? 0) > 0;
+  const hasDegraded = !!run.degraded;
+
   if (!showPlan) {
-    if ((run.verification?.length ?? 0) === 0 && !run.degraded) {
+    if (!hasVerification && !hasDegraded && !hasSubagents) {
       return null;
     }
     return (
       <div className="crusor-run-status crusor-run-status--dropdown" data-conversation-scaffold="" data-slot="crusor-run-status">
-        {(run.verification?.length ?? 0) > 0 && (
+        {hasSubagents && (
+          <div className="crusor-run-status__subagents" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+            {run.subagents.map((sa: any, idx: number) => {
+              const color = agentColor(sa.agentName || sa.task || 'agent');
+              const running = sa.status === 'running' || sa.status === 'queued';
+              const sessionId = sa.childThreadId || sa.id;
+              return (
+                <div
+                  key={sessionId || idx}
+                  data-component="task-tool-card"
+                  data-testid="task-tool-card"
+                  style={{ ['--task-agent-color' as any]: color, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: sessionId ? 'pointer' : 'default' } as any}
+                  onClick={sessionId ? () => {
+                    try {
+                      const ev = new CustomEvent('crusorai:navigate-to-session', { detail: { sessionId } });
+                      window.dispatchEvent(ev);
+                    } catch {}
+                  } : undefined}
+                  title={sa.task}
+                >
+                  <span style={{ color, fontSize: 12 }}>{running ? '◍' : '●'}</span>
+                  <span style={{ fontWeight: 600, textTransform: 'capitalize', color, fontSize: 12 }}>{sa.agentName || 'general'}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {sa.description || sa.task}{sa.background ? ' (background)' : ''}{sa.toolCalls ? ` · ${sa.toolCalls} calls` : ''}
+                  </span>
+                  {sessionId && <span style={{ fontSize: 11, opacity: 0.6 }}>↗</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {hasVerification && (
           <div className="crusor-run-status__checks">
             {run.verification?.map((check, index) => (
               <span className={`crusor-run-status__check crusor-run-status__check--${check.status}`} key={index} title={check.detail}>

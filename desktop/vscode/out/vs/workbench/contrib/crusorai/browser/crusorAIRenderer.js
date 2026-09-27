@@ -597,6 +597,118 @@ function toolFields(rows) {
     }
     return wrap;
 }
+// OpenCode parity: agent color hash for task cards
+function agentColor(name) {
+    const palette = ['#0b6bcb', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++)
+        hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return palette[hash % palette.length];
+}
+function taskToolCard(tool, host) {
+    const args = record(tool.arguments) ?? {};
+    const resultRec = resultRecord(tool.result);
+    // Extract from args: description, prompt, subagent_type, mode, background
+    const description = firstString(args, ['description', 'goal', 'prompt', 'task']) ?? 'Sub-agent task';
+    const agentName = firstString(args, ['subagent_type', 'agent_name', 'mode']) ?? 'general';
+    const isBackground = Boolean(args.background ?? resultRec?.background ?? false);
+    // sessionId metadata may be in result or tool metadata fields (bridge now emits child_thread_id)
+    const childId = firstString(resultRec ?? {}, ['sessionId', 'session_id', 'child_thread_id', 'subagent_id'])
+        ?? firstString(args, ['sessionId', 'child_thread_id'])
+        ?? resultRec?.child_thread_id
+        ?? resultRec?.sessionId;
+    const toolCalls = resultRec?.toolCalls ?? resultRec?.tool_calls ?? args.toolCalls;
+    const state = tool.state;
+    const running = state === 'running' || state === 'queued';
+    const card = element('div', 'crusorai-task-tool-card');
+    card.dataset.component = 'task-tool-card';
+    card.style.setProperty('--task-agent-color', agentColor(agentName));
+    // Always clickable — even while sub-agent is still starting (childId not yet in result)
+    const navId = childId ?? tool.toolCallId ?? tool.id;
+    card.dataset.sessionId = String(navId);
+    card.classList.add('is-clickable');
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', `Open sub-agent ${description}`);
+    console.log('[CrusorAI] taskToolCard render', { description, agentName, childId, navId, state });
+    const navigate = () => {
+        console.log('[CrusorAI] taskToolCard click -> navigateToSession', { description, childId, navId, target: childId ?? navId });
+        const target = childId ?? navId;
+        if (host.navigateToSession && target)
+            host.navigateToSession(String(target));
+        else
+            console.warn('[CrusorAI] navigateToSession not available or no target', { host: !!host.navigateToSession, target });
+    };
+    card.addEventListener('click', navigate);
+    card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            navigate();
+        }
+    });
+    const surface = element('div', 'crusorai-task-tool-surface');
+    const iconWrap = element('span', running ? 'crusorai-task-tool-spinner' : 'crusorai-task-tool-icon');
+    iconWrap.append(running ? element('span', 'crusorai-mini-spinner') : icon('robot'));
+    surface.append(iconWrap);
+    surface.append(element('span', 'crusorai-task-tool-title', agentName.charAt(0).toUpperCase() + agentName.slice(1)));
+    const subtitleText = description + (isBackground ? ' (background)' : '') + (toolCalls ? ` · ${toolCalls} calls` : '');
+    surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
+    // Breathing when sub-agent is running — main shows live process
+    if (running) {
+        const breath = element('span', 'crusorai-scaffold-crusor');
+        breath.style.marginLeft = '6px';
+        surface.append(breath);
+    }
+    card.append(surface);
+    // For batch: show each task as clickable row that navigates to its sub-agent session
+    const batchTasks = args.tasks;
+    if (Array.isArray(batchTasks) && batchTasks.length > 0) {
+        const batchList = element('div', 'crusorai-task-tool-batch');
+        for (let i = 0; i < batchTasks.length; i++) {
+            const t = String(batchTasks[i] ?? '');
+            const short = t.slice(0, 80);
+            const row = element('div', 'crusorai-task-tool-batch-row', element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`), element('span', undefined, short));
+            row.title = t;
+            row.style.cursor = 'pointer';
+            // Try to find sub-agent id for this task by matching goal/description in host's subAgents
+            row.addEventListener('click', () => {
+                const subs = host.getSubAgents?.() ?? host.subAgents ?? [];
+                let target;
+                for (const s of subs) {
+                    if (s.goal && t.includes(s.goal.slice(0, 20))) {
+                        target = s.id ?? s.subagent_id;
+                        break;
+                    }
+                    if (s.description && t.includes(s.description.slice(0, 20))) {
+                        target = s.id;
+                        break;
+                    }
+                }
+                if (!target)
+                    target = childId ?? navId;
+                if (target && host.navigateToSession)
+                    host.navigateToSession(String(target));
+            });
+            batchList.append(row);
+        }
+        card.append(batchList);
+    }
+    else {
+        // Show full task prompt below subtitle so user can see what the sub-agent is doing (was only short "Research")
+        const fullTask = firstString(args, ['prompt', 'task', 'description', 'goal']) ?? '';
+        if (fullTask && fullTask !== description) {
+            card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+        }
+        else if (fullTask) {
+            card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+        }
+    }
+    if (childId) {
+        const action = element('div', 'crusorai-task-tool-action', icon('arrow-up-right'));
+        card.append(action);
+    }
+    return card;
+}
 function familyBody(tool, host) {
     const presentation = crusorAIToolPresentation(tool.name);
     if (presentation.family === 'terminal' || presentation.family === 'process') {
@@ -737,10 +849,9 @@ function familyBody(tool, host) {
         body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));
         body.append(element('pre', 'crusorai-tool-pre', boundedText(result ?? tool.arguments, 400)));
     }
-    else if (presentation.family === 'subagent') {
-        body.append(toolFields([['Goal', target], ['Mode', firstString(args, ['mode']) ?? 'research'], ['Children', '2']]));
-        body.append(element('div', 'crusorai-child-tool-list', element('div', undefined, icon('check'), element('span', undefined, 'Search code'), element('code', undefined, '3 matches'))));
-        body.append(element('div', 'crusorai-tool-actions', button('Open sub-agent tab', 'crusorai-link-button', () => void 0, 'organization'), button('Cancel', 'crusorai-link-button', () => void 0, 'debug-stop')));
+    else if (presentation.family === 'subagent' || tool.name.startsWith('delegate_to_subagent')) {
+        // OpenCode parity: task-tool-card clickable navigation
+        return taskToolCard(tool, host);
     }
     else if (presentation.family === 'code' || presentation.family === 'scaffold') {
         // Field 2026-09-10: this body hardcoded a fake RUNTIME value —
@@ -1281,16 +1392,38 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     }
     if (model.subAgents.length) {
         const subAgents = element('section', 'crusorai-subagent-list');
+        subAgents.dataset.component = 'subagent-list';
         subAgents.append(element('div', 'crusorai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'crusorai-section-count', String(model.subAgents.length))));
         for (const subAgent of model.subAgents) {
             const state = subAgent.state;
-            const row = element('div', `crusorai-subagent-row is-${state}`, element('span', 'crusorai-mini-spinner', undefined), element('span', 'crusorai-subagent-goal', subAgent.goal ?? 'Sub-agent task'), element('span', `crusorai-subagent-state is-${state}`, state));
-            if (subAgent.duration) {
+            const desc = subAgent.description ?? subAgent.goal ?? 'Sub-agent task';
+            const childId = subAgent.childThreadId ?? subAgent.id;
+            const isRunning = state === 'running' || state === 'pending';
+            const row = element('div', `crusorai-subagent-row is-${state}${childId ? ' is-clickable' : ''}`);
+            if (childId) {
+                row.dataset.sessionId = childId;
+                row.tabIndex = 0;
+                row.setAttribute('role', 'button');
+                row.addEventListener('click', () => { if (host.navigateToSession)
+                    host.navigateToSession(childId); });
+                row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (host.navigateToSession)
+                        host.navigateToSession(childId);
+                } });
+            }
+            const iconEl = isRunning ? element('span', 'crusorai-mini-spinner') : icon(state === 'completed' ? 'pass-filled' : state === 'failed' ? 'error' : state === 'cancelled' ? 'circle-slash' : 'circle-outline');
+            const goalEl = element('span', 'crusorai-subagent-goal', desc);
+            goalEl.style.setProperty('--task-agent-color', agentColor(subAgent.agentName ?? subAgent.mode ?? 'general'));
+            row.append(iconEl, goalEl, element('span', `crusorai-subagent-state is-${state}`, state));
+            if (subAgent.background)
+                row.append(element('span', 'crusorai-subagent-badge', 'bg'));
+            if (subAgent.toolCalls)
+                row.append(element('span', 'crusorai-subagent-calls', `${subAgent.toolCalls} calls`));
+            if (subAgent.duration)
                 row.append(element('span', 'crusorai-subagent-duration', subAgent.duration));
-            }
-            if (subAgent.result) {
-                row.append(element('div', 'crusorai-subagent-result', element('pre', 'crusorai-tool-pre', JSON.stringify(subAgent.result, null, 2).slice(0, 500))));
-            }
+            if (childId)
+                row.append(element('span', 'crusorai-subagent-action', icon('arrow-up-right')));
             subAgents.append(row);
         }
         lane.append(subAgents);
@@ -1394,6 +1527,32 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
         lane.append(element('div', 'crusorai-error-row', icon(setup ? 'settings-gear' : 'warning'), element('span', undefined, setup ? `Crusor engine setup: ${model.error}` : model.error), setup
             ? button('Open Settings', 'crusorai-link-button', host.openEngineSettings, 'settings-gear')
             : button('Retry', 'crusorai-link-button', host.retryEngine)));
+    }
+    // OpenCode parity: child header parent / child + agent-designed prompt as user message
+    if (model.isChild) {
+        const delegatedTask = model.userMessage || model.subAgentGoal || '';
+        const parentTitle = model.parentTitle || 'Main';
+        const childTitle = delegatedTask.slice(0, 60) || 'Sub-agent';
+        // Header like opencode: Spawn agents to analyze folders / Analyze playground folder
+        const header = element('div', 'crusorai-child-header');
+        const parentBtn = element('button', 'crusorai-child-header-parent', parentTitle);
+        if (model.parentSessionId && host.navigateToSession) {
+            const pId = model.parentSessionId;
+            parentBtn.addEventListener('click', () => host.navigateToSession(pId));
+        }
+        header.append(parentBtn, element('span', undefined, ' / '), element('h1', 'crusorai-child-header-child', childTitle));
+        lane.prepend(header);
+        if (delegatedTask) {
+            lane.append(element('div', 'crusorai-user-message', delegatedTask.slice(0, 800)));
+        }
+        const banner = element('div', 'crusorai-child-banner');
+        banner.dataset.component = 'child-banner';
+        banner.append(icon('info'), element('span', undefined, 'Sub-agent session — prompt disabled'));
+        if (model.parentSessionId && host.navigateToSession) {
+            const parentId = model.parentSessionId;
+            banner.append(button('Back to Parent', 'crusorai-link-button', () => host.navigateToSession(parentId), 'arrow-left'));
+        }
+        lane.append(banner);
     }
     scroll.append(lane);
     return scroll;
@@ -2166,10 +2325,10 @@ function thinkPicker(model, host) {
 function composer(model, host, manager) {
     const input = element('textarea', 'crusorai-composer-input');
     input.rows = manager ? 2 : 3;
-    input.placeholder = manager ? 'Steer this agent or add context...' : 'Plan, @ for context, / for commands';
+    input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled. Use Back to Parent.' : manager ? 'Steer this agent or add context...' : 'Plan, @ for context, / for commands';
     input.value = model.draft;
     input.addEventListener('input', () => host.setDraft(input.value));
-    const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired;
+    const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired || !!model.isChild;
     if (inputBlocked) {
         input.disabled = true;
     }
@@ -2414,6 +2573,9 @@ export function mountCrusorAIRenderer(root, surface, host) {
         const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
         const activeElement = document.activeElement;
         const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
+        // Don't steal focus from ask tool (clarify card) — vibrations/streaming re-renders were
+        // yanking focus back to the main composer while user typed in the card
+        const isClarifyInput = activeComposer?.closest('.crusorai-clarify-card') !== null;
         const selectionStart = activeComposer?.selectionStart;
         const selectionEnd = activeComposer?.selectionEnd;
         root.replaceChildren();
@@ -2428,11 +2590,21 @@ export function mountCrusorAIRenderer(root, surface, host) {
         if (nextScroll) {
             nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop;
         }
-        if (activeComposer) {
+        if (activeComposer && !isClarifyInput && activeComposer.classList.contains('crusorai-composer-input')) {
             const input = root.querySelector('.crusorai-composer-input');
             input?.focus({ preventScroll: true });
             if (input && selectionStart !== undefined && selectionEnd !== undefined) {
                 input.setSelectionRange(selectionStart, selectionEnd);
+            }
+        }
+        else if (isClarifyInput && activeComposer) {
+            // Restore focus to the clarify card's textarea (it was recreated by replaceChildren)
+            const nextClarify = root.querySelector('.crusorai-clarify-card textarea');
+            if (nextClarify) {
+                nextClarify.focus({ preventScroll: true });
+                if (selectionStart !== undefined && selectionEnd !== undefined) {
+                    nextClarify.setSelectionRange(selectionStart, selectionEnd);
+                }
             }
         }
         lastPaint = { signature, text: lastTextPart(model)?.text ?? '' };

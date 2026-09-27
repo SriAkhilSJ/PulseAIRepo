@@ -396,57 +396,240 @@ def verify(
 # finalize rule below survives only as legacy-replay compat for old sessions.
 @tool
 def delegate_to_subagent(
-    mode: Literal["research", "code", "test", "review"],
-    task: str,
-    config: RunnableConfig,
+    mode: Literal["research", "code", "test", "review"] = "general",
+    task: str = "",
+    description: str = "",
+    subagent_type: str = "",
+    background: bool = False,
+    prompt: str = "",
+    config: RunnableConfig = None,  # type: ignore
 ) -> str:
     """
-    Delegate a focused sub-task to a specialized sub-agent.
+    Delegate a focused sub-task to a specialized sub-agent - PREFERRED FOR PARALLEL WORK.
 
-    WHEN TO USE:
-    - The task has a clear separable piece (research, coding, testing, review)
-    - You want parallel exploration of different approaches
-    - The sub-task is complex enough to benefit from focused attention
+    WHEN TO USE (STRONGLY PREFERRED):
+    - Analyzing multiple folders/files - spawn ONE sub-agent per folder IN PARALLEL (like opencode: Spawn agents to analyze folders -> 5x Explore in parallel)
+    - Any task with separable pieces that can run in parallel (research, coding, testing)
+    - Example: "Analyze dog folders" -> delegate_to_subagent for each folder: playground, PulseAIRepo, pulse-res, etc. IN ONE BATCH CALL
+    - Use delegate_to_subagent_batch for multiple at once
 
     WHEN NOT TO USE:
     - Trivial one-step tasks
     - Tasks that depend on your immediate previous action
+
+    OpenCode parity extensions:
+    - description: short 3-5 words label (for UI card, e.g., "Analyze playground folder")
+    - subagent_type: alias for mode (general, explore, etc.) - use "explore" or "research" for folder analysis
+    - background: run async, returns immediately
+    - prompt: alias for task (OpenCode shape)
     """
     from src.config.settings import LLM_PROVIDER, LLM_MODEL
+    import os
 
-    # Depth cap: sub-agents run the SAME graph with the SAME tools, so a
-    # sub-agent could spawn its own sub-agent ad infinitum (cost + latency
-    # bomb). Exactly one level of delegation is allowed.
-    caller_thread = (config or {}).get("configurable", {}).get("thread_id", "")
-    if str(caller_thread).startswith("sub-"):
-        return (
-            "⛔ Sub-agents cannot spawn further sub-agents (depth cap). "
-            "Complete the decomposed steps directly instead."
+    # Normalize args — support both Crusor and OpenCode shapes
+    # OpenCode sends prompt + description + subagent_type, Crusor sends mode + task
+    actual_task = (prompt or task or "").strip()
+    actual_mode = (subagent_type or mode or "general").strip().lower()
+    if actual_mode not in {"research", "code", "test", "review", "general", "explore", "build", "plan"}:
+        actual_mode = "general"
+    # Map general/explore to internal modes
+    mode_map = {"general": "code", "explore": "research", "build": "code", "plan": "research"}
+    internal_mode = mode_map.get(actual_mode, actual_mode)
+    if internal_mode not in {"research", "code", "test", "review"}:
+        internal_mode = "code"
+    actual_description = (description or actual_task[:50] or f"{actual_mode} task").strip()[:200]
+
+    # Config may be passed as second arg if called with OpenCode shape (tool def positional)
+    # Handle RunnableConfig being in different positions
+    runnable_config = config
+    if isinstance(config, str):
+        # config is actually description
+        actual_description = config
+        runnable_config = None
+    if runnable_config is None:
+        # Try to get from kwargs or default
+        runnable_config = {}
+
+    caller_thread = (runnable_config or {}).get("configurable", {}).get("thread_id", "") if isinstance(runnable_config, dict) else ""
+    # Also check if config is RunnableConfig object
+    if not caller_thread and hasattr(runnable_config, "get"):
+        try:
+            caller_thread = str(runnable_config.get("configurable", {}).get("thread_id", "") or "")
+        except Exception:
+            caller_thread = ""
+    if not caller_thread:
+        # Fallback: check thread-local or default
+        caller_thread = "main"
+
+    # Depth check via store + prefix (OpenCode parity: cfg.subagent_depth default 1)
+    try:
+        from src.runtime.subagent_store import get_store
+        store = get_store()
+        depth = store.depth_of(str(caller_thread))
+        # Also prefix check for legacy
+        if str(caller_thread).startswith("sub-"):
+            depth = max(depth, 1)
+        max_depth = int(os.getenv("CRUSORAI_SUBAGENT_DEPTH", "1"))
+        if depth >= max_depth:
+            return (
+                f"⛔ Subagent depth limit reached ({max_depth}). "
+                f"Increase CRUSORAI_SUBAGENT_DEPTH to allow nested subagents. "
+                "Complete the decomposed steps directly instead."
+            )
+    except Exception:
+        # Fallback to legacy prefix check
+        if str(caller_thread).startswith("sub-"):
+            return (
+                "⛔ Sub-agents cannot spawn further sub-agents (depth cap). "
+                "Complete the decomposed steps directly instead."
+            )
+
+    # Background flag check (OpenCode parity)
+    if background:
+        if os.getenv("CRUSORAI_EXPERIMENTAL_BACKGROUND_SUBAGENTS", "").lower() not in {"1", "true", "yes", "on"}:
+            # Still allow but warn — OpenCode errors, Crusor degrades to foreground
+            # For strict parity, we could error, but we allow with note
+            pass
+
+    # Extract tool_call_id if available from config
+    tool_call_id = None
+    try:
+        # LangChain injects tool_call_id in some contexts
+        if isinstance(runnable_config, dict):
+            tool_call_id = runnable_config.get("configurable", {}).get("tool_call_id") or runnable_config.get("tool_call_id")
+    except Exception:
+        pass
+
+    # Use lifecycle service for persistence + events (OpenCode parity: child session with parentID)
+    # Crucial: choose env-aware depth, derive capabilities, inherit deny permissions
+    try:
+        from src.agents.subagent_lifecycle import subagent_lifecycle
+        from src.agents.runtime_profile import KNOWN_CAPABILITIES
+        # Parent capabilities from config (scope_capabilities) — env path aware
+        parent_caps = ()
+        try:
+            if isinstance(runnable_config, dict):
+                cfg = runnable_config.get("configurable", {}) or {}
+                pc = cfg.get("scope_capabilities") or cfg.get("parent_capabilities") or ()
+                if pc:
+                    parent_caps = tuple(pc)
+        except Exception:
+            parent_caps = ()
+        # Allowed caps based on mode (research/code/test/review) — subset of parent if parent has caps
+        mode_caps_map = {
+            "research": ("web_search", "web_fetch", "read_file", "search_files"),
+            "code": ("read_file", "write_file", "edit_file", "list_files", "search_files", "search_code"),
+            "test": ("read_file", "run_terminal", "list_files", "search_files"),
+            "review": ("read_file", "list_files", "search_files", "search_code"),
+        }
+        requested_caps = mode_caps_map.get(internal_mode, ())
+        # Filter to known
+        requested_caps = tuple(c for c in requested_caps if c in KNOWN_CAPABILITIES)
+        # Derive via permission module (subset enforcement)
+        try:
+            from src.agents.subagent_permissions import derive_subagent_capabilities, derive_subagent_session_permission
+            derived_caps = derive_subagent_capabilities(tuple(parent_caps), tuple(requested_caps))
+            # Permission ruleset: inherit parent deny + external_directory (OpenCode parity)
+            # In Crusor, parent permission is not explicit, but we derive empty -> todowrite/task deny
+            parent_perm = []  # Could be loaded from env or config in future
+            subagent_perm = []  # Subagent's own allows (e.g., if mode is general, it might allow task)
+            derived_perm = derive_subagent_session_permission(parent_perm, subagent_perm)
+        except Exception:
+            derived_caps = requested_caps
+            derived_perm = []
+            parent_perm = []
+            subagent_perm = []
+        handle = subagent_lifecycle.launch(
+            parent_session_id=str(caller_thread) or "main",
+            goal=actual_task,
+            mode=internal_mode,
+            parent_capabilities=tuple(parent_caps),
+            allowed_capabilities=tuple(derived_caps),
+            description=actual_description,
+            agent_name=actual_mode,
+            tool_call_id=tool_call_id,
+            background=background,
+            parent_permission=parent_perm,
+            subagent_permission=subagent_perm,
         )
+        child_id = handle.subagent_id
 
+        # If background, return immediately with running state (OpenCode BACKGROUND_STARTED)
+        if background:
+            from src.agents.subagent_permissions import format_task_output, BACKGROUND_STARTED
+            return format_task_output(
+                session_id=child_id,
+                state="running",
+                text=BACKGROUND_STARTED,
+                summary="Background task started",
+            )
+
+        # Foreground: wait for completion
+        result_dict = subagent_lifecycle.wait(handle, timeout=600)
+        result_text = result_dict.get("result") or result_dict.get("error") or "No result"
+        state = "completed" if result_dict.get("state") == "succeeded" else "error"
+
+        # Format as OpenCode XML for parent LLM + also keep friendly prefix for UI
+        from src.agents.subagent_permissions import format_task_output
+        xml_output = format_task_output(
+            session_id=child_id,
+            state=state,
+            text=result_text[:2000],
+            summary=None,
+        )
+        # Keep human-readable header for backward compat + XML for structured parsing
+        return (
+            f"🤖 Sub-agent ({actual_mode}) completed.\n\n"
+            f"**Description:** {actual_description}\n"
+            f"**Task:** {actual_task[:500]}\n\n"
+            f"**Result:**\n{result_text[:2000]}\n\n"
+            f"*Agent ID: {child_id}*\n\n"
+            f"{xml_output}"
+        )
+    except Exception:
+        # Fallback to legacy coordinator path (no lifecycle)
+        pass
+
+    # Legacy fallback (original behavior)
     agent_id = subagent_coordinator.spawn(
-        mode=mode,
-        task=task,
+        mode=internal_mode,
+        task=actual_task,
         parent_thread_id=str(caller_thread) or "main",
         provider=LLM_PROVIDER,
         model=LLM_MODEL,
+        description=actual_description,
+        background=background,
+        tool_call_id=tool_call_id,
     )
 
     result = subagent_coordinator.get_result(agent_id)
 
-    return (
-        f"🤖 Sub-agent ({mode}) completed.\n\n"
-        f"**Task:** {task}\n\n"
-        f"**Result:**\n{result[:2000]}\n\n"
-        f"*Agent ID: {agent_id}*"
-    )
+    # Emit XML as well for new UI
+    try:
+        from src.agents.subagent_permissions import format_task_output
+        xml_output = format_task_output(session_id=agent_id, state="completed", text=result[:2000])
+        return (
+            f"🤖 Sub-agent ({actual_mode}) completed.\n\n"
+            f"**Description:** {actual_description}\n"
+            f"**Task:** {actual_task[:500]}\n\n"
+            f"**Result:**\n{result[:2000]}\n\n"
+            f"*Agent ID: {agent_id}*\n\n"
+            f"{xml_output}"
+        )
+    except Exception:
+        return (
+            f"🤖 Sub-agent ({internal_mode}) completed.\n\n"
+            f"**Task:** {actual_task}\n\n"
+            f"**Result:**\n{result[:2000]}\n\n"
+            f"*Agent ID: {agent_id}*"
+        )
 
 
 @tool
 def delegate_to_subagent_batch(
-    mode: Literal["research", "code", "test", "review"],
-    tasks: list[str],
-    config: RunnableConfig,
+    mode: Literal["research", "code", "test", "review"] = "code",
+    tasks: list[str] = None,  # type: ignore
+    config: RunnableConfig = None,  # type: ignore
 ) -> str:
     """
     Delegate SEVERAL independent sub-tasks at once — they run in parallel.
@@ -463,38 +646,78 @@ def delegate_to_subagent_batch(
       clobbering each other's files, but dependencies still need order.
 
     Returns each sub-agent's result in the SAME order as the tasks list.
+    OpenCode parity: depth check via store, XML output.
     """
     from src.config.settings import LLM_PROVIDER, LLM_MODEL
+    import os
 
-    caller_thread = (config or {}).get("configurable", {}).get("thread_id", "")
-    if str(caller_thread).startswith("sub-"):
-        return (
-            "⛔ Sub-agents cannot spawn further sub-agents (depth cap). "
-            "Complete the decomposed steps directly instead."
-        )
-    if not tasks:
+    actual_tasks = tasks or []
+    if isinstance(tasks, dict):
+        actual_tasks = []
+    runnable_config = config if isinstance(config, dict) else {}
+    caller_thread = (runnable_config or {}).get("configurable", {}).get("thread_id", "") if isinstance(runnable_config, dict) else ""
+    if isinstance(config, dict) and not caller_thread:
+        caller_thread = (config or {}).get("configurable", {}).get("thread_id", "")
+    if not caller_thread:
+        # also try original config param when tasks shift
+        try:
+            if isinstance(tasks, dict):
+                caller_thread = tasks.get("configurable", {}).get("thread_id", "")
+        except Exception:
+            pass
+    if not caller_thread:
+        caller_thread = "main"
+
+    try:
+        from src.runtime.subagent_store import get_store
+        store = get_store()
+        depth = store.depth_of(str(caller_thread))
+        if str(caller_thread).startswith("sub-"):
+            depth = max(depth, 1)
+        max_depth = int(os.getenv("CRUSORAI_SUBAGENT_DEPTH", "1"))
+        if depth >= max_depth:
+            return f"⛔ Subagent depth limit reached ({max_depth}). Complete steps directly."
+    except Exception:
+        if str(caller_thread).startswith("sub-"):
+            return (
+                "⛔ Sub-agents cannot spawn further sub-agents (depth cap). "
+                "Complete the decomposed steps directly instead."
+            )
+
+    if not actual_tasks:
         return "⛔ Empty batch: provide at least one task."
-    if len(tasks) > 5:
+    if len(actual_tasks) > 5:
         return (
-            f"⛔ Batch too large ({len(tasks)} tasks, max 5): split it "
+            f"⛔ Batch too large ({len(actual_tasks)} tasks, max 5): split it "
             f"into smaller batches."
         )
 
     agent_ids = subagent_coordinator.spawn_batch(
         mode=mode,
-        tasks=tasks,
+        tasks=actual_tasks,
         parent_thread_id=str(caller_thread) or "main",
         provider=LLM_PROVIDER,
         model=LLM_MODEL,
     )
 
-    parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
-    for i, (task, agent_id) in enumerate(zip(tasks, agent_ids), 1):
-        result = subagent_coordinator.get_result(agent_id)
-        parts.append(
-            f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
-        )
-    return "\n".join(parts)
+    try:
+        from src.agents.subagent_permissions import format_task_output
+        parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
+        for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
+            result = subagent_coordinator.get_result(agent_id)
+            xml_output = format_task_output(session_id=agent_id, state="completed", text=result[:2000])
+            parts.append(
+                f"--- [{i}] Task: {task[:200]} ---\n{result[:2000]}\n(ID: {agent_id})\n{xml_output}\n"
+            )
+        return "\n".join(parts)
+    except Exception:
+        parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
+        for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
+            result = subagent_coordinator.get_result(agent_id)
+            parts.append(
+                f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
+            )
+        return "\n".join(parts)
 
 
 class CrusorTask(TypedDict):

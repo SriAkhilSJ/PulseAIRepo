@@ -1847,3 +1847,65 @@
 	background: var(--crusorai-verified);
 	vertical-align: middle;
 }
+/* ---- OpenCode parity: task-tool-card (subagent) ---- */
+.crusorai-task-tool-card {
+	display: flex;
+	gap: 8px;
+	padding: 8px 12px;
+	border-radius: 6px;
+	border: 0.5px solid var(--vscode-widget-border, rgba(128,128,128,.25));
+	background: var(--vscode-editor-background);
+	--task-agent-color: #0b6bcb;
+	transition: background 120ms ease;
+}
+.crusorai-task-tool-card.is-clickable { cursor: pointer; }
+.crusorai-task-tool-card.is-clickable:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-task-tool-card:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.crusorai-task-tool-surface { flex: 1; display: flex; gap: 8px; align-items: center; min-width: 0; overflow: hidden; }
+.crusorai-task-tool-icon, .crusorai-task-tool-spinner { display: inline-flex; flex: none; color: var(--task-agent-color); }
+.crusorai-task-tool-title { font-weight: 500; text-transform: capitalize; color: var(--task-agent-color); white-space: nowrap; }
+.crusorai-task-tool-subtitle { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--crusorai-text-meta); }
+.crusorai-task-tool-action { margin-left: auto; opacity: 0; transition: opacity 150ms ease; display: inline-flex; flex: none; }
+.crusorai-task-tool-card:hover .crusorai-task-tool-action { opacity: 1; }
+.crusorai-task-tool-card .crusorai-mini-spinner { width: 12px; height: 12px; }
+
+/* ---- Subagent list clickable rows ---- */
+.crusorai-subagent-row.is-clickable { cursor: pointer; }
+.crusorai-subagent-row.is-clickable:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-subagent-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.crusorai-subagent-row .crusorai-subagent-goal { color: var(--task-agent-color, var(--vscode-foreground)); }
+.crusorai-subagent-badge { padding: 1px 4px; border-radius: 3px; background: color-mix(in srgb, var(--vscode-badge-background) 80%, transparent); color: var(--vscode-badge-foreground); font-size: var(--crusorai-text-micro); text-transform: uppercase; }
+.crusorai-subagent-calls { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-subagent-action { margin-left: auto; opacity: 0; transition: opacity 150ms ease; display: inline-flex; }
+.crusorai-subagent-row:hover .crusorai-subagent-action { opacity: 1; }
+
+/* ---- Child banner lock ---- */
+.crusorai-child-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-editorWarning-background, #cca70033) 40%, var(--vscode-sideBar-background));
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-child-banner .codicon { color: var(--vscode-editorWarning-foreground, #cca700); }
+
+/* Sub-agent task prompt visible � user could not see task (was only short 'Research') */
+.crusorai-task-tool-task {
+	padding: 6px 10px 8px;
+	font-size: var(--crusorai-text-meta);
+	color: var(--vscode-descriptionForeground);
+	white-space: pre-wrap;
+	word-break: break-word;
+	line-height: 1.4;
+}
+
+
+/* UI Polish � flat, hover, not hard-coded */
+.crusorai-agent-shell { border-radius: 8px; overflow: hidden; }
+.crusorai-task-tool-card { border-radius: 8px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-editorWidget-background); transition: border-color 120ms, box-shadow 120ms, background 120ms; }
+.crusorai-task-tool-card.is-clickable:hover { border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: var(--vscode-list-hoverBackground); }
+.crusorai-task-tool-card.is-clickable:active { transform: scale(0.99); }
