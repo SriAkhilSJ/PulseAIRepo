@@ -26,6 +26,7 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
+import { ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { installCrusorTheme } from './crusorTheme.js';
 /**
  * Where the built CopilotKit SPA lands inside the app. `npm run build` in `crusor-webview`
@@ -44,11 +45,12 @@ function paragraph(text) {
     return node;
 }
 let CrusorAIViewPane = class CrusorAIViewPane extends ViewPane {
-    constructor(options, keybindingService, contextMenuService, crusorConfigurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, crusorThemeService, hoverService, crusorAIRendererService) {
+    constructor(options, keybindingService, contextMenuService, crusorConfigurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, crusorThemeService, hoverService, crusorAIRendererService, crusorAIPreviewService) {
         super(options, keybindingService, contextMenuService, crusorConfigurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, crusorThemeService, hoverService);
         this.crusorConfigurationService = crusorConfigurationService;
         this.crusorThemeService = crusorThemeService;
         this.crusorAIRendererService = crusorAIRendererService;
+        this.crusorAIPreviewService = crusorAIPreviewService;
     }
     renderBody(container) {
         super.renderBody(container);
@@ -74,6 +76,33 @@ let CrusorAIViewPane = class CrusorAIViewPane extends ViewPane {
         webviewTab.type = 'button';
         webviewTab.textContent = 'Webview';
         webviewTab.disabled = this.webviewFrame === undefined;
+        // "Preview is available" lives in the Agent UI and only lights up when the session actually
+        // built something previewable — a dev server it started, or an HTML file it wrote.
+        const previewButton = DOM.append(tabs, DOM.$('button.crusorai-view-tab.crusorai-preview-open'));
+        previewButton.type = 'button';
+        previewButton.textContent = 'Preview';
+        previewButton.disabled = true;
+        previewButton.dataset.available = 'false';
+        const applyPreviewAvailability = () => {
+            const availability = this.crusorAIPreviewService.availability;
+            const windowOpen = this.crusorAIPreviewService.isWindowOpen;
+            // A spawned window is a STATE, not just a click: the chip flips to
+            // "Preview · OPEN" while the preview window exists, so "something
+            // spawned" is visible without hunting for the separate window.
+            previewButton.textContent = windowOpen ? 'Preview · OPEN' : 'Preview';
+            previewButton.dataset.open = String(windowOpen);
+            previewButton.disabled = !availability.available && !windowOpen;
+            previewButton.dataset.available = String(availability.available || windowOpen);
+            previewButton.title = windowOpen
+                ? 'The preview window is open on your desktop — click to bring it forward'
+                : availability.available
+                    ? `Open the preview window — ${availability.label ?? 'the UI Crusor built'}`
+                    : 'No preview yet: when Crusor builds UI or starts a dev server, it appears here.';
+        };
+        this._register(this.crusorAIPreviewService.onDidChangeAvailability(() => applyPreviewAvailability()));
+        this._register(this.crusorAIPreviewService.onDidChangeWindow(() => applyPreviewAvailability()));
+        this._register(addDisposableListener(previewButton, 'click', () => { void this.crusorAIPreviewService.openPreview(); }));
+        applyPreviewAvailability();
         const show = (surface) => {
             root.style.display = surface === 'native' ? '' : 'none';
             if (this.webviewSlot) {
@@ -83,7 +112,10 @@ let CrusorAIViewPane = class CrusorAIViewPane extends ViewPane {
             webviewTab.classList.toggle('is-active', surface === 'webview');
             nativeTab.setAttribute('aria-current', String(surface === 'native'));
             webviewTab.setAttribute('aria-current', String(surface === 'webview'));
-            tabs.classList.toggle('is-hidden', this.webviewFrame === undefined);
+            // Only the two tab BUTTONS hide when there is a single surface: the row also carries the
+            // "a preview is available" chip, which must stay visible with the CopilotKit webview off.
+            nativeTab.classList.toggle('is-hidden', this.webviewFrame === undefined);
+            webviewTab.classList.toggle('is-hidden', this.webviewFrame === undefined);
         };
         this._register(addDisposableListener(nativeTab, 'click', () => show('native')));
         this._register(addDisposableListener(webviewTab, 'click', () => show('webview')));
@@ -199,6 +231,7 @@ CrusorAIViewPane = __decorate([
     __param(7, IOpenerService),
     __param(8, IThemeService),
     __param(9, IHoverService),
-    __param(10, ICrusorAIRendererService)
+    __param(10, ICrusorAIRendererService),
+    __param(11, ICrusorAIPreviewService)
 ], CrusorAIViewPane);
 export { CrusorAIViewPane };

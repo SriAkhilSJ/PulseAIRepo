@@ -101,7 +101,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-09-11';
+const CRUSORAI_UI_STAMP = '2026-09-26';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {

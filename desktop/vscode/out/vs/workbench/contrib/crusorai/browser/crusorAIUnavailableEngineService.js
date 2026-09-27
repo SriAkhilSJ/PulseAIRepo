@@ -3,10 +3,11 @@
  *--------------------------------------------------------------------------------------------*/
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 export class CrusorAIUnavailableEngineService extends Disposable {
     constructor() {
         super(...arguments);
-        this._state = "stopped" /* CrusorAIEngineState.Stopped */;
+        this._state = CrusorAIEngineState.Stopped;
         this._onDidChangeState = this._register(new Emitter());
         this.onDidChangeState = this._onDidChangeState.event;
         this._onDidReceiveFrame = this._register(new Emitter());
@@ -14,7 +15,7 @@ export class CrusorAIUnavailableEngineService extends Disposable {
     }
     get state() { return this._state; }
     async start(_workspace) {
-        this._state = "degraded" /* CrusorAIEngineState.Degraded */;
+        this._state = CrusorAIEngineState.Degraded;
         this._onDidChangeState.fire(this._state);
         throw new Error('The local CrusorAI engine is available in the desktop product only');
     }
@@ -22,7 +23,7 @@ export class CrusorAIUnavailableEngineService extends Disposable {
         throw new Error('The local CrusorAI engine is unavailable in this host');
     }
     async stop() {
-        this._state = "stopped" /* CrusorAIEngineState.Stopped */;
+        this._state = CrusorAIEngineState.Stopped;
         this._onDidChangeState.fire(this._state);
     }
 }

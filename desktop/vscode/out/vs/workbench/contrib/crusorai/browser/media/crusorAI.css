@@ -1817,3 +1817,22 @@
 @keyframes crusorai-plan-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .crusorai-plan-text { font-size: var(--crusorai-conv-tool-size); line-height: 1.45; }
 .crusorai-plan-row.is-completed .crusorai-plan-text { color: var(--vscode-descriptionForeground); }
+
+/* Crusor Preview — the Agent pane's "a preview is available" affordance.
+ * Same grammar as the rest of the pane: derived tokens only, and the dot is a shared semantic
+ * (--crusorai-verified) rather than a new color. Off state stays quiet: an unavailable preview
+ * should not advertise itself. */
+.crusorai-preview-open[data-available='true'] {
+	color: var(--crusorai-verified);
+}
+
+.crusorai-preview-open[data-available='true']::after {
+	content: '';
+	display: inline-block;
+	width: 5px;
+	height: 5px;
+	margin-left: 5px;
+	border-radius: 50%;
+	background: var(--crusorai-verified);
+	vertical-align: middle;
+}

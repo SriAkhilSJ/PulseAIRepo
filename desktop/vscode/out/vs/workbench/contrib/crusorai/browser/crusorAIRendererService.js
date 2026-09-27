@@ -18,8 +18,9 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
+import { CrusorAICommandId } from '../common/crusorAI.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
+import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -195,7 +196,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             selectWorkspace: uri => this.selectWorkspace(uri),
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
-            openEngineSettings: () => { void this.commandService.executeCommand("crusorai.openSettings" /* CrusorAICommandId.OpenSettings */); },
+            openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
             openManager: () => { this.openManagerWindow(); },
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
@@ -208,17 +209,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
         };
         this._register(this.engineService.onDidChangeState(state => {
-            if (state === "ready" /* CrusorAIEngineState.Ready */) {
+            if (state === CrusorAIEngineState.Ready) {
                 this.restartAttempts = 0;
                 this.engineFault = undefined;
             }
-            else if (state === "crashed" /* CrusorAIEngineState.Crashed */ || state === "degraded" /* CrusorAIEngineState.Degraded */) {
+            else if (state === CrusorAIEngineState.Crashed || state === CrusorAIEngineState.Degraded) {
                 // The only trace of a dying sidecar used to be a log line: the process exit is reported by
                 // the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
                 // receives turn_done -- so the panel kept painting a live run that had no engine behind it.
                 // A setup failure already has its own actionable row, so it is not overwritten here.
                 if (!this.engineSetupError) {
-                    this.engineFault = state === "crashed" /* CrusorAIEngineState.Crashed */
+                    this.engineFault = state === CrusorAIEngineState.Crashed
                         ? 'The Crusor engine process stopped while this session was open.'
                         : 'The Crusor engine could not accept the request, so it never reached the model.';
                     if (this.running) {
@@ -454,7 +455,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }, delay);
     }
     async ensureEngine() {
-        if (this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
+        if (this.engineService.state === CrusorAIEngineState.Ready) {
             return;
         }
         if (this.startPromise) {
@@ -475,7 +476,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (resumeSession && this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
+            if (resumeSession && this.engineService.state === CrusorAIEngineState.Ready) {
                 this.publishHostCapabilities(resumeSession);
                 this.send({ type: 'session_resume', session_id: resumeSession, workspace });
                 this.send({ type: 'events_replay', session_id: resumeSession });
@@ -513,7 +514,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     publishHostCapabilities(sessionId = this.sessionId) {
         const workspace = this.workspacePath;
-        if (!sessionId || !workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (!sessionId || !workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
             return;
         }
         const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
@@ -521,6 +522,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             'workspace.trust', 'editor.activeSelection', 'editor.dirtyText',
             'diagnostics.markers', 'language.symbols', 'language.definitions',
             'language.references', 'search.workspace', 'scm.state',
+            'preview.open',
         ]);
         const capabilities = CRUSOR_AI_WORKBENCH_CAPABILITIES
             .filter(item => item.risk === 'read' && readIds.has(item.id))
@@ -550,6 +552,16 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 case 'workspace.trust':
                     result = { trusted: this.workbenchService.isWorkspaceTrusted() };
                     break;
+                case 'preview.open': {
+                    // The agent asked for the Preview window by name: route through
+                    // the same command the Preview chip runs (no preview-service DI
+                    // edge here — that would be a cycle). An explicit URL target is
+                    // honored; otherwise the service resolves the freshest evidence.
+                    const url = typeof args['url'] === 'string' && args['url'].trim() ? args['url'].trim() : undefined;
+                    await this.commandService.executeCommand('crusorai.openPreview', url ? { url } : undefined);
+                    result = { opened: true, ...(url ? { url } : {}) };
+                    break;
+                }
                 case 'editor.activeSelection':
                     result = await this.workbenchService.getActiveEditorContext(args['includeVisibleText'] === true);
                     break;
@@ -623,7 +635,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.ensureEngine(),
             new Promise(resolve => setTimeout(resolve, 20_000)),
         ]);
-        if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (this.engineService.state !== CrusorAIEngineState.Ready) {
             // The one dishonest thing the old code did: return silently. The
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,
@@ -647,21 +659,52 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         this.startTurn(text);
     }
-    startTurn(text) {
-        // Preserve previous turn in history before clearing (user → agent → user → agent)
-        if (this.userMessage || this.assistantText || this.tools.size > 0) {
-            this.history = [...this.history, {
-                    userMessage: this.userMessage,
-                    assistantText: this.assistantText,
-                    parts: [...this.parts],
-                    reasoningParts: this.reasoningParts,
-                    reasoningPending: this.reasoningPending,
-                    tools: [...this.tools.values()],
-                    subAgents: [...this.subAgents.values()],
-                    turnOutcome: this.turnOutcome,
-                    plan: this.plan,
-                }].slice(-20); // keep last 20 turns
+    /**
+     * A turn opened by code outside the composer (today: the Preview window's
+     * reviewed batch, whose `prompt` frame is dispatched by the preview service
+     * itself). The engine will stream `turn_started` and everything after; the
+     * only thing missing without this is the USER half of the turn — the bubble
+     * and the fresh-turn bookkeeping. When a session is live, run exactly what
+     * `startTurn` runs minus the send and answer true: the caller's frame is
+     * the turn's prompt. Without a session, park the text as the pending
+     * prompt behind a `session_create` and answer false — the caller's frame
+     * would only be refused (session required), and the `session_info`
+     * handler starts the turn with the parked text instead.
+     */
+    beginExternalTurn(text) {
+        if (this.sessionId) {
+            this.archiveLiveTurn();
+            this.resetTurnState(text);
+            this.render();
+            return true;
         }
+        // The user bubble is NOT set here: the parked prompt replays through
+        // startTurn on session_info, and pre-setting it would archive a
+        // bubble-only turn and paint the message twice.
+        this.pendingPrompt = text;
+        this.send({ type: 'session_create', workspace: this.workspacePath });
+        this.render();
+        return false;
+    }
+    /** Push the live turn (if any) into history before a new one replaces it. */
+    archiveLiveTurn() {
+        if (!(this.userMessage || this.assistantText || this.tools.size > 0)) {
+            return;
+        }
+        this.history = [...this.history, {
+                userMessage: this.userMessage,
+                assistantText: this.assistantText,
+                parts: [...this.parts],
+                reasoningParts: this.reasoningParts,
+                reasoningPending: this.reasoningPending,
+                tools: [...this.tools.values()],
+                subAgents: [...this.subAgents.values()],
+                turnOutcome: this.turnOutcome,
+                plan: this.plan,
+            }].slice(-20); // keep last 20 turns
+    }
+    /** Fresh-turn state: the user's text becomes the bubble; everything else clears. */
+    resetTurnState(text) {
         this.userMessage = text;
         this.assistantText = '';
         this.parts = [];
@@ -678,6 +721,10 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.cancelRequested = false;
         this.turnOutcome = 'running';
         this.turnStartedAt = Date.now();
+    }
+    startTurn(text) {
+        this.archiveLiveTurn();
+        this.resetTurnState(text);
         this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
         this.render();
     }
@@ -1162,11 +1209,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 source: detailLine ? `${detailLine}` : 'Crusor Agent finished',
                 actions: {
                     primary: [{
-                            id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+                            id: CrusorAICommandId.Focus,
                             label: 'Open Crusor',
                             tooltip: 'Focus Crusor Agent',
                             enabled: true,
-                            run: () => { void this.commandService.executeCommand("crusorai.focus" /* CrusorAICommandId.Focus */); }
+                            run: () => { void this.commandService.executeCommand(CrusorAICommandId.Focus); }
                         }]
                 }
             });

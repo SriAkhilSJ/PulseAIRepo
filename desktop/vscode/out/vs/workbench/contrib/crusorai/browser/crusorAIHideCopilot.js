@@ -44,10 +44,10 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 import { localize2 } from '../../../../nls.js';
 import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { ConfigurationScope, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import { WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { IChatEntitlementService } from '../../../../workbench/services/chat/common/chatEntitlementService.js';
 import { Extensions as ViewExtensions } from '../../../common/views.js';
 const SETTING_ID = 'crusorai.hideBuiltInCopilotUI';
@@ -61,7 +61,7 @@ Registry.as(ConfigurationExtensions.Configuration).registerConfiguration({
         [SETTING_ID]: {
             type: 'boolean',
             default: true,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize2('crusorai.hideBuiltInCopilotUI.description', 'Hide the built-in GitHub Copilot UI (CHAT tab, empty-editor "Open Chat" watermark, title-bar Copilot icon, Copilot sign-in prompts). Crusor is the primary AI in this IDE; Copilot source and extensions remain installed and can be re-enabled by turning this off.').value,
         },
     },
@@ -144,7 +144,7 @@ CrusorHideCopilotContribution = __decorate([
 ], CrusorHideCopilotContribution);
 // BlockRestore (Ready) hides CHAT tab before first paint, preventing flash of VS Code surfaces.
 // Previously AfterRestored caused visible flicker of sign-in / CHAT tab.
-registerWorkbenchContribution2(CrusorHideCopilotContribution.ID, CrusorHideCopilotContribution, 2 /* WorkbenchPhase.BlockRestore */);
+registerWorkbenchContribution2(CrusorHideCopilotContribution.ID, CrusorHideCopilotContribution, WorkbenchPhase.BlockRestore);
 // Manual toggle command (Command Palette only) so a power user can flip
 // this without editing settings JSON.
 registerAction2(class extends Action2 {

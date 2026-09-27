@@ -9,24 +9,27 @@
  *   - View menu (auto-added by viewsService for AuxiliaryBar views)
  *--------------------------------------------------------------------------------------------*/
 import { Codicon } from '../../../../base/common/codicons.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { MenuId, MenuRegistry, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { ConfigurationScope, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { ICrusorAISessionStore, CrusorAISessionStore } from '../common/crusorAISessionStore.js';
+import { CrusorAIPreviewService, ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { EditorPaneDescriptor } from '../../../browser/editor.js';
 import './crusorAISessionController.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { Extensions as ViewContainerExtensions, } from '../../../common/views.js';
+import { Extensions as ViewContainerExtensions, ViewContainerLocation, } from '../../../common/views.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
-import { CRUSOR_AI_VIEW_CONTAINER_ID, CRUSOR_AI_VIEW_ID, } from '../common/crusorAI.js';
+import { CRUSOR_AI_VIEW_CONTAINER_ID, CRUSOR_AI_VIEW_ID, CrusorAICommandId, } from '../common/crusorAI.js';
 import { ICrusorAIEngineService } from '../common/crusorAIEngineService.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
@@ -49,13 +52,16 @@ import './crusorAIConnectors.js';
 const CRUSOR_AI_MENU_ID = new MenuId('MenubarCrusorAI');
 // Keep common/web hosts constructable. The desktop entrypoint registers its
 // utility-process implementation later, replacing this no-process fallback.
-registerSingleton(ICrusorAIEngineService, CrusorAIUnavailableEngineService, 1 /* InstantiationType.Delayed */);
-registerSingleton(ICrusorAIWorkbenchService, CrusorAIWorkbenchService, 1 /* InstantiationType.Delayed */);
-registerSingleton(ICrusorAIRendererService, CrusorAIRendererService, 1 /* InstantiationType.Delayed */);
+registerSingleton(ICrusorAIEngineService, CrusorAIUnavailableEngineService, InstantiationType.Delayed);
+registerSingleton(ICrusorAIWorkbenchService, CrusorAIWorkbenchService, InstantiationType.Delayed);
+registerSingleton(ICrusorAIRendererService, CrusorAIRendererService, InstantiationType.Delayed);
 // The Agent Manager's session list and the workbench's own Agent Sessions list are projections of
 // this store. It is a singleton rather than renderer state so that a session the user ran is
 // remembered even while neither surface is mounted.
-registerSingleton(ICrusorAISessionStore, CrusorAISessionStore, 1 /* InstantiationType.Delayed */);
+registerSingleton(ICrusorAISessionStore, CrusorAISessionStore, InstantiationType.Delayed);
+// Crusor Preview: availability from what the session actually built, the separate preview window, and
+// the reviewed-batch handoff back into the Agent (steps 1, 2 and 9 of the flow; 3-8 live in the window).
+registerSingleton(ICrusorAIPreviewService, CrusorAIPreviewService, InstantiationType.Delayed);
 // --- Crusor container (right-side auxiliary bar) ---------------------------
 // Lives on the right (secondary) sidebar — same default location as Cursor's
 // chat panel, Windsurf's Cascade, and VS Code's Copilot Chat.
@@ -69,7 +75,7 @@ const container = Registry.as(ViewContainerExtensions.ViewContainersRegistry).re
     ]),
     storageId: CRUSOR_AI_VIEW_CONTAINER_ID,
     order: 6,
-}, 2 /* ViewContainerLocation.AuxiliaryBar */);
+}, ViewContainerLocation.AuxiliaryBar);
 Registry.as(ViewContainerExtensions.ViewsRegistry).registerViews([{
         id: CRUSOR_AI_VIEW_ID,
         name: localize2('crusorAI.view.name', 'Crusor Agent'),
@@ -96,14 +102,14 @@ async function openCrusorAgent(accessor) {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+            id: CrusorAICommandId.Focus,
             title: localize2('crusorAI.focus', 'Crusor: Open Agent'),
             f1: true,
             category: localize2('crusorAI.category', 'Crusor'),
             icon: Codicon.cursor,
             keybinding: {
-                weight: 200 /* KeybindingWeight.WorkbenchContrib */,
-                primary: 2048 /* KeyMod.CtrlCmd */ | 42 /* KeyCode.KeyL */,
+                weight: KeybindingWeight.WorkbenchContrib,
+                primary: KeyMod.CtrlCmd | KeyCode.KeyL,
             },
         });
     }
@@ -126,7 +132,7 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 // Ctrl+L shortcut shows up next to it automatically.
 MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
     command: {
-        id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+        id: CrusorAICommandId.Focus,
         title: localize('crusorAI.menu.openAgent', 'Open Crusor Agent'),
     },
     group: '0_open',
@@ -139,7 +145,7 @@ MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
 // (default in modern Code OSS).
 MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
     command: {
-        id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+        id: CrusorAICommandId.Focus,
         title: localize2('crusorAI.commandCenter.tooltip', 'Open Crusor Agent (Ctrl+L)'),
         icon: Codicon.cursor,
     },
@@ -149,7 +155,7 @@ MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.newSession" /* CrusorAICommandId.NewSession */,
+            id: CrusorAICommandId.NewSession,
             title: localize2('crusorAI.newSession', 'New Agent Session'),
             f1: true,
             icon: Codicon.add,
@@ -161,7 +167,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.openManager" /* CrusorAICommandId.OpenManager */,
+            id: CrusorAICommandId.OpenManager,
             title: localize2('crusorAI.openManager', 'Open Crusor Manager'),
             f1: true,
             icon: Codicon.organization,
@@ -183,7 +189,25 @@ MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.reviewChanges" /* CrusorAICommandId.ReviewChanges */,
+            id: 'crusorai.openPreview',
+            title: localize2('crusorAI.openPreview', 'Open Crusor Preview'),
+            f1: true,
+            icon: Codicon.openPreview,
+            menu: [{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 4 }],
+        });
+    }
+    async run(accessor, target) {
+        // Opens the SEPARATE desktop window for the UI the agent built. It is a no-op with a log line
+        // when nothing previewable exists yet, which is the honest answer rather than an empty window.
+        // An optional target (the `preview.open` host capability forwards one) is honored; without it
+        // the service resolves the freshest preview evidence itself.
+        await accessor.get(ICrusorAIPreviewService).openPreview(target);
+    }
+});
+registerAction2(class extends Action2 {
+    constructor() {
+        super({
+            id: CrusorAICommandId.ReviewChanges,
             title: localize2('crusorAI.reviewChanges', 'Review Changes'),
             f1: true,
             icon: Codicon.diff,
@@ -195,7 +219,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.openCheckpoints" /* CrusorAICommandId.OpenCheckpoints */,
+            id: CrusorAICommandId.OpenCheckpoints,
             title: localize2('crusorAI.openCheckpoints', 'Checkpoints'),
             f1: true,
             icon: Codicon.history,
@@ -207,7 +231,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.stopActiveRun" /* CrusorAICommandId.StopActiveRun */,
+            id: CrusorAICommandId.StopActiveRun,
             title: localize2('crusorAI.stopActiveRun', 'Stop Active Run'),
             f1: true,
             icon: Codicon.debugStop,
@@ -219,7 +243,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.acceptDiff" /* CrusorAICommandId.AcceptDiff */,
+            id: CrusorAICommandId.AcceptDiff,
             title: localize2('crusorAI.acceptDiff', 'Accept Change'),
             f1: true,
             icon: Codicon.check,
@@ -237,7 +261,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.rejectDiff" /* CrusorAICommandId.RejectDiff */,
+            id: CrusorAICommandId.RejectDiff,
             title: localize2('crusorAI.rejectDiff', 'Reject Change'),
             f1: true,
             icon: Codicon.close,
@@ -255,7 +279,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: "crusorai.openSettings" /* CrusorAICommandId.OpenSettings */,
+            id: CrusorAICommandId.OpenSettings,
             title: localize2('crusorAI.openSettings', 'Crusor Settings'),
             f1: true,
             icon: Codicon.settingsGear,
@@ -274,13 +298,13 @@ Registry.as(ConfigurationExtensions.Configuration).registerConfiguration({
         'crusorai.copilotWebview.enabled': {
             type: 'boolean',
             default: true,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorai.copilotWebview.enabled.desc', "Show the CopilotKit React surface (crusor-webview) under the native Crusor Agent view. Turn off to give the whole pane to the native renderer."),
         },
         'crusorai.copilotWebview.url': {
             type: 'string',
             default: 'local',
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorai.copilotWebview.url.desc', "What the CopilotKit tab loads. 'local' (default) uses the SPA built into the app by `npm run build` in crusor-webview, which needs no server and works in packaged or remote windows. Any other value is an absolute URL framed as-is -- the workbench CSP allows only 'self' and vscode-webview:, so an http URL will be refused unless you extend the frame policy, and a dev server on :5173 therefore belongs in a browser tab, not here.")
         },
         'crusorai.copilotWebview.height': {
@@ -288,13 +312,13 @@ Registry.as(ConfigurationExtensions.Configuration).registerConfiguration({
             default: 50,
             minimum: 10,
             maximum: 85,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorai.copilotWebview.height.desc', "Share of the Crusor view given to the CopilotKit webview, in percent. The native Agent renderer keeps the rest."),
         },
         'crusorai.notifyOnComplete': {
             type: 'boolean',
             default: true,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorAI.notifyOnComplete.desc', "Show a 'Response Ready — Crusor' notification when the agent finishes a run. Disable to keep runs silent."),
         },
     },
