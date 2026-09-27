@@ -105,13 +105,22 @@ export class CrusorAIViewPane extends ViewPane {
 		previewButton.dataset.available = 'false';
 		const applyPreviewAvailability = () => {
 			const availability = this.crusorAIPreviewService.availability;
-			previewButton.disabled = !availability.available;
-			previewButton.dataset.available = String(availability.available);
-			previewButton.title = availability.available
-				? `Open the preview window — ${availability.label ?? 'the UI Crusor built'}`
-				: 'No preview yet: when Crusor builds UI or starts a dev server, it appears here.';
+			const windowOpen = this.crusorAIPreviewService.isWindowOpen;
+			// A spawned window is a STATE, not just a click: the chip flips to
+			// "Preview · OPEN" while the preview window exists, so "something
+			// spawned" is visible without hunting for the separate window.
+			previewButton.textContent = windowOpen ? 'Preview · OPEN' : 'Preview';
+			previewButton.dataset.open = String(windowOpen);
+			previewButton.disabled = !availability.available && !windowOpen;
+			previewButton.dataset.available = String(availability.available || windowOpen);
+			previewButton.title = windowOpen
+				? 'The preview window is open on your desktop — click to bring it forward'
+				: availability.available
+					? `Open the preview window — ${availability.label ?? 'the UI Crusor built'}`
+					: 'No preview yet: when Crusor builds UI or starts a dev server, it appears here.';
 		};
 		this._register(this.crusorAIPreviewService.onDidChangeAvailability(() => applyPreviewAvailability()));
+		this._register(this.crusorAIPreviewService.onDidChangeWindow(() => applyPreviewAvailability()));
 		this._register(addDisposableListener(previewButton, 'click', () => { void this.crusorAIPreviewService.openPreview(); }));
 		applyPreviewAvailability();
 

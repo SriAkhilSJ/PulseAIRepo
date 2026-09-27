@@ -193,6 +193,31 @@
 
 	view.addEventListener('load', function () {
 		if (!state.target) { return; }
+		// A 5xx from the target used to render as silent white: dev servers (Next
+		// included) return an error page whose body stays invisible until its own
+		// JS runs, so a broken build looked like "nothing in the preview". Same-origin
+		// access is free here — the frame IS the proxy — so read the status and say
+		// the truth instead.
+		try {
+			var framed = view.contentDocument;
+			if (framed && framed.documentElement) {
+				var framedTitle = String(framed.title || '');
+				var errorMark = framed.querySelector('[data-next-error], .next-error, [class*="error"]');
+				var framedText = String(framed.body && framed.body.textContent || '').slice(0, 400);
+				var looksBroken = /500|server error|internal server error|application error|compile/i.test(framedTitle + ' ' + framedText)
+					&& framedText.trim().length < 200;
+				if (errorMark || looksBroken) {
+					setState('error', 'app error');
+					empty.hidden = false;
+					emptyCopy.textContent = 'The framed app answered with an error page (HTTP 5xx). '
+						+ 'The preview is working — the app\'s build is broken. Ask Crusor to fix the compile '
+						+ 'error in the dev server\'s output, then press Reload here.';
+					toast('The app itself failed to render (5xx)', 'failed', 'close');
+					postToHost('target-error', { url: state.target });
+					return;
+				}
+			}
+		} catch (_) { /* cross-origin frame: statuses stay private, fall through */ }
 		setState(state.fixes.length ? 'pending' : 'live', state.fixes.length ? state.fixes.length + ' pending' : 'live');
 		// Re-arm inspect after a reload: the overlay is gone with the old document.
 		state.overlayReady = false;

@@ -27,6 +27,7 @@ export type CrusorAICapabilityId =
 	| 'tests.discover'
 	| 'tests.run'
 	| 'tests.results'
+	| 'preview.open'
 	| 'workspace.trust'
 	| 'extensions.providers'
 	| 'debug.sessions'
@@ -74,6 +75,9 @@ export const CRUSOR_AI_WORKBENCH_CAPABILITIES: readonly CrusorAICapabilityDescri
 	cap('tests.discover', 'context', 'read', 'testService'),
 	cap('tests.run', 'actuation', 'execute', 'testService', true),
 	cap('tests.results', 'context', 'read', 'testResultService'),
+	// The agent's one actuation that is safe without trust: it opens the same
+	// Preview window the Preview chip opens — no data leaves, no file moves.
+	cap('preview.open', 'actuation', 'read', 'crusorAIPreviewService'),
 	cap('workspace.trust', 'context', 'read', 'workspaceTrustManagementService'),
 	cap('extensions.providers', 'context', 'read', 'extensionService'),
 	cap('debug.sessions', 'advanced', 'execute', 'debugService', true),

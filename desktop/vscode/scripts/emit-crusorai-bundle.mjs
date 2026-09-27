@@ -13,8 +13,17 @@
 // project, always. The crusorai subtree is `import type`-disciplined, so
 // per-file emit preserves semantics; the emitted files are ESM (fork is
 // "type": module).
-import ts from '../node_modules/typescript/lib/typescript.js';
 import fs from 'node:fs';
+// The `typescript` package here is a one-line shim re-exporting @typescript/old
+// (TS 6.x). Field 2026-09-26: that shim file rotted on disk (every read fails
+// with a Windows device error), so resolve through @typescript/old directly
+// when the canonical path will not load — same library, same version line.
+let ts;
+try {
+	({ default: ts } = await import('../node_modules/typescript/lib/typescript.js'));
+} catch {
+	({ default: ts } = await import('../node_modules/@typescript/old/lib/typescript.js'));
+}
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';

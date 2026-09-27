@@ -576,6 +576,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			'workspace.trust', 'editor.activeSelection', 'editor.dirtyText',
 			'diagnostics.markers', 'language.symbols', 'language.definitions',
 			'language.references', 'search.workspace', 'scm.state',
+			'preview.open',
 		]);
 		const capabilities = CRUSOR_AI_WORKBENCH_CAPABILITIES
 			.filter(item => item.risk === 'read' && readIds.has(item.id))
@@ -606,6 +607,16 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				case 'workspace.trust':
 					result = { trusted: this.workbenchService.isWorkspaceTrusted() };
 					break;
+				case 'preview.open': {
+					// The agent asked for the Preview window by name: route through
+					// the same command the Preview chip runs (no preview-service DI
+					// edge here — that would be a cycle). An explicit URL target is
+					// honored; otherwise the service resolves the freshest evidence.
+					const url = typeof args['url'] === 'string' && args['url'].trim() ? args['url'].trim() : undefined;
+					await this.commandService.executeCommand('crusorai.openPreview', url ? { url } : undefined);
+					result = { opened: true, ...(url ? { url } : {}) };
+					break;
+				}
 				case 'editor.activeSelection':
 					result = await this.workbenchService.getActiveEditorContext(args['includeVisibleText'] === true);
 					break;
@@ -698,21 +709,52 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.startTurn(text);
 	}
 
-	private startTurn(text: string): void {
-		// Preserve previous turn in history before clearing (user → agent → user → agent)
-		if (this.userMessage || this.assistantText || this.tools.size > 0) {
-			this.history = [...this.history, {
-				userMessage: this.userMessage,
-				assistantText: this.assistantText,
-				parts: [...this.parts],
+	/**
+	 * A turn opened by code outside the composer (today: the Preview window's
+	 * reviewed batch, whose `prompt` frame is dispatched by the preview service
+	 * itself). The engine will stream `turn_started` and everything after; the
+	 * only thing missing without this is the USER half of the turn — the bubble
+	 * and the fresh-turn bookkeeping. When a session is live, run exactly what
+	 * `startTurn` runs minus the send and answer true: the caller's frame is
+	 * the turn's prompt. Without a session, park the text as the pending
+	 * prompt behind a `session_create` and answer false — the caller's frame
+	 * would only be refused (session required), and the `session_info`
+	 * handler starts the turn with the parked text instead.
+	 */
+	beginExternalTurn(text: string): boolean {
+		if (this.sessionId) {
+			this.archiveLiveTurn();
+			this.resetTurnState(text);
+			this.render();
+			return true;
+		}
+		// The user bubble is NOT set here: the parked prompt replays through
+		// startTurn on session_info, and pre-setting it would archive a
+		// bubble-only turn and paint the message twice.
+		this.pendingPrompt = text;
+		this.send({ type: 'session_create', workspace: this.workspacePath });
+		this.render();
+		return false;
+	}
+
+	/** Push the live turn (if any) into history before a new one replaces it. */
+	private archiveLiveTurn(): void {
+		if (!(this.userMessage || this.assistantText || this.tools.size > 0)) { return; }
+		this.history = [...this.history, {
+			userMessage: this.userMessage,
+			assistantText: this.assistantText,
+			parts: [...this.parts],
 			reasoningParts: this.reasoningParts,
 			reasoningPending: this.reasoningPending,
-				tools: [...this.tools.values()],
-				subAgents: [...this.subAgents.values()],
-				turnOutcome: this.turnOutcome,
-				plan: this.plan,
-			}].slice(-20); // keep last 20 turns
-		}
+			tools: [...this.tools.values()],
+			subAgents: [...this.subAgents.values()],
+			turnOutcome: this.turnOutcome,
+			plan: this.plan,
+		}].slice(-20); // keep last 20 turns
+	}
+
+	/** Fresh-turn state: the user's text becomes the bubble; everything else clears. */
+	private resetTurnState(text: string): void {
 		this.userMessage = text;
 		this.assistantText = '';
 		this.parts = [];
@@ -729,6 +771,11 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.cancelRequested = false;
 		this.turnOutcome = 'running';
 		this.turnStartedAt = Date.now();
+	}
+
+	private startTurn(text: string): void {
+		this.archiveLiveTurn();
+		this.resetTurnState(text);
 		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
 		this.render();
 	}

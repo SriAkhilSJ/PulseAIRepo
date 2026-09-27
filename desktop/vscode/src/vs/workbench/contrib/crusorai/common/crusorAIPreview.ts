@@ -81,6 +81,8 @@ export const CrusorPreviewWindowEvent = {
 	OpenSource: 'open-source',
 	CloseRequest: 'close-request',
 	Viewport: 'viewport',
+	/** the framed app answered 5xx — the preview works, the app's build is broken */
+	TargetError: 'target-error',
 } as const;
 
 export type CrusorPreviewKind = 'url' | 'file';

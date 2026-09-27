@@ -233,10 +233,12 @@ registerAction2(class extends Action2 {
 			menu: [{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 4 }],
 		});
 	}
-	async run(accessor: ServicesAccessor): Promise<void> {
+	async run(accessor: ServicesAccessor, target?: { url?: string; file?: string; label?: string }): Promise<void> {
 		// Opens the SEPARATE desktop window for the UI the agent built. It is a no-op with a log line
 		// when nothing previewable exists yet, which is the honest answer rather than an empty window.
-		await accessor.get(ICrusorAIPreviewService).openPreview();
+		// An optional target (the `preview.open` host capability forwards one) is honored; without it
+		// the service resolves the freshest preview evidence itself.
+		await accessor.get(ICrusorAIPreviewService).openPreview(target);
 	}
 });
 

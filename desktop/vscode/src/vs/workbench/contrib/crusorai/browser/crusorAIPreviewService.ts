@@ -31,11 +31,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { isWindows } from '../../../../base/common/platform.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IRequestService } from '../../../../platform/request/common/request.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { localize } from '../../../../nls.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
@@ -43,6 +48,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { CrusorAICommandId } from '../common/crusorAI.js';
+import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ICrusorAIEngineService } from '../common/crusorAIEngineService.js';
@@ -76,6 +82,9 @@ export interface ICrusorAIPreviewService {
 	/** A window the user can bring forward again without re-deriving the target. */
 	readonly onDidChangeWindow: Event<boolean>;
 
+	/** True while a preview window exists (the Preview chip shows its OPEN state off this). */
+	get isWindowOpen(): boolean { return this.host.value !== undefined; }
+
 	/** Steps 2-9: open (or focus) the preview window for the current target. */
 	openPreview(target?: { url?: string; file?: string; label?: string }): Promise<void>;
 	closePreview(): void;
@@ -107,12 +116,17 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		@IWorkspaceContextService private readonly workspaceService: IWorkspaceContextService,
 		@IEditorService private readonly editorService: IEditorService,
 		@ICrusorAISessionStore private readonly sessionStore: ICrusorAISessionStore,
+		@ICrusorAIRendererService private readonly renderer: ICrusorAIRendererService,
 		@ICommandService private readonly commandService: ICommandService,
 		@ILogService private readonly logService: ILogService,
+		@IRequestService private readonly requestService: IRequestService,
+		@INotificationService private readonly notificationService: INotificationService,
 	) {
 		super();
 		this._register(this.engine.onDidReceiveFrame(frame => this.absorb(frame)));
 	}
+
+	get isWindowOpen(): boolean { return this.host.value !== undefined; }
 
 	get availability(): CrusorPreviewAvailability {
 		return this._availability;
@@ -147,6 +161,27 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 	}
 
 	// ── the endpoint (src/preview/endpoint.py publishes it; the IDE only reads) ───────────────
+
+	/**
+	 * True liveness probe: `started_at` in the registration file is the proxy's boot time, not a
+	 * health signal, so an old file says nothing about the proxy behind it. Any HTTP answer (even
+	 * an error status) proves the process is listening; only a connection failure means it is gone.
+	 * The request runs through the main process, so the renderer CSP's connect-src list does not
+	 * apply to this loopback GET.
+	 */
+	private async proxyAlive(endpoint: CrusorPreviewEndpoint): Promise<boolean> {
+		if (!endpoint.origin) {
+			return false;
+		}
+		const health = `${endpoint.origin.replace(/\/$/, '')}${endpoint.health_path ?? '/crusor-preview/health'}`;
+		try {
+			await this.requestService.request({ type: 'GET', url: health, timeout: 3000, callSite: 'crusorAIPreviewService.proxyAlive' }, CancellationToken.None);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 
 	private endpointDirectory(): URI {
 		return URI.joinPath(this.pathService.userHome({ preferLocal: true }), '.crusorai', ...ENDPOINT_DIR);
@@ -199,7 +234,13 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 				// An endpoint names the workspace its proxy serves. Accept only one of the folders that
 				// are actually open: with an empty `open` this used to accept ANY endpoint, so a
 				// multi-root workspace (or no folder at all) could frame a different project's proxy.
-				if (endpoint.workspace && !open.includes(endpoint.workspace)) {
+				// Windows paths are case-insensitive: the proxy publishes the resolved
+				// (canonical-case) path while the workbench reports the folder as opened
+				// (`d:\TestPulseAI` vs `D:\TestPulseAI`), so compare accordingly there.
+				const matchesOpen = (candidate: string) => isWindows
+					? open.some(folder => folder.toLowerCase() === candidate.toLowerCase())
+					: open.includes(candidate);
+				if (endpoint.workspace && !matchesOpen(endpoint.workspace)) {
 					continue;
 				}
 				candidates.push({ endpoint, path: child.resource });
@@ -212,9 +253,17 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		}
 		candidates.sort((a, b) => (b.endpoint.started_at ?? 0) - (a.endpoint.started_at ?? 0));
 		const newest = candidates[0].endpoint;
-		if (Date.now() - (newest.started_at ?? 0) * 1000 > 12 * 60 * 60 * 1000) {
-			this.logService.warn('[crusor-preview] newest endpoint is stale', newest.origin);
-			return undefined;
+		const age = Date.now() - (newest.started_at ?? 0) * 1000;
+		if (age > 12 * 60 * 60 * 1000) {
+			// An old registration is stale only if the proxy behind it is gone: probe the health
+			// endpoint before rejecting. A dev proxy that has been serving for a day is healthy —
+			// age alone must never block Preview (a healthy long-lived proxy used to be rejected
+			// here, which is exactly the "Preview does nothing" report this replaced).
+			if (!(await this.proxyAlive(newest))) {
+				this.logService.warn('[crusor-preview] newest endpoint is stale and its proxy does not answer', newest.origin);
+				return undefined;
+			}
+			this.logService.info('[crusor-preview] long-lived but healthy preview proxy accepted', newest.origin);
 		}
 		return newest;
 	}
@@ -230,11 +279,13 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		const endpoint = await this.resolveEndpoint();
 		if (!endpoint) {
 			this.logService.warn('[crusor-preview] no preview proxy published for this workspace');
+			this.notificationService.warn(localize('crusorai.preview.noEndpoint', 'Crusor Preview: no preview proxy is registered for this workspace. Run a preview batch (or start your dev server through the agent), then press Preview again.'));
 			return;
 		}
 		const resolved = target ?? this.targetFromAvailability();
 		if (!resolved.url && !resolved.file) {
 			this.logService.warn('[crusor-preview] no target to preview');
+			this.notificationService.warn(localize('crusorai.preview.noTarget', 'Crusor Preview: nothing to preview yet — ask the agent to build or run your app, then press Preview.'));
 			return;
 		}
 
@@ -249,6 +300,20 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		});
 		const url = `${uri}?${query}`;
 
+		// The frame MUST be created in the main window's document, before the
+		// auxiliary window opens: the aux document forbids createElement (its
+		// instanceof guard throws), while a main-created node adopted via
+		// appendChild keeps working `instanceof HTMLElement` checks. Creating
+		// first also means a failure here leaks no open auxiliary window.
+		const frame = document.createElement('iframe');
+		frame.className = 'crusor-preview-window-frame';
+		frame.setAttribute('title', 'Crusor Preview');
+		// Absolute, over the auxiliary window's content area. The window's own `container` div is left
+		// alone on purpose: it is positioned and laid out by the workbench, and overwriting its styles
+		// from here is how an auxiliary window ends up unable to render its own parts.
+		frame.style.cssText = 'position:absolute;inset:0;z-index:100;display:block;width:100%;height:100%;border:0;background:#1f1f1f;';
+		frame.setAttribute('src', url);
+
 		const auxiliary = await this.auxiliaryWindows.open({
 			// A preview wants room: it is a page rendered at a real size, not a panel. The OS titlebar
 			// stays: it is how the window is moved and closed, since the preview iframe covers the
@@ -260,14 +325,6 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 		const store = new DisposableStore();
 		store.add(auxiliary);
 
-		const frame = auxiliary.window.document.createElement('iframe');
-		frame.className = 'crusor-preview-window-frame';
-		frame.setAttribute('title', 'Crusor Preview');
-		// Absolute, over the auxiliary window's content area. The window's own `container` div is left
-		// alone on purpose: it is positioned and laid out by the workbench, and overwriting its styles
-		// from here is how an auxiliary window ends up unable to render its own parts.
-		frame.style.cssText = 'position:absolute;inset:0;z-index:100;display:block;width:100%;height:100%;border:0;background:#1f1f1f;';
-		frame.setAttribute('src', url);
 		const host = auxiliary.window.document.body;
 		host.appendChild(frame);
 		// The same derived-token machine the Agent pane runs, on this window's container: the preview
@@ -408,8 +465,19 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 				summary: summarizeBatch(batch),
 			},
 		};
-		this.engine.send(frame as never);
-		this.logService.info('[crusor-preview] sent', summarizeBatch(batch));
+		// The transcript owns the USER half of the turn: beginExternalTurn sets
+		// the user bubble and flips the running state exactly as the composer's
+		// send does — without it the batch ran invisibly (Thought/Navigate cards
+		// with nothing above them). It also answers whether a session is live:
+		// without one the frame below would be refused (prompt requires a
+		// session), so the text is left parked behind a session_create and the
+		// session_info handler starts the fresh turn with it instead.
+		if (this.renderer.beginExternalTurn(text)) {
+			this.engine.send(frame as never);
+			this.logService.info('[crusor-preview] sent', summarizeBatch(batch));
+		} else {
+			this.logService.info('[crusor-preview] no live Agent session; the batch opens a fresh session');
+		}
 
 		// Step 9's other half: the Agent surface comes forward in the MAIN window, because that is where
 		// the work now is ("Review -> redirects/focuses back to the main Agent"). Every Crusor entry

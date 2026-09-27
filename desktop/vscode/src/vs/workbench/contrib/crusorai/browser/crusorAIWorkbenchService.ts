@@ -66,6 +66,7 @@ const WIRED_CAPABILITIES = new Set([
 	'search.workspace', 'scm.state',
 	'edit.nativeDiff', 'edit.bulkApply', 'edit.undoRedo', 'terminal.native',
 	'tasks.discover', 'tasks.run', 'tests.discover', 'tests.run', 'tests.results', 'workspace.trust',
+	'preview.open',
 ]);
 
 const DEFAULT_TERMINAL_TIMEOUT_MS = 120_000;
