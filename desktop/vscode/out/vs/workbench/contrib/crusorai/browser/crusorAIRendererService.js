@@ -557,9 +557,16 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     // the same command the Preview chip runs (no preview-service DI
                     // edge here — that would be a cycle). An explicit URL target is
                     // honored; otherwise the service resolves the freshest evidence.
+                    // The command forwards the service's honest {ok, reason} so the
+                    // agent cannot claim success over a refused spawn (dead proxy,
+                    // dead dev server, nothing to preview).
                     const url = typeof args['url'] === 'string' && args['url'].trim() ? args['url'].trim() : undefined;
-                    await this.commandService.executeCommand('crusorai.openPreview', url ? { url } : undefined);
-                    result = { opened: true, ...(url ? { url } : {}) };
+                    const outcome = await this.commandService.executeCommand('crusorai.openPreview', url ? { url } : undefined);
+                    result = {
+                        opened: outcome?.ok !== false,
+                        ...(outcome?.ok === false ? { refused_reason: outcome.reason ?? 'the preview could not be opened' } : {}),
+                        ...(url ? { url } : {}),
+                    };
                     break;
                 }
                 case 'editor.activeSelection':

@@ -193,6 +193,18 @@
 
 	view.addEventListener('load', function () {
 		if (!state.target) { return; }
+		// Dead-server check FIRST: the proxy answers the frame with a JSON 502
+		// when the dev server behind the target is gone, and nothing below may
+		// mistake that page for a live app.
+		var unreachable = looksUnreachable(view.contentDocument);
+		if (unreachable) {
+			setState('error', 'server down');
+			empty.hidden = false;
+			emptyCopy.textContent = unreachable;
+			toast('Preview target is not reachable', 'failed', 'close');
+			postToHost('target-error', { url: state.target, reason: 'unreachable' });
+			return;
+		}
 		// A 5xx from the target used to render as silent white: dev servers (Next
 		// included) return an error page whose body stays invisible until its own
 		// JS runs, so a broken build looked like "nothing in the preview". Same-origin
@@ -218,11 +230,27 @@
 				}
 			}
 		} catch (_) { /* cross-origin frame: statuses stay private, fall through */ }
+		// Clean load: the ONLY outcome the Preview tab may paint green.
+		postToHost('target-ok', { url: state.target });
 		setState(state.fixes.length ? 'pending' : 'live', state.fixes.length ? state.fixes.length + ' pending' : 'live');
 		// Re-arm inspect after a reload: the overlay is gone with the old document.
 		state.overlayReady = false;
 		if (state.inspecting) { setTimeout(function () { postToOverlay('inspect', { on: true }); }, 60); }
 		if (state.fixes.length) { setTimeout(pushPins, 80); }
+		// Inspect watchdog: an armed session whose overlay never reports ready
+		// means this document was NOT served through the preview proxy (raw URL
+		// in the address bar, or injection refused) — clicks would die silently.
+		// Say exactly that instead. A proxy-served page reports ready in ms.
+		if (state.overlayWatch) { clearTimeout(state.overlayWatch); }
+		state.overlayWatch = setTimeout(function () {
+			state.overlayWatch = null;
+			if (state.overlayReady || !state.inspecting || !state.target) { return; }
+			setState('error', 'inspect unavailable');
+			empty.hidden = false;
+			emptyCopy.textContent = 'This page was not served through the preview proxy, so the edit overlay\'s '
+				+ 'wires never reached it (clicks cannot open the Edit panel). Press Reload — the window '
+				+ 're-registers the target with the proxy and loads the inspectable copy.';
+		}, 2500);
 	});
 
 	view.addEventListener('error', function () {
@@ -230,6 +258,30 @@
 		empty.hidden = false;
 		emptyCopy.textContent = 'Nothing loaded from ' + state.target + '. Is the dev server running?';
 	});
+
+	// A dead dev server used to look like "reload is broken": the proxy answers
+	// the frame with a JSON 502 whose text never matches the 5xx heuristics
+	// above, so the chip stayed "live" and the copy said nothing. Detect the
+	// proxy's own error envelope (ok:false + unreachable/off-origin) and say
+	// exactly that: the window works, the server behind the URL is down.
+	function looksUnreachable(doc) {
+		try {
+			var pre = doc.querySelector('pre');
+			var text = String((pre && pre.textContent) || doc.body && doc.body.textContent || '');
+			if (text.indexOf('"ok": false') === -1 && text.indexOf('"ok":false') === -1) { return null; }
+			if (text.indexOf('preview target unreachable') !== -1) {
+				return 'The dev server behind ' + state.target + ' is not answering (connection refused). '
+					+ 'Reload is working — there is nothing to load yet. Ask Crusor to (re)start the dev server, then press Reload (or Ctrl+R).';
+			}
+			if (text.indexOf('redirected off-origin') !== -1) {
+				return 'The target tried to leave its own origin (a redirect the preview proxy will not follow). Open that URL directly.';
+			}
+			if (text.indexOf('preview response too large') !== -1) {
+				return 'The page answered, but it is too large for the preview proxy to inject the overlay.';
+			}
+		} catch (_) { /* cross-origin: fall through */ }
+		return null;
+	}
 
 	/* ------------------------------------------------------------------ *
 	 * Inspect mode
@@ -244,7 +296,23 @@
 	}
 
 	inspectBtn.addEventListener('click', function () { setInspecting(!state.inspecting); });
-	reloadBtn.addEventListener('click', function () { loadTarget(state.target, { label: state.label, kind: state.kind }); });
+
+	// One reload path for the button, the keyboard, and the framed page.
+	// The iframe carries a cache-buster (loadTarget), so a re-assignment is a
+	// real re-fetch: the agent landed a fix, this is how you see it.
+	function reloadCurrent() {
+		if (!state.target) { return; }
+		loadTarget(state.target, { label: state.label, kind: state.kind });
+	}
+	reloadBtn.addEventListener('click', reloadCurrent);
+	doc.addEventListener('keydown', function (event) {
+		var reloadKey = (event.ctrlKey || event.metaKey) && (event.key === 'r' || event.key === 'R');
+		if (!reloadKey && event.key !== 'F5') { return; }
+		event.preventDefault();
+		event.stopPropagation();
+		reloadCurrent();
+	}, true);
+
 	urlGo.addEventListener('click', function () { loadTarget(urlInput.value); });
 	urlInput.addEventListener('keydown', function (event) {
 		if (event.key === 'Enter') { loadTarget(urlInput.value); }
@@ -265,16 +333,14 @@
 			});
 			postToHost('viewport', { preset: preset, size: VIEWPORTS[preset] || null });
 		});
-	});
-
-	doc.addEventListener('keydown', function (event) {
-		if (event.key === 'Escape' && !sheetBackdrop.hidden) { closeSheet(); return; }
-		// "e" arms inspect when the chrome (not the framed page) has focus.
-		if ((event.key === 'e' || event.key === 'E') && !isTypingTarget(event.target) && sheetBackdrop.hidden) {
-			event.preventDefault();
-			setInspecting(!state.inspecting);
-		}
-	});
+	});		doc.addEventListener('keydown', function (event) {
+			if (event.key === 'Escape' && !sheetBackdrop.hidden) { closeSheet(); return; }
+			// "e" arms inspect when the chrome (not the framed page) has focus.
+			if ((event.key === 'e' || event.key === 'E') && !isTypingTarget(event.target) && sheetBackdrop.hidden) {
+				event.preventDefault();
+				setInspecting(!state.inspecting);
+			}
+		});
 
 	function isTypingTarget(node) {
 		return node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable);
@@ -506,12 +572,16 @@
 		if (data.source === 'crusor-preview-overlay') {
 			if (data.type === 'ready') {
 				state.overlayReady = true;
+				if (state.overlayWatch) { clearTimeout(state.overlayWatch); state.overlayWatch = null; }
 				postToOverlay('configure', { theme: currentTheme() });
 				if (state.inspecting) { postToOverlay('inspect', { on: true }); }
 				if (state.fixes.length) { pushPins(); }
 				postToHost('overlay-ready', { url: data.url });
 				return;
 			}
+			// Ctrl+R pressed while the framed page had focus: the overlay saw it
+			// first (capture) and forwards it here so the iframe still reloads.
+			if (data.type === 'reload') { reloadCurrent(); return; }
 			if (data.type === 'fix') { addFix(data); return; }
 			if (data.type === 'selected') { postToHost('element-selected', { element: data.element, label: data.label }); return; }
 			if (data.type === 'inspect') {

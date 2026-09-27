@@ -409,6 +409,15 @@
 			self.select(el);
 		};
 		this._onKey = function (event) {
+			// Ctrl+R / Cmd+R / F5 belong to the preview window, not the framed
+			// page: forward to the host chrome so the iframe re-fetches. Capture
+			// phase runs before page handlers, and the cache-buster on the frame
+			// src makes the reload a real re-fetch of the agent's fix.
+			if (event.key === 'F5' || ((event.metaKey || event.ctrlKey) && (event.key === 'r' || event.key === 'R'))) {
+				self.emit('reload', {});
+				event.preventDefault();
+				return;
+			}
 			if (event.key === 'Escape') {
 				if (self.panelOpen) { self.closePanel(); event.preventDefault(); event.stopPropagation(); }
 				else if (self.inspecting) { self.setInspecting(false); event.preventDefault(); }

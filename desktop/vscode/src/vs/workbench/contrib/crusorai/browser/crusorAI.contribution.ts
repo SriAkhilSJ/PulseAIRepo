@@ -233,12 +233,12 @@ registerAction2(class extends Action2 {
 			menu: [{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 4 }],
 		});
 	}
-	async run(accessor: ServicesAccessor, target?: { url?: string; file?: string; label?: string }): Promise<void> {
-		// Opens the SEPARATE desktop window for the UI the agent built. It is a no-op with a log line
-		// when nothing previewable exists yet, which is the honest answer rather than an empty window.
-		// An optional target (the `preview.open` host capability forwards one) is honored; without it
-		// the service resolves the freshest preview evidence itself.
-		await accessor.get(ICrusorAIPreviewService).openPreview(target);
+	async run(accessor: ServicesAccessor, target?: { url?: string; file?: string; label?: string }): Promise<{ ok: boolean; reason?: string }> {
+		// Opens the SEPARATE desktop window for the UI the agent built. It REFUSES
+		// with a reason when the pre-flight conditions fail (no proxy, dead dev
+		// server, nothing to preview) — an honest {ok:false} beats a white window
+		// every time, and preview.open forwards that refusal to the agent.
+		return accessor.get(ICrusorAIPreviewService).openPreview(target);
 	}
 });
 

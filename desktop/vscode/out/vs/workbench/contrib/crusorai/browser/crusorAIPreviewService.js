@@ -60,7 +60,7 @@ import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ICrusorAIEngineService } from '../common/crusorAIEngineService.js';
-import { CrusorPreviewSource, CrusorPreviewWindowCommand, CrusorPreviewWindowEvent, buildPreviewPrompt, detectPreviewAvailability, evidenceFromToolCall, isBatchEmpty, previewWindowQuery, summarizeBatch, } from '../common/crusorAIPreview.js';
+import { CrusorPreviewSource, CrusorPreviewWindowCommand, CrusorPreviewWindowEvent, buildPreviewPrompt, buildPreviewRelaunchPrompt, detectPreviewAvailability, evidenceFromToolCall, isBatchEmpty, previewWindowQuery, summarizeBatch, } from '../common/crusorAIPreview.js';
 import { installCrusorTheme } from './crusorTheme.js';
 export const ICrusorAIPreviewService = createDecorator('crusorAIPreviewService');
 /** The preview window chrome, as shipped inside the app. */
@@ -86,15 +86,66 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
         this.onDidChangeAvailability = this._onDidChangeAvailability.event;
         this._onDidChangeWindow = this._register(new Emitter());
         this.onDidChangeWindow = this._onDidChangeWindow.event;
+        this._onDidChangeHealth = this._register(new Emitter());
+        this.onDidChangeHealth = this._onDidChangeHealth.event;
+        /** The preview target's observed state (drives the Preview tab's color and click behavior). */
+        this._health = 'closed';
+        /** Set when a preview-sourced turn is dispatched; consumed at that turn's end to reload the frame. */
+        this.pendingPreviewTurn = false;
+        /** Per-session turnEndedAt high-water marks: detects a COMPLETED turn without guessing from event shapes. */
+        this.lastSeenTurnEnd = new Map();
         /** Evidence accumulates for the whole session: a dev server started ten turns ago still counts. */
         this.evidence = [];
         this._availability = { available: false, reason: '' };
         this.host = this._register(new MutableDisposable());
+        /** Dedupe for target-error notifications: one toast per outage, not one per Reload click. */
+        this.lastTargetError = { url: '', at: 0 };
         this._register(this.engine.onDidReceiveFrame(frame => this.absorb(frame)));
+        // Turn-end watcher: when a preview-sourced turn completes, command the
+        // window to reload so the fix (or the relaunch) is VISIBLE without the
+        // user pressing anything. Session records carry turnEndedAt.
+        this._register(this.sessionStore.onDidChange(() => this.onSessionsChanged()));
     }
     get isWindowOpen() { return this.host.value !== undefined; }
     get availability() {
         return this._availability;
+    }
+    get health() {
+        return this._health;
+    }
+    set health(next) {
+        if (this._health === next) {
+            return;
+        }
+        this._health = next;
+        this._onDidChangeHealth.fire(next);
+    }
+    /** Turn-end watcher: reload the live window the moment a preview turn completes. */
+    onSessionsChanged() {
+        if (!this.pendingPreviewTurn) {
+            return;
+        }
+        for (const record of this.sessionStore.records()) {
+            const ended = record.turnEndedAt ?? 0;
+            const seen = this.lastSeenTurnEnd.get(record.sessionId) ?? 0;
+            if (ended > seen) {
+                this.lastSeenTurnEnd.set(record.sessionId, ended);
+                if (this.pendingPreviewTurn && this.currentFrame) {
+                    // A turn we handed off just ended: make the result visible. The
+                    // window reloads its frame (cache-busted) and reports target-ok
+                    // or target-error, which drives the health state from here.
+                    this.pendingPreviewTurn = false;
+                    this.health = 'starting';
+                    this.logService.info('[crusor-preview] preview turn ended — reloading the framed app');
+                    this.postToWindow(this.currentFrame, CrusorPreviewWindowCommand.SetTarget, {
+                        target: this.currentTarget?.url ?? '',
+                        file: this.currentTarget?.file ?? '',
+                        label: this.currentTarget?.label ?? '',
+                        kind: this.currentTarget?.file ? 'file' : 'url',
+                    });
+                }
+            }
+        }
     }
     /** Fold a streamed frame into the evidence that decides availability (step 1). */
     absorb(frame) {
@@ -233,20 +284,42 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
         if (this.host.value) {
             // Already open: the auxiliary window keeps its state, and re-opening would lose the batch.
             this._onDidChangeWindow.fire(true);
-            return;
+            return { ok: true };
         }
         const endpoint = await this.resolveEndpoint();
         if (!endpoint) {
             this.logService.warn('[crusor-preview] no preview proxy published for this workspace');
             this.notificationService.warn(localize('crusorai.preview.noEndpoint', 'Crusor Preview: no preview proxy is registered for this workspace. Run a preview batch (or start your dev server through the agent), then press Preview again.'));
-            return;
+            return { ok: false, reason: 'no preview proxy is registered for this workspace' };
         }
         const resolved = target ?? this.targetFromAvailability();
         if (!resolved.url && !resolved.file) {
             this.logService.warn('[crusor-preview] no target to preview');
             this.notificationService.warn(localize('crusorai.preview.noTarget', 'Crusor Preview: nothing to preview yet — ask the agent to build or run your app, then press Preview.'));
-            return;
+            return { ok: false, reason: 'no target to preview yet' };
         }
+        // Pre-flight conditions (the cheap ones first): a dead proxy or a dead
+        // dev server used to open a white window and cost a whole LLM turn to
+        // discover. The engine probe in the preview.open receipt stays the agent
+        // path; this one protects the human click path. URL targets only — a
+        // workspace file cannot be probed with a socket.
+        if (!(await this.proxyAlive(endpoint))) {
+            this.logService.warn('[crusor-preview] proxy dead — refusing to spawn a dead window');
+            this.notificationService.warn(localize('crusorai.preview.proxyDown', 'Crusor Preview: the preview proxy is not running. Ask Crusor to start it, then press Preview again.'));
+            return { ok: false, reason: 'the preview proxy is not running' };
+        }
+        if (resolved.url) {
+            const targetAlive = await this.targetReachable(resolved.url);
+            if (!targetAlive.ok) {
+                this.logService.warn('[crusor-preview] target refused pre-flight —', targetAlive.detail);
+                this.health = 'down';
+                this.currentTarget = resolved;
+                this.notificationService.warn(localize('crusorai.preview.targetDown', 'Crusor Preview: {0} is not answering. Click the red Preview tab to ask Crusor to restart it.', resolved.url));
+                return { ok: false, reason: targetAlive.detail };
+            }
+        }
+        this.health = 'starting';
+        this.currentTarget = resolved;
         const kind = resolved.file ? 'file' : 'url';
         const uri = FileAccess.asBrowserUri(PREVIEW_WINDOW_RESOURCE).toString(true);
         const query = previewWindowQuery(endpoint, {
@@ -289,14 +362,120 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
         store.add(this.listen(frame));
         store.add(toDisposable(() => {
             this._onDidChangeWindow.fire(false);
+            this.currentFrame = undefined;
+            this.health = 'closed';
             frame.remove();
         }));
         this.host.value = store;
+        this.currentFrame = frame;
         this._onDidChangeWindow.fire(true);
         this.logService.info('[crusor-preview] window opened', url);
+        return { ok: true };
+    }
+    /**
+     * HTTP reachability for a URL target, from the renderer via the main
+     * process (loopback CSP-safe, same as proxyAlive). ANY answer counts as
+     * alive — a 500 compile-error page still means the server is up; a
+     * connection refusal means the click would spawn a white window.
+     */
+    async targetReachable(url) {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        }
+        catch {
+            return { ok: false, detail: `not a usable URL: ${url}` };
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return { ok: false, detail: `not an http(s) URL: ${url}` };
+        }
+        // no-cors on purpose: ANY answer — a 404, a 500, a redirect — proves the
+        // server is up (the window's own load handler judges the page itself),
+        // and an opaque response sidesteps CORS entirely. Field 2026-09-27:
+        // `npx serve` landed on a random port and answered fine, but a plain
+        // fetch read the CORS block as "nothing answered" and refused a LIVE
+        // target three times — exactly the wasted agent calls this gate exists
+        // to prevent. Reject here means network-level refusal, nothing else.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        try {
+            await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: controller.signal });
+            return { ok: true, detail: 'answered' };
+        }
+        catch (error) {
+            const aborted = error instanceof Error && error.name === 'AbortError';
+            // Second opinion before refusing: the renderer fetch can also fail
+            // on a CSP connect-src block in a packaged build — not the server's
+            // fault. The request service path runs through the main process
+            // (same channel proxyAlive uses), immune to both CORS and CSP.
+            try {
+                await this.requestService.request({ type: 'GET', url, timeout: 3000, callSite: 'crusorAIPreviewService.targetReachable' }, CancellationToken.None);
+                return { ok: true, detail: 'answered (via request service)' };
+            }
+            catch {
+                return { ok: false, detail: aborted
+                        ? `${parsed.host} did not answer within 3s`
+                        : `nothing is listening on ${parsed.host}` };
+            }
+        }
+        finally {
+            clearTimeout(timer);
+        }
+    }
+    /**
+     * The user clicked the red (down) Preview tab: hand the restart to the agent
+     * as one scoped turn (start dev server → verify HTTP 200 → preview.open with
+     * target_reachable check), not another dead window.
+     */
+    async requestRelaunch() {
+        const workspace = this.workspacePath;
+        if (!workspace) {
+            this.notificationService.warn(localize('crusorai.preview.relaunchNoWorkspace', 'Crusor Preview: open one project folder first — the relaunch turn must name its workspace.'));
+            return;
+        }
+        const text = buildPreviewRelaunchPrompt(this.currentTarget ?? this.targetFromAvailability());
+        const frame = {
+            type: 'prompt',
+            session_id: this.latestSessionId() ?? '',
+            workspace,
+            text,
+            mode: 'agent',
+            preview_batch: {
+                source: 'crusor-preview',
+                target: this.currentTarget?.url ?? '',
+                target_label: this.currentTarget?.label ?? '',
+                kind: this.currentTarget?.file ? 'file' : 'url',
+                viewport: 'responsive',
+                count: 0,
+                summary: 'preview relaunch request (target down)',
+            },
+        };
+        // Same composer-parity gate as sendBatchToAgent: the user bubble plus a
+        // live session, else the session_info handler opens a fresh one.
+        if (this.renderer.beginExternalTurn(text)) {
+            this.engine.send(frame);
+            // The relaunch turn ends with the server either back or explained:
+            // the watcher reloads the frame, and target-ok/target-error re-paint
+            // the tab. If the agent re-opens the window instead, preview.open's
+            // pre-flight gates a fresh spawn on a live target first.
+            this.pendingPreviewTurn = true;
+            this.logService.info('[crusor-preview] relaunch requested — the agent will restart the dev server and re-open the preview');
+            this.notificationService.info(localize('crusorai.preview.relaunchSent', 'Crusor Preview: asked Crusor to bring the preview back — watch the Agent tab.'));
+        }
+        else {
+            this.logService.info('[crusor-preview] relaunch: no live Agent session; the request opens a fresh session');
+        }
+        try {
+            await this.commandService.executeCommand(CrusorAICommandId.Focus);
+        }
+        catch (error) {
+            this.logService.warn('[crusor-preview] could not focus the Agent surface', error);
+        }
     }
     closePreview() {
         this.host.clear();
+        this.currentFrame = undefined;
+        this.health = 'closed';
     }
     targetFromAvailability() {
         const availability = this._availability;
@@ -352,6 +531,12 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
                 case CrusorPreviewWindowEvent.Ready:
                     this.pushTheme(frame, frame.parentElement ?? frame);
                     break;
+                case CrusorPreviewWindowEvent.TargetOk:
+                    // The window's own load handler says the framed app rendered:
+                    // the only state allowed to paint the Preview tab green.
+                    this.health = 'live';
+                    this.logService.info('[crusor-preview] target is live', data['url']);
+                    break;
                 case CrusorPreviewWindowEvent.ReviewSubmit:
                     void this.sendBatchToAgent(data.batch);
                     break;
@@ -362,6 +547,24 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
                     this.closePreview();
                     break;
                 case CrusorPreviewWindowEvent.Viewport:
+                    this.logService.trace('[crusor-preview]', data.type, data);
+                    break;
+                case CrusorPreviewWindowEvent.TargetError: {
+                    // The window already explains itself in-place; this makes the
+                    // outage impossible to miss AND turns the Preview tab red so
+                    // the next click becomes a relaunch request, not a dead window.
+                    const url = typeof data['url'] === 'string' ? data['url'] : '';
+                    const now = Date.now();
+                    this.logService.warn('[crusor-preview] target error', data);
+                    if (url !== this.lastTargetError.url || now - this.lastTargetError.at > 15000) {
+                        this.lastTargetError = { url, at: now };
+                        this.notificationService.warn('Crusor Preview: the framed app failed to render'
+                            + (url ? ` (${url})` : '')
+                            + ' — click the red Preview tab and Crusor will bring it back.');
+                    }
+                    this.health = 'down';
+                    break;
+                }
                 case CrusorPreviewWindowEvent.Inspect:
                 case CrusorPreviewWindowEvent.ElementSelected:
                 case CrusorPreviewWindowEvent.FixAdded:
@@ -419,9 +622,17 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
         // session_info handler starts the fresh turn with it instead.
         if (this.renderer.beginExternalTurn(text)) {
             this.engine.send(frame);
+            // This turn ends with the fixes either applied or explained: the
+            // turn-end watcher reloads the frame so the result is visible with
+            // zero clicks, and the load outcome re-drives the health state.
+            this.pendingPreviewTurn = true;
             this.logService.info('[crusor-preview] sent', summarizeBatch(batch));
         }
         else {
+            // Parked behind a session_create: the session_info handler starts the
+            // fresh turn with this text. Its end is still ours to watch — the
+            // turn-end watcher reloads the frame exactly as for a live session.
+            this.pendingPreviewTurn = true;
             this.logService.info('[crusor-preview] no live Agent session; the batch opens a fresh session');
         }
         // Step 9's other half: the Agent surface comes forward in the MAIN window, because that is where

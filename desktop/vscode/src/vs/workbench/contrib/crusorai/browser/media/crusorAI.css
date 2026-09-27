@@ -1826,6 +1826,17 @@
 	color: var(--crusorai-verified);
 }
 
+/* Down state: the target refused (dead dev server / refused pre-flight). Red —
+ * the derived --crusorai-failed token — and the click asks the agent to
+ * relaunch instead of opening a dead window. Never green while down. */
+.crusorai-preview-open[data-down='true'] {
+	color: var(--crusorai-failed) !important;
+}
+
+.crusorai-preview-open[data-down='true']::after {
+	background: var(--crusorai-failed);
+}
+
 .crusorai-preview-open[data-available='true']::after {
 	content: '';
 	display: inline-block;

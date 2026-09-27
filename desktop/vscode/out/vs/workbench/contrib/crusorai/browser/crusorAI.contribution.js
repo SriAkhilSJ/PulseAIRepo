@@ -197,11 +197,11 @@ registerAction2(class extends Action2 {
         });
     }
     async run(accessor, target) {
-        // Opens the SEPARATE desktop window for the UI the agent built. It is a no-op with a log line
-        // when nothing previewable exists yet, which is the honest answer rather than an empty window.
-        // An optional target (the `preview.open` host capability forwards one) is honored; without it
-        // the service resolves the freshest preview evidence itself.
-        await accessor.get(ICrusorAIPreviewService).openPreview(target);
+        // Opens the SEPARATE desktop window for the UI the agent built. It REFUSES
+        // with a reason when the pre-flight conditions fail (no proxy, dead dev
+        // server, nothing to preview) — an honest {ok:false} beats a white window
+        // every time, and preview.open forwards that refusal to the agent.
+        return accessor.get(ICrusorAIPreviewService).openPreview(target);
     }
 });
 registerAction2(class extends Action2 {

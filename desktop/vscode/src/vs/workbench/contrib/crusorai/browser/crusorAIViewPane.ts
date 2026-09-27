@@ -43,6 +43,8 @@ export class CrusorAIViewPane extends ViewPane {
 	private webviewSlot: HTMLElement | undefined;
 	private webviewFrame: HTMLIFrameElement | undefined;
 	private crusorBody: HTMLElement | undefined;
+	/** Latched once the target goes down: only target-ok (or a fresh open) clears the red tab. */
+	private previewDownLatch = false;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -106,22 +108,46 @@ export class CrusorAIViewPane extends ViewPane {
 		const applyPreviewAvailability = () => {
 			const availability = this.crusorAIPreviewService.availability;
 			const windowOpen = this.crusorAIPreviewService.isWindowOpen;
-			// A spawned window is a STATE, not just a click: the chip flips to
-			// "Preview · OPEN" while the preview window exists, so "something
-			// spawned" is visible without hunting for the separate window.
-			previewButton.textContent = windowOpen ? 'Preview · OPEN' : 'Preview';
+			const health = this.crusorAIPreviewService.health;
+			// The chip tells the truth in three states: green "Preview · OPEN" only
+			// while the framed app is verified live; red "Preview · DOWN" when the
+			// target refuses (clicking it ASKS THE AGENT to relaunch instead of
+			// opening a dead window); plain "Preview" when nothing exists yet.
+			const down = health === 'down' || (windowOpen && health === 'starting' && this.previewDownLatch);
+			previewButton.textContent = down ? 'Preview · DOWN' : windowOpen ? 'Preview · OPEN' : 'Preview';
 			previewButton.dataset.open = String(windowOpen);
-			previewButton.disabled = !availability.available && !windowOpen;
-			previewButton.dataset.available = String(availability.available || windowOpen);
-			previewButton.title = windowOpen
-				? 'The preview window is open on your desktop — click to bring it forward'
+			previewButton.dataset.down = String(down);
+			previewButton.disabled = !availability.available && !windowOpen && !down;
+			previewButton.dataset.available = String(availability.available || windowOpen || down);
+			previewButton.title = down
+				? 'The preview target is DOWN — click and Crusor restarts the dev server and re-opens the preview.'
+				: windowOpen
+				? health === 'starting'
+					? 'The preview window is open and loading the framed app…'
+					: 'The preview window is open on your desktop — click to bring it forward'
 				: availability.available
 					? `Open the preview window — ${availability.label ?? 'the UI Crusor built'}`
 					: 'No preview yet: when Crusor builds UI or starts a dev server, it appears here.';
 		};
 		this._register(this.crusorAIPreviewService.onDidChangeAvailability(() => applyPreviewAvailability()));
 		this._register(this.crusorAIPreviewService.onDidChangeWindow(() => applyPreviewAvailability()));
-		this._register(addDisposableListener(previewButton, 'click', () => { void this.crusorAIPreviewService.openPreview(); }));
+		this._register(this.crusorAIPreviewService.onDidChangeHealth(() => applyPreviewAvailability()));
+		// Down is latched so a transient starting-state flicker can never
+		// un-red an outage before target-ok proves recovery; opening clears it.
+		this._register(this.crusorAIPreviewService.onDidChangeHealth(health => {
+			if (health === 'down') { this.previewDownLatch = true; }
+			if (health === 'live' || health === 'closed') { this.previewDownLatch = false; }
+			applyPreviewAvailability();
+		}));
+		this._register(addDisposableListener(previewButton, 'click', () => {
+			if (this.crusorAIPreviewService.health === 'down') {
+				// Red tab: the agent restarts the dev server and re-opens the
+				// preview — the user never opens a dead window by hand.
+				void this.crusorAIPreviewService.requestRelaunch();
+				return;
+			}
+			void this.crusorAIPreviewService.openPreview();
+		}));
 		applyPreviewAvailability();
 
 		const show = (surface: 'native' | 'webview') => {

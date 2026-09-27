@@ -35,6 +35,32 @@ export const CrusorPreviewSource = {
 	Window: 'crusor-preview-window',
 } as const;
 
+/**
+ * The preview target's observed state, from the window's own load outcomes:
+ * closed (no window) → starting (window opening) → live (clean load) → down
+ * (unreachable / error page). The Preview tab wears this state, and only
+ * `live` is green.
+ */
+export type CrusorPreviewHealth = 'closed' | 'starting' | 'live' | 'down';
+
+/**
+ * The turn text for "the preview is down — bring it back". Sent as an ordinary
+ * prompt frame when the user clicks the red Preview tab, so the agent restarts
+ * the dev server and re-opens the preview instead of the user hand-holding it.
+ */
+export function buildPreviewRelaunchPrompt(target: { url?: string; file?: string; label?: string }): string {
+	const where = target?.url || target?.file || target?.label || 'the last preview target';
+	return [
+		`The Crusor Preview window could not load ${where} — the dev server behind it is down or answering with an error.`,
+		'Bring the preview back, exactly like this:',
+		'1. Find the dev server this project uses (check package.json scripts and your earlier work in this session).',
+		'2. Start it in the background (never block the turn on it), wait until the port answers.',
+		'3. Verify it serves: request the URL and expect HTTP 200 (a compile error is 500 — fix the compile error first).',
+		'4. Call invoke_host_capability with {"capability_id":"preview.open","arguments":{"url":"<the working URL>"}} and check the receipt\'s target_reachable — do not report success while it is false.',
+		`Do not change application code unless step 3 shows a real error to fix. Target: ${where}`,
+	].join('\n');
+}
+
 /** Commands the preview window sends INTO the injected overlay. */
 export const CrusorPreviewOverlayCommand = {
 	Configure: 'configure',
@@ -52,6 +78,8 @@ export const CrusorPreviewOverlayEvent = {
 	Selected: 'selected',
 	Fix: 'fix',
 	PinClick: 'pin-click',
+	/** Ctrl+R/F5 pressed while the framed page had focus — the chrome reloads the iframe. */
+	Reload: 'reload',
 } as const;
 
 /** Commands the workbench sends to the preview window. */
@@ -83,6 +111,8 @@ export const CrusorPreviewWindowEvent = {
 	Viewport: 'viewport',
 	/** the framed app answered 5xx — the preview works, the app's build is broken */
 	TargetError: 'target-error',
+	/** the framed app loaded clean (overlay answered, no 5xx, no unreachable) — the only green state */
+	TargetOk: 'target-ok',
 } as const;
 
 export type CrusorPreviewKind = 'url' | 'file';
