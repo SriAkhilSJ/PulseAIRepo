@@ -67,3 +67,11 @@ D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe -m pytest --collect-only -q
 ```
 
 Do not use `C:\Users\...\uv\python\...\python.exe` directly — it lacks `langchain_core`. Always go through `D:\pulseAIagent\PulseAIRepo\.venv\Scripts\python.exe` (symlink to `C:\venvs`).
+
+## Current ops notes (2026-09-27, `main` @ `6ec29027`)
+
+- Full suite: `python -m pytest src/tests -q` takes ~19 minutes (~1750 passed). Known pre-existing failures unrelated to recent work: hermes/file-state/lab/model/observability/skill/stream families (some order-sensitive and flaky run-to-run) plus review-file setup errors that pass file-scoped (load artifacts). Do not "fix" these by editing product code without first proving they fail on a clean pre-merge worktree.
+- Pre-merge comparison workflow: `git worktree add D:\pulseAIagent\main-base <commit>` (untracked scratch never clones — including `.env`, which matters next). Delete the worktree when done (`git worktree remove --force <path>`).
+- Owner `.env` changes test outcomes: `CUSTOM_BASE_URL=https://velona.in/v1` routes `custom` → `velona` cache keys. Tests must be hermetic — pin routing inputs with `monkeypatch` (see `test_context_error_flow.py::test_an_explicit_limit_lands_in_the_cache_the_next_build_reads`). A test that passes in a bare worktree but fails in the real checkout is an `.env`-sensitivity bug, not a product regression.
+- After any `src/bridge/protocol.py` change: `python scripts/generate_bridge_protocol.py` (rewrite) then `--check`; extend the handwritten union in `crusorAIProtocol.ts` in the same change (`test_bridge_protocol_v2.py` pins both).
+- After any `desktop/.../contrib/crusorai/` source change: full `gulp compile` in `desktop/vscode` (~4–7 min) AND `node scripts/emit-crusorai-bundle.mjs` (hash/manifest/DI). Compile alone leaves a stale `SOURCES_HASH` and the engine prints `DESKTOP WORKBENCH STALE`. Bump `CRUSORAI_UI_STAMP` with every UI round, pins included.

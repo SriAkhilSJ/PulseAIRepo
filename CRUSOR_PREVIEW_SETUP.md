@@ -4,7 +4,7 @@ Everything you need to run **Crusor Preview** on your own machine, from "30-seco
 browser" to "the full flow inside the desktop app". Each section is self-contained; stop wherever
 your goal is met.
 
-The branch is `arena/01a0ca7c-pulseairepo`.
+Everything is on `main` (the preview branch `arena/01a0ca7c-pulseairepo` merged 2026-09-27).
 
 ---
 
@@ -27,7 +27,6 @@ test suite. No npm install is needed for sections 1–4.
 ```bash
 git clone https://github.com/SriAkhilSJ/PulseAIRepo.git
 cd PulseAIRepo
-git checkout arena/01a0ca7c-pulseairepo
 ```
 
 Already have the repo?
@@ -35,7 +34,6 @@ Already have the repo?
 ```bash
 cd PulseAIRepo
 git fetch origin
-git checkout arena/01a0ca7c-pulseairepo
 ```
 
 Only want the patch, on top of `main`?
@@ -61,10 +59,11 @@ pip install pytest
 # run the preview suite
 python -m pytest src/tests/test_preview_inject.py src/tests/test_preview_prompt.py \
                  src/tests/test_preview_server.py src/tests/test_preview_endpoint.py \
-                 src/tests/test_preview_contract.py -q
+                 src/tests/test_preview_contract.py src/tests/test_preview_target_probe.py \
+                 src/tests/test_preview_batch_turn_script.py -q
 ```
 
-**Expected: `67 passed`.** These are the real checks — the proxy runs over real sockets, the contract
+**Expected: `94 passed, 1 skipped`.** These are the real checks — the proxy runs over real sockets, the contract
 test loads the shipped JavaScript through node and pins the message names in both directions.
 
 ---

@@ -1,5 +1,10 @@
 # Running the agent inside the desktop app — and then Crusor Preview in it
 
+> **Historical record (branch era).** This runbook was written against `arena/01a0ca7c-pulseairepo`
+> (tip `2b2880f8`) and its §1 local-fix cleanup is obsolete — the branch merged to `main`
+> (`ced153dd`, 2026-09-27) and the fixes are in. For a fresh checkout use `main`; the gates
+> (typecheck → compile → emitter → launch) still apply in that order.
+
 This is the host lane: pull, verify, build, launch, and watch the agent work in the real Electron
 window. `CRUSOR_PREVIEW_LAUNCH_CHECKS.md` starts *after* this one — it assumes the app is up and the
 agent is answering. Read the two together: this file gets you to a running app, that file tells you

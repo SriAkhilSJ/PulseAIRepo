@@ -37,7 +37,9 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Crusor setting/command.
 - **CrusorAI Dark** is the bundled default theme.
 - Engine root auto-detection: when neither `crusorai.engineRoot` nor `CRUSORAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
-- **Sub-agent pipeline** `src/graphs/chat_graph.py:398` `delegate_to_subagent` / `delegate_to_subagent_batch` — parallel `Explore` (opencode `Spawn agents to analyze folders`), isolated `parentMap` `crusorAIRendererService.ts:477`, `taskToolCard` clickable to sub-agent `Agent` UI (`crusorAIRenderer.ts:766`), `Back to Parent` banner `1634`, prompt disabled in child, `CRUSORAI_SUBAGENT_DEPTH` depth guard.
+- **Sub-agent pipeline** `src/graphs/chat_graph.py:398` `delegate_to_subagent` / `delegate_to_subagent_batch` — parallel `Explore` (opencode `Spawn agents to analyze folders`), isolated `parentMap` `crusorAIRendererService.ts:477`, `taskToolCard` clickable to sub-agent `Agent` UI (`crusorAIRenderer.ts:766`), `Back to Parent` banner (`crusorAIRenderer.ts:1679`), prompt disabled in child, `CRUSORAI_SUBAGENT_DEPTH` depth guard.
+- **Crusor Preview** — the Agent pane detects built UI from session evidence and opens it in a separate desktop window (workbench auxiliary window framing the preview proxy at `http://127.0.0.1:8931`, `src/preview/`). Click-to-inspect elements, pin fixes, `Review → Send to Crusor` dispatches a scoped agent turn; the window reloads when the turn ends. The Preview chip wears the target state (`closed → starting → live → down`); a red (down) click asks the agent to relaunch the dev server instead of opening a dead window. `preview.open` receipts carry `target_reachable` — the agent must not report success while it is false. Contract in `desktop/.../common/crusorAIPreview.ts`, pinned by `src/tests/test_preview_contract.py`; browser lab in `preview-lab/`.
+- **Crusor file icons** (`desktop/vscode/extensions/theme-crusor-icons/`) ship as the default file-icon theme, pinned by `src/tests/test_crusor_file_icons.py`.
 
 ### Agent runtime
 
@@ -75,7 +77,22 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 
 > **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
 
-## Recent Changes 2026-09-19 — LSP, Breathing, Scroll, Hermes Parity
+## Recent Changes 2026-09-27 — main merge: sub-agent pipeline + Preview on `main`
+
+**Merge `ced153dd` (arena `01a0ca7c` → `main`, plus `6ec29027` follow-ups, all pushed):**
+
+| Area | Change | Verification |
+|---|---|---|
+| **Sub-agent pipeline lands** | `delegate_to_subagent` OpenCode shapes (`prompt`/`description`/`subagent_type`/`background`), store-backed depth guard (`CRUSORAI_SUBAGENT_DEPTH`), lifecycle + permission derivation, clickable `taskToolCard` → child session, `Back to Parent` banner, child composer lock, background-completion injection, `subagent_list` / `subagent_background_completed` bridge frames | Targeted bridge/desktop/sub-agent suites green |
+| **Crusor Preview lands** | Separate preview window, proxy (`src/preview/`), overlay inspect + review handoff, health chip, relaunch turn, `target_reachable` receipts, per-file STALE manifest | `test_preview_contract.py`, `test_preview_target_probe.py`, preview-lab click-through |
+| **Merge conflicts (3)** | `crusorAI.css` src+out kept both blocks; `BUILD_INFO.json` regenerated | Full `gulp compile` green, bundle re-emitted (DI ok) |
+| **Merge follow-ups `6ec29027`** | Protocol regen for the new frames, handwritten payload union extended, workspace-boundary pins accept both `session_create` sites, UI-stamp pins → `2026-09-27`, context cache test hermetic vs owner `.env` | 118/118 targeted tests green |
+| **Crusor file icons** | Icon theme ships as default (PR #16) | `test_crusor_file_icons.py` green |
+
+Current truth this section supersedes: the CopilotKit webview is **enabled** by default (`crusorai.copilotWebview.enabled`, `crusorAI.contribution.ts:396`) — turn it off to give the whole pane to the native renderer. The 2026-09-19 round below is landed history (LSP, breathing pulse, scroll, `pulse-webview/` removal); its "pending merge / recompile next" notes are done.
+
+<details>
+<summary>2026-09-19 — LSP, Breathing, Scroll, Hermes Parity (landed)</summary>
 
 **Branch `arena/01a0b5eb-pulseairepo` (commits `66969458` + `057240ab`) + pending desktop/webview fixes pending merge to `main`:**
 
@@ -92,6 +109,8 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 **Hermes parity:** Desktop `pulse-webview` removed, CopilotKit disabled → native `@assistant-ui` only, matching `D:/hermes/hermes-agent` (no webview tab as primary, webview only for sandboxed URL preview `preview-pane.tsx:763`). Permission handling remains path-based `git check-ignore` (`safety_guard.py:122`) vs Hermes `edit_approval.py` pre-execution diff — not yet ported.
 
 **Next:** Recompile desktop `npx gulp compile` to clear `STALE sha256` warning (currently `2026-09-11` vs `057240ab`), then `Agent/Webview` tab respects new `default:false`.
+
+</details>
 
 ## Requirements
 
@@ -179,7 +198,14 @@ Protocol definitions live in:
 - `src/bridge/protocol.py` — Python protocol helpers
 - `desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.ts` — generated desktop mirror
 
-Do not hand-edit the generated TypeScript protocol mirror.
+Do not hand-edit the generated TypeScript protocol mirror. Regenerate it after any `protocol.py` change:
+
+```bash
+python scripts/generate_bridge_protocol.py          # rewrite the mirror
+python scripts/generate_bridge_protocol.py --check  # CI pin (test_bridge_protocol_v2.py)
+```
+
+The handwritten payload union in `crusorAIProtocol.ts` must cover every generated frame name — extend it in the same change.
 
 ## Run the Crusor Webview (CopilotKit)
 
@@ -239,6 +265,18 @@ npm run compile
 
 Build outputs and `node_modules` must remain untracked.
 
+### After changing workbench sources (`contrib/crusorai/`)
+
+Two steps, in order — skipping the second is the classic "works in src, stale in app" report:
+
+```bash
+cd desktop/vscode
+node --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js compile  # full tsc + BUILD_INFO.json (~4-7 min)
+node scripts/emit-crusorai-bundle.mjs                                     # scoped bundle + SOURCES_HASH/manifest + DI check
+```
+
+`gulp compile` does not regenerate the sources hash; the emitter does. The engine compares the shipped hash against your sources at boot and prints `DESKTOP WORKBENCH STALE` (naming the drifted files) on mismatch. The workbench UI stamp (`CRUSORAI_UI_STAMP` in `crusorAIRenderer.ts`) moves with every UI round — bump it and its test pins together. Then fully quit and reopen the app; the running process keeps old JS in memory.
+
 ## Test the Python runtime
 
 Run the repository suite from the root:
@@ -251,14 +289,19 @@ uv run python -m pytest src/tests -q \
 
 `test_session_engines.py` is excluded from the default command because it exercises heavier session-engine behavior separately. Use a temporary directory outside the repository so generated files do not alter git-aware tests.
 
-Targeted smoke checks:
+Full suite reality (2026-09-27): `python -m pytest src/tests -q` takes ~19 minutes and is green except pre-existing failures unrelated to recent work (hermes/file-state/lab/model/observability/skill/stream families, some order-sensitive; review-file setup errors pass file-scoped). Before attributing a failure to your change, compare against the pre-merge baseline with a clean worktree (`git worktree add <path> <commit>`) — see `src/tests/TEST_AGENT_GUIDE.md`.
+
+Targeted smoke checks (fast, hermetic):
 
 ```bash
 uv run python -m pytest \
   src/tests/test_bridge.py \
   src/tests/test_bridge_protocol_v2.py \
   src/tests/test_desktop_workspace_boundary.py \
-  src/tests/test_crusorai_branding.py -q
+  src/tests/test_crusorai_branding.py \
+  src/tests/test_preview_contract.py \
+  src/tests/test_preview_target_probe.py \
+  src/tests/test_crusor_file_icons.py -q
 ```
 
 The test count changes as coverage is added, so this README intentionally does not publish a stale fixed count. A green process exit is necessary but benchmark claims must also be checked against the preserved benchmark evidence.
@@ -363,9 +406,9 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 | **Scaffold Tools** | `src/tools/scaffold_tools.py` | Next.js + TypeScript + Tailwind scaffolding with `_provided/` preservation, layout normalization, legacy peer deps, shadow checkpoints, repo map invalidation. |
 | **Safety** | `src/context/safety_guard.py` | Workspace path validation, destructive operation approval gates, `$()`/backtick escalation to approval, session cancellation checks. |
 | **Verification** | `src/context/verification_evidence.py` | Completion gates distinguishing successful/failed/stale/skipped/unavailable evidence. Edited-file invalidation. |
-| **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 20+ client methods, 16 server events. Host tool requests, safety requests, sub-agent lifecycle, telemetry, workspace binding. |
-| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering (`crusorAIRenderer.ts:54` parts timeline with inline `reasoning` slots). Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. Last recompile `c3d7e4dc` (2026-09-18). |
-| **UI Lab** | `ui/` | SolidJS renderer with Agent UI, Agent Manager, Tool Gallery. Deterministic replay data. Desktop-syntax check bridge. |
+| **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 26 client methods, 30 server events. Host tool requests, safety requests, sub-agent lifecycle (`subagent_list`, `subagent_background_completed`), telemetry, workspace binding. |
+| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering (`crusorAIRenderer.ts:54` parts timeline with inline `reasoning` slots). Crusor Preview window + proxy. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. Last recompile `6ec29027` (2026-09-27). |
+| **UI Lab** | `preview-lab/` | Browser harness for the Crusor Preview flow (real feature code, mocked model turn). Deterministic replay data. Desktop-syntax check bridge. |
 
 ### Test coverage
 
@@ -374,7 +417,7 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 - Desktop compile, typecheck-client, valid-layers, syntax: all green
 - Protocol generation check: green
 - UI build + test:ui: green
-- Post `c3d7e4dc` sample: 36 passed (bridge + budget parity); PR #14 merge baseline 1866 passed / 21 skipped / 1 xfailed (all layers + provider-fetched output caps)
+- Post `6ec29027` sample: bridge + protocol + boundary + branding + preview + icons green; full suite ~1753 passed with only the known pre-existing failures (see above)
 
 ### What the P2 roadmap covers next
 

@@ -1,4 +1,5 @@
-﻿> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
+﻿> **Update 2026-09-27:** arena `01a0ca7c` merged to `main` (`ced153dd` + follow-ups `6ec29027`, all pushed): sub-agent pipeline UI (clickable task cards, `Back to Parent`, child lock, `subagent_list`/`subagent_background_completed` frames) + Crusor Preview (separate window, proxy, inspect/review handoff, health chip, `target_reachable` receipts) + Crusor file icons as default. Merge follow-ups: protocol regen, workspace-boundary pins (two `session_create` sites), UI-stamp pins → `2026-09-27`, hermetic context-cache test. Full `gulp compile` green, bundle re-emitted, targeted suites green; remaining full-suite failures proven pre-existing via pre-merge worktree. See README.md Recent Changes.
+> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
 # Agent Handoff â€” CrusorAI / CopilotKit
 
 Start here. This records the state as of **2026-09-18 (`c3d7e4dc`)**, what was
