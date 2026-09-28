@@ -75,6 +75,8 @@
 		label: '',
 		kind: 'url',
 		sessionId: '',
+		endpoint: '',
+		secret: '',
 		inspecting: false,
 		overlayReady: false,
 		fixes: [],
@@ -185,6 +187,70 @@
 		view.src = opts.noBust ? url : url + separator + 'cpReload=' + Date.now();
 		postToHost('navigate', { url: url, label: state.label, kind: state.kind });
 		syncInspectButton();
+	}
+
+	/**
+	 * Retarget through the preview proxy (src/preview/server.py) and frame the
+	 * inspectable copy it returns — never the raw URL.
+	 *
+	 * Framing the raw target directly is exactly the "green but dead" failure:
+	 * the page loads, the load handler reports target-ok, yet the overlay was
+	 * never injected so no click can ever reach the Edit panel. Every URL/file
+	 * target with a known endpoint goes through registration; direct framing
+	 * is only the no-endpoint fallback (standalone/lab harness), where there
+	 * is no overlay to miss.
+	 */
+	function setTargetViaProxy(target, opts) {
+		var o = opts || {};
+		var endpoint = o.endpoint || state.endpoint;
+		var secret = o.secret || state.secret;
+		var file = o.file || '';
+		if (endpoint && (target || file)) {
+			setState('idle', 'registering');
+			return registerTarget(endpoint, {
+				url: target || undefined,
+				file: file || undefined,
+				label: o.label,
+				session_id: state.sessionId,
+			}, secret).then(function (result) {
+				state.endpoint = endpoint;
+				state.secret = secret;
+				state.kind = result.registration.kind || o.kind || 'url';
+				// previewUrl is root-relative, so it survives the window being served from the app, a
+				// reverse proxy, or a plain http server (the lab); the proxy origin completes it.
+				loadTarget(result.base + result.registration.previewUrl, {
+					label: result.registration.label || o.label,
+					kind: state.kind,
+				});
+			}).catch(reportRegistrationError);
+		}
+		loadTarget(target, o);
+		return null;
+	}
+
+	/**
+	 * Registration failed: the window cannot frame anything inspectable, so it
+	 * must say so in both places — its own chrome AND the workbench, whose
+	 * Preview chip paints red off target-error and turns the next click into
+	 * a relaunch request. A silent local error here used to leave the chip
+	 * green on a dead window.
+	 */
+	function reportRegistrationError(error) {
+		empty.hidden = false;
+		var message = String(error && error.message || error);
+		if (/secret/i.test(message)) {
+			// The one failure a user can act on: the window was opened without the secret, which
+			// happens when the URL was hand-edited or a stale window outlived a proxy restart.
+			emptyCopy.textContent = 'Registration was refused (' + message + '). Close this window and ' +
+				'open the preview again from the Agent panel — the run secret changes every time the ' +
+				'preview server restarts.';
+		} else {
+			emptyCopy.textContent = 'The preview proxy could not register this target: ' + message +
+				'. Is the preview server still running (python -m src.preview.server --endpoint-session …)?';
+		}
+		setState('error', 'no proxy');
+		toast('Preview proxy unavailable', 'failed', 'close');
+		postToHost('target-error', { url: state.target || '', reason: message });
 	}
 
 	function isWorkspaceFile(url) {
@@ -611,7 +677,13 @@
 					applyTheme(data.theme);
 					break;
 				case 'set-target':
-					loadTarget(data.target, { label: data.label, kind: data.kind });
+					setTargetViaProxy(data.target, {
+						label: data.label,
+						kind: data.kind,
+						file: data.file,
+						endpoint: data.endpoint,
+						secret: data.secret,
+					});
 					break;
 				case 'inspect':
 					setInspecting(!!data.on);
@@ -682,6 +754,10 @@
 		var kind = params.get('kind') || '';
 		state.sessionId = params.get('session') || '';
 		var secret = params.get('secret') || '';
+		// Retained for set-target: a later retarget must re-register through the
+		// same proxy, never fall back to framing the raw URL (see setTargetViaProxy).
+		state.endpoint = endpoint;
+		state.secret = secret;
 		if (params.get('theme')) {
 			try { applyTheme(JSON.parse(params.get('theme'))); } catch (_) { /* ignore malformed theme */ }
 		}
@@ -689,37 +765,7 @@
 		syncInspectButton();
 
 		if (endpoint && (target || file)) {
-			setState('idle', 'registering');
-			registerTarget(endpoint, {
-				url: target || undefined,
-				file: file || undefined,
-				label: label,
-				session_id: state.sessionId,
-			}, secret).then(function (result) {
-				var registration = result.registration;
-				state.kind = registration.kind || kind || 'url';
-				// previewUrl is root-relative, so it survives the window being served from the app, a
-				// reverse proxy, or a plain http server (the lab); the proxy origin completes it.
-				loadTarget(result.base + registration.previewUrl, {
-					label: registration.label || label,
-					kind: state.kind,
-				});
-			}).catch(function (error) {
-				empty.hidden = false;
-				var message = String(error && error.message || error);
-				if (/secret/i.test(message)) {
-					// The one failure a user can act on: the window was opened without the secret, which
-					// happens when the URL was hand-edited or a stale window outlived a proxy restart.
-					emptyCopy.textContent = 'Registration was refused (' + message + '). Close this window and ' +
-						'open the preview again from the Agent panel — the run secret changes every time the ' +
-						'preview server restarts.';
-				} else {
-					emptyCopy.textContent = 'The preview proxy could not register this target: ' + message +
-						'. Is the preview server still running (python -m src.preview.server --endpoint-session …)?';
-				}
-				setState('error', 'no proxy');
-				toast('Preview proxy unavailable', 'failed', 'close');
-			});
+			setTargetViaProxy(target, { label: label, kind: kind, file: file });
 		} else if (target) {
 			loadTarget(target, { label: label, kind: kind });
 		} else {

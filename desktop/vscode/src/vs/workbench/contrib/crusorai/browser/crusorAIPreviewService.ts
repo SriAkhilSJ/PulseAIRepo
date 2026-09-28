@@ -192,15 +192,33 @@ export class CrusorAIPreviewService extends Disposable implements ICrusorAIPrevi
 					this.pendingPreviewTurn = false;
 					this.health = 'starting';
 					this.logService.info('[crusor-preview] preview turn ended — reloading the framed app');
-					this.postToWindow(this.currentFrame, CrusorPreviewWindowCommand.SetTarget, {
-						target: this.currentTarget?.url ?? '',
-						file: this.currentTarget?.file ?? '',
-						label: this.currentTarget?.label ?? '',
-						kind: this.currentTarget?.file ? 'file' : 'url',
-					});
+					void this.retargetWindow(this.currentFrame);
 				}
 			}
 		}
+	}
+
+	/**
+	 * Retarget the live window at the RAW target with a FRESH endpoint handshake.
+	 * The window re-registers through the proxy and frames the inspectable copy —
+	 * sending the raw URL alone used to make it frame the dev server directly:
+	 * a green chip on a window no click could ever inspect. The secret rotates
+	 * on every proxy restart, so it is re-read here, not cached.
+	 */
+	private async retargetWindow(frame: HTMLIFrameElement): Promise<void> {
+		const endpoint = await this.resolveEndpoint();
+		if (!endpoint) {
+			this.logService.warn('[crusor-preview] retarget: proxy gone — leaving the window on its last frame');
+			return;
+		}
+		this.postToWindow(frame, CrusorPreviewWindowCommand.SetTarget, {
+			target: this.currentTarget?.url ?? '',
+			file: this.currentTarget?.file ?? '',
+			label: this.currentTarget?.label ?? '',
+			kind: this.currentTarget?.file ? 'file' : 'url',
+			endpoint: endpoint.origin,
+			secret: endpoint.secret ?? '',
+		});
 	}
 
 	/** Fold a streamed frame into the evidence that decides availability (step 1). */
