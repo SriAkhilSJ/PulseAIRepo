@@ -170,6 +170,12 @@ def test_a_limit_is_only_adopted_when_the_provider_states_it():
 def test_an_explicit_limit_lands_in_the_cache_the_next_build_reads(tmp_path, monkeypatch):
     from src.llm.context_errors import apply_reported_limit
 
+    # Hermetic provider routing: cache_key_for routes "custom" through the
+    # live CUSTOM_BASE_URL (velona.in on the owner's machine writes a
+    # "velona:" key), while resolve builds its key from the patched
+    # _effective_provider below. Pin both to "custom" or the keys diverge
+    # and the seeded entry is never read.
+    monkeypatch.setattr("src.config.settings.CUSTOM_BASE_URL", "")
     apply_reported_limit("test-model", "custom", 32_768)
     monkeypatch.setattr(mb, "_effective_provider", lambda p: "custom")
     window, source = mb.resolve_context_window("test-model", allow_network=False)

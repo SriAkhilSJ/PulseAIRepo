@@ -144,7 +144,9 @@ def test_no_folder_ui_is_exact_and_submission_is_blocked():
     _assert_one(service, "noWorkspaceHint: 'Open a folder to start a Crusor session.'", "hint owner")
     assert "model.noWorkspaceHint" in renderer
     # Composer input and send are disabled; an Open Folder action is offered.
-    assert "const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired;" in renderer
+    # (Child sub-agent sessions additionally lock the composer: the banner
+    # owns navigation back to the parent instead.)
+    assert "const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired || !!model.isChild;" in renderer
     assert "input.disabled = true" in renderer
     assert "send.disabled = true" in renderer
     assert "host.openFolder" in renderer
@@ -160,9 +162,17 @@ def test_no_folder_ui_is_exact_and_submission_is_blocked():
 
 def test_frames_carry_the_opened_fs_path_unchanged():
     service = _text("browser", "crusorAIRendererService.ts")
-    create = _assert_one(service, "type: 'session_create', workspace: this.workspacePath", "session_create workspace")
+    # Every session_create site binds the same opened-folder path: the composer
+    # send AND beginExternalTurn (preview/external turns park behind a create
+    # when no session is live). The P0 invariant is that NO site omits it.
+    creates = _lines(service, "type: 'session_create'")
+    assert creates, "at least one session_create site"
+    for line in creates:
+        assert "workspace: this.workspacePath" in service.splitlines()[line - 1], (
+            f"session_create at line {line} must carry the opened folder"
+        )
     prompt = _assert_one(service, "type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath", "prompt workspace")
-    assert create > 0 and prompt > create
+    assert prompt > creates[0]
     assert "workspace: this.workspacePath" in service
 
 
