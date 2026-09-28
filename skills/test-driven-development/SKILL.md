@@ -11,6 +11,8 @@ metadata:
     related_skills: [systematic-debugging, subagent-driven-development]
 ---
 
+**Triggers:** tdd, test-driven, pytest, unit test, write tests, failing test, test first, regression test
+
 # Test-Driven Development (TDD)
 
 ## Overview
