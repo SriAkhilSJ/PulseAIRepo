@@ -31,6 +31,9 @@
 - **code-wiki** — generate wiki docs + Mermaid diagrams for any codebase
 - **skill-authoring** — author new `skills/<name>/SKILL.md` files (the self-improving loop)
 
+### Media
+- **media-sourcing** — search (Openverse/Wikimedia/Pexels), download and license-correctly wire real photos/videos into UI work via `media_search` + `media_download`
+
 ## Trigger mechanics
 
 `SkillManager` derives triggers from (1) the `**Triggers:**` line, (2) frontmatter

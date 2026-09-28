@@ -47,6 +47,7 @@ _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
     "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
 )
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
+_MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",
 )
@@ -83,6 +84,7 @@ def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> l
         names.extend(_VERIFICATION_TOOLS)
     if CAP_RESEARCH in caps and web_available(config):
         names.extend(_RESEARCH_TOOLS)
+        names.extend(_MEDIA_TOOLS)
     if CAP_BROWSER in caps:
         names.extend(_browser_tool_names())
         if CAP_VERIFICATION in caps:
@@ -117,6 +119,7 @@ def all_known_tool_names() -> list[str]:
         *_EXECUTION_TOOLS,
         *_VERIFICATION_TOOLS,
         *_RESEARCH_TOOLS,
+        *_MEDIA_TOOLS,
         *_browser_tool_names(),
         *_UI_SCAFFOLD_TOOLS,
         *_DELEGATION_TOOLS,

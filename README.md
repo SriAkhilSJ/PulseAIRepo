@@ -47,6 +47,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - Plan, execute, recover, replan, and finalize workflow built on LangGraph.
 - Session-scoped cancellation, steering, queues, checkpointing, and provider retries.
 - Workspace-safe file and terminal tools with approval and mutation controls.
+- Media sourcing for UI work: `media_search` (Openverse + Wikimedia Commons keyless, Pexels via `PEXELS_API_KEY`) and `media_download` (validated binary download into the workspace) — the agent can put real product photos/videos into the sites it builds instead of broken placeholders (`skills/media-sourcing`).
 - Verification gates for changed code, including syntax, type-check, test, UI evidence, and unresolved local dependency/source-reference checks.
 - Task-aware bounded context assembly (32 layers, the pluggable Hermes-parity `ContextEngine` ABC), repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
 - Usage-driven compaction: the engine owns the compaction decision from the provider's ACTUAL token usage (75% of the real window), tightens the history budget toward the lean tail while pressure persists, and re-arms after relaxation.
