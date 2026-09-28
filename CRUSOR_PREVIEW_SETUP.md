@@ -160,7 +160,18 @@ Then open the project folder you want to work in (`File → Open Folder`).
 
 ### 5b. Start the preview proxy for that folder
 
-Nothing starts the proxy automatically yet (see *Known gaps*), so run it in a terminal:
+Nothing starts the proxy automatically yet (see *Known gaps*), so use the launcher — it starts
+the proxy when needed and then opens the IDE (Windows):
+
+```bash
+crusor.bat D:\path\to\your\project
+```
+
+- The argument must be **the folder you open in the app**; the IDE resolves the proxy by matching
+  that path in the handshake file. With no argument the current directory is used.
+- An already-running proxy for the same folder is reused. `crusor.bat --proxy-only <folder>`
+  starts/verifies the proxy without launching the IDE.
+- Manual fallback (any OS), run in a terminal and leave it running:
 
 ```bash
 cd /path/to/PulseAIRepo
