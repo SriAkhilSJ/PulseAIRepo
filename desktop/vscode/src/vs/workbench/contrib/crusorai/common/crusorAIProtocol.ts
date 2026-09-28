@@ -21,6 +21,38 @@ export interface CrusorIdentity {
 	readonly timestamp?: string;
 }
 
+/** Durable session row (Hermes SessionInfo parity — see src/runtime/session_store.py). */
+export interface CrusorSessionRow {
+	readonly id: string;
+	readonly session_id?: string;
+	readonly title?: string;
+	readonly workspace?: string;
+	readonly source?: string;
+	readonly model?: string;
+	readonly created_at?: number;
+	readonly last_active?: number;
+	readonly message_count?: number;
+	readonly preview?: string;
+	readonly pinned?: boolean;
+	readonly archived?: boolean;
+	readonly hidden?: boolean;
+	readonly unread?: boolean;
+	readonly parent_session_id?: string | null;
+	readonly lineage_root_id?: string | null;
+	/** Rowless lazy draft: exists only in the engine's live registry so far. */
+	readonly lazy?: boolean;
+}
+
+/** One paged transcript message (Hermes SessionMessage parity). */
+export interface CrusorSessionMessage {
+	readonly id?: number | string;
+	readonly role: 'user' | 'assistant' | 'tool';
+	readonly content: string;
+	readonly tool_calls?: readonly { readonly id?: string; readonly name: string; readonly args?: unknown }[];
+	readonly tool_call_id?: string;
+	readonly tool_name?: string;
+}
+
 export interface CrusorSessionInfo {
 	readonly session_id: string;
 	readonly workspace?: string;
@@ -35,6 +67,27 @@ export interface CrusorSessionInfo {
 	readonly host_tool_result_resolved?: boolean;
 	readonly events?: readonly unknown[];
 	readonly agent_status?: Readonly<Record<string, unknown>>;
+	/** Durable row for this session (create/resume), when one exists. */
+	readonly session?: CrusorSessionRow;
+	/** Hermes session.create identity: the durable key + lazy-draft flag. */
+	readonly stored_session_id?: string;
+	readonly lazy?: boolean;
+	readonly info?: { readonly model?: string; readonly cwd?: string; readonly source?: string; readonly lazy?: boolean };
+	/** Durable listing (session_list): rich rows, newest activity first. */
+	readonly sessions?: readonly CrusorSessionRow[];
+	readonly limit?: number;
+	readonly offset?: number;
+	readonly has_more?: boolean;
+	/** Lineage tip the resume actually bound (fork children resolve here). */
+	readonly resolved_session_id?: string;
+	/** Rename / pin / archive acks. */
+	readonly title?: string;
+	readonly renamed?: boolean;
+	readonly pinned?: boolean;
+	readonly pin_updated?: boolean;
+	readonly archive_updated?: boolean;
+	/** Checkpointer history silently resumed by this id (never claimed fresh). */
+	readonly prior_checkpoints?: number;
 	/** Engine build ("<sha> <date>") — a stale engine is visible in the panel. */
 	readonly build?: string;
 }
@@ -60,6 +113,8 @@ export interface CrusorClarifyQuestion {
 export type CrusorServerEvent =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION; readonly engine: 'crusorai'; readonly engine_version: string; readonly capabilities: readonly string[] }
 	| ({ readonly type: 'session_info' } & CrusorSessionInfo)
+	| ({ readonly type: 'session_messages'; readonly requested_session_id?: string; readonly messages: readonly CrusorSessionMessage[]; readonly pagination: { readonly limit: number; readonly offset: number; readonly order: 'latest' | 'oldest'; readonly returned: number; readonly total: number; readonly has_more: boolean } } & CrusorIdentity)
+	| ({ readonly type: 'session_deleted'; readonly deleted: boolean } & CrusorIdentity)
 	| ({ readonly type: 'turn_started' } & CrusorIdentity)
 	| ({ readonly type: 'token'; readonly text: string } & CrusorIdentity)
 	| ({ readonly type: 'reasoning'; readonly text: string } & CrusorIdentity)
@@ -98,10 +153,15 @@ interface CrusorSessionRequest {
 export type CrusorClientMethod =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION }
 	| ({ readonly type: 'session_create' } & CrusorSessionRequest)
-	| ({ readonly type: 'session_load' } & CrusorSessionRequest)
-	| ({ readonly type: 'session_resume' } & CrusorSessionRequest)
-	| ({ readonly type: 'session_list' } & CrusorSessionRequest)
+	| ({ readonly type: 'session_load'; readonly include_events?: boolean } & CrusorSessionRequest)
+	| ({ readonly type: 'session_resume'; readonly include_events?: boolean } & CrusorSessionRequest)
+	| ({ readonly type: 'session_list'; readonly limit?: number; readonly offset?: number; readonly order?: 'recent' | 'created'; readonly archived?: 'exclude' | 'include' | 'only'; readonly query?: string; readonly min_messages?: number } & CrusorSessionRequest)
 	| ({ readonly type: 'session_fork' } & CrusorSessionRequest)
+	| ({ readonly type: 'session_rename'; readonly title: string } & CrusorSessionRequest)
+	| ({ readonly type: 'session_pin'; readonly pinned?: boolean; readonly enabled?: boolean } & CrusorSessionRequest)
+	| ({ readonly type: 'session_archive'; readonly archived?: boolean; readonly enabled?: boolean } & CrusorSessionRequest)
+	| ({ readonly type: 'session_delete' } & CrusorSessionRequest)
+	| ({ readonly type: 'session_messages'; readonly limit?: number; readonly offset?: number; readonly order?: 'latest' | 'oldest' } & CrusorSessionRequest)
 	| ({ readonly type: 'prompt'; readonly text: string; readonly mode?: CrusorExecutionMode; readonly reasoning_effort?: string } & CrusorSessionRequest)
 	| ({ readonly type: 'voice_transcribe'; readonly audio_b64: string; readonly filename?: string } & CrusorSessionRequest)
 	| ({ readonly type: 'cancel' } & CrusorSessionRequest)

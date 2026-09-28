@@ -141,7 +141,9 @@ def test_bridge_accepts_only_allowlisted_read_only_host_capabilities(tmp_path):
         [sys.executable, "-m", "src.bridge"], cwd=ROOT,
         input="".join(json.dumps(frame) + "\n" for frame in frames),
         text=True, capture_output=True, timeout=20,
-        env={**os.environ, "CRUSORAI_BRIDGE_RUNNER": "echo"},
+        env={**os.environ, "CRUSORAI_BRIDGE_RUNNER": "echo",
+             # Hermetic durable store: never the real ~/.crusorai/sessions.db.
+             "CRUSORAI_SESSIONS_DB": str(tmp_path / "sessions.db")},
     )
     assert result.returncode == 0, result.stderr
     output = [json.loads(line) for line in result.stdout.splitlines()]

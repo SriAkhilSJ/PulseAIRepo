@@ -10,7 +10,7 @@ export const ICrusorAISessionStore = createDecorator('crusorAISessionStore');
 const MAX_TRACKED_SESSIONS = 64;
 function signature(facts) {
     const changes = facts.changes ? `${facts.changes.files}:${facts.changes.insertions}:${facts.changes.deletions}` : '';
-    return [facts.label, facts.workspaceLabel, facts.statusName ?? '', facts.firstSeenAt ?? '', facts.turnStartedAt ?? '', facts.turnEndedAt ?? '', changes, facts.archived ?? ''].join('|');
+    return [facts.label, facts.workspaceLabel, facts.statusName ?? '', facts.firstSeenAt ?? '', facts.turnStartedAt ?? '', facts.turnEndedAt ?? '', changes, facts.archived ?? '', facts.pinned ?? '', facts.unread ?? '', facts.messageCount ?? '', facts.lastActiveAt ?? ''].join('|');
 }
 export class CrusorAISessionStore extends Disposable {
     constructor() {

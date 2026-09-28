@@ -118,6 +118,14 @@ class BridgeServer:
             import sqlite3
             conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2.0)
             try:
+                table = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='checkpoints'"
+                ).fetchone()
+                if table is None:
+                    # A sessions.db without the checkpointer table was minted
+                    # by the session/subagent stores before any turn ran —
+                    # that is honestly zero checkpoints, not unknown.
+                    return 0
                 row = conn.execute(
                     "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", (sid,)
                 ).fetchone()
@@ -126,6 +134,137 @@ class BridgeServer:
                 conn.close()
         except Exception:
             return None
+
+    # -- Hermes desktop session pipeline: durable rows + paged history --------
+    # The in-memory _sessions map stays the live-turn registry (workers,
+    # workspace binding); the CrusorSessionStore below is the durable list
+    # the desktop hydrates from. session_create mints a lazy draft (no row)
+    # and the first prompt persists it — Hermes "no Untitled litter".
+
+    @staticmethod
+    def _durable_store():
+        from src.runtime.session_store import get_session_store
+        return get_session_store()
+
+    @staticmethod
+    def _session_row_public(row: dict | None) -> dict | None:
+        """Client-safe session row (Hermes _session_response shape)."""
+        if not row:
+            return None
+        safe = (
+            "id", "title", "workspace", "source", "model", "created_at",
+            "last_active", "message_count", "preview", "pinned", "archived",
+            "hidden", "unread", "parent_session_id", "lineage_root_id",
+        )
+        return {key: row.get(key) for key in safe if key in row}
+
+    def _transcript_messages(
+        self, sid: str, *, limit: int, offset: int, order: str,
+    ) -> tuple[list[dict], dict]:
+        """Paged transcript from the checkpointer (Hermes messages paging).
+
+        Order ``latest`` pages back from the NEWEST message (tail hydration);
+        ``oldest`` pages forward from the first row. A bounded get_state read
+        (Hermes 1.5s snapshot discipline) fails open to an empty page — the
+        desktop falls back to the journal events from session_resume.
+        """
+        limit = max(1, min(int(limit or 120), 500))
+        offset = max(0, int(offset or 0))
+        if order not in ("latest", "oldest"):
+            order = "latest"
+        raw: list = []
+        try:
+            import concurrent.futures as _cf
+            from src.graphs.chat_graph import graph as _graph
+            config = {"configurable": {"thread_id": sid}}
+            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                snap = _ex.submit(_graph.get_state, config).result(timeout=2.0)
+            values = dict(snap.values or {}) if snap else {}
+            raw = list(values.get("messages") or [])
+        except Exception as exc:
+            print(f"[bridge] transcript read failed for {sid}: {exc!r}",
+                  file=sys.stderr, flush=True)
+            raw = []
+        projected: list[dict] = []
+        for index, msg in enumerate(raw):
+            mtype = str(getattr(msg, "type", "") or "").lower()
+            if mtype == "human":
+                role = "user"
+            elif mtype == "tool":
+                role = "tool"
+            else:
+                role = "assistant"
+            content = getattr(msg, "content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    b.get("text", "") for b in content if isinstance(b, dict)
+                ) or str(content)
+            entry: dict = {"id": index, "role": role, "content": str(content or "")}
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                try:
+                    entry["tool_calls"] = [
+                        {"id": str(c.get("id") or ""),
+                         "name": c.get("name", ""),
+                         "args": c.get("args", {})}
+                        for c in tool_calls
+                    ]
+                except Exception:
+                    pass
+            tool_call_id = getattr(msg, "tool_call_id", None)
+            if tool_call_id:
+                entry["tool_call_id"] = str(tool_call_id)
+            name = getattr(msg, "name", None)
+            if name:
+                entry["tool_name"] = str(name)
+            projected.append(entry)
+        total = len(projected)
+        if order == "latest":
+            start = max(0, total - offset - limit)
+            end = max(0, total - offset)
+            page = projected[start:end]
+        else:
+            page = projected[offset:offset + limit]
+        pagination = {
+            "limit": limit, "offset": offset, "order": order,
+            "returned": len(page), "total": total,
+            "has_more": (start > 0) if order == "latest" else (offset + len(page) < total),
+        }
+        return page, pagination
+
+    def _touch_turn(self, sid: str, user_text: str) -> None:
+        """Persist-on-first-prompt + per-turn activity (Hermes lazy rows).
+
+        Best-effort by contract: accounting never breaks the receipt.
+        """
+        try:
+            store = self._durable_store()
+            workspace = ""
+            try:
+                workspace = str(self._sessions.get(sid, {}).get("workspace") or "")
+            except Exception:
+                workspace = ""
+            row = store.get_session(sid)
+            if row is None:
+                from src.runtime.session_store import derive_title_from_text
+                title = derive_title_from_text(user_text)
+                store.create_session(sid, workspace, title=title or "")
+                store.touch_activity(sid, preview=str(user_text or "")[:500],
+                                     message_count_inc=2)
+                return
+            if not (row.get("title") or "") and user_text:
+                from src.runtime.session_store import derive_title_from_text
+                store.set_title(sid, derive_title_from_text(user_text))
+            preview = (row.get("preview") or "") or str(user_text or "")[:500]
+            store.touch_activity(sid, preview=preview, message_count_inc=2)
+        except Exception as exc:
+            print(f"[bridge] turn touch failed for {sid}: {exc!r}",
+                  file=sys.stderr, flush=True)
+
+    @staticmethod
+    def _identity_fields(sid: str) -> dict:
+        """Minimal identity for non-turn frames (voice needs session_id)."""
+        return {"session_id": sid}
 
     def _session(self, requested: str | None, workspace: str = "") -> str:
         """Resolve a session id, binding the FIRST workspace only.
@@ -498,6 +637,7 @@ class BridgeServer:
                     "type": "token", **identity.event_fields(),
                     "text": text, "test_runner": "echo",
                 })
+                self._touch_turn(sid, text)
                 _terminal.set()
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
@@ -607,6 +747,7 @@ class BridgeServer:
                 # exception types. Intentional Stop wins over generic failure
                 # attribution and must produce one terminal cancelled receipt.
                 if turn_controls.cancelled(sid):
+                    self._touch_turn(sid, text)
                     _terminal.set()
                     _emit_terminal({
                         "type": "turn_done", **identity.event_fields(),
@@ -614,6 +755,7 @@ class BridgeServer:
                         "completed": False, "cancelled": True, "stub": False,
                     })
                 else:
+                    self._touch_turn(sid, text)
                     _terminal.set()
                     _emit_terminal({
                         "type": "turn_failed", **identity.event_fields(),
@@ -636,6 +778,102 @@ class BridgeServer:
         queued = turn_controls.pop_queued(sid)
         if queued and not self._shutdown.is_set():
             self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1])
+
+    def _handle_session_meta(self, kind: str, sid: str, frame: dict, workspace: str) -> bool:
+        """Durable-row session APIs (Hermes PATCH/DELETE/GET messages parity)."""
+        try:
+            store = self._durable_store()
+        except Exception as exc:
+            self.emit(error_frame(f"session store unavailable: {exc}"))
+            return True
+        if kind == "session_messages":
+            try:
+                tip = store.resolve_tip(sid)
+            except Exception:
+                tip = sid
+            try:
+                limit = int(frame.get("limit") or 120)
+            except (TypeError, ValueError):
+                limit = 120
+            try:
+                offset = int(frame.get("offset") or 0)
+            except (TypeError, ValueError):
+                offset = 0
+            order = str(frame.get("order") or "latest").strip().lower()
+            messages, pagination = self._transcript_messages(
+                tip, limit=limit, offset=offset, order=order)
+            self.emit({
+                "type": "session_messages", "session_id": tip,
+                "requested_session_id": sid, "messages": messages,
+                "pagination": pagination,
+            })
+            return True
+        if kind == "session_delete":
+            worker = self._workers.get(sid)
+            if worker is not None and worker.is_alive():
+                self.emit(error_frame(
+                    f"session {sid} has a live turn; stop it before deleting"))
+                return True
+            try:
+                from src.runtime.factory import get_runtime_services
+                journal_path = str(get_runtime_services().journal.path)
+            except Exception:
+                journal_path = None
+            try:
+                deleted = store.delete_session(sid, journal_path=journal_path)
+            except Exception as exc:
+                self.emit(error_frame(f"session delete failed: {exc}"))
+                return True
+            self._sessions.pop(sid, None)
+            self.emit({"type": "session_deleted", "session_id": sid,
+                       "deleted": bool(deleted)})
+            return True
+        if kind == "session_rename":
+            from src.runtime.session_store import sanitize_title
+            title = sanitize_title(frame.get("title"))
+            try:
+                ok = store.set_title(sid, title)
+            except Exception as exc:
+                self.emit(error_frame(f"session rename failed: {exc}"))
+                return True
+            if not ok:
+                # Renaming a lazy draft that has no row yet: persist it now so
+                # the title survives the restart (Hermes seeded-row rule).
+                try:
+                    store.create_session(sid, workspace, title=title)
+                    ok = True
+                except Exception as exc:
+                    self.emit(error_frame(f"session rename failed: {exc}"))
+                    return True
+            self.emit({"type": "session_info", "session_id": sid,
+                       "title": title, "renamed": bool(ok)})
+            return True
+        if kind == "session_pin":
+            raw = frame.get("pinned", frame.get("enabled", frame.get("value")))
+            pinned = bool(raw) if not isinstance(raw, str) else raw.strip().lower() in {
+                "1", "true", "yes", "on"}
+            try:
+                ok = store.set_pinned(sid, pinned)
+            except Exception as exc:
+                self.emit(error_frame(f"session pin failed: {exc}"))
+                return True
+            self.emit({"type": "session_info", "session_id": sid,
+                       "pinned": pinned, "pin_updated": bool(ok)})
+            return True
+        if kind == "session_archive":
+            raw = frame.get("archived", frame.get("enabled", frame.get("value")))
+            archived = bool(raw) if not isinstance(raw, str) else raw.strip().lower() in {
+                "1", "true", "yes", "on"}
+            try:
+                ok = store.set_archived(sid, archived)
+            except Exception as exc:
+                self.emit(error_frame(f"session archive failed: {exc}"))
+                return True
+            self.emit({"type": "session_info", "session_id": sid,
+                       "archived": archived, "archive_updated": bool(ok)})
+            return True
+        self.emit(error_frame(f"unknown session method: {kind!r}"))
+        return True
 
     def handle(self, frame: dict) -> bool:
         kind = frame["type"]
@@ -662,11 +900,34 @@ class BridgeServer:
         if not workspace and kind in _WORKSPACE_REQUIRED_METHODS:
             self.emit(error_frame(NO_WORKSPACE_ERROR))
             return True
-        try:
-            sid = self._session(frame.get("session_id") or frame.get("thread_id"), workspace)
-        except WorkspaceSwitchError as exc:
-            self.emit(error_frame(str(exc)))
-            return True
+        # Hermes session-metadata reads/writes are workspace-optional: they
+        # address the DURABLE row, not the live worker, so they must neither
+        # mint phantom in-memory entries nor demand an open folder.
+        if kind in {"session_rename", "session_pin", "session_archive",
+                    "session_delete", "session_messages"}:
+            raw_sid = str(frame.get("session_id") or frame.get("thread_id") or "").strip()
+            if not raw_sid:
+                self.emit(error_frame(f"{kind} requires session_id"))
+                return True
+            bound = self._sessions.get(raw_sid)
+            if workspace and bound is not None and bound.get("workspace") != workspace:
+                self.emit(error_frame(
+                    f"session {raw_sid} is bound to workspace {bound.get('workspace')!r}; "
+                    f"cannot switch to workspace {workspace!r}"))
+                return True
+            return self._handle_session_meta(kind, raw_sid, frame, workspace)
+        if kind == "session_list":
+            # A listing must never mint: resolving-or-creating here would add a
+            # phantom live draft on every refresh (a fresh window has no
+            # session id yet). The list branch only reads the durable store +
+            # the live registry, so an absent id is simply no filter.
+            sid = str(frame.get("session_id") or frame.get("thread_id") or "").strip() or None
+        else:
+            try:
+                sid = self._session(frame.get("session_id") or frame.get("thread_id"), workspace)
+            except WorkspaceSwitchError as exc:
+                self.emit(error_frame(str(exc)))
+                return True
         if kind == "host_capabilities_update":
             from src.runtime.host_capabilities import host_capability_broker
             descriptors = frame.get("capabilities")
@@ -687,40 +948,119 @@ class BridgeServer:
                 "host_tool_result_resolved": resolved,
             })
         elif kind == "session_create":
+            # Hermes session.create: mint a lazy draft (no DB row) unless this
+            # create carries intent (a parent link or seed messages), in which
+            # case the row persists NOW because the post-create resume reads
+            # the DB. prior_checkpoints keeps the "fixed id silently resumes"
+            # visibility (measured: +3 calls / +~10k tokens per run, linear).
+            title_param = frame.get("title")
+            source_param = str(frame.get("source") or "desktop").strip() or "desktop"
+            model_param = frame.get("model")
+            parent_param = str(frame.get("parent_session_id") or "").strip() or None
+            seed_messages = frame.get("messages") or []
+            seeded = bool(parent_param) or (isinstance(seed_messages, list) and len(seed_messages) > 0)
+            lazy = True
+            session_row: dict | None = None
+            if seeded:
+                try:
+                    store = self._durable_store()
+                    created_row = store.create_session(
+                        sid, workspace, source=source_param,
+                        title=str(title_param) if title_param is not None else None,
+                        model=str(model_param) if model_param else None,
+                        parent_session_id=parent_param,
+                    )
+                    lazy = False
+                    session_row = self._session_row_public(created_row)
+                except Exception as exc:
+                    print(f"[bridge] seeded session persist failed for {sid}: {exc!r}",
+                          file=sys.stderr, flush=True)
+            else:
+                # Remember the draft's intent in memory; the first prompt
+                # persists it (see _touch_turn). Stash on the live entry so
+                # session_list can surface optimistic rows for drafts.
+                try:
+                    entry = self._sessions.get(sid, {})
+                    if title_param is not None:
+                        entry["pending_title"] = str(title_param)[:200]
+                    if model_param:
+                        entry["model"] = str(model_param)[:200]
+                    if parent_param:
+                        entry["parent_session_id"] = parent_param
+                    entry["stored_session_id"] = sid
+                    entry["lazy"] = True
+                except Exception:
+                    pass
             prior = self._prior_checkpoint_count(sid)
-            info = {"type": "session_info", **self._sessions[sid]}
+            info: dict = {"type": "session_info", **self._sessions[sid],
+                          "stored_session_id": sid, "lazy": lazy,
+                          "info": {"model": str(model_param or ""),
+                                   "cwd": workspace, "source": source_param,
+                                   "lazy": lazy}}
+            if session_row is not None:
+                info["session"] = session_row
             if prior is not None:
-                # Visibility: a session id with durable history SILENTLY
-                # resumes it (the langgraph checkpointer keys by thread id).
-                # Measured live: a fixed id made each benchmark run replay
-                # every prior run (+3 calls / +~10k tokens per run, linear).
-                # The create reply must never claim a fresh start silently.
                 info["prior_checkpoints"] = prior
             self.emit(info)
         elif kind in {"session_load", "session_resume"}:
+            # Hermes session.resume: resolve the lineage tip, reopen the row,
+            # mark read (an explicit open means the user saw it), and return
+            # the journal timeline + status + subagents for the TIP.
             try:
-                from src.runtime.factory import get_runtime_services
-                stored = get_runtime_services().journal.list_events(sid)
-                events = self._project_stored_events(stored)
-                from src.graphs.chat_graph import get_agent_status
-                status = get_agent_status(sid)
+                tip = self._durable_store().resolve_tip(sid)
             except Exception:
-                events, status = [], {}
+                tip = sid
+            try:
+                from src.graphs.chat_graph import get_agent_status
+                status = get_agent_status(tip)
+            except Exception:
+                status = {}
+            # Navigation hydrates the transcript from session_messages (paged
+            # checkpoints); include_events:false skips the journal here so the
+            # two views never double-paint one transcript. Restart recovery
+            # keeps the default and replays the journal instead.
+            include_events = frame.get("include_events", True)
+            if (include_events is False
+                    or str(include_events).strip().lower() in {"false", "0", "no"}):
+                events = []
+            else:
+                try:
+                    from src.runtime.factory import get_runtime_services
+                    stored = get_runtime_services().journal.list_events(tip)
+                    events = self._project_stored_events(stored)
+                except Exception:
+                    events = []
+            try:
+                self._durable_store().set_read(tip, True)
+            except Exception:
+                pass
+            session_row_public: dict | None = None
+            try:
+                session_row_public = self._session_row_public(
+                    self._durable_store().get_session(tip))
+            except Exception:
+                session_row_public = None
             # OpenCode parity: include subagent list on resume for parentMap navigation
             subagents_payload = []
             try:
                 from src.runtime.subagent_store import get_store
                 s_store = get_store()
-                rows = s_store.list_by_parent(sid)
+                rows = s_store.list_by_parent(tip)
+                if not rows and tip != sid:
+                    rows = s_store.list_by_parent(sid)
                 subagents_payload = [r.to_dict() for r in rows]
             except Exception:
                 subagents_payload = []
-            self.emit({
+            resume_frame: dict = {
                 "type": "session_info", **self._sessions[sid],
                 "resumed": kind == "session_resume",
+                "resolved_session_id": tip,
                 "events": events, "agent_status": status,
                 "subagents": subagents_payload,
-            })
+            }
+            if session_row_public is not None:
+                resume_frame["session"] = session_row_public
+            self.emit(resume_frame)
             # Also emit dedicated subagent_list frame for UI that listens specifically
             if subagents_payload:
                 self.emit({
@@ -728,8 +1068,85 @@ class BridgeServer:
                     "subagents": subagents_payload,
                 })
         elif kind == "session_list":
-            self.emit({"type": "session_info", "sessions": list(self._sessions.values())})
+            # Hermes listSessions: durable rows first (recency window + pinned
+            # back-fill), live lazy drafts merged as optimistic rows so a
+            # just-created chat renders before its first prompt persists it.
+            try:
+                limit = int(frame.get("limit") or 40)
+            except (TypeError, ValueError):
+                limit = 40
+            try:
+                offset = int(frame.get("offset") or 0)
+            except (TypeError, ValueError):
+                offset = 0
+            order = str(frame.get("order") or "recent").strip().lower()
+            if order not in ("recent", "created"):
+                order = "recent"
+            archived = str(frame.get("archived") or "exclude").strip().lower()
+            if archived not in ("exclude", "include", "only"):
+                archived = "exclude"
+            query = str(frame.get("query") or frame.get("search") or "").strip() or None
+            try:
+                min_messages = max(0, int(frame.get("min_messages") or 0))
+            except (TypeError, ValueError):
+                min_messages = 0
+            ws_filter = workspace or None
+            store = None
+            try:
+                store = self._durable_store()
+                durable = store.list_sessions_rich(
+                    limit=limit, offset=offset, order=order, archived=archived,
+                    workspace=ws_filter, search_query=query,
+                    min_messages=min_messages, include_pinned=True)
+            except Exception as exc:
+                print(f"[bridge] durable session list failed: {exc!r}",
+                      file=sys.stderr, flush=True)
+                durable = []
+            seen = {str(r.get("id")) for r in durable}
+            optimistic: list[dict] = []
+            if offset == 0 and not query and archived != "only":
+                for live_id, entry in self._sessions.items():
+                    if live_id in seen:
+                        continue
+                    if ws_filter and entry.get("workspace") != ws_filter:
+                        continue
+                    # A live entry with a DURABLE row was excluded by the
+                    # query's own filters (archived, min_messages, ...) — the
+                    # optimistic merge must not resurrect it. Only rowless
+                    # lazy drafts surface here.
+                    try:
+                        if store.get_session(live_id) is not None:
+                            continue
+                    except Exception:
+                        pass
+                    optimistic.append({
+                        "id": live_id, "session_id": live_id,
+                        "title": str(entry.get("pending_title") or ""),
+                        "workspace": str(entry.get("workspace") or ""),
+                        "source": "desktop",
+                        "model": str(entry.get("model") or ""),
+                        "message_count": 0, "preview": "",
+                        "pinned": False, "archived": False, "hidden": False,
+                        "unread": False,
+                        "parent_session_id": entry.get("parent_session_id"),
+                        "lineage_root_id": live_id,
+                        "lazy": True,
+                    })
+            sessions_payload = optimistic + [
+                {**self._session_row_public(r), "session_id": r.get("id")}
+                for r in durable
+            ]
+            # Back-compat: historical shape is session_info.sessions of
+            # {session_id, workspace}; durable rows carry both id and
+            # session_id so old and new readers agree.
+            self.emit({"type": "session_info", "sessions": sessions_payload,
+                       "limit": limit, "offset": offset,
+                       "has_more": len(durable) >= max(1, min(limit, 200))})
         elif kind == "session_fork":
+            # Hermes branch: child first (a failed create never leaves the
+            # source ended with no fork), then copy the transcript. The child
+            # row links parent_session_id + lineage root so listings nest it
+            # and resolve_tip lands on it.
             source = sid
             target = self._session(None, workspace)
             try:
@@ -737,6 +1154,21 @@ class BridgeServer:
                 fork_conversation(source, target)
             except Exception:
                 pass
+            try:
+                store = self._durable_store()
+                parent_row = store.get_session(source)
+                base_title = str((parent_row or {}).get("title") or "").strip()
+                child_title = f"{base_title} fork" if base_title else "Forked session"
+                store.create_session(target, workspace, title=child_title,
+                                     model=str((parent_row or {}).get("model") or "") or None,
+                                     parent_session_id=source)
+                if parent_row and parent_row.get("message_count"):
+                    store.touch_activity(
+                        target, preview=str(parent_row.get("preview") or ""),
+                        message_count=int(parent_row.get("message_count") or 0))
+            except Exception as exc:
+                print(f"[bridge] fork row persist failed for {target}: {exc!r}",
+                      file=sys.stderr, flush=True)
             self.emit({"type": "session_info", **self._sessions[target], "forked_from": source})
         elif kind == "voice_transcribe":
             # Floor 5 voice: audio (base64) in, transcript out. Fail-closed —
@@ -777,6 +1209,23 @@ class BridgeServer:
                 if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo":
                     from src.dashboard.event_bus import event_bus  # noqa: F401
                     from src.graphs.chat_graph import stream_agent  # noqa: F401
+                # Hermes lazy-row rule: the row exists from the first ACCEPTED
+                # prompt, so a turn that dies mid-flight still lists. The
+                # title/activity touch lands at turn end (see _touch_turn).
+                try:
+                    store = self._durable_store()
+                    if store.get_session(sid) is None:
+                        from src.runtime.session_store import derive_title_from_text
+                        pending = str(self._sessions.get(sid, {}).get("pending_title") or "")
+                        store.create_session(
+                            sid, self._sessions[sid]["workspace"],
+                            title=pending or derive_title_from_text(text),
+                            model=str(self._sessions.get(sid, {}).get("model") or "") or None,
+                            parent_session_id=self._sessions.get(sid, {}).get("parent_session_id"),
+                        )
+                except Exception as exc:
+                    print(f"[bridge] prompt row ensure failed for {sid}: {exc!r}",
+                          file=sys.stderr, flush=True)
                 worker = threading.Thread(
                     target=self._run_turn,
                     args=(sid, text, self._sessions[sid]["workspace"], mode, effort),

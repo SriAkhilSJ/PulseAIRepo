@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import { reasoningEffortLabel } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
+import { crusorSessionIdFromUri } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
 import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
@@ -2418,7 +2419,7 @@ function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
 }
 function renderAgent(root, model, host, openTools, planOpen, setPlanOpen, activity) {
     const shell = element('div', 'crusorai-agent-shell');
-    const header = element('div', 'crusorai-agent-header', element('span', 'crusorai-agent-header-title', 'Crusor Agent'), button('Manager', 'crusorai-agent-manager-button', () => host.openManager(), 'organization'));
+    const header = element('div', 'crusorai-agent-header', element('span', 'crusorai-agent-header-title', 'Crusor Agent'), button('Manager', 'crusorai-agent-manager-button', () => host.openManager(), 'organization'), button('New session', 'crusorai-agent-manager-button', () => host.newSession?.(), 'add'));
     // Field run 2026-09-09 (owner: "Ur claim failed"): the STALE chip lived
     // only in the Manager titlebar, so an Agent-pane session ran a pre-
     // fef8cdb2/74d146bd workbench against a current engine — every card-
@@ -2456,7 +2457,7 @@ function inspector(model) {
  *
  * No row is invented here and none can be renamed: this is a render of `model.sessions`.
  */
-function sessionList(model) {
+function sessionList(model, host) {
     const group = element('div', 'crusorai-workspace-group');
     group.append(element('div', 'crusorai-workspace-title', icon('chevron-down'), icon('folder'), element('strong', undefined, model.workspaceLabel)));
     const rows = model.sessions;
@@ -2486,18 +2487,26 @@ function sessionList(model) {
             classes.push('is-attention');
         }
         const button = element('button', classes.join(' '), element('span', `crusorai-status-dot is-${dot}`), element('div', undefined, element('strong', undefined, row.label), element('span', 'crusorai-session-detail', detail)), element('span', 'crusorai-session-state', state));
-        // Steering another session needs `session_resume`, which this build does not wire yet, so
-        // the row tells the truth instead of pretending: only the open one is actionable.
+        // Every row opens its session in place (navigateToSession rebinds the surface and
+        // hydrates the transcript); the active row is already open so it stays inert.
         button.type = 'button';
-        button.disabled = !row.isActive;
-        button.title = row.isActive ? 'Open in this panel' : 'Select it from the engine to steer it';
+        if (!row.isActive && host.navigateToSession) {
+            const target = crusorSessionIdFromUri(row.resource);
+            button.title = 'Open this session in this panel';
+            if (target) {
+                button.addEventListener('click', () => host.navigateToSession(target));
+            }
+        }
+        else {
+            button.title = 'Open in this panel';
+        }
         group.append(button);
     }
     return group;
 }
 function renderManager(root, model, host, openTools, activity, planOpen, setPlanOpen) {
     const shell = element('div', 'crusorai-manager-shell');
-    const sidebar = element('aside', 'crusorai-manager-sidebar', element('header', 'crusorai-manager-pane-head', element('div', undefined, element('span', 'crusorai-eyebrow', 'CONTROL PLANE'), element('h2', undefined, 'Workspaces')), button('', 'crusorai-icon-button', () => undefined, 'add')), element('div', 'crusorai-manager-search', icon('search'), element('span', undefined, 'Find workspace or agent')), sessionList(model), element('footer', 'crusorai-manager-sidebar-footer', icon('organization'), element('span', undefined, model.sessions?.length ? `${model.sessions.length} session(s) remembered · ${model.running ? '1 running' : 'none running'}` : 'No session yet')));
+    const sidebar = element('aside', 'crusorai-manager-sidebar', element('header', 'crusorai-manager-pane-head', element('div', undefined, element('span', 'crusorai-eyebrow', 'CONTROL PLANE'), element('h2', undefined, 'Workspaces')), button('', 'crusorai-icon-button', () => host.newSession?.(), 'add')), element('div', 'crusorai-manager-search', icon('search'), element('span', undefined, 'Find workspace or agent')), sessionList(model, host), element('footer', 'crusorai-manager-sidebar-footer', icon('organization'), element('span', undefined, model.sessions?.length ? `${model.sessions.length} session(s) remembered · ${model.running ? '1 running' : 'none running'}` : 'No session yet')));
     const main = element('main', 'crusorai-manager-main');
     main.append(element('header', 'crusorai-manager-titlebar', element('div', undefined, element('div', 'crusorai-manager-breadcrumb', model.workspaceLabel, ' / ', model.sessionId?.slice(0, 12) ?? 'new-session'), element('h1', undefined, model.userMessage || 'Crusor Manager')), engineStatus(model)), element('nav', 'crusorai-manager-tabs', element('button', 'is-active', icon('comment-discussion'), 'Session'), element('button', undefined, icon('terminal'), `Tools ${model.tools.length}`), element('button', undefined, icon('diff'), 'Changes')), ...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen), composer(model, host, true));
     shell.append(sidebar, main, inspector(model));

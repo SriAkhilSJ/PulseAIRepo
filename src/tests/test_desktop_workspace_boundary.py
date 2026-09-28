@@ -182,9 +182,12 @@ def test_frames_carry_the_opened_fs_path_unchanged():
 
 
 @pytest.fixture
-def bridge():
+def bridge(tmp_path):
     env = dict(os.environ)
     env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
+    # Hermetic durable store: prompts persist session rows, which must never
+    # touch the developer's real ~/.crusorai/sessions.db.
+    env["CRUSORAI_SESSIONS_DB"] = str(tmp_path / "sessions.db")
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,

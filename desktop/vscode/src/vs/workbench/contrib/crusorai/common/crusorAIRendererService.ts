@@ -14,6 +14,19 @@ export interface ICrusorAIRendererService {
 	mount(root: unknown /* HTMLElement */, surface: CrusorAISurface): IDisposable;
 
 	/**
+	 * Hermes "New Session": rebind the surface to a blank draft with no session id. The id
+	 * is minted by the engine on the next prompt, so an abandoned draft leaves no row behind.
+	 * Refuses (with an honest surface error) while a turn is running.
+	 */
+	newSession(): void;
+
+	/**
+	 * Rebind the surface to an EXISTING session (workbench-list entry point): the transcript
+	 * hydrates from its checkpoints. Same guards as New Session (no mid-turn switches).
+	 */
+	openSession(sessionId: string): void;
+
+	/**
 	 * Begin a turn whose prompt frame is dispatched by someone other than the
 	 * composer (today: the Preview window's reviewed batch). Runs the same
 	 * turn bookkeeping `submitPrompt` does — archive the live turn, set the

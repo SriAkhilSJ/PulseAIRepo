@@ -66,6 +66,12 @@ def _spawn_bridge(env_extra: dict | None = None):
     env.setdefault("PYTHONUNBUFFERED", "1")
     if env_extra:
         env.update(env_extra)
+    # Hermetic durable store: prompts persist session rows, which must never
+    # touch the developer's real ~/.crusorai/sessions.db.
+    if "CRUSORAI_SESSIONS_DB" not in env:
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", prefix="crusor-test-sessions-", delete=False)
+        tmp.close()
+        env["CRUSORAI_SESSIONS_DB"] = tmp.name
     # Binary pipes: probing showed text-mode (TextIOWrapper) pipes on Windows
     # intermittently lose frames the child provably wrote when children are
     # spawned/killed repeatedly, while binary pipes were stable across many

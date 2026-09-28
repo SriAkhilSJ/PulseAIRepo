@@ -192,10 +192,7 @@ registerAction2(class extends Action2 {
     }
     async run(accessor) {
         await openCrusorAgent(accessor);
-        try {
-            accessor.get(ICrusorAISessionStore)._onDidChange?.fire?.();
-        }
-        catch { }
+        accessor.get(ICrusorAIRendererService).newSession();
     }
 });
 registerAction2(class extends Action2 {

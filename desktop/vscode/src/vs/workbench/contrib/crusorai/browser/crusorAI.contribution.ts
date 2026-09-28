@@ -212,7 +212,7 @@ registerAction2(class extends Action2 {
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
 		await openCrusorAgent(accessor);
-		try { (accessor.get(ICrusorAISessionStore) as any)._onDidChange?.fire?.(); } catch { }
+		accessor.get(ICrusorAIRendererService).newSession();
 	}
 });
 

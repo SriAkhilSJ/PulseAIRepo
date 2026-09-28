@@ -24,7 +24,7 @@ import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState }
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
-import { crusorSessionLabel, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
+import { crusorFactsFromEngineRow, crusorSessionLabel, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
 import { mountCrusorAIRenderer, } from './crusorAIRenderer.js';
 function valueRecord(value) {
@@ -210,6 +210,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 catch { /* best effort */ }
             },
             navigateToSession: (sessionId) => { this.navigateToSession(sessionId); },
+            newSession: () => { this.newSession(); },
             isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
         };
         this._register(this.engineService.onDidChangeState(state => {
@@ -302,6 +303,48 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             uri: folder.uri.toString(),
         }));
     }
+    /**
+     * Blank-surface reset: every field that belongs to one session's visible turn state. One
+     * method because folder switches, session switches and New Session must clear exactly the
+     * same surface -- two copies drifted once already (history survived navigation).
+     */
+    resetSessionState() {
+        this.sessionId = undefined;
+        this.running = false;
+        this.cancelRequested = false;
+        this.turnOutcome = 'idle';
+        this.turnStartedAt = undefined;
+        this.turnEndedAt = undefined;
+        this.userMessage = undefined;
+        this.assistantText = '';
+        this.pendingPrompt = undefined;
+        this.pendingHydration = undefined;
+        this.tools.clear();
+        this.parts = [];
+        this.reasoningParts = [];
+        this.reasoningPending = false;
+        this.subAgents.clear();
+        this.parentMap.clear();
+        this.childParentId = undefined;
+        this.history = [];
+        this.plan = [];
+        this.verification = undefined;
+        this.telemetry = {};
+        this.approval = undefined;
+        this.clarify = undefined;
+        this.todos = [];
+        this.todoRevision = 0;
+        this.compacting = undefined;
+        this.contextStatus = undefined;
+        this.voiceHeard = undefined;
+        this.llmStatus = undefined;
+        this.llmHeads = undefined;
+        this.degraded = undefined;
+        this.stalled = undefined;
+        this.error = undefined;
+        this.hadProviderAttempt = false;
+        this.clearStallWatchdog();
+    }
     selectWorkspace(uri) {
         const folders = this.workspaceContextService.getWorkspace().folders;
         const matched = folders.find(folder => folder.uri.toString() === uri);
@@ -313,22 +356,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         if (changed) {
             // Retain the selection for the SESSION; a folder switch resets the
             // session binding so frames always carry the same workspace.
-            this.sessionId = undefined;
-            this.running = false;
-            this.cancelRequested = false;
-            this.turnOutcome = 'idle';
-            this.turnStartedAt = undefined;
-            this.turnEndedAt = undefined;
-            this.userMessage = undefined;
-            this.assistantText = '';
-            this.pendingPrompt = undefined;
-            this.tools.clear();
-            this.subAgents.clear();
-            this.parentMap.clear();
-            this.childParentId = undefined;
-            this.history = [];
-            this.plan = [];
-            this.verification = undefined;
+            this.resetSessionState();
         }
         this.render();
     }
@@ -406,44 +434,76 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      * `noteSession()` is the only writer. Both the manager's own rows and the workbench's Agent
      * Sessions list come through here, so the two surfaces cannot disagree about what exists.
      */
+    /**
+     * In-place session open (Hermes openSession): the surface rebinds to the target and its
+     * transcript hydrates from the paged checkpoints. The previous session keeps running
+     * untouched -- its frames route to its list row (see foreignSessionId), never here.
+     */
     navigateToSession(targetSessionId) {
-        console.log('[CrusorAI] navigateToSession', { from: this.sessionId, to: targetSessionId, parentMap: Array.from(this.parentMap.entries()), childParentId: this.childParentId });
-        if (!targetSessionId)
+        if (!targetSessionId || targetSessionId === this.sessionId) {
             return;
+        }
+        // Switching away mid-turn would strand the live run's frames on a surface that no
+        // longer owns them. The user stops the run first; the list stays clickable between turns.
+        if (this.running) {
+            this.error = 'Stop the current run before switching sessions.';
+            this.render();
+            return;
+        }
+        const previousSessionId = this.sessionId;
+        const previousChildParentId = this.childParentId;
+        this.resetSessionState();
+        this.sessionId = targetSessionId;
         // If target is child, remember parent for back navigation
-        if (this.sessionId) {
-            // When navigating to child, keep parent mapping
-            if (!this.parentMap.has(targetSessionId)) {
-                this.parentMap.set(targetSessionId, this.sessionId);
-            }
-            // When navigating back to parent, set childParentId
-            if (this.parentMap.has(this.sessionId)) {
-                this.childParentId = this.parentMap.get(this.sessionId);
-            }
+        if (previousSessionId && !this.parentMap.has(targetSessionId)) {
+            this.parentMap.set(targetSessionId, previousSessionId);
         }
-        // Check if navigating to parent
-        if (this.parentMap.has(targetSessionId)) {
-            // Navigating to a known session, not necessarily child
-            // If target is parent of current, clear childParentId after?
-        }
-        // Actually if target is parent of current child, we want to go back
-        if (this.childParentId && targetSessionId === this.childParentId) {
+        if (previousChildParentId && targetSessionId === previousChildParentId) {
             this.childParentId = this.parentMap.get(targetSessionId);
         }
-        this.sessionId = targetSessionId;
-        // If target is child, set childParentId
-        if (this.parentMap.has(targetSessionId)) {
+        else if (this.parentMap.has(targetSessionId)) {
             this.childParentId = this.parentMap.get(targetSessionId);
         }
         else if (!targetSessionId.startsWith('sub-')) {
             this.childParentId = undefined;
         }
-        // Request load from engine
+        // An explicit open IS the read: clear the dot before the frames arrive (Hermes marks
+        // the session read before it focuses it), and remember it so a restart lands back here.
+        this.sessionStore.markRead(targetSessionId, true);
+        this.setRememberedSession(targetSessionId);
+        this.pendingHydration = targetSessionId;
         const workspace = this.workspacePath;
         if (workspace) {
-            this.send({ type: 'session_load', session_id: targetSessionId, workspace });
+            // Transcript hydration comes from the paged checkpoints (session_messages), not the
+            // journal: include_events:false keeps the resume's events out so the two views never
+            // double-paint one transcript.
+            this.send({ type: 'session_resume', session_id: targetSessionId, workspace, include_events: false });
+            this.send({ type: 'session_messages', session_id: targetSessionId, workspace, limit: 120, order: 'latest' });
         }
+        this.requestSessionList();
         this.render();
+    }
+    /**
+     * Hermes "New Session": a blank surface with NO session id. The id is minted by the engine
+     * on the next prompt (session_create), so a draft the user abandons leaves no row behind.
+     * While a turn runs the surface is occupied -- stranding a live turn's frames is worse
+     * than refusing.
+     */
+    newSession() {
+        if (this.running) {
+            this.error = 'Stop the current run before starting a new session.';
+            this.render();
+            return;
+        }
+        this.resetSessionState();
+        this.render();
+    }
+    /**
+     * Workbench-list entry to navigateToSession: rebind the surface to an existing session.
+     * Same guards (no mid-turn switches), same checkpoint hydration.
+     */
+    openSession(sessionId) {
+        this.navigateToSession(sessionId);
     }
     sessionRows() {
         const readState = new Map();
@@ -474,6 +534,199 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             turnEndedAt: this.turnEndedAt,
         };
         this.sessionStore.note(facts);
+    }
+    /**
+     * Durable-list refresh (Hermes listSessions): the store's rows for every session come from
+     * here. Fire-and-forget; the reply is a sid-less session_info whose `sessions` payload must
+     * never clobber the active session id (see acceptFrame).
+     */
+    requestSessionList() {
+        const workspace = this.workspacePath;
+        if (!workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
+            return;
+        }
+        this.send({ type: 'session_list', session_id: this.sessionId, workspace, limit: 40, archived: 'exclude' });
+    }
+    /**
+     * One durable row (or optimistic draft row) into the store. Live status always wins for the
+     * ACTIVE session, whose label stays the user's own first message; anything else is history
+     * and paints without a lifecycle -- except an unread row, which surfaces as
+     * completed-unread so the attention dot survives a restart.
+     */
+    noteEngineRow(row) {
+        const sessionId = row.session_id ?? row.id;
+        if (!sessionId) {
+            return;
+        }
+        const isActive = sessionId === this.sessionId;
+        const statusName = isActive
+            ? crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined })
+            : row.unread === true ? 'completed' : undefined;
+        const base = crusorFactsFromEngineRow(row, { workspaceLabel: this.workspaceLabel, statusName, now: Date.now() });
+        this.sessionStore.note(isActive
+            ? { ...base, label: crusorSessionLabel(this.userMessage, sessionId), turnStartedAt: this.turnStartedAt, turnEndedAt: this.turnEndedAt }
+            : base);
+        if (row.unread !== undefined) {
+            this.sessionStore.markRead(sessionId, !row.unread);
+        }
+    }
+    /**
+     * Frames for a session that is NOT the painted one. Crusor runs one foreground surface: a
+     * background turn's frames update its LIST row (and toast on completion), never the live
+     * transcript. Returns the foreign id, or undefined when the frame belongs to the active
+     * surface (or to no session yet).
+     */
+    foreignSessionId(frame) {
+        const sessionId = frame.session_id;
+        if (typeof sessionId !== 'string' || !sessionId) {
+            return undefined;
+        }
+        if (!this.sessionId || sessionId === this.sessionId) {
+            return undefined;
+        }
+        return sessionId;
+    }
+    /**
+     * Background-turn traffic: the row paints Working / needs-input / finished, the transcript
+     * is untouched, and a finished background turn toasts (same toggle as a foreground one) and
+     * re-syncs the list so its title and counts land. The stored row is spread first so a note
+     * never clobbers the engine's label and durable fields with a guess.
+     */
+    noteForeignFrame(foreignId, frame) {
+        const previous = this.sessionStore.records().find(record => record.sessionId === foreignId);
+        const label = previous?.label ?? 'Crusor session';
+        const workspaceLabel = previous?.workspaceLabel ?? this.workspaceLabel;
+        if (frame.type === 'turn_done' || frame.type === 'turn_failed') {
+            const failed = frame.type === 'turn_failed';
+            const cancelled = !failed && frame.cancelled === true;
+            this.sessionStore.note({
+                ...previous,
+                sessionId: foreignId,
+                label,
+                workspaceLabel,
+                statusName: failed ? 'failed' : 'completed',
+                firstSeenAt: previous?.firstSeenAt ?? Date.now(),
+                turnEndedAt: Date.now(),
+            });
+            this.sessionStore.markRead(foreignId, false);
+            if (!cancelled) {
+                this.notifyResponseReady(failed ? frame.error : `(${label}) ${(frame.message ?? '').split('\n')[0]}`.trim(), failed);
+            }
+            this.requestSessionList();
+            this.render();
+            return;
+        }
+        const statusName = frame.type === 'safety_request' || frame.type === 'clarify_request' ? 'needsInput' : 'inProgress';
+        this.sessionStore.note({
+            ...previous,
+            sessionId: foreignId,
+            label,
+            workspaceLabel,
+            statusName,
+            firstSeenAt: previous?.firstSeenAt ?? Date.now(),
+            turnStartedAt: previous?.turnStartedAt ?? Date.now(),
+        });
+        this.render();
+    }
+    /** Hermes profileNavigationKey parity: the last open session per workspace survives a restart. */
+    rememberedSessionKey() {
+        const workspace = this.workspacePath;
+        if (workspace === undefined) {
+            return undefined;
+        }
+        return `crusorai.lastSession.${encodeURIComponent(workspace)}`;
+    }
+    getRememberedSession() {
+        try {
+            const key = this.rememberedSessionKey();
+            const value = key ? window.localStorage.getItem(key) : undefined;
+            return value || undefined;
+        }
+        catch {
+            return undefined;
+        }
+    }
+    setRememberedSession(sessionId) {
+        try {
+            const key = this.rememberedSessionKey();
+            if (!key) {
+                return;
+            }
+            if (sessionId) {
+                window.localStorage.setItem(key, sessionId);
+            }
+            else {
+                window.localStorage.removeItem(key);
+            }
+        }
+        catch { /* storage is best-effort; the session still works */ }
+    }
+    /**
+     * Rebuild the transcript lane from paged checkpoint messages (Hermes hydrates the thread
+     * over REST the same way). Every turn lands in HISTORY -- the live surface stays empty so
+     * the next prompt starts a fresh turn, not an edit of the past. Tool calls rebuild their
+     * cards from the assistant's tool_calls plus the matching tool results (joined on
+     * tool_call_id); a result with no card falls back to truncated text rather than vanishing.
+     */
+    hydrateTranscript(messages) {
+        const turns = [];
+        let current = { assistantText: '', parts: [], tools: [] };
+        const toolIndex = new Map();
+        const dirty = (turn) => turn.userMessage !== undefined || turn.assistantText !== '' || turn.parts.length > 0 || turn.tools.length > 0;
+        const rollTurn = () => {
+            if (dirty(current)) {
+                turns.push(current);
+            }
+            current = { assistantText: '', parts: [], tools: [] };
+        };
+        for (const message of messages) {
+            if (message.role === 'user') {
+                if (dirty(current) && current.userMessage !== undefined) {
+                    rollTurn();
+                }
+                current.userMessage = current.userMessage ? `${current.userMessage}\n${message.content}` : message.content;
+            }
+            else if (message.role === 'assistant') {
+                if (message.content) {
+                    current.assistantText += message.content;
+                    current.parts.push({ kind: 'text', text: message.content });
+                }
+                for (const call of message.tool_calls ?? []) {
+                    const id = call.id || `hydrate-${turns.length}-${current.tools.length}`;
+                    // Checkpoints carry no per-tool verdict: the turn completed, so the card paints
+                    // passed; a failed tool's stderr still shows in its result body.
+                    const tool = { id, name: call.name, state: 'passed', arguments: call.args };
+                    current.tools.push(tool);
+                    current.parts.push({ kind: 'tool', toolId: id });
+                    if (call.id) {
+                        toolIndex.set(call.id, tool);
+                    }
+                }
+            }
+            else if (message.role === 'tool') {
+                const target = (message.tool_call_id && toolIndex.get(message.tool_call_id)) ?? current.tools[current.tools.length - 1];
+                if (target && message.content) {
+                    current.tools[current.tools.indexOf(target)] = { ...target, result: message.content };
+                }
+                else if (message.content) {
+                    const text = message.content.length > 2000 ? `${message.content.slice(0, 2000)}\u2026` : message.content;
+                    current.assistantText += text;
+                    current.parts.push({ kind: 'text', text });
+                }
+            }
+        }
+        rollTurn();
+        this.history = turns.slice(-20).map(turn => ({
+            userMessage: turn.userMessage,
+            assistantText: turn.assistantText,
+            parts: turn.parts,
+            reasoningParts: [],
+            tools: turn.tools,
+            subAgents: [],
+            turnOutcome: 'completed',
+            plan: [],
+        }));
+        this.render();
     }
     render() {
         this.noteSession();
@@ -524,10 +777,27 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (resumeSession && this.engineService.state === CrusorAIEngineState.Ready) {
+            if (this.engineService.state !== CrusorAIEngineState.Ready) {
+                return;
+            }
+            // The durable list is the session surface's memory: refresh it on every (re)connect.
+            this.requestSessionList();
+            if (resumeSession) {
                 this.publishHostCapabilities(resumeSession);
                 this.send({ type: 'session_resume', session_id: resumeSession, workspace });
                 this.send({ type: 'events_replay', session_id: resumeSession });
+                return;
+            }
+            // Fresh window, remembered session: land back where the user was (Hermes restores
+            // the last open session per profile). The journal stays out -- the transcript
+            // hydrates from the paged checkpoints, exactly like an in-app switch.
+            const remembered = this.getRememberedSession();
+            if (remembered) {
+                this.sessionId = remembered;
+                this.publishHostCapabilities(remembered);
+                this.pendingHydration = remembered;
+                this.send({ type: 'session_resume', session_id: remembered, workspace, include_events: false });
+                this.send({ type: 'session_messages', session_id: remembered, workspace, limit: 120, order: 'latest' });
             }
         }).catch(error => {
             this.engineSetupError = error instanceof CrusorAIEngineSetupError;
@@ -908,9 +1178,62 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             void this.invokeHostCapability(frame);
             return;
         }
+        // A background turn's traffic routes to its list row, never the live transcript.
+        const foreignId = this.foreignSessionId(frame);
+        if (foreignId) {
+            switch (frame.type) {
+                case 'turn_started':
+                case 'token':
+                case 'reasoning':
+                case 'plan_updated':
+                case 'tool_call_start':
+                case 'tool_call_end':
+                case 'safety_request':
+                case 'clarify_request':
+                case 'todo_updated':
+                case 'verification_updated':
+                case 'telemetry':
+                case 'turn_done':
+                case 'turn_failed':
+                case 'voice_text':
+                case 'llm.request':
+                case 'llm.response':
+                case 'context_status':
+                case 'runtime_degraded':
+                    this.noteForeignFrame(foreignId, frame);
+                    return;
+            }
+        }
         if (frame.type === 'session_info') {
+            // Durable list refresh: a session_list reply carries `sessions` and NO session_id --
+            // it notes every row and leaves the active session alone. (An unconditional adopt
+            // here used to wipe the active id on every list refresh.)
+            if (frame.sessions) {
+                for (const row of frame.sessions) {
+                    this.noteEngineRow(row);
+                }
+            }
+            if (frame.session) {
+                this.noteEngineRow(frame.session);
+            }
+            if (!frame.session_id) {
+                this.render();
+                return;
+            }
+            // A late ack for a session we already left (queued/cancel/steer/...) notes its row
+            // above; the surface stays where the user put it.
+            if (foreignId) {
+                this.render();
+                return;
+            }
             const previousSessionId = this.sessionId;
             this.sessionId = frame.session_id;
+            // A resume can resolve to a lineage tip that is NOT the requested id (fork
+            // children): the surface binds the tip, because that is what the user now sees.
+            if (frame.resumed && frame.resolved_session_id && frame.resolved_session_id !== this.sessionId) {
+                this.sessionId = frame.resolved_session_id;
+                this.setRememberedSession(this.sessionId);
+            }
             if (typeof frame.build === 'string' && frame.build) {
                 this.engineBuild = frame.build;
             }
@@ -959,9 +1282,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 this.startTurn(prompt);
                 return;
             }
+            // Rename/pin/archive acks re-sync the list so the row shows the new truth.
+            if (frame.renamed || frame.pin_updated || frame.archive_updated) {
+                this.requestSessionList();
+            }
         }
         else if (frame.type === 'turn_started') {
             this.sessionId = frame.session_id;
+            this.setRememberedSession(frame.session_id);
             this.running = true;
             this.cancelRequested = false;
             this.turnOutcome = 'running';
@@ -1196,6 +1524,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (!frame.cancelled) {
                 this.notifyResponseReady(frame.message);
             }
+            // The finished turn minted the durable row's title and counts: re-sync the list.
+            this.requestSessionList();
         }
         else if (frame.type === 'turn_failed') {
             this.running = false;
@@ -1211,6 +1541,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.degraded = undefined;
             this.clearStallWatchdog();
             this.notifyResponseReady(frame.error, true);
+            this.requestSessionList();
         }
         else if (frame.type === 'voice_text') {
             this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
@@ -1246,6 +1577,27 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
             else {
                 this.degraded = frame.reason;
+            }
+        }
+        else if (frame.type === 'session_messages') {
+            // Transcript hydration for the session we most recently opened. A late page for a
+            // session the user already left is dropped -- painting it would splice another
+            // session's history under the active transcript.
+            const forId = frame.requested_session_id ?? frame.session_id;
+            if (forId !== this.pendingHydration && forId !== this.sessionId) {
+                return;
+            }
+            this.pendingHydration = undefined;
+            this.hydrateTranscript(frame.messages);
+            return;
+        }
+        else if (frame.type === 'session_deleted') {
+            const deletedId = frame.session_id;
+            this.sessionStore.forget(deletedId);
+            if (deletedId === this.sessionId) {
+                // Our own session was deleted (here or elsewhere): land on a blank surface,
+                // not a ghost.
+                this.newSession();
             }
         }
         else if (frame.type === 'error') {

@@ -79,10 +79,13 @@ def _send(proc, obj):
 
 
 @pytest.fixture()
-def sidecar():
+def sidecar(tmp_path):
     import os
     env = dict(os.environ)
     env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
+    # Hermetic durable store: prompts persist session rows, which must never
+    # touch the developer's real ~/.crusorai/sessions.db.
+    env["CRUSORAI_SESSIONS_DB"] = str(tmp_path / "sessions.db")
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.bridge"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -403,3 +406,29 @@ def test_project_event_forwards_clarify_request_and_todo_updated():
     assert todo_frame is not None and todo_frame["type"] == "todo_updated"
     assert todo_frame["revision"] == 3
     assert todo_frame["todos"][0]["content"] == "scaffold"
+
+
+def test_session_list_without_id_mints_no_phantom_draft(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    first = _send(sidecar, {"type": "session_list", "workspace": "."})
+    assert first["type"] == "session_info"
+    assert "session_id" not in first, "a listing reply must not adopt an id"
+    assert first["sessions"] == []
+    # A second listing must be equally empty: resolving-or-creating on the
+    # list path used to mint a phantom live draft on every refresh.
+    second = _send(sidecar, {"type": "session_list", "workspace": "."})
+    assert second["sessions"] == []
+
+
+def test_session_resume_include_events_false_skips_the_journal(sidecar):
+    _send(sidecar, {"type": "hello", "protocol": PROTOCOL_VERSION})
+    created = _send(sidecar, {"type": "session_create", "workspace": "."})
+    sid = created["session_id"]
+    resumed = _send(sidecar, {"type": "session_resume", "session_id": sid,
+                              "workspace": ".", "include_events": False})
+    assert resumed["type"] == "session_info" and resumed["resumed"] is True
+    assert resumed["events"] == []
+    assert resumed["session_id"] == sid
+    defaulted = _send(sidecar, {"type": "session_resume", "session_id": sid,
+                                "workspace": "."})
+    assert isinstance(defaulted["events"], list)

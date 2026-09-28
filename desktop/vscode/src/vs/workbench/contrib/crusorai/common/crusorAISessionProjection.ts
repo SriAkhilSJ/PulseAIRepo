@@ -55,6 +55,19 @@ export interface CrusorAISessionFacts {
 	 */
 	readonly changes?: CrusorAISessionChanges;
 	readonly archived?: boolean;
+	/**
+	 * Durable-store fields, observed from `session_list` rows (or the `session` payload on
+	 * create/resume) rather than live frames. All optional: live-only sessions never carry them.
+	 */
+	readonly pinned?: boolean;
+	readonly unread?: boolean;
+	readonly messageCount?: number;
+	readonly preview?: string;
+	readonly createdAt?: number;
+	readonly lastActiveAt?: number;
+	readonly parentSessionId?: string;
+	readonly lineageRootId?: string;
+	readonly lazy?: boolean;
 }
 
 export interface CrusorAISessionItem {
@@ -169,8 +182,17 @@ export function crusorSessionNeedsAttention(input: {
 	readonly statusName?: CrusorAISessionStatusName;
 	readonly archived?: boolean;
 	readonly isRead?: boolean;
+	readonly unread?: boolean;
 }): boolean {
-	return input.archived !== true && input.statusName === 'completed' && input.isRead !== true;
+	if (input.archived === true || input.statusName !== 'completed') {
+		return false;
+	}
+	// The engine's durable unread bit is the source of truth after a restart; the in-memory
+	// isRead map only exists for sessions sighted this run.
+	if (input.unread !== undefined) {
+		return input.unread;
+	}
+	return input.isRead !== true;
 }
 
 /** One row of the Manager list: what the fork would show, in our words. */
@@ -182,7 +204,7 @@ export interface CrusorAISessionRow extends CrusorAISessionItem {
 }
 
 export function crusorSessionRow(facts: CrusorAISessionFacts, activeSessionId: string | undefined, now: number, isRead: boolean | undefined): CrusorAISessionRow {
-	const origin = facts.turnEndedAt ?? facts.turnStartedAt ?? facts.firstSeenAt;
+	const origin = facts.turnEndedAt ?? facts.lastActiveAt ?? facts.turnStartedAt ?? facts.firstSeenAt;
 	const seconds = crusorSessionElapsedSeconds(now, origin);
 	return {
 		resource: crusorSessionUri(facts.sessionId),
@@ -190,16 +212,16 @@ export function crusorSessionRow(facts: CrusorAISessionFacts, activeSessionId: s
 		description: facts.workspaceLabel,
 		statusName: facts.statusName,
 		timing: {
-			created: facts.firstSeenAt ?? now,
+			created: facts.createdAt ?? facts.firstSeenAt ?? now,
 			lastRequestStarted: facts.turnStartedAt,
-			lastRequestEnded: facts.turnEndedAt,
+			lastRequestEnded: facts.turnEndedAt ?? facts.lastActiveAt,
 		},
 		// Omitted, not zeroed: callers must be able to tell "no diff reported" from "no changes".
 		...(facts.changes ? { changes: facts.changes } : {}),
 		...(facts.archived !== undefined ? { archived: facts.archived } : {}),
 		elapsedLabel: crusorSessionElapsedLabel(seconds, facts.statusName),
 		isActive: facts.sessionId === activeSessionId,
-		needsAttention: crusorSessionNeedsAttention({ statusName: facts.statusName, archived: facts.archived, isRead }),
+		needsAttention: crusorSessionNeedsAttention({ statusName: facts.statusName, archived: facts.archived, isRead, unread: facts.unread }),
 		seconds,
 	};
 }
@@ -218,4 +240,66 @@ export function crusorSessionRows(records: readonly CrusorAISessionFacts[], acti
 	return records
 		.map(facts => crusorSessionRow(facts, activeSessionId, now, readState?.get(facts.sessionId)))
 		.sort((left, right) => lastActivity(right) - lastActivity(left));
+}
+
+/**
+ * Structural engine row (`session_list` payloads and the `session` object on create/resume).
+ * Structural -- not the protocol interface -- so this file stays out of the protocol module graph
+ * and keeps bundling for tests.
+ */
+export interface CrusorAIEngineSessionRow {
+	readonly session_id?: string;
+	readonly id?: string;
+	readonly title?: string;
+	readonly workspace?: string;
+	readonly source?: string;
+	readonly model?: string;
+	readonly created_at?: number;
+	readonly last_active?: number;
+	readonly message_count?: number;
+	readonly preview?: string;
+	readonly pinned?: boolean;
+	readonly archived?: boolean;
+	readonly hidden?: boolean;
+	readonly unread?: boolean;
+	readonly parent_session_id?: string | null;
+	readonly lineage_root_id?: string | null;
+	readonly lazy?: boolean;
+}
+
+/** A durable row's label: the stored title, else the preview's first line, never blank. */
+export function crusorEngineRowLabel(row: CrusorAIEngineSessionRow): string {
+	const title = (row.title ?? '').replace(/\s+/g, ' ').trim();
+	if (title) {
+		return title.length > 90 ? `${title.slice(0, 89)}\u2026` : title;
+	}
+	const preview = (row.preview ?? '').replace(/\s+/g, ' ').trim();
+	if (preview) {
+		return preview.length > 90 ? `${preview.slice(0, 89)}\u2026` : preview;
+	}
+	return 'Crusor session';
+}
+
+/**
+ * Engine row -> facts. The caller owns live status (running/outcome/approvals); the row owns
+ * everything durable. `firstSeenAt` stays a sighting -- `createdAt` is the server-side created.
+ */
+export function crusorFactsFromEngineRow(row: CrusorAIEngineSessionRow, input: { workspaceLabel: string; statusName?: CrusorAISessionStatusName; now: number }): CrusorAISessionFacts {
+	return {
+		sessionId: row.session_id ?? row.id ?? '',
+		label: crusorEngineRowLabel(row),
+		workspaceLabel: input.workspaceLabel,
+		statusName: input.statusName,
+		firstSeenAt: input.now,
+		archived: row.archived,
+		pinned: row.pinned,
+		unread: row.unread,
+		messageCount: row.message_count,
+		preview: row.preview,
+		createdAt: row.created_at,
+		lastActiveAt: row.last_active,
+		parentSessionId: row.parent_session_id ?? undefined,
+		lineageRootId: row.lineage_root_id ?? undefined,
+		lazy: row.lazy,
+	};
 }

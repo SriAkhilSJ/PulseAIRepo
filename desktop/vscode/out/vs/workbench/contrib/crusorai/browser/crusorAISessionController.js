@@ -21,8 +21,9 @@ import { Emitter } from '../../../../base/common/event.js';
 import { WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ChatSessionStatus, IChatSessionsService, } from '../../chat/common/chatSessionsService.js';
-import { isCrusorSessionUri, CRUSOR_CHAT_SESSION_TYPE, crusorSessionRows } from '../common/crusorAISessionProjection.js';
+import { CRUSOR_CHAT_SESSION_TYPE, crusorSessionIdFromUri, crusorSessionRows } from '../common/crusorAISessionProjection.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
+import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { CrusorAICommandId } from '../common/crusorAI.js';
 import { sessionOpenerRegistry } from '../../chat/browser/agentSessions/agentSessionsOpener.js';
 function toChatSessionStatus(statusName) {
@@ -102,8 +103,8 @@ export { CrusorAISessionController };
 /**
  * One opener for both surfaces. `openSessionByResource()` asks registered participants first and
  * only falls through to the chat editor path, so a click on a Crusor row inside the workbench's
- * list lands on the Crusor Manager instead of asking a chat provider to resolve a resource it does
- * not own (which is what would otherwise surface as an error toast).
+ * list rebinds the Agent surface to that session instead of asking a chat provider to resolve a
+ * resource it does not own (which is what would otherwise surface as an error toast).
  */
 export class CrusorAISessionOpener extends Disposable {
     static { this.ID = 'workbench.contrib.crusorAISessionOpener'; }
@@ -115,11 +116,14 @@ export class CrusorAISessionOpener extends Disposable {
         return this.handleOpenSessionResource(accessor, session.resource, openOptions);
     }
     async handleOpenSessionResource(accessor, resource, _openOptions) {
-        if (!isCrusorSessionUri(resource)) {
+        const sessionId = crusorSessionIdFromUri(resource);
+        if (!sessionId) {
             return false;
         }
-        // The same command the Agent pane's Manager button runs: two entrances, one path.
-        await accessor.get(ICommandService).executeCommand(CrusorAICommandId.OpenManager);
+        // A click on a Crusor row rebinds the Agent surface to that session (its transcript
+        // hydrates from the checkpoints) instead of only revealing the Manager list.
+        await accessor.get(ICommandService).executeCommand(CrusorAICommandId.Focus);
+        accessor.get(ICrusorAIRendererService).openSession(sessionId);
         return true;
     }
 }

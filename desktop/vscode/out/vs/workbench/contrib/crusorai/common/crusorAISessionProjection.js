@@ -99,10 +99,18 @@ export function crusorSessionElapsedLabel(seconds, statusName) {
 }
 /** True when a row should be marked unread-attention: finished, and not opened since. */
 export function crusorSessionNeedsAttention(input) {
-    return input.archived !== true && input.statusName === 'completed' && input.isRead !== true;
+    if (input.archived === true || input.statusName !== 'completed') {
+        return false;
+    }
+    // The engine's durable unread bit is the source of truth after a restart; the in-memory
+    // isRead map only exists for sessions sighted this run.
+    if (input.unread !== undefined) {
+        return input.unread;
+    }
+    return input.isRead !== true;
 }
 export function crusorSessionRow(facts, activeSessionId, now, isRead) {
-    const origin = facts.turnEndedAt ?? facts.turnStartedAt ?? facts.firstSeenAt;
+    const origin = facts.turnEndedAt ?? facts.lastActiveAt ?? facts.turnStartedAt ?? facts.firstSeenAt;
     const seconds = crusorSessionElapsedSeconds(now, origin);
     return {
         resource: crusorSessionUri(facts.sessionId),
@@ -110,16 +118,16 @@ export function crusorSessionRow(facts, activeSessionId, now, isRead) {
         description: facts.workspaceLabel,
         statusName: facts.statusName,
         timing: {
-            created: facts.firstSeenAt ?? now,
+            created: facts.createdAt ?? facts.firstSeenAt ?? now,
             lastRequestStarted: facts.turnStartedAt,
-            lastRequestEnded: facts.turnEndedAt,
+            lastRequestEnded: facts.turnEndedAt ?? facts.lastActiveAt,
         },
         // Omitted, not zeroed: callers must be able to tell "no diff reported" from "no changes".
         ...(facts.changes ? { changes: facts.changes } : {}),
         ...(facts.archived !== undefined ? { archived: facts.archived } : {}),
         elapsedLabel: crusorSessionElapsedLabel(seconds, facts.statusName),
         isActive: facts.sessionId === activeSessionId,
-        needsAttention: crusorSessionNeedsAttention({ statusName: facts.statusName, archived: facts.archived, isRead }),
+        needsAttention: crusorSessionNeedsAttention({ statusName: facts.statusName, archived: facts.archived, isRead, unread: facts.unread }),
         seconds,
     };
 }
@@ -136,4 +144,39 @@ export function crusorSessionRows(records, activeSessionId, now, readState) {
     return records
         .map(facts => crusorSessionRow(facts, activeSessionId, now, readState?.get(facts.sessionId)))
         .sort((left, right) => lastActivity(right) - lastActivity(left));
+}
+/** A durable row's label: the stored title, else the preview's first line, never blank. */
+export function crusorEngineRowLabel(row) {
+    const title = (row.title ?? '').replace(/\s+/g, ' ').trim();
+    if (title) {
+        return title.length > 90 ? `${title.slice(0, 89)}\u2026` : title;
+    }
+    const preview = (row.preview ?? '').replace(/\s+/g, ' ').trim();
+    if (preview) {
+        return preview.length > 90 ? `${preview.slice(0, 89)}\u2026` : preview;
+    }
+    return 'Crusor session';
+}
+/**
+ * Engine row -> facts. The caller owns live status (running/outcome/approvals); the row owns
+ * everything durable. `firstSeenAt` stays a sighting -- `createdAt` is the server-side created.
+ */
+export function crusorFactsFromEngineRow(row, input) {
+    return {
+        sessionId: row.session_id ?? row.id ?? '',
+        label: crusorEngineRowLabel(row),
+        workspaceLabel: input.workspaceLabel,
+        statusName: input.statusName,
+        firstSeenAt: input.now,
+        archived: row.archived,
+        pinned: row.pinned,
+        unread: row.unread,
+        messageCount: row.message_count,
+        preview: row.preview,
+        createdAt: row.created_at,
+        lastActiveAt: row.last_active,
+        parentSessionId: row.parent_session_id ?? undefined,
+        lineageRootId: row.lineage_root_id ?? undefined,
+        lazy: row.lazy,
+    };
 }
