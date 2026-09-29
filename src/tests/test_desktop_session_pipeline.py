@@ -242,3 +242,18 @@ def test_child_header_paints_real_parent_and_goal():
     assert "const targetLooksChild = targetSessionId.startsWith('sub-') || this.parentMap.has(targetSessionId);" in service
     assert "type: 'subagent_status', session_id: targetSessionId, subagent_id: targetSessionId" in service
     assert "childId !== parentId" in service
+
+
+def test_history_navigation_never_invents_parentage():
+    service = _text("browser", "crusorAIRendererService.ts")
+    # Field 2026-09-28: opening a session from History painted the child header
+    # (prompt disabled) on plain sessions — EVERY target was linked as a child
+    # of the previous session, so the parent adopted its own child as parent.
+    assert "if (previousSessionId && !this.parentMap.has(targetSessionId)) {" not in service
+    # The optimistic link needs a plausible child AND real ownership (subagent
+    # record or warm map) — and never fires on the way back to a known parent.
+    assert "const navigatingToKnownParent = !!previousSessionId" in service
+    assert "const previousOwnsTarget = !!previousSessionId" in service
+    assert "if (!navigatingToKnownParent && targetLooksChild && previousSessionId" in service
+    # Only a real link restores childParentId after the reset cleared it.
+    assert "if (this.parentMap.has(targetSessionId)) {\n\t\t\tthis.childParentId = this.parentMap.get(targetSessionId);" in service

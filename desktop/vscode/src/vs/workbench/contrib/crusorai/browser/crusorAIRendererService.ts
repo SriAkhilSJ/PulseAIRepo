@@ -523,20 +523,31 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 		const previousSessionId = this.sessionId;
 		const previousChildParentId = this.childParentId;
-		// Read BEFORE the reset wipes the map: a plausible child hydrates its own record below.
+		// Pre-reset reads: the reset wipes the map and the records. A plausible child
+		// hydrates its own record below; the ownership reads gate the optimistic link.
 		const targetLooksChild = targetSessionId.startsWith('sub-') || this.parentMap.has(targetSessionId);
+		const targetKnownParent = this.parentMap.get(targetSessionId);
+		const previousKnownParent = previousSessionId ? this.parentMap.get(previousSessionId) : undefined;
+		const previousOwnsTarget = !!previousSessionId && [...this.subAgents.values()].some(record =>
+			(record.childThreadId === targetSessionId || record.id === targetSessionId)
+			&& record.parentSessionId === previousSessionId);
+		const navigatingToKnownParent = !!previousSessionId
+			&& (previousChildParentId === targetSessionId || previousKnownParent === targetSessionId);
 		this.resetSessionState();
 		this.sessionId = targetSessionId;
-		// If target is child, remember parent for back navigation
-		if (previousSessionId && !this.parentMap.has(targetSessionId)) {
+		// Optimistic parentage ONLY when the previous session actually owns the target
+		// (its subagent record says so, or the warm map agrees) — never on the way back
+		// to a known parent. Linking every target as a child of the previous session is
+		// what painted the child header (prompt disabled) on plain sessions opened from
+		// History (field 2026-09-28).
+		if (!navigatingToKnownParent && targetLooksChild && previousSessionId
+			&& (previousOwnsTarget || targetKnownParent === previousSessionId)) {
 			this.parentMap.set(targetSessionId, previousSessionId);
 		}
-		if (previousChildParentId && targetSessionId === previousChildParentId) {
+		// The reset cleared childParentId; only a real link sets it back. Back-to-Parent
+		// and history hops between normal sessions stay normal.
+		if (this.parentMap.has(targetSessionId)) {
 			this.childParentId = this.parentMap.get(targetSessionId);
-		} else if (this.parentMap.has(targetSessionId)) {
-			this.childParentId = this.parentMap.get(targetSessionId);
-		} else if (!targetSessionId.startsWith('sub-')) {
-			this.childParentId = undefined;
 		}
 		// An explicit open IS the read: clear the dot before the frames arrive (Hermes marks
 		// the session read before it focuses it), and remember it so a restart lands back here.
