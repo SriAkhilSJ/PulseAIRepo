@@ -321,19 +321,60 @@ class BridgeServer:
                 workspace = ""
             row = store.get_session(sid)
             if row is None:
-                from src.runtime.session_store import derive_title_from_text
-                title = derive_title_from_text(user_text)
-                store.create_session(sid, workspace, title=title or "")
+                # Untitled by design: the auto-titler CREATES the title after a
+                # completed exchange (field 2026-09-28 — no first-message capture).
+                store.create_session(sid, workspace, title="")
                 store.touch_activity(sid, preview=str(user_text or "")[:500],
                                      message_count_inc=2)
                 return
-            if not (row.get("title") or "") and user_text:
-                from src.runtime.session_store import derive_title_from_text
-                store.set_title(sid, derive_title_from_text(user_text))
             preview = (row.get("preview") or "") or str(user_text or "")[:500]
             store.touch_activity(sid, preview=preview, message_count_inc=2)
         except Exception as exc:
             print(f"[bridge] turn touch failed for {sid}: {exc!r}",
+                  file=sys.stderr, flush=True)
+
+    def _maybe_autotitle_session(self, sid: str, user_text: str, assistant_text: str = "") -> None:
+        """Fire the async auto-titler for an untitled session (Hermes parity).
+
+        FIXED rule: a session with any title (generated, renamed, pending) is
+        never retitled here. Best-effort by contract: titling never breaks
+        the turn. ``CRUSORAI_AUTOTITLE=off`` disables the call entirely.
+        """
+        if os.environ.get("CRUSORAI_AUTOTITLE", "").strip().lower() in {"0", "off", "false", "no"}:
+            return
+        try:
+            store = self._durable_store()
+            row = store.get_session(sid)
+            if row is None or (row.get("title") or "").strip() or not str(user_text or "").strip():
+                return
+            workspace = str(row.get("workspace") or "") or str(self._sessions.get(sid, {}).get("workspace") or "")
+
+            def _run() -> None:
+                try:
+                    from src.runtime.session_titling import (
+                        ensure_unique_title,
+                        generate_session_title,
+                    )
+                    base = generate_session_title(user_text, assistant_text)
+                    if not base:
+                        return
+                    title = ensure_unique_title(store, workspace, base)
+                    # Re-check under the race: a rename may have landed meanwhile.
+                    current = store.get_session(sid) or {}
+                    if (current.get("title") or "").strip():
+                        return
+                    if store.set_title(sid, title):
+                        # Same ack shape as session_rename: the desktop notes the
+                        # row directly (live auto-title push, no list refetch).
+                        self.emit({"type": "session_info", "session_id": sid,
+                                   "title": title, "renamed": True})
+                except Exception as exc:
+                    print(f"[bridge] autotitle failed for {sid}: {exc!r}",
+                          file=sys.stderr, flush=True)
+
+            threading.Thread(target=_run, name=f"bridge-titler-{sid}", daemon=True).start()
+        except Exception as exc:
+            print(f"[bridge] autotitle dispatch failed for {sid}: {exc!r}",
                   file=sys.stderr, flush=True)
 
     @staticmethod
@@ -799,6 +840,13 @@ class BridgeServer:
                     "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
                 })
+                # Hermes auto-title rule: only after a FULL exchange — a completed,
+                # uncancelled turn. The titler runs async and pushes session_info.
+                if task_completed and not cancelled:
+                    try:
+                        self._maybe_autotitle_session(sid, text, str(result))
+                    except Exception:
+                        pass  # accounting never breaks the receipt
                 _model_wall = 0.0
                 try:
                     from src.graphs.chat_graph import turn_model_wall
@@ -1233,7 +1281,14 @@ class BridgeServer:
                 store = self._durable_store()
                 parent_row = store.get_session(source)
                 base_title = str((parent_row or {}).get("title") or "").strip()
-                child_title = f"{base_title} fork" if base_title else "Forked session"
+                # Title discipline: a fork of a titled parent derives a unique
+                # lineage title; a fork of an untitled parent stays untitled so
+                # the auto-titler creates one after its first exchange.
+                if base_title:
+                    from src.runtime.session_titling import ensure_unique_title
+                    child_title = ensure_unique_title(store, workspace, f"{base_title} (fork)")
+                else:
+                    child_title = ""
                 store.create_session(target, workspace, title=child_title,
                                      model=str((parent_row or {}).get("model") or "") or None,
                                      parent_session_id=source)
@@ -1290,11 +1345,12 @@ class BridgeServer:
                 try:
                     store = self._durable_store()
                     if store.get_session(sid) is None:
-                        from src.runtime.session_store import derive_title_from_text
+                        # Explicit pending titles (session_new) persist; otherwise the
+                        # row stays untitled for the auto-titler (no capture).
                         pending = str(self._sessions.get(sid, {}).get("pending_title") or "")
                         store.create_session(
                             sid, self._sessions[sid]["workspace"],
-                            title=pending or derive_title_from_text(text),
+                            title=pending or "",
                             model=str(self._sessions.get(sid, {}).get("model") or "") or None,
                             parent_session_id=self._sessions.get(sid, {}).get("parent_session_id"),
                         )
@@ -1371,6 +1427,22 @@ class BridgeServer:
                         background=bool(frame.get("background", False)),
                     )
                     self._subagents[handle.subagent_id] = handle
+                    # The delegation goal is explicit (not a capture): the child row
+                    # carries it as a unique fixed title so history rows stay distinct.
+                    try:
+                        from src.runtime.session_titling import ensure_unique_title, shorten_title
+                        _dstore = self._durable_store()
+                        if _dstore.get_session(handle.subagent_id) is None:
+                            _goal = str(frame.get("goal") or frame.get("prompt") or frame.get("description") or "")
+                            _ws = str(self._sessions.get(sid, {}).get("workspace") or "")
+                            _dstore.create_session(
+                                handle.subagent_id, _ws,
+                                title=ensure_unique_title(_dstore, _ws, shorten_title(_goal) or "Sub-agent task"),
+                                parent_session_id=sid,
+                            )
+                    except Exception as _title_exc:
+                        print(f"[bridge] child title failed for {handle.subagent_id}: {_title_exc!r}",
+                              file=sys.stderr, flush=True)
                     self.emit({
                         "type": "subagent_updated", "session_id": sid,
                         "subagent_id": handle.subagent_id,

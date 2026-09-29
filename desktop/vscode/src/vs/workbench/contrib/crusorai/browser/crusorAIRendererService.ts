@@ -640,12 +640,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 */
 	private noteSession(): void {
 		if (!this.sessionId) { return; }
-		// The label pins to the FIRST user message: re-labelling on every prompt renamed the
-		// session under the user (field 2026-09-28). A generated fallback is never sticky.
+		// The label is the engine's created title (fixed, unique). Until it lands the row
+		// renders the generic placeholder — the first message is NEVER captured as the
+		// title (field 2026-09-28). A generic fallback is never sticky: the titler's
+		// live push upgrades it exactly once.
 		const previousLabel = this.sessionStore.records().find(record => record.sessionId === this.sessionId)?.label;
 		const facts: CrusorAISessionFacts = {
 			sessionId: this.sessionId,
-			label: previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(this.userMessage, this.sessionId),
+			label: previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(undefined, this.sessionId),
 			workspaceLabel: this.workspaceLabel,
 			statusName: crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined }),
 			firstSeenAt: Date.now(),
@@ -680,11 +682,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			? crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined })
 			: row.unread === true ? 'completed' : undefined;
 		const base = crusorFactsFromEngineRow(row, { workspaceLabel: this.workspaceLabel, statusName, now: Date.now() });
-		// Active label: the engine's stored title wins (stable first-message title, and the
-		// rename path); otherwise the first-seen label sticks — never the latest prompt.
+		// Active label: the engine's created title wins (fixed, unique; the rename path
+		// upgrades it the same way); otherwise the first-seen non-fallback label sticks.
+		// No title yet: the generic placeholder — never the first message.
 		const engineTitle = (row.title ?? '').trim();
 		const previousLabel = this.sessionStore.records().find(record => record.sessionId === sessionId)?.label;
-		const liveLabel = engineTitle || (previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(this.userMessage, sessionId));
+		const liveLabel = engineTitle || (previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(undefined, sessionId));
 		this.sessionStore.note(isActive
 			? { ...base, label: liveLabel, turnStartedAt: this.turnStartedAt, turnEndedAt: this.turnEndedAt }
 			: base);
@@ -1286,6 +1289,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				for (const row of frame.sessions) { this.noteEngineRow(row); }
 			}
 			if (frame.session) { this.noteEngineRow(frame.session); }
+			// Live auto-title push (Hermes session.title parity): the engine titler runs
+			// async after the turn and emits the same ack shape as rename. A titled row
+			// is noted directly — even a foreign one — so no list refetch is needed.
+			if (frame.session_id && frame.renamed === true && typeof frame.title === 'string'
+				&& !frame.sessions && !frame.session && !frame.resumed) {
+				this.noteEngineRow({ session_id: frame.session_id, id: frame.session_id, title: frame.title });
+				this.render();
+				return;
+			}
 			if (!frame.session_id) {
 				this.render();
 				return;

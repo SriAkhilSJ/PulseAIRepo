@@ -522,3 +522,40 @@ def test_transcript_projection_never_invents_reasoning_or_calls():
     messages, _ = _projected([_msg("ai", "just text")])
     assert "reasoning" not in messages[0]
     assert "tool_calls" not in messages[0]
+
+
+# ------------------------------------------------- auto-titler wiring
+
+def _bridge_main_text():
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[2] / "src" / "bridge" / "__main__.py").read_text()
+
+
+def test_autotitler_never_captures_the_first_message():
+    main = _bridge_main_text()
+    # Field 2026-09-28: titles are created/fixed/unique — the verbatim capture
+    # has no callers left in the bridge.
+    assert "derive_title_from_text" not in main
+    assert 'title=pending or "",' in main
+
+
+def test_autotitler_fires_once_after_a_full_exchange():
+    main = _bridge_main_text()
+    assert "def _maybe_autotitle_session(self, sid: str, user_text: str, assistant_text: str = \"\") -> None:" in main
+    assert "self._maybe_autotitle_session(sid, text, str(result))" in main
+    assert "if task_completed and not cancelled:" in main
+    # FIXED rule: any existing title (generated, renamed, pending) blocks the
+    # fill, re-checked under the race before the write lands.
+    assert 'if row is None or (row.get("title") or "").strip()' in main
+    assert 'if (current.get("title") or "").strip():' in main
+    assert '"CRUSORAI_AUTOTITLE"' in main
+
+
+def test_autotitler_pushes_the_rename_ack_shape_and_titles_children():
+    main = _bridge_main_text()
+    # Same ack shape as session_rename: the desktop notes the row directly
+    # (Hermes session.title live push, no list refetch).
+    assert '"title": title, "renamed": True' in main
+    # Child rows carry the explicit delegation goal as a unique fixed title.
+    assert "title=ensure_unique_title(_dstore, _ws, shorten_title(_goal)" in main
+    assert "parent_session_id=sid," in main

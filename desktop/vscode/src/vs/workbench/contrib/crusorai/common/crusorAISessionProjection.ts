@@ -273,14 +273,15 @@ export interface CrusorAIEngineSessionRow {
 }
 
 /** A durable row's label: the stored title, else the preview's first line, never blank. */
+/**
+ * History labels are engine titles (created by the auto-titler, fixed, unique).
+ * The preview (first user message) is NEVER a label (field 2026-09-28): untitled
+ * rows render the generic placeholder until the titler's live push lands.
+ */
 export function crusorEngineRowLabel(row: CrusorAIEngineSessionRow): string {
 	const title = (row.title ?? '').replace(/\s+/g, ' ').trim();
 	if (title) {
 		return title.length > 90 ? `${title.slice(0, 89)}\u2026` : title;
-	}
-	const preview = (row.preview ?? '').replace(/\s+/g, ' ').trim();
-	if (preview) {
-		return preview.length > 90 ? `${preview.slice(0, 89)}\u2026` : preview;
 	}
 	return 'Crusor session';
 }

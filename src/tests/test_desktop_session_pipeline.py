@@ -199,16 +199,30 @@ def test_history_quickpick_pick_opens_the_session():
     assert "crusorSessionIdFromUri(row.resource)" in contribution
 
 
-def test_session_label_pins_to_the_first_user_message():
+def test_session_labels_are_created_fixed_unique():
     service = _text("browser", "crusorAIRendererService.ts")
     projection = _text("common", "crusorAISessionProjection.ts")
-    # Re-labelling on every prompt renamed the session under the user (field
-    # 2026-09-28): the first-seen label sticks, a generated fallback never does.
+    # Field 2026-09-28 (reversal): history titles are CREATED by the engine
+    # titler, FIXED, and UNIQUE — the first message is NEVER captured, and the
+    # preview is NEVER a label. Untitled rows render the generic placeholder
+    # until the titler's live push upgrades them exactly once.
+    assert "crusorSessionLabel(this.userMessage" not in service
+    assert service.count("crusorSessionLabel(undefined, ") == 2
+    assert "const preview = (row.preview" not in projection
+    assert "if (preview) {" not in projection
     assert "export function crusorSessionLabelIsFallback(" in projection
     assert service.count("!crusorSessionLabelIsFallback(previousLabel)") == 2
-    # The engine's stored title wins for the live session (stable first-message
-    # title, and the rename path); otherwise the first-seen label sticks.
+    # The engine's created title wins for the live session (and the rename
+    # path); otherwise the first-seen non-fallback label sticks.
     assert "const liveLabel = engineTitle ||" in service
+
+
+def test_live_autotitle_push_notes_the_row_directly():
+    service = _text("browser", "crusorAIRendererService.ts")
+    # Hermes session.title parity: the titler emits the rename ack shape; the
+    # row is noted directly — even a foreign one — with no list refetch.
+    assert "frame.renamed === true && typeof frame.title === 'string'" in service
+    assert "this.noteEngineRow({ session_id: frame.session_id, id: frame.session_id, title: frame.title });" in service
 
 
 def test_hydrated_turns_carry_thinking_parts():

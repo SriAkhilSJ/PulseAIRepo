@@ -95,7 +95,10 @@ def test_lazy_draft_create_persists_on_first_prompt(pipeline_bridge):
     assert listed["type"] == "session_info"
     rows = {s.get("session_id") or s.get("id"): s for s in listed["sessions"]}
     assert "draft-1" in rows
-    assert rows["draft-1"]["title"] == "Fix the login bug please"
+    # Title discipline (field 2026-09-28): the first prompt is never captured —
+    # the row stays untitled until the auto-titler's live push (the echo runner
+    # never fires the titler, so the test row stays blank).
+    assert rows["draft-1"]["title"] == ""
     assert rows["draft-1"].get("lazy") is not True
     assert "draft-1" in _row_ids(sessions_db)
 
@@ -154,6 +157,8 @@ def test_fork_links_lineage_and_resume_resolves_tip(pipeline_bridge):
     send(proc, {"type": "session_create", "session_id": "p-1", "workspace": ws})
     send(proc, {"type": "prompt", "session_id": "p-1", "workspace": ws, "text": "parent work"})
     assert drain_until(proc, {"turn_done", "turn_failed"})["type"] == "turn_done"
+    renamed = send(proc, {"type": "session_rename", "session_id": "p-1", "workspace": ws, "title": "parent work"})
+    assert renamed["type"] == "session_info" and renamed["renamed"] is True
 
     forked = send(proc, {"type": "session_fork", "session_id": "p-1", "workspace": ws})
     assert forked["type"] == "session_info" and forked["forked_from"] == "p-1"
@@ -168,7 +173,7 @@ def test_fork_links_lineage_and_resume_resolves_tip(pipeline_bridge):
     finally:
         conn.close()
     assert row is not None and row[0] == "p-1" and row[1] == "p-1"
-    assert "fork" in (row[2] or "")
+    assert (row[2] or "").startswith("parent work (fork)")
 
     resumed = send(proc, {"type": "session_resume", "session_id": "p-1", "workspace": ws})
     assert resumed["resumed"] is True
