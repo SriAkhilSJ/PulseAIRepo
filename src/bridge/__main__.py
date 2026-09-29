@@ -57,6 +57,25 @@ NO_WORKSPACE_ERROR = (
 )
 
 
+def _ensure_preview_proxy(ensure, workspace: str) -> None:
+    """Thread body for the preview-proxy autostart: report the outcome, swallow everything else.
+
+    ``ensure`` is :meth:`src.preview.autostart.PreviewAutostart.ensure`, which already refuses to
+    raise; the second guard is here because this runs while a user is mid-turn and an unhandled
+    thread exception is exactly the kind of thing that shows up as a mystery panel error.
+    """
+    try:
+        handle = ensure(workspace)
+    except Exception as exc:  # pragma: no cover - defence in depth
+        print(f"[bridge] preview proxy autostart failed for {workspace!r}: {exc!r}",
+              file=sys.stderr, flush=True)
+        return
+    if handle is None:
+        print(f"[bridge] preview proxy could not be started for {workspace!r} — "
+              "Preview needs it; start one by hand (see CRUSOR_PREVIEW_SETUP.md §5b)",
+              file=sys.stderr, flush=True)
+
+
 class WorkspaceSwitchError(Exception):
     """A session already bound to one workspace must never silently move."""
 
@@ -93,6 +112,10 @@ class BridgeServer:
         self._sessions: dict[str, dict] = {}
         self._workers: dict[str, threading.Thread] = {}
         self._subagents: dict[str, object] = {}
+        # Workspaces this process has already kicked a preview-proxy start for. The frame loop must
+        # never block on a spawn, so the work happens on a daemon thread (see _start_preview_proxy);
+        # this set is only here to keep one thread per workspace rather than one per frame.
+        self._preview_hooked: set[str] = set()
         self._shutdown = threading.Event()
         from src.runtime.host_capabilities import host_capability_broker
         host_capability_broker.reset()
@@ -998,6 +1021,35 @@ class BridgeServer:
         self.emit(error_frame(f"unknown session method: {kind!r}"))
         return True
 
+    def _start_preview_proxy(self, workspace: str) -> None:
+        """Make the preview proxy exist for this workspace, without ever touching the frame path.
+
+        Nothing used to start it, so Preview needed a second terminal pointed at the opened folder
+        (CRUSOR_PREVIEW_SETUP.md §5b) — and on Windows that terminal was a visible Python console
+        next to the app. The engine knows the folder, so it starts the proxy itself: hidden, adopted
+        when a healthy one already serves the same folder, and throttled by src.preview.autostart.
+
+        A daemon thread is deliberate. A cold start is seconds of Python import plus a health poll,
+        and a frame's response must not wait on the preview (a broken preview is a degraded feature;
+        a stalled handshake is a broken product). The thread only logs, and ``ensure`` does not
+        raise; ``CRUSORAI_PREVIEW_AUTOSTART=0`` turns the whole thing off (the test suite sets it).
+        """
+        if not workspace or workspace in self._preview_hooked:
+            return
+        self._preview_hooked.add(workspace)
+        try:
+            from src.preview.autostart import default as preview_autostart
+            service = preview_autostart()
+            if not service.enabled():
+                return
+        except Exception as exc:  # pragma: no cover - import failure is an env problem, not a bug
+            print(f"[bridge] preview autostart unavailable ({exc!r})", file=sys.stderr, flush=True)
+            return
+        threading.Thread(
+            target=_ensure_preview_proxy, args=(service.ensure, workspace),
+            name="crusor-preview-autostart", daemon=True,
+        ).start()
+
     def handle(self, frame: dict) -> bool:
         kind = frame["type"]
         if kind not in CLIENT_METHODS:
@@ -1023,6 +1075,10 @@ class BridgeServer:
         if not workspace and kind in _WORKSPACE_REQUIRED_METHODS:
             self.emit(error_frame(NO_WORKSPACE_ERROR))
             return True
+        # The frame that binds a workspace is also the moment we know which folder the user opened,
+        # and the preview proxy is useless without it — so this is where it gets started. Nothing
+        # visible: no console window, no waiting, no failure path into the turn.
+        self._start_preview_proxy(workspace)
         # Hermes session-metadata reads/writes are workspace-optional: they
         # address the DURABLE row, not the live worker, so they must neither
         # mint phantom in-memory entries nor demand an open folder.

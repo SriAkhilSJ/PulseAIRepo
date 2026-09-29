@@ -115,16 +115,19 @@ npm run typecheck-client      # tsc -p ./src/tsconfig.json --noEmit --skipLibChe
 **PASS = exit 0.** With `node_modules` installed there is none of the partial-checkout noise above, so
 this one must be completely clean.
 
-## 4. Gate B — the python lane for this feature **[here: 67 passed]**
+## 4. Gate B — the python lane for this feature **[here: 90 passed]**
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo
 .\.venv\Scripts\python.exe -m pytest src\tests\test_preview_inject.py src\tests\test_preview_prompt.py `
-  src\tests\test_preview_server.py src\tests\test_preview_endpoint.py src\tests\test_preview_contract.py -q
+  src\tests\test_preview_server.py src\tests\test_preview_endpoint.py src\tests\test_preview_contract.py `
+  src\tests\test_preview_autostart.py -q
 ```
 
-**PASS = `67 passed`** (12 inject, 11 prompt, 19 server, 11 endpoint, 13 contract + the window-query
-pin). No provider, no network, no display. `test_preview_contract.py` needs `node` on PATH — it runs
+**PASS = `90 passed`** (12 inject, 11 prompt, 19 server, 11 endpoint, 13 contract + the window-query
+pin, plus the 23 autostart tests — the last of those spawn the real proxy, so this lane now touches
+the same process code the app does). No provider, no network, no display.
+`test_preview_contract.py` needs `node` on PATH — it runs
 the shipped JavaScript and the TypeScript contract through node; skip it only if node is missing, and
 say so rather than counting it as a pass.
 
@@ -426,7 +429,10 @@ that part for free (§8) and spend credits only on the turn.
 
 ## 8. Then the preview, in the same window **[host]**
 
-The preview needs a proxy running for the **same folder** you opened — nothing starts it for you:
+The preview needs a proxy running for the **same folder** you opened. The engine now starts it for
+you the moment a session binds that folder (`src/preview/autostart.py`, hidden, reused if one is
+already healthy, log at `%USERPROFILE%\.crusorai\preview\proxy-ide.log`) — so there is nothing to run
+first. To do it by hand instead (or to watch it live), the manual command still works:
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo
@@ -471,7 +477,7 @@ Report, in one message:
 
 1. `gate.txt`, and the head SHA you built;
 2. Gate A's `Crusor errors: N   Crusor files in program: N`;
-3. Gate B's last line (`67 passed`) — or the first failure, verbatim;
+3. Gate B's last line (`90 passed`) — or the first failure, verbatim;
 4. for a gate D failure: the pane text plus the last 20 lines of the console
    (`Help → Toggle Developer Tools`), not a screenshot of the whole screen;
 5. which of the six sites in §1 your local patch had touched.

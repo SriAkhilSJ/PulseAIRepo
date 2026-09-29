@@ -58,7 +58,9 @@ The parts that decide whether this works at all:
 
 The IDE finds the proxy through the handshake file the runtime publishes
 (`$CRUSORAI_HOME/preview/<session>.json`, written by `src/preview/endpoint.py`), so no port or token
-is ever configured by hand:
+is ever configured by hand. Since 2026-09-29 the proxy starts itself, hidden, the first time a
+session binds the opened folder (`src/preview/autostart.py`; `CRUSORAI_PREVIEW_AUTOSTART=0` opts out)
+— the command below stays for the manual/lab flow:
 
 ```bash
 python -m src.preview.server --workspace . --port 8931 --endpoint-session <session-id>

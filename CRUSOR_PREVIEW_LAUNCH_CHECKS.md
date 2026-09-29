@@ -10,7 +10,8 @@ app is up and the agent answers.
 
 Every check is tagged:
 
-- **[code]** — pinned by the test suite (`python -m pytest src/tests/test_preview_*.py -q` → 67 passed),
+- **[code]** — pinned by the test suite (`python -m pytest src/tests/test_preview_*.py -q` → 90 passed —
+  67 of those are the pre-autostart set),
   so a failure here means something in the environment or the build, not the logic;
 - **[host]** — depends on the real Electron/workbench, and could not be verified before launch.
 
@@ -21,7 +22,7 @@ Every check is tagged:
 | # | Check | Pass looks like | If it fails |
 | --- | --- | --- | --- |
 | 0.1 | **[code]** `tsc -p tsconfig.crusorai-check.json --noEmit` from `desktop/vscode/src` | `Crusor errors: 0`, 34 files in program | this lane was red until `d0603692`/`87030b4a` (six sites: an unbalanced generic, `userHome`, `IDisposable`, a pair-typed query, two dead declarations). Now 0 — non-zero means the pulled tree is not what this doc was written against. Full `npm run typecheck-client` must also be clean once `node_modules` exists |
-| 0.2 | **[code]** `python -m pytest src/tests/test_preview_*.py -q` | `67 passed` | if not, the engine side is broken independently of the app |
+| 0.2 | **[code]** `python -m pytest src/tests/test_preview_*.py -q` | `90 passed` | if not, the engine side is broken independently of the app |
 | 0.3 | Proxy running for the **same folder** you open in the app | `python -m src.preview.server --workspace <opened folder> --port 8931 --endpoint-session ide` printed an origin and an endpoint path | no endpoint file → the IDE will find no proxy (§2.1) |
 
 ---
@@ -127,8 +128,10 @@ For each failure:
 
 Already known and expected, so not worth reporting:
 
-- the preview window has **no auto-start** for the proxy (that is the extra terminal in the setup
-  guide);
+- the preview window itself does not start the proxy: the **engine** does, when a session binds the
+  opened folder (`src/preview/autostart.py`). If no endpoint appears, that is a real finding — read
+  `~/.crusorai/preview/proxy-ide.log` before reporting it, and note that `CRUSORAI_PREVIEW_AUTOSTART=0`
+  turns the behaviour off on purpose;
 - a page that redirects off-origin, sets an un-widenable CSP, or uses a JS frame-buster will refuse to
   render — deliberate, with the reason printed in the frame;
 - the composer shows the batch as **prompt text**, not a bespoke card yet.

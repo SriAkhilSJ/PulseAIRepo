@@ -22,6 +22,13 @@ _os.environ.setdefault(
     _tempfile.mkdtemp(prefix="crusorai-test-checkpoints-"),
 )
 
+# The engine starts the preview proxy the first time a session binds a workspace
+# (src/preview/autostart.py) — correct inside the app, wrong inside a suite that drives
+# BridgeServer with throwaway tmp folders: every such test would spawn a real proxy process and
+# publish an endpoint into the developer's ~/.crusorai. Off for the suite; the preview tests set
+# it back on with their own runtime home, and the bridge hook test proves the switch works.
+_os.environ.setdefault("CRUSORAI_PREVIEW_AUTOSTART", "0")
+
 collect_ignore = [
     "test_agent_regression.py",
     "test_agent_status.py",

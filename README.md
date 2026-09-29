@@ -38,7 +38,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - **CrusorAI Dark** is the bundled default theme.
 - Engine root auto-detection: when neither `crusorai.engineRoot` nor `CRUSORAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
 - **Sub-agent pipeline** `src/graphs/chat_graph.py:398` `delegate_to_subagent` / `delegate_to_subagent_batch` — parallel `Explore` (opencode `Spawn agents to analyze folders`), isolated `parentMap` `crusorAIRendererService.ts:477`, `taskToolCard` clickable to sub-agent `Agent` UI (`crusorAIRenderer.ts:766`), `Back to Parent` banner (`crusorAIRenderer.ts:1679`), prompt disabled in child, `CRUSORAI_SUBAGENT_DEPTH` depth guard.
-- **Crusor Preview** — the Agent pane detects built UI from session evidence and opens it in a separate desktop window (workbench auxiliary window framing the preview proxy at `http://127.0.0.1:8931`, `src/preview/`). Click-to-inspect elements, pin fixes, `Review → Send to Crusor` dispatches a scoped agent turn; the window reloads when the turn ends. The Preview chip wears the target state (`closed → starting → live → down`); a red (down) click asks the agent to relaunch the dev server instead of opening a dead window. `preview.open` receipts carry `target_reachable` — the agent must not report success while it is false. Contract in `desktop/.../common/crusorAIPreview.ts`, pinned by `src/tests/test_preview_contract.py`; browser lab in `preview-lab/`.
+- **Crusor Preview** — the Agent pane detects built UI from session evidence and opens it in a separate desktop window (workbench auxiliary window framing the preview proxy at `http://127.0.0.1:8931`, or a free port, `src/preview/`). The proxy starts itself, hidden, the first time a session binds the opened folder (`src/preview/autostart.py`, `CRUSORAI_PREVIEW_AUTOSTART=0` opts out) — no second terminal, no Python console next to the app. Click-to-inspect elements, pin fixes, `Review → Send to Crusor` dispatches a scoped agent turn; the window reloads when the turn ends. The Preview chip wears the target state (`closed → starting → live → down`); a red (down) click asks the agent to relaunch the dev server instead of opening a dead window. `preview.open` receipts carry `target_reachable` — the agent must not report success while it is false. Contract in `desktop/.../common/crusorAIPreview.ts`, pinned by `src/tests/test_preview_contract.py`; browser lab in `preview-lab/`.
 - **Crusor file icons** (`desktop/vscode/extensions/theme-crusor-icons/`) ship as the default file-icon theme, pinned by `src/tests/test_crusor_file_icons.py`.
 
 ### Agent runtime
@@ -301,6 +301,7 @@ uv run python -m pytest \
   src/tests/test_crusorai_branding.py \
   src/tests/test_preview_contract.py \
   src/tests/test_preview_target_probe.py \
+  src/tests/test_preview_autostart.py \
   src/tests/test_crusor_file_icons.py -q
 ```
 

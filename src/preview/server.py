@@ -49,6 +49,7 @@ import json
 import os
 import secrets
 import socket
+import sys
 import threading
 import time
 import urllib.error
@@ -58,6 +59,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Final, NamedTuple
 
+from .autostart import ensure_stdio
 from .endpoint import clear_endpoint, prune_stale, write_endpoint
 from .inject import inject_overlay, is_html
 
@@ -657,12 +659,31 @@ def _guess_type(name: str) -> str:
     }.get(suffix, "application/octet-stream")
 
 
+def _session_hint(argv: list[str]) -> str:
+    """``--endpoint-session`` scanned without argparse, so stdio can be bound before a usage error.
+
+    argparse reports a bad argument by writing to ``sys.stderr`` — which is ``None`` under a
+    windowless interpreter, and a ``None.write`` is an AttributeError that hides the usage message.
+    So the log has to be bound *first*, with the name it will be known by.
+    """
+    for index, token in enumerate(argv):
+        if token.startswith("--endpoint-session="):
+            return token.split("=", 1)[1]
+        if token == "--endpoint-session" and index + 1 < len(argv):
+            return argv[index + 1]
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI used by the IDE (and by anyone debugging a preview) to run the proxy by hand.
 
     ``--endpoint-session`` publishes ``$CRUSORAI_HOME/preview/<session>.json`` (see
     :mod:`src.preview.endpoint`) so the workbench can find this server without being told a port or
     a token, and the file is removed on exit: a stale endpoint sends the IDE to a dead origin.
+
+    Two callers start this without a console — the engine (:mod:`src.preview.autostart`) and the
+    Windows launcher, both so that the user sees only the desktop app. ``ensure_stdio`` below keeps
+    their output readable by pointing it at ``<runtime home>/preview/proxy-<session>.log``.
     """
     parser = argparse.ArgumentParser(prog="crusor-preview", description="Crusor Preview proxy")
     parser.add_argument("--workspace", default=".", help="workspace root that file targets are confined to")
@@ -677,6 +698,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--prune-endpoints", action="store_true", help="drop stale handshake files and exit")
     parser.add_argument("--allow-remote", action="store_true", help="permit non-local upstream targets")
+
+    # Before anything prints: a windowless interpreter (pythonw.exe) starts with sys.stdout and
+    # sys.stderr set to None, and every line below — including a startup failure — would otherwise
+    # vanish into a process the user cannot see.
+    ensure_stdio(_session_hint(list(sys.argv[1:] if argv is None else argv)) or "manual")
+
     args = parser.parse_args(argv)
 
     if args.prune_endpoints:

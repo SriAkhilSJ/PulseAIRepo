@@ -26,6 +26,11 @@ Modules
     The loopback preview proxy. Frames any target (dev-server URL or workspace file) with the
     overlay injected, behind a per-target capability token, with framing headers dropped and
     paths confined to the workspace.
+``autostart``
+    Start (or adopt) the proxy without asking the user for a terminal: the engine calls it the first
+    time a session binds the opened folder, windowless, reusing a healthy proxy for the same
+    workspace and falling back to a free port if 8931 is taken. ``ensure_stdio`` keeps a windowless
+    proxy's output readable in ``<runtime home>/preview/proxy-<session>.log``.
 ``prompt``
     Batch -> scoped agent prompt -> bridge v2 ``prompt`` frame. This is what turns "click here and
     type" into an edit the agent can actually land: every fix names its element three ways (label,

@@ -60,11 +60,13 @@ pip install pytest
 python -m pytest src/tests/test_preview_inject.py src/tests/test_preview_prompt.py \
                  src/tests/test_preview_server.py src/tests/test_preview_endpoint.py \
                  src/tests/test_preview_contract.py src/tests/test_preview_target_probe.py \
-                 src/tests/test_preview_batch_turn_script.py -q
+                 src/tests/test_preview_batch_turn_script.py src/tests/test_preview_autostart.py -q
 ```
 
-**Expected: `94 passed, 1 skipped`.** These are the real checks — the proxy runs over real sockets, the contract
-test loads the shipped JavaScript through node and pins the message names in both directions.
+**Expected: `117 passed, 1 skipped`** (94 + the 23 autostart tests). These are the real checks — the
+proxy runs over real sockets, the contract test loads the shipped JavaScript through node and pins
+the message names in both directions, and the autostart tests spawn the real proxy and assert the
+endpoint it publishes answers on `/crusor-preview/health`.
 
 ---
 
@@ -158,10 +160,27 @@ scripts\code.bat               # Windows
 
 Then open the project folder you want to work in (`File → Open Folder`).
 
-### 5b. Start the preview proxy for that folder
+### 5b. The preview proxy starts itself
 
-Nothing starts the proxy automatically yet (see *Known gaps*), so use the launcher — it starts
-the proxy when needed and then opens the IDE (Windows):
+You do **not** have to start anything. The engine is already running inside the app and knows the
+one thing the proxy needs — the folder you opened, which every session frame carries — so it starts
+the proxy the first time a session binds that folder (`src/preview/autostart.py`):
+
+- **hidden**: `CREATE_NO_WINDOW`, so nothing new appears next to the desktop app (this used to be a
+  second, minimized Python console when you launched through `crusor.bat`);
+- **reused**: if a healthy proxy already serves the same folder, that one is adopted; a proxy for a
+  *different* folder is left alone;
+- **on a free port if 8931 is taken** — the IDE reads the port from the endpoint file, not from a
+  constant;
+- **output in one place**: `~/.crusorai/preview/proxy-ide.log`
+  (`%USERPROFILE%\.crusorai\preview\proxy-ide.log` on Windows). That file is what to read when the
+  Preview chip will not light.
+
+Turn it off with `CRUSORAI_PREVIEW_AUTOSTART=0` (also `off`/`false`/`no`) if you want to run the
+proxy by hand — everything below is then the manual flow.
+
+Want the proxy up *before* a session, or no IDE at all? Use the launcher (Windows), which starts it
+the same way and then opens the IDE:
 
 ```bash
 crusor.bat D:\path\to\your\project
@@ -170,7 +189,8 @@ crusor.bat D:\path\to\your\project
 - The argument must be **the folder you open in the app**; the IDE resolves the proxy by matching
   that path in the handshake file. With no argument the current directory is used.
 - An already-running proxy for the same folder is reused. `crusor.bat --proxy-only <folder>`
-  starts/verifies the proxy without launching the IDE.
+  starts/verifies the proxy without launching the IDE, and `--show-proxy` keeps the old visible,
+  minimized console for debugging the proxy itself.
 - Manual fallback (any OS), run in a terminal and leave it running:
 
 ```bash
@@ -205,7 +225,7 @@ python -m src.preview.server --workspace /path/to/your/project --port 8931 --end
 | `No module named pytest` | `pip install pytest`, or use `uv sync --group dev` |
 | Lab page loads, preview window says “The preview proxy could not register this target” | the target (dev server) is not running, or the port in the URL is wrong |
 | IDE: Preview chip never lights | no previewable evidence in that session yet — the agent must start a dev server, or write a `.html`/UI file. Run a prompt that builds UI first |
-| IDE: Preview click does nothing | no handshake file. Check `~/.crusorai/preview/*.json` exists, and that its `workspace` matches the folder opened in the app |
+| IDE: Preview click does nothing | no handshake file. The engine starts the proxy on the first session frame that carries the folder (§5b), so first check `~/.crusorai/preview/proxy-ide.log` — then that `~/.crusorai/preview/*.json` exists and its `workspace` matches the folder opened in the app |
 | Browser blocks the frame, or the page renders unstyled | the target redirected off-origin (the proxy refuses rather than following — by design), or the page needs a websocket/HMR the proxy does not carry. Use **Reload** after edits |
 | Blank preview, HTML present | the page sets its own CSP that the proxy could not widen, or it uses a JS frame-buster (not rewritten — by design) |
 | `Address already in use` | another proxy/lab is on 8931: `--port 8932`, or `--port 0` to take a free port |
@@ -226,8 +246,14 @@ fails. It starts from `npm run typecheck-client` and ends at the agent landing t
    `crusorAIPreviewService.ts` and the `crusorAIViewPane.ts` edits are contract-pinned and reviewed
    but not type-checked. If `npm run typecheck-client` complains, expect small mechanical fixes —
    that is the one place to look first.
-2. **Nothing starts the proxy automatically.** Hence the extra terminal in §5b. A natural follow-up is
-   the engine spawning it when a session begins.
+2. **Nothing starts the proxy automatically — fixed 2026-09-29.** The engine now starts it as soon as
+   a session binds the opened folder (`src/preview/autostart.py`; `CRUSORAI_PREVIEW_AUTOSTART=0`
+   opts out), which is why §5b no longer asks for a second terminal. The proxy is deliberately
+   detached rather than owned by the engine — an engine restart must not kill the page an open
+   preview window is showing — so it also outlives the app; `python -m src.preview.server
+   --prune-endpoints` drops registrations left behind.
+   Still open from that change: the proxy is not tied to the app's lifetime, so a machine that keeps
+   opening different folders can accumulate one proxy per folder until it is restarted.
 3. **The composer shows the batch as prompt text plus its `preview_batch` receipt**, not yet a bespoke
    card in the renderer.
 4. **Ancillary `auxiliaryWindow.onDidLayout` / focus polishing** in the preview window (remembering
