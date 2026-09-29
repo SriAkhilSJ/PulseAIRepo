@@ -18,6 +18,8 @@ from src.config.settings import (
     NVIDIA_API_KEY,
     OPENAI_API_KEY,
     REASONING_EFFORT,
+    VELONA_API_KEY,
+    VELONA_BASE_URL,
 )
 
 from src.runtime.turn_control import active_session, turn_controls
@@ -1097,6 +1099,31 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             request_timeout=effective_timeout,
             streaming=streaming,
             max_retries=0,  # hermes #54465: the proxy owns retries; SDK-hidden ones multiply wall time
+            default_headers=_http_default_headers() or None,
+            **reasoning_kwargs,
+        )
+        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+
+    if provider == "velona":
+        # First-class Velona route: the OpenAI-compatible surface at /v1
+        # (chat/completions with streaming + tool calling, models). Paid
+        # models only there — free models live on the native gateway surface
+        # (/gateway/v1/...), which this chat pipeline does not speak.
+        # Env is read per call (cheap-tier rule) so rotation needs no restart.
+        velona_key = (os.environ.get("VELONA_API_KEY") or VELONA_API_KEY or "").strip()
+        velona_url = (
+            (os.environ.get("VELONA_BASE_URL") or VELONA_BASE_URL or "").strip()
+            or "https://velona.in/v1"
+        )
+        if not velona_key:
+            raise ValueError("provider 'velona' requires VELONA_API_KEY")
+        llm = ReasoningAwareOpenAI(
+            api_key=velona_key,
+            base_url=velona_url,
+            model=model,
+            request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
+            streaming=streaming_enabled(default=True),
+            max_retries=0,  # hermes #54465: RetryLLMProxy owns the retry policy
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,
         )
