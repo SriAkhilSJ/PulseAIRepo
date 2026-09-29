@@ -197,3 +197,27 @@ def test_history_quickpick_pick_opens_the_session():
     # picker cannot disagree with the Manager about recency.
     assert "crusorSessionRows(records, undefined, Date.now())" in contribution
     assert "crusorSessionIdFromUri(row.resource)" in contribution
+
+
+def test_session_label_pins_to_the_first_user_message():
+    service = _text("browser", "crusorAIRendererService.ts")
+    projection = _text("common", "crusorAISessionProjection.ts")
+    # Re-labelling on every prompt renamed the session under the user (field
+    # 2026-09-28): the first-seen label sticks, a generated fallback never does.
+    assert "export function crusorSessionLabelIsFallback(" in projection
+    assert service.count("!crusorSessionLabelIsFallback(previousLabel)") == 2
+    # The engine's stored title wins for the live session (stable first-message
+    # title, and the rename path); otherwise the first-seen label sticks.
+    assert "const liveLabel = engineTitle ||" in service
+
+
+def test_hydrated_turns_carry_thinking_parts():
+    service = _text("browser", "crusorAIRendererService.ts")
+    protocol = _text("common", "crusorAIProtocol.ts")
+    # Hermes thinking parts: persisted reasoning renders the Think card on
+    # history turns. The parts array drives the paint, so the entry AND its
+    # inline position pin are both required.
+    assert "readonly reasoning?: string;" in protocol
+    assert "current.reasoningParts.push({ text: message.reasoning });" in service
+    assert "{ kind: 'reasoning', reasoningIndex: current.reasoningParts.length - 1 }" in service
+    assert "reasoningParts: turn.reasoningParts," in service

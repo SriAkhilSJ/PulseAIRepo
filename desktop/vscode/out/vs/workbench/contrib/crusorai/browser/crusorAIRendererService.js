@@ -24,7 +24,7 @@ import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState }
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
-import { crusorFactsFromEngineRow, crusorSessionLabel, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
+import { crusorFactsFromEngineRow, crusorSessionLabel, crusorSessionLabelIsFallback, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
 import { mountCrusorAIRenderer, } from './crusorAIRenderer.js';
 function valueRecord(value) {
@@ -524,9 +524,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         if (!this.sessionId) {
             return;
         }
+        // The label pins to the FIRST user message: re-labelling on every prompt renamed the
+        // session under the user (field 2026-09-28). A generated fallback is never sticky.
+        const previousLabel = this.sessionStore.records().find(record => record.sessionId === this.sessionId)?.label;
         const facts = {
             sessionId: this.sessionId,
-            label: crusorSessionLabel(this.userMessage, this.sessionId),
+            label: previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(this.userMessage, this.sessionId),
             workspaceLabel: this.workspaceLabel,
             statusName: crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined }),
             firstSeenAt: Date.now(),
@@ -563,8 +566,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             ? crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined })
             : row.unread === true ? 'completed' : undefined;
         const base = crusorFactsFromEngineRow(row, { workspaceLabel: this.workspaceLabel, statusName, now: Date.now() });
+        // Active label: the engine's stored title wins (stable first-message title, and the
+        // rename path); otherwise the first-seen label sticks — never the latest prompt.
+        const engineTitle = (row.title ?? '').trim();
+        const previousLabel = this.sessionStore.records().find(record => record.sessionId === sessionId)?.label;
+        const liveLabel = engineTitle || (previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(this.userMessage, sessionId));
         this.sessionStore.note(isActive
-            ? { ...base, label: crusorSessionLabel(this.userMessage, sessionId), turnStartedAt: this.turnStartedAt, turnEndedAt: this.turnEndedAt }
+            ? { ...base, label: liveLabel, turnStartedAt: this.turnStartedAt, turnEndedAt: this.turnEndedAt }
             : base);
         if (row.unread !== undefined) {
             this.sessionStore.markRead(sessionId, !row.unread);
@@ -670,14 +678,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      */
     hydrateTranscript(messages) {
         const turns = [];
-        let current = { assistantText: '', parts: [], tools: [] };
+        let current = { assistantText: '', parts: [], reasoningParts: [], tools: [] };
         const toolIndex = new Map();
-        const dirty = (turn) => turn.userMessage !== undefined || turn.assistantText !== '' || turn.parts.length > 0 || turn.tools.length > 0;
+        const dirty = (turn) => turn.userMessage !== undefined || turn.assistantText !== '' || turn.parts.length > 0 || turn.reasoningParts.length > 0 || turn.tools.length > 0;
         const rollTurn = () => {
             if (dirty(current)) {
                 turns.push(current);
             }
-            current = { assistantText: '', parts: [], tools: [] };
+            current = { assistantText: '', parts: [], reasoningParts: [], tools: [] };
         };
         for (const message of messages) {
             if (message.role === 'user') {
@@ -687,6 +695,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 current.userMessage = current.userMessage ? `${current.userMessage}\n${message.content}` : message.content;
             }
             else if (message.role === 'assistant') {
+                // Hermes thinking parts: persisted reasoning renders the Think card on history
+                // turns exactly like live ones. The parts array drives the paint, so both the
+                // entry AND its inline position pin are required (field 2026-09-28: entries
+                // without pins never painted).
+                if (message.reasoning) {
+                    current.reasoningParts.push({ text: message.reasoning });
+                    current.parts.push({ kind: 'reasoning', reasoningIndex: current.reasoningParts.length - 1 });
+                }
                 if (message.content) {
                     current.assistantText += message.content;
                     current.parts.push({ kind: 'text', text: message.content });
@@ -720,7 +736,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             userMessage: turn.userMessage,
             assistantText: turn.assistantText,
             parts: turn.parts,
-            reasoningParts: [],
+            reasoningParts: turn.reasoningParts,
             tools: turn.tools,
             subAgents: [],
             turnOutcome: 'completed',

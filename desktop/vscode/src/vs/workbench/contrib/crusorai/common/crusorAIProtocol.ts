@@ -48,6 +48,8 @@ export interface CrusorSessionMessage {
 	readonly id?: number | string;
 	readonly role: 'user' | 'assistant' | 'tool';
 	readonly content: string;
+	/** Persisted thinking (Hermes reasoning parts): renders the Think card on history turns. */
+	readonly reasoning?: string;
 	readonly tool_calls?: readonly { readonly id?: string; readonly name: string; readonly args?: unknown }[];
 	readonly tool_call_id?: string;
 	readonly tool_name?: string;

@@ -7,6 +7,7 @@ the bundled app dir. The desktop MUST pass the user's opened workspace.
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import sys
@@ -194,12 +195,62 @@ class BridgeServer:
                 role = "tool"
             else:
                 role = "assistant"
+            kwargs = getattr(msg, "additional_kwargs", None) or {}
+            if not isinstance(kwargs, dict):
+                kwargs = {}
+            text_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            block_calls: list[dict] = []
             content = getattr(msg, "content", "")
             if isinstance(content, list):
-                content = "".join(
-                    b.get("text", "") for b in content if isinstance(b, dict)
-                ) or str(content)
-            entry: dict = {"id": index, "role": role, "content": str(content or "")}
+                # Provider block content (Anthropic-style and OpenAI-compat
+                # routers): text / thinking / tool_use / tool_result blocks,
+                # not a plain string. Dropping non-text blocks here is what
+                # used to resume tool-heavy sessions as text-only transcripts.
+                for block in content:
+                    if isinstance(block, str):
+                        text_parts.append(block)
+                        continue
+                    if not isinstance(block, dict):
+                        continue
+                    btype = str(block.get("type") or "").lower()
+                    if btype in ("thinking", "thinking_block", "redacted_thinking"):
+                        thought = block.get("thinking") or block.get("text") or ""
+                        if thought:
+                            reasoning_parts.append(str(thought))
+                    elif btype in ("tool_use", "tool_call"):
+                        try:
+                            block_calls.append({
+                                "id": str(block.get("id") or ""),
+                                "name": str(block.get("name") or ""),
+                                "args": block.get("input", block.get("args", {})),
+                            })
+                        except Exception:
+                            pass
+                    elif btype == "tool_result":
+                        out = block.get("content") or block.get("output") or ""
+                        if out:
+                            text_parts.append(out if isinstance(out, str)
+                                              else json.dumps(out)[:2000])
+                    else:
+                        text_parts.append(str(block.get("text", "")))
+                content_text = "".join(text_parts)
+            else:
+                content_text = str(content or "")
+            entry: dict = {"id": index, "role": role, "content": content_text}
+            # Reasoning (Hermes thinking parts): the router's lifted
+            # additional_kwargs carrier first, content thinking blocks second.
+            # Without this, resumed turns lose their Think card.
+            reasoning = ""
+            for key in ("reasoning_content", "reasoning"):
+                candidate = kwargs.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    reasoning = candidate
+                    break
+            if not reasoning and reasoning_parts:
+                reasoning = "\n\n".join(reasoning_parts)
+            if reasoning:
+                entry["reasoning"] = reasoning
             tool_calls = getattr(msg, "tool_calls", None)
             if tool_calls:
                 try:
@@ -211,6 +262,30 @@ class BridgeServer:
                     ]
                 except Exception:
                     pass
+            if "tool_calls" not in entry:
+                # Fallback carriers when the parsed list is empty: raw OpenAI
+                # additional_kwargs tool_calls plus content tool_use blocks.
+                parsed: list[dict] = []
+                raw_kwargs_calls = kwargs.get("tool_calls")
+                if isinstance(raw_kwargs_calls, list):
+                    for call in raw_kwargs_calls:
+                        if not isinstance(call, dict):
+                            continue
+                        fn = call.get("function") or {}
+                        if not isinstance(fn, dict):
+                            fn = {}
+                        name = call.get("name") or fn.get("name") or ""
+                        raw_args = fn.get("arguments", call.get("args", {}))
+                        if isinstance(raw_args, str):
+                            try:
+                                raw_args = json.loads(raw_args) if raw_args.strip() else {}
+                            except Exception:
+                                raw_args = {"_raw": raw_args[:2000]}
+                        parsed.append({"id": str(call.get("id") or ""),
+                                       "name": str(name), "args": raw_args})
+                parsed.extend(block_calls)
+                if parsed:
+                    entry["tool_calls"] = parsed
             tool_call_id = getattr(msg, "tool_call_id", None)
             if tool_call_id:
                 entry["tool_call_id"] = str(tool_call_id)

@@ -151,6 +151,11 @@ export function crusorSessionLabel(userMessage: string | undefined, sessionId: s
 	return text.length > 90 ? `${text.slice(0, 89)}\u2026` : text;
 }
 
+/** True when a label is the generated fallback rather than a user's message — safe to overwrite. Derived from the single source so the two spellings cannot drift. */
+export function crusorSessionLabelIsFallback(label: string | undefined): boolean {
+	return label === crusorSessionLabel(undefined, 'x') || label === crusorSessionLabel(undefined, undefined);
+}
+
 /** Whole seconds since an epoch timestamp, never negative, undefined when there is no origin. */
 export function crusorSessionElapsedSeconds(now: number, origin: number | undefined): number | undefined {
 	if (origin === undefined || !Number.isFinite(origin) || now < origin) {

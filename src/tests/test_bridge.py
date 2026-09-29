@@ -432,3 +432,93 @@ def test_session_resume_include_events_false_skips_the_journal(sidecar):
     defaulted = _send(sidecar, {"type": "session_resume", "session_id": sid,
                                 "workspace": "."})
     assert isinstance(defaulted["events"], list)
+
+
+# --------------------------------- transcript projection pins (direct unit)
+
+def _projected(messages, **kw):
+    """Run BridgeServer._transcript_messages against stub messages.
+
+    The checkpointer read is stubbed at the module boundary (sys.modules), so
+    these pins exercise the REAL projection code with zero graph deps.
+    """
+    import sys
+    import types
+
+    from src.bridge.__main__ import BridgeServer
+
+    fake_graph = types.SimpleNamespace(
+        get_state=lambda config: types.SimpleNamespace(values={"messages": messages}))
+    fake_mod = types.ModuleType("src.graphs.chat_graph")
+    fake_mod.graph = fake_graph
+    saved = sys.modules.get("src.graphs.chat_graph")
+    sys.modules["src.graphs.chat_graph"] = fake_mod
+    try:
+        server = BridgeServer.__new__(BridgeServer)
+        return BridgeServer._transcript_messages(
+            server, "s", limit=kw.get("limit", 120),
+            offset=kw.get("offset", 0), order=kw.get("order", "latest"))
+    finally:
+        if saved is None:
+            sys.modules.pop("src.graphs.chat_graph", None)
+        else:
+            sys.modules["src.graphs.chat_graph"] = saved
+
+
+def _msg(mtype, content="", **attrs):
+    import types
+
+    return types.SimpleNamespace(type=mtype, content=content, **attrs)
+
+
+def test_transcript_projection_keeps_parsed_tool_calls():
+    messages, _ = _projected([
+        _msg("human", "list files"),
+        _msg("ai", "on it", tool_calls=[
+            {"id": "call_1", "name": "list_files", "args": {"path": "."}}]),
+        _msg("tool", "a.py", tool_call_id="call_1", name="list_files"),
+    ])
+    assistant = next(m for m in messages if m["role"] == "assistant")
+    assert assistant["tool_calls"] == [
+        {"id": "call_1", "name": "list_files", "args": {"path": "."}}]
+    tool = next(m for m in messages if m["role"] == "tool")
+    assert tool["tool_call_id"] == "call_1" and tool["tool_name"] == "list_files"
+
+
+def test_transcript_projection_falls_back_to_raw_kwargs_tool_calls():
+    messages, _ = _projected([
+        _msg("ai", "", tool_calls=[], additional_kwargs={"tool_calls": [
+            {"id": "call_9", "type": "function", "function": {
+                "name": "read_file", "arguments": '{"path": "a.py"}'}}]}),
+    ])
+    assert messages[0]["tool_calls"] == [
+        {"id": "call_9", "name": "read_file", "args": {"path": "a.py"}}]
+
+
+def test_transcript_projection_reads_provider_block_content():
+    messages, _ = _projected([
+        _msg("ai", [
+            {"type": "text", "text": "checking"},
+            {"type": "thinking", "thinking": "which file?"},
+            {"type": "tool_use", "id": "t1", "name": "ls", "input": {}},
+        ]),
+    ])
+    entry = messages[0]
+    assert entry["content"] == "checking"
+    assert entry["reasoning"] == "which file?"
+    assert entry["tool_calls"] == [{"id": "t1", "name": "ls", "args": {}}]
+
+
+def test_transcript_projection_lifts_reasoning_content():
+    messages, _ = _projected([
+        _msg("ai", "done", additional_kwargs={"reasoning_content": "because reasons"}),
+        _msg("ai", "done", additional_kwargs={"reasoning": "plain reasoning"}),
+    ])
+    assert messages[0]["reasoning"] == "because reasons"
+    assert messages[1]["reasoning"] == "plain reasoning"
+
+
+def test_transcript_projection_never_invents_reasoning_or_calls():
+    messages, _ = _projected([_msg("ai", "just text")])
+    assert "reasoning" not in messages[0]
+    assert "tool_calls" not in messages[0]
