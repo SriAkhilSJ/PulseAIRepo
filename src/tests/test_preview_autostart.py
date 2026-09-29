@@ -14,7 +14,8 @@ What is pinned here:
   workspace, so the workspace is part of the proxy's identity);
 * a **dead registration** is not adopted — the file outlives the process that wrote it, and the IDE
   would otherwise frame nothing;
-* the spawn is windowless (``CREATE_NO_WINDOW`` / ``windowsHide``), detached, run from the engine
+* the spawn is windowless (``CREATE_NO_WINDOW`` — the only windowless knob
+  ``subprocess.Popen`` accepts), detached, run from the engine
   root, and pointed at the opened folder — the entire feature is "no second window, right folder";
 * a busy 8931 falls back to a free port, because the endpoint file carries the real port;
 * nothing ever raises: a preview that cannot start must not touch an agent turn;
@@ -207,8 +208,10 @@ def test_a_spawned_proxy_is_recorded_and_not_started_twice(
 	assert kwargs["cwd"] == str(ENGINE_ROOT), "the proxy CLI must resolve from the engine root"
 	assert kwargs["stdin"] is subprocess.DEVNULL
 	if os.name == "nt":
-		assert kwargs["windowsHide"] is True, "no window next to the desktop app"
+		# CREATE_NO_WINDOW is the only windowless knob subprocess.Popen accepts
+		# (`windowsHide` belongs to Node's child_process.spawn, not Popen).
 		assert kwargs["creationflags"] & 0x08000000  # CREATE_NO_WINDOW
+		assert "windowsHide" not in kwargs, "Popen rejects unknown kwargs on the real spawn path"
 	else:
 		assert kwargs["start_new_session"] is True, "the preview must outlive the launching terminal"
 

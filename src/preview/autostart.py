@@ -359,10 +359,10 @@ class PreviewAutostart:
         }
         if os.name == "nt":
             # CREATE_NO_WINDOW is the whole point: the user must not get a second window next to
-            # the desktop app (the field report this module answers). Both knobs are Windows-only —
-            # Popen rejects `windowsHide` (and the creation flag) elsewhere.
+            # the desktop app (the field report this module answers). It is the only knob:
+            # subprocess.Popen has no `windowsHide` parameter (that one belongs to Node's
+            # child_process.spawn), so passing it raises TypeError on the real spawn path.
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-            kwargs["windowsHide"] = True
         else:
             # A session of its own: closing the terminal the app was launched from must not take
             # the preview down with it.
