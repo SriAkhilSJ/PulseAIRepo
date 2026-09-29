@@ -1532,7 +1532,7 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     // OpenCode parity: child header parent / child + agent-designed prompt as user message
     if (model.isChild) {
         const delegatedTask = model.userMessage || model.subAgentGoal || '';
-        const parentTitle = model.parentTitle || 'Main';
+        const parentTitle = model.parentTitle || 'Parent session';
         const childTitle = delegatedTask.slice(0, 60) || 'Sub-agent';
         // Header like opencode: Spawn agents to analyze folders / Analyze playground folder
         const header = element('div', 'crusorai-child-header');

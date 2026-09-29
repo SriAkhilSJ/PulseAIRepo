@@ -221,3 +221,24 @@ def test_hydrated_turns_carry_thinking_parts():
     assert "current.reasoningParts.push({ text: message.reasoning });" in service
     assert "{ kind: 'reasoning', reasoningIndex: current.reasoningParts.length - 1 }" in service
     assert "reasoningParts: turn.reasoningParts," in service
+
+
+def test_child_header_paints_real_parent_and_goal():
+    service = _text("browser", "crusorAIRendererService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    # The child header reads typed model fields — never `as any`, never a fake
+    # name (field 2026-09-28: every sub-agent view read "Main / Sub-agent").
+    assert "readonly subAgentGoal?: string;" in renderer
+    assert "readonly parentTitle?: string;" in renderer
+    assert "(model as any).subAgentGoal" not in renderer
+    assert "(model as any).parentTitle" not in renderer
+    assert "|| 'Main'" not in renderer
+    # The service resolves the goal from the session's own subagent record and
+    # the parent breadcrumb from the store.
+    assert "private currentSubAgentGoal(): string | undefined {" in service
+    assert "private currentParentTitle(): string | undefined {" in service
+    # Opening a plausible child hydrates its record; unknown ids never query
+    # (a junk reply would self-parent the session) and never self-parent.
+    assert "const targetLooksChild = targetSessionId.startsWith('sub-') || this.parentMap.has(targetSessionId);" in service
+    assert "type: 'subagent_status', session_id: targetSessionId, subagent_id: targetSessionId" in service
+    assert "childId !== parentId" in service

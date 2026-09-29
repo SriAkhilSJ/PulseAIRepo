@@ -137,6 +137,10 @@ export interface CrusorAIRenderModel {
 	readonly isChild?: boolean;
 	readonly parentSessionId?: string;
 	readonly parentMap?: ReadonlyMap<string, string>;
+	/** This session's own delegated goal when it is a sub-agent child. */
+	readonly subAgentGoal?: string;
+	/** The parent session's label, for the child header breadcrumb. */
+	readonly parentTitle?: string;
 	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown; readonly warning?: string };
 	/** Pending hermes clarify batch (the ask tool) awaiting this panel's answer. */
 	readonly clarify?: {
@@ -1663,14 +1667,14 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	}
 	// OpenCode parity: child header parent / child + agent-designed prompt as user message
 	if (model.isChild) {
-		const delegatedTask = (model as any).userMessage || (model as any).subAgentGoal || '';
-		const parentTitle = (model as any).parentTitle || 'Main';
+		const delegatedTask = model.userMessage || model.subAgentGoal || '';
+		const parentTitle = model.parentTitle || 'Parent session';
 		const childTitle = delegatedTask.slice(0, 60) || 'Sub-agent';
 		// Header like opencode: Spawn agents to analyze folders / Analyze playground folder
 		const header = element('div', 'crusorai-child-header');
 		const parentBtn = element('button', 'crusorai-child-header-parent', parentTitle);
-		if ((model as any).parentSessionId && host.navigateToSession) {
-			const pId = (model as any).parentSessionId;
+		if (model.parentSessionId && host.navigateToSession) {
+			const pId = model.parentSessionId;
 			parentBtn.addEventListener('click', () => host.navigateToSession!(pId));
 		}
 		header.append(parentBtn, element('span', undefined, ' / '), element('h1', 'crusorai-child-header-child', childTitle));

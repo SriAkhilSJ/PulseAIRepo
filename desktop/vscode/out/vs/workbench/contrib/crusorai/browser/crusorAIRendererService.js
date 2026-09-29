@@ -408,6 +408,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             isChild: !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
             parentSessionId: this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined),
             parentMap: new Map(this.parentMap),
+            subAgentGoal: this.currentSubAgentGoal(),
+            parentTitle: this.currentParentTitle(),
             approval: this.approval,
             clarify: this.clarify,
             todos: this.todos,
@@ -452,6 +454,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         const previousSessionId = this.sessionId;
         const previousChildParentId = this.childParentId;
+        // Read BEFORE the reset wipes the map: a plausible child hydrates its own record below.
+        const targetLooksChild = targetSessionId.startsWith('sub-') || this.parentMap.has(targetSessionId);
         this.resetSessionState();
         this.sessionId = targetSessionId;
         // If target is child, remember parent for back navigation
@@ -479,6 +483,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // double-paint one transcript.
             this.send({ type: 'session_resume', session_id: targetSessionId, workspace, include_events: false });
             this.send({ type: 'session_messages', session_id: targetSessionId, workspace, limit: 120, order: 'latest' });
+            // Sub-agent children hydrate their own record (goal/description/state) on open, so
+            // the child header paints the delegated task even when the record map is cold
+            // (restart or history navigation). Gated: an unknown id would upsert a junk
+            // record and self-parent the session.
+            if (targetLooksChild) {
+                this.send({ type: 'subagent_status', session_id: targetSessionId, subagent_id: targetSessionId });
+            }
         }
         this.requestSessionList();
         this.render();
@@ -504,6 +515,35 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      */
     openSession(sessionId) {
         this.navigateToSession(sessionId);
+    }
+    /**
+     * This session's own delegated goal when it is a sub-agent child: the record whose
+     * child thread is the active session. The child header paints this — never a hardcoded
+     * title (field 2026-09-28: every sub-agent view read "Main / Sub-agent").
+     */
+    currentSubAgentGoal() {
+        if (!this.sessionId) {
+            return undefined;
+        }
+        for (const record of this.subAgents.values()) {
+            if (record.childThreadId === this.sessionId) {
+                return record.goal || record.description || undefined;
+            }
+        }
+        for (const record of this.subAgents.values()) {
+            if (record.id === this.sessionId && record.parentSessionId) {
+                return record.goal || record.description || undefined;
+            }
+        }
+        return undefined;
+    }
+    /** The active session's parent label from the store, for the child breadcrumb. */
+    currentParentTitle() {
+        const parentId = this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined);
+        if (!parentId) {
+            return undefined;
+        }
+        return this.sessionStore.records().find(record => record.sessionId === parentId)?.label;
     }
     sessionRows() {
         const readState = new Map();
@@ -1431,7 +1471,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             const childId = frame.child_thread_id ?? subagent_id;
             const parentId = frame.parent_session_id ?? frame.parentSessionId ?? this.sessionId;
             const desc = frame.description ?? existing.description;
-            if (childId && parentId) {
+            // Never self-parent: an unknown-id status reply echoes the queried id as both
+            // child and parent, which would misdetect a normal session as a child.
+            if (childId && parentId && childId !== parentId) {
                 this.parentMap.set(childId, parentId);
             }
             // Detect if current session is child
