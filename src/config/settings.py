@@ -35,13 +35,6 @@ NVIDIA_API_KEY: str | None = os.getenv("NVIDIA_API_KEY")
 CUSTOM_API_KEY: str | None = os.getenv("CUSTOM_API_KEY")
 CUSTOM_BASE_URL: str | None = os.getenv("CUSTOM_BASE_URL")
 
-# Velona: unified gateway (UPI/INR billing). The OpenAI-compatible surface at
-# /v1 speaks chat/completions (streaming + tool calling) and models; the
-# gateway catalog at /gateway/v1/models carries per-model context_window
-# (see model_budgets._probe_velona).
-VELONA_API_KEY: str | None = os.getenv("VELONA_API_KEY")
-VELONA_BASE_URL: str = os.getenv("VELONA_BASE_URL", "https://velona.in/v1")
-
 
 # =========================================================
 # DEFAULT LLM

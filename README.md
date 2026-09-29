@@ -168,22 +168,21 @@ CUSTOM_BASE_URL=https://your-endpoint.example/v1
 CUSTOM_API_KEY=your-key
 ```
 
-### Velona (first-class provider)
+### Velona (OpenAI-compatible, gateway catalog)
 
-Velona serves OpenAI-compatible chat completions at `https://velona.in/v1` (streaming + tool calling; paid models only — free models live on the native `/gateway/v1` surface) and carries per-model `context_window` metadata at the gateway catalog (`/gateway/v1/models`). The engine probes the gateway for context window and falls back to the static table.
+Velona serves OpenAI-compatible chat completions at `https://velona.in/v1` and carries per-model `context_window` metadata at the gateway catalog (`/gateway/v1/models`). The engine auto-detects Velona from the hostname, probes the gateway for context window, and falls back to the static table.
 
 ```env
-LLM_PROVIDER=velona
+LLM_PROVIDER=custom
 LLM_MODEL=deepseek/deepseek-v4-flash-0731
-VELONA_API_KEY=key_live_...
+CUSTOM_BASE_URL=https://velona.in/v1
+CUSTOM_API_KEY=key_live_...
 
 # Optional: cheap model for janitor/management calls
 CRUSORAI_CHEAP_API_KEY=key_live_...
 CRUSORAI_CHEAP_BASE_URL=https://velona.in/v1
 CRUSORAI_CHEAP_MODEL=qwen/qwen3.7-flash
 ```
-
-Legacy layout (`LLM_PROVIDER=custom` + `CUSTOM_BASE_URL=https://velona.in/v1`) keeps working — the engine auto-detects Velona from the hostname.
 
 ## Run the bridge
 

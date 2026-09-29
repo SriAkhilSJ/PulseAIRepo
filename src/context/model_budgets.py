@@ -735,9 +735,7 @@ def _probe_velona(model_name: str) -> int | None:
     except Exception:
         base_url = os.getenv("VELONA_BASE_URL", "")
     if not base_url:
-        # Legacy custom-routed layout first (Velona host behind CUSTOM_BASE_URL),
-        # else the first-class default: provider='velona' with VELONA_BASE_URL unset.
-        base_url = os.getenv("CUSTOM_BASE_URL", "") or "https://velona.in/v1"
+        base_url = os.getenv("CUSTOM_BASE_URL", "")
     if not base_url:
         return None
     from urllib.parse import urlparse
@@ -782,9 +780,7 @@ def _effective_provider(provider: str) -> str:
     OpenRouter is intentionally configured through Crusor's generic
     OpenAI-compatible ``custom`` route. Budget discovery still needs its public
     model catalog rather than the unknown-provider 8k fallback.
-    Velona may also arrive routed through ``custom`` (legacy .env layout) but
-    has its own gateway catalog; direct ``provider="velona"`` resolves to the
-    same probe via the normalized fallthrough below.
+    Velona is also routed through ``custom`` but has its own gateway catalog.
     """
     normalized = provider.strip().lower()
     if normalized == "custom":
