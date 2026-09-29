@@ -28,8 +28,15 @@ def test_new_session_blanks_the_surface_without_an_id():
     assert "Stop the current run before starting a new session." in service
     assert "newSession(): void;" in iface
     # The crusorai.newSession command is wired to the service, not the old
-    # store-event no-op.
-    assert "ICrusorAIRendererService).newSession()" in contribution
+    # store-event no-op. ServicesAccessor is single-shot: the service is
+    # captured BEFORE the first await (a get() after yielding throws
+    # "Illegal state" at runtime — field 2026-09-28).
+    assert "const rendererService = accessor.get(ICrusorAIRendererService);" in contribution
+    assert "rendererService.newSession();" in contribution
+    capture = contribution.index("const rendererService = accessor.get(ICrusorAIRendererService);")
+    first_await = contribution.index("await openCrusorAgent(accessor);", capture)
+    use = contribution.index("rendererService.newSession();")
+    assert capture < first_await < use
     assert "_onDidChange?.fire?.()" not in contribution
 
 
@@ -141,7 +148,11 @@ def test_workbench_list_click_opens_the_session():
     controller = _text("browser", "crusorAISessionController.ts")
     service = _text("browser", "crusorAIRendererService.ts")
     iface = _text("common", "crusorAIRendererService.ts")
-    assert "accessor.get(ICrusorAIRendererService).openSession(sessionId);" in controller
+    # Same single-shot rule as NewSession: capture before the first await.
+    assert "const rendererService = accessor.get(ICrusorAIRendererService);" in controller
+    assert "rendererService.openSession(sessionId);" in controller
+    capture = controller.index("const rendererService = accessor.get(ICrusorAIRendererService);")
+    assert capture < controller.index("await commandService.executeCommand(CrusorAICommandId.Focus);")
     assert "CrusorAICommandId.Focus" in controller
     assert "openSession(sessionId: string): void;" in iface
     assert "openSession(sessionId: string): void {" in service

@@ -122,8 +122,11 @@ export class CrusorAISessionOpener extends Disposable {
         }
         // A click on a Crusor row rebinds the Agent surface to that session (its transcript
         // hydrates from the checkpoints) instead of only revealing the Manager list.
-        await accessor.get(ICommandService).executeCommand(CrusorAICommandId.Focus);
-        accessor.get(ICrusorAIRendererService).openSession(sessionId);
+        // ServicesAccessor is single-shot: capture before the first await (see NewSession).
+        const commandService = accessor.get(ICommandService);
+        const rendererService = accessor.get(ICrusorAIRendererService);
+        await commandService.executeCommand(CrusorAICommandId.Focus);
+        rendererService.openSession(sessionId);
         return true;
     }
 }

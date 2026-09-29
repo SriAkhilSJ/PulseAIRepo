@@ -1,8 +1,8 @@
 {
-	"sourcesHash": "79d7820ffce8f701a4ed1606e37facc788e0e5448eaeec953658e52fe335acb8",
+	"sourcesHash": "3cae3a723775f2daf6fcec5cb396ad0d5d453dfa461d71eb02c8ab8abb9facc6",
 	"files": {
 		"src/vs/workbench/contrib/crusorai/README.md": "d0231cf4f21f80de5daba9454f128fe7042bfbbb4dad42d20676df09098249e2",
-		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "fd0eb41ecd163a795e07004ca1ac3b9af311b043994f9021e6044ab208d16cb3",
+		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "f7943bb55a58b66fe29b4041eaad98f943b475ba113b2afef634308e7199f5f4",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIAccount.ts": "4a8f8f49667bf2b2928ed311a51b935c90be82aed73478262d7ead6dddf0973c",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIActivity.ts": "579a264aa21fdaf17fe4fc9b412feef254b677b485f38c8bb1bc1905ceba73f9",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIConnectors.ts": "c5ab28ecdc21fa77e963103fd0d3d162ae2a562ffc2072e671c1595bd5903fcf",
@@ -17,7 +17,7 @@
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts": "79516dd44bfb3ff24cbcf9946b04dcab444f7f2eebd87bc5b323e78893c1d37a",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts": "fae2129d55238279cc321ad7728514b0d4e92b3b73b3bbb2f180054046b13d07",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.ts": "618226099e2b4edc3fa339930c7c111c7bcd4cab76e91c108f2a70e283845733",
-		"src/vs/workbench/contrib/crusorai/browser/crusorAISessionController.ts": "f3e0f821a7410668b09cf913f972621c6d53d31f6b489050fbe4fa04c47aeec4",
+		"src/vs/workbench/contrib/crusorai/browser/crusorAISessionController.ts": "722c45ef55e792b8f65aad04c388517db793c6c08fb8e39f3bc6258ee4aba448",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.ts": "b7ba35509a7d5e316e2fb78608d9645ce5bff30a418ff88aac5e9287a4a8bf1d",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIViewPane.ts": "b7e7e43db06599260d2bd8894fe117f077b792700de45d27ef4d3f8b59e9116b",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.ts": "f15857683d86b78bfa3b1e3675e68fc51c942350931d4c4f4346fb5dc64a8922",

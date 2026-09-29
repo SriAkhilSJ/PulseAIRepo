@@ -191,8 +191,12 @@ registerAction2(class extends Action2 {
         });
     }
     async run(accessor) {
+        // ServicesAccessor is single-shot: every get() must run BEFORE the first await — a
+        // get() after yielding throws "Illegal state" (field 2026-09-28: the pre-fix shape
+        // called accessor.get() after `await openCrusorAgent` and died at runtime).
+        const rendererService = accessor.get(ICrusorAIRendererService);
         await openCrusorAgent(accessor);
-        accessor.get(ICrusorAIRendererService).newSession();
+        rendererService.newSession();
     }
 });
 registerAction2(class extends Action2 {
