@@ -139,9 +139,11 @@ def test_manager_rows_open_their_session_in_place():
     assert "host.navigateToSession!(target)" in renderer
     # No more disabled rows: every non-active row is clickable.
     assert "button.disabled = !row.isActive;" not in renderer
-    # The Manager "+" and the Agent header both start a blank session.
-    assert renderer.count("host.newSession?.()") == 2
-    assert "button('New session', 'crusorai-agent-manager-button'" in renderer
+    # Only the Manager "+" starts a blank session from the panel: the Agent pane header
+    # must NOT carry its own New-session button — the view-title "+" already owns that
+    # entry (field 2026-09-28: two side-by-side buttons for one action).
+    assert renderer.count("host.newSession?.()") == 1
+    assert "button('New session', 'crusorai-agent-manager-button'" not in renderer
 
 
 def test_workbench_list_click_opens_the_session():
@@ -177,3 +179,21 @@ def test_protocol_carries_include_events_and_tool_call_ids():
     assert "readonly include_events?: boolean" in protocol
     assert protocol.count("readonly include_events?: boolean") == 2
     assert "readonly tool_calls?: readonly { readonly id?: string; readonly name: string;" in protocol
+
+
+def test_history_quickpick_pick_opens_the_session():
+    contribution = _text("browser", "crusorAI.contribution.ts")
+    show = contribution.index("id: 'crusorai.showHistory'")
+    # "Pick to open" OPENS: the pick rebinds the Agent surface after focusing
+    # it (a dismissed picker, or the empty-state row, stays a no-op).
+    assert "rendererService.openSession(pick.id);" in contribution
+    # Single-shot accessor: the renderer service is captured before the pick await.
+    capture = contribution.index(
+        "const rendererService = accessor.get(ICrusorAIRendererService);", show)
+    pick_await = contribution.index("await quickInput.pick(picks,", capture)
+    use = contribution.index("rendererService.openSession(pick.id);", pick_await)
+    assert show < capture < pick_await < use
+    # Newest activity first, from the same projection both lists use — the
+    # picker cannot disagree with the Manager about recency.
+    assert "crusorSessionRows(records, undefined, Date.now())" in contribution
+    assert "crusorSessionIdFromUri(row.resource)" in contribution

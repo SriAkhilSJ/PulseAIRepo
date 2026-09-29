@@ -1,8 +1,8 @@
 {
-	"sourcesHash": "3cae3a723775f2daf6fcec5cb396ad0d5d453dfa461d71eb02c8ab8abb9facc6",
+	"sourcesHash": "bd61d593b998798bc6b798f3993b3ac6baa4e16c69e150bc948a249be5f39a3c",
 	"files": {
 		"src/vs/workbench/contrib/crusorai/README.md": "d0231cf4f21f80de5daba9454f128fe7042bfbbb4dad42d20676df09098249e2",
-		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "f7943bb55a58b66fe29b4041eaad98f943b475ba113b2afef634308e7199f5f4",
+		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "7457530feea9e07fa168ddae62598924f0fb5d0e3fcd4d82d394ab0dafc59abe",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIAccount.ts": "4a8f8f49667bf2b2928ed311a51b935c90be82aed73478262d7ead6dddf0973c",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIActivity.ts": "579a264aa21fdaf17fe4fc9b412feef254b677b485f38c8bb1bc1905ceba73f9",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIConnectors.ts": "c5ab28ecdc21fa77e963103fd0d3d162ae2a562ffc2072e671c1595bd5903fcf",
@@ -14,7 +14,7 @@
 		"src/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.ts": "562b672e2925c48243b5e97a0558c84896d81ef12075c9ff46f8daebe51b3977",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts": "82f041b12c9e333ee546c7856c05ea7d4713d8873a7e7752b7e89ad4f84b3082",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIReasoningBlocks.ts": "c491f62dd6d76d63ba8b4f1e83fe125ce7ccc763b77797d5440df4e2ca538ba0",
-		"src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts": "79516dd44bfb3ff24cbcf9946b04dcab444f7f2eebd87bc5b323e78893c1d37a",
+		"src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts": "aeac9ffef35002e845b5fc71432be706dd473dda7835e587a88ee041d3464191",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts": "fae2129d55238279cc321ad7728514b0d4e92b3b73b3bbb2f180054046b13d07",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.ts": "618226099e2b4edc3fa339930c7c111c7bcd4cab76e91c108f2a70e283845733",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAISessionController.ts": "722c45ef55e792b8f65aad04c388517db793c6c08fb8e39f3bc6258ee4aba448",

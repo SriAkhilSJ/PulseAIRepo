@@ -25,6 +25,7 @@ import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { ICrusorAISessionStore, CrusorAISessionStore } from '../common/crusorAISessionStore.js';
+import { crusorSessionIdFromUri, crusorSessionRows } from '../common/crusorAISessionProjection.js';
 import { CrusorAIPreviewService, ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import './crusorAISessionController.js';
@@ -355,7 +356,6 @@ registerAction2(class extends Action2 {
 	}
 });
 
-console.log('[CrusorAI] Verify: registering ViewTitle history + new session');
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
@@ -373,24 +373,36 @@ registerAction2(class extends Action2 {
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
-		console.log('[CrusorAI] History clicked, opening QuickPick');
+		// ServicesAccessor is single-shot: every get() runs before the first await.
 		const quickInput = accessor.get(IQuickInputService);
 		const store = accessor.get(ICrusorAISessionStore);
 		const viewsService = accessor.get(IViewsService);
-		const sessions = store.records();
-		console.log('[CrusorAI] sessions:', sessions.length, sessions.slice(0,2));
-		const picks = (Array.isArray(sessions) ? sessions : []).slice(0, 20).map((s: any) => ({
-			label: s.label || s.sessionId || 'Untitled session',
-			description: s.workspaceLabel || '',
-			id: s.sessionId
-		}));
+		const rendererService = accessor.get(ICrusorAIRendererService);
+		// Newest activity first — the same projection order both session lists use, so the
+		// picker, the Manager and the workbench list cannot disagree about recency.
+		const records = store.records();
+		const rows = crusorSessionRows(records, undefined, Date.now());
+		const byId = new Map(records.map(item => [item.sessionId, item] as const));
+		const picks = rows.slice(0, 20).map(row => {
+			const id = crusorSessionIdFromUri(row.resource) ?? '';
+			const count = byId.get(id)?.messageCount;
+			return {
+				label: row.label || 'Untitled session',
+				description: [row.description, typeof count === 'number' && count > 0 ? `${count} messages` : ''].filter(part => part.length > 0).join(' · '),
+				id,
+			};
+		});
 		if (picks.length === 0) picks.push({ label: 'No sessions yet', description: 'Start a chat with Ctrl+L', id: '' });
-		const pick: any = await quickInput.pick(picks as any, { placeHolder: 'Crusor Session History — pick to open' });
-		console.log('[CrusorAI] pick:', pick);
-		if (pick && pick.id) await viewsService.openView(CRUSOR_AI_VIEW_ID, true);
+		const pick = await quickInput.pick(picks, { placeHolder: 'Crusor Session History — pick to open' });
+		// "Pick to open" OPENS: focus the Agent surface, then rebind it to the picked
+		// session (its transcript hydrates from the checkpoints). A dismissed picker, or
+		// the "No sessions yet" row, is a no-op by design.
+		if (pick && pick.id) {
+			await viewsService.openView(CRUSOR_AI_VIEW_ID, true);
+			rendererService.openSession(pick.id);
+		}
 	}
 });
-console.log('[CrusorAI] history registered');
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'crusorai',

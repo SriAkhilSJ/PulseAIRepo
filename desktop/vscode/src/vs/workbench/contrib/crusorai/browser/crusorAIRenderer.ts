@@ -2559,7 +2559,6 @@ function renderAgent(root: HTMLElement, model: CrusorAIRenderModel, host: Crusor
 	const header = element('div', 'crusorai-agent-header',
 		element('span', 'crusorai-agent-header-title', 'Crusor Agent'),
 		button('Manager', 'crusorai-agent-manager-button', () => host.openManager(), 'organization'),
-		button('New session', 'crusorai-agent-manager-button', () => host.newSession?.(), 'add'),
 	);
 	// Field run 2026-09-09 (owner: "Ur claim failed"): the STALE chip lived
 	// only in the Manager titlebar, so an Agent-pane session ran a pre-

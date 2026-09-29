@@ -2419,7 +2419,7 @@ function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
 }
 function renderAgent(root, model, host, openTools, planOpen, setPlanOpen, activity) {
     const shell = element('div', 'crusorai-agent-shell');
-    const header = element('div', 'crusorai-agent-header', element('span', 'crusorai-agent-header-title', 'Crusor Agent'), button('Manager', 'crusorai-agent-manager-button', () => host.openManager(), 'organization'), button('New session', 'crusorai-agent-manager-button', () => host.newSession?.(), 'add'));
+    const header = element('div', 'crusorai-agent-header', element('span', 'crusorai-agent-header-title', 'Crusor Agent'), button('Manager', 'crusorai-agent-manager-button', () => host.openManager(), 'organization'));
     // Field run 2026-09-09 (owner: "Ur claim failed"): the STALE chip lived
     // only in the Manager titlebar, so an Agent-pane session ran a pre-
     // fef8cdb2/74d146bd workbench against a current engine — every card-
