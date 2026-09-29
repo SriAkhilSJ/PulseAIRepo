@@ -1,7 +1,7 @@
 {
-	"sourcesHash": "4ebd570f03cda8ca215e3db6b6ca35b79bb78c4d41b02613d577e35f06a2a289",
+	"sourcesHash": "cf13c3214d7421a4857938ae7b94ce643c0777909689e278b4d67794face2f3a",
 	"files": {
-		"src/vs/workbench/contrib/crusorai/README.md": "d0231cf4f21f80de5daba9454f128fe7042bfbbb4dad42d20676df09098249e2",
+		"src/vs/workbench/contrib/crusorai/README.md": "430e50521a404dea5b25f0e1bc1876fcaaaebe7935bcb8ef8bff4db10846ecaa",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "7457530feea9e07fa168ddae62598924f0fb5d0e3fcd4d82d394ab0dafc59abe",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIAccount.ts": "4a8f8f49667bf2b2928ed311a51b935c90be82aed73478262d7ead6dddf0973c",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIActivity.ts": "579a264aa21fdaf17fe4fc9b412feef254b677b485f38c8bb1bc1905ceba73f9",
