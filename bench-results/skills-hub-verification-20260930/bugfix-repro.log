@@ -1,0 +1,50 @@
+
+==================== BUGFIX REPRODUCTION (install-cap fix) ====================
+Branch: arena/01a0f348-pulseairepo  HEAD: 1e390e438a7d6352ce6bc83eea8343afa74a9e7a
+Fix commit: 1e390e43 Skills Hub: extract only the requested subdir before the repo-file cap
+
+--- $ python -m pytest src/tests/test_skills_hub.py -q
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 39 items
+
+src\tests\test_skills_hub.py .......................................     [100%]
+
+============================== warnings summary ===============================
+src/tests/test_skills_hub.py::TestBindingAndHygiene::test_hub_tools_bound_in_graph_and_toolsets
+  D:\pulseAIagent\PulseAIRepo\.venv\Lib\site-packages\google\genai\types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 39 passed, 1 warning in 7.38s ========================
+EXIT=0
+
+--- $ python scripts/skills_hub_cli.py install c-review   (previously: archive has 2117 entries (cap 2000))
+=== HEAD 1e390e43 — Wed Sep 30 13:22:26 PDT 2026 ===
+
+$ python scripts/skills_hub_cli.py install c-review
+{
+  "ok": true,
+  "name": "c-review",
+  "repo": "trailofbits/skills",
+  "sha": "82fe8226252622fa807643bdca1710901198553a",
+  "subdir": "plugins/c-review/skills/c-review",
+  "trust": "curated",
+  "files": 1,
+  "bytes": 13112,
+  "upgraded": false,
+  "folder": "C:\\Users\\Administrator\\.crusorai\\hub-skills\\skills\\c-review"
+}
+
+$ python scripts/skills_hub_cli.py list
+c-review  trailofbits/skills @ 82fe82262526 [curated]
+
+$ python scripts/skills_hub_cli.py remove c-review
+{
+  "ok": true,
+  "name": "c-review"
+}
