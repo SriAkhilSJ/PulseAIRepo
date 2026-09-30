@@ -84,7 +84,9 @@ the catalog is the trust signal. Admission rules (enforced by
 
 | Surface | Tools | Notes |
 |---|---|---|
-| Agent | `hub_search`, `hub_install`, `hub_list`, `hub_remove` | bound in the always-on skills waist (`toolsets._SKILL_TOOLS`) and `_TOOLS_BY_NAME`; one gated prompt sentence (`_HUB_SENTENCE`) renders only when hub tools are bound |
+| Agent | `hub_search`, `hub_install`, `hub_update`, `hub_list`, `hub_remove` | bound in the always-on skills waist (`toolsets._SKILL_TOOLS`) and `_TOOLS_BY_NAME`; one gated prompt sentence (`_HUB_SENTENCE`) renders only when hub tools are bound |
+| Bridge | `skills_hub_op` → `skills_hub_result` (op envelope: list / search / install / update / remove) | the transport the desktop Skills panel binds to; protocol pinned at all four layers |
+| CLI | `skills_hub_cli.py search/install/update/list/remove` | same pipeline |
 | Terminal | `scripts/skills_hub_cli.py` (`search` / `install` / `list` / `remove`) | same pipeline; useful for setup scripts and catalog verification |
 | Python | `src.agents.skills_hub` | result dicts, errors never raise (skills-layer convention) |
 
@@ -103,7 +105,10 @@ resolution to an exact SHA.
 ## Roadmap (not in this phase)
 
 - **Phase 2 — store browser UI**: a Marketplace panel in the IDE (browse,
-  search, one-click install, update badges) on top of this engine API.
+  search, one-click install, update badges). DONE so far: the backend —
+  `hub_update` (catalog-pinned upgrades, same-source collision guard) and the
+  `skills_hub_op`/`skills_hub_result` bridge frame pair; the panel UI binds to
+  the bridge envelope.
 - **Phase 3 — bundles**: multi-skill packs + custom commands as one unit.
 - **Phase 4 — publishing**: Crusor users open their own catalogs.
 - Remote catalog federation (community-maintained catalog files fetched at

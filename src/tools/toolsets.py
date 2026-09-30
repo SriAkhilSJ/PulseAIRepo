@@ -54,7 +54,7 @@ _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
 # always-on waist (discovery -> install -> skill_view pull).
 _SKILL_TOOLS: tuple[str, ...] = (
     "skills_list", "skill_view", "skill_manage",
-    "hub_search", "hub_install", "hub_list", "hub_remove",
+    "hub_search", "hub_install", "hub_update", "hub_list", "hub_remove",
 )
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",

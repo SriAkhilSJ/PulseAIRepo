@@ -37,6 +37,8 @@ def main() -> int:
     sub.add_parser("list", help="list hub-installed skills")
     p_remove = sub.add_parser("remove", help="remove a hub-installed skill")
     p_remove.add_argument("name")
+    p_update = sub.add_parser("update", help="update hub-installed skills to the catalog-pinned SHA")
+    p_update.add_argument("name", nargs="?", default="", help="one skill (omit to update all)")
 
     args = parser.parse_args()
 
@@ -71,6 +73,24 @@ def main() -> int:
             upd = "  [update available]" if r.get("update_available") else ""
             print(f"{r['name']}  {r['repo']} @ {r['sha'][:12]} [{r['trust']}]{upd}")
         return 0
+
+    if args.cmd == "update":
+        res = hub.update_hub_skill(args.name) if args.name else None
+        if res is None:
+            installed = hub.list_hub().get("installed", [])
+            if not installed:
+                print("no hub-installed skills yet")
+                return 0
+            targets = [r for r in installed if r.get("update_available")]
+            if not targets:
+                print(f"{len(installed)} installed, all at the catalog-pinned versions")
+                return 0
+            for r in targets:
+                res = hub.update_hub_skill(str(r["name"]))
+                print(json.dumps(res, indent=2))
+            return 0
+        print(json.dumps(res, indent=2))
+        return 0 if res.get("ok") else 1
 
     if args.cmd == "remove":
         res = hub.uninstall_skill(args.name)

@@ -403,7 +403,7 @@ class TestBindingAndHygiene:
         from src.tools.toolsets import all_known_tool_names, resolve_toolset_names
         from src.tools.skill_hub_tools import HUB_TOOLS
 
-        names = {"hub_search", "hub_install", "hub_list", "hub_remove"}
+        names = {"hub_search", "hub_install", "hub_update", "hub_list", "hub_remove"}
         assert names <= set(_TOOLS_BY_NAME), "hub tools must be callable by the graph"
         assert names <= set(all_known_tool_names())
         bound = set(resolve_toolset_names("coding"))
@@ -440,3 +440,97 @@ class TestBindingAndHygiene:
         manager.add_skill("s2", ["t"], "body")
         skill2 = next(s for s in manager.list_skills() if s["name"] == "s2")
         assert "source" not in skill2
+
+# ---------------------------------------------------------------------------
+# Update (Phase 2: catalog-pinned upgrades)
+# ---------------------------------------------------------------------------
+
+class TestUpdate:
+    def test_already_at_pin_is_a_clean_noop(self, env):
+        _install(env, "frontend-design")
+        res = hub.update_hub_skill(
+            "frontend-design",
+            catalog=env["catalog"],
+            manager=env["manager"],
+            hub_root=env["hub_root"],
+            fetcher=_fake_fetcher(env["archives"]),
+        )
+        assert res["ok"] and res["updated"] is False
+
+    def test_catalog_bump_upgrades_same_source(self, env):
+        _install(env, "frontend-design")  # at _SHA_A
+        env["catalog"]["entries"][0]["sha"] = _SHA_B  # curated pin moves
+        res = hub.update_hub_skill(
+            "frontend-design",
+            catalog=env["catalog"],
+            manager=env["manager"],
+            hub_root=env["hub_root"],
+            fetcher=_fake_fetcher(env["archives"]),
+        )
+        assert res["ok"], res.get("error")
+        assert res["updated"] is True
+        assert res["from_sha"] == _SHA_A and res["to_sha"] == _SHA_B
+        skill = next(s for s in env["manager"].list_skills() if s["name"] == "frontend-design")
+        assert skill["source"]["sha"] == _SHA_B
+
+    def test_not_in_catalog_reported_not_touched(self, env):
+        _install(env, f"owner/repo@{_SHA_A}")
+        res = hub.update_hub_skill(
+            "frontend-design",
+            catalog=env["catalog"],
+            manager=env["manager"],
+            hub_root=env["hub_root"],
+            fetcher=_fake_fetcher(env["archives"]),
+        )
+        # the direct-repo install's frontmatter name is "frontend-design" (same
+        # tarball), and the catalog entry points at a DIFFERENT repo, so the
+        # catalog lookup misses -> refused cleanly
+        assert not res["ok"] and "not in the" in res["error"]
+
+    def test_unknown_and_non_hub_names_refused(self, env):
+        res = hub.update_hub_skill(
+            "ghost", catalog=env["catalog"], manager=env["manager"], hub_root=env["hub_root"]
+        )
+        assert not res["ok"] and "no skill named" in res["error"]
+        env["manager"].add_skill("manual", ["x"], "body", created_by="user")
+        res = hub.update_hub_skill(
+            "manual", catalog=env["catalog"], manager=env["manager"], hub_root=env["hub_root"]
+        )
+        assert not res["ok"] and "not installed via the hub" in res["error"]
+
+    def test_tool_updates_all_pending_and_reports_clean(self, env, monkeypatch):
+        from src.tools.skill_hub_tools import hub_update as hub_update_tool
+        _install(env, "frontend-design")
+        env["catalog"]["entries"][0]["sha"] = _SHA_B
+        import src.tools.skill_hub_tools as tools_mod
+        import src.agents.skill_manager as sm_mod
+        monkeypatch.setattr(sm_mod, "skill_manager", env["manager"])
+
+        def _hub():
+            import functools, inspect
+            from src.agents import skills_hub as real
+            class _HubProxy:
+                def __getattr__(self, item):
+                    attr = getattr(real, item)
+                    if not callable(attr):
+                        return attr
+                    @functools.wraps(attr)
+                    def wrapper(*a, **kw):
+                        kw.setdefault("catalog", env["catalog"])
+                        kw.setdefault("manager", env["manager"])
+                        kw.setdefault("hub_root", env["hub_root"])
+                        try:
+                            sig = inspect.signature(attr)
+                            if "fetcher" in sig.parameters:
+                                kw.setdefault("fetcher", _fake_fetcher(env["archives"]))
+                        except (ValueError, TypeError):
+                            pass
+                        return attr(*a, **kw)
+                    return wrapper
+            return _HubProxy()
+        monkeypatch.setattr(tools_mod, "_hub", _hub)
+        out = hub_update_tool.invoke({"name": ""})
+        assert "updated" in out and _SHA_B[:12] in out
+        # second run: everything at pin -> clean all-green message
+        out2 = hub_update_tool.invoke({"name": ""})
+        assert "already at the catalog-pinned" in out2

@@ -136,4 +136,49 @@ def hub_remove(name: str) -> str:
     return f"removed: {res['name']} (hub install fully uninstalled)"
 
 
-HUB_TOOLS = (hub_search, hub_install, hub_list, hub_remove)
+@tool
+def hub_update(name: str = "") -> str:
+    """Update hub-installed skills to the exact commit the curated catalog
+    currently pins.
+
+    Updates always move to a catalog-pinned SHA through the same sandboxed
+    pipeline as install — never to a moving branch. Without arguments,
+    updates every hub-installed skill that has a newer pinned version;
+    with a name, only that skill. Skills not covered by the catalog are
+    reported and left untouched.
+
+    Args:
+        name: optional skill name to update just one skill (omit to update
+            everything the catalog covers).
+    """
+    hub = _hub()
+    results: list[dict] = []
+    if (name or "").strip():
+        results.append(hub.update_hub_skill(name.strip()))
+    else:
+        installed = hub.list_hub().get("installed", [])
+        if not installed:
+            return "hub_update: nothing installed via the hub yet."
+        targets = [r for r in installed if r.get("update_available")]
+        if not targets:
+            return (
+                f"hub_update: {len(installed)} hub-installed skill(s), all already "
+                "at the catalog-pinned versions."
+            )
+        for r in targets:
+            results.append(hub.update_hub_skill(str(r["name"])))
+
+    lines = []
+    for r in results:
+        if not r.get("ok"):
+            lines.append(f"- {r.get('error', 'failed')}")
+        elif r.get("updated"):
+            lines.append(
+                f"- {r['name']}: {r['from_sha'][:12]} → {r['to_sha'][:12]} (updated)"
+            )
+        else:
+            lines.append(f"- {r['name']}: already at the pinned version ({r['sha'][:12]})")
+    return "hub_update:\n" + "\n".join(lines)
+
+
+HUB_TOOLS = (hub_search, hub_install, hub_update, hub_list, hub_remove)

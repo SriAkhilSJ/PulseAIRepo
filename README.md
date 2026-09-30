@@ -87,9 +87,10 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 | **Skills Hub engine** | `src/agents/skills_hub.py` — search the curated catalog, install community `SKILL.md` skills from GitHub (catalog name, `owner/repo@sha`, `@sha:subdir`, `@ref` fail-closed-resolved to a full SHA), provenance ledger, uninstall; result-dict errors, never raises | `src/tests/test_skills_hub.py` (31 hermetic tests) + live installs over a real socket |
 | **Safety pipeline** | host allow-list → SHA anchoring → 25MB/2000-file/8MB caps → traversal-proof, symlink-aware extraction → skill validation → collision guard (same-source upgrade only) → **zero execution on install** | attack-simulation tests: traversal member, escaping symlink, caps, corrupt tarball |
 | **Curated catalog** | `skills/catalog.json` — 8 real entries (Anthropic, Vercel, Trail of Bits, Superpowers repos), each pinned to an exact 40-char SHA; invalid entries dropped with reasons at load | catalog validation tests |
-| **Agent tools** | `hub_search` / `hub_install` / `hub_list` / `hub_remove` — bound in the always-on skills waist + `_TOOLS_BY_NAME`; one gated prompt sentence | binding tests; `_skills_lead` gated rendering |
+| **Agent tools** | `hub_search` / `hub_install` / `hub_update` / `hub_list` / `hub_remove` — bound in the always-on skills waist + `_TOOLS_BY_NAME`; one gated prompt sentence | binding tests; `_skills_lead` gated rendering |
 | **Store plumbing** | `SkillManager.add_skill(..., source=...)` backward-compatible provenance (hub installs are `pinned`, curator-exempt); hub folder + `provenance.json` under `~/.crusorai/hub-skills` (env: `CRUSORAI_HUB_SKILLS_DIR`) | round-trip + uninstall-scope tests |
-| **CLI** | `scripts/skills_hub_cli.py` — search/install/list/remove from a terminal (same pipeline) | live-verified |
+| **CLI** | `scripts/skills_hub_cli.py` — search/install/update/list/remove from a terminal (same pipeline) | live-verified |
+| **Bridge surface (Phase 2)** | `skills_hub_op` client method → `skills_hub_result` server event — one generic op envelope (list/search/install/update/remove) the desktop Skills panel binds to; manifest + Python constants + generated TS + handwritten payload union all pinned | `test_bridge_protocol_v2.py` 8/8 |
 
 
 

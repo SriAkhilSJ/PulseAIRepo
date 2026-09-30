@@ -287,7 +287,7 @@ from src.tools.terminal_tools import (
 from src.tools.web_tools import web_search, web_fetch, web_extract
 from src.tools.media_tools import media_search, media_download
 from src.tools.skill_tools import skills_list, skill_view, skill_manage
-from src.tools.skill_hub_tools import hub_search, hub_install, hub_list, hub_remove
+from src.tools.skill_hub_tools import hub_search, hub_install, hub_update, hub_list, hub_remove
 # #8 (external review): fault-tolerant browser-tool import. The optional
 # stack must never break engine boot — if it is missing the browser tools
 # are simply unbound (the D5 fake-verification hole is documented in the
@@ -825,6 +825,7 @@ tools = [
     # during install; running skill scripts stays behind approval gates.
     hub_search,
     hub_install,
+    hub_update,
     hub_list,
     hub_remove,
 

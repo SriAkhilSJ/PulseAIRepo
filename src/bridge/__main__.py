@@ -1523,6 +1523,52 @@ class BridgeServer:
                     except Exception:
                         pass
 
+        elif kind == "skills_hub_op":
+            # Skills Hub management surface (Phase 2): one generic op envelope
+            # the desktop Skills panel binds to. Ops mirror the hub tools —
+            # list / search / install / update / remove — every op result is
+            # a dict with an `ok` flag (hub convention: errors never raise).
+            op = str(frame.get("op") or "list").strip().lower()
+            result: dict
+            try:
+                from src.agents import skills_hub as hub
+                if op == "list":
+                    result = hub.list_hub()
+                elif op == "search":
+                    cat = hub.load_catalog()
+                    if not cat.get("ok"):
+                        result = cat
+                    else:
+                        result = hub.search_catalog(
+                            cat, str(frame.get("query") or ""),
+                            str(frame.get("category") or ""),
+                        )
+                elif op == "install":
+                    result = hub.install_skill(
+                        str(frame.get("source") or ""),
+                        pick=str(frame.get("pick") or ""),
+                    )
+                elif op == "update":
+                    name = str(frame.get("name") or "").strip()
+                    if name:
+                        result = hub.update_hub_skill(name)
+                    else:
+                        out: list[dict] = []
+                        for row in hub.list_hub().get("installed", []):
+                            if row.get("update_available"):
+                                out.append(hub.update_hub_skill(str(row["name"])))
+                        result = {"ok": True, "updated": out}
+                elif op == "remove":
+                    result = hub.uninstall_skill(str(frame.get("name") or ""))
+                else:
+                    result = {"ok": False, "error": f"unknown skills_hub op: {op!r}"}
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)[:500]}
+            self.emit({
+                "type": "skills_hub_result", "session_id": sid,
+                "op": op, "result": result,
+            })
+
         elif kind == "subagent_list":
             # OpenCode parity: list child sessions for a parent
             try:

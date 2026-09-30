@@ -792,6 +792,79 @@ def list_hub(
     return {"ok": True, "installed": rows, "ledger": str(_ledger_path(hroot))}
 
 
+def update_hub_skill(
+    name: str,
+    *,
+    catalog: dict | None = None,
+    manager: SkillManager | None = None,
+    hub_root: str | Path | None = None,
+    fetcher: Callable[[str], bytes] | None = None,
+    ref_resolver: Callable[[str, str, str], str | None] | None = None,
+) -> dict:
+    """Upgrade one hub-installed skill to the SHA the catalog currently pins.
+
+    Same trust model as install: the move is always to an exact catalog
+    SHA (never a moving ref), through the same install pipeline, and only
+    over a prior install of the SAME repo+subdir (the collision guard
+    enforces that). A skill the catalog doesn't cover is reported, never
+    touched.
+    """
+    clean = (name or "").strip()
+    if not clean:
+        return _fail("no skill name given")
+    mgr = _manager(manager)
+    skill = next(
+        (s for s in mgr.list_skills() if str(s.get("name", "")).lower() == clean.lower()),
+        None,
+    )
+    if skill is None:
+        return _fail(f"no skill named {clean!r} is installed")
+    meta = skill.get("source") or {}
+    if meta.get("kind") != "hub":
+        return _fail(f"{skill['name']} was not installed via the hub — nothing to update")
+
+    cat = catalog if catalog is not None else load_catalog()
+    if not cat.get("ok"):
+        return _fail(f"catalog unavailable: {cat.get('error')}")
+    entry = next(
+        (
+            e for e in cat["entries"]
+            if _owner_repo(e["repo"]) == str(meta.get("repo", "")).strip("/")
+            and e["subdir"] == str(meta.get("subdir", ""))
+        ),
+        None,
+    )
+    if entry is None:
+        return _fail(
+            f"{skill['name']} ({meta.get('repo')}:{meta.get('subdir')}) is not in the "
+            "curated catalog — reinstall it directly with hub_install at a new SHA"
+        )
+    old_sha = str(meta.get("sha", ""))
+    if entry["sha"] == old_sha:
+        return {"ok": True, "name": str(skill["name"]), "updated": False, "sha": old_sha}
+
+    src = _entry_to_source(entry)
+    res = install_skill(
+        src,
+        catalog=cat,
+        manager=mgr,
+        hub_root=hub_root,
+        fetcher=fetcher,
+        ref_resolver=ref_resolver,
+    )
+    if not res.get("ok"):
+        return res
+    return {
+        "ok": True,
+        "name": res["name"],
+        "updated": True,
+        "from_sha": old_sha,
+        "to_sha": res["sha"],
+        "trust": res["trust"],
+        "folder": res["folder"],
+    }
+
+
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
