@@ -357,13 +357,20 @@ def _member_target(dest: Path, name: str) -> Path | None:
     return target
 
 
-def safe_extract(tar_bytes: bytes, dest: Path) -> dict:
+def safe_extract(tar_bytes: bytes, dest: Path, only_subdir: str = "") -> dict:
     """Extract a repo tarball safely: traversal-proof, capped, link-aware.
 
     Symlinks INSIDE the repo (relative targets that stay within the archive,
     e.g. ``CLAUDE.md -> README.md``) are common in real community repos and
     are materialized as real file copies of their target. Absolute or
     escaping links, hardlinks, and device members are rejected outright.
+
+    ``only_subdir`` narrows extraction to one subtree BEFORE the file-count
+    cap applies — curated catalogs pin skills inside large monorepos (a
+    2000+-entry repo hosting a 2-file skill is normal), and the cap is a
+    guard on what we EXTRACT, not a ban on big repos. Caps, traversal and
+    link checks still apply to every member actually extracted; nothing
+    outside the subtree is ever read into the workspace.
     """
     total_files = 0
     total_bytes = 0
@@ -374,8 +381,30 @@ def safe_extract(tar_bytes: bytes, dest: Path) -> dict:
         return _fail(f"not a readable tarball: {exc}")
     with tf:
         members = tf.getmembers()
+        unfiltered = len(members)
+        if only_subdir:
+            sub = only_subdir.strip("/")
+            direct = [m for m in members if m.name.startswith(sub + "/")]
+            if direct:
+                # flat archive: the subtree sits at the top level already
+                members = direct
+            else:
+                # GitHub wraps everything in <repo>-<sha>/ — anchor below it
+                top = next(
+                    (m.name.split("/", 1)[0] for m in members if "/" in m.name), ""
+                )
+                prefix = f"{top}/{sub}/" if top else f"{sub}/"
+                members = [m for m in members if m.name.startswith(prefix)]
+            if not members:
+                return _fail(f"subdir {only_subdir!r} not found in the archive")
         if len(members) > _MAX_REPO_FILES:
-            return _fail(f"archive has {len(members)} entries (cap {_MAX_REPO_FILES})")
+            hint = (
+                " — this repo is too large to install whole; install a subdirectory "
+                "with 'owner/repo@<sha>:<subdir>'"
+                if len(members) == unfiltered
+                else ""
+            )
+            return _fail(f"archive has {len(members)} entries (cap {_MAX_REPO_FILES}){hint}")
         for member in members:
             if member.islnk() or member.isdev():
                 return _fail(f"hardlink/device members are not allowed ({member.name!r})")
@@ -577,7 +606,7 @@ def install_skill(
     with tempfile.TemporaryDirectory(prefix="crusor-hub-") as tmp:
         root = Path(tmp) / "repo"
         root.mkdir()
-        ex = safe_extract(tar_bytes, root)
+        ex = safe_extract(tar_bytes, root, only_subdir=subdir)
         if not ex.get("ok"):
             return ex
 

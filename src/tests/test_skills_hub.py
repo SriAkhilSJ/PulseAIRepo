@@ -534,3 +534,42 @@ class TestUpdate:
         # second run: everything at pin -> clean all-green message
         out2 = hub_update_tool.invoke({"name": ""})
         assert "already at the catalog-pinned" in out2
+
+# ---------------------------------------------------------------------------
+# Monorepo cap vs subdir (field 2026-09-30: trailofbits/skills has 2117
+# entries; the whole-repo cap fired before the subdir filter and blocked
+# `install c-review` — the cap guards what we EXTRACT, not repo size)
+# ---------------------------------------------------------------------------
+
+class TestMonorepoSubdir:
+    def _monorepo_tar(self) -> bytes:
+        entries = {
+            f"trailofbits-skills-{_SHA_A}/plugins/c-review/skills/c-review/SKILL.md": (
+                "---\nname: c-review\ndescription: C/C++ security review.\n"
+                "keywords: [security, review]\n---\n\n" + SKILL_BODY
+            ).encode(),
+            f"trailofbits-skills-{_SHA_A}/plugins/c-review/skills/c-review/references/r.md": b"# ref",
+        }
+        for i in range(2010):
+            entries[f"trailofbits-skills-{_SHA_A}/decoys/f{i:04d}.txt"] = b"x"
+        return _make_tar(entries)
+
+    def test_subdir_installs_from_a_repo_over_the_cap(self, env):
+        env["archives"][_SHA_A] = self._monorepo_tar()
+        res = _install(env, f"owner/repo@{_SHA_A}:plugins/c-review/skills/c-review")
+        assert res["ok"], res.get("error")
+        assert res["name"] == "c-review"
+        dest = Path(res["folder"])
+        assert sorted(q.name for q in dest.rglob("*") if q.is_file()) == ["SKILL.md", "r.md"]
+
+    def test_whole_repo_over_cap_hints_the_subdir_form(self, env):
+        env["archives"][_SHA_A] = self._monorepo_tar()
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert not res["ok"]
+        assert f"cap {hub._MAX_REPO_FILES}" in res["error"]
+        assert "subdirectory" in res["error"]
+
+    def test_subdir_missing_from_archive_is_a_clean_error(self, env):
+        env["archives"][_SHA_A] = self._monorepo_tar()
+        res = _install(env, f"owner/repo@{_SHA_A}:nope/missing")
+        assert not res["ok"] and "not found in the archive" in res["error"]
