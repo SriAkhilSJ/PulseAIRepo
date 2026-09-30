@@ -43,6 +43,11 @@ _UPSTREAM_LOAD_SENTENCE = (
     "and proven workflows that outperform general-purpose approaches. Load the skill "
 )
 _PATCH_SENTENCE = "If a skill has issues, fix it with skill_manage(action='patch').\n"
+_HUB_SENTENCE = (
+    "Missing a capability the index doesn't cover? Search the Skills Hub with "
+    "hub_search and install it with hub_install — installs are SHA-pinned and "
+    "sandboxed, and the skill appears in this index immediately.\n"
+)
 
 
 def _injected_load_sentence(basic_tools: str) -> str:
@@ -262,6 +267,7 @@ def _skills_lead(tools: Optional[Iterable[str]], basic_tools: str) -> str:
             "for tasks like code review, planning, and testing — load them even for tasks you "
             "already know how to do, because the skill defines how it should be done here.\n"
             + (_PATCH_SENTENCE if tools_set is not None and "skill_manage" in tools_set else "")
+            + (_HUB_SENTENCE if tools_set is not None and "hub_install" in tools_set else "")
         )
     return (
         _injected_load_sentence(basic_tools)

@@ -1,0 +1,442 @@
+"""Crusor Skills Hub: search -> install -> provenance -> uninstall.
+
+Pins the full pipeline end to end, with ZERO network (fetcher and ref
+resolver are injected fakes):
+
+  - source grammar: catalog name / owner/repo / @sha / :subdir / github URL
+  - the shipped catalog is valid (every entry pinned to a full 40-char SHA —
+    a branch or tag pin must never pass validation)
+  - keyword search over the catalog (all-tokens-match, category filter)
+  - install from the catalog AND from a direct owner/repo@sha source lands
+    the SKILL.md body in the user's store (pinned, provenance-footer,
+    frontmatter triggers), copies support files into the hub root, and
+    writes the provenance ledger
+  - fail-closed ref resolution: a symbolic ref that cannot resolve to an
+    exact SHA is refused — installs are SHA-anchored, period
+  - extraction safety: traversal members, symlink members, byte caps and
+    file-count caps are all rejected
+  - collision guard: a different existing source is never overwritten; the
+    SAME hub source upgrades cleanly
+  - uninstall removes store entry + folder + ledger, and refuses bundled /
+    non-hub skills
+  - the hub tools are bound in chat_graph's _TOOLS_BY_NAME and ride the
+    always-on skills waist in toolsets (a resolver-named tool the graph
+    cannot call is a phantom)
+  - branding hygiene: the new hub surface carries Crusor naming only
+"""
+import io
+import json
+import tarfile
+from pathlib import Path
+
+import pytest
+
+from src.agents.skill_manager import SkillManager
+from src.agents import skills_hub as hub
+
+_REPO = Path(__file__).resolve().parents[2]
+_SHA_A = "a" * 40
+_SHA_B = "b" * 40
+_SHA_C = "c" * 40
+
+SKILL_BODY = """# Frontend Design
+
+Make deliberate, opinionated choices about palette, typography, and layout.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Fakes
+# ---------------------------------------------------------------------------
+
+def _make_tar(entries: dict[str, bytes], links: list[tuple[str, str]] | None = None) -> bytes:
+    """Build an in-memory tarball: {path: content} plus optional symlinks."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for path, data in entries.items():
+            ti = tarfile.TarInfo(name=path)
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
+        for src, dst in links or []:
+            ti = tarfile.TarInfo(name=src)
+            ti.type = tarfile.SYMTYPE
+            ti.linkname = dst
+            tf.addfile(ti)
+    return buf.getvalue()
+
+
+def _skill_tar(
+    root: str = "repo-x",
+    sub: str = "skills/frontend-design",
+    sha: str = _SHA_A,
+    name: str = "frontend-design",
+    extra_files: dict[str, bytes] | None = None,
+) -> bytes:
+    entries = {
+        f"{root}/{sub}/SKILL.md": (
+            "---\n"
+            f"name: {name}\n"
+            "description: Distinctive visual design guidance for new UI.\n"
+            "keywords: [design, ui, frontend]\n"
+            "---\n\n" + SKILL_BODY
+        ).encode("utf-8"),
+        f"{root}/{sub}/references/palette.md": b"# Palette\n",
+    }
+    entries.update({f"{root}/{k}": v for k, v in (extra_files or {}).items()})
+    return _make_tar(entries)
+
+
+def _fake_fetcher(archives: dict[str, bytes]):
+    def fetch(url: str) -> bytes:
+        for key, blob in archives.items():
+            if key in url:
+                return blob
+        raise AssertionError(f"unexpected fetch: {url}")
+    return fetch
+
+
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    """Throwaway manager + hub root + catalog, wired into the module."""
+    manager = SkillManager(storage_path=str(tmp_path / "skills.json"))
+    hub_root = tmp_path / "hub"
+    monkeypatch.setattr("src.agents.skill_manager.skill_manager", manager)
+    catalog = {
+        "ok": True,
+        "entries": [
+            {
+                "name": "frontend-design",
+                "repo": "https://github.com/anthropics/skills",
+                "sha": _SHA_A,
+                "subdir": "skills/frontend-design",
+                "description": "Distinctive visual design guidance.",
+                "category": "ui-design",
+                "trust": "curated",
+            },
+        ],
+        "rejected": [],
+    }
+    return {
+        "manager": manager,
+        "hub_root": hub_root,
+        "catalog": catalog,
+        "archives": {
+            _SHA_A: _skill_tar(sha=_SHA_A),
+            _SHA_B: _skill_tar(sha=_SHA_B),
+            _SHA_C: _skill_tar(sha=_SHA_C),
+        },
+    }
+
+
+def _install(env, source: str, **kw) -> dict:
+    return hub.install_skill(
+        source,
+        catalog=env["catalog"],
+        manager=env["manager"],
+        hub_root=env["hub_root"],
+        fetcher=_fake_fetcher(env["archives"]),
+        **kw,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Source grammar
+# ---------------------------------------------------------------------------
+
+class TestParseSource:
+    def test_catalog_name(self):
+        out = hub.parse_source("Frontend-Design")
+        assert out["ok"] and out["kind"] == "catalog" and out["name"] == "frontend-design"
+
+    def test_owner_repo(self):
+        out = hub.parse_source("vercel-labs/agent-skills")
+        assert out["ok"] and out["kind"] == "repo" and out["ref"] == "" and out["subdir"] == ""
+
+    def test_owner_repo_sha_subdir(self):
+        out = hub.parse_source(f"owner/repo@{_SHA_A}:skills/x")
+        assert out["ok"] and out["ref"] == _SHA_A and out["subdir"] == "skills/x"
+
+    def test_github_url_with_tree(self):
+        out = hub.parse_source(f"https://github.com/owner/repo/tree/{_SHA_A}/skills/x")
+        assert out["ok"] and out["owner"] == "owner" and out["subdir"] == "skills/x"
+
+    def test_non_github_host_rejected(self):
+        assert not hub.parse_source("https://gitlab.com/owner/repo")["ok"]
+
+    def test_empty_rejected(self):
+        assert not hub.parse_source("   ")["ok"]
+
+
+# ---------------------------------------------------------------------------
+# Catalog
+# ---------------------------------------------------------------------------
+
+class TestCatalog:
+    def test_shipped_catalog_is_valid(self):
+        out = hub.load_catalog()
+        assert out["ok"], out.get("error")
+        assert len(out["entries"]) >= 8
+        assert out["rejected"] == []
+        for e in out["entries"]:
+            assert hub._SHA_RE.match(e["sha"]), f"{e['name']} pin is not a full SHA"
+            assert e["trust"] == "curated"
+            assert e["description"], f"{e['name']} has no description"
+
+    def test_bad_entries_dropped_with_reasons(self):
+        p = Path(_REPO) / "skills" / "catalog.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw["entries"] = [
+            {"name": "ok-skill", "repo": "https://github.com/o/r", "sha": _SHA_A,
+             "description": "d", "category": "c", "trust": "curated"},
+            {"name": "bad-sha", "repo": "https://github.com/o/r", "sha": "abc123",
+             "description": "d", "category": "c", "trust": "curated"},
+            {"name": "bad-repo", "repo": "https://example.com/o/r", "sha": _SHA_A,
+             "description": "d", "category": "c", "trust": "curated"},
+            {"name": "ok-skill", "repo": "https://github.com/o/r", "sha": _SHA_B,
+             "description": "dup", "category": "c", "trust": "curated"},
+        ]
+        tmp = Path(_REPO) / "skills" / ".hub-test-catalog.json"
+        tmp.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            out = hub.load_catalog(tmp)
+        finally:
+            tmp.unlink()
+        assert out["ok"]
+        assert [e["name"] for e in out["entries"]] == ["ok-skill"]
+        assert len(out["rejected"]) == 3
+
+    def test_search_all_tokens_and_category(self):
+        cat = hub.load_catalog()
+        res = hub.search_catalog(cat, "react performance")
+        assert any(e["name"] == "react-best-practices" for e in res["results"])
+        res = hub.search_catalog(cat, "", category="security")
+        names = [e["name"] for e in res["results"]]
+        assert "c-review" in names and "frontend-design" not in names
+        res = hub.search_catalog(cat, "zzzznomatch")
+        assert res["ok"] and res["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# Install
+# ---------------------------------------------------------------------------
+
+class TestInstall:
+    def test_install_from_catalog_end_to_end(self, env):
+        res = _install(env, "frontend-design")
+        assert res["ok"], res.get("error")
+        assert res["name"] == "frontend-design"
+        assert res["sha"] == _SHA_A and res["trust"] == "curated"
+
+        # folder materialized with support files
+        dest = Path(res["folder"])
+        assert (dest / "SKILL.md").is_file()
+        assert (dest / "references" / "palette.md").is_file()
+
+        # store entry: pinned, user-created, body + provenance footer
+        skill = next(s for s in env["manager"].list_skills() if s["name"] == "frontend-design")
+        assert skill["created_by"] == "user" and skill["pinned"] is True
+        assert SKILL_BODY.strip() in skill["instruction"]
+        assert f"github.com/anthropics/skills @ {_SHA_A[:12]}" in skill["instruction"]
+        assert skill["triggers"] == ["design", "ui", "frontend"]
+        assert skill["description"].startswith("Distinctive visual design")
+        assert skill["source"]["kind"] == "hub" and skill["source"]["sha"] == _SHA_A
+
+        # provenance ledger written
+        ledger = json.loads((env["hub_root"] / "provenance.json").read_text())
+        assert "frontend-design" in ledger["skills"]
+
+    def test_install_direct_repo_with_full_sha(self, env):
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert res["ok"], res.get("error")
+        assert res["repo"] == "owner/repo" and res["sha"] == _SHA_A
+
+    def test_symbolic_ref_fails_closed_without_resolver(self, env):
+        res = _install(env, "owner/repo@main")
+        assert not res["ok"]
+        assert "SHA" in res["error"]
+
+    def test_symbolic_ref_resolves_then_installs(self, env):
+        res = hub.install_skill(
+            "owner/repo@main",
+            catalog=env["catalog"],
+            manager=env["manager"],
+            hub_root=env["hub_root"],
+            fetcher=_fake_fetcher(env["archives"]),
+            ref_resolver=lambda o, r, ref: _SHA_B,
+        )
+        assert res["ok"] and res["sha"] == _SHA_B
+
+    def test_multi_skill_source_requires_pick(self, env):
+        env["archives"][_SHA_A] = _make_tar({
+            "r/skills/one/SKILL.md": b"---\nname: one\n---\n\nBody one.\n",
+            "r/skills/two/SKILL.md": b"---\nname: two\n---\n\nBody two.\n",
+        })
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert not res["ok"] and "multiple skills" in res["error"]
+        res = _install(env, f"owner/repo@{_SHA_A}", pick="two")
+        assert res["ok"] and res["name"] == "two"
+
+    def test_no_skill_md_rejected(self, env):
+        env["archives"][_SHA_A] = _make_tar({"r/readme.txt": b"not a skill"})
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert not res["ok"] and "no SKILL.md" in res["error"]
+
+    def test_upgrade_same_source_allowed(self, env):
+        first = _install(env, "frontend-design")
+        assert first["ok"] and first["upgraded"] is False
+        second = _install(env, "frontend-design")
+        assert second["ok"] and second["upgraded"] is True
+        skill = next(s for s in env["manager"].list_skills() if s["name"] == "frontend-design")
+        assert skill["source"]["sha"] == _SHA_A
+
+    def test_collision_with_foreign_source_refused(self, env):
+        env["manager"].add_skill(
+            "frontend-design", ["design"], "hand-written workflow", created_by="user"
+        )
+        res = _install(env, "frontend-design")
+        assert not res["ok"] and "already exists" in res["error"]
+        # the hand-written body is untouched
+        skill = next(s for s in env["manager"].list_skills() if s["name"] == "frontend-design")
+        assert skill["instruction"] == "hand-written workflow"
+
+    def test_subdir_escape_rejected(self, env):
+        res = _install(env, f"owner/repo@{_SHA_A}:../../etc")
+        assert not res["ok"]
+
+
+# ---------------------------------------------------------------------------
+# Extraction safety
+# ---------------------------------------------------------------------------
+
+class TestExtractionSafety:
+    def test_traversal_member_rejected(self, env):
+        env["archives"][_SHA_A] = _make_tar({"r/ok.txt": b"x", "../evil.txt": b"pwned"})
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert not res["ok"] and "unsafe member" in res["error"]
+
+    def test_escaping_symlink_rejected(self, env):
+        env["archives"][_SHA_A] = _make_tar(
+            {"r/skills/x/SKILL.md": SKILL_BODY.encode()},
+            links=[("r/link", "/etc/passwd")],
+        )
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert not res["ok"] and "symlink rejected" in res["error"]
+
+    def test_contained_symlink_materialized_as_copy(self, env):
+        env["archives"][_SHA_A] = _make_tar(
+            {
+                "r/skills/frontend-design/SKILL.md": (
+                    "---\nname: frontend-design\ndescription: d\n---\n\n" + SKILL_BODY
+                ).encode(),
+                "r/skills/frontend-design/README.md": b"# read me",
+            },
+            links=[("r/skills/frontend-design/CLAUDE.md", "README.md")],
+        )
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert res["ok"], res.get("error")
+        link_copy = Path(res["folder"]) / "CLAUDE.md"
+        assert link_copy.is_file() and link_copy.read_bytes() == b"# read me"
+
+    def test_byte_cap_enforced(self, env, monkeypatch):
+        monkeypatch.setattr(hub, "_MAX_ARCHIVE_BYTES", 10)
+        res = _install(env, "frontend-design")
+        assert not res["ok"] and "cap" in res["error"]
+
+    def test_file_count_cap_enforced(self, env, monkeypatch):
+        monkeypatch.setattr(hub, "_MAX_SKILL_FILES", 1)
+        res = _install(env, "frontend-design")  # SKILL.md + references/palette.md
+        assert not res["ok"] and "cap" in res["error"]
+
+    def test_corrupt_tarball_rejected(self, env):
+        env["archives"][_SHA_A] = b"this is not a tarball"
+        res = _install(env, f"owner/repo@{_SHA_A}")
+        assert not res["ok"] and "tarball" in res["error"]
+
+
+# ---------------------------------------------------------------------------
+# Uninstall + list
+# ---------------------------------------------------------------------------
+
+class TestUninstallAndList:
+    def test_uninstall_removes_store_folder_and_ledger(self, env):
+        _install(env, "frontend-design")
+        res = hub.uninstall_skill(
+            "frontend-design", manager=env["manager"], hub_root=env["hub_root"]
+        )
+        assert res["ok"], res.get("error")
+        assert env["manager"].list_skills() == [] or all(
+            s["name"] != "frontend-design" for s in env["manager"].list_skills()
+        )
+        assert not (env["hub_root"] / "skills" / "frontend-design").exists()
+        ledger = json.loads((env["hub_root"] / "provenance.json").read_text())
+        assert "frontend-design" not in ledger["skills"]
+
+    def test_uninstall_refuses_bundled(self, env):
+        env["manager"]._load_bundled_skills()
+        res = hub.uninstall_skill(
+            "media-sourcing", manager=env["manager"], hub_root=env["hub_root"]
+        )
+        assert not res["ok"] and "bundled" in res["error"]
+
+    def test_uninstall_refuses_non_hub_user_skill(self, env):
+        env["manager"].add_skill("my-own", ["x"], "body", created_by="user")
+        res = hub.uninstall_skill("my-own", manager=env["manager"], hub_root=env["hub_root"])
+        assert not res["ok"] and "not installed via the hub" in res["error"]
+
+    def test_list_reports_update_available(self, env):
+        _install(env, "frontend-design")  # pinned at _SHA_A
+        env["catalog"]["entries"][0]["sha"] = _SHA_B  # catalog moved on
+        out = hub.list_hub(manager=env["manager"], hub_root=env["hub_root"])
+        rows = out["installed"]
+        assert len(rows) == 1
+        assert rows[0]["update_available"] is True
+        assert rows[0]["trust"] == "curated"
+
+
+# ---------------------------------------------------------------------------
+# Binding + branding hygiene
+# ---------------------------------------------------------------------------
+
+class TestBindingAndHygiene:
+    def test_hub_tools_bound_in_graph_and_toolsets(self):
+        from src.graphs.chat_graph import _TOOLS_BY_NAME
+        from src.tools.toolsets import all_known_tool_names, resolve_toolset_names
+        from src.tools.skill_hub_tools import HUB_TOOLS
+
+        names = {"hub_search", "hub_install", "hub_list", "hub_remove"}
+        assert names <= set(_TOOLS_BY_NAME), "hub tools must be callable by the graph"
+        assert names <= set(all_known_tool_names())
+        bound = set(resolve_toolset_names("coding"))
+        assert names <= bound, "hub tools must ride the always-on skills waist"
+        assert {t.name for t in HUB_TOOLS} == names
+
+    def test_no_vendor_branding_in_new_surface(self):
+        """The hub is Crusor surface: no third-party agent vendor names in
+        code or catalog metadata (source repo URLs are pointers, not branding,
+        and are allowed to name their own owners)."""
+        forbidden = ("hermes", "cursor", "nousresearch")
+        files = [
+            _REPO / "src" / "agents" / "skills_hub.py",
+            _REPO / "src" / "tools" / "skill_hub_tools.py",
+        ]
+        for f in files:
+            text = f.read_text(encoding="utf-8").lower()
+            for word in forbidden:
+                assert word not in text, f"vendor name {word!r} found in {f.name}"
+        cat = json.loads((_REPO / "skills" / "catalog.json").read_text(encoding="utf-8"))
+        for entry in cat["entries"]:
+            blob = json.dumps(entry).lower()
+            for word in forbidden:
+                assert word not in blob, f"vendor name {word!r} in catalog entry {entry['name']}"
+
+    def test_add_skill_source_roundtrip(self, tmp_path):
+        manager = SkillManager(storage_path=str(tmp_path / "skills.json"))
+        manager.add_skill("s1", ["t"], "body", source={"kind": "hub", "sha": _SHA_A})
+        reloaded = SkillManager(storage_path=str(tmp_path / "skills.json"))
+        skill = next(s for s in reloaded.list_skills() if s["name"] == "s1")
+        assert skill["source"]["sha"] == _SHA_A
+
+        # legacy call shape (no source) still works and never fabricates one
+        manager.add_skill("s2", ["t"], "body")
+        skill2 = next(s for s in manager.list_skills() if s["name"] == "s2")
+        assert "source" not in skill2
