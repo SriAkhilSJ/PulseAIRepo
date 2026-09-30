@@ -181,6 +181,7 @@ class SkillManager:
         shape. Returns the skill dict (mutated) with defaults filled."""
         skill.setdefault("enabled", True)
         skill.setdefault("created_by", "user")
+        skill.setdefault("description", "")
         skill.setdefault("pinned", False)
         skill.setdefault("state", "active")
         skill.setdefault("use_count", 0)
@@ -254,6 +255,7 @@ class SkillManager:
                 instruction = body.strip()[:_BUNDLED_INSTRUCTION_CAP]
                 self._skills.append(self._ensure_metadata({
                     "name": entry,
+                    "description": str(frontmatter.get("description", "") or "").strip(),
                     "triggers": triggers,
                     "instruction": instruction,
                     "enabled": True,
@@ -287,21 +289,27 @@ class SkillManager:
         *,
         created_by: str = "user",
         pinned: bool = False,
+        description: str = "",
     ) -> None:
         """
         Add a new skill (or update an existing one by name).
         Args:
-            name: Skill name (e.g., "Type Hint Rule")
+            name: Skill name (e.g. "Type Hint Rule")
             triggers: Keywords that activate this skill (e.g., ["python", "function"])
             instruction: The prompt text injected when triggered
             created_by: "user" (foreground user-facing path) or "agent"
                 (self-curation). Curator transitions only touch "agent".
             pinned: True exempts the skill from every auto-transition.
+            description: One-line discovery summary for the skills index
+                (Agent Skills frontmatter parity — name + description is what
+                the model sees before it pulls the body).
         """
         existing = next((s for s in self._skills if s["name"] == name), None)
         if existing:
             existing["triggers"] = [t.lower() for t in triggers]
             existing["instruction"] = instruction
+            if description:
+                existing["description"] = description
             existing["enabled"] = True
             existing["pinned"] = existing.get("pinned", False) or pinned
             existing["state"] = "active"  # editing reactivates a stale/archived skill
@@ -312,6 +320,7 @@ class SkillManager:
             return
         self._skills.append(self._ensure_metadata({
             "name": name,
+            "description": description,
             "triggers": [t.lower() for t in triggers],
             "instruction": instruction,
             "enabled": True,

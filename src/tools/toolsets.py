@@ -48,6 +48,9 @@ _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
 )
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
+# Skills are always in context (index + eager injection), so the pull tools
+# that load a skill body on demand are always bound — Agent Skills parity.
+_SKILL_TOOLS: tuple[str, ...] = ("skills_list", "skill_view")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",
 )
@@ -72,6 +75,7 @@ def _browser_tool_names() -> tuple[str, ...]:
 def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> list[str]:
     """Map one immutable profile to ordered, de-duplicated real tool names."""
     names: list[str] = list(_CORE_TOOLS)
+    names.extend(_SKILL_TOOLS)
     caps = set(profile.capabilities)
 
     if CAP_WORKSPACE_READ in caps:
@@ -114,6 +118,7 @@ def all_known_tool_names() -> list[str]:
     """Every name this resolver can return, in canonical group order."""
     names = [
         *_CORE_TOOLS,
+        *_SKILL_TOOLS,
         *_WORKSPACE_READ_TOOLS,
         *_WORKSPACE_WRITE_TOOLS,
         *_EXECUTION_TOOLS,

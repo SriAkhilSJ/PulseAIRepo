@@ -30,6 +30,7 @@ media_search(query="perfume spray slow motion", media_type="video")
 
 - `media_type`: `"image"`, `"video"`, or `"all"`. Images are the reliable path; videos come from Wikimedia Commons (.webm/.ogv play in `<video>`) and Pexels (mp4) when `PEXELS_API_KEY` is set.
 - Iterate the query, don't give up: "perfume bottle" → "fragrance bottle" → "perfume product photography". Search like a stock-site searcher: noun + style, no brand names (brands rarely license).
+- **Video budget: max 3 video search+download attempts per task.** Wikimedia's CDN rate-limits this IP (HTTP 429) and new queries don't fix that — after 3 failed attempts, stop, fall back to an image or a CSS treatment, and tell the user the video was blocked. Looping burns turns without new information.
 - Each result line carries: direct URL, dimensions, license, source page.
 
 ### 2. Download into the workspace (never hotlink)
@@ -39,6 +40,7 @@ media_download(url="<direct URL from results>", filename="assets/perfume-hero.jp
 ```
 
 - Validates content-type, caps at 15MB images / 60MB video, sniffs the real type when the server lies.
+- On HTTP 429 the tool already waits and retries ONCE; if it still fails, try at most 2 other result URLs (≤3 video attempts total), then stop — do not hammer the same host or switch to curl.
 - Path must be workspace-relative (`assets/...`, `public/images/...`) — absolute paths and `..` are rejected.
 - Pick dimensions that fit: a 300x300 thumbnail stretched to a hero banner looks broken. Prefer ≥1200px wide for heroes.
 
@@ -67,6 +69,7 @@ media_download(url="<direct URL from results>", filename="assets/perfume-hero.jp
 | 0 results | Broaden query; try `media_type="all"`; drop brand words |
 | All sources error (network) | Tell the user plainly — do NOT invent image URLs from memory (hallucinated URLs 404) |
 | Download says "not media" | You passed a page URL, not the direct file URL from the result line |
+| Download says "rate-limited (HTTP 429)" | Wikimedia's CDN throttling this IP (the tool already retried once). Try ≤2 other result URLs, then give up on video: image or CSS fallback, and tell the user |
 | No fitting photo exists | Generate a tasteful CSS gradient/placeholder block and SAY so — honest fallback beats a broken `<img>` |
 | `media_search` unavailable | Check `CRUSORAI_WEB_TOOLS` env (off = disabled) or run_terminal + curl as last resort |
 

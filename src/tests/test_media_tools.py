@@ -7,7 +7,8 @@ product photo" gap:
     raises (D17: error strings go back to the model).
   - media_download validates scheme/content-type/size, confines to
     workspace-relative paths, sniffs the real type when the server lies,
-    and removes partial files on abort.
+    removes partial files on abort, and retries ONCE on HTTP 429 before
+    failing fast with a "do not loop" message.
   - the tools are bound into the research toolset.
 All network is mocked — no live HTTP in the suite.
 """
@@ -227,6 +228,7 @@ def test_download_size_cap_from_content_length(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     class FakeStream:
+        status_code = 200
         headers = {"content-type": "video/mp4", "content-length": str(100 * 1024 * 1024)}
         def __enter__(self):
             return self
@@ -247,6 +249,8 @@ def test_download_size_cap_from_content_length(tmp_path, monkeypatch):
 
 
 class _FakeStreamOk:
+    status_code = 200
+
     def __init__(self, chunks, headers):
         self._chunks = chunks
         self.headers = headers
@@ -303,6 +307,62 @@ def test_download_empty_body_cleans_up(tmp_path, monkeypatch):
     out = media_download.invoke({"url": "https://x/empty.png", "filename": "assets/e.png"})
     assert "empty response" in out
     assert not (tmp_path / "assets" / "e.png").exists()
+
+
+# ---------------------------------------------------------------------------
+# media_download — HTTP 429 rate-limit: one bounded retry, then fail fast
+# ---------------------------------------------------------------------------
+
+class _FakeStream429:
+    status_code = 429
+    headers = {"retry-after": "3"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def raise_for_status(self):  # never reached: status is checked first
+        return None
+
+
+def test_download_429_retries_once_then_succeeds(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    slept: list[float] = []
+    monkeypatch.setattr("src.tools.media_tools._pause", slept.append)
+    calls = {"n": 0}
+
+    def stream(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _FakeStream429()
+        return _FakeStreamOk([b"\xff\xd8\xff" + b"0" * 100], {"content-type": "image/jpeg"})
+
+    monkeypatch.setattr("src.tools.media_tools.httpx.stream", stream)
+    out = media_download.invoke({"url": "https://x/a.jpg", "filename": "assets/a.jpg"})
+    assert "saved: assets/a.jpg" in out  # second attempt wins
+    assert calls["n"] == 2
+    assert slept == [3.0]  # Retry-After honored
+
+
+def test_download_429_twice_gives_up_with_actionable_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    slept: list[float] = []
+    monkeypatch.setattr("src.tools.media_tools._pause", slept.append)
+    calls = {"n": 0}
+
+    def stream(*a, **k):
+        calls["n"] += 1
+        return _FakeStream429()
+
+    monkeypatch.setattr("src.tools.media_tools.httpx.stream", stream)
+    out = media_download.invoke({"url": "https://x/loop.webm", "filename": "assets/loop.webm"})
+    assert "rate-limited" in out and "429" in out
+    assert "do not loop" in out.lower()  # tells the model to stop hammering
+    assert calls["n"] == 2  # exactly one retry, no runaway
+    assert slept == [3.0]
+    assert not (tmp_path / "assets").exists()
 
 
 # ---------------------------------------------------------------------------

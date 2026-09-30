@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
@@ -31,6 +32,24 @@ _MAX_IMAGE_BYTES = 15 * 1024 * 1024
 _MAX_VIDEO_BYTES = 60 * 1024 * 1024
 _CHUNK = 64 * 1024
 _TIMEOUT = 15
+# Rate-limit backoff: CDNs (Wikimedia) throttle shared IPs with HTTP 429.
+# One bounded retry — proven to succeed in practice — then fail fast with an
+# actionable message so the model does not loop on the same host.
+_429_DEFAULT_DELAY = 5.0
+_429_MAX_DELAY = 15.0
+
+
+def _pause(seconds: float) -> None:
+    """Indirection over time.sleep so tests can stub the wait."""
+    time.sleep(seconds)
+
+
+def _retry_after_delay(headers) -> float:
+    """Seconds to wait before the single 429 retry (honors Retry-After)."""
+    raw = (headers.get("retry-after") or "").strip()
+    if raw.isdigit():
+        return float(min(int(raw), _429_MAX_DELAY))
+    return _429_DEFAULT_DELAY
 
 
 def _openverse_images(query: str, limit: int) -> list[dict]:
@@ -280,7 +299,8 @@ def media_download(url: str, filename: str) -> str:
     Download a web image or video into the workspace so HTML/CSS can
     reference it as a local asset. Validates content-type (image/* or
     video/*), enforces size caps (15MB images, 60MB videos), and only
-    writes workspace-relative paths.
+    writes workspace-relative paths. Retries once with a short backoff
+    when the host rate-limits (HTTP 429).
 
     Args:
         url: direct media URL (from media_search results).
@@ -290,51 +310,73 @@ def media_download(url: str, filename: str) -> str:
     if parsed.scheme not in {"http", "https"}:
         return f"media_download error: only http/https URLs are supported: {url!r}"
 
-    try:
-        with httpx.stream(
-            "GET", url,
-            headers={"User-Agent": _USER_AGENT},
-            timeout=60,
-            follow_redirects=True,
-        ) as response:
-            response.raise_for_status()
-            content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
-            if not (content_type.startswith("image/") or content_type.startswith("video/")):
-                return (
-                    f"media_download error: URL is not media (content-type {content_type!r}). "
-                    "Use the direct file URL from media_search results, not a page URL."
-                )
-            cap = _MAX_VIDEO_BYTES if content_type.startswith("video/") else _MAX_IMAGE_BYTES
-            declared = response.headers.get("content-length")
-            if declared and declared.isdigit() and int(declared) > cap:
-                mb = cap // (1024 * 1024)
-                return f"media_download error: file too large ({int(declared)} bytes; cap {mb}MB for {content_type})"
-
-            path, err = _sanitize_dest(filename, content_type)
-            if err:
-                return f"media_download error: {err}"
-            if path.suffix == ".bin":
-                return (
-                    "media_download error: unsupported media content-type "
-                    f"{content_type!r} — pick a jpg/png/webp/gif/svg/mp4/webm source"
-                )
-
-            path.parent.mkdir(parents=True, exist_ok=True)
-            written = 0
-            first = b""
-            with open(path, "wb") as fh:
-                for chunk in response.iter_bytes(_CHUNK):
-                    if not first:
-                        first = chunk[:16]
-                    written += len(chunk)
-                    if written > cap:
-                        fh.close()
-                        path.unlink(missing_ok=True)
+    for attempt in (1, 2):
+        rate_limited = False
+        delay = 0.0
+        try:
+            with httpx.stream(
+                "GET", url,
+                headers={"User-Agent": _USER_AGENT},
+                timeout=60,
+                follow_redirects=True,
+            ) as response:
+                if response.status_code == 429:
+                    rate_limited = True
+                    delay = _retry_after_delay(response.headers)
+                else:
+                    response.raise_for_status()
+                    content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+                    if not (content_type.startswith("image/") or content_type.startswith("video/")):
+                        return (
+                            f"media_download error: URL is not media (content-type {content_type!r}). "
+                            "Use the direct file URL from media_search results, not a page URL."
+                        )
+                    cap = _MAX_VIDEO_BYTES if content_type.startswith("video/") else _MAX_IMAGE_BYTES
+                    declared = response.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > cap:
                         mb = cap // (1024 * 1024)
-                        return f"media_download error: stream exceeded {mb}MB cap — aborted, partial file removed"
-                    fh.write(chunk)
-    except Exception as error:
-        return f"media_download error for {url!r}: {error}"
+                        return f"media_download error: file too large ({int(declared)} bytes; cap {mb}MB for {content_type})"
+
+                    path, err = _sanitize_dest(filename, content_type)
+                    if err:
+                        return f"media_download error: {err}"
+                    if path.suffix == ".bin":
+                        return (
+                            "media_download error: unsupported media content-type "
+                            f"{content_type!r} — pick a jpg/png/webp/gif/svg/mp4/webm source"
+                        )
+
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    written = 0
+                    first = b""
+                    with open(path, "wb") as fh:
+                        for chunk in response.iter_bytes(_CHUNK):
+                            if not first:
+                                first = chunk[:16]
+                            written += len(chunk)
+                            if written > cap:
+                                fh.close()
+                                path.unlink(missing_ok=True)
+                                mb = cap // (1024 * 1024)
+                                return f"media_download error: stream exceeded {mb}MB cap — aborted, partial file removed"
+                            fh.write(chunk)
+        except Exception as error:
+            return f"media_download error for {url!r}: {error}"
+        if rate_limited:
+            if attempt == 1:
+                # One bounded backoff retry (connection closed before sleeping).
+                _pause(delay)
+                continue
+            break
+        break  # download completed
+
+    if rate_limited:
+        return (
+            "media_download error: source rate-limited (HTTP 429) after one retry — "
+            "the host is throttling this IP. Wait ~30s, retry ONCE with a DIFFERENT "
+            "URL from the search results (do not loop on this host), or fall back "
+            "to an image/CSS placeholder and tell the user video was blocked."
+        )
 
     if written == 0:
         path.unlink(missing_ok=True)
