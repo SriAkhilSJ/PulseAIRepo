@@ -11,6 +11,14 @@ skill anyway — including user-created skills that never match a trigger.
 ``skills_list`` is the same index as a tool (the read target file_safety's
 ".hub blocked" error points at).
 
+``skill_manage`` is the WRITE half — hermes' learning loop: the model records
+a non-trivial workflow it worked out (SKILLS_GUIDANCE's "record it with
+skill_manage") as an agent-created skill. Creates/updates go to the user
+store via SkillManager.add_skill (D39 provenance: created_by="agent", so the
+curator lifecycle governs them); bundled repo skills are read-only. Until
+this tool existed, the shipped guidance named a tool that was never bound
+(hermes #39797 class: dangling guidance).
+
 Both follow the hermes tool shape (D17): errors are returned as strings,
 never raised.
 """
@@ -156,4 +164,117 @@ def skills_list() -> str:
     )
 
 
-SKILL_TOOLS = (skills_list, skill_view)
+@tool
+def skill_manage(
+    action: str,
+    name: str = "",
+    triggers: str = "",
+    instruction: str = "",
+    description: str = "",
+) -> str:
+    """Record or update a skill — the WRITE side of the learning loop.
+
+    When you work out a non-trivial workflow that future sessions should
+    reuse, capture it here instead of re-deriving it every time. Creates and
+    updates land in the user's skill store (~/.crusorai/skills.json) as
+    agent-created skills; the D39 curator may archive unused ones (never
+    deletes). Bundled repo skills (skills/<name>/SKILL.md) ship with the
+    engine and are read-only here — ask the user to edit those files.
+
+    Args:
+        action: "create" (new skill), "patch" (update an existing one), or
+            "archive" (retire a skill you created; nothing is deleted).
+        name: lowercase-hyphenated skill name, <= 64 chars, e.g.
+            "deploy-checklist".
+        triggers: comma-separated words/phrases a matching USER TASK would
+            literally contain, e.g. "deploy, release, ship checklist".
+            Distinctive beats generic: "unit test", not "test".
+        instruction: the skill body — the workflow itself: when to use it,
+            exact steps framed through Crusor tools (run_terminal, edit_file,
+            media_search, ...), pitfalls, and how to verify the result.
+        description: one-line discovery summary for the skills index (<= 60
+            chars, ends with a period, states the capability).
+    """
+    action = (action or "").strip().lower()
+    name = (name or "").strip()
+    manager = _manager()
+
+    if action == "archive":
+        skill = _find(name)
+        if skill is None:
+            return f"skill_manage error: no skill named {name!r} (skills_list to see what exists)"
+        if skill.get("created_by") == "bundled":
+            return (
+                f"skill_manage error: {skill['name']} is a bundled repo skill — "
+                "bundled skills are read-only; ask the user to edit skills/"
+                f"{skill['name']}/SKILL.md in the engine repo"
+            )
+        skill["state"] = "archived"
+        manager._save()
+        return f"archived: {skill['name']} (archived skills stay on disk, never deleted; re-create or patch to reactivate)"
+
+    if action not in ("create", "patch"):
+        return f"skill_manage error: action must be create|patch|archive, got {action!r}"
+
+    if not name:
+        return "skill_manage error: name is required (lowercase-hyphenated, <= 64 chars)"
+    if len(name) > 64 or any(c.isspace() for c in name):
+        return (
+            f"skill_manage error: name must be lowercase-hyphenated and <= 64 chars "
+            f"(no spaces), got {name!r}"
+        )
+
+    existing = _find(name)
+    if action == "create" and existing is not None:
+        # hermes parity: create on an existing name is an update, surfaced as such
+        action = "patch"
+
+    if action == "patch" and existing is not None and existing.get("created_by") == "bundled":
+        return (
+            f"skill_manage error: {existing['name']} is a bundled repo skill — "
+            "bundled skills are read-only; ask the user to edit skills/"
+            f"{existing['name']}/SKILL.md in the engine repo"
+        )
+
+    trigger_list = [t.strip().lower() for t in (triggers or "").replace(",", " ").split() if t.strip()]
+    if not trigger_list and action == "patch" and existing is not None:
+        trigger_list = [str(t) for t in (existing.get("triggers") or [])]
+    if not trigger_list:
+        return (
+            "skill_manage error: triggers is required — comma-separated words/phrases "
+            "a matching user task would literally contain (e.g. 'deploy, release checklist')"
+        )
+
+    body = (instruction or "").strip()
+    if action == "patch" and existing is not None and not body:
+        body = str(existing.get("instruction", ""))
+    if not body:
+        return (
+            "skill_manage error: instruction is required — the actual workflow "
+            "(when to use, exact steps with Crusor tool names, pitfalls, verification)"
+        )
+
+    desc = (description or "").strip()
+    note = ""
+    if desc and len(desc) > 60:
+        # hermes HARDLINE: the index displays the description; long ones
+        # still work here (no silent cut) but route worse — say so.
+        note = f"\n(note: description is {len(desc)} chars — over the 60-char house style; it will still be indexed in full)"
+
+    manager.add_skill(
+        name,
+        trigger_list,
+        body,
+        created_by="agent",
+        pinned=False,
+        description=desc or (str(existing.get("description")) if existing is not None else ""),
+    )
+    verb = "created" if action == "create" else "updated"
+    return (
+        f"{verb}: {name} (triggers: {', '.join(trigger_list)}). "
+        f"It now appears in the skills index; future sessions matching those triggers "
+        f"will be pointed at it.{note}"
+    )
+
+
+SKILL_TOOLS = (skills_list, skill_view, skill_manage)

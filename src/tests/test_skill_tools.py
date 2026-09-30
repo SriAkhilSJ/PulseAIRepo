@@ -169,3 +169,105 @@ def test_eager_injection_still_fires_for_matched_tasks(sm):
     # a non-matching task pulls nothing in eagerly — skill_view is the way in
     quiet = sm.get_skills_text("summarize this log file for me")
     assert "**media-sourcing:**" not in quiet
+
+
+# ---------------------------------------------------------------------------
+# skill_manage: the WRITE half of the learning loop (hermes parity)
+# ---------------------------------------------------------------------------
+
+from src.tools.skill_tools import skill_manage  # noqa: E402
+
+
+def test_skill_manage_create_records_agent_skill(sm):
+    out = skill_manage.invoke({
+        "action": "create",
+        "name": "deploy-checklist",
+        "triggers": "deploy, release checklist, ship",
+        "instruction": "1. run_terminal('pytest -q')\n2. typecheck before pushing.",
+        "description": "Pre-deploy verification checklist.",
+    })
+    assert out.startswith("created: deploy-checklist")
+    skill = {s["name"]: s for s in sm.list_skills()}["deploy-checklist"]
+    assert skill["created_by"] == "agent"  # D39: curator governs it
+    assert skill["description"] == "Pre-deploy verification checklist."
+    assert "deploy" in skill["triggers"]
+
+
+def test_skill_manage_create_on_existing_name_updates(sm):
+    skill_manage.invoke({
+        "action": "create", "name": "loop-a", "triggers": "t-one",
+        "instruction": "v1",
+    })
+    out = skill_manage.invoke({
+        "action": "create", "name": "loop-a", "triggers": "t-one, t-two",
+        "instruction": "v2",
+    })
+    assert out.startswith("updated: loop-a")
+    skill = {s["name"]: s for s in sm.list_skills()}["loop-a"]
+    assert skill["instruction"] == "v2"
+    assert "t-two" in skill["triggers"]
+
+
+def test_skill_manage_validation_never_raises(sm):
+    assert "action must be" in skill_manage.invoke({"action": "explode", "name": "x"})
+    assert "name is required" in skill_manage.invoke({"action": "create"})
+    assert "name must be" in skill_manage.invoke({
+        "action": "create", "name": "Has Spaces", "triggers": "t", "instruction": "b",
+    })
+    assert "triggers is required" in skill_manage.invoke({
+        "action": "create", "name": "ok-name", "instruction": "body",
+    })
+    assert "instruction is required" in skill_manage.invoke({
+        "action": "create", "name": "ok-name", "triggers": "t",
+    })
+
+
+def test_skill_manage_bundled_skills_are_read_only(sm):
+    out = skill_manage.invoke({
+        "action": "patch", "name": "media-sourcing", "triggers": "t", "instruction": "x",
+    })
+    assert "bundled repo skill" in out and "read-only" in out
+    out = skill_manage.invoke({"action": "archive", "name": "media-sourcing"})
+    assert "read-only" in out
+    skill = {s["name"]: s for s in sm.list_skills()}["media-sourcing"]
+    assert skill["state"] == "active"  # untouched
+
+
+def test_skill_manage_patch_defaults_and_archive_lifecycle(sm):
+    skill_manage.invoke({
+        "action": "create", "name": "keep-a", "triggers": "t-one",
+        "instruction": "v1", "description": "First.",
+    })
+    # patch with only instruction: triggers + description carry over
+    out = skill_manage.invoke({
+        "action": "patch", "name": "keep-a", "instruction": "v2 richer",
+    })
+    assert out.startswith("updated: keep-a")
+    skill = {s["name"]: s for s in sm.list_skills()}["keep-a"]
+    assert skill["instruction"] == "v2 richer"
+    assert "t-one" in skill["triggers"] and skill["description"] == "First."
+
+    out = skill_manage.invoke({"action": "archive", "name": "keep-a"})
+    assert out.startswith("archived: keep-a")
+    skill = {s["name"]: s for s in sm.list_skills()}["keep-a"]
+    assert skill["state"] == "archived"  # never deleted (D39)
+
+
+def test_skill_manage_long_description_warns_but_still_stores(sm):
+    out = skill_manage.invoke({
+        "action": "create", "name": "wordy-skill", "triggers": "t-one",
+        "instruction": "body",
+        "description": "x" * 80,
+    })
+    assert "created: wordy-skill" in out
+    assert "60-char" in out  # the note
+    skill = {s["name"]: s for s in sm.list_skills()}["wordy-skill"]
+    assert skill["description"] == "x" * 80  # stored in full
+
+
+def test_skill_manage_waist_and_graph_binding():
+    resolved = set(resolve_toolset_names("hello"))
+    assert {"skill_manage"} <= resolved
+    assert "skill_manage" in set(all_known_tool_names())
+    from src.graphs.chat_graph import _TOOLS_BY_NAME
+    assert "skill_manage" in _TOOLS_BY_NAME
