@@ -11,6 +11,8 @@ metadata:
     related_skills: [subagent-driven-development, test-driven-development, github]
 ---
 
+**Triggers:** code review, review, pre-commit, security scan, quality gate, self-review, review my changes, review the code
+
 # Pre-Commit Code Verification
 
 Automated verification pipeline before code lands. Static scans, baseline-aware

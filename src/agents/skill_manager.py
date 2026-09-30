@@ -25,12 +25,116 @@ byte-stable index (the hermes skills-index manifest idea).
 """
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any
 
 _DEFAULT_STALE_AFTER_DAYS = 30
 _DEFAULT_ARCHIVE_AFTER_DAYS = 90
+# hermes injects full skill bodies; bundled Crusor skills are authored to fit
+# comfortably under this cap while keeping real workflow (not just a summary).
+_BUNDLED_INSTRUCTION_CAP = 6000
+
+
+def _parse_skill_frontmatter(text: str) -> tuple[dict, str]:
+    """Split a SKILL.md into (frontmatter_dict, body).
+
+    Dependency-free targeted parser for the simple hermes frontmatter shape:
+    `name`, `version`, `description`, inline lists (`key: [a, b]`), block
+    lists (`key:` followed by `- item` lines) and the nested
+    `metadata.hermes.*` block. Anything it can't parse is skipped silently —
+    a malformed skill must never block boot (D17 fail-open).
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text.strip()
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return {}, text.strip()
+    fm: dict = {}
+    stack: list[tuple[int, str]] = []  # open container keys: (indent, key)
+
+    def _dict_bucket() -> dict:
+        """Walk the open stack creating dicts; convert seeded lists."""
+        node = fm
+        for _indent, key in stack:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                # `key:` seeded as a block list; a deeper key proves it is
+                # actually a mapping (e.g. metadata: > hermes: > tags:)
+                child = {}
+                node[key] = child
+            node = child
+        return node
+
+    for raw in lines[1:end]:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        m = re.match(r"^([A-Za-z0-9_-]+)\s*:\s*(.*)$", stripped)
+        if m and not stripped.startswith("- "):
+            key, val = m.group(1).lower(), m.group(2).strip()
+            while stack and indent <= stack[-1][0]:
+                stack.pop()
+            if not val:
+                # could become a block list (- items) or a nested mapping —
+                # seed a list; _dict_bucket converts on demand
+                _dict_bucket()[key] = []
+                stack.append((indent, key))
+                continue
+            if val.startswith("[") and val.endswith("]"):
+                value: Any = [v.strip().strip("'\"") for v in val[1:-1].split(",") if v.strip()]
+            else:
+                value = val.strip("'\"")
+            _dict_bucket()[key] = value
+        elif stripped.startswith("- ") and stack:
+            item = stripped[2:].strip().strip("'\"")
+            node = fm
+            for _indent, key in stack[:-1]:
+                child = node.get(key)
+                if not isinstance(child, dict):
+                    break
+                node = child
+            target = node.get(stack[-1][1])
+            if isinstance(target, list):
+                target.append(item)
+    return fm, "\n".join(lines[end + 1:]).strip()
+
+
+def _frontmatter_triggers(frontmatter: dict) -> list[str]:
+    """Derive skill triggers from frontmatter `keywords` / `triggers` keys.
+
+    Tags are deliberately excluded: they are taxonomy (hermes uses them for
+    catalog search), and generic words like "quality" or "development" match
+    far too loosely as substrings. Deduped, order-stable, lowercased.
+    """
+    collected: list[str] = []
+
+    def _scan(node: Any) -> None:
+        if isinstance(node, str):
+            for t in node.replace(",", " ").split():
+                collected.append(t.lower())
+        elif isinstance(node, list):
+            for item in node:
+                _scan(item)
+
+    for key in ("keywords", "triggers"):
+        val = frontmatter.get(key)
+        if val:
+            _scan(val if isinstance(val, list) else [val])
+    seen: set[str] = set()
+    triggers: list[str] = []
+    for t in collected:
+        if t and t not in seen:
+            seen.add(t)
+            triggers.append(t)
+    return triggers
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -77,6 +181,7 @@ class SkillManager:
         shape. Returns the skill dict (mutated) with defaults filled."""
         skill.setdefault("enabled", True)
         skill.setdefault("created_by", "user")
+        skill.setdefault("description", "")
         skill.setdefault("pinned", False)
         skill.setdefault("state", "active")
         skill.setdefault("use_count", 0)
@@ -98,15 +203,23 @@ class SkillManager:
         except Exception:
             self._skills = []
 
-    def _load_bundled_skills(self) -> None:
+    def _load_bundled_skills(self, skills_dir: str | None = None) -> None:
         """Load enterprise SKILL.md from PulseAIRepo/skills/*/SKILL.md (hermes parity).
 
-        Each SKILL.md with `**Triggers:**` line becomes a pinned, enabled skill.
-        Bundled skills are `created_by=bundled` and never auto-archived.
+        Each SKILL.md becomes a pinned, enabled skill (`created_by=bundled`,
+        never auto-archived). Trigger derivation, in priority order (hermes
+        prompt_builder parity):
+          1. an explicit `**Triggers:**` line in the body
+          2. frontmatter `keywords:` / `triggers:` (tags are taxonomy only)
+          3. fallback: the folder name
+
+        The injected instruction is the skill BODY (frontmatter stripped) —
+        injecting raw YAML was wasting the budget on keys the model can't use.
         """
         try:
             repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            skills_dir = os.path.join(repo_root, "skills")
+            if skills_dir is None:
+                skills_dir = os.path.join(repo_root, "skills")
             if not os.path.isdir(skills_dir):
                 return
             for entry in os.listdir(skills_dir):
@@ -114,22 +227,35 @@ class SkillManager:
                 if not os.path.isfile(md):
                     continue
                 text = open(md, encoding="utf-8").read()
-                # Parse Triggers line
+                frontmatter, body = _parse_skill_frontmatter(text)
+                # 1) explicit **Triggers:** line
                 triggers: list[str] = []
-                for line in text.splitlines():
+                for line in body.splitlines():
                     if line.strip().lower().startswith("**triggers:**"):
-                        raw = line.split(":", 1)[-1]
-                        triggers = [t.strip().lower() for t in raw.replace(",", " ").split() if t.strip()]
+                        raw = line.split(":", 1)[-1].strip().lstrip("*").strip()
+                        # comma-separated is the authored form; tolerate a
+                        # bare space-separated list (legacy)
+                        if "," in raw:
+                            triggers = [t.strip().lower() for t in raw.split(",") if t.strip()]
+                        else:
+                            triggers = [t.strip().lower() for t in raw.split() if t.strip()]
                         break
+                # 2) frontmatter keywords / triggers (NOT tags — tags are
+                #    taxonomy and match far too loosely as substrings)
+                if not triggers:
+                    triggers = _frontmatter_triggers(frontmatter)
                 if not triggers:
                     triggers = [entry.lower()]
                 # Avoid duplicate
                 if any(s["name"] == entry for s in self._skills):
                     continue
-                # Extract instruction = whole file without title
-                instruction = text.strip()[:2000]
+                # Instruction = body without frontmatter, capped. Bundled
+                # skills carry real workflow (hermes injects full bodies), so
+                # the cap is higher than the user-skill default.
+                instruction = body.strip()[:_BUNDLED_INSTRUCTION_CAP]
                 self._skills.append(self._ensure_metadata({
                     "name": entry,
+                    "description": str(frontmatter.get("description", "") or "").strip(),
                     "triggers": triggers,
                     "instruction": instruction,
                     "enabled": True,
@@ -163,21 +289,27 @@ class SkillManager:
         *,
         created_by: str = "user",
         pinned: bool = False,
+        description: str = "",
     ) -> None:
         """
         Add a new skill (or update an existing one by name).
         Args:
-            name: Skill name (e.g., "Type Hint Rule")
+            name: Skill name (e.g. "Type Hint Rule")
             triggers: Keywords that activate this skill (e.g., ["python", "function"])
             instruction: The prompt text injected when triggered
             created_by: "user" (foreground user-facing path) or "agent"
                 (self-curation). Curator transitions only touch "agent".
             pinned: True exempts the skill from every auto-transition.
+            description: One-line discovery summary for the skills index
+                (Agent Skills frontmatter parity — name + description is what
+                the model sees before it pulls the body).
         """
         existing = next((s for s in self._skills if s["name"] == name), None)
         if existing:
             existing["triggers"] = [t.lower() for t in triggers]
             existing["instruction"] = instruction
+            if description:
+                existing["description"] = description
             existing["enabled"] = True
             existing["pinned"] = existing.get("pinned", False) or pinned
             existing["state"] = "active"  # editing reactivates a stale/archived skill
@@ -188,6 +320,7 @@ class SkillManager:
             return
         self._skills.append(self._ensure_metadata({
             "name": name,
+            "description": description,
             "triggers": [t.lower() for t in triggers],
             "instruction": instruction,
             "enabled": True,

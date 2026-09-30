@@ -285,6 +285,8 @@ from src.tools.terminal_tools import (
     read_terminal_output
 )
 from src.tools.web_tools import web_search, web_fetch, web_extract
+from src.tools.media_tools import media_search, media_download
+from src.tools.skill_tools import skills_list, skill_view, skill_manage
 # #8 (external review): fault-tolerant browser-tool import. The optional
 # stack must never break engine boot — if it is missing the browser tools
 # are simply unbound (the D5 fake-verification hole is documented in the
@@ -374,7 +376,7 @@ def verify(
     Verify the result of the previous meaningful action.
 
     WHEN TO USE:
-    - After read_file, write_file, edit_file, terminal, search_files, web_search, or web_extract.
+    - After read_file, write_file, edit_file, terminal, search_files, web_search, web_extract, media_search, or media_download.
     - Before moving to the next plan step after a tool result.
     - When deciding whether to continue, retry, fix, or replan.
 
@@ -802,6 +804,19 @@ tools = [
     web_search,
     web_fetch,
     web_extract,
+
+    # Media tools — stock image/video search + binary download into the
+    # workspace, so UI tasks can source real product photos instead of
+    # leaving broken placeholders.
+    media_search,
+    media_download,
+
+    # Skill pull tools — Agent Skills / Copilot parity: the compact index
+    # rides the system prompt; the full SKILL.md body loads on demand when
+    # the model calls skill_view(name). skills_list is that index as a tool.
+    skills_list,
+    skill_view,
+    skill_manage,
 
     # Programmatic tool calling: ONE scripted call can chain the tools
     # above and return only printed output (D18, hermes PTC pattern).

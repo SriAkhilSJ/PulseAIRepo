@@ -13,6 +13,8 @@ prerequisites:
   commands: [pygount]
 ---
 
+**Triggers:** codebase, lines of code, loc, language breakdown, repo stats, how many lines, analyze repo, inspect codebase, project stats
+
 # Codebase Inspection with pygount
 
 Analyze repositories for lines of code, language breakdown, file counts, and code-vs-comment ratios using `pygount`.

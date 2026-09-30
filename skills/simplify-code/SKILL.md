@@ -11,6 +11,8 @@ metadata:
     related_skills: [requesting-code-review, test-driven-development]
 ---
 
+**Triggers:** simplify, cleanup, clean up, dead code, dedupe, deduplicate, tidy, refactor recently changed
+
 # Simplify Code — Parallel Review & Cleanup
 
 Review your recent code changes with four focused reviewers running in

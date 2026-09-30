@@ -11,6 +11,8 @@ metadata:
     related_skills: [test-driven-development, subagent-driven-development]
 ---
 
+**Triggers:** debug, debugging, bug, broken, crash, crashes, traceback, error, fails, failing, root cause, not working, behaves wrong, diagnose
+
 # Systematic Debugging
 
 ## Overview

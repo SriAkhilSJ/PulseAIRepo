@@ -217,6 +217,60 @@ def _collect_skills(skills_dir: Path, home: Path) -> List[Dict[str, str]]:
     return entries
 
 
+def _user_skill_entries() -> List[Dict[str, str]]:
+    """Discovery entries for SkillManager's user/agent-created skills.
+
+    The dir tree only carries bundled ``skills/<name>/SKILL.md``; without this
+    merge a user-created skill would never appear in ``<available_skills>``,
+    so the model could not discover it to pull it with ``skill_view``.
+    Bundled entries are excluded — they already come from the dir tree.
+    """
+    try:
+        from src.agents.skill_manager import skill_manager
+
+        out: List[Dict[str, str]] = []
+        for s in skill_manager.list_skills():
+            if s.get("created_by") == "bundled":
+                continue
+            if not s.get("enabled", True) or s.get("state") == "archived":
+                continue
+            name = str(s.get("name", "")).strip()
+            if not name:
+                continue
+            desc = str(s.get("description", "") or "").strip()
+            if not desc:
+                # Agent-Skills discovery is name + description; user skills
+                # created before descriptions existed fall back to triggers.
+                desc = ", ".join(str(t) for t in (s.get("triggers", []) or [])[:6])
+            out.append({"name": name, "description": desc, "category": "user"})
+        return out
+    except Exception:
+        return []
+
+
+def _skills_lead(tools: Optional[Iterable[str]], basic_tools: str) -> str:
+    """The paragraph above ``<available_skills>`` — one source of truth for
+    both index sources. With ``skill_view`` bound it is the upstream/Copilot
+    pull sentence ("load it with skill_view(name)"); without it, Crusor's
+    eager-injection sentence stays truthful."""
+    tools_set = None if tools is None else {str(t) for t in tools}
+    has_skill_view = bool(tools_set) and "skill_view" in tools_set
+    if has_skill_view:
+        return _UPSTREAM_LOAD_SENTENCE + (
+            f"even if you think you could handle the task with basic tools like {basic_tools}. "
+            "Skills also encode the user's preferred approach, conventions, and quality standards "
+            "for tasks like code review, planning, and testing — load them even for tasks you "
+            "already know how to do, because the skill defines how it should be done here.\n"
+            + (_PATCH_SENTENCE if tools_set is not None and "skill_manage" in tools_set else "")
+        )
+    return (
+        _injected_load_sentence(basic_tools)
+        + "Skills also encode the user's preferred approach, conventions, and quality "
+        "standards — the runtime injects the body of any skill relevant to the current "
+        "task later in this prompt, so treat the index as the map of what is known here.\n"
+    )
+
+
 def build_skills_system_prompt(
     available_tools: Optional[Iterable[str]] = None,
     available_toolsets: Optional[Iterable[str]] = None,
@@ -232,7 +286,18 @@ def build_skills_system_prompt(
     tools = None if available_tools is None else {str(t) for t in available_tools}
     toolsets = None if available_toolsets is None else {str(t) for t in available_toolsets}
     demoted = frozenset(compact_categories or ())
-    cache_key = (str(skills_dir), None if tools is None else tuple(sorted(tools)), None if toolsets is None else tuple(sorted(toolsets)), tuple(sorted(demoted)))
+    # User/agent-created skills live in SkillManager, not the dir tree — merge
+    # them into discovery (name + description) so the model can pull them with
+    # skill_view like any bundled SKILL.md. Their tuple also keys the cache so
+    # add/remove invalidates the rendered index.
+    user_entries = _user_skill_entries()
+    cache_key = (
+        str(skills_dir),
+        None if tools is None else tuple(sorted(tools)),
+        None if toolsets is None else tuple(sorted(toolsets)),
+        tuple(sorted(demoted)),
+        tuple((e["name"], e["description"], e["category"]) for e in user_entries),
+    )
 
     with _SKILLS_PROMPT_CACHE_LOCK:
         cached = _SKILLS_PROMPT_CACHE.get(cache_key)
@@ -248,6 +313,8 @@ def build_skills_system_prompt(
     entries = [e for e in _collect_skills(skills_dir, home) if e.get("hidden") != "1"]
     if not entries:
         return _from_skill_manager(tools, demoted, cache_key)
+    dir_names = {str(e.get("name", "")) for e in entries}
+    entries = entries + [e for e in user_entries if e["name"] not in dir_names]
 
     by_category: Dict[str, List[Tuple[str, str]]] = {}
     for entry in entries:
@@ -273,22 +340,7 @@ def build_skills_system_prompt(
     if tools is not None and "web_search" not in tools:
         basic_tools = "terminal"
 
-    has_skill_view = bool(tools) and "skill_view" in (tools or set())
-    if has_skill_view:
-        lead = _UPSTREAM_LOAD_SENTENCE + (
-            f"even if you think you could handle the task with basic tools like {basic_tools}. "
-            "Skills also encode the user's preferred approach, conventions, and quality standards "
-            "for tasks like code review, planning, and testing — load them even for tasks you "
-            "already know how to do, because the skill defines how it should be done here.\n"
-            + (_PATCH_SENTENCE if tools is not None and "skill_manage" in tools else "")
-        )
-    else:
-        lead = (
-            _injected_load_sentence(basic_tools)
-            + "Skills also encode the user's preferred approach, conventions, and quality "
-            "standards — the runtime injects the body of any skill relevant to the current "
-            "task later in this prompt, so treat the index as the map of what is known here.\n"
-        )
+    lead = _skills_lead(tools, basic_tools)
 
     result = (
         "## Skills\n"
@@ -327,17 +379,19 @@ def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
         if not name:
             continue
         desc = str(skill.get("description", "")).strip()
+        if not desc:
+            desc = ", ".join(str(t) for t in (skill.get("triggers", []) or [])[:6])
         index_lines.append(f"    - {name}: {desc}" if desc else f"    - {name}")
 
     basic_tools = "web_search or terminal"
     if tools is not None and "web_search" not in tools:
         basic_tools = "terminal"
+    lead = _skills_lead(tools, basic_tools)
     result = (
         "## Skills\n"
-        + _injected_load_sentence(basic_tools)
-        + "The runtime injects the body of any skill relevant to the current task later in this "
-        "prompt; treat the index below as the map of what is known about this workspace.\n\n"
-        "<available_skills>\n"
+        + lead
+        + "\n"
+        + "<available_skills>\n"
         + "\n".join(index_lines)
         + "\n</available_skills>\n\n"
         + "Only proceed without a skill's guidance when genuinely none is relevant to the task."

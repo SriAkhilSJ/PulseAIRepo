@@ -1,6 +1,6 @@
 # GitHub Connector
 
-**Triggers:** github, pr, pull request, issue, repo, git
+**Triggers:** github, pull request, issue, repo, git, gh
 
 **Instructions:**
 - Prefer `gh` CLI if installed, else MCP `github` server

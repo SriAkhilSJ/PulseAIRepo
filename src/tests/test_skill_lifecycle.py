@@ -49,9 +49,10 @@ def test_add_skill_update_counts_as_patch_and_reactivates(tmp_path):
     path = _write(tmp_path, [])
     sm = SkillManager(storage_path=path)
     sm.add_skill("A", ["python"], "v1", created_by="agent")
-    sm.list_skills()[0]["state"] = "archived"  # simulate prior transition
+    by_name = {s["name"]: s for s in sm.list_skills()}
+    by_name["A"]["state"] = "archived"  # simulate prior transition
     sm.add_skill("A", ["python", "typing"], "v2", created_by="agent")
-    skill = sm.list_skills()[0]
+    skill = {s["name"]: s for s in sm.list_skills()}["A"]
     assert skill["state"] == "active"
     assert skill["patch_count"] == 1
     assert "typing" in skill["triggers"]
