@@ -27,6 +27,22 @@ export interface ICrusorAIRendererService {
 	openSession(sessionId: string): void;
 
 	/**
+	 * Skills Hub (Phase 3): send one op envelope to the engine —
+	 * list | search | install | update | remove | all | toggle. Fire-and-forget
+	 * like every client method; the result arrives as a `skills_hub_result`
+	 * event — await it with onSkillsHubResult.
+	 */
+	sendSkillsHubOp(op: string, extra?: Record<string, unknown>): void;
+
+	/**
+	 * Skills Hub: register a listener for `skills_hub_result` events. The
+	 * listener receives the whole frame ({ op, result }); dispose to
+	 * unregister. Listener errors are isolated — one broken panel must not
+	 * eat the frame dispatch.
+	 */
+	onSkillsHubResult(listener: (frame: { op: string; result: Record<string, unknown> }) => void): IDisposable;
+
+	/**
 	 * Begin a turn whose prompt frame is dispatched by someone other than the
 	 * composer (today: the Preview window's reviewed batch). Runs the same
 	 * turn bookkeeping `submitPrompt` does — archive the live turn, set the

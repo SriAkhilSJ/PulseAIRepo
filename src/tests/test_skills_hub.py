@@ -573,3 +573,57 @@ class TestMonorepoSubdir:
         env["archives"][_SHA_A] = self._monorepo_tar()
         res = _install(env, f"owner/repo@{_SHA_A}:nope/missing")
         assert not res["ok"] and "not found in the archive" in res["error"]
+
+# ---------------------------------------------------------------------------
+# handle_hub_op — the ONE dispatcher behind the bridge envelope, CLI and UI
+# ---------------------------------------------------------------------------
+
+class TestHubOps:
+    def test_every_surface_op_round_trips(self, env):
+        _install(env, "frontend-design")
+        def op(kind, **extra):
+            return hub.handle_hub_op(
+                kind, frame={"name": "frontend-design", **extra},
+                catalog=env["catalog"], manager=env["manager"],
+                hub_root=env["hub_root"], fetcher=_fake_fetcher(env["archives"]),
+            )
+
+        listed = op("list")
+        assert listed["ok"] and listed["installed"][0]["name"] == "frontend-design"
+        searched = op("search", query="design")
+        assert searched["ok"] and any(e["name"] == "frontend-design" for e in searched["results"])
+        updated = op("update", name="frontend-design")
+        assert updated["ok"] and updated["updated"] is False
+        removed = op("remove")
+        assert removed["ok"] and removed["name"] == "frontend-design"
+
+    def test_all_lists_every_origin_with_trimmed_rows(self, env):
+        _install(env, "frontend-design")
+        env["manager"].add_skill("hand-made", ["x"], "body", created_by="user")
+        res = hub.handle_hub_op("all")
+        assert res["ok"]
+        rows = {r["name"]: r for r in res["skills"]}
+        assert rows["frontend-design"]["origin"] == "hub"
+        assert rows["hand-made"]["origin"] == "user"
+        assert "instruction" not in rows["hand-made"]  # bodies stay out of UI rows
+        assert rows["hand-made"]["enabled"] is True and rows["hand-made"]["use_count"] == 0
+
+    def test_toggle_flips_and_persists(self, env):
+        env["manager"].add_skill("togglable", ["x"], "body")
+        res = hub.handle_hub_op("toggle", frame={"name": "togglable", "enabled": "off"})
+        assert res["ok"] and res["enabled"] is False
+        skill = next(s for s in env["manager"].list_skills() if s["name"] == "togglable")
+        assert skill["enabled"] is False
+        # string forms accepted; unknown names refused
+        assert hub.handle_hub_op("toggle", frame={"name": "togglable", "enabled": "on"})["ok"]
+        assert not hub.handle_hub_op("toggle", frame={"name": "ghost"})["ok"]
+
+    def test_unknown_op_names_the_valid_set(self, env):
+        res = hub.handle_hub_op("explode")
+        assert not res["ok"] and "list, search, install, update, remove, all, toggle" in res["error"]
+
+    def test_bridge_delegates_to_the_same_dispatcher(self):
+        src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+        assert "from src.agents.skills_hub import handle_hub_op" in src
+        # the bridge must not hand-roll a second op implementation
+        assert "elif op == " not in src.split("skills_hub_op")[1].split("subagent_list")[0]

@@ -86,7 +86,8 @@ the catalog is the trust signal. Admission rules (enforced by
 |---|---|---|
 | Agent | `hub_search`, `hub_install`, `hub_update`, `hub_list`, `hub_remove` | bound in the always-on skills waist (`toolsets._SKILL_TOOLS`) and `_TOOLS_BY_NAME`; one gated prompt sentence (`_HUB_SENTENCE`) renders only when hub tools are bound |
 | Bridge | `skills_hub_op` → `skills_hub_result` (op envelope: list / search / install / update / remove) | the transport the desktop Skills panel binds to; protocol pinned at all four layers |
-| CLI | `skills_hub_cli.py search/install/update/list/remove` | same pipeline |
+| CLI | `skills_hub_cli.py search/install/update/list/remove/all/toggle` | same pipeline |
+| IDE (Phase 3) | `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows (QuickPick) | bind to the bridge envelope; install/update/remove + enable/disable + usage counts, zero trust decisions of their own |
 | Terminal | `scripts/skills_hub_cli.py` (`search` / `install` / `list` / `remove`) | same pipeline; useful for setup scripts and catalog verification |
 | Python | `src.agents.skills_hub` | result dicts, errors never raise (skills-layer convention) |
 
@@ -109,7 +110,13 @@ resolution to an exact SHA.
   `hub_update` (catalog-pinned upgrades, same-source collision guard) and the
   `skills_hub_op`/`skills_hub_result` bridge frame pair; the panel UI binds to
   the bridge envelope.
-- **Phase 3 — bundles**: multi-skill packs + custom commands as one unit.
+- **Phase 3 — in-IDE skills surface**: DONE in the first slice —
+  `Crusor: Skills Hub` (browse/search/install/update/remove) and
+  `Crusor: My Skills` (every origin: enable/disable, remove, usage) as
+  Command Palette QuickPick flows over `skills_hub_op`; the engine exposes
+  one consolidated `handle_hub_op` dispatcher shared by bridge/CLI/tests.
+  A dedicated Marketplace tree/webview pane remains open as a later polish.
+- **Phase 4 — bundles**: multi-skill packs + custom commands as one unit.
 - **Phase 4 — publishing**: Crusor users open their own catalogs.
 - Remote catalog federation (community-maintained catalog files fetched at
   runtime) — deliberately deferred; the bundled catalog + direct GitHub

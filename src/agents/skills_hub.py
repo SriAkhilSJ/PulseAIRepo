@@ -894,6 +894,96 @@ def update_hub_skill(
     }
 
 
+
+def handle_hub_op(
+    op: str = "",
+    frame: dict | None = None,
+    *,
+    manager: SkillManager | None = None,
+    catalog: dict | None = None,
+    hub_root: str | Path | None = None,
+    fetcher: Callable[[str], bytes] | None = None,
+    ref_resolver: Callable[[str, str, str], str | None] | None = None,
+) -> dict:
+    """Consolidated Skills Hub op dispatcher — ONE function behind every
+    surface (bridge envelope, CLI, tests).
+
+    Ops:
+      list    — hub-installed skills + update hints (list_hub)
+      search  — curated catalog search (query, category)
+      install — install/upgrade a source (source, pick)
+      update  — update one (name) or every outdated hub skill
+      remove  — uninstall a hub skill (name)
+      all     — every installed skill (any origin), trimmed rows for UI
+      toggle  — enable/disable any installed skill (name, enabled)
+
+    Every op returns a dict with an `ok` flag; unknown ops fail with a
+    message naming the valid set. Errors never raise (skills-layer D17).
+    """
+    f = dict(frame or {})
+    clean = (op or str(f.get("op") or "list")).strip().lower()
+    name = str(f.get("name") or "").strip()
+    mgr = _manager(manager)
+    # Injectable pipeline (catalog/hub_root/fetcher/ref_resolver) keeps the
+    # whole op matrix hermetic — tests and embedded hosts pin them; the
+    # bridge and CLI pass nothing and get the real network path.
+    net: dict = {"hub_root": hub_root, "fetcher": fetcher, "ref_resolver": ref_resolver}
+
+    if clean == "list":
+        return list_hub(catalog=catalog, manager=mgr, hub_root=hub_root)
+    if clean == "search":
+        cat = catalog if catalog is not None else load_catalog()
+        if not cat.get("ok"):
+            return cat
+        return search_catalog(cat, str(f.get("query") or ""), str(f.get("category") or ""))
+    if clean == "install":
+        return install_skill(
+            str(f.get("source") or ""), pick=str(f.get("pick") or ""),
+            catalog=catalog, manager=mgr, **net,
+        )
+    if clean == "update":
+        if name:
+            return update_hub_skill(name, catalog=catalog, manager=mgr, **net)
+        updated: list[dict] = []
+        for row in list_hub(catalog=catalog, manager=mgr, hub_root=hub_root).get("installed", []):
+            if row.get("update_available"):
+                updated.append(
+                    update_hub_skill(str(row["name"]), catalog=catalog, manager=mgr, **net)
+                )
+        return {"ok": True, "updated": updated}
+    if clean == "remove":
+        return uninstall_skill(name, manager=mgr, hub_root=hub_root)
+    if clean == "all":
+        rows: list[dict] = []
+        for s in mgr.list_skills():
+            src = s.get("source") or {}
+            rows.append({
+                "name": str(s.get("name", "")),
+                "description": str(s.get("description", "") or ""),
+                "origin": str(src.get("kind") or s.get("created_by") or "user"),
+                "enabled": bool(s.get("enabled", True)),
+                "pinned": bool(s.get("pinned", False)),
+                "state": str(s.get("state", "active")),
+                "use_count": int(s.get("use_count", 0)),
+                "triggers": [str(x) for x in (s.get("triggers") or [])][:8],
+            })
+        return {"ok": True, "skills": rows}
+    if clean == "toggle":
+        if not name:
+            return _fail("toggle needs a skill name")
+        enabled = f.get("enabled", True)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() not in ("off", "0", "false", "no", "disabled")
+        if not mgr.toggle_skill(name, bool(enabled)):
+            return _fail(f"no skill named {name!r} is installed")
+        return {"ok": True, "name": name, "enabled": bool(enabled)}
+
+    return _fail(
+        f"unknown skills_hub op {clean!r} — valid ops: list, search, install, "
+        "update, remove, all, toggle"
+    )
+
+
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

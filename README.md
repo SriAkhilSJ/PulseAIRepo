@@ -91,6 +91,7 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 | **Store plumbing** | `SkillManager.add_skill(..., source=...)` backward-compatible provenance (hub installs are `pinned`, curator-exempt); hub folder + `provenance.json` under `~/.crusorai/hub-skills` (env: `CRUSORAI_HUB_SKILLS_DIR`) | round-trip + uninstall-scope tests |
 | **CLI** | `scripts/skills_hub_cli.py` — search/install/update/list/remove from a terminal (same pipeline) | live-verified |
 | **Bridge surface (Phase 2)** | `skills_hub_op` client method → `skills_hub_result` server event — one generic op envelope (list/search/install/update/remove) the desktop Skills panel binds to; manifest + Python constants + generated TS + handwritten payload union all pinned | `test_bridge_protocol_v2.py` 8/8 |
+| **Skills surface (Phase 3)** | `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows — browse/search/install/update/remove the catalog and manage every installed skill (enable/disable, usage counts) over the `skills_hub_op` bridge envelope; engine gains one consolidated `handle_hub_op` dispatcher shared by bridge, CLI and tests (ops: list/search/install/update/remove/all/toggle) | 44 hub tests + bridge/architecture suites green; UI compile owned by desktop verification |
 
 
 

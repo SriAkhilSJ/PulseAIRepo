@@ -39,6 +39,10 @@ def main() -> int:
     p_remove.add_argument("name")
     p_update = sub.add_parser("update", help="update hub-installed skills to the catalog-pinned SHA")
     p_update.add_argument("name", nargs="?", default="", help="one skill (omit to update all)")
+    p_all = sub.add_parser("all", help="list every installed skill (any origin), UI rows")
+    p_toggle = sub.add_parser("toggle", help="enable/disable any installed skill")
+    p_toggle.add_argument("name")
+    p_toggle.add_argument("state", nargs="?", default="on", help="on|off (default on)")
 
     args = parser.parse_args()
 
@@ -89,6 +93,24 @@ def main() -> int:
                 res = hub.update_hub_skill(str(r["name"]))
                 print(json.dumps(res, indent=2))
             return 0
+        print(json.dumps(res, indent=2))
+        return 0 if res.get("ok") else 1
+
+    if args.cmd == "all":
+        res = hub.handle_hub_op("all")
+        for r in res.get("skills", []):
+            flags = []
+            if not r["enabled"]:
+                flags.append("disabled")
+            if r["state"] != "active":
+                flags.append(r["state"])
+            print(f"{r['name']}  [{r['origin']}]{' [' + ','.join(flags) + ']' if flags else ''}  uses:{r['use_count']}")
+            if r["description"]:
+                print(f"    {r['description']}")
+        return 0 if res.get("ok") else 1
+
+    if args.cmd == "toggle":
+        res = hub.handle_hub_op("toggle", frame={"name": args.name, "enabled": args.state})
         print(json.dumps(res, indent=2))
         return 0 if res.get("ok") else 1
 

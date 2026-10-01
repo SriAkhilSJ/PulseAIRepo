@@ -1175,6 +1175,30 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.parts.push({ kind: 'tool', toolId });
 	}
 
+	// Skills Hub (Phase 3): UI listeners for skills_hub_result frames. The
+	// hub panel registers a listener per in-flight request; listener errors
+	// are isolated so one broken panel never eats the frame dispatch.
+	private readonly _hubListeners = new Set<(frame: { op: string; result: Record<string, unknown> }) => void>();
+
+	sendSkillsHubOp(op: string, extra?: Record<string, unknown>): void {
+		this.send({ type: 'skills_hub_op', session_id: this.sessionId, op, ...(extra ?? {}) } as CrusorClientMethod);
+	}
+
+	onSkillsHubResult(listener: (frame: { op: string; result: Record<string, unknown> }) => void): IDisposable {
+		this._hubListeners.add(listener);
+		return toDisposable(() => this._hubListeners.delete(listener));
+	}
+
+	private _emitSkillsHubResult(frame: { op: string; result: Record<string, unknown> }): void {
+		for (const listener of Array.from(this._hubListeners)) {
+			try {
+				listener(frame);
+			} catch {
+				// isolated on purpose — a broken listener must not break the chain
+			}
+		}
+	}
+
 	private send(frame: CrusorClientMethod): void {
 		try {
 			this.engineService.send(frame);
@@ -1490,6 +1514,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
 				agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
 			});
+		} else if ((frame as any).type === 'skills_hub_result') {
+			this._emitSkillsHubResult(frame as any);
 		} else if ((frame as any).type === 'subagent_list') {
 			// OpenCode parity: list children for parent
 			for (const row of (frame as any).subagents ?? []) {

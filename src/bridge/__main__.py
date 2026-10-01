@@ -1524,44 +1524,15 @@ class BridgeServer:
                         pass
 
         elif kind == "skills_hub_op":
-            # Skills Hub management surface (Phase 2): one generic op envelope
-            # the desktop Skills panel binds to. Ops mirror the hub tools —
-            # list / search / install / update / remove — every op result is
-            # a dict with an `ok` flag (hub convention: errors never raise).
+            # Skills Hub management surface: one generic op envelope the
+            # desktop Skills panel binds to. The dispatcher lives in the hub
+            # (handle_hub_op) so the bridge, the CLI and the tests share one
+            # behavior; every result is a dict with an `ok` flag (errors
+            # never raise, D17) and rides back as skills_hub_result.
             op = str(frame.get("op") or "list").strip().lower()
-            result: dict
             try:
-                from src.agents import skills_hub as hub
-                if op == "list":
-                    result = hub.list_hub()
-                elif op == "search":
-                    cat = hub.load_catalog()
-                    if not cat.get("ok"):
-                        result = cat
-                    else:
-                        result = hub.search_catalog(
-                            cat, str(frame.get("query") or ""),
-                            str(frame.get("category") or ""),
-                        )
-                elif op == "install":
-                    result = hub.install_skill(
-                        str(frame.get("source") or ""),
-                        pick=str(frame.get("pick") or ""),
-                    )
-                elif op == "update":
-                    name = str(frame.get("name") or "").strip()
-                    if name:
-                        result = hub.update_hub_skill(name)
-                    else:
-                        out: list[dict] = []
-                        for row in hub.list_hub().get("installed", []):
-                            if row.get("update_available"):
-                                out.append(hub.update_hub_skill(str(row["name"])))
-                        result = {"ok": True, "updated": out}
-                elif op == "remove":
-                    result = hub.uninstall_skill(str(frame.get("name") or ""))
-                else:
-                    result = {"ok": False, "error": f"unknown skills_hub op: {op!r}"}
+                from src.agents.skills_hub import handle_hub_op
+                result = handle_hub_op(op, frame=frame)
             except Exception as exc:
                 result = {"ok": False, "error": str(exc)[:500]}
             self.emit({
