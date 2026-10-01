@@ -1,0 +1,98 @@
+{
+  "preState": {
+    "open": true,
+    "placeholder": "Type the name of a command to run.",
+    "rows": [
+      "Crusor: My Skillsrecently used",
+      "Chat: Open ChatCtrl+Alt+I",
+      "Accept Changeother commands",
+      "Accounts: Manage Accountsother commands",
+      "Accounts: Manage Extension Account Preferences...",
+      "Accounts: Manage Trusted Extensions For Account",
+      "Accounts: Manage Trusted MCP Servers For Account",
+      "Add Data Breakpoint at Address",
+      "Add Function Breakpoint",
+      "Add XHR/fetch Breakpoint",
+      "Agents Voice: Show Voice Transcripts",
+      "Announce Cursor PositionCtrl+Shift+Alt+G"
+    ],
+    "toasts": []
+  },
+  "skillsHub": {
+    "query": "Crusor: Skills Hub",
+    "label": "skills-hub-pick",
+    "matchedRows": [
+      "Crusor: Skills Hub",
+      "Crusor: Focus on Crusor Agent View — similar commands",
+      "Crusor: My Skills"
+    ],
+    "rowRect": {
+      "x": 641,
+      "y": 56
+    },
+    "result": {
+      "open": true,
+      "placeholder": "Crusor Skills Hub — browse, install, update",
+      "rows": [
+        "Search the Skills Hub…curated catalog — install with one click",
+        "No hub-installed skills yetSearch the catalog to install your first one"
+      ],
+      "toasts": []
+    },
+    "screenshot": "skills-hub-pick.png"
+  },
+  "mySkills": {
+    "query": "Crusor: My Skills",
+    "label": "my-skills-result",
+    "matchedRows": [
+      "Crusor: My Skills — recently used",
+      "Crusor: Focus on Crusor Agent View — similar commands",
+      "Crusor: Skills Hub",
+      "Crusor: Crusor: Manage Account",
+      "Crusor: Crusor: Open Agent — Ctrl — + — L"
+    ],
+    "rowRect": {
+      "x": 641,
+      "y": 56
+    },
+    "result": {
+      "open": true,
+      "placeholder": "Crusor My Skills — pick a skill to manage",
+      "rows": [
+        "browser-connector[bundled] uses: 8 —",
+        "codebase-inspection[bundled] uses: 0 —",
+        "db-connector[bundled] uses: 13 —",
+        "github-connector[bundled] uses: 439 —",
+        "mcp[bundled] uses: 8 —",
+        "requesting-code-review[bundled] uses: 0 —",
+        "simplify-code[bundled] uses: 0 —",
+        "systematic-debugging[bundled] uses: 0 —",
+        "terminal-connector[bundled] uses: 162 —",
+        "test-driven-development[bundled] uses: 0 —",
+        "ast-grep[bundled] uses: 0 —",
+        "code-wiki[bundled] uses: 0 —"
+      ],
+      "toasts": []
+    },
+    "screenshot": "my-skills-result.png"
+  },
+  "postState": {
+    "open": true,
+    "placeholder": "Crusor My Skills — pick a skill to manage",
+    "rows": [
+      "browser-connector[bundled] uses: 8 — recently used",
+      "codebase-inspection[bundled] uses: 0 —",
+      "db-connector[bundled] uses: 13 — other commands",
+      "github-connector[bundled] uses: 439 — other commands",
+      "mcp[bundled] uses: 8 —",
+      "requesting-code-review[bundled] uses: 0 —",
+      "simplify-code[bundled] uses: 0 —",
+      "systematic-debugging[bundled] uses: 0 —",
+      "terminal-connector[bundled] uses: 162 — recently used",
+      "test-driven-development[bundled] uses: 0 — similar commands",
+      "ast-grep[bundled] uses: 0 —",
+      "code-wiki[bundled] uses: 0 — similar commands"
+    ],
+    "toasts": []
+  }
+}

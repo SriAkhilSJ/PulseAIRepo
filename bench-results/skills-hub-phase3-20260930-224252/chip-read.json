@@ -1,0 +1,12 @@
+{
+  "paletteWasOpen": true,
+  "chip": {
+    "text": "Crusor ready a2088b3d ui 2026-09-30",
+    "build": "a2088b3d",
+    "staleBadge": false,
+    "statusText": "Crusor readya2088b3dui 2026-09-30",
+    "hostTitle": "Workbench UI build: 2026-09-30 · Engine build: a2088b3d 2026-09-30 21:29:46 -0700",
+    "rootVisible": true
+  },
+  "screenshot": "engine-chip.png"
+}

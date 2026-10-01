@@ -62,7 +62,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'crusorai.skillsHub',
-			title: localize2('crusorAI.skillsHub', 'Crusor: Skills Hub'),
+			title: localize2('crusorAI.skillsHub', 'Skills Hub'),
 			f1: true,
 			category: localize2('crusorAI.category', 'Crusor'),
 		});
@@ -194,7 +194,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'crusorai.mySkills',
-			title: localize2('crusorAI.mySkills', 'Crusor: My Skills'),
+			title: localize2('crusorAI.mySkills', 'My Skills'),
 			f1: true,
 			category: localize2('crusorAI.category', 'Crusor'),
 		});
