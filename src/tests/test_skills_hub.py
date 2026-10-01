@@ -622,6 +622,21 @@ class TestHubOps:
         res = hub.handle_hub_op("explode")
         assert not res["ok"] and "list, search, install, update, remove, all, toggle" in res["error"]
 
+    def test_bridge_handles_hub_ops_before_session_resolution(self):
+        """Field 2026-10-01: the skills_hub_op branch sat inside the
+        session-scoped dispatcher, so a palette click on a fresh window (no
+        chat bound) went through workspace/session resolution and silently
+        stalled — the user saw 'nothing happened'. Hub ops are USER-level:
+        the bridge must answer them BEFORE any session minting."""
+        src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+        handle = src.split("def handle(self, frame: dict)")[1]
+        assert handle.index('if kind == "skills_hub_op":') < handle.index(
+            'raw_workspace = frame.get("workspace")'
+        ), "hub ops must be handled before workspace/session resolution"
+        # and the branch must answer, not fall through
+        branch = handle.split('if kind == "skills_hub_op":')[1].split("return True")[0]
+        assert "handle_hub_op" in branch and "skills_hub_result" in branch
+
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
         assert "from src.agents.skills_hub import handle_hub_op" in src

@@ -1069,6 +1069,27 @@ class BridgeServer:
         if kind == "shutdown":
             self._shutdown.set()
             return False
+        if kind == "skills_hub_op":
+            # Skills Hub ops are USER-level state (catalog/registry), not
+            # session state: they are handled BEFORE workspace/session
+            # resolution so the palette works on a fresh window (no session
+            # bound yet) and a click never mints a phantom session. The
+            # result echoes the caller's session_id as-is; the panel
+            # correlates on `op`. (Field 2026-10-01: the op sat inside the
+            # session-scoped chain, so palette clicks before any chat bound
+            # went through session resolution and silently stalled.)
+            op = str(frame.get("op") or "list").strip().lower()
+            try:
+                from src.agents.skills_hub import handle_hub_op
+                result = handle_hub_op(op, frame=frame)
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)[:500]}
+            self.emit({
+                "type": "skills_hub_result",
+                "session_id": frame.get("session_id") or "",
+                "op": op, "result": result,
+            })
+            return True
 
         raw_workspace = frame.get("workspace")
         workspace = str(raw_workspace).strip() if raw_workspace else ""
@@ -1522,23 +1543,6 @@ class BridgeServer:
                         })
                     except Exception:
                         pass
-
-        elif kind == "skills_hub_op":
-            # Skills Hub management surface: one generic op envelope the
-            # desktop Skills panel binds to. The dispatcher lives in the hub
-            # (handle_hub_op) so the bridge, the CLI and the tests share one
-            # behavior; every result is a dict with an `ok` flag (errors
-            # never raise, D17) and rides back as skills_hub_result.
-            op = str(frame.get("op") or "list").strip().lower()
-            try:
-                from src.agents.skills_hub import handle_hub_op
-                result = handle_hub_op(op, frame=frame)
-            except Exception as exc:
-                result = {"ok": False, "error": str(exc)[:500]}
-            self.emit({
-                "type": "skills_hub_result", "session_id": sid,
-                "op": op, "result": result,
-            })
 
         elif kind == "subagent_list":
             # OpenCode parity: list child sessions for a parent
