@@ -212,6 +212,10 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             newSession: () => { this.newSession(); },
             isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
         };
+        // Skills Hub (Phase 3): UI listeners for skills_hub_result frames. The
+        // hub panel registers a listener per in-flight request; listener errors
+        // are isolated so one broken panel never eats the frame dispatch.
+        this._hubListeners = new Set();
         this._register(this.engineService.onDidChangeState(state => {
             if (state === "ready" /* CrusorAIEngineState.Ready */) {
                 this.restartAttempts = 0;
@@ -1144,6 +1148,23 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         this.parts.push({ kind: 'tool', toolId });
     }
+    sendSkillsHubOp(op, extra) {
+        this.send({ type: 'skills_hub_op', session_id: this.sessionId, op, ...(extra ?? {}) });
+    }
+    onSkillsHubResult(listener) {
+        this._hubListeners.add(listener);
+        return toDisposable(() => this._hubListeners.delete(listener));
+    }
+    _emitSkillsHubResult(frame) {
+        for (const listener of Array.from(this._hubListeners)) {
+            try {
+                listener(frame);
+            }
+            catch {
+                // isolated on purpose — a broken listener must not break the chain
+            }
+        }
+    }
     send(frame) {
         try {
             this.engineService.send(frame);
@@ -1515,6 +1536,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 toolCalls: frame.tool_calls ?? frame.toolCalls ?? existing.toolCalls,
                 agentName: frame.agent_name ?? frame.agentName ?? existing.mode,
             });
+        }
+        else if (frame.type === 'skills_hub_result') {
+            this._emitSkillsHubResult(frame);
         }
         else if (frame.type === 'subagent_list') {
             // OpenCode parity: list children for parent
