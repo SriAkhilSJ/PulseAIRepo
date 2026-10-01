@@ -17,14 +17,18 @@ import { localize2 } from '../../../../nls.js';
 import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
-const HUB_TIMEOUT_MS = 45000;
-function hubRequest(renderer, op, extra = {}) {
-    return new Promise((resolve, reject) => {
+const HUB_TIMEOUT_MS = 12000;
+function hubRequest(renderer, progress, op, extra = {}) {
+    // The progress badge is the click's first ACK: palette flows must show
+    // life IMMEDIATELY (field 2026-10-01: a silent 45s wait read as "nothing
+    // happened" when the running bridge predated the Skills Hub build).
+    return progress.withProgress({ location: ProgressLocation.Window, title: `Skills Hub: ${op}…` }, () => new Promise((resolve, reject) => {
         let listener;
         const timer = setTimeout(() => {
             listener?.dispose();
-            reject(new Error(`Skills Hub: the engine did not answer the '${op}' request (timeout). Is the engine running a build with the Skills Hub (Phase 2+)?`));
+            reject(new Error(`Skills Hub: the engine did not answer the '${op}' request. Fully restart CrusorAI so the bridge process runs the Skills Hub build (pull → npx gulp compile in desktop/vscode → restart).`));
         }, HUB_TIMEOUT_MS);
         listener = renderer.onSkillsHubResult(frame => {
             if (frame.op !== op) {
@@ -35,7 +39,7 @@ function hubRequest(renderer, op, extra = {}) {
             resolve((frame.result ?? {}));
         });
         renderer.sendSkillsHubOp(op, extra);
-    });
+    }));
 }
 function hubError(result, fallback) {
     const err = typeof result?.error === 'string' ? result.error : fallback;
@@ -54,10 +58,11 @@ registerAction2(class extends Action2 {
         const quickInput = accessor.get(IQuickInputService);
         const notif = accessor.get(INotificationService);
         const renderer = accessor.get(ICrusorAIRendererService);
+        const progress = accessor.get(IProgressService);
         // ServicesAccessor is single-shot: every get() runs before the first await.
         let installed = [];
         try {
-            const res = await hubRequest(renderer, 'list');
+            const res = await hubRequest(renderer, progress, 'list');
             installed = Array.isArray(res.installed) ? res.installed : [];
         }
         catch (error) {
@@ -96,7 +101,7 @@ registerAction2(class extends Action2 {
             }
             let results = [];
             try {
-                const res = await hubRequest(renderer, 'search', { query: query.trim() });
+                const res = await hubRequest(renderer, progress, 'search', { query: query.trim() });
                 results = Array.isArray(res.results) ? res.results : [];
             }
             catch (error) {
@@ -117,7 +122,7 @@ registerAction2(class extends Action2 {
                 return;
             }
             try {
-                const res = await hubRequest(renderer, 'install', { source: chosen.id });
+                const res = await hubRequest(renderer, progress, 'install', { source: chosen.id });
                 if (res.ok) {
                     notif.notify({ severity: Severity.Info, message: `Skills Hub: installed "${chosen.id}" (${res.files} files, pinned at ${String(res.sha ?? '').slice(0, 12)}). It is live in the skills index now.`, source: 'Crusor Skills Hub' });
                 }
@@ -132,7 +137,7 @@ registerAction2(class extends Action2 {
         }
         if (pick.id === '__update') {
             try {
-                const res = await hubRequest(renderer, 'update');
+                const res = await hubRequest(renderer, progress, 'update');
                 const done = Array.isArray(res.updated) ? res.updated : [];
                 const moved = done.filter(row => row.ok && row.updated);
                 notif.notify({
@@ -159,7 +164,7 @@ registerAction2(class extends Action2 {
                 return;
             }
             try {
-                const res = await hubRequest(renderer, action.id, { name: pick.id });
+                const res = await hubRequest(renderer, progress, action.id, { name: pick.id });
                 if (res.ok) {
                     const detail = action.id === 'update' && !res.updated
                         ? ' (already at the pinned version)'
@@ -189,9 +194,10 @@ registerAction2(class extends Action2 {
         const quickInput = accessor.get(IQuickInputService);
         const notif = accessor.get(INotificationService);
         const renderer = accessor.get(ICrusorAIRendererService);
+        const progress = accessor.get(IProgressService);
         let skills = [];
         try {
-            const res = await hubRequest(renderer, 'all');
+            const res = await hubRequest(renderer, progress, 'all');
             skills = Array.isArray(res.skills) ? res.skills : [];
         }
         catch (error) {
@@ -223,8 +229,8 @@ registerAction2(class extends Action2 {
         }
         try {
             const res = action.id === 'toggle'
-                ? await hubRequest(renderer, 'toggle', { name: chosen.id, enabled: !(row?.enabled ?? true) })
-                : await hubRequest(renderer, 'remove', { name: chosen.id });
+                ? await hubRequest(renderer, progress, 'toggle', { name: chosen.id, enabled: !(row?.enabled ?? true) })
+                : await hubRequest(renderer, progress, 'remove', { name: chosen.id });
             if (res.ok) {
                 const detail = action.id === 'toggle'
                     ? ` → ${res.enabled ? 'enabled' : 'disabled'}`

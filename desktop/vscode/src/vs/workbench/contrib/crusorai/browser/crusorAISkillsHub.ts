@@ -182,7 +182,7 @@ registerAction2(class extends Action2 {
 				return;
 			}
 			try {
-				const res = await hubRequest(renderer, action.id, { name: pick.id });
+				const res = await hubRequest(renderer, progress, action.id, { name: pick.id });
 				if (res.ok) {
 					const detail = action.id === 'update' && !(res as any).updated
 						? ' (already at the pinned version)'
