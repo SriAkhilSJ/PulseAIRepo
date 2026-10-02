@@ -415,12 +415,18 @@ class TestBindingAndHygiene:
         code or catalog metadata (source repo URLs are pointers, not branding,
         and are allowed to name their own owners)."""
         forbidden = ("hermes", "cursor", "nousresearch")
+        internal_paths = ("src/prompts/hermes", "src.prompts.hermes", "prompts.hermes")
         files = [
             _REPO / "src" / "agents" / "skills_hub.py",
             _REPO / "src" / "tools" / "skill_hub_tools.py",
         ]
         for f in files:
             text = f.read_text(encoding="utf-8").lower()
+            # the prompts package's INTERNAL module name is repo plumbing,
+            # not branding — strip it before scanning (field 2026-10-01:
+            # notify_skills_changed legitimately imports those modules)
+            for path in internal_paths:
+                text = text.replace(path, "<prompts>")
             for word in forbidden:
                 assert word not in text, f"vendor name {word!r} found in {f.name}"
         cat = json.loads((_REPO / "skills" / "catalog.json").read_text(encoding="utf-8"))

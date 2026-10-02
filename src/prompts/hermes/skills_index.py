@@ -369,10 +369,26 @@ def build_skills_system_prompt(
 
 def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
     """Render the same block from Crusor's ``SkillManager`` store (no dir tree)."""
+    # The PROCESS SINGLETON, not a fresh constructor: every mutating surface
+    # (hub ops, skill_manage, the dashboard) mutates the singleton, so the
+    # index must read the same in-memory store. A fresh SkillManager() here
+    # depended on a silent file round-trip — _save() is fail-open (D17), so
+    # one swallowed write error meant a permanently stale index that even
+    # notify_skills_changed() could not fix. (Field 2026-10-01.)
     try:  # pyrefly: ignore [missing-import]
-        from src.agents.skill_manager import SkillManager
+        from src.agents.skill_manager import skill_manager
 
-        manager = SkillManager()
+        manager = skill_manager
+    except Exception:
+        manager = None
+    if manager is None:
+        try:  # pyrefly: ignore [missing-import]
+            from src.agents.skill_manager import SkillManager
+
+            manager = SkillManager()
+        except Exception:
+            return ""
+    try:
         skills = [s for s in manager.list_skills() if s.get("enabled", True)]
     except Exception:
         return ""

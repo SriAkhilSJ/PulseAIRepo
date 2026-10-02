@@ -895,6 +895,61 @@ def update_hub_skill(
 
 
 
+def notify_skills_changed() -> dict:
+    """Process-local invalidation seam for every mutating skills op.
+
+    Field 2026-10-01: the skills-index LRU (+ disk snapshot), each live
+    session view's cached system prompt, and each live thread engine's
+    cached "skills" layer all outlived an install — so "live in the skills
+    index now" was only true for NEW sessions. This seam makes the change
+    visible to the NEXT model call of RUNNING sessions:
+
+      1. skills-index LRU + disk snapshot  (prompts.hermes.skills_index)
+      2. every cached per-view system prompt
+         (prompts.hermes.session._views -> system_prompt.invalidate_system_prompt)
+      3. every live engine's cached "skills" layer
+         (graphs.chat_graph._ENGINES -> ContextEngine.invalidate_layer)
+
+    Step 3 is required, not dead code: "skills" is deliberately NOT in
+    layer_policy.VOLATILE_LAYERS (only git_context is). Every step is
+    best-effort — invalidation must never break the mutation that
+    triggered it (D17 fail-open). Cross-process note: a CLI run in another
+    process cannot invalidate the app; the app re-syncs on its next hub op
+    or restart. The bridge and the agent tools mutate in-process, so for
+    them this seam is complete.
+    """
+    cleared: dict = {"index": False, "views": 0, "engines": 0}
+    try:
+        from src.prompts.hermes.skills_index import clear_skills_system_prompt_cache
+        from src.prompts.hermes.view import crusor_home
+        clear_skills_system_prompt_cache(clear_snapshot=True, home=crusor_home())
+        cleared["index"] = True
+    except Exception:
+        pass
+    try:
+        from src.prompts.hermes import session as prompt_session
+        from src.prompts.hermes.system_prompt import invalidate_system_prompt
+        for view in list(getattr(prompt_session, "_views", {}).values()):
+            try:
+                invalidate_system_prompt(view)
+                cleared["views"] += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        from src.graphs import chat_graph
+        for engine in list(getattr(chat_graph, "_ENGINES", {}).values()):
+            try:
+                engine.invalidate_layer("skills")
+                cleared["engines"] += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return cleared
+
+
 def handle_hub_op(
     op: str = "",
     frame: dict | None = None,
@@ -937,22 +992,34 @@ def handle_hub_op(
             return cat
         return search_catalog(cat, str(f.get("query") or ""), str(f.get("category") or ""))
     if clean == "install":
-        return install_skill(
+        res = install_skill(
             str(f.get("source") or ""), pick=str(f.get("pick") or ""),
             catalog=catalog, manager=mgr, **net,
         )
+        if res.get("ok"):
+            res["invalidated"] = notify_skills_changed()
+        return res
     if clean == "update":
         if name:
-            return update_hub_skill(name, catalog=catalog, manager=mgr, **net)
+            res = update_hub_skill(name, catalog=catalog, manager=mgr, **net)
+            if res.get("ok") and res.get("updated"):
+                res["invalidated"] = notify_skills_changed()
+            return res
         updated: list[dict] = []
+        changed = False
         for row in list_hub(catalog=catalog, manager=mgr, hub_root=hub_root).get("installed", []):
             if row.get("update_available"):
-                updated.append(
-                    update_hub_skill(str(row["name"]), catalog=catalog, manager=mgr, **net)
-                )
+                r = update_hub_skill(str(row["name"]), catalog=catalog, manager=mgr, **net)
+                updated.append(r)
+                changed = changed or bool(r.get("ok") and r.get("updated"))
+        if changed:
+            notify_skills_changed()
         return {"ok": True, "updated": updated}
     if clean == "remove":
-        return uninstall_skill(name, manager=mgr, hub_root=hub_root)
+        res = uninstall_skill(name, manager=mgr, hub_root=hub_root)
+        if res.get("ok"):
+            res["invalidated"] = notify_skills_changed()
+        return res
     if clean == "all":
         rows: list[dict] = []
         for s in mgr.list_skills():
@@ -976,7 +1043,8 @@ def handle_hub_op(
             enabled = enabled.strip().lower() not in ("off", "0", "false", "no", "disabled")
         if not mgr.toggle_skill(name, bool(enabled)):
             return _fail(f"no skill named {name!r} is installed")
-        return {"ok": True, "name": name, "enabled": bool(enabled)}
+        return {"ok": True, "name": name, "enabled": bool(enabled),
+                "invalidated": notify_skills_changed()}
 
     return _fail(
         f"unknown skills_hub op {clean!r} — valid ops: list, search, install, "

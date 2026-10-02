@@ -84,6 +84,13 @@ registerAction2(class extends Action2 {
 		let installed: any[] = [];
 		try {
 			const res = await hubRequest(renderer, progress, 'list');
+			if (res.ok === false) {
+				// A failed list must say so — rendering the empty state here
+				// told the user "no skills installed" while the engine was
+				// actually erroring (field 2026-10-01).
+				notif.notify({ severity: Severity.Error, message: hubError(res, 'could not list hub-installed skills'), source: 'Crusor Skills Hub' } as any);
+				return;
+			}
 			installed = Array.isArray((res as any).installed) ? (res as any).installed : [];
 		} catch (error) {
 			notif.notify({ severity: Severity.Error, message: String((error as Error).message ?? error), source: 'Crusor Skills Hub' } as any);
@@ -216,6 +223,10 @@ registerAction2(class extends Action2 {
 		let skills: any[] = [];
 		try {
 			const res = await hubRequest(renderer, progress, 'all');
+			if (res.ok === false) {
+				notif.notify({ severity: Severity.Error, message: hubError(res, 'could not list installed skills'), source: 'Crusor Skills Hub' } as any);
+				return;
+			}
 			skills = Array.isArray((res as any).skills) ? (res as any).skills : [];
 		} catch (error) {
 			notif.notify({ severity: Severity.Error, message: String((error as Error).message ?? error), source: 'Crusor Skills Hub' } as any);

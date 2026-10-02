@@ -23,7 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Crusor Skills Hub")
+    parser = argparse.ArgumentParser(
+        description="Crusor Skills Hub",
+        epilog="Note: this CLI runs in its own process. Changes apply to new "
+        "CrusorAI sessions once the app re-syncs (any hub action inside the "
+        "app, or an app restart).",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_search = sub.add_parser("search", help="search the curated catalog")
