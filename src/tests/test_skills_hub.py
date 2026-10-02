@@ -644,6 +644,23 @@ class TestHubOps:
         branch = handle.split('if kind == "skills_hub_op":')[1].split("return True")[0]
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
+    def test_composer_plus_menu_wiring_is_complete(self):
+        """Field 2026-10-01: the composer's + button is the always-visible
+        marketplace entry — the renderer must offer the three host hooks,
+        the service must route them to the registered palette commands, and
+        the dropdown styles must exist (a styled-less menu renders as a
+        broken list)."""
+        browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
+        renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
+        for hook in ("openMarketplace?(): void;", "openMySkills?(): void;", "openOneShot?(): void;"):
+            assert hook in renderer, hook
+        assert "crusorai-plus-menu" in renderer and "Marketplace…" in renderer
+        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
+        for cmd in ("crusorai.skillsHub", "crusorai.mySkills", "crusorai.oneshot"):
+            assert f"executeCommand('{cmd}')" in service, cmd
+        css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
+        assert ".crusorai-plus-menu-items" in css and ".crusorai-plus-summary" in css
+
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
         assert "from src.agents.skills_hub import handle_hub_op" in src

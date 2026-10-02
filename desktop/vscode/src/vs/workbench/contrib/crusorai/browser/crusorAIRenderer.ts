@@ -209,6 +209,12 @@ export interface CrusorAIRenderHost {
 	openFolder(): void;
 	openEngineSettings(): void;
 	openManager(): void;
+	/** Composer + menu (skills marketplace): run the registered palette
+	 * commands through the workbench. Optional — hosts predating the
+	 * marketplace simply omit them and the + button hides itself. */
+	openMarketplace?(): void;
+	openMySkills?(): void;
+	openOneShot?(): void;
 	/** Real clipboard via the workbench service (webview navigator.clipboard
 	 * is permission-blocked in the field). Implementations own the fallback. */
 	copyToClipboard(text: string): void;
@@ -2490,7 +2496,49 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	// hermes composer layout: the Think pill sits beside the execution-mode
 	// picker; the Send button stays right-aligned via the toolbar's spare
 	// `.crusorai-composer-left` grid track.
+	// The composer + menu (skills marketplace): always-visible entry point
+	// to the store. Native <details> dropdown — the same pattern as the
+	// mode picker — items execute the registered palette commands through
+	// the host. When the host predates the callbacks the button hides
+	// itself instead of dead-clicking.
+	const plusMenu = (() => {
+		const entries: Array<{ label: string; glyph: string; run?: () => void }> = [
+			{ label: 'Marketplace…', glyph: 'package', run: host.openMarketplace },
+			{ label: 'My Skills', glyph: 'checklist', run: host.openMySkills },
+			{ label: 'One-Shot Task…', glyph: 'zap', run: host.openOneShot },
+		].filter(entry => typeof entry.run === 'function');
+		if (entries.length === 0) { return undefined; }
+		const details = element('details', 'crusorai-plus-menu') as HTMLDetailsElement;
+		const summary = element('summary', 'crusorai-plus-summary', icon('add'));
+		summary.setAttribute('aria-label', 'Marketplace and quick actions');
+		summary.title = 'Marketplace & quick actions';
+		const menu = element('div', 'crusorai-plus-menu-items');
+		for (const entry of entries) {
+			const item = element('button', 'crusorai-plus-menu-item', icon(entry.glyph), entry.label) as HTMLButtonElement;
+			item.type = 'button';
+			item.addEventListener('click', () => {
+				details.open = false;
+				entry.run?.();
+			});
+			menu.append(item);
+		}
+		details.append(summary, menu);
+		// click-away close: armed lazily ONCE per open (the composer re-renders
+		// on every model paint — a document listener added per render would
+		// leak; the { once } capture self-removes after the next click).
+		summary.addEventListener('click', () => {
+			if (!details.open) { return; }
+			setTimeout(() => {
+				const away = (event: MouseEvent): void => {
+					if (!details.contains(event.target as Node)) { details.open = false; }
+				};
+				document.addEventListener('click', away, { capture: true, once: true });
+			}, 0);
+		});
+		return details;
+	})();
 	const toolbar = element('div', 'crusorai-composer-toolbar',
+		plusMenu,
 		modePicker(model, host),
 		thinkPicker(model, host),
 		element('span', 'crusorai-composer-left'),

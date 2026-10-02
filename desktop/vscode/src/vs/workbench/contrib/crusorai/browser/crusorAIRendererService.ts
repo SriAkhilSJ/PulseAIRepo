@@ -263,6 +263,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
 		openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
 		openManager: () => { this.openManagerWindow(); },
+		// Composer + menu -> the registered palette flows (skills marketplace).
+		openMarketplace: () => { void this.commandService.executeCommand('crusorai.skillsHub'); },
+		openMySkills: () => { void this.commandService.executeCommand('crusorai.mySkills'); },
+		openOneShot: () => { void this.commandService.executeCommand('crusorai.oneshot'); },
 		copyToClipboard: text => {
 			// Real clipboard (field: navigator.clipboard.writeText is
 			// permission-blocked inside the webview). The workbench service
