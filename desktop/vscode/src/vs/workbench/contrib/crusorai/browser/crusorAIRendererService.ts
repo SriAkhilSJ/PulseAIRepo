@@ -265,14 +265,32 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openManager: () => { this.openManagerWindow(); },
 		// Composer + -> the Add… dialog (native QuickPick; each row routes to
 		// its registered command — one code path with the palette).
-		openPlusMenu: () => { void this.commandService.executeCommand('crusorai.plusMenu'); },
 		skillsHubOp: (op, extra) => this.skillsHubOp(op, extra),
 		copyToClipboard: text => {
 			// Real clipboard (field: navigator.clipboard.writeText is
 			// permission-blocked inside the webview). The workbench service
 			// owns the privileged path; never let clipboard trouble throw.
 			try { this.clipboardService.writeText(text); } catch { /* best effort */ }
+			// Composer + dialog, One-Shot tab (field 2026-10-02 rev 4): one quick
+		// job over the oneshot envelope — same request/response pairing as
+		// the hub op hook.
+		oneshotRun: (template, instructions, variables) => {
+			return new Promise((resolve, reject) => {
+				let listener: { dispose(): void } | undefined;
+				const timer = setTimeout(() => {
+					listener?.dispose();
+					reject(new Error('One-shot: the engine did not answer. Fully restart CrusorAI so the bridge runs this build.'));
+				}, 20000);
+				listener = this.onOneshotResult(frame => {
+					clearTimeout(timer);
+					listener?.dispose();
+					if (frame.error) { reject(new Error(frame.error)); return; }
+					resolve({ text: frame.text });
+				});
+				this.sendOneshot(template, { instructions, variables });
+			});
 		},
+	},
 		navigateToSession: (sessionId: string) => { this.navigateToSession(sessionId); },
 		newSession: () => { this.newSession(); },
 		isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),

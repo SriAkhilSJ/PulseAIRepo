@@ -1,0 +1,378 @@
+// Crusor Hub Dialog — the IN-PANEL dialog behind the composer + menu
+// (field 2026-10-02 rev 4, owner spec: a real dialog box in the panel
+// space — NEVER the top-center QuickPick).
+//
+// One card, four tabs:
+//   Marketplace  — curated catalog: search, install (live, inline errors)
+//   Connectors   — what the agent can reach beyond the workspace (MCP, …)
+//   My Skills    — every installed skill: enable/disable, remove, usage
+//   One-Shot     — quick jobs: template -> input -> result -> clipboard
+//
+// Data flows exclusively through the host's promise hooks
+// (skillsHubOp / oneshotRun) — this module holds zero trust decisions and
+// owns zero engine logic. The card anchors to the + button, opens upward
+// into the chat space, closes on ×/Escape/click-away, and survives the
+// composer's per-paint rebuilds by living on document.body while open.
+
+import type { CrusorAIRenderHost } from './crusorAIRenderer.js';
+
+export type HubDialogTab = 'marketplace' | 'connectors' | 'myskills' | 'oneshot';
+
+const DIALOG_TIMEOUT_MS = 20000;
+
+type Child = Node | string | undefined | false | null;
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, ...children: Child[]): HTMLElementTagNameMap[K] {
+	const node = document.createElement(tag);
+	if (className) { node.className = className; }
+	for (const child of children) {
+		if (typeof child === 'string') { node.append(document.createTextNode(child)); }
+		else if (child) { node.append(child); }
+	}
+	return node;
+}
+
+function glyph(name: string): HTMLElement {
+	const span = document.createElement('span');
+	span.className = `codicon codicon-${name}`;
+	return span;
+}
+
+let openDialog: { root: HTMLElement; close(): void } | undefined;
+
+function closeOpenDialog(): void {
+	openDialog?.close();
+}
+
+export function openHubDialog(host: CrusorAIRenderHost, anchor: HTMLElement, tab: HubDialogTab = 'marketplace'): void {
+	closeOpenDialog();
+	if (typeof host.skillsHubOp !== 'function') {
+		return; // host predates the hub — nothing to show
+	}
+
+	const titleBar = el('div', 'crusorai-hub-dialog-title',
+		el('span', 'crusorai-hub-dialog-heading', 'Crusor'),
+	);
+	const body = el('div', 'crusorai-hub-dialog-body');
+	const closeBtn = el('button', 'crusorai-hub-dialog-close', glyph('close')) as HTMLButtonElement;
+	closeBtn.type = 'button';
+	closeBtn.setAttribute('aria-label', 'Close');
+	const root = el('div', 'crusorai-hub-dialog', titleBar, closeBtn, body);
+
+	const close = (): void => {
+		root.remove();
+		document.removeEventListener('pointerdown', away, true);
+		document.removeEventListener('keydown', onEscape, true);
+		if (openDialog?.root === root) { openDialog = undefined; }
+	};
+	const away = (event: PointerEvent): void => {
+		if (!root.contains(event.target as Node)) { close(); }
+	};
+	const onEscape = (event: KeyboardEvent): void => {
+		if (event.key === 'Escape') { close(); }
+	};
+	closeBtn.addEventListener('click', close);
+	document.addEventListener('pointerdown', away, true);
+	document.addEventListener('keydown', onEscape, true);
+
+	// anchor: fixed, opening UP from the + button, same left edge
+	const rect = anchor.getBoundingClientRect();
+	root.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 430))}px`;
+	root.style.bottom = `${Math.max(12, window.innerHeight - rect.top + 10)}px`;
+	document.body.append(root);
+	openDialog = { root, close };
+
+	const tabs: Array<{ id: HubDialogTab; label: string }> = [
+		{ id: 'marketplace', label: 'Marketplace' },
+		{ id: 'connectors', label: 'Connectors' },
+		{ id: 'myskills', label: 'My Skills' },
+		{ id: 'oneshot', label: 'One-Shot' },
+	];
+	const tabRow = el('div', 'crusorai-hub-dialog-tabs');
+	for (const entry of tabs) {
+		const btn = el('button', entry.id === tab ? 'crusorai-hub-tab is-active' : 'crusorai-hub-tab', entry.label) as HTMLButtonElement;
+		btn.type = 'button';
+		btn.addEventListener('click', () => {
+			for (const sibling of tabRow.querySelectorAll('button')) { sibling.classList.remove('is-active'); }
+			btn.classList.add('is-active');
+			render(body, host, entry.id);
+		});
+		tabRow.append(btn);
+	}
+	titleBar.append(tabRow);
+
+	const heading = titleBar.querySelector('.crusorai-hub-dialog-heading') as HTMLElement;
+	const titles: Record<HubDialogTab, string> = {
+		marketplace: 'Marketplace — install skills',
+		connectors: 'Connectors — beyond the workspace',
+		myskills: 'My Skills — everything installed',
+		oneshot: 'One-Shot — quick jobs',
+	};
+	const setHeading = (key: HubDialogTab): void => { heading.textContent = titles[key]; };
+	const origRender = render;
+	// keep the heading in sync with tab switches
+	tabRow.addEventListener('click', (event) => {
+		const btn = (event.target as HTMLElement).closest('button');
+		if (!btn) { return; }
+		const index = Array.from(tabRow.children).indexOf(btn);
+		setHeading(tabs[index]?.id ?? 'marketplace');
+	});
+	void origRender; // (render is used directly below)
+
+	setHeading(tab);
+	render(body, host, tab);
+}
+
+function statusRow(message: string, isError = false): HTMLElement {
+	return el('div', isError ? 'crusorai-hub-status is-error' : 'crusorai-hub-status', message);
+}
+
+async function render(body: HTMLElement, host: CrusorAIRenderHost, tab: HubDialogTab): Promise<void> {
+	body.replaceChildren(statusRow('Loading…'));
+	try {
+		switch (tab) {
+			case 'marketplace': await renderMarketplace(body, host); break;
+			case 'connectors': renderConnectors(body); break;
+			case 'myskills': await renderMySkills(body, host); break;
+			case 'oneshot': renderOneshot(body, host); break;
+		}
+	} catch (error) {
+		body.replaceChildren(statusRow(String((error as Error).message ?? error), true));
+	}
+}
+
+interface HubRow { name: string; description?: string; category?: string; trust?: string; repo?: string; sha?: string; subdir?: string; update_available?: boolean }
+
+async function renderMarketplace(body: HTMLElement, host: CrusorAIRenderHost): Promise<void> {
+	const [catalogRes, installedRes] = await Promise.all([
+		host.skillsHubOp!('catalog'),
+		host.skillsHubOp!('list'),
+	]);
+	if (catalogRes.ok === false) { throw new Error(String(catalogRes.error ?? 'catalog unavailable')); }
+	const entries = (Array.isArray(catalogRes.results) ? catalogRes.results : []) as HubRow[];
+	const installedRows = (installedRes.ok !== false && Array.isArray((installedRes as { installed?: unknown }).installed))
+		? (installedRes as { installed: HubRow[] }).installed : [];
+	const installedKeys = new Set(installedRows.map(row => `${row.repo}:${row.subdir}`));
+	const updateKeys = new Set(installedRows.filter(row => row.update_available).map(row => `${row.repo}:${row.subdir}`));
+
+	const search = el('input', 'crusorai-hub-dialog-search') as HTMLInputElement;
+	search.type = 'text';
+	search.placeholder = 'Search the catalog…';
+	const list = el('div', 'crusorai-hub-dialog-list');
+	const rebuild = (query: string): void => {
+		list.replaceChildren();
+		const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+		const matches = entries.filter(entry => {
+			const hay = `${entry.name} ${entry.category ?? ''} ${entry.description ?? ''}`.toLowerCase();
+			return tokens.every(token => hay.includes(token));
+		});
+		if (matches.length === 0) {
+			list.append(statusRow('No catalog match. Install any GitHub repo from chat: hub_install("owner/repo@<sha>").'));
+			return;
+		}
+		for (const entry of matches) {
+			const key = `${entry.repo}:${entry.subdir}`;
+			const isInstalled = installedKeys.has(key);
+			const row = el('div', 'crusorai-hub-row');
+			const left = el('div', 'crusorai-hub-row-main',
+				el('div', 'crusorai-hub-row-title',
+					el('span', 'crusorai-hub-row-name', entry.name),
+					el('span', 'crusorai-hub-row-meta', `[${entry.category || 'general'}] ${entry.trust ?? ''}`.trim()),
+				),
+				el('div', 'crusorai-hub-row-desc', entry.description ?? ''),
+			);
+			const action = el('button', isInstalled ? 'crusorai-hub-mini is-done' : 'crusorai-hub-mini') as HTMLButtonElement;
+			action.type = 'button';
+			if (isInstalled) {
+				action.textContent = updateKeys.has(key) ? 'Update' : 'Installed ✓';
+				action.disabled = !updateKeys.has(key);
+				action.addEventListener('click', async () => {
+					action.disabled = true;
+					action.textContent = 'Updating…';
+					const res = await host.skillsHubOp!('update', { name: entry.name });
+					await refresh();
+					if (res.ok === false) { markRowError(row, String(res.error ?? 'update failed')); }
+				});
+			} else {
+				action.textContent = 'Install';
+				action.addEventListener('click', async () => {
+					action.disabled = true;
+					action.textContent = 'Installing…';
+					const res = await host.skillsHubOp!('install', { source: entry.name });
+					if (res.ok === false) {
+						action.disabled = false;
+						action.textContent = 'Install';
+						markRowError(row, String(res.error ?? 'install failed'));
+						return;
+					}
+					installedKeys.add(key);
+					action.className = 'crusorai-hub-mini is-done';
+					action.textContent = 'Installed ✓';
+					action.disabled = true;
+					const warnings = (res as { warnings?: string[] }).warnings ?? [];
+					if (warnings.length > 0) {
+						markRowError(row, `Installed, with warnings: ${warnings.join('; ')}`);
+					}
+				});
+			}
+			row.append(left, action);
+			list.append(row);
+		}
+	};
+	const refresh = async (): Promise<void> => {
+		const [cat2, inst2] = await Promise.all([host.skillsHubOp!('catalog'), host.skillsHubOp!('list')]);
+		if (cat2.ok !== false) {
+			const nextEntries = (Array.isArray(cat2.results) ? cat2.results : []) as HubRow[];
+			const nextInstalled = (inst2.ok !== false && Array.isArray((inst2 as { installed?: unknown }).installed))
+				? (inst2 as { installed: HubRow[] }).installed : [];
+			entries.length = 0; entries.push(...nextEntries);
+			installedKeys.clear(); nextInstalled.forEach(row => installedKeys.add(`${row.repo}:${row.subdir}`));
+			rebuild(search.value);
+		}
+	};
+	search.addEventListener('input', () => rebuild(search.value));
+	body.replaceChildren(search, list);
+	rebuild('');
+}
+
+const CONNECTORS: Array<{ label: string; glyph: string; desc: string; hint: string }> = [
+	{ label: 'MCP', glyph: 'plug', desc: 'Model Context Protocol', hint: 'filesystem, github, postgres, puppeteer servers from .crusorai/mcp.json — say "list my MCP servers" in chat' },
+	{ label: 'GitHub connector', glyph: 'mark-github', desc: 'PRs and issues', hint: 'say "open the PR reviews for this repo" — uses gh / MCP github' },
+	{ label: 'Browser connector', glyph: 'browser', desc: 'CDP / puppeteer verification', hint: 'say "verify the UI works" — Crusor drives a real browser and checks the page' },
+	{ label: 'DB connector', glyph: 'database', desc: 'postgres / sqlite', hint: 'say "query the users table" — guarded read/list tools, mutations ask first' },
+	{ label: 'Terminal connector', glyph: 'terminal', desc: 'guarded shell access', hint: 'run_terminal with approval gates — already wired into every session' },
+];
+
+function renderConnectors(body: HTMLElement): void {
+	const list = el('div', 'crusorai-hub-dialog-list');
+	for (const connector of CONNECTORS) {
+		list.append(el('div', 'crusorai-hub-row',
+			el('div', 'crusorai-hub-row-main',
+				el('div', 'crusorai-hub-row-title', glyph(connector.glyph), el('span', 'crusorai-hub-row-name', connector.label), el('span', 'crusorai-hub-row-meta', connector.desc)),
+				el('div', 'crusorai-hub-row-desc', connector.hint),
+			),
+		));
+	}
+	list.append(el('div', 'crusorai-hub-row',
+		el('div', 'crusorai-hub-row-main',
+			el('div', 'crusorai-hub-row-desc', 'Need more? Skill packs for connectors install from the Marketplace tab.'),
+		),
+	));
+	body.replaceChildren(list);
+}
+
+interface SkillRow { name: string; description?: string; origin?: string; enabled?: boolean; state?: string; use_count?: number }
+
+async function renderMySkills(body: HTMLElement, host: CrusorAIRenderHost): Promise<void> {
+	const res = await host.skillsHubOp!('all');
+	if (res.ok === false) { throw new Error(String(res.error ?? 'could not list skills')); }
+	const rows = (Array.isArray(res.skills) ? res.skills : []) as SkillRow[];
+	const list = el('div', 'crusorai-hub-dialog-list');
+	if (rows.length === 0) {
+		list.append(statusRow('No skills installed yet — the Marketplace tab has the curated catalog.'));
+		body.replaceChildren(list);
+		return;
+	}
+	const originLabel: Record<string, string> = { hub: 'hub', bundled: 'bundled', user: 'yours', agent: 'agent-learned' };
+	for (const row of rows) {
+		const rowEl = el('div', 'crusorai-hub-row');
+		const main = el('div', 'crusorai-hub-row-main',
+			el('div', 'crusorai-hub-row-title',
+				el('span', 'crusorai-hub-row-name', row.name),
+				el('span', 'crusorai-hub-row-meta', `[${originLabel[row.origin ?? ''] ?? row.origin}] uses: ${row.use_count ?? 0}${row.enabled ? '' : ' · disabled'}`),
+			),
+			el('div', 'crusorai-hub-row-desc', row.description ?? ''),
+		);
+		const actions = el('div', 'crusorai-hub-row-actions');
+		const toggle = el('button', 'crusorai-hub-mini') as HTMLButtonElement;
+		toggle.type = 'button';
+		toggle.textContent = row.enabled ? 'Disable' : 'Enable';
+		toggle.addEventListener('click', async () => {
+			toggle.disabled = true;
+			const res2 = await host.skillsHubOp!('toggle', { name: row.name, enabled: !row.enabled });
+			if (res2.ok === false) { toggle.disabled = false; markRowError(rowEl, String(res2.error ?? 'toggle failed')); return; }
+			row.enabled = !row.enabled;
+			await renderMySkills(body, host);
+		});
+		actions.append(toggle);
+		if (row.origin === 'hub') {
+			const remove = el('button', 'crusorai-hub-mini is-danger') as HTMLButtonElement;
+			remove.type = 'button';
+			remove.textContent = 'Remove';
+			remove.addEventListener('click', async () => {
+				remove.disabled = true;
+				const res2 = await host.skillsHubOp!('remove', { name: row.name });
+				if (res2.ok === false) { remove.disabled = false; markRowError(rowEl, String(res2.error ?? 'remove failed')); return; }
+				await renderMySkills(body, host);
+			});
+			actions.append(remove);
+		}
+		rowEl.append(main, actions);
+		list.append(rowEl);
+	}
+	body.replaceChildren(list);
+}
+
+const ONESHOT_TEMPLATES: Array<{ id: string; label: string; prompt: string; variable: string }> = [
+	{ id: 'commit_message', label: 'Commit message', prompt: 'from a diff or a description of the change', variable: 'diff' },
+	{ id: 'summarize', label: 'Summarize', prompt: 'the essentials of a page or document', variable: 'text' },
+	{ id: 'rename_ideas', label: 'Name ideas', prompt: 'what needs a name?', variable: 'subject' },
+];
+
+function renderOneshot(body: HTMLElement, host: CrusorAIRenderHost): void {
+	const wrap = el('div', 'crusorai-hub-oneshot');
+	const chips = el('div', 'crusorai-hub-oneshot-chips');
+	let selected: string | undefined;
+	const inputLabel = el('div', 'crusorai-hub-oneshot-label', 'Pick a template.');
+	const input = el('textarea', 'crusorai-hub-oneshot-input') as HTMLTextAreaElement;
+	input.rows = 4;
+	input.placeholder = 'Paste the input…';
+	const runBtn = el('button', 'crusorai-hub-mini is-primary', 'Run') as HTMLButtonElement;
+	runBtn.type = 'button';
+	runBtn.disabled = true;
+	const result = el('div', 'crusorai-hub-oneshot-result');
+	const copyBtn = el('button', 'crusorai-hub-mini', glyph('copy'), 'Copy') as HTMLButtonElement;
+	copyBtn.type = 'button';
+	copyBtn.style.display = 'none';
+	copyBtn.addEventListener('click', () => { host.copyToClipboard(result.textContent ?? ''); });
+
+	let variable = '';
+	for (const template of ONESHOT_TEMPLATES) {
+		const chip = el('button', 'crusorai-hub-chip', template.label) as HTMLButtonElement;
+		chip.type = 'button';
+		chip.addEventListener('click', () => {
+			for (const sibling of chips.querySelectorAll('button')) { sibling.classList.remove('is-active'); }
+			chip.classList.add('is-active');
+			selected = template.id;
+			variable = template.variable;
+			inputLabel.textContent = `${template.label} — ${template.prompt}`;
+			runBtn.disabled = false;
+		});
+		chips.append(chip);
+	}
+	runBtn.addEventListener('click', async () => {
+		if (!selected) { return; }
+		runBtn.disabled = true;
+		runBtn.textContent = 'Thinking…';
+		result.replaceChildren(statusRow('Running one-shot…'));
+		copyBtn.style.display = 'none';
+		const value = input.value.trim();
+		const res = await host.oneshotRun!(selected, '', { [variable]: value });
+		runBtn.disabled = false;
+		runBtn.textContent = 'Run';
+		if (res.error) {
+			result.replaceChildren(statusRow(String(res.error), true));
+			return;
+		}
+		result.replaceChildren(el('pre', 'crusorai-hub-oneshot-output', res.text ?? ''));
+		copyBtn.style.display = '';
+	});
+	wrap.append(chips, inputLabel, input, runBtn, result, copyBtn);
+	body.replaceChildren(wrap);
+}
+
+function markRowError(row: HTMLElement, message: string): void {
+	const existing = row.querySelector('.crusorai-hub-row-error');
+	if (existing) { existing.remove(); }
+	row.append(el('div', 'crusorai-hub-row-error', message));
+}

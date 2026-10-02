@@ -1019,6 +1019,11 @@ def handle_hub_op(
 
     if clean == "list":
         return list_hub(catalog=catalog, manager=mgr, hub_root=hub_root)
+    if clean == "catalog":
+        cat = catalog if catalog is not None else load_catalog()
+        if not cat.get("ok"):
+            return cat
+        return {"ok": True, "results": cat.get("entries", [])}
     if clean == "search":
         cat = catalog if catalog is not None else load_catalog()
         if not cat.get("ok"):
@@ -1082,8 +1087,8 @@ def handle_hub_op(
         return {"ok": True, "manifest": mgr.skills_manifest()}
 
     return _fail(
-        f"unknown skills_hub op {clean!r} — valid ops: list, search, install, "
-        "update, remove, all, toggle, manifest"
+        f"unknown skills_hub op {clean!r} — valid ops: list, catalog, search, "
+        "install, update, remove, all, toggle, manifest"
     )
 
 

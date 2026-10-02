@@ -8,6 +8,7 @@ import type { CrusorClarifyQuestion, CrusorExecutionMode, CrusorTodoItem } from 
 import { reasoningEffortLabel } from '../common/crusorAIReasoningEffort.js';
 import type { CrusorReasoningEffortValue } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
+import { openHubDialog, HubDialogTab } from './crusorAIHubDialog.js';
 import type { CrusorAISurface } from '../common/crusorAIRendererService.js';
 import { crusorSessionIdFromUri, type CrusorAISessionRow } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
@@ -209,10 +210,10 @@ export interface CrusorAIRenderHost {
 	openFolder(): void;
 	openEngineSettings(): void;
 	openManager(): void;
-	/** Composer + (skills marketplace): open the Add… dialog — ONE native
-	 * QuickPick listing Marketplace / Connectors / My Skills / One-Shot.
-	 * Optional — hosts predating it hide the + button. */
-	openPlusMenu?(): void;
+	/** Composer + flow, One-Shot tab (field 2026-10-02 rev 4): run one
+	 * quick job over the oneshot envelope. Optional, same rule as the
+	 * hooks above. */
+	oneshotRun?(template: string, instructions: string, variables: Record<string, string>): Promise<{ text?: string; error?: string }>;
 	/** Skills Hub — Manager Skills tab: one op over the skills_hub_op
 	 * envelope (all / list / manifest / toggle / update / remove). Resolves
 	 * the op's result dict (check `ok`), rejects on timeout/engine error so
@@ -2500,22 +2501,52 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	// hermes composer layout: the Think pill sits beside the execution-mode
 	// picker; the Send button stays right-aligned via the toolbar's spare
 	// `.crusorai-composer-left` grid track.
-	// The composer + button: ONE click opens the native Add… dialog (the
-	// same workbench QuickPick the palette commands use — field 2026-10-02:
-	// the custom HTML dropdown looked terrible; the native dialog is the
-	// product's own design language). Hosts predating it hide the button.
-	const plusButton = typeof host.openPlusMenu === 'function'
-		? (() => {
-			const btn = element('button', 'crusorai-plus-button', icon('add')) as HTMLButtonElement;
-			btn.type = 'button';
-			btn.setAttribute('aria-label', 'Add — marketplace, connectors, skills, one-shot');
-			btn.title = 'Add — marketplace, connectors, skills, one-shot';
-			btn.addEventListener('click', () => host.openPlusMenu?.());
-			return btn;
-		})()
-		: undefined;
+	// The composer + menu (field 2026-10-02 rev 4, owner spec): a compact
+	// menu IN THE COMPOSER SPACE; each entry opens the IN-PANEL hub dialog
+	// (crusorAIHubDialog) — never the top-center QuickPick. Data flows
+	// through the host's skillsHubOp / oneshotRun promise hooks.
+	const plusMenu = (() => {
+		const entries: Array<{ label: string; glyph: string; desc: string; tab: HubDialogTab; run?: (host: CrusorAIRenderHost, anchor: HTMLElement) => void }> = [
+			{ label: 'Marketplace…', glyph: 'search', desc: 'browse & install skills', tab: 'marketplace', run: openHubDialog },
+			{ label: 'Connectors…', glyph: 'plug', desc: 'MCP, plugins', tab: 'connectors', run: openHubDialog },
+			{ label: 'My Skills', glyph: 'checklist', desc: 'installed skills, on/off', tab: 'myskills', run: openHubDialog },
+			{ label: 'One-Shot Task…', glyph: 'zap', desc: 'quick jobs to clipboard', tab: 'oneshot', run: openHubDialog },
+		].filter(entry => typeof host.skillsHubOp === 'function');
+		if (entries.length === 0) { return undefined; }
+		const details = element('details', 'crusorai-add-menu') as HTMLDetailsElement;
+		const summary = element('summary', 'crusorai-plus-summary', icon('add'));
+		summary.setAttribute('aria-label', 'Add — marketplace, connectors, skills, one-shot');
+		summary.title = 'Add — marketplace, connectors, skills, one-shot';
+		const menu = element('div', 'crusorai-add-menu-items');
+		for (const entry of entries) {
+			const item = element('button', 'crusorai-add-menu-item',
+				icon(entry.glyph),
+				element('span', 'crusorai-add-menu-text',
+					element('span', 'crusorai-add-menu-label', entry.label),
+					element('span', 'crusorai-add-menu-desc', entry.desc),
+				),
+			) as HTMLButtonElement;
+			item.type = 'button';
+			item.addEventListener('click', () => {
+				details.open = false;
+				entry.run?.(host, details);
+			});
+			menu.append(item);
+		}
+		details.append(summary, menu);
+		summary.addEventListener('click', () => {
+			if (!details.open) { return; }
+			setTimeout(() => {
+				const away = (event: MouseEvent): void => {
+					if (!details.contains(event.target as Node)) { details.open = false; }
+				};
+				document.addEventListener('click', away, { capture: true, once: true });
+			}, 0);
+		});
+		return details;
+	})();
 	const toolbar = element('div', 'crusorai-composer-toolbar',
-		plusButton,
+		plusMenu,
 		modePicker(model, host),
 		thinkPicker(model, host),
 		element('span', 'crusorai-composer-left'),

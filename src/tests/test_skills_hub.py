@@ -627,7 +627,11 @@ class TestHubOps:
 
     def test_unknown_op_names_the_valid_set(self, env):
         res = hub.handle_hub_op("explode")
-        assert not res["ok"] and "list, search, install, update, remove, all, toggle, manifest" in res["error"]
+        assert not res["ok"] and "list, catalog, search, install, update, remove, all, toggle, manifest" in res["error"]
+
+    def test_catalog_op_returns_every_entry(self, env):
+        res = hub.handle_hub_op("catalog", catalog=env["catalog"])
+        assert res["ok"] and [e["name"] for e in res["results"]] == ["frontend-design"]
 
     def test_manifest_op_exposes_the_injected_skills_index(self, env):
         """The Manager's "what the model sees" pane must render the ENGINE's
@@ -662,29 +666,32 @@ class TestHubOps:
         branch = handle.split('if kind == "skills_hub_op":')[1].split("return True")[0]
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
-    def test_composer_plus_opens_the_native_add_dialog(self):
-        """Field 2026-10-02, rev 3 (owner, with screenshots): NO custom
-        dropdown chrome — the + opens the NATIVE workbench QuickPick (the
-        same dialog design as Connectors/My Skills). The Add… dialog lists
-        all four entries and routes each to its registered command."""
+    def test_composer_plus_menu_and_in_panel_dialog(self):
+        """Field 2026-10-02, rev 4 (owner spec, final): + opens a compact
+        menu IN THE COMPOSER SPACE; each entry opens the IN-PANEL hub
+        dialog (crusorAIHubDialog) — a real dialog card above the composer,
+        NEVER the top-center QuickPick. Data flows through skillsHubOp /
+        oneshotRun promise hooks."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        assert "crusorai-plus-menu" not in renderer, "custom dropdown stays dead"
-        assert "openPlusMenu?(): void;" in renderer
-        assert "host.openPlusMenu?.()" in renderer
+        assert "openHubDialog" in renderer and "crusorai-add-menu" in renderer
+        assert "host.skillsHubOp === 'function'" in renderer
+        assert "openPlusMenu" not in renderer and "plusButton" not in renderer
+        assert "oneshotRun?(" in renderer
+        dialog = (browser / "crusorAIHubDialog.ts").read_text(encoding="utf-8")
+        for token in ("marketplace", "connectors", "myskills", "oneshot"):
+            assert f"'{token}'" in dialog, token
+        assert "host.skillsHubOp!(" in dialog and "host.oneshotRun!(" in dialog
+        assert "document.body.append(root)" in dialog
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
-        assert "id: 'crusorai.plusMenu'" in hub_ts, "the Add… dialog command"
-        for label in ("Marketplace…", "Connectors…", "My Skills", "One-Shot Task…"):
-            assert label in hub_ts, label
-        for cmd in ("crusorai.skillsHub", "crusorai.showConnectors", "crusorai.mySkills", "crusorai.oneshot"):
-            assert f"'{cmd}'" in hub_ts, cmd
+        assert "crusorai.plusMenu" not in hub_ts, "the QuickPick Add… stays dead"
         service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
-        assert "executeCommand('crusorai.plusMenu')" in service
+        assert "oneshotRun: (template, instructions, variables)" in service
+        assert "crusorai.plusMenu" not in service
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        assert ".crusorai-plus-button" in css
-        assert ".crusorai-plus-menu" not in css and ".crusorai-plus-summary" not in css, (
-            "custom menu chrome must be gone — the dialog is native"
-        )
+        for token in (".crusorai-add-menu-items", ".crusorai-hub-dialog", ".crusorai-hub-row", ".crusorai-hub-chip"):
+            assert token in css, token
+        assert ".crusorai-plus-menu" not in css and ".crusorai-plus-button" not in css
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")

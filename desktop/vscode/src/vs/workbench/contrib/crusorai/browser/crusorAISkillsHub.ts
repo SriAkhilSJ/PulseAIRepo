@@ -66,47 +66,6 @@ interface HubPick extends IQuickPickItem {
 	run?: () => Promise<void>;
 }
 
-// The composer + button's dialog: ONE native QuickPick — Marketplace,
-// Connectors, My Skills, One-Shot — each row opens its own dialog. This is
-// the workbench's own UI (identical to the palette), not custom chrome.
-registerAction2(class extends Action2 {
-	constructor() {
-		super({
-			id: 'crusorai.plusMenu',
-			title: localize2('crusorAI.plusMenu', 'Add…'),
-			f1: true,
-			category: localize2('crusorAI.category', 'Crusor'),
-		});
-	}
-	async run(accessor: ServicesAccessor): Promise<void> {
-		// ServicesAccessor is single-shot: every get() runs before the first await.
-		const quickInput = accessor.get(IQuickInputService);
-		const commandService = accessor.get(ICommandService);
-		const pick = await quickInput.pick(
-			[
-				{ label: '$(search) Marketplace…', description: 'browse & install skills', id: '__marketplace' },
-				{ label: '$(plug) Connectors…', description: 'MCP, plugins', id: '__connectors' },
-				{ label: '$(checklist) My Skills', description: 'installed skills — enable/disable, remove', id: '__myskills' },
-				{ label: '$(zap) One-Shot Task…', description: 'quick jobs to clipboard', id: '__oneshot' },
-			],
-			{ placeHolder: 'Add… — marketplace, connectors, skills, one-shot' },
-		);
-		if (!pick) {
-			return;
-		}
-		const routes: Record<string, string> = {
-			'__marketplace': 'crusorai.skillsHub',
-			'__connectors': 'crusorai.showConnectors',
-			'__myskills': 'crusorai.mySkills',
-			'__oneshot': 'crusorai.oneshot',
-		};
-		const target = routes[pick.id];
-		if (target) {
-			void commandService.executeCommand(target);
-		}
-	}
-});
-
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
