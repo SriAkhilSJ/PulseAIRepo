@@ -1090,6 +1090,30 @@ class BridgeServer:
                 "op": op, "result": result,
             })
             return True
+        if kind == "oneshot":
+            # One-shot quick jobs (hermes oneshot parity): template or ad-hoc
+            # ask -> ONE cheap-tier provider call. Handled BEFORE session
+            # resolution on purpose: a one-shot has nothing to do with the
+            # chat thread — it must never mint a session, append to history,
+            # or touch the prompt cache. Result rides oneshot_result.
+            variables = frame.get("variables")
+            try:
+                from src.prompts.oneshot import run_oneshot
+                res = run_oneshot(
+                    str(frame.get("template") or ""),
+                    instructions=str(frame.get("instructions") or ""),
+                    variables=variables if isinstance(variables, dict) else {},
+                )
+            except Exception as exc:
+                res = {"ok": False, "error": str(exc)[:500]}
+            self.emit({
+                "type": "oneshot_result",
+                "session_id": frame.get("session_id") or "",
+                "template": str(frame.get("template") or "adhoc"),
+                "text": str(res.get("text", "")),
+                "error": str(res.get("error", "")),
+            })
+            return True
 
         raw_workspace = frame.get("workspace")
         workspace = str(raw_workspace).strip() if raw_workspace else ""

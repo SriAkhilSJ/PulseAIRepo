@@ -116,7 +116,23 @@ resolution to an exact SHA.
   Command Palette QuickPick flows over `skills_hub_op`; the engine exposes
   one consolidated `handle_hub_op` dispatcher shared by bridge/CLI/tests.
   A dedicated Marketplace tree/webview pane remains open as a later polish.
-- **Phase 4 — bundles**: multi-skill packs + custom commands as one unit.
+- **Quality control (Phase 4, done)**: install-time metadata linter —
+  warn-only (no description / no trigger keywords / over-cap body),
+  surfaced in the install result and to the installing agent with a
+  compensating-action hint; pull-vs-inject activation is documented in
+  `src/context/context_engine.py` (chat relevance threshold keeps bodies
+  pull-only; the index + `skill_view` is the design, not a bug).
+- **One-shot quick jobs (Phase 3, done)**: `src/prompts/oneshot.py` —
+  pure template registry + cheap-tier execution, bridge op handled
+  session-independently, `Crusor: One-Shot Task` palette command,
+  result to clipboard. Stateless by contract.
+- **Manager Skills tab**: the Manager window's Session/Tools/Changes tabs
+  are static buttons today; the palette flows cover the actions. A live
+  Skills tab (list + update/remove/toggle + "what the model sees") inside
+  `renderManager` is the remaining desktop slice — needs the tab-state
+  model + host callbacks; spec'd for a desktop-side round with the
+  compile loop.
+- **Phase 5 — bundles**: multi-skill packs + custom commands as one unit.
 - **Phase 4 — publishing**: Crusor users open their own catalogs.
 - Remote catalog federation (community-maintained catalog files fetched at
   runtime) — deliberately deferred; the bundled catalog + direct GitHub

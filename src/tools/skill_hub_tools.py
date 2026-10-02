@@ -89,13 +89,23 @@ def hub_install(source: str, pick: str = "") -> str:
     if not res.get("ok"):
         return f"hub_install error: {res.get('error')}"
     word = "upgraded" if res.get("upgraded") else "installed"
-    return (
+    out = (
         f"{word}: {res['name']} (from {res['repo']} @ {res['sha'][:12]}, "
         f"{res['trust']}, {res['files']} files). It is now in the skills "
         f"index — load with skill_view(\"{res['name']}\"). Nothing from the "
         "skill was executed; run any of its scripts only with the user's "
         "approval."
     )
+    # Install-time metadata linter (warn, never block): bad metadata makes a
+    # skill invisible or inert, and the model is the one that can compensate
+    # (better description via skill_manage patch, explicit skill_view usage).
+    warnings = res.get("warnings") or []
+    if warnings:
+        out += "\nMetadata warnings: " + "; ".join(warnings) + (
+            "\nConsider skill_manage(action='patch') to add the missing "
+            "description/triggers so the skill indexes and activates well."
+        )
+    return out
 
 
 @tool

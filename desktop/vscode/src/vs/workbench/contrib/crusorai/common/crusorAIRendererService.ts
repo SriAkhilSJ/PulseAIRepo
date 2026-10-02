@@ -43,6 +43,16 @@ export interface ICrusorAIRendererService {
 	onSkillsHubResult(listener: (frame: { op: string; result: Record<string, unknown> }) => void): IDisposable;
 
 	/**
+	 * One-shot quick jobs (commit message, summarize, …): send the request;
+	 * the answer arrives as an `oneshot_result` event — await it with
+	 * onOneshotResult. Stateless by contract: never touches the thread.
+	 */
+	sendOneshot(template: string, extra?: Record<string, unknown>): void;
+
+	/** One-shot: register a listener for `oneshot_result` events. */
+	onOneshotResult(listener: (frame: { template: string; text: string; error?: string }) => void): IDisposable;
+
+	/**
 	 * Begin a turn whose prompt frame is dispatched by someone other than the
 	 * composer (today: the Preview window's reviewed batch). Runs the same
 	 * turn bookkeeping `submitPrompt` does — archive the live turn, set the

@@ -1189,6 +1189,27 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		return toDisposable(() => this._hubListeners.delete(listener));
 	}
 
+	private readonly _oneshotListeners = new Set<(frame: { template: string; text: string; error?: string }) => void>();
+
+	sendOneshot(template: string, extra?: Record<string, unknown>): void {
+		this.send({ type: 'oneshot', session_id: this.sessionId, template, ...(extra ?? {}) } as CrusorClientMethod);
+	}
+
+	onOneshotResult(listener: (frame: { template: string; text: string; error?: string }) => void): IDisposable {
+		this._oneshotListeners.add(listener);
+		return toDisposable(() => this._oneshotListeners.delete(listener));
+	}
+
+	private _emitOneshotResult(frame: { template: string; text: string; error?: string }): void {
+		for (const listener of Array.from(this._oneshotListeners)) {
+			try {
+				listener(frame);
+			} catch {
+				// isolated on purpose
+			}
+		}
+	}
+
 	private _emitSkillsHubResult(frame: { op: string; result: Record<string, unknown> }): void {
 		for (const listener of Array.from(this._hubListeners)) {
 			try {
@@ -1516,6 +1537,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			});
 		} else if ((frame as any).type === 'skills_hub_result') {
 			this._emitSkillsHubResult(frame as any);
+
+		} else if ((frame as any).type === 'oneshot_result') {
+			this._emitOneshotResult(frame as any);
 		} else if ((frame as any).type === 'subagent_list') {
 			// OpenCode parity: list children for parent
 			for (const row of (frame as any).subagents ?? []) {

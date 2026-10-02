@@ -534,6 +534,35 @@ def _save_ledger(hub_root: str | Path, ledger: dict) -> None:
 # Install / uninstall / list
 # ---------------------------------------------------------------------------
 
+def lint_skill_metadata(
+    name: str, frontmatter: dict, body: str, triggers: list[str]
+) -> list[str]:
+    """Install-time metadata linter (skill_linter parity) — WARN,
+    never block. The safety pipeline owns trust; this owns "will the skill
+    actually be discoverable and activatable". Bad metadata silently kills
+    a skill: no description -> the index shows triggers instead; no trigger
+    keywords -> it never auto-activates (pull-only via skill_view)."""
+    warnings: list[str] = []
+    if not str(frontmatter.get("description", "") or "").strip():
+        warnings.append(
+            "no frontmatter 'description' — the skills index will show trigger "
+            "words instead of a real summary, so the model may skip pulling it"
+        )
+    meaningful = [t for t in triggers if t and t != name]
+    if not meaningful:
+        warnings.append(
+            "no trigger keywords (frontmatter keywords/triggers or a "
+            "**Triggers:** line) — it will never auto-activate; load it "
+            "explicitly with skill_view"
+        )
+    if len(body) > _MAX_BODY_CHARS:
+        warnings.append(
+            f"body is {len(body)} chars — the injected instruction is capped at "
+            f"{_MAX_BODY_CHARS}; the rest is only visible via skill_view"
+        )
+    return warnings
+
+
 def install_skill(
     source: str,
     *,
@@ -743,6 +772,7 @@ def install_skill(
         "bytes": total,
         "upgraded": upgraded,
         "folder": str(dest),
+        "warnings": lint_skill_metadata(name, frontmatter, body, triggers),
     }
 
 

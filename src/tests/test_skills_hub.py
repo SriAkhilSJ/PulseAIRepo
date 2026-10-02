@@ -419,6 +419,7 @@ class TestBindingAndHygiene:
         files = [
             _REPO / "src" / "agents" / "skills_hub.py",
             _REPO / "src" / "tools" / "skill_hub_tools.py",
+            _REPO / "src" / "prompts" / "oneshot.py",
         ]
         for f in files:
             text = f.read_text(encoding="utf-8").lower()
