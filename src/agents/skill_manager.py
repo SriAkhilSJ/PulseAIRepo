@@ -290,7 +290,6 @@ class SkillManager:
         created_by: str = "user",
         pinned: bool = False,
         description: str = "",
-        source: dict | None = None,
     ) -> None:
         """
         Add a new skill (or update an existing one by name).
@@ -317,8 +316,6 @@ class SkillManager:
             existing["patch_count"] = int(existing.get("patch_count", 0)) + 1
             existing["updated_at"] = _NOW()
             existing["last_activity_at"] = _NOW()
-            if source is not None:
-                existing["source"] = source
             self._save()
             return
         self._skills.append(self._ensure_metadata({
@@ -334,8 +331,6 @@ class SkillManager:
             "updated_at": _NOW(),
             "last_activity_at": _NOW(),
         }))
-        if source is not None:
-            self._skills[-1]["source"] = source
         self._save()
 
     def remove_skill(self, name: str) -> bool:

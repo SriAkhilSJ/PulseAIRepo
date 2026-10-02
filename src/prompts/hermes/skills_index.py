@@ -43,11 +43,6 @@ _UPSTREAM_LOAD_SENTENCE = (
     "and proven workflows that outperform general-purpose approaches. Load the skill "
 )
 _PATCH_SENTENCE = "If a skill has issues, fix it with skill_manage(action='patch').\n"
-_HUB_SENTENCE = (
-    "Missing a capability the index doesn't cover? Search the Skills Hub with "
-    "hub_search and install it with hub_install — installs are SHA-pinned and "
-    "sandboxed, and the skill appears in this index immediately.\n"
-)
 
 
 def _injected_load_sentence(basic_tools: str) -> str:
@@ -267,7 +262,6 @@ def _skills_lead(tools: Optional[Iterable[str]], basic_tools: str) -> str:
             "for tasks like code review, planning, and testing — load them even for tasks you "
             "already know how to do, because the skill defines how it should be done here.\n"
             + (_PATCH_SENTENCE if tools_set is not None and "skill_manage" in tools_set else "")
-            + (_HUB_SENTENCE if tools_set is not None and "hub_install" in tools_set else "")
         )
     return (
         _injected_load_sentence(basic_tools)
@@ -369,26 +363,10 @@ def build_skills_system_prompt(
 
 def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
     """Render the same block from Crusor's ``SkillManager`` store (no dir tree)."""
-    # The PROCESS SINGLETON, not a fresh constructor: every mutating surface
-    # (hub ops, skill_manage, the dashboard) mutates the singleton, so the
-    # index must read the same in-memory store. A fresh SkillManager() here
-    # depended on a silent file round-trip — _save() is fail-open (D17), so
-    # one swallowed write error meant a permanently stale index that even
-    # notify_skills_changed() could not fix. (Field 2026-10-01.)
     try:  # pyrefly: ignore [missing-import]
-        from src.agents.skill_manager import skill_manager
+        from src.agents.skill_manager import SkillManager
 
-        manager = skill_manager
-    except Exception:
-        manager = None
-    if manager is None:
-        try:  # pyrefly: ignore [missing-import]
-            from src.agents.skill_manager import SkillManager
-
-            manager = SkillManager()
-        except Exception:
-            return ""
-    try:
+        manager = SkillManager()
         skills = [s for s in manager.list_skills() if s.get("enabled", True)]
     except Exception:
         return ""

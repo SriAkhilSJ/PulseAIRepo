@@ -211,11 +211,6 @@ def skill_manage(
             )
         skill["state"] = "archived"
         manager._save()
-        try:
-            from src.agents.skills_hub import notify_skills_changed
-            notify_skills_changed()
-        except Exception:
-            pass
         return f"archived: {skill['name']} (archived skills stay on disk, never deleted; re-create or patch to reactivate)"
 
     if action not in ("create", "patch"):
@@ -275,11 +270,6 @@ def skill_manage(
         description=desc or (str(existing.get("description")) if existing is not None else ""),
     )
     verb = "created" if action == "create" else "updated"
-    try:
-        from src.agents.skills_hub import notify_skills_changed
-        notify_skills_changed()
-    except Exception:
-        pass
     return (
         f"{verb}: {name} (triggers: {', '.join(trigger_list)}). "
         f"It now appears in the skills index; future sessions matching those triggers "

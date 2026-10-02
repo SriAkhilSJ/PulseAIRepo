@@ -50,12 +50,7 @@ _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
 # Skills are always in context (index + eager injection), so the pull tools
 # that load a skill body on demand are always bound — Agent Skills parity.
-# The hub tools are the INSTALL side of the same story and ride the same
-# always-on waist (discovery -> install -> skill_view pull).
-_SKILL_TOOLS: tuple[str, ...] = (
-    "skills_list", "skill_view", "skill_manage",
-    "hub_search", "hub_install", "hub_update", "hub_list", "hub_remove",
-)
+_SKILL_TOOLS: tuple[str, ...] = ("skills_list", "skill_view", "skill_manage")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",
 )

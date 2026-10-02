@@ -2120,16 +2120,6 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         lines.append("\nApply these lessons to avoid repeating past mistakes.")
         return SystemMessage(content="\n".join(lines))
 
-    def invalidate_layer(self, name: str) -> None:
-        """Drop one cached layer message so the next build re-renders it.
-
-        The skills invalidation seam calls this for the "skills" layer after
-        an install/update/remove/toggle: engines are long-lived per thread
-        (chat_graph._ENGINES LRU) and "skills" is NOT in VOLATILE_LAYERS, so
-        without this a running session would keep serving the pre-install
-        layer until an unrelated cache clear."""
-        self._layer_cache.pop(name, None)
-
     def _skills_layer(self, state: dict[str, Any]) -> SystemMessage | None:
         """Layer 14: Inject user-defined skills relevant to the task."""
         from src.agents.skill_manager import skill_manager

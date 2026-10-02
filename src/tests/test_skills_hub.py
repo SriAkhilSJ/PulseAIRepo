@@ -667,24 +667,28 @@ class TestHubOps:
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
     def test_composer_plus_menu_and_in_panel_dialog(self):
-        """Field 2026-10-02, rev 7 (owner: "spawn a dialog box rather than
-        menu bar … pops in fork"): clicking + opens the hub dialog DIRECTLY
-        — a centered modal (dimmed backdrop over the pane) carrying all four
-        tabs — no intermediate menu; the button keeps the Agent/Think pill
-        look. The card ships its own CSS at runtime, mounts on
-        document.body, inherits the panel theme from the anchor, and every
-        var() carries a literal dark fallback. Data flows through
-        skillsHubOp / oneshotRun — NEVER the top-center QuickPick."""
+        """Field 2026-10-02, rev 8 (owner flow, explicit: "+ -> menu bar
+        option <select> -> Dialog box"): + opens the compact picker menu in
+        the composer space — the exact anatomy of the Agent/Think pills —
+        and choosing an option opens the hub dialog: the centered modal
+        (dimmed backdrop over the pane) carrying the matching tab. The card
+        ships its own CSS at runtime, mounts on document.body, inherits the
+        panel theme from the anchor, and every var() carries a literal dark
+        fallback. Data flows through skillsHubOp / oneshotRun — NEVER the
+        top-center QuickPick."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        # + opens the dialog directly
-        assert "openHubDialog(host, button, 'marketplace')" in renderer
-        assert "crusorai-mode-summary" in renderer  # pill look, same as Agent/Think
-        # every menu variant stays dead
+        # the menu: + is a picker with the Agent/Think anatomy, options
+        # open the dialog
+        assert "crusorai-mode-picker crusorai-add-picker" in renderer
+        assert "crusorai-mode-summary" in renderer and "crusorai-mode-menu" in renderer
+        assert "crusorai-mode-option-copy" in renderer
+        assert "entry.run(host, details)" in renderer
+        assert "host.skillsHubOp === 'function'" in renderer
+        # every direct-open / bespoke variant stays dead
         for dead in ("crusorai-add-menu", "crusorai-plus-summary", "openPlusMenu",
-                     "plusButton", "crusorai-add-picker"):
+                     "plusButton", "addButton"):
             assert dead not in renderer, dead
-        assert "typeof host.skillsHubOp !== 'function'" in renderer
         assert "oneshotRun?(" in renderer
         dialog = (browser / "crusorAIHubDialog.ts").read_text(encoding="utf-8")
         for token in ("marketplace", "connectors", "myskills", "oneshot"):

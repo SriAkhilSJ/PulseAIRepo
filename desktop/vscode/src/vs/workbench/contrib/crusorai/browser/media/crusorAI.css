@@ -1077,36 +1077,6 @@
 .crusorai-manager-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body); }
 .crusorai-manager-tabs button:hover { color: var(--vscode-foreground); }
 .crusorai-manager-tabs button.is-active { border-bottom-color: var(--crusorai-accent); color: var(--vscode-foreground); }
-
-/* ---- Manager Skills tab: list + row actions + the injected skills index ---- */
-.crusorai-skills-pane { overflow: auto; min-height: 0; padding: 14px clamp(18px, 4vw, 42px) 24px; }
-.crusorai-skills-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.crusorai-skills-head h2 { margin: 1px 0 0; font-size: var(--crusorai-text-title); font-weight: 600; }
-.crusorai-skills-summary { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
-.crusorai-skills-refresh { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 3px; background: transparent; color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); cursor: pointer; }
-.crusorai-skills-refresh:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
-.crusorai-skills-refresh:disabled { opacity: 0.6; cursor: default; }
-.crusorai-skills-empty { padding: 14px 0; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body); }
-.crusorai-skills-empty + .crusorai-skills-refresh { margin-top: 4px; }
-.crusorai-skill-row { padding: 9px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
-.crusorai-skill-row.is-disabled .crusorai-skill-description, .crusorai-skill-row.is-disabled .crusorai-skill-triggers { opacity: 0.6; }
-.crusorai-skill-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.crusorai-skill-name { font-weight: 600; font-size: var(--crusorai-text-body); }
-.crusorai-skill-badge { padding: 1px 5px; border-radius: 3px; background: color-mix(in srgb, var(--vscode-badge-background) 80%, transparent); color: var(--vscode-badge-foreground); font-size: var(--crusorai-text-micro); text-transform: uppercase; letter-spacing: var(--crusorai-track-caps); }
-.crusorai-skill-badge.is-on { background: color-mix(in srgb, var(--vscode-badge-background) 55%, transparent); }
-.crusorai-skill-badge.is-update { background: color-mix(in srgb, var(--vscode-charts-blue, #3b8eea) 24%, transparent); color: var(--vscode-foreground); text-transform: none; }
-.crusorai-skill-description { margin-top: 3px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); line-height: 1.4; }
-.crusorai-skill-triggers { margin-top: 3px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); font-family: var(--vscode-editor-font-family); }
-.crusorai-skill-actions { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
-.crusorai-skill-action { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 3px; background: transparent; color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); cursor: pointer; }
-.crusorai-skill-action:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
-.crusorai-skill-action:disabled { opacity: 0.55; cursor: default; }
-.crusorai-skill-action.is-confirm { border-color: var(--vscode-inputValidation-errorBorder, var(--crusorai-failed)); color: var(--vscode-errorForeground); }
-.crusorai-skill-uses { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
-.crusorai-skill-busy { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
-.crusorai-skills-manifest { margin-top: 18px; }
-.crusorai-skills-manifest-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.crusorai-skills-manifest-body { margin: 0; padding: 9px 11px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background)); color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); line-height: 1.5; white-space: pre-wrap; overflow-x: auto; }
 .crusorai-manager-main .crusorai-transcript-lane { max-width: 860px; padding: 18px clamp(18px, 4vw, 42px) 24px; }
 .crusorai-manager-main .crusorai-composer { padding: 8px 16px 10px; background: var(--vscode-editor-background); }
 .crusorai-manager-main .crusorai-composer-input { min-height: 58px; }
@@ -1939,10 +1909,3 @@
 .crusorai-task-tool-card { border-radius: 8px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-editorWidget-background); transition: border-color 120ms, box-shadow 120ms, background 120ms; }
 .crusorai-task-tool-card.is-clickable:hover { border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: var(--vscode-list-hoverBackground); }
 .crusorai-task-tool-card.is-clickable:active { transform: scale(0.99); }
-
-/* The composer + menu and the hub dialog no longer keep styles here.
-   The + menu reuses the shipped .crusorai-mode-picker / .crusorai-mode-menu
-   rules (it must look exactly like the Agent/Think pickers), and the hub
-   dialog injects its own stylesheet from crusorAIHubDialog.ts — the field
-   report 2026-10-02 caught a stale workbench stylesheet rendering the card
-   invisible; the chrome now ships with the markup that needs it. */

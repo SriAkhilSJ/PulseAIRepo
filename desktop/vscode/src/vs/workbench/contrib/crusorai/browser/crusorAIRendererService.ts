@@ -263,34 +263,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
 		openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
 		openManager: () => { this.openManagerWindow(); },
-		// Composer + -> the Add… dialog (native QuickPick; each row routes to
-		// its registered command — one code path with the palette).
-		skillsHubOp: (op, extra) => this.skillsHubOp(op, extra),
 		copyToClipboard: text => {
 			// Real clipboard (field: navigator.clipboard.writeText is
 			// permission-blocked inside the webview). The workbench service
 			// owns the privileged path; never let clipboard trouble throw.
 			try { this.clipboardService.writeText(text); } catch { /* best effort */ }
-			// Composer + dialog, One-Shot tab (field 2026-10-02 rev 4): one quick
-		// job over the oneshot envelope — same request/response pairing as
-		// the hub op hook.
-		oneshotRun: (template, instructions, variables) => {
-			return new Promise((resolve, reject) => {
-				let listener: { dispose(): void } | undefined;
-				const timer = setTimeout(() => {
-					listener?.dispose();
-					reject(new Error('One-shot: the engine did not answer. Fully restart CrusorAI so the bridge runs this build.'));
-				}, 20000);
-				listener = this.onOneshotResult(frame => {
-					clearTimeout(timer);
-					listener?.dispose();
-					if (frame.error) { reject(new Error(frame.error)); return; }
-					resolve({ text: frame.text });
-				});
-				this.sendOneshot(template, { instructions, variables });
-			});
 		},
-	},
 		navigateToSession: (sessionId: string) => { this.navigateToSession(sessionId); },
 		newSession: () => { this.newSession(); },
 		isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
@@ -1197,76 +1175,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.parts.push({ kind: 'tool', toolId });
 	}
 
-	// Skills Hub (Phase 3): UI listeners for skills_hub_result frames. The
-	// hub panel registers a listener per in-flight request; listener errors
-	// are isolated so one broken panel never eats the frame dispatch.
-	private readonly _hubListeners = new Set<(frame: { op: string; result: Record<string, unknown> }) => void>();
-
-	sendSkillsHubOp(op: string, extra?: Record<string, unknown>): void {
-		this.send({ type: 'skills_hub_op', session_id: this.sessionId, op, ...(extra ?? {}) } as CrusorClientMethod);
-	}
-
-	onSkillsHubResult(listener: (frame: { op: string; result: Record<string, unknown> }) => void): IDisposable {
-		this._hubListeners.add(listener);
-		return toDisposable(() => this._hubListeners.delete(listener));
-	}
-
-	/**
-	 * One skills_hub_op request → its result dict (the Manager Skills tab's
-	 * bridge). Same contract the palette's hubRequest uses: one matching
-	 * frame, bounded wait, hard failure named — the tab paints it inline
-	 * instead of hanging on a silent panel. Palette flows are modal, so a
-	 * same-op request from QuickPick and this method cannot race in practice;
-	 * within this method the tab's parallel reads use distinct ops.
-	 */
-	private skillsHubOp(op: string, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-		return new Promise((resolve, reject) => {
-			let listener: IDisposable | undefined;
-			const timer = setTimeout(() => {
-				listener?.dispose();
-				reject(new Error(`the engine did not answer the '${op}' request — fully restart CrusorAI so the bridge runs the current build.`));
-			}, 12000);
-			listener = this.onSkillsHubResult(frame => {
-				if (frame.op !== op) { return; }
-				clearTimeout(timer);
-				listener?.dispose();
-				resolve((frame.result ?? {}) as Record<string, unknown>);
-			});
-			this.sendSkillsHubOp(op, extra);
-		});
-	}
-
-	private readonly _oneshotListeners = new Set<(frame: { template: string; text: string; error?: string }) => void>();
-
-	sendOneshot(template: string, extra?: Record<string, unknown>): void {
-		this.send({ type: 'oneshot', session_id: this.sessionId, template, ...(extra ?? {}) } as CrusorClientMethod);
-	}
-
-	onOneshotResult(listener: (frame: { template: string; text: string; error?: string }) => void): IDisposable {
-		this._oneshotListeners.add(listener);
-		return toDisposable(() => this._oneshotListeners.delete(listener));
-	}
-
-	private _emitOneshotResult(frame: { template: string; text: string; error?: string }): void {
-		for (const listener of Array.from(this._oneshotListeners)) {
-			try {
-				listener(frame);
-			} catch {
-				// isolated on purpose
-			}
-		}
-	}
-
-	private _emitSkillsHubResult(frame: { op: string; result: Record<string, unknown> }): void {
-		for (const listener of Array.from(this._hubListeners)) {
-			try {
-				listener(frame);
-			} catch {
-				// isolated on purpose — a broken listener must not break the chain
-			}
-		}
-	}
-
 	private send(frame: CrusorClientMethod): void {
 		try {
 			this.engineService.send(frame);
@@ -1582,11 +1490,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
 				agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
 			});
-		} else if ((frame as any).type === 'skills_hub_result') {
-			this._emitSkillsHubResult(frame as any);
-
-		} else if ((frame as any).type === 'oneshot_result') {
-			this._emitOneshotResult(frame as any);
 		} else if ((frame as any).type === 'subagent_list') {
 			// OpenCode parity: list children for parent
 			for (const row of (frame as any).subagents ?? []) {
