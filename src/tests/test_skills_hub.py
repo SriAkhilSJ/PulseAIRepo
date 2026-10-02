@@ -662,44 +662,25 @@ class TestHubOps:
         branch = handle.split('if kind == "skills_hub_op":')[1].split("return True")[0]
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
-    def test_composer_plus_menu_wiring_is_complete(self):
-        """Field 2026-10-01: the composer's + button is the always-visible
-        marketplace entry — the renderer must offer the three host hooks,
-        the service must route them to the registered palette commands, and
-        the dropdown styles must exist (a styled-less menu renders as a
-        broken list)."""
+    def test_composer_plus_button_opens_the_dialog_directly(self):
+        """Field 2026-10-02: the composer + button opens the Marketplace
+        dialog DIRECTLY — the intermediate dropdown sprawled over the
+        transcript and the owner hated it. Pin the replacement: no
+        dropdown markup anywhere, the + routes to openMarketplace, and the
+        marketplace dialog carries the other quick actions as rows."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        for hook in ("openMarketplace?(): void;", "openMySkills?(): void;", "openOneShot?(): void;"):
-            assert hook in renderer, hook
-        assert "crusorai-plus-menu" in renderer and "Marketplace…" in renderer
-        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
-        for cmd in ("crusorai.skillsHub", "crusorai.mySkills", "crusorai.oneshot"):
-            assert f"executeCommand('{cmd}')" in service, cmd
+        assert "crusorai-plus-menu" not in renderer, "the dropdown must stay dead"
+        assert "plusButton" in renderer and "host.openMarketplace?.()" in renderer
+        hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
+        assert "'__myskills'" in hub_ts and "'__oneshot'" in hub_ts, (
+            "My Skills and One-Shot must be rows inside the marketplace dialog"
+        )
+        for cmd in ("crusorai.mySkills", "crusorai.oneshot"):
+            assert f"executeCommand('{cmd}')" in hub_ts, cmd
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        assert ".crusorai-plus-menu-items" in css and ".crusorai-plus-summary" in css
-
-    def test_manager_skills_tab_wiring_is_complete(self):
-        """The Manager Skills tab must be a live slice, not decoration: the
-        renderer owns a tab-state model + the host hook, the service routes
-        the hook to skills_hub_op with a bounded wait, and the panel styles
-        exist (an unstyled pane renders as a broken list)."""
-        browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
-        renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        assert "skillsHubOp?(op: string, extra?: Record<string, unknown>): Promise<Record<string, unknown>>;" in renderer
-        assert "type ManagerTabId = 'session' | 'skills';" in renderer
-        assert "let managerTab: ManagerTabId = 'session';" in renderer
-        assert "() => ui.setTab('skills')" in renderer
-        assert "WHAT THE MODEL SEES" in renderer
-        # the pane must ask the ENGINE for the index (manifest op), not rebuild it
-        assert "host.skillsHubOp('manifest')" in renderer
-        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
-        assert "skillsHubOp: (op, extra) => this.skillsHubOp(op, extra)," in service
-        assert "this.sendSkillsHubOp(op, extra);" in service
-        assert "12000" in service.split("private skillsHubOp")[1].split("sendSkillsHubOp")[0]
-        css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        assert ".crusorai-skills-pane" in css and ".crusorai-skill-row" in css
-        assert ".crusorai-skills-manifest-body" in css
+        assert ".crusorai-plus-button" in css
+        assert ".crusorai-plus-menu-items" not in css, "dropdown styles must be gone"
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")

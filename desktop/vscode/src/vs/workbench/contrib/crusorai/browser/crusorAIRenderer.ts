@@ -2502,49 +2502,23 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	// hermes composer layout: the Think pill sits beside the execution-mode
 	// picker; the Send button stays right-aligned via the toolbar's spare
 	// `.crusorai-composer-left` grid track.
-	// The composer + menu (skills marketplace): always-visible entry point
-	// to the store. Native <details> dropdown — the same pattern as the
-	// mode picker — items execute the registered palette commands through
-	// the host. When the host predates the callbacks the button hides
-	// itself instead of dead-clicking.
-	const plusMenu = (() => {
-		const entries: Array<{ label: string; glyph: string; run?: () => void }> = [
-			{ label: 'Marketplace…', glyph: 'package', run: host.openMarketplace },
-			{ label: 'My Skills', glyph: 'checklist', run: host.openMySkills },
-			{ label: 'One-Shot Task…', glyph: 'zap', run: host.openOneShot },
-		].filter(entry => typeof entry.run === 'function');
-		if (entries.length === 0) { return undefined; }
-		const details = element('details', 'crusorai-plus-menu') as HTMLDetailsElement;
-		const summary = element('summary', 'crusorai-plus-summary', icon('add'));
-		summary.setAttribute('aria-label', 'Marketplace and quick actions');
-		summary.title = 'Marketplace & quick actions';
-		const menu = element('div', 'crusorai-plus-menu-items');
-		for (const entry of entries) {
-			const item = element('button', 'crusorai-plus-menu-item', icon(entry.glyph), entry.label) as HTMLButtonElement;
-			item.type = 'button';
-			item.addEventListener('click', () => {
-				details.open = false;
-				entry.run?.();
-			});
-			menu.append(item);
-		}
-		details.append(summary, menu);
-		// click-away close: armed lazily ONCE per open (the composer re-renders
-		// on every model paint — a document listener added per render would
-		// leak; the { once } capture self-removes after the next click).
-		summary.addEventListener('click', () => {
-			if (!details.open) { return; }
-			setTimeout(() => {
-				const away = (event: MouseEvent): void => {
-					if (!details.contains(event.target as Node)) { details.open = false; }
-				};
-				document.addEventListener('click', away, { capture: true, once: true });
-			}, 0);
-		});
-		return details;
-	})();
+	// The composer + button (skills marketplace): ONE click opens the
+	// Marketplace dialog directly — no intermediate dropdown sprawling over
+	// the transcript (field 2026-10-02: the owner hated the spanning menu).
+	// My Skills and One-Shot live as rows INSIDE the marketplace dialog, so
+	// nothing is lost. Hosts predating the marketplace hide the button.
+	const plusButton = typeof host.openMarketplace === 'function'
+		? (() => {
+			const btn = element('button', 'crusorai-plus-button', icon('add')) as HTMLButtonElement;
+			btn.type = 'button';
+			btn.setAttribute('aria-label', 'Marketplace and quick actions');
+			btn.title = 'Marketplace — install skills, manage skills, one-shot tasks';
+			btn.addEventListener('click', () => host.openMarketplace?.());
+			return btn;
+		})()
+		: undefined;
 	const toolbar = element('div', 'crusorai-composer-toolbar',
-		plusMenu,
+		plusButton,
 		modePicker(model, host),
 		thinkPicker(model, host),
 		element('span', 'crusorai-composer-left'),

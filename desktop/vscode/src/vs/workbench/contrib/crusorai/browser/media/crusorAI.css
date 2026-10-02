@@ -1940,29 +1940,12 @@
 .crusorai-task-tool-card.is-clickable:hover { border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: var(--vscode-list-hoverBackground); }
 .crusorai-task-tool-card.is-clickable:active { transform: scale(0.99); }
 
-/* Composer + menu (skills marketplace) — the mode-picker's dropdown
-   language, tighter: one glyph button, an action panel above the bar. */
-.crusorai-plus-menu { position: relative; }
-.crusorai-plus-summary {
+/* Composer + (skills marketplace) — one compact glyph button in the
+   toolbar language; opens the Marketplace dialog directly. */
+.crusorai-plus-button {
 	display: inline-flex; align-items: center; justify-content: center;
-	width: 24px; height: 24px; padding: 0; border-radius: 5px;
-	list-style: none; cursor: pointer;
+	width: 24px; height: 24px; padding: 0; border-radius: 5px; border: none;
 	background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground);
+	cursor: pointer;
 }
-.crusorai-plus-summary::-webkit-details-marker { display: none; }
-.crusorai-plus-summary:hover { background: var(--vscode-list-hoverBackground); }
-.crusorai-plus-menu[open] { z-index: 1000; }
-.crusorai-plus-menu[open] .crusorai-plus-summary { background: var(--vscode-list-hoverBackground); }
-.crusorai-plus-menu-items {
-	position: absolute; bottom: calc(100% + 6px); left: 0; min-width: 190px;
-	padding: 4px; border-radius: 6px; border: 1px solid var(--vscode-panel-border, transparent);
-	background: var(--vscode-editorWidget-background);
-	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
-}
-.crusorai-plus-menu-item {
-	display: flex; align-items: center; gap: .5em; width: 100%;
-	padding: 5px 8px; border: none; border-radius: 4px; text-align: left;
-	background: transparent; color: var(--vscode-foreground); cursor: pointer;
-	font: inherit;
-}
-.crusorai-plus-menu-item:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-plus-button:hover { background: var(--vscode-list-hoverBackground); }

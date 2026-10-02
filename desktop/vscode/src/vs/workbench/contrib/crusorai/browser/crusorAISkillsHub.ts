@@ -21,6 +21,7 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 
 const HUB_TIMEOUT_MS = 12000;
 
@@ -98,8 +99,13 @@ registerAction2(class extends Action2 {
 		}
 		const updates = installed.filter(row => row.update_available);
 
+		const commandService = accessor.get(ICommandService);
 		const picks: HubPick[] = [
 			{ label: '$(search) Search the Skills Hub…', description: 'curated catalog — install with one click', id: '__search' },
+			// The composer + button opens THIS dialog directly, so the other
+			// quick actions ride as rows — one entry point, no dropdown.
+			{ label: '$(checklist) My Skills', description: 'every installed skill — enable/disable, usage, remove', id: '__myskills' },
+			{ label: '$(zap) One-Shot Task…', description: 'commit message, summarize, name ideas — to clipboard', id: '__oneshot' },
 		];
 		if (updates.length > 0) {
 			picks.push({
@@ -121,6 +127,14 @@ registerAction2(class extends Action2 {
 
 		const pick = await quickInput.pick(picks, { placeHolder: 'Crusor Skills Hub — browse, install, update' });
 		if (!pick) {
+			return;
+		}
+		if (pick.id === '__myskills') {
+			void commandService.executeCommand('crusorai.mySkills');
+			return;
+		}
+		if (pick.id === '__oneshot') {
+			void commandService.executeCommand('crusorai.oneshot');
 			return;
 		}
 		if (pick.id === '__search') {
