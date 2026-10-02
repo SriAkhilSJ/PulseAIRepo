@@ -23,7 +23,6 @@ import { IContextKeyService, RawContextKey } from '../../../../platform/contextk
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
-import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
@@ -32,9 +31,7 @@ import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from 
 import { ISCMService } from '../../scm/common/scm.js';
 import { ITestResultService } from '../../testing/common/testResultService.js';
 import { ITestService } from '../../testing/common/testService.js';
-import { TestResultState, TestRunProfileBitset } from '../../testing/common/testTypes.js';
 import { ITaskService } from '../../tasks/common/taskService.js';
-import { TaskRunSource } from '../../tasks/common/tasks.js';
 import { ITerminalService } from '../../terminal/browser/terminal.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -520,7 +517,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             }
         }
         const result = await this.testService.runTests({
-            group: TestRunProfileBitset.Run,
+            group: 2 /* TestRunProfileBitset.Run */,
             tests: [...selected.values()],
             exclude,
             preserveFocus: true,
@@ -554,7 +551,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         if (!task) {
             throw new Error(`Crusor could not resolve task: ${request.taskId}`);
         }
-        const summary = await this.taskService.run(task, undefined, TaskRunSource.ChatAgent);
+        const summary = await this.taskService.run(task, undefined, 5 /* TaskRunSource.ChatAgent */);
         return {
             taskId: request.taskId,
             state: summary?.exitCode === 0 ? 'passed' : typeof summary?.exitCode === 'number' ? 'failed' : 'unknown',
@@ -650,7 +647,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             hasShellIntegration = true;
             listeners.add(capability.onCommandFinished(finishCommand));
         };
-        const existing = instance.capabilities.get(TerminalCapability.CommandDetection);
+        const existing = instance.capabilities.get(2 /* TerminalCapability.CommandDetection */);
         if (existing) {
             attachCommandDetection(existing);
         }
@@ -692,13 +689,13 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         }
     }
     testReceipt(result) {
-        const failed = result.counts[TestResultState.Failed] + result.counts[TestResultState.Errored];
+        const failed = result.counts[4 /* TestResultState.Failed */] + result.counts[6 /* TestResultState.Errored */];
         return {
             runId: result.id,
             state: result.completedAt === undefined ? 'running' : failed > 0 ? 'failed' : 'passed',
-            passed: result.counts[TestResultState.Passed],
+            passed: result.counts[3 /* TestResultState.Passed */],
             failed,
-            skipped: result.counts[TestResultState.Skipped],
+            skipped: result.counts[5 /* TestResultState.Skipped */],
         };
     }
     async withModel(resource, callback) {
