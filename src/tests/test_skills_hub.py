@@ -734,6 +734,68 @@ class TestHubOps:
         noname = hub.handle_hub_op("skill_create", frame={"instruction": "x" * 50})
         assert not noname["ok"] and "name" in noname["error"]
 
+    def test_project_skills_are_team_scoped_and_git_committed(self, env, tmp_path):
+        """The 'claude boring part' (field 2026-10-02): skills that live in
+        the WORKSPACE (.crusorai/skills/*/SKILL.md), load into the index,
+        toggle without losing state, never shadow non-project skills, drop
+        when the file vanishes — and skill_create(scope=workspace) writes
+        the file + remove deletes it."""
+        ws = tmp_path / "team"
+        sdir = ws / ".crusorai" / "skills" / "deploy-checklist"
+        sdir.mkdir(parents=True)
+        sdir.joinpath("SKILL.md").write_text(
+            "---\nname: deploy-checklist\ndescription: Ship with a checklist.\n"
+            "triggers: [deploy, release checklist]\n---\n"
+            "Run the full deploy checklist before every release.",
+            encoding="utf-8")
+        mgr = env["manager"]
+        assert mgr.load_workspace_skills(str(ws)) == 1
+        row = next(s for s in mgr.list_skills() if s["name"] == "deploy-checklist")
+        assert row["created_by"] == "project" and "deploy" in row["triggers"]
+        assert (row["source"] or {}).get("kind") == "project"
+
+        # idempotent + enabled state survives a reload (toggle persists)
+        assert mgr.load_workspace_skills(str(ws)) == 1
+        skill = next(s for s in mgr._skills if s["name"] == "deploy-checklist")
+        skill["enabled"] = False
+        mgr.load_workspace_skills(str(ws))
+        assert next(s for s in mgr.list_skills() if s["name"] == "deploy-checklist")["enabled"] is False
+
+        # a project file never shadows a non-project skill of the same name
+        # (fresh manager: the user skill owns the name BEFORE the file loads)
+        from src.agents.skill_manager import SkillManager as _SM
+        mgr2 = _SM(storage_path=str(tmp_path / "other" / "skills.json"))
+        mgr2.add_skill("deploy-checklist", ["deploy"], "user-owned body", created_by="user")
+        assert mgr2.load_workspace_skills(str(ws)) == 0  # skipped: name owned
+        # ...and the user-facing create refuses to hijack a team skill
+        hijack = hub.handle_hub_op("skill_create", frame={
+            "name": "deploy-checklist", "instruction": "Long enough body that would clobber the team skill badly."})
+        assert not hijack["ok"] and "TEAM skill" in hijack["error"]
+
+        # vanishing file -> dropped from the index
+        sdir.joinpath("SKILL.md").unlink()
+        mgr.load_workspace_skills(str(ws))
+        assert all(s["name"] != "deploy-checklist" or s["created_by"] != "project"
+                   for s in mgr.list_skills())
+
+        # skill_create scope=workspace writes the FILE and loads it
+        res = hub.handle_hub_op("skill_create", frame={
+            "scope": "workspace", "workspace": str(ws), "name": "Review Wings",
+            "instruction": "Long enough body for the review workflow, well over the minimum.",
+            "triggers": ["review wings"], "description": "Run review wings.",
+        })
+        assert res["ok"] and res["scope"] == "workspace" and res["updated"] is False
+        f = ws / ".crusorai" / "skills" / "review-wings" / "SKILL.md"
+        assert f.exists() and "name: review-wings" in f.read_text(encoding="utf-8")
+        assert next(s for s in mgr.list_skills() if s["name"] == "review-wings")["created_by"] == "project"
+        assert isinstance(res["invalidated"], dict)
+
+        # remove deletes the team FILE (git then shares the removal)
+        rm = hub.handle_hub_op("remove", frame={"name": "review-wings", "workspace": str(ws)})
+        assert rm["ok"] and rm.get("scope") == "workspace"
+        assert not f.exists()
+        assert all(s["name"] != "review-wings" for s in mgr.list_skills())
+
     def test_catalog_op_returns_every_entry(self, env):
         res = hub.handle_hub_op("catalog", catalog=env["catalog"])
         assert res["ok"] and [e["name"] for e in res["results"]] == ["frontend-design"]
@@ -835,11 +897,20 @@ class TestHubOps:
         assert "crusorai-hub-attach" in dialog
         assert "is-connected" in dialog and "is-setup" in dialog
         service_src = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
-        assert "op.startsWith('connector')" in service_src and "workspace: this.workspacePath" in service_src
+        assert "op.startsWith('connector')" in service_src and "op === 'skill_create'" in service_src
+        assert "workspace: this.workspacePath" in service_src
         engine = (_REPO / "src" / "agents" / "skills_hub.py").read_text(encoding="utf-8")
         assert "def probe_connectors" in engine and '"connectors"' in engine
         assert "def connector_attach" in engine and "def connector_detach" in engine
         assert "def create_user_skill" in engine and '"skill_create"' in engine
+        # project-scoped team skills (Claude .claude/skills parity): the
+        # workspace folder is the source of truth, the bridge loads it per turn
+        assert "scopeSel" in dialog and "team · committed" in dialog
+        assert "row.origin === 'project'" in dialog
+        mgr_src = (_REPO / "src" / "agents" / "skill_manager.py").read_text(encoding="utf-8")
+        assert "def load_workspace_skills" in mgr_src and '"project"' in mgr_src
+        bridge_src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+        assert "load_workspace_skills(workspace)" in bridge_src
         assert "mcp_config_path" in engine
         assert "mcp_config_path" in engine
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")

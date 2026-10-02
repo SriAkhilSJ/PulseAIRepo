@@ -1124,6 +1124,15 @@ class BridgeServer:
         # and the preview proxy is useless without it — so this is where it gets started. Nothing
         # visible: no console window, no waiting, no failure path into the turn.
         self._start_preview_proxy(workspace)
+        # Project skills (.crusorai/skills/*/SKILL.md, committed with the
+        # repo) must be in the index BEFORE this turn's system prompt is
+        # built. Idempotent + cheap (a listdir), so every workspace-bearing
+        # frame refreshes it — pull a teammate's skill and it just works.
+        try:
+            from src.agents.skill_manager import skill_manager as _sm
+            _sm.load_workspace_skills(workspace)
+        except Exception:
+            pass  # a broken team skills folder must never block the turn
         # Hermes session-metadata reads/writes are workspace-optional: they
         # address the DURABLE row, not the live worker, so they must neither
         # mint phantom in-memory entries nor demand an open folder.

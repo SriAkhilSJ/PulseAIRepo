@@ -126,6 +126,7 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini.is-primary { align-self: flex-start; }
 .crusorai-hub-attach, .crusorai-hub-create { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border, transparent); }
+select.crusorai-hub-dialog-search { height: 30px; padding: 4px 8px; }
 .crusorai-hub-create { margin-top: 6px; }
 .crusorai-hub-state {
 	display: inline-flex; align-items: center; gap: .4em; margin-left: auto;
@@ -421,6 +422,9 @@ async function renderMarketplace(body: HTMLElement, host: CrusorAIRenderHost): P
 	create.append(el('div', 'crusorai-hub-oneshot-label', 'Create a skill'));
 	create.append(el('div', 'crusorai-hub-row-desc',
 		'No coding needed. Describe the job in your own words and press \u2728 Enhance — or paste an existing skill file and add it directly.'));
+	const scopeSel = el('select', 'crusorai-hub-dialog-search') as HTMLSelectElement;
+	scopeSel.innerHTML = '<option value="user">Just me — private, all your projects</option>'
+		+ '<option value="workspace">This workspace — team, committed to git</option>';
 	const draftIn = el('textarea', 'crusorai-hub-oneshot-input') as HTMLTextAreaElement;
 	draftIn.rows = 3;
 	draftIn.placeholder = 'e.g. when I say \u201cship it\u201d, run the tests, build, and give me a go/no-go checklist';
@@ -466,17 +470,21 @@ async function renderMarketplace(body: HTMLElement, host: CrusorAIRenderHost): P
 		const res = await host.skillsHubOp!('skill_create', {
 			name: parsed.name, description: parsed.description,
 			triggers: parsed.triggers, instruction: parsed.instruction,
+			scope: scopeSel.value,
 		});
 		addBtn.disabled = false;
 		if (res.ok === false) { say(String(res.error ?? 'could not add the skill'), true); return; }
 		const what = res.updated ? 'Updated' : 'Added';
-		say(`${what} \u2713 \u2014 \u201c${res.skill}\u201d is live (auto-activates on: ${(res.triggers as string[]).join(', ')}).`);
+		const where = res.scope === 'workspace'
+			? ' — lives in .crusorai/skills/ — COMMIT it so teammates get it on pull'
+			: '';
+		say(`${what} \u2713 \u2014 \u201c${res.skill}\u201d is live (auto-activates on: ${(res.triggers as string[]).join(', ')}).${where}`);
 		draftIn.value = '';
 		contentIn.value = '';
 		enhanceBtn.disabled = true;
 		addBtn.disabled = true;
 	});
-	create.append(draftIn, enhanceBtn, contentIn, addBtn, createMsg);
+	create.append(scopeSel, draftIn, enhanceBtn, contentIn, addBtn, createMsg);
 	body.replaceChildren(search, list, create);
 	rebuild('');
 }
@@ -607,7 +615,7 @@ async function renderMySkills(body: HTMLElement, host: CrusorAIRenderHost): Prom
 		body.replaceChildren(list);
 		return;
 	}
-	const originLabel: Record<string, string> = { hub: 'hub', bundled: 'bundled', user: 'yours', agent: 'agent-learned' };
+	const originLabel: Record<string, string> = { hub: 'hub', bundled: 'bundled', user: 'yours', agent: 'agent-learned', project: 'team · committed' };
 	for (const row of rows) {
 		const rowEl = el('div', 'crusorai-hub-row');
 		const main = el('div', 'crusorai-hub-row-main',
@@ -629,7 +637,7 @@ async function renderMySkills(body: HTMLElement, host: CrusorAIRenderHost): Prom
 			await renderMySkills(body, host);
 		});
 		actions.append(toggle);
-		if (row.origin === 'hub') {
+		if (row.origin === 'hub' || row.origin === 'project') {
 			const remove = el('button', 'crusorai-hub-mini is-danger') as HTMLButtonElement;
 			remove.type = 'button';
 			remove.textContent = 'Remove';

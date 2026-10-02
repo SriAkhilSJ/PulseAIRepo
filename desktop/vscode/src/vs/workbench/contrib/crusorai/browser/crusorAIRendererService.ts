@@ -1235,7 +1235,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// connector ops (probe / attach / detach) read and write the
 			// WORKSPACE's .crusorai/mcp.json — the engine has no other way
 			// to know which folder is open.
-			this.sendSkillsHubOp(op, op.startsWith('connector') ? { ...extra, workspace: this.workspacePath } : extra);
+			this.sendSkillsHubOp(op, (op.startsWith('connector') || op === 'skill_create') ? { ...extra, workspace: this.workspacePath } : extra);
 		});
 	}
 

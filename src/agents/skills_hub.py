@@ -1161,6 +1161,8 @@ def create_user_skill(
     existing = next((s for s in mgr.list_skills() if s.get("name") == norm), None)
     if existing and existing.get("created_by") == "bundled":
         return {"ok": False, "error": f"'{norm}' is a bundled engine skill — bundled skills are read-only; pick another name"}
+    if existing and existing.get("created_by") == "project":
+        return {"ok": False, "error": f"'{norm}' is a TEAM skill (lives in this workspace's .crusorai/skills/) — edit that file or pick another name"}
     desc = (description or "").strip()[:120]
     mgr.add_skill(norm, trig, body, created_by="user", pinned=False, description=desc)
     return {
@@ -1169,6 +1171,54 @@ def create_user_skill(
         "updated": existing is not None,
         "triggers": trig,
     }
+
+
+def write_workspace_skill(
+    workspace: str,
+    name: str,
+    body: str,
+    triggers: list[str] | None = None,
+    description: str = "",
+    *,
+    manager: SkillManager | None = None,
+) -> dict:
+    """Write a PROJECT skill file — <workspace>/.crusorai/skills/<name>/
+    SKILL.md with frontmatter — and load it into the index. This is the
+    "committed with the repo" lane: anyone who pulls the project gets the
+    skill (Claude .claude/skills parity). The dialog sends text; the
+    engine owns the file."""
+    mgr = _manager(manager)
+    ws = (workspace or "").strip()
+    if not ws:
+        return {"ok": False, "error": "open a workspace folder first — team skills live in <workspace>/.crusorai/skills/"}
+    raw = (name or "").strip().lower()
+    norm = re.sub(r"[^a-z0-9-]+", "-", raw).strip("-")
+    if not norm:
+        return {"ok": False, "error": "a skill name is required (letters, numbers, hyphens)"}
+    norm = norm[:64]
+    text = (body or "").strip()
+    if len(text) < 20:
+        return {"ok": False, "error": "the skill body is too short — describe when to use it and the steps (at least a sentence or two)"}
+    trig = [t.strip().lower() for t in (triggers or []) if t.strip()]
+    if not trig:
+        trig = [w for w in norm.split("-") if len(w) > 2] or [norm]
+    desc = (description or "").strip()[:120]
+    dir_ = Path(ws) / ".crusorai" / "skills" / norm
+    file_ = dir_ / "SKILL.md"
+    existed = file_.exists()
+    try:
+        dir_.mkdir(parents=True, exist_ok=True)
+        fm = ["---", f"name: {norm}"]
+        if desc:
+            fm.append(f"description: {desc}")
+        fm.append("triggers: [" + ", ".join(trig) + "]")
+        fm.append("---")
+        file_.write_text("\n".join(fm) + "\n\n" + text + "\n", encoding="utf-8")
+    except Exception as exc:
+        return {"ok": False, "error": f"could not write the skill file: {exc}"}
+    mgr.load_workspace_skills(ws)
+    return {"ok": True, "skill": norm, "scope": "workspace", "updated": existed,
+            "path": str(file_), "triggers": trig}
 
 
 def handle_hub_op(
@@ -1253,6 +1303,23 @@ def handle_hub_op(
             notify_skills_changed()
         return {"ok": True, "updated": updated}
     if clean == "remove":
+        # project skills are FILES in the workspace, not ledger rows —
+        # removing one deletes the file (git shows the deletion; committing
+        # it shares the removal with the team)
+        target = next((s for s in mgr.list_skills()
+                       if s.get("name") == name and s.get("created_by") == "project"), None)
+        if target is not None:
+            path = str((target.get("source") or {}).get("path") or "")
+            try:
+                if path and os.path.isfile(path):
+                    os.remove(path)
+                else:
+                    return {"ok": False, "error": f"the skill file for '{name}' is missing on disk"}
+            except Exception as exc:
+                return {"ok": False, "error": f"could not delete the skill file: {exc}"}
+            mgr.load_workspace_skills(str(f.get("workspace") or ""))
+            return {"ok": True, "removed": name, "scope": "workspace",
+                    "invalidated": notify_skills_changed()}
         res = uninstall_skill(name, manager=mgr, hub_root=hub_root)
         if res.get("ok"):
             res["invalidated"] = notify_skills_changed()
@@ -1293,11 +1360,19 @@ def handle_hub_op(
     if clean == "connector_detach":
         return connector_detach(str(f.get("workspace") or ""), str(f.get("name") or ""))
     if clean == "skill_create":
-        res = create_user_skill(
-            str(f.get("name") or ""), str(f.get("instruction") or ""),
-            [str(t) for t in (f.get("triggers") or [])],
-            str(f.get("description") or ""), manager=mgr,
-        )
+        if str(f.get("scope") or "") == "workspace":
+            res = write_workspace_skill(
+                str(f.get("workspace") or ""), str(f.get("name") or ""),
+                str(f.get("instruction") or ""),
+                [str(t) for t in (f.get("triggers") or [])],
+                str(f.get("description") or ""), manager=mgr,
+            )
+        else:
+            res = create_user_skill(
+                str(f.get("name") or ""), str(f.get("instruction") or ""),
+                [str(t) for t in (f.get("triggers") or [])],
+                str(f.get("description") or ""), manager=mgr,
+            )
         if res.get("ok"):
             res["invalidated"] = notify_skills_changed()
         return res
