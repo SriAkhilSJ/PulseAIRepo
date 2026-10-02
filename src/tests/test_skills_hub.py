@@ -662,28 +662,29 @@ class TestHubOps:
         branch = handle.split('if kind == "skills_hub_op":')[1].split("return True")[0]
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
-    def test_composer_plus_menu_routes_to_dialogs(self):
-        """Field 2026-10-02, rev 2 (owner spec): + shows the options menu;
-        each entry opens ITS dialog — Marketplace (browse/install),
-        Connectors (MCP/plugins), My Skills, One-Shot. The menu panel is
-        thin (label + description rows), never a sprawl, and every entry
-        routes through the registered palette commands — one code path."""
+    def test_composer_plus_opens_the_native_add_dialog(self):
+        """Field 2026-10-02, rev 3 (owner, with screenshots): NO custom
+        dropdown chrome — the + opens the NATIVE workbench QuickPick (the
+        same dialog design as Connectors/My Skills). The Add… dialog lists
+        all four entries and routes each to its registered command."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        assert "crusorai-plus-menu" in renderer and "plusMenu" in renderer
-        for hook in ("openMarketplace?(): void;", "openConnectors?(): void;",
-                     "openMySkills?(): void;", "openOneShot?(): void;"):
-            assert hook in renderer, hook
+        assert "crusorai-plus-menu" not in renderer, "custom dropdown stays dead"
+        assert "openPlusMenu?(): void;" in renderer
+        assert "host.openPlusMenu?.()" in renderer
+        hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
+        assert "id: 'crusorai.plusMenu'" in hub_ts, "the Add… dialog command"
         for label in ("Marketplace…", "Connectors…", "My Skills", "One-Shot Task…"):
-            assert label in renderer, label
-        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
+            assert label in hub_ts, label
         for cmd in ("crusorai.skillsHub", "crusorai.showConnectors", "crusorai.mySkills", "crusorai.oneshot"):
-            assert f"executeCommand('{cmd}')" in service, cmd
-        connectors = (browser / "crusorAIConnectors.ts").read_text(encoding="utf-8")
-        assert "crusorai.skillsHub" in connectors and "MCP" in connectors
+            assert f"'{cmd}'" in hub_ts, cmd
+        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
+        assert "executeCommand('crusorai.plusMenu')" in service
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        assert ".crusorai-plus-menu-items" in css and ".crusorai-plus-menu-desc" in css
-        assert ".crusorai-plus-button" not in css, "direct-button styles must be gone"
+        assert ".crusorai-plus-button" in css
+        assert ".crusorai-plus-menu" not in css and ".crusorai-plus-summary" not in css, (
+            "custom menu chrome must be gone — the dialog is native"
+        )
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")

@@ -209,13 +209,10 @@ export interface CrusorAIRenderHost {
 	openFolder(): void;
 	openEngineSettings(): void;
 	openManager(): void;
-	/** Composer + menu (skills marketplace): run the registered palette
-	 * commands through the workbench. Optional — hosts predating the
-	 * marketplace simply omit them and the + button hides itself. */
-	openMarketplace?(): void;
-	openConnectors?(): void;
-	openMySkills?(): void;
-	openOneShot?(): void;
+	/** Composer + (skills marketplace): open the Add… dialog — ONE native
+	 * QuickPick listing Marketplace / Connectors / My Skills / One-Shot.
+	 * Optional — hosts predating it hide the + button. */
+	openPlusMenu?(): void;
 	/** Skills Hub — Manager Skills tab: one op over the skills_hub_op
 	 * envelope (all / list / manifest / toggle / update / remove). Resolves
 	 * the op's result dict (check `ok`), rejects on timeout/engine error so
@@ -2503,48 +2500,22 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	// hermes composer layout: the Think pill sits beside the execution-mode
 	// picker; the Send button stays right-aligned via the toolbar's spare
 	// `.crusorai-composer-left` grid track.
-	// The composer + menu: the store hub. + shows the options; Marketplace
-	// opens the browse/install dialog; Connectors covers MCP/plugins; My
-	// Skills and One-Shot round it out — every entry one click deep, the
-	// panel opens UP so it never sprawls over the transcript.
-	const plusMenu = (() => {
-		const entries: Array<{ label: string; glyph: string; run?: () => void }> = [
-			{ label: 'Marketplace…', glyph: 'search', description: 'browse & install skills', run: host.openMarketplace },
-			{ label: 'Connectors…', glyph: 'plug', description: 'MCP, plugins', run: host.openConnectors },
-			{ label: 'My Skills', glyph: 'checklist', description: 'installed skills, on/off', run: host.openMySkills },
-			{ label: 'One-Shot Task…', glyph: 'zap', description: 'quick jobs to clipboard', run: host.openOneShot },
-		].filter(entry => typeof entry.run === 'function');
-		if (entries.length === 0) { return undefined; }
-		const details = element('details', 'crusorai-plus-menu') as HTMLDetailsElement;
-		const summary = element('summary', 'crusorai-plus-summary', icon('add'));
-		summary.setAttribute('aria-label', 'Marketplace, connectors and quick actions');
-		summary.title = 'Marketplace & quick actions';
-		const menu = element('div', 'crusorai-plus-menu-items');
-		for (const entry of entries) {
-			const item = element('button', 'crusorai-plus-menu-item', icon(entry.glyph), element('span', 'crusorai-plus-menu-label', entry.label), element('span', 'crusorai-plus-menu-desc', entry.description ?? '')) as HTMLButtonElement;
-			item.type = 'button';
-			item.addEventListener('click', () => {
-				details.open = false;
-				entry.run?.();
-			});
-			menu.append(item);
-		}
-		details.append(summary, menu);
-		// click-away close armed lazily ONCE per open (composer re-renders on
-		// every model paint — the { once } capture self-removes; no leak).
-		summary.addEventListener('click', () => {
-			if (!details.open) { return; }
-			setTimeout(() => {
-				const away = (event: MouseEvent): void => {
-					if (!details.contains(event.target as Node)) { details.open = false; }
-				};
-				document.addEventListener('click', away, { capture: true, once: true });
-			}, 0);
-		});
-		return details;
-	})();
+	// The composer + button: ONE click opens the native Add… dialog (the
+	// same workbench QuickPick the palette commands use — field 2026-10-02:
+	// the custom HTML dropdown looked terrible; the native dialog is the
+	// product's own design language). Hosts predating it hide the button.
+	const plusButton = typeof host.openPlusMenu === 'function'
+		? (() => {
+			const btn = element('button', 'crusorai-plus-button', icon('add')) as HTMLButtonElement;
+			btn.type = 'button';
+			btn.setAttribute('aria-label', 'Add — marketplace, connectors, skills, one-shot');
+			btn.title = 'Add — marketplace, connectors, skills, one-shot';
+			btn.addEventListener('click', () => host.openPlusMenu?.());
+			return btn;
+		})()
+		: undefined;
 	const toolbar = element('div', 'crusorai-composer-toolbar',
-		plusMenu,
+		plusButton,
 		modePicker(model, host),
 		thinkPicker(model, host),
 		element('span', 'crusorai-composer-left'),
