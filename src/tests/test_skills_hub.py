@@ -662,25 +662,28 @@ class TestHubOps:
         branch = handle.split('if kind == "skills_hub_op":')[1].split("return True")[0]
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
-    def test_composer_plus_button_opens_the_dialog_directly(self):
-        """Field 2026-10-02: the composer + button opens the Marketplace
-        dialog DIRECTLY — the intermediate dropdown sprawled over the
-        transcript and the owner hated it. Pin the replacement: no
-        dropdown markup anywhere, the + routes to openMarketplace, and the
-        marketplace dialog carries the other quick actions as rows."""
+    def test_composer_plus_menu_routes_to_dialogs(self):
+        """Field 2026-10-02, rev 2 (owner spec): + shows the options menu;
+        each entry opens ITS dialog — Marketplace (browse/install),
+        Connectors (MCP/plugins), My Skills, One-Shot. The menu panel is
+        thin (label + description rows), never a sprawl, and every entry
+        routes through the registered palette commands — one code path."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        assert "crusorai-plus-menu" not in renderer, "the dropdown must stay dead"
-        assert "plusButton" in renderer and "host.openMarketplace?.()" in renderer
-        hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
-        assert "'__myskills'" in hub_ts and "'__oneshot'" in hub_ts, (
-            "My Skills and One-Shot must be rows inside the marketplace dialog"
-        )
-        for cmd in ("crusorai.mySkills", "crusorai.oneshot"):
-            assert f"executeCommand('{cmd}')" in hub_ts, cmd
+        assert "crusorai-plus-menu" in renderer and "plusMenu" in renderer
+        for hook in ("openMarketplace?(): void;", "openConnectors?(): void;",
+                     "openMySkills?(): void;", "openOneShot?(): void;"):
+            assert hook in renderer, hook
+        for label in ("Marketplace…", "Connectors…", "My Skills", "One-Shot Task…"):
+            assert label in renderer, label
+        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
+        for cmd in ("crusorai.skillsHub", "crusorai.showConnectors", "crusorai.mySkills", "crusorai.oneshot"):
+            assert f"executeCommand('{cmd}')" in service, cmd
+        connectors = (browser / "crusorAIConnectors.ts").read_text(encoding="utf-8")
+        assert "crusorai.skillsHub" in connectors and "MCP" in connectors
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        assert ".crusorai-plus-button" in css
-        assert ".crusorai-plus-menu-items" not in css, "dropdown styles must be gone"
+        assert ".crusorai-plus-menu-items" in css and ".crusorai-plus-menu-desc" in css
+        assert ".crusorai-plus-button" not in css, "direct-button styles must be gone"
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")

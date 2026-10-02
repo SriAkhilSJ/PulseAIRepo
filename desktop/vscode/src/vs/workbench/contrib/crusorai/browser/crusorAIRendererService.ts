@@ -265,6 +265,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openManager: () => { this.openManagerWindow(); },
 		// Composer + menu -> the registered palette flows (skills marketplace).
 		openMarketplace: () => { void this.commandService.executeCommand('crusorai.skillsHub'); },
+		openConnectors: () => { void this.commandService.executeCommand('crusorai.showConnectors'); },
 		openMySkills: () => { void this.commandService.executeCommand('crusorai.mySkills'); },
 		openOneShot: () => { void this.commandService.executeCommand('crusorai.oneshot'); },
 		skillsHubOp: (op, extra) => this.skillsHubOp(op, extra),
