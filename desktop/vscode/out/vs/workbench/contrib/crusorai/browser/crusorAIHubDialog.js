@@ -51,8 +51,9 @@ const HUB_DIALOG_CSS = `
 	display: flex; flex-direction: column;
 	padding: 10px; border-radius: 10px;
 	border: 1px solid var(--vscode-panel-border, transparent);
-	background: var(--vscode-editorWidget-background);
-	color: var(--vscode-foreground);
+	background: var(--vscode-editorWidget-background, #1f1f1f);
+	color: var(--vscode-foreground, #cccccc);
+	color-scheme: dark;
 	font: inherit;
 	box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
 	animation: crusorai-hub-dialog-in 130ms ease-out;
@@ -62,34 +63,34 @@ const HUB_DIALOG_CSS = `
 	to { opacity: 1; transform: translateY(0); }
 }
 .crusorai-hub-dialog-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.crusorai-hub-dialog-heading { font-weight: 700; }
+.crusorai-hub-dialog-heading { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-hub-dialog-close {
 	display: inline-flex; align-items: center; justify-content: center;
 	width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px;
-	background: transparent; color: var(--vscode-foreground); cursor: pointer;
+	background: transparent; color: var(--vscode-foreground, #cccccc); cursor: pointer;
 }
-.crusorai-hub-dialog-close:hover { background: var(--vscode-list-hoverBackground); }
-.crusorai-hub-dialog-tabs { display: flex; gap: 4px; }
+.crusorai-hub-dialog-close:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
+.crusorai-hub-dialog-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .crusorai-hub-tab {
 	padding: 3px 9px; border: none; border-radius: 5px; cursor: pointer;
-	background: transparent; color: var(--vscode-foreground); font: inherit; font-size: .95em;
+	background: transparent; color: var(--vscode-foreground, #cccccc); font: inherit; font-size: .95em;
 }
-.crusorai-hub-tab:hover { background: var(--vscode-list-hoverBackground); }
-.crusorai-hub-tab.is-active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.crusorai-hub-tab:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
+.crusorai-hub-tab.is-active { background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #ffffff); }
 .crusorai-hub-dialog-body { margin-top: 8px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .crusorai-hub-dialog-search {
 	width: 100%; box-sizing: border-box; padding: 6px 8px;
 	border-radius: 6px; border: 1px solid var(--vscode-panel-border, transparent);
-	background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc);
 	font: inherit;
 }
 .crusorai-hub-dialog-list { display: flex; flex-direction: column; gap: 4px; }
 .crusorai-hub-status { padding: 8px; opacity: .8; }
-.crusorai-hub-status.is-error { color: var(--vscode-errorForeground); opacity: 1; }
+.crusorai-hub-status.is-error { color: var(--vscode-errorForeground, #f48771); opacity: 1; }
 .crusorai-hub-row {
 	display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
 	padding: 7px 8px; border-radius: 6px;
-	background: var(--vscode-editor-background, transparent);
+	background: var(--vscode-editor-background, #1f1f1f);
 	border: 1px solid var(--vscode-panel-border, transparent);
 }
 .crusorai-hub-row-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
@@ -98,30 +99,30 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-row-meta { font-size: .92em; opacity: .7; }
 .crusorai-hub-row-desc { font-size: .92em; opacity: .8; }
 .crusorai-hub-row-actions { display: flex; gap: 4px; align-items: center; }
-.crusorai-hub-row-error { width: 100%; font-size: .92em; color: var(--vscode-errorForeground); }
+.crusorai-hub-row-error { width: 100%; font-size: .92em; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini {
 	padding: 3px 9px; border: none; border-radius: 5px; cursor: pointer;
-	background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #ffffff);
 	font: inherit; font-size: .95em; white-space: nowrap;
 }
-.crusorai-hub-mini:hover { background: var(--vscode-button-hoverBackground); }
+.crusorai-hub-mini:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
 .crusorai-hub-mini:disabled { opacity: .6; cursor: default; }
-.crusorai-hub-mini.is-done { background: transparent; color: var(--vscode-foreground); opacity: .85; }
+.crusorai-hub-mini.is-done { background: transparent; color: var(--vscode-foreground, #cccccc); opacity: .85; }
 .crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground); }
 .crusorai-hub-mini.is-primary { align-self: flex-start; }
 .crusorai-hub-oneshot { display: flex; flex-direction: column; gap: 7px; }
 .crusorai-hub-oneshot-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .crusorai-hub-chip {
 	padding: 3px 9px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 20px;
-	background: transparent; color: var(--vscode-foreground); cursor: pointer; font: inherit; font-size: .95em;
+	background: transparent; color: var(--vscode-foreground, #cccccc); cursor: pointer; font: inherit; font-size: .95em;
 }
-.crusorai-hub-chip:hover { background: var(--vscode-list-hoverBackground); }
-.crusorai-hub-chip.is-active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+.crusorai-hub-chip:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
+.crusorai-hub-chip.is-active { background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #ffffff); border-color: transparent; }
 .crusorai-hub-oneshot-label { font-weight: 600; }
 .crusorai-hub-oneshot-input {
 	width: 100%; box-sizing: border-box; padding: 6px 8px; resize: vertical;
 	border-radius: 6px; border: 1px solid var(--vscode-panel-border, transparent);
-	background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc);
 	font: inherit;
 }
 .crusorai-hub-oneshot-result:empty { display: none; }
@@ -142,6 +143,36 @@ function ensureHubDialogStyles() {
     style.textContent = HUB_DIALOG_CSS;
     document.head.append(style);
 }
+// The card mounts on document.body — OUTSIDE the subtree where the
+// workbench defines its --vscode-* custom properties (field 2026-10-02
+// rev 5: every var() resolved to nothing and the card painted transparent
+// with default black text). So the resolved values are COPIED from the
+// anchor — the + button lives inside the themed panel — onto the card's
+// inline custom properties. The stylesheet's var() references then resolve
+// against the card itself, in every theme, at any mount point.
+const THEME_VARS = [
+    'foreground', 'editorWidget-background', 'editor-background', 'panel-border',
+    'input-background', 'input-foreground', 'button-background', 'button-foreground',
+    'button-hoverBackground', 'list-hoverBackground', 'errorForeground',
+];
+function inheritPanelTheme(root, anchor) {
+    const panel = getComputedStyle(anchor);
+    for (const name of THEME_VARS) {
+        const value = panel.getPropertyValue(`--vscode-${name}`).trim();
+        if (value) {
+            root.style.setProperty(`--vscode-${name}`, value);
+        }
+    }
+    if (panel.fontFamily) {
+        root.style.fontFamily = panel.fontFamily;
+    }
+    if (panel.fontSize) {
+        root.style.fontSize = panel.fontSize;
+    }
+    if (panel.colorScheme) {
+        root.style.colorScheme = panel.colorScheme;
+    }
+}
 function closeOpenDialog() {
     openDialog?.close();
 }
@@ -156,7 +187,8 @@ export function openHubDialog(host, anchor, tab = 'marketplace') {
     const closeBtn = el('button', 'crusorai-hub-dialog-close', glyph('close'));
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', 'Close');
-    const root = el('div', 'crusorai-hub-dialog', titleBar, closeBtn, body);
+    const root = el('div', 'crusorai-hub-dialog', titleBar, body);
+    inheritPanelTheme(root, anchor);
     const close = () => {
         root.remove();
         document.removeEventListener('pointerdown', away, true);
@@ -203,7 +235,7 @@ export function openHubDialog(host, anchor, tab = 'marketplace') {
         });
         tabRow.append(btn);
     }
-    titleBar.append(tabRow);
+    titleBar.append(tabRow, closeBtn);
     const heading = titleBar.querySelector('.crusorai-hub-dialog-heading');
     const titles = {
         marketplace: 'Marketplace — install skills',

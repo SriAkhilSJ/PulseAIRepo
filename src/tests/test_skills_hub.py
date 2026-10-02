@@ -696,6 +696,20 @@ class TestHubOps:
         assert "crusorai-hub-dialog-styles" in dialog and "ensureHubDialogStyles" in dialog
         for token in (".crusorai-hub-dialog {", "position: fixed", ".crusorai-hub-row {", ".crusorai-hub-chip {"):
             assert token in dialog, token
+        # the card mounts on document.body — OUTSIDE the workbench's
+        # --vscode-* variable scope (field 2026-10-02 rev 5: transparent
+        # card, default black text). The resolved theme values must be
+        # copied from the anchor onto the card's inline custom properties,
+        # and every var() carries a literal dark fallback.
+        assert "inheritPanelTheme" in dialog
+        assert "getPropertyValue(`--vscode-${name}`)" in dialog
+        assert "titleBar.append(tabRow, closeBtn)" in dialog, "close joins the title row"
+        for token in (
+            "var(--vscode-editorWidget-background, #1f1f1f)",
+            "var(--vscode-foreground, #cccccc)",
+            "var(--vscode-button-background, #0e639c)",
+        ):
+            assert token in dialog, token
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
         assert "crusorai.plusMenu" not in hub_ts, "the QuickPick Add… stays dead"
         service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
