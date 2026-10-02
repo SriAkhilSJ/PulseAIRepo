@@ -88,6 +88,7 @@ the catalog is the trust signal. Admission rules (enforced by
 | Bridge | `skills_hub_op` → `skills_hub_result` (op envelope: list / search / install / update / remove) | the transport the desktop Skills panel binds to; protocol pinned at all four layers |
 | CLI | `skills_hub_cli.py search/install/update/list/remove/all/toggle` | same pipeline |
 | IDE (Phase 3) | `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows (QuickPick) | bind to the bridge envelope; install/update/remove + enable/disable + usage counts, zero trust decisions of their own |
+| Manager (Skills tab) | `renderManager` → `skillsHubOp` host hook → `skills_hub_op` | live list + toggle/update/remove + `manifest` ("what the model sees"); two-step remove, actions serial per row |
 | Terminal | `scripts/skills_hub_cli.py` (`search` / `install` / `list` / `remove`) | same pipeline; useful for setup scripts and catalog verification |
 | Python | `src.agents.skills_hub` | result dicts, errors never raise (skills-layer convention) |
 
@@ -126,12 +127,15 @@ resolution to an exact SHA.
   pure template registry + cheap-tier execution, bridge op handled
   session-independently, `Crusor: One-Shot Task` palette command,
   result to clipboard. Stateless by contract.
-- **Manager Skills tab**: the Manager window's Session/Tools/Changes tabs
-  are static buttons today; the palette flows cover the actions. A live
-  Skills tab (list + update/remove/toggle + "what the model sees") inside
-  `renderManager` is the remaining desktop slice — needs the tab-state
-  model + host callbacks; spec'd for a desktop-side round with the
-  compile loop.
+- **Manager Skills tab**: DONE — a live Skills tab inside `renderManager`
+  (tab-state model at mount scope: `session` ↔ `skills`), bound to the same
+  `skills_hub_op` envelope through a `skillsHubOp` host hook: list every
+  installed skill with origin/enabled/usage badges, toggle / update (badges
+  from `list`) / two-step remove for hub rows, plus a "what the model sees"
+  pane rendering the ENGINE's `manifest` op (`skills_manifest()` bytes —
+  never a TS re-build of the index). Verified live over CDP (`scripts/
+  verify_manager_skills_tab_cdp.js`): tab switch, bridge load, toggle round
+  trip with state restore, zero console errors.
 - **Phase 5 — bundles**: multi-skill packs + custom commands as one unit.
 - **Phase 4 — publishing**: Crusor users open their own catalogs.
 - Remote catalog federation (community-maintained catalog files fetched at

@@ -203,6 +203,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             openMarketplace: () => { void this.commandService.executeCommand('crusorai.skillsHub'); },
             openMySkills: () => { void this.commandService.executeCommand('crusorai.mySkills'); },
             openOneShot: () => { void this.commandService.executeCommand('crusorai.oneshot'); },
+            skillsHubOp: (op, extra) => this.skillsHubOp(op, extra),
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
                 // permission-blocked inside the webview). The workbench service
@@ -1159,6 +1160,32 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     onSkillsHubResult(listener) {
         this._hubListeners.add(listener);
         return toDisposable(() => this._hubListeners.delete(listener));
+    }
+    /**
+     * One skills_hub_op request → its result dict (the Manager Skills tab's
+     * bridge). Same contract the palette's hubRequest uses: one matching
+     * frame, bounded wait, hard failure named — the tab paints it inline
+     * instead of hanging on a silent panel. Palette flows are modal, so a
+     * same-op request from QuickPick and this method cannot race in practice;
+     * within this method the tab's parallel reads use distinct ops.
+     */
+    skillsHubOp(op, extra = {}) {
+        return new Promise((resolve, reject) => {
+            let listener;
+            const timer = setTimeout(() => {
+                listener?.dispose();
+                reject(new Error(`the engine did not answer the '${op}' request — fully restart CrusorAI so the bridge runs the current build.`));
+            }, 12000);
+            listener = this.onSkillsHubResult(frame => {
+                if (frame.op !== op) {
+                    return;
+                }
+                clearTimeout(timer);
+                listener?.dispose();
+                resolve((frame.result ?? {}));
+            });
+            this.sendSkillsHubOp(op, extra);
+        });
     }
     sendOneshot(template, extra) {
         this.send({ type: 'oneshot', session_id: this.sessionId, template, ...(extra ?? {}) });

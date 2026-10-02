@@ -1001,6 +1001,9 @@ def handle_hub_op(
       remove  — uninstall a hub skill (name)
       all     — every installed skill (any origin), trimmed rows for UI
       toggle  — enable/disable any installed skill (name, enabled)
+      manifest — the exact SKILLS INDEX text injected into the system prompt
+                 (skills_manifest(), single source of truth — the Manager's
+                 "what the model sees" pane renders this string verbatim)
 
     Every op returns a dict with an `ok` flag; unknown ops fail with a
     message naming the valid set. Errors never raise (skills-layer D17).
@@ -1075,10 +1078,12 @@ def handle_hub_op(
             return _fail(f"no skill named {name!r} is installed")
         return {"ok": True, "name": name, "enabled": bool(enabled),
                 "invalidated": notify_skills_changed()}
+    if clean == "manifest":
+        return {"ok": True, "manifest": mgr.skills_manifest()}
 
     return _fail(
         f"unknown skills_hub op {clean!r} — valid ops: list, search, install, "
-        "update, remove, all, toggle"
+        "update, remove, all, toggle, manifest"
     )
 
 

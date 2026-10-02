@@ -102,7 +102,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-01';
+const CRUSORAI_UI_STAMP = '2026-10-02';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2551,11 +2551,112 @@ function sessionList(model, host) {
     }
     return group;
 }
-function renderManager(root, model, host, openTools, activity, planOpen, setPlanOpen) {
+const skillOriginLabel = { hub: 'hub', bundled: 'bundled', user: 'yours', agent: 'agent-learned' };
+function skillsErrorRow(message) {
+    return element('div', 'crusorai-error-row', icon('warning'), element('span', undefined, message));
+}
+function skillRow(row, updateAvailable, ui) {
+    const busy = ui.action?.name === row.name;
+    const node = element('div', `crusorai-skill-row${row.enabled ? '' : ' is-disabled'}`);
+    const title = element('div', 'crusorai-skill-title', element('span', 'crusorai-skill-name', row.name), element('span', `crusorai-skill-badge${row.enabled ? ' is-on' : ''}`, row.enabled ? 'enabled' : 'disabled'), element('span', 'crusorai-skill-badge', skillOriginLabel[row.origin] ?? row.origin));
+    if (updateAvailable) {
+        title.append(element('span', 'crusorai-skill-badge is-update', 'update available'));
+    }
+    if (row.pinned) {
+        title.append(element('span', 'crusorai-skill-badge', 'pinned'));
+    }
+    node.append(title);
+    if (row.description) {
+        node.append(element('div', 'crusorai-skill-description', row.description));
+    }
+    if (row.triggers?.length) {
+        node.append(element('div', 'crusorai-skill-triggers', `routes on: ${row.triggers.join(', ')}`));
+    }
+    const actions = element('div', 'crusorai-skill-actions');
+    const toggle = button(row.enabled ? 'Disable' : 'Enable', 'crusorai-skill-action', () => ui.runAction('toggle', row.name, { enabled: !row.enabled }), row.enabled ? 'circle-slash' : 'check');
+    toggle.disabled = busy;
+    actions.append(toggle);
+    if (updateAvailable) {
+        const update = button('Update', 'crusorai-skill-action', () => ui.runAction('update', row.name), 'arrow-up');
+        update.disabled = busy;
+        actions.append(update);
+    }
+    if (row.origin === 'hub') {
+        const confirming = ui.confirmRemove === row.name;
+        const remove = button(confirming ? 'Confirm remove' : 'Remove', confirming ? 'crusorai-skill-action is-confirm' : 'crusorai-skill-action', () => ui.confirmRemoveFor(row.name), 'trash');
+        remove.disabled = busy;
+        actions.append(remove);
+    }
+    actions.append(element('span', 'crusorai-skill-uses', `used ${row.use_count}×`));
+    if (busy) {
+        actions.append(element('span', 'crusorai-skill-busy', `${ui.action?.op}…`));
+    }
+    node.append(actions);
+    return node;
+}
+function skillsPanel(ui, host) {
+    const pane = element('div', 'crusorai-skills-pane');
+    const rows = ui.skills.rows;
+    const enabledCount = rows.filter(row => row.enabled).length;
+    const head = element('div', 'crusorai-skills-head', element('div', undefined, element('span', 'crusorai-eyebrow', 'SKILLS'), element('h2', undefined, 'Installed skills')), element('span', 'crusorai-skills-summary', ui.skills.loaded && rows.length > 0 ? `${enabledCount} enabled / ${rows.length} installed` : ''));
+    const refresh = button(ui.skills.loading ? 'Refreshing…' : 'Refresh', 'crusorai-skills-refresh', () => ui.refresh(), 'refresh');
+    refresh.disabled = ui.skills.loading;
+    head.append(refresh);
+    pane.append(head);
+    if (ui.actionError) {
+        pane.append(skillsErrorRow(ui.actionError));
+    }
+    if (!ui.skills.loaded && ui.skills.loading) {
+        pane.append(element('div', 'crusorai-skills-empty', 'Loading the installed skills…'));
+    }
+    else if (ui.skills.error) {
+        pane.append(skillsErrorRow(ui.skills.error));
+        const retry = button('Retry', 'crusorai-skills-refresh', () => ui.refresh());
+        pane.append(retry);
+    }
+    else if (rows.length === 0) {
+        pane.append(element('div', 'crusorai-skills-empty', 'No skills installed yet.'));
+        if (host.openMarketplace) {
+            pane.append(button('Browse the marketplace', 'crusorai-skills-refresh', () => host.openMarketplace?.(), 'package'));
+        }
+    }
+    else {
+        if (ui.skills.hubError) {
+            pane.append(skillsErrorRow(`Update badges unavailable: ${ui.skills.hubError}`));
+        }
+        for (const row of rows) {
+            const hubRow = ui.skills.hub.find(candidate => candidate.name === row.name);
+            pane.append(skillRow(row, !!hubRow?.update_available, ui));
+        }
+    }
+    // "What the model sees": the engine's own skills_manifest() — the exact
+    // byte-stable index injected into the system prompt, never a TS re-build
+    // of it (single source of truth; a reconstruction would drift silently).
+    const manifestSection = element('div', 'crusorai-skills-manifest');
+    manifestSection.append(element('div', 'crusorai-skills-manifest-head', element('span', 'crusorai-eyebrow', 'WHAT THE MODEL SEES'), copyButton(ui.skills.manifest, host)));
+    if (ui.skills.manifestError) {
+        manifestSection.append(skillsErrorRow(ui.skills.manifestError));
+    }
+    else if (ui.skills.manifest) {
+        manifestSection.append(element('pre', 'crusorai-skills-manifest-body', ui.skills.manifest));
+    }
+    else if (ui.skills.loaded && !ui.skills.error) {
+        manifestSection.append(element('div', 'crusorai-skills-empty', 'No skills are enabled — the model sees an empty skills index.'));
+    }
+    pane.append(manifestSection);
+    return pane;
+}
+function renderManager(root, model, host, openTools, activity, planOpen, setPlanOpen, ui) {
     const shell = element('div', 'crusorai-manager-shell');
     const sidebar = element('aside', 'crusorai-manager-sidebar', element('header', 'crusorai-manager-pane-head', element('div', undefined, element('span', 'crusorai-eyebrow', 'CONTROL PLANE'), element('h2', undefined, 'Workspaces')), button('', 'crusorai-icon-button', () => host.newSession?.(), 'add')), element('div', 'crusorai-manager-search', icon('search'), element('span', undefined, 'Find workspace or agent')), sessionList(model, host), element('footer', 'crusorai-manager-sidebar-footer', icon('organization'), element('span', undefined, model.sessions?.length ? `${model.sessions.length} session(s) remembered · ${model.running ? '1 running' : 'none running'}` : 'No session yet')));
     const main = element('main', 'crusorai-manager-main');
-    main.append(element('header', 'crusorai-manager-titlebar', element('div', undefined, element('div', 'crusorai-manager-breadcrumb', model.workspaceLabel, ' / ', model.sessionId?.slice(0, 12) ?? 'new-session'), element('h1', undefined, model.userMessage || 'Crusor Manager')), engineStatus(model)), element('nav', 'crusorai-manager-tabs', element('button', 'is-active', icon('comment-discussion'), 'Session'), element('button', undefined, icon('terminal'), `Tools ${model.tools.length}`), element('button', undefined, icon('diff'), 'Changes')), ...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen), composer(model, host, true));
+    // Session + Skills are real tabs (tab state drives the column below);
+    // Tools/Changes stay display-only exactly as they were — inventing
+    // half-empty views for them is scope the plan did not ask for.
+    const tabs = element('nav', 'crusorai-manager-tabs', button('Session', ui.tab === 'session' ? 'is-active' : '', () => ui.setTab('session'), 'comment-discussion'), element('button', undefined, icon('terminal'), `Tools ${model.tools.length}`), element('button', undefined, icon('diff'), 'Changes'), button(ui.skills.loaded && ui.skills.rows.length > 0 ? `Skills ${ui.skills.rows.length}` : 'Skills', ui.tab === 'skills' ? 'is-active' : '', () => ui.setTab('skills'), 'library'));
+    main.append(element('header', 'crusorai-manager-titlebar', element('div', undefined, element('div', 'crusorai-manager-breadcrumb', model.workspaceLabel, ' / ', model.sessionId?.slice(0, 12) ?? 'new-session'), element('h1', undefined, model.userMessage || 'Crusor Manager')), engineStatus(model)), tabs, ...(ui.tab === 'skills'
+        ? [skillsPanel(ui, host)]
+        : agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)), composer(model, host, true));
     shell.append(sidebar, main, inspector(model));
     root.append(shell);
 }
@@ -2598,6 +2699,141 @@ export function mountCrusorAIRenderer(root, surface, host) {
     const tick = () => { if (!disposed && lastModel) {
         paint(lastModel);
     } };
+    // ---- Manager Skills tab state (mount scope: survives wholesale repaints) ----
+    let managerTab = 'session';
+    let managerAction;
+    let managerActionError;
+    let managerConfirmRemove;
+    let confirmRemoveTimer;
+    const managerSkills = { loading: false, loaded: false, rows: [], hub: [], manifest: '' };
+    const loadSkills = () => {
+        if (!host.skillsHubOp) {
+            managerSkills.loading = false;
+            managerSkills.loaded = true;
+            managerSkills.error = 'This host build does not expose skills (skillsHubOp is missing).';
+            tick();
+            return;
+        }
+        managerSkills.loading = true;
+        managerSkills.error = undefined;
+        tick();
+        // Three distinct ops, so result frames can never cross-resolve within
+        // this request; the palette's flows are modal, so a same-op race with
+        // them is not reachable from this surface.
+        void Promise.all([
+            host.skillsHubOp('all'),
+            host.skillsHubOp('list'),
+            host.skillsHubOp('manifest'),
+        ]).then(([all, list, manifest]) => {
+            if (all.ok === false) {
+                managerSkills.rows = [];
+                managerSkills.error = String(all.error ?? 'could not list installed skills');
+            }
+            else {
+                managerSkills.rows = Array.isArray(all.skills) ? all.skills : [];
+            }
+            if (list.ok === false) {
+                managerSkills.hub = [];
+                managerSkills.hubError = String(list.error ?? 'could not list hub-installed skills');
+            }
+            else {
+                managerSkills.hub = Array.isArray(list.installed) ? list.installed : [];
+                managerSkills.hubError = undefined;
+            }
+            if (manifest.ok === false) {
+                managerSkills.manifest = '';
+                managerSkills.manifestError = String(manifest.error ?? 'could not read the skills index');
+            }
+            else {
+                managerSkills.manifest = typeof manifest.manifest === 'string' ? manifest.manifest : '';
+                managerSkills.manifestError = undefined;
+            }
+            managerSkills.loading = false;
+            managerSkills.loaded = true;
+            tick();
+        }, error => {
+            managerSkills.loading = false;
+            managerSkills.loaded = true;
+            managerSkills.error = String(error?.message ?? error);
+            tick();
+        });
+    };
+    const runManagerAction = (op, name, extra) => {
+        if (!host.skillsHubOp || managerAction) {
+            return;
+        }
+        managerAction = { name, op };
+        managerActionError = undefined;
+        managerConfirmRemove = undefined;
+        if (confirmRemoveTimer !== undefined) {
+            clearTimeout(confirmRemoveTimer);
+            confirmRemoveTimer = undefined;
+        }
+        tick();
+        void host.skillsHubOp(op, { name, ...(extra ?? {}) }).then(result => {
+            if (result && result.ok === false) {
+                managerActionError = `${name}: ${String(result.error ?? `${op} failed`)}`;
+                return false;
+            }
+            return true;
+        }, error => {
+            managerActionError = `${name}: ${String(error?.message ?? error)}`;
+            return false;
+        }).then(refreshed => {
+            managerAction = undefined;
+            // Failed actions keep the current list (nothing changed on the
+            // engine side either); only a success pays for a refetch.
+            if (refreshed) {
+                loadSkills();
+            }
+            else {
+                tick();
+            }
+        });
+    };
+    const confirmManagerRemove = (name) => {
+        if (managerAction) {
+            return;
+        }
+        if (managerConfirmRemove !== name) {
+            // First click arms the row ("Remove" -> "Confirm remove"); the arm
+            // self-disarms so a stale confirm can never eat a later click.
+            managerConfirmRemove = name;
+            if (confirmRemoveTimer !== undefined) {
+                clearTimeout(confirmRemoveTimer);
+            }
+            confirmRemoveTimer = setTimeout(() => {
+                managerConfirmRemove = undefined;
+                confirmRemoveTimer = undefined;
+                tick();
+            }, 4000);
+            tick();
+            return;
+        }
+        runManagerAction('remove', name);
+    };
+    const managerUi = {
+        get tab() { return managerTab; },
+        setTab: tab => {
+            if (managerTab === tab) {
+                return;
+            }
+            managerTab = tab;
+            if (tab === 'skills' && !managerSkills.loaded && !managerSkills.loading) {
+                loadSkills();
+            }
+            else {
+                tick();
+            }
+        },
+        skills: managerSkills,
+        get action() { return managerAction; },
+        get actionError() { return managerActionError; },
+        get confirmRemove() { return managerConfirmRemove; },
+        refresh: loadSkills,
+        runAction: runManagerAction,
+        confirmRemoveFor: confirmManagerRemove,
+    };
     const paint = (model) => {
         if (model.sessionId !== planSession) {
             planSession = model.sessionId;
@@ -2640,7 +2876,7 @@ export function mountCrusorAIRenderer(root, surface, host) {
             renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }, activity);
         }
         else {
-            renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; });
+            renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; }, managerUi);
         }
         const nextScroll = root.querySelector('.crusorai-transcript-scroll');
         if (nextScroll) {
@@ -2677,6 +2913,10 @@ export function mountCrusorAIRenderer(root, surface, host) {
         dispose() {
             disposed = true;
             activity.dispose();
+            if (confirmRemoveTimer !== undefined) {
+                clearTimeout(confirmRemoveTimer);
+                confirmRemoveTimer = undefined;
+            }
             lastModel = undefined;
             root.replaceChildren();
         },

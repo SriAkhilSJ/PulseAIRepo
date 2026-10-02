@@ -627,7 +627,25 @@ class TestHubOps:
 
     def test_unknown_op_names_the_valid_set(self, env):
         res = hub.handle_hub_op("explode")
-        assert not res["ok"] and "list, search, install, update, remove, all, toggle" in res["error"]
+        assert not res["ok"] and "list, search, install, update, remove, all, toggle, manifest" in res["error"]
+
+    def test_manifest_op_exposes_the_injected_skills_index(self, env):
+        """The Manager's "what the model sees" pane must render the ENGINE's
+        skills_manifest() verbatim — a TS re-build of the index would drift
+        from the real system-prompt bytes silently."""
+        _install(env, "frontend-design")
+        env["manager"].add_skill("hand-made", ["x"], "body", created_by="user")
+        env["manager"].toggle_skill("hand-made", False)
+        res = hub.handle_hub_op("manifest")
+        assert res["ok"] and isinstance(res["manifest"], str)
+        # enabled hub skill shows with its triggers; the disabled one does not
+        assert res["manifest"].startswith("=== SKILLS INDEX ===")
+        assert "- **frontend-design** (" in res["manifest"]
+        assert "hand-made" not in res["manifest"]
+        # byte-identical to the function the prompt builder calls
+        assert res["manifest"] == env["manager"].skills_manifest()
+        # read-only: no skills-cache invalidation for a view op
+        assert "invalidated" not in res
 
     def test_bridge_handles_hub_ops_before_session_resolution(self):
         """Field 2026-10-01: the skills_hub_op branch sat inside the
@@ -660,6 +678,28 @@ class TestHubOps:
             assert f"executeCommand('{cmd}')" in service, cmd
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
         assert ".crusorai-plus-menu-items" in css and ".crusorai-plus-summary" in css
+
+    def test_manager_skills_tab_wiring_is_complete(self):
+        """The Manager Skills tab must be a live slice, not decoration: the
+        renderer owns a tab-state model + the host hook, the service routes
+        the hook to skills_hub_op with a bounded wait, and the panel styles
+        exist (an unstyled pane renders as a broken list)."""
+        browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
+        renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
+        assert "skillsHubOp?(op: string, extra?: Record<string, unknown>): Promise<Record<string, unknown>>;" in renderer
+        assert "type ManagerTabId = 'session' | 'skills';" in renderer
+        assert "let managerTab: ManagerTabId = 'session';" in renderer
+        assert "() => ui.setTab('skills')" in renderer
+        assert "WHAT THE MODEL SEES" in renderer
+        # the pane must ask the ENGINE for the index (manifest op), not rebuild it
+        assert "host.skillsHubOp('manifest')" in renderer
+        service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
+        assert "skillsHubOp: (op, extra) => this.skillsHubOp(op, extra)," in service
+        assert "this.sendSkillsHubOp(op, extra);" in service
+        assert "12000" in service.split("private skillsHubOp")[1].split("sendSkillsHubOp")[0]
+        css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
+        assert ".crusorai-skills-pane" in css and ".crusorai-skill-row" in css
+        assert ".crusorai-skills-manifest-body" in css
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")

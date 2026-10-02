@@ -1,0 +1,71 @@
+{
+  "started_at": "2026-10-02T09:03:25.230Z",
+  "cdp_port": 9222,
+  "provider_requests": 0,
+  "checks": {
+    "Agent composer present (main window ready)": "PASS",
+    "Crusor Manager surface opened (editor or auxiliary window)": "PASS",
+    "Manager renders four tabs (Session / Tools / Changes / Skills)": "PASS",
+    "Session is the default active tab": "PASS",
+    "Skills tab button exists and was clicked": "PASS",
+    "Skills tab renders its pane": "PASS",
+    "Skills pane shows the \"what the model sees\" section (engine manifest op)": "PASS",
+    "Skills list loaded from the bridge without error (clean)": "PASS",
+    "Live skill rows rendered (22 row(s))": "PASS",
+    "Manifest content present (SKILLS INDEX)": "PASS",
+    "Toggle clicked for \"browser-connector\" (was enabled)": "PASS",
+    "Enabled badge flipped live for \"browser-connector\"": "PASS",
+    "Original enabled state restored for \"browser-connector\" (round trip 2)": "PASS",
+    "Session tab is active again (was \"Session\")": "PASS",
+    "Tab-state round trip Session <-> Skills": "PASS",
+    "No renderer exceptions or console errors observed": "PASS"
+  },
+  "snapshots": {
+    "manager_scope": "target:Crusor Manager",
+    "tabs": [
+      {
+        "text": "Session",
+        "active": true
+      },
+      {
+        "text": "Tools 0",
+        "active": false
+      },
+      {
+        "text": "Changes",
+        "active": false
+      },
+      {
+        "text": "Skills",
+        "active": false
+      }
+    ],
+    "skills_pane": {
+      "rows": 22,
+      "loading": false,
+      "error": null,
+      "hasManifestHead": true,
+      "manifestIndex": true,
+      "manifestEmpty": false,
+      "summary": "22 enabled / 22 installed"
+    },
+    "toggle": {
+      "name": "browser-connector",
+      "badge": "enabled",
+      "clicked": true,
+      "flipped_to": "disabled"
+    },
+    "toggle_restore": "clicked"
+  },
+  "console_errors": [],
+  "screenshots": [
+    "skills-tab.png"
+  ],
+  "overall": "PASS",
+  "target": {
+    "id": "363455892F479B54040AA0D48220CECE",
+    "title": "Welcome - PulseAIRepo - CrusorAI IDE Dev",
+    "url": "vscode-file://vscode-app/d:/pulseAIagent/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html"
+  },
+  "finished_at": "2026-10-02T09:03:27.358Z"
+}
