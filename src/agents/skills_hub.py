@@ -1133,6 +1133,44 @@ def connector_detach(workspace: str, name: str) -> dict:
     return res
 
 
+def create_user_skill(
+    name: str,
+    instruction: str,
+    triggers: list[str] | None = None,
+    description: str = "",
+    *,
+    manager: SkillManager | None = None,
+) -> dict:
+    """Create (or update by name) a skill from the hub dialog's Create box —
+    the foreground user path (skill_manage's agent loop is the other one).
+    Non-coder friendly: the name is normalized (spaces -> hyphens, lower),
+    and empty triggers are derived from the name's words so the skill still
+    auto-activates. The panel sends the text; the engine owns the store."""
+    mgr = _manager(manager)
+    raw = (name or "").strip().lower()
+    norm = re.sub(r"[^a-z0-9-]+", "-", raw).strip("-")
+    if not norm:
+        return {"ok": False, "error": "a skill name is required (letters, numbers, hyphens)"}
+    norm = norm[:64]
+    body = (instruction or "").strip()
+    if len(body) < 20:
+        return {"ok": False, "error": "the skill body is too short — describe when to use it and the steps (at least a sentence or two)"}
+    trig = [t.strip().lower() for t in (triggers or []) if t.strip()]
+    if not trig:
+        trig = [w for w in norm.split("-") if len(w) > 2] or [norm]
+    existing = next((s for s in mgr.list_skills() if s.get("name") == norm), None)
+    if existing and existing.get("created_by") == "bundled":
+        return {"ok": False, "error": f"'{norm}' is a bundled engine skill — bundled skills are read-only; pick another name"}
+    desc = (description or "").strip()[:120]
+    mgr.add_skill(norm, trig, body, created_by="user", pinned=False, description=desc)
+    return {
+        "ok": True,
+        "skill": norm,
+        "updated": existing is not None,
+        "triggers": trig,
+    }
+
+
 def handle_hub_op(
     op: str = "",
     frame: dict | None = None,
@@ -1163,6 +1201,8 @@ def handle_hub_op(
       connector_attach — merge a custom MCP server (name, command, args) into
                  the workspace's .crusorai/mcp.json (creates the file)
       connector_detach — remove an MCP server entry from that file
+      skill_create — create/update a USER skill from the dialog's Create box
+                 (name normalized, triggers derived from the name when absent)
 
     Every op returns a dict with an `ok` flag; unknown ops fail with a
     message naming the valid set. Errors never raise (skills-layer D17).
@@ -1252,11 +1292,20 @@ def handle_hub_op(
             str(f.get("command") or ""), [str(a) for a in (f.get("args") or [])])
     if clean == "connector_detach":
         return connector_detach(str(f.get("workspace") or ""), str(f.get("name") or ""))
+    if clean == "skill_create":
+        res = create_user_skill(
+            str(f.get("name") or ""), str(f.get("instruction") or ""),
+            [str(t) for t in (f.get("triggers") or [])],
+            str(f.get("description") or ""), manager=mgr,
+        )
+        if res.get("ok"):
+            res["invalidated"] = notify_skills_changed()
+        return res
 
     return _fail(
         f"unknown skills_hub op {clean!r} — valid ops: list, catalog, search, "
         "install, update, remove, all, toggle, manifest, connectors, "
-        "connector_attach, connector_detach"
+        "connector_attach, connector_detach, skill_create"
     )
 
 

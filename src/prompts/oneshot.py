@@ -87,11 +87,36 @@ def _t_title_session(variables: dict) -> tuple[str, str]:
     return system, rendered
 
 
+def _t_enhance_skill(variables: dict) -> tuple[str, str]:
+    draft = _v(variables, "draft", "input", "text")
+    name = _v(variables, "name")
+    system = (
+        "You turn rough skill ideas into high-quality agent skill files. "
+        "Output a COMPLETE skill file, nothing else: YAML frontmatter with "
+        "name (lowercase-hyphenated), description (one line, <= 60 chars, "
+        "ends with a period, states the capability), and triggers "
+        "(comma-separated distinctive words/phrases a matching user request "
+        "would LITERALLY contain — \"unit test\", not \"test\"), then a "
+        "markdown body: when to use it, numbered steps phrased through the "
+        "agent's tools (run_terminal, edit_file, web_search, browser tools), "
+        "pitfalls, and how to verify the result. Stay FAITHFUL to the idea — "
+        "sharpen wording and structure, never invent capabilities the user "
+        "did not describe. No code fences around the file."
+    )
+    user = (
+        "Write the skill file from this idea (it may be rough or "
+        f"non-technical):\n{draft or '(not provided)'}"
+        + (f"\n\nPreferred skill name: {name}" if name else "")
+    )
+    return system, user
+
+
 PROMPT_TEMPLATES: dict[str, TemplateFn] = {
     "commit_message": _t_commit_message,
     "summarize": _t_summarize,
     "rename_ideas": _t_rename_ideas,
     "title_session": _t_title_session,
+    "enhance_skill": _t_enhance_skill,
 }
 
 
@@ -102,6 +127,7 @@ def list_templates() -> list[dict]:
         ("summarize", "Summarize text or a page into the essentials.", ("text",)),
         ("rename_ideas", "Propose 8 named candidates with rationale.", ("subject",)),
         ("title_session", "Title a session from its first exchange.", ("user", "assistant")),
+        ("enhance_skill", "Turn a rough idea into a polished, auto-activating skill file.", ("draft", "name")),
     ]
     return [{"name": n, "description": d, "variables": list(v)} for n, d, v in described]
 

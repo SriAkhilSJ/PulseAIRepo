@@ -120,7 +120,8 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-mini.is-done { background: transparent; color: var(--vscode-foreground, #cccccc); opacity: .85; }
 .crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini.is-primary { align-self: flex-start; }
-.crusorai-hub-attach { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border, transparent); }
+.crusorai-hub-attach, .crusorai-hub-create { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border, transparent); }
+.crusorai-hub-create { margin-top: 6px; }
 .crusorai-hub-state {
 	display: inline-flex; align-items: center; gap: .4em; margin-left: auto;
 	padding: 1px 8px; border-radius: 20px; font-size: .92em; white-space: nowrap;
@@ -307,6 +308,26 @@ async function render(body, host, tab) {
         body.replaceChildren(statusRow(String(error.message ?? error), true));
     }
 }
+// The Create box's "Add skill" accepts either the Enhance output or a
+// pasted skill file: pull name/description/triggers out of the YAML
+// frontmatter when present, else treat the whole text as the body.
+function parseSkillMd(text) {
+    const m = text.trim().match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+    if (!m) {
+        return { name: '', description: '', triggers: [], instruction: text.trim() };
+    }
+    const meta = m[1];
+    const pick = (key) => {
+        const mm = meta.match(new RegExp(`^${key}:\s*(.+)$`, 'm'));
+        return mm ? mm[1].trim().replace(/^["']|["']$/g, '') : '';
+    };
+    return {
+        name: pick('name'),
+        description: pick('description'),
+        triggers: pick('triggers').split(',').map(t => t.trim()).filter(Boolean),
+        instruction: m[2].trim(),
+    };
+}
 async function renderMarketplace(body, host) {
     const [catalogRes, installedRes] = await Promise.all([
         host.skillsHubOp('catalog'),
@@ -395,7 +416,82 @@ async function renderMarketplace(body, host) {
         }
     };
     search.addEventListener('input', () => rebuild(search.value));
-    body.replaceChildren(search, list);
+    // Create a skill (field 2026-10-02, owner: non-coders fear writing
+    // skill files — give them ONE box and an Enhance button). Rough words
+    // in -> Enhance (the engine's enhance_skill one-shot) -> a proper
+    // skill file lands in the editable box -> Add skill pushes it through
+    // the engine's skill_create op. The engine normalizes the name,
+    // derives triggers when missing, and owns the store — the panel never
+    // writes files. Lives OUTSIDE the search list so it survives rebuilds.
+    const create = el('div', 'crusorai-hub-create');
+    create.append(el('div', 'crusorai-hub-oneshot-label', 'Create a skill'));
+    create.append(el('div', 'crusorai-hub-row-desc', 'No coding needed. Describe the job in your own words and press \u2728 Enhance — or paste an existing skill file and add it directly.'));
+    const draftIn = el('textarea', 'crusorai-hub-oneshot-input');
+    draftIn.rows = 3;
+    draftIn.placeholder = 'e.g. when I say \u201cship it\u201d, run the tests, build, and give me a go/no-go checklist';
+    const contentIn = el('textarea', 'crusorai-hub-oneshot-input');
+    contentIn.rows = 6;
+    contentIn.placeholder = 'The polished skill file appears here (still editable) — or paste an existing one.';
+    const enhanceBtn = el('button', 'crusorai-hub-mini', glyph('sparkle'), 'Enhance with AI');
+    enhanceBtn.type = 'button';
+    enhanceBtn.disabled = true;
+    draftIn.addEventListener('input', () => { enhanceBtn.disabled = draftIn.value.trim().length === 0; });
+    const addBtn = el('button', 'crusorai-hub-mini is-primary', 'Add skill');
+    addBtn.type = 'button';
+    addBtn.disabled = true;
+    contentIn.addEventListener('input', () => { addBtn.disabled = contentIn.value.trim().length === 0; });
+    const createMsg = el('div', 'crusorai-hub-row-error');
+    createMsg.style.display = 'none';
+    const say = (text, isError = false) => {
+        createMsg.textContent = text;
+        createMsg.style.display = '';
+        createMsg.style.color = isError ? 'var(--vscode-errorForeground, #f48771)' : 'var(--vscode-testing-iconPassed, #3fb950)';
+    };
+    enhanceBtn.addEventListener('click', async () => {
+        enhanceBtn.disabled = true;
+        say('Enhancing\u2026');
+        try {
+            const res = await host.oneshotRun('enhance_skill', '', { draft: draftIn.value.trim() });
+            if (res.error) {
+                say(String(res.error), true);
+            }
+            else {
+                contentIn.value = res.text ?? '';
+                addBtn.disabled = contentIn.value.trim().length === 0;
+                say('Polished. Edit anything you like, then press Add skill.');
+            }
+        }
+        catch (err) {
+            say(String(err.message ?? err), true);
+        }
+        enhanceBtn.disabled = draftIn.value.trim().length === 0;
+    });
+    addBtn.addEventListener('click', async () => {
+        const parsed = parseSkillMd(contentIn.value);
+        if (!parsed.instruction) {
+            say('The skill body is empty.', true);
+            return;
+        }
+        addBtn.disabled = true;
+        say('Adding\u2026');
+        const res = await host.skillsHubOp('skill_create', {
+            name: parsed.name, description: parsed.description,
+            triggers: parsed.triggers, instruction: parsed.instruction,
+        });
+        addBtn.disabled = false;
+        if (res.ok === false) {
+            say(String(res.error ?? 'could not add the skill'), true);
+            return;
+        }
+        const what = res.updated ? 'Updated' : 'Added';
+        say(`${what} \u2713 \u2014 \u201c${res.skill}\u201d is live (auto-activates on: ${res.triggers.join(', ')}).`);
+        draftIn.value = '';
+        contentIn.value = '';
+        enhanceBtn.disabled = true;
+        addBtn.disabled = true;
+    });
+    create.append(draftIn, enhanceBtn, contentIn, addBtn, createMsg);
+    body.replaceChildren(search, list, create);
     rebuild('');
 }
 // Live connector rows come from the engine's `connectors` hub op (probed

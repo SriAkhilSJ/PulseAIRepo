@@ -30,6 +30,15 @@ class TestTemplateRegistry:
         for row in oneshot.list_templates():
             assert row["description"] and row["variables"]
 
+    def test_enhance_skill_template_is_faithful_and_structured(self):
+        """The Create box's \u2728 Enhance: rough idea in, a complete skill
+        file out — frontmatter + triggers demanded, faithfulness demanded."""
+        res = oneshot.render_template("enhance_skill", {"draft": "when I say ship it, run the tests", "name": "ship-it"})
+        assert res["ok"]
+        assert "frontmatter" in res["system"] and "triggers" in res["system"]
+        assert "FAITHFUL" in res["system"]  # never invent capabilities
+        assert "when I say ship it" in res["user"] and "ship-it" in res["user"]
+
     def test_unknown_template_error_names_the_valid_set(self):
         res = oneshot.render_template("explode")
         assert not res["ok"] and "commit_message" in res["error"]

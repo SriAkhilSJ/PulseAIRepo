@@ -628,7 +628,7 @@ class TestHubOps:
     def test_unknown_op_names_the_valid_set(self, env):
         res = hub.handle_hub_op("explode")
         assert not res["ok"] and "list, catalog, search, install, update, remove, all, toggle, manifest, connectors, "
-        "connector_attach, connector_detach" in res["error"]
+        "connector_attach, connector_detach, skill_create" in res["error"]
 
     def test_connectors_op_reports_live_state(self, env, monkeypatch, tmp_path):
         """The Connectors tab is a pure view — the engine probes the REAL
@@ -706,6 +706,33 @@ class TestHubOps:
         # detaching something absent fails honestly
         again = hub.handle_hub_op("connector_detach", frame={"workspace": str(ws), "name": "filesystem"})
         assert not again["ok"] and "not attached" in again["error"]
+
+    def test_skill_create_adds_a_user_skill_from_the_dialog(self, env):
+        """The Create box path: non-coder words -> engine normalization
+        (spaces to hyphens), triggers derived from the name when the
+        enhanced file had none, update-on-same-name, bundled refused."""
+        body = "When the user says ship it, run the test suite, then build, then report go/no-go with the checklist output."
+        res = hub.handle_hub_op("skill_create", frame={
+            "name": "Ship It!", "instruction": body, "triggers": [],
+            "description": "Run the ship checklist.",
+        })
+        assert res["ok"] and res["skill"] == "ship-it" and res["updated"] is False
+        assert res["triggers"] == ["ship"]  # derived: name words longer than two chars
+        assert isinstance(res["invalidated"], dict)  # invalidation seam summary
+        skill = next(s for s in env["manager"].list_skills() if s["name"] == "ship-it")
+        assert skill["created_by"] == "user"
+
+        res2 = hub.handle_hub_op("skill_create", frame={
+            "name": "ship-it",
+            "instruction": "Longer replacement body for the ship checklist workflow, well over twenty characters.",
+            "triggers": ["ship it"],
+        })
+        assert res2["ok"] and res2["updated"] is True and res2["triggers"] == ["ship it"]
+
+        short = hub.handle_hub_op("skill_create", frame={"name": "tiny", "instruction": "too short"})
+        assert not short["ok"] and "too short" in short["error"]
+        noname = hub.handle_hub_op("skill_create", frame={"instruction": "x" * 50})
+        assert not noname["ok"] and "name" in noname["error"]
 
     def test_catalog_op_returns_every_entry(self, env):
         res = hub.handle_hub_op("catalog", catalog=env["catalog"])
@@ -798,6 +825,11 @@ class TestHubOps:
         assert "FALLBACK_CONNECTORS" in dialog and "crusorai-hub-state" in dialog
         # custom attachable: the form goes THROUGH the engine (never edits
         # files in the panel), attached servers are detachable chips
+        # the Create box: Enhance (oneshot) + Add skill (engine op), with
+        # frontmatter parsing so pasted files work too
+        assert "host.oneshotRun!('enhance_skill'" in dialog
+        assert "host.skillsHubOp!('skill_create'" in dialog
+        assert "parseSkillMd" in dialog and "crusorai-hub-create" in dialog
         assert "host.skillsHubOp!('connector_attach'" in dialog
         assert "host.skillsHubOp!('connector_detach'" in dialog
         assert "crusorai-hub-attach" in dialog
@@ -807,6 +839,7 @@ class TestHubOps:
         engine = (_REPO / "src" / "agents" / "skills_hub.py").read_text(encoding="utf-8")
         assert "def probe_connectors" in engine and '"connectors"' in engine
         assert "def connector_attach" in engine and "def connector_detach" in engine
+        assert "def create_user_skill" in engine and '"skill_create"' in engine
         assert "mcp_config_path" in engine
         assert "mcp_config_path" in engine
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
