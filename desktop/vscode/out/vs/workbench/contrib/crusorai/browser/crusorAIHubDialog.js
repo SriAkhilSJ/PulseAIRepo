@@ -120,6 +120,13 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-mini.is-done { background: transparent; color: var(--vscode-foreground, #cccccc); opacity: .85; }
 .crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini.is-primary { align-self: flex-start; }
+.crusorai-hub-state {
+	display: inline-flex; align-items: center; gap: .4em; margin-left: auto;
+	padding: 1px 8px; border-radius: 20px; font-size: .92em; white-space: nowrap;
+}
+.crusorai-hub-state::before { content: ''; width: .6em; height: .6em; border-radius: 50%; background: currentColor; }
+.crusorai-hub-state.is-connected { color: var(--vscode-testing-iconPassed, #3fb950); background: rgba(63, 185, 80, 0.12); }
+.crusorai-hub-state.is-setup { color: var(--vscode-editorWarning-foreground, #d29922); background: rgba(210, 153, 34, 0.12); }
 .crusorai-hub-oneshot { display: flex; flex-direction: column; gap: 7px; }
 .crusorai-hub-oneshot-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .crusorai-hub-chip {
@@ -285,7 +292,7 @@ async function render(body, host, tab) {
                 await renderMarketplace(body, host);
                 break;
             case 'connectors':
-                renderConnectors(body);
+                await renderConnectors(body, host);
                 break;
             case 'myskills':
                 await renderMySkills(body, host);
@@ -390,19 +397,49 @@ async function renderMarketplace(body, host) {
     body.replaceChildren(search, list);
     rebuild('');
 }
-const CONNECTORS = [
-    { label: 'MCP', glyph: 'plug', desc: 'Model Context Protocol', hint: 'filesystem, github, postgres, puppeteer servers from .crusorai/mcp.json — say "list my MCP servers" in chat' },
-    { label: 'GitHub connector', glyph: 'mark-github', desc: 'PRs and issues', hint: 'say "open the PR reviews for this repo" — uses gh / MCP github' },
-    { label: 'Browser connector', glyph: 'browser', desc: 'CDP / puppeteer verification', hint: 'say "verify the UI works" — Crusor drives a real browser and checks the page' },
-    { label: 'DB connector', glyph: 'database', desc: 'postgres / sqlite', hint: 'say "query the users table" — guarded read/list tools, mutations ask first' },
-    { label: 'Terminal connector', glyph: 'terminal', desc: 'guarded shell access', hint: 'run_terminal with approval gates — already wired into every session' },
+// Live connector rows come from the engine's `connectors` hub op (probed
+// at open time: real MCP servers from the workspace's .crusorai/mcp.json,
+// gh/token, browser stack, DB env, terminal). This static set is only the
+// FALLBACK for an engine that predates the op — the panel is a pure view,
+// the engine owns the truth (field 2026-10-02: "Connector is hardcoded").
+const FALLBACK_CONNECTORS = [
+    { id: 'mcp', label: 'MCP', glyph: 'plug', desc: 'Model Context Protocol', hint: 'filesystem, github, postgres, puppeteer servers from .crusorai/mcp.json — say "list my MCP servers" in chat' },
+    { id: 'github', label: 'GitHub connector', glyph: 'mark-github', desc: 'PRs and issues', hint: 'say "open the PR reviews for this repo" — uses gh / MCP github' },
+    { id: 'browser', label: 'Browser connector', glyph: 'browser', desc: 'CDP / puppeteer verification', hint: 'say "verify the UI works" — Crusor drives a real browser and checks the page' },
+    { id: 'db', label: 'DB connector', glyph: 'database', desc: 'postgres / sqlite', hint: 'say "query the users table" — guarded read/list tools, mutations ask first' },
+    { id: 'terminal', label: 'Terminal connector', glyph: 'terminal', desc: 'guarded shell access', hint: 'run_terminal with approval gates — already wired into every session' },
 ];
-function renderConnectors(body) {
-    const list = el('div', 'crusorai-hub-dialog-list');
-    for (const connector of CONNECTORS) {
-        list.append(el('div', 'crusorai-hub-row', el('div', 'crusorai-hub-row-main', el('div', 'crusorai-hub-row-title', glyph(connector.glyph), el('span', 'crusorai-hub-row-name', connector.label), el('span', 'crusorai-hub-row-meta', connector.desc)), el('div', 'crusorai-hub-row-desc', connector.hint))));
+async function renderConnectors(body, host) {
+    let rows;
+    let live = false;
+    try {
+        // short race: an old engine never answers this op — fall back after
+        // 3.5s instead of spinning to the 12s transport timeout.
+        const res = await Promise.race([
+            host.skillsHubOp('connectors'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('connectors probe timeout')), 3500)),
+        ]);
+        if (res.ok !== false && Array.isArray(res.connectors)) {
+            rows = res.connectors;
+            live = true;
+        }
+        else {
+            rows = FALLBACK_CONNECTORS;
+        }
     }
-    list.append(el('div', 'crusorai-hub-row', el('div', 'crusorai-hub-row-main', el('div', 'crusorai-hub-row-desc', 'Need more? Skill packs for connectors install from the Marketplace tab.'))));
+    catch {
+        rows = FALLBACK_CONNECTORS;
+    }
+    const glyphs = { mcp: 'plug', github: 'mark-github', browser: 'browser', db: 'database', terminal: 'terminal' };
+    const list = el('div', 'crusorai-hub-dialog-list');
+    for (const row of rows) {
+        const id = row.id ?? '';
+        const fb = FALLBACK_CONNECTORS.find(f => f.id === id);
+        list.append(el('div', 'crusorai-hub-row', el('div', 'crusorai-hub-row-main', el('div', 'crusorai-hub-row-title', glyph(row.glyph ?? glyphs[id] ?? 'plug'), el('span', 'crusorai-hub-row-name', row.label ?? fb?.label ?? id), el('span', 'crusorai-hub-row-meta', row.desc ?? fb?.desc ?? ''), row.status ? el('span', `crusorai-hub-state is-${row.status === 'connected' ? 'connected' : 'setup'}`, row.status === 'connected' ? 'connected' : 'set up') : undefined), el('div', 'crusorai-hub-row-desc', row.detail ?? row.desc ?? fb?.desc ?? ''), el('div', 'crusorai-hub-row-desc', row.hint ?? fb?.hint ?? ''))));
+    }
+    list.append(el('div', 'crusorai-hub-row', el('div', 'crusorai-hub-row-main', el('div', 'crusorai-hub-row-desc', live
+        ? 'Status is probed live from this workspace — nothing here is a promise; the agent confirms before acting.'
+        : 'Need more? Skill packs for connectors install from the Marketplace tab.'))));
     body.replaceChildren(list);
 }
 async function renderMySkills(body, host) {

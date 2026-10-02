@@ -1232,7 +1232,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				listener?.dispose();
 				resolve((frame.result ?? {}) as Record<string, unknown>);
 			});
-			this.sendSkillsHubOp(op, extra);
+			// the connectors probe reads the WORKSPACE's .crusorai/mcp.json —
+			// the engine has no other way to know which folder is open.
+			this.sendSkillsHubOp(op, op === 'connectors' ? { ...extra, workspace: this.workspacePath } : extra);
 		});
 	}
 

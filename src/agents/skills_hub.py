@@ -980,6 +980,94 @@ def notify_skills_changed() -> dict:
     return cleared
 
 
+def probe_connectors(workspace: str = "") -> dict:
+    """Live connector status for the hub dialog's Connectors tab — what is
+    ACTUALLY reachable right now, probed cheaply (file reads, env checks,
+    shutil.which, module presence — never a process spawn or network call:
+    this runs every time the tab opens). The panel is a pure view; the
+    engine owns the truth (same rule as skills_manifest)."""
+    import importlib.util
+
+    rows: list[dict] = []
+
+    # MCP — real servers come from <workspace>/.crusorai/mcp.json (the same
+    # file mcp_client runs); parse it directly, never initialize clients.
+    servers: list[str] = []
+    mcp_detail = "no .crusorai/mcp.json in this workspace yet"
+    if workspace:
+        try:
+            from src.tools.mcp_client import mcp_config_path
+            raw = json.loads(mcp_config_path(workspace).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raw = {}
+        except Exception:
+            raw = None
+        if raw is None:
+            rows.append({
+                "id": "mcp", "label": "MCP (Model Context Protocol)",
+                "desc": "external tool servers", "status": "setup",
+                "detail": ".crusorai/mcp.json exists but is not valid JSON",
+                "hint": "say \"list my MCP servers\" in chat once the file parses",
+            })
+            raw = {}
+        else:
+            for sname, spec in (raw.get("servers") or {}).items():
+                if isinstance(spec, dict) and spec.get("enabled") is not False and spec.get("command"):
+                    servers.append(str(sname))
+            if servers:
+                mcp_detail = f"{len(servers)} server(s): {', '.join(servers)}"
+    if not any(r.get("id") == "mcp" for r in rows):
+        if not workspace:
+            mcp_detail = "open a workspace folder to configure MCP servers"
+        rows.append({
+            "id": "mcp", "label": "MCP (Model Context Protocol)",
+            "desc": "external tool servers",
+            "status": "connected" if servers else "setup",
+            "detail": mcp_detail,
+            "hint": "add servers to <workspace>/.crusorai/mcp.json, or say \"list my MCP servers\" in chat",
+        })
+
+    # GitHub — gh CLI on PATH, else a token env.
+    gh = shutil.which("gh")
+    if gh:
+        rows.append({"id": "github", "label": "GitHub connector", "desc": "PRs and issues",
+                     "status": "connected", "detail": f"gh CLI found ({gh})",
+                     "hint": "say \"open the PR reviews for this repo\""})
+    elif os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+        rows.append({"id": "github", "label": "GitHub connector", "desc": "PRs and issues",
+                     "status": "connected", "detail": "token auth found in environment",
+                     "hint": "say \"open the PR reviews for this repo\""})
+    else:
+        rows.append({"id": "github", "label": "GitHub connector", "desc": "PRs and issues",
+                     "status": "setup", "detail": "gh CLI not on PATH and no GH_TOKEN set",
+                     "hint": "install gh (or set GH_TOKEN) — then say \"open the PR reviews for this repo\""})
+
+    # Browser — the stack module present in this engine env.
+    browser = importlib.util.find_spec("camoufox") or importlib.util.find_spec("playwright")
+    rows.append({
+        "id": "browser", "label": "Browser connector", "desc": "real-browser verification",
+        "status": "connected" if browser else "setup",
+        "detail": "browser stack module present" if browser else "browser stack module not found in this engine env",
+        "hint": "say \"verify the UI works\" — Crusor drives a real browser and checks the page",
+    })
+
+    # DB — configured via environment (DATABASE_URL / PGHOST / POSTGRES_HOST).
+    if os.environ.get("DATABASE_URL") or os.environ.get("PGHOST") or os.environ.get("POSTGRES_HOST"):
+        rows.append({"id": "db", "label": "DB connector", "desc": "postgres / sqlite",
+                     "status": "connected", "detail": "database connection found in environment",
+                     "hint": "say \"query the users table\" — guarded reads, mutations ask first"})
+    else:
+        rows.append({"id": "db", "label": "DB connector", "desc": "postgres / sqlite",
+                     "status": "setup", "detail": "no DATABASE_URL / PGHOST in environment",
+                     "hint": "set DATABASE_URL to connect — sqlite needs no server; mutations always ask first"})
+
+    # Terminal — the guarded shell ships with every session.
+    rows.append({"id": "terminal", "label": "Terminal connector", "desc": "guarded shell access",
+                 "status": "connected", "detail": "wired into every session",
+                 "hint": "run_terminal with approval gates — dangerous commands ask first"})
+    return {"ok": True, "connectors": rows}
+
+
 def handle_hub_op(
     op: str = "",
     frame: dict | None = None,
@@ -1004,6 +1092,9 @@ def handle_hub_op(
       manifest — the exact SKILLS INDEX text injected into the system prompt
                  (skills_manifest(), single source of truth — the Manager's
                  "what the model sees" pane renders this string verbatim)
+      connectors — live integration status (MCP servers from the workspace's
+                 .crusorai/mcp.json, gh/token, browser stack, DB env, terminal)
+                 for the hub dialog's Connectors tab; probed cheaply, never spawned
 
     Every op returns a dict with an `ok` flag; unknown ops fail with a
     message naming the valid set. Errors never raise (skills-layer D17).
@@ -1085,10 +1176,12 @@ def handle_hub_op(
                 "invalidated": notify_skills_changed()}
     if clean == "manifest":
         return {"ok": True, "manifest": mgr.skills_manifest()}
+    if clean == "connectors":
+        return probe_connectors(str(f.get("workspace") or ""))
 
     return _fail(
         f"unknown skills_hub op {clean!r} — valid ops: list, catalog, search, "
-        "install, update, remove, all, toggle, manifest"
+        "install, update, remove, all, toggle, manifest, connectors"
     )
 
 

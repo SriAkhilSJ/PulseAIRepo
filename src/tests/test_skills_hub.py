@@ -627,7 +627,44 @@ class TestHubOps:
 
     def test_unknown_op_names_the_valid_set(self, env):
         res = hub.handle_hub_op("explode")
-        assert not res["ok"] and "list, catalog, search, install, update, remove, all, toggle, manifest" in res["error"]
+        assert not res["ok"] and "list, catalog, search, install, update, remove, all, toggle, manifest, connectors" in res["error"]
+
+    def test_connectors_op_reports_live_state(self, env, monkeypatch, tmp_path):
+        """The Connectors tab is a pure view — the engine probes the REAL
+        state (workspace mcp.json servers, gh/token, browser stack, DB env,
+        terminal) cheaply, never spawning processes."""
+        import json as _json
+        ws = tmp_path / "ws"
+        (ws / ".crusorai").mkdir(parents=True)
+        (ws / ".crusorai" / "mcp.json").write_text(_json.dumps({
+            "servers": {"filesystem": {"command": "npx"}, "off": {"command": "x", "enabled": False}},
+        }), encoding="utf-8")
+        for var in ("GH_TOKEN", "GITHUB_TOKEN", "DATABASE_URL", "PGHOST", "POSTGRES_HOST"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(hub.shutil, "which", lambda name: "/usr/bin/gh" if name == "gh" else None)
+
+        res = hub.handle_hub_op("connectors", frame={"workspace": str(ws)})
+        assert res["ok"]
+        by_id = {r["id"]: r for r in res["connectors"]}
+        assert by_id["mcp"]["status"] == "connected"
+        assert "filesystem" in by_id["mcp"]["detail"] and "off" not in by_id["mcp"]["detail"]
+        assert by_id["github"]["status"] == "connected" and "gh" in by_id["github"]["detail"]
+        assert by_id["db"]["status"] == "setup"
+        assert by_id["terminal"]["status"] == "connected"
+
+        monkeypatch.setenv("DATABASE_URL", "postgres://localhost/db")
+        assert hub.handle_hub_op("connectors", frame={"workspace": str(ws)})["connectors"][-2]["status"] == "connected"
+
+        # broken json is named honestly, never swallowed
+        (ws / ".crusorai" / "mcp.json").write_text("{oops", encoding="utf-8")
+        res3 = hub.handle_hub_op("connectors", frame={"workspace": str(ws)})
+        mcp3 = next(r for r in res3["connectors"] if r["id"] == "mcp")
+        assert mcp3["status"] == "setup" and "not valid JSON" in mcp3["detail"]
+
+        # no workspace: still a full row set, mcp says what to do next
+        res4 = hub.handle_hub_op("connectors", frame={})
+        assert {r["id"] for r in res4["connectors"]} == {"mcp", "github", "browser", "db", "terminal"}
+        assert "workspace" in res4["connectors"][0]["detail"]
 
     def test_catalog_op_returns_every_entry(self, env):
         res = hub.handle_hub_op("catalog", catalog=env["catalog"])
@@ -713,6 +750,17 @@ class TestHubOps:
             "var(--vscode-button-background, #0e639c)",
         ):
             assert token in dialog, token
+        # connectors are LIVE, not hardcoded (field 2026-10-02): the dialog
+        # fetches the engine's connectors op (with a fallback for old
+        # engines), the service supplies the workspace, status chips render.
+        assert "host.skillsHubOp!('connectors')" in dialog
+        assert "FALLBACK_CONNECTORS" in dialog and "crusorai-hub-state" in dialog
+        assert "is-connected" in dialog and "is-setup" in dialog
+        service_src = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
+        assert "op === 'connectors'" in service_src and "workspace: this.workspacePath" in service_src
+        engine = (_REPO / "src" / "agents" / "skills_hub.py").read_text(encoding="utf-8")
+        assert "def probe_connectors" in engine and '"connectors"' in engine
+        assert "mcp_config_path" in engine
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
         assert "crusorai.plusMenu" not in hub_ts, "the QuickPick Add… stays dead"
         service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
