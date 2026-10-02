@@ -200,6 +200,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
             openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
             openManager: () => { this.openManagerWindow(); },
+            // Composer + -> the Add… dialog (native QuickPick; each row routes to
+            // its registered command — one code path with the palette).
+            skillsHubOp: (op, extra) => this.skillsHubOp(op, extra),
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
                 // permission-blocked inside the webview). The workbench service
@@ -208,11 +211,39 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     this.clipboardService.writeText(text);
                 }
                 catch { /* best effort */ }
+                // Composer + dialog, One-Shot tab (field 2026-10-02 rev 4): one quick
+                // job over the oneshot envelope — same request/response pairing as
+                // the hub op hook.
+                oneshotRun: (template, instructions, variables) => {
+                    return new Promise((resolve, reject) => {
+                        let listener;
+                        const timer = setTimeout(() => {
+                            listener?.dispose();
+                            reject(new Error('One-shot: the engine did not answer. Fully restart CrusorAI so the bridge runs this build.'));
+                        }, 20000);
+                        listener = this.onOneshotResult(frame => {
+                            clearTimeout(timer);
+                            listener?.dispose();
+                            if (frame.error) {
+                                reject(new Error(frame.error));
+                                return;
+                            }
+                            resolve({ text: frame.text });
+                        });
+                        this.sendOneshot(template, { instructions, variables });
+                    });
+                },
+                ;
             },
             navigateToSession: (sessionId) => { this.navigateToSession(sessionId); },
             newSession: () => { this.newSession(); },
             isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
         };
+        // Skills Hub (Phase 3): UI listeners for skills_hub_result frames. The
+        // hub panel registers a listener per in-flight request; listener errors
+        // are isolated so one broken panel never eats the frame dispatch.
+        this._hubListeners = new Set();
+        this._oneshotListeners = new Set();
         this._register(this.engineService.onDidChangeState(state => {
             if (state === CrusorAIEngineState.Ready) {
                 this.restartAttempts = 0;
@@ -1145,6 +1176,66 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         this.parts.push({ kind: 'tool', toolId });
     }
+    sendSkillsHubOp(op, extra) {
+        this.send({ type: 'skills_hub_op', session_id: this.sessionId, op, ...(extra ?? {}) });
+    }
+    onSkillsHubResult(listener) {
+        this._hubListeners.add(listener);
+        return toDisposable(() => this._hubListeners.delete(listener));
+    }
+    /**
+     * One skills_hub_op request → its result dict (the Manager Skills tab's
+     * bridge). Same contract the palette's hubRequest uses: one matching
+     * frame, bounded wait, hard failure named — the tab paints it inline
+     * instead of hanging on a silent panel. Palette flows are modal, so a
+     * same-op request from QuickPick and this method cannot race in practice;
+     * within this method the tab's parallel reads use distinct ops.
+     */
+    skillsHubOp(op, extra = {}) {
+        return new Promise((resolve, reject) => {
+            let listener;
+            const timer = setTimeout(() => {
+                listener?.dispose();
+                reject(new Error(`the engine did not answer the '${op}' request — fully restart CrusorAI so the bridge runs the current build.`));
+            }, 12000);
+            listener = this.onSkillsHubResult(frame => {
+                if (frame.op !== op) {
+                    return;
+                }
+                clearTimeout(timer);
+                listener?.dispose();
+                resolve((frame.result ?? {}));
+            });
+            this.sendSkillsHubOp(op, extra);
+        });
+    }
+    sendOneshot(template, extra) {
+        this.send({ type: 'oneshot', session_id: this.sessionId, template, ...(extra ?? {}) });
+    }
+    onOneshotResult(listener) {
+        this._oneshotListeners.add(listener);
+        return toDisposable(() => this._oneshotListeners.delete(listener));
+    }
+    _emitOneshotResult(frame) {
+        for (const listener of Array.from(this._oneshotListeners)) {
+            try {
+                listener(frame);
+            }
+            catch {
+                // isolated on purpose
+            }
+        }
+    }
+    _emitSkillsHubResult(frame) {
+        for (const listener of Array.from(this._hubListeners)) {
+            try {
+                listener(frame);
+            }
+            catch {
+                // isolated on purpose — a broken listener must not break the chain
+            }
+        }
+    }
     send(frame) {
         try {
             this.engineService.send(frame);
@@ -1516,6 +1607,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 toolCalls: frame.tool_calls ?? frame.toolCalls ?? existing.toolCalls,
                 agentName: frame.agent_name ?? frame.agentName ?? existing.mode,
             });
+        }
+        else if (frame.type === 'skills_hub_result') {
+            this._emitSkillsHubResult(frame);
+        }
+        else if (frame.type === 'oneshot_result') {
+            this._emitOneshotResult(frame);
         }
         else if (frame.type === 'subagent_list') {
             // OpenCode parity: list children for parent

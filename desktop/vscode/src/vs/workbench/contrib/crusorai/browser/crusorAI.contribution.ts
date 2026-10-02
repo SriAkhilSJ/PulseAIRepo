@@ -29,6 +29,8 @@ import { crusorSessionIdFromUri, crusorSessionRows } from '../common/crusorAISes
 import { CrusorAIPreviewService, ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
 import './crusorAISessionController.js';
+import './crusorAISkillsHub.js';
+import './crusorAIOneShot.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import {
 	Extensions as ViewContainerExtensions,

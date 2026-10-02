@@ -78,6 +78,24 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 
 > **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
 
+## Recent Changes 2026-09-30 — Crusor Skills Hub: the INSTALL side of skills
+
+**Branch `arena/01a0f348-pulseairepo`:**
+
+| Area | Change | Verification |
+|---|---|---|
+| **Skills Hub engine** | `src/agents/skills_hub.py` — search the curated catalog, install community `SKILL.md` skills from GitHub (catalog name, `owner/repo@sha`, `@sha:subdir`, `@ref` fail-closed-resolved to a full SHA), provenance ledger, uninstall; result-dict errors, never raises | `src/tests/test_skills_hub.py` (31 hermetic tests) + live installs over a real socket |
+| **Safety pipeline** | host allow-list → SHA anchoring → 25MB/2000-file/8MB caps → traversal-proof, symlink-aware extraction → skill validation → collision guard (same-source upgrade only) → **zero execution on install** | attack-simulation tests: traversal member, escaping symlink, caps, corrupt tarball |
+| **Curated catalog** | `skills/catalog.json` — 8 real entries (Anthropic, Vercel, Trail of Bits, Superpowers repos), each pinned to an exact 40-char SHA; invalid entries dropped with reasons at load | catalog validation tests |
+| **Agent tools** | `hub_search` / `hub_install` / `hub_update` / `hub_list` / `hub_remove` — bound in the always-on skills waist + `_TOOLS_BY_NAME`; one gated prompt sentence | binding tests; `_skills_lead` gated rendering |
+| **Store plumbing** | `SkillManager.add_skill(..., source=...)` backward-compatible provenance (hub installs are `pinned`, curator-exempt); hub folder + `provenance.json` under `~/.crusorai/hub-skills` (env: `CRUSORAI_HUB_SKILLS_DIR`) | round-trip + uninstall-scope tests |
+| **CLI** | `scripts/skills_hub_cli.py` — search/install/update/list/remove from a terminal (same pipeline) | live-verified |
+| **Bridge surface (Phase 2)** | `skills_hub_op` client method → `skills_hub_result` server event — one generic op envelope (list/search/install/update/remove) the desktop Skills panel binds to; manifest + Python constants + generated TS + handwritten payload union all pinned | `test_bridge_protocol_v2.py` 8/8 |
+| **Skills surface (Phase 3)** | `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows — browse/search/install/update/remove the catalog and manage every installed skill (enable/disable, usage counts) over the `skills_hub_op` bridge envelope; engine gains one consolidated `handle_hub_op` dispatcher shared by bridge, CLI and tests (ops: list/search/install/update/remove/all/toggle) | 44 hub tests + bridge/architecture suites green; UI compile owned by desktop verification |
+| **One-shot + linter (Phases 3-4)** | `src/prompts/oneshot.py` — stateless quick jobs (commit_message / summarize / rename_ideas / title_session via the shipped titling prompt) on the cheap auxiliary tier, ad-hoc `instructions+input` fallback, injectable invoke, never touches session history or the prompt cache; bridge `oneshot` → `oneshot_result` (session-independent, protocol pinned at all four layers); `Crusor: One-Shot Task` palette flow (result → clipboard); install-time skill metadata linter — warn-only, surfaced to the installer | `test_oneshot.py` 14 tests; focused suite 272 green |
+
+
+
 ## Recent Changes 2026-09-27 — main merge: sub-agent pipeline + Preview on `main`
 
 **Merge `ced153dd` (arena `01a0ca7c` → `main`, plus `6ec29027` follow-ups, all pushed):**

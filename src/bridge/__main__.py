@@ -1069,6 +1069,51 @@ class BridgeServer:
         if kind == "shutdown":
             self._shutdown.set()
             return False
+        if kind == "skills_hub_op":
+            # Skills Hub ops are USER-level state (catalog/registry), not
+            # session state: they are handled BEFORE workspace/session
+            # resolution so the palette works on a fresh window (no session
+            # bound yet) and a click never mints a phantom session. The
+            # result echoes the caller's session_id as-is; the panel
+            # correlates on `op`. (Field 2026-10-01: the op sat inside the
+            # session-scoped chain, so palette clicks before any chat bound
+            # went through session resolution and silently stalled.)
+            op = str(frame.get("op") or "list").strip().lower()
+            try:
+                from src.agents.skills_hub import handle_hub_op
+                result = handle_hub_op(op, frame=frame)
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)[:500]}
+            self.emit({
+                "type": "skills_hub_result",
+                "session_id": frame.get("session_id") or "",
+                "op": op, "result": result,
+            })
+            return True
+        if kind == "oneshot":
+            # One-shot quick jobs (hermes oneshot parity): template or ad-hoc
+            # ask -> ONE cheap-tier provider call. Handled BEFORE session
+            # resolution on purpose: a one-shot has nothing to do with the
+            # chat thread — it must never mint a session, append to history,
+            # or touch the prompt cache. Result rides oneshot_result.
+            variables = frame.get("variables")
+            try:
+                from src.prompts.oneshot import run_oneshot
+                res = run_oneshot(
+                    str(frame.get("template") or ""),
+                    instructions=str(frame.get("instructions") or ""),
+                    variables=variables if isinstance(variables, dict) else {},
+                )
+            except Exception as exc:
+                res = {"ok": False, "error": str(exc)[:500]}
+            self.emit({
+                "type": "oneshot_result",
+                "session_id": frame.get("session_id") or "",
+                "template": str(frame.get("template") or "adhoc"),
+                "text": str(res.get("text", "")),
+                "error": str(res.get("error", "")),
+            })
+            return True
 
         raw_workspace = frame.get("workspace")
         workspace = str(raw_workspace).strip() if raw_workspace else ""

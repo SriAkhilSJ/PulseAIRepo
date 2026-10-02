@@ -1,0 +1,16 @@
+npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm notice run crusorai-dev@1.134.0 npx
+npm notice run gulp compile
+[[90m01:58:47[39m] Using gulpfile D:\pulseAIagent\PulseAIRepo\desktop\vscode\gulpfile.mjs
+[[90m01:58:47[39m] Starting 'compile'...
+[crusorai-compile] typescript -> out/ (this takes MINUTES; do not abort on silence)
+[crusorai-compile] using node_modules/typescript/bin/tsc6 (child heap: --max-old-space-size=8192)
+[crusorai-compile] tsc finished
+[crusorai-compile] resources copied (css / ttf / wasm / media incl. crusorai-spa)
+[crusorai-compile] done: out/ is ready — fully quit the app and reopen it
+[[90m02:01:51[39m] Finished 'compile' after 3.07 min

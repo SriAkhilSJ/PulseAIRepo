@@ -1,0 +1,24 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 152 items
+
+src\tests\test_skills_hub.py ....................................        [ 23%]
+src\tests\test_skill_tools.py ..................                         [ 35%]
+src\tests\test_skill_bundled.py .........................                [ 51%]
+src\tests\test_skill_lifecycle.py ........                               [ 57%]
+src\tests\test_bridge_protocol_v2.py ........                            [ 62%]
+src\tests\test_desktop_renderer_architecture.py ...s.........x.......... [ 78%]
+.................................                                        [100%]
+
+============================== warnings summary ===============================
+src/tests/test_skills_hub.py::TestBindingAndHygiene::test_hub_tools_bound_in_graph_and_toolsets
+  D:\pulseAIagent\PulseAIRepo\.venv\Lib\site-packages\google\genai\types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======= 150 passed, 1 skipped, 1 xfailed, 1 warning in 87.70s (0:01:27) =======
+EXIT=0
