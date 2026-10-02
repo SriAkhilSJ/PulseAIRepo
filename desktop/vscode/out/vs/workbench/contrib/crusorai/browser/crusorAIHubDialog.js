@@ -120,6 +120,7 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-mini.is-done { background: transparent; color: var(--vscode-foreground, #cccccc); opacity: .85; }
 .crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini.is-primary { align-self: flex-start; }
+.crusorai-hub-attach { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border, transparent); }
 .crusorai-hub-state {
 	display: inline-flex; align-items: center; gap: .4em; margin-left: auto;
 	padding: 1px 8px; border-radius: 20px; font-size: .92em; white-space: nowrap;
@@ -440,6 +441,56 @@ async function renderConnectors(body, host) {
     list.append(el('div', 'crusorai-hub-row', el('div', 'crusorai-hub-row-main', el('div', 'crusorai-hub-row-desc', live
         ? 'Status is probed live from this workspace — nothing here is a promise; the agent confirms before acting.'
         : 'Need more? Skill packs for connectors install from the Marketplace tab.'))));
+    // Custom attach (field 2026-10-02: "Connectors should be custom
+    // attachable"): an MCP server is the one file-configured connector, so
+    // the form writes <workspace>/.crusorai/mcp.json THROUGH the engine
+    // (connector_attach) — the panel never edits files itself. Attached
+    // servers render as chips; a chip's ✕ detaches (connector_detach).
+    if (live) {
+        const mcpRow = rows.find(r => r.id === 'mcp');
+        const attached = Array.isArray(mcpRow?.servers) ? (mcpRow.servers ?? []) : [];
+        const attach = el('div', 'crusorai-hub-attach');
+        attach.append(el('div', 'crusorai-hub-oneshot-label', 'Attach a connector'));
+        if (attached.length > 0) {
+            const chips = el('div', 'crusorai-hub-oneshot-chips');
+            for (const server of attached) {
+                const chip = el('button', 'crusorai-hub-chip', server, glyph('close'));
+                chip.type = 'button';
+                chip.title = `Detach ${server}`;
+                chip.addEventListener('click', async () => {
+                    chip.disabled = true;
+                    await host.skillsHubOp('connector_detach', { name: server });
+                    await renderConnectors(body, host);
+                });
+                chips.append(chip);
+            }
+            attach.append(chips);
+        }
+        attach.append(el('div', 'crusorai-hub-row-desc', 'Adds an MCP server to this workspace\u2019s .crusorai/mcp.json — it connects on the next session.'));
+        const nameIn = el('input', 'crusorai-hub-dialog-search');
+        nameIn.placeholder = 'name — e.g. filesystem';
+        const cmdIn = el('input', 'crusorai-hub-dialog-search');
+        cmdIn.placeholder = 'command — e.g. npx -y @modelcontextprotocol/server-filesystem ~/docs';
+        const addBtn = el('button', 'crusorai-hub-mini is-primary', 'Attach');
+        addBtn.type = 'button';
+        const err = el('div', 'crusorai-hub-row-error');
+        err.style.display = 'none';
+        addBtn.addEventListener('click', async () => {
+            addBtn.disabled = true;
+            err.style.display = 'none';
+            const parts = cmdIn.value.trim().split(/\s+/).filter(Boolean);
+            const res = await host.skillsHubOp('connector_attach', { name: nameIn.value.trim(), command: parts[0] ?? '', args: parts.slice(1) });
+            addBtn.disabled = false;
+            if (res.ok === false) {
+                err.textContent = String(res.error ?? 'attach failed');
+                err.style.display = '';
+                return;
+            }
+            await renderConnectors(body, host); // re-probe: chip + status refresh
+        });
+        attach.append(nameIn, cmdIn, addBtn, err);
+        list.append(attach);
+    }
     body.replaceChildren(list);
 }
 async function renderMySkills(body, host) {

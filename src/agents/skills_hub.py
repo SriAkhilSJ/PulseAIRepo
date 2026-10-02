@@ -1024,6 +1024,7 @@ def probe_connectors(workspace: str = "") -> dict:
             "desc": "external tool servers",
             "status": "connected" if servers else "setup",
             "detail": mcp_detail,
+            "servers": servers,
             "hint": "add servers to <workspace>/.crusorai/mcp.json, or say \"list my MCP servers\" in chat",
         })
 
@@ -1068,6 +1069,70 @@ def probe_connectors(workspace: str = "") -> dict:
     return {"ok": True, "connectors": rows}
 
 
+def connector_attach(workspace: str, name: str, command: str, args: list[str] | None = None) -> dict:
+    """Attach a custom MCP server: merge {command, args} into the
+    workspace's .crusorai/mcp.json (the file/folder is created when
+    missing). The panel only sends the form — the engine owns the file.
+    Takes effect next session (mcp_client initializes servers per
+    session, a dead server never blocks the others)."""
+    from src.tools.mcp_client import mcp_config_path
+    ws = (workspace or "").strip()
+    if not ws:
+        return {"ok": False, "error": "open a workspace folder first — server config lives in <workspace>/.crusorai/mcp.json"}
+    cname = (name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cname):
+        return {"ok": False, "error": "server name must start with a letter or digit (letters, digits, . _ - only)"}
+    cmd = (command or "").strip()
+    if not cmd:
+        return {"ok": False, "error": "a command is required, e.g. npx -y @modelcontextprotocol/server-filesystem ~/docs"}
+    path = mcp_config_path(ws)
+    raw: dict = {}
+    if path.exists():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {"ok": False, "error": ".crusorai/mcp.json is not valid JSON — fix or remove it first"}
+    if not isinstance(raw, dict):
+        raw = {}
+    servers = raw.setdefault("servers", {})
+    if not isinstance(servers, dict):
+        return {"ok": False, "error": '.crusorai/mcp.json has a non-object "servers" — fix it first'}
+    if cname in servers:
+        return {"ok": False, "error": f"'{cname}' is already attached — detach it first"}
+    servers[cname] = {"command": cmd, "args": [str(a) for a in (args or [])]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    res = probe_connectors(ws)
+    res["attached"] = cname
+    return res
+
+
+def connector_detach(workspace: str, name: str) -> dict:
+    """Detach a custom MCP server: remove its entry from the workspace's
+    .crusorai/mcp.json and re-probe."""
+    from src.tools.mcp_client import mcp_config_path
+    ws = (workspace or "").strip()
+    cname = (name or "").strip()
+    if not ws or not cname:
+        return {"ok": False, "error": "connector_detach needs a workspace and a server name"}
+    path = mcp_config_path(ws)
+    if not path.exists():
+        return {"ok": False, "error": "no .crusorai/mcp.json in this workspace"}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "error": ".crusorai/mcp.json is not valid JSON — fix or remove it first"}
+    servers = raw.get("servers") or {}
+    if cname not in servers:
+        return {"ok": False, "error": f"'{cname}' is not attached"}
+    servers.pop(cname)
+    raw["servers"] = servers
+    path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    res = probe_connectors(ws)
+    res["detached"] = cname
+    return res
+
+
 def handle_hub_op(
     op: str = "",
     frame: dict | None = None,
@@ -1095,6 +1160,9 @@ def handle_hub_op(
       connectors — live integration status (MCP servers from the workspace's
                  .crusorai/mcp.json, gh/token, browser stack, DB env, terminal)
                  for the hub dialog's Connectors tab; probed cheaply, never spawned
+      connector_attach — merge a custom MCP server (name, command, args) into
+                 the workspace's .crusorai/mcp.json (creates the file)
+      connector_detach — remove an MCP server entry from that file
 
     Every op returns a dict with an `ok` flag; unknown ops fail with a
     message naming the valid set. Errors never raise (skills-layer D17).
@@ -1178,10 +1246,17 @@ def handle_hub_op(
         return {"ok": True, "manifest": mgr.skills_manifest()}
     if clean == "connectors":
         return probe_connectors(str(f.get("workspace") or ""))
+    if clean == "connector_attach":
+        return connector_attach(
+            str(f.get("workspace") or ""), str(f.get("name") or ""),
+            str(f.get("command") or ""), [str(a) for a in (f.get("args") or [])])
+    if clean == "connector_detach":
+        return connector_detach(str(f.get("workspace") or ""), str(f.get("name") or ""))
 
     return _fail(
         f"unknown skills_hub op {clean!r} — valid ops: list, catalog, search, "
-        "install, update, remove, all, toggle, manifest, connectors"
+        "install, update, remove, all, toggle, manifest, connectors, "
+        "connector_attach, connector_detach"
     )
 
 

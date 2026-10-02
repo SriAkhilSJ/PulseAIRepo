@@ -627,7 +627,8 @@ class TestHubOps:
 
     def test_unknown_op_names_the_valid_set(self, env):
         res = hub.handle_hub_op("explode")
-        assert not res["ok"] and "list, catalog, search, install, update, remove, all, toggle, manifest, connectors" in res["error"]
+        assert not res["ok"] and "list, catalog, search, install, update, remove, all, toggle, manifest, connectors, "
+        "connector_attach, connector_detach" in res["error"]
 
     def test_connectors_op_reports_live_state(self, env, monkeypatch, tmp_path):
         """The Connectors tab is a pure view — the engine probes the REAL
@@ -665,6 +666,46 @@ class TestHubOps:
         res4 = hub.handle_hub_op("connectors", frame={})
         assert {r["id"] for r in res4["connectors"]} == {"mcp", "github", "browser", "db", "terminal"}
         assert "workspace" in res4["connectors"][0]["detail"]
+
+    def test_connector_attach_and_detach_write_the_workspace_config(self, env, tmp_path):
+        """Custom attachable connectors (field 2026-10-02): the dialog form
+        reaches the engine, the engine owns .crusorai/mcp.json — merge on
+        attach, removal on detach, probes refreshed in the same result."""
+        import json as _json
+        ws = tmp_path / "ws2"
+        ws.mkdir()
+        res = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "filesystem", "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "~/docs"],
+        })
+        assert res["ok"] and res["attached"] == "filesystem"
+        cfg = _json.loads((ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8"))
+        assert cfg["servers"]["filesystem"]["command"] == "npx"
+        assert cfg["servers"]["filesystem"]["args"] == ["-y", "@modelcontextprotocol/server-filesystem", "~/docs"]
+        # the returned probe already reflects the attach
+        mcp = next(r for r in res["connectors"] if r["id"] == "mcp")
+        assert mcp["status"] == "connected" and "filesystem" in mcp["servers"]
+
+        # duplicates refused, names validated, missing command refused
+        dup = hub.handle_hub_op("connector_attach", frame={"workspace": str(ws), "name": "filesystem", "command": "x"})
+        assert not dup["ok"] and "already attached" in dup["error"]
+        bad = hub.handle_hub_op("connector_attach", frame={"workspace": str(ws), "name": "bad name!", "command": "x"})
+        assert not bad["ok"] and "name" in bad["error"]
+        nocmd = hub.handle_hub_op("connector_attach", frame={"workspace": str(ws), "name": "okname", "command": ""})
+        assert not nocmd["ok"] and "command" in nocmd["error"]
+        nows = hub.handle_hub_op("connector_attach", frame={"name": "x", "command": "y"})
+        assert not nows["ok"] and "workspace" in nows["error"]
+
+        # detach removes the entry and the probe flips back to setup
+        det = hub.handle_hub_op("connector_detach", frame={"workspace": str(ws), "name": "filesystem"})
+        assert det["ok"] and det["detached"] == "filesystem"
+        cfg2 = _json.loads((ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8"))
+        assert "filesystem" not in cfg2["servers"]
+        mcp2 = next(r for r in det["connectors"] if r["id"] == "mcp")
+        assert mcp2["status"] == "setup"
+        # detaching something absent fails honestly
+        again = hub.handle_hub_op("connector_detach", frame={"workspace": str(ws), "name": "filesystem"})
+        assert not again["ok"] and "not attached" in again["error"]
 
     def test_catalog_op_returns_every_entry(self, env):
         res = hub.handle_hub_op("catalog", catalog=env["catalog"])
@@ -755,11 +796,18 @@ class TestHubOps:
         # engines), the service supplies the workspace, status chips render.
         assert "host.skillsHubOp!('connectors')" in dialog
         assert "FALLBACK_CONNECTORS" in dialog and "crusorai-hub-state" in dialog
+        # custom attachable: the form goes THROUGH the engine (never edits
+        # files in the panel), attached servers are detachable chips
+        assert "host.skillsHubOp!('connector_attach'" in dialog
+        assert "host.skillsHubOp!('connector_detach'" in dialog
+        assert "crusorai-hub-attach" in dialog
         assert "is-connected" in dialog and "is-setup" in dialog
         service_src = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
-        assert "op === 'connectors'" in service_src and "workspace: this.workspacePath" in service_src
+        assert "op.startsWith('connector')" in service_src and "workspace: this.workspacePath" in service_src
         engine = (_REPO / "src" / "agents" / "skills_hub.py").read_text(encoding="utf-8")
         assert "def probe_connectors" in engine and '"connectors"' in engine
+        assert "def connector_attach" in engine and "def connector_detach" in engine
+        assert "mcp_config_path" in engine
         assert "mcp_config_path" in engine
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
         assert "crusorai.plusMenu" not in hub_ts, "the QuickPick Add… stays dead"

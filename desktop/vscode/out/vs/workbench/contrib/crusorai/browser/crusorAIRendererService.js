@@ -1206,9 +1206,10 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 listener?.dispose();
                 resolve((frame.result ?? {}));
             });
-            // the connectors probe reads the WORKSPACE's .crusorai/mcp.json —
-            // the engine has no other way to know which folder is open.
-            this.sendSkillsHubOp(op, op === 'connectors' ? { ...extra, workspace: this.workspacePath } : extra);
+            // connector ops (probe / attach / detach) read and write the
+            // WORKSPACE's .crusorai/mcp.json — the engine has no other way
+            // to know which folder is open.
+            this.sendSkillsHubOp(op, op.startsWith('connector') ? { ...extra, workspace: this.workspacePath } : extra);
         });
     }
     sendOneshot(template, extra) {
