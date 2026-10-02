@@ -1,0 +1,390 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\pulseAIagent\PulseAIRepo
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 2244 items
+
+src\tests\test_ambiguity.py ........                                     [  0%]
+src\tests\test_approval_detection.py .................                   [  1%]
+src\tests\test_attempt11_completion_integrity.py ......                  [  1%]
+src\tests\test_attempt11_product_delivery_boundary.py ..........         [  1%]
+src\tests\test_autonomous_runtime_contract.py ..........                 [  2%]
+src\tests\test_aux_model_routing.py ........                             [  2%]
+src\tests\test_background_window_warmup.py ..                            [  2%]
+src\tests\test_benchmark_contract.py .............                       [  3%]
+src\tests\test_benchmark_evaluator.py .................................. [  4%]
+....                                                                     [  4%]
+src\tests\test_benchmark_fixtures.py .................................   [  6%]
+src\tests\test_benchmark_harness.py ........................             [  7%]
+src\tests\test_benchmark_harness_cdp.py .......                          [  7%]
+src\tests\test_benchmark_runner.py ..................                    [  8%]
+src\tests\test_bounded_scan.py ...........................               [  9%]
+src\tests\test_bridge.py ................................                [ 11%]
+src\tests\test_bridge_protocol_v2.py ........                            [ 11%]
+src\tests\test_bridge_runtime_protocol.py ...                            [ 11%]
+src\tests\test_bridge_stall_watchdog.py ......                           [ 12%]
+src\tests\test_bridge_transport.py ...............                       [ 12%]
+src\tests\test_bridge_workspace_routing.py ...........                   [ 13%]
+src\tests\test_budget_checkpoint_hermes_parity.py ..............         [ 13%]
+src\tests\test_budget_crossing_dispatch.py ......                        [ 14%]
+src\tests\test_cache_preservation.py .........                           [ 14%]
+src\tests\test_cancellation_gates.py ..............................      [ 15%]
+src\tests\test_check_provider_script.py ....                             [ 15%]
+src\tests\test_chunk_index.py ..........................                 [ 17%]
+src\tests\test_compaction.py .............                               [ 17%]
+src\tests\test_context_budget.py ....................................... [ 19%]
+......                                                                   [ 19%]
+src\tests\test_context_engine_parity.py ....................             [ 20%]
+src\tests\test_context_error_flow.py ....................                [ 21%]
+src\tests\test_context_status_surface.py ...........                     [ 22%]
+src\tests\test_copilot_parity_permission_diff.py ......                  [ 22%]
+src\tests\test_crusor_file_icons.py .....                                [ 22%]
+src\tests\test_crusor_session_registration_parity.py ............        [ 23%]
+src\tests\test_crusorai_branding.py .............                        [ 23%]
+src\tests\test_dashboard_validation.py ..............                    [ 24%]
+src\tests\test_degraded_memory.py ...                                    [ 24%]
+src\tests\test_desktop_contrib_overlay.py ......                         [ 24%]
+src\tests\test_desktop_renderer_architecture.py ...s.........x.......... [ 25%]
+.................................                                        [ 27%]
+src\tests\test_desktop_session_pipeline.py ....................          [ 28%]
+src\tests\test_desktop_sidecar_architecture.py .........                 [ 28%]
+src\tests\test_desktop_workspace_boundary.py .........s                  [ 28%]
+src\tests\test_detective_mode.py ..........                              [ 29%]
+src\tests\test_edit_file.py .......s..                                   [ 29%]
+src\tests\test_efficiency_receipts.py ..............                     [ 30%]
+src\tests\test_embedding_cache.py ..........                             [ 30%]
+src\tests\test_endpoint_probe_resilience.py .......                      [ 31%]
+src\tests\test_engine_smoke.py ............                              [ 31%]
+src\tests\test_event_safety.py .....................                     [ 32%]
+src\tests\test_execution_modes.py .....                                  [ 32%]
+src\tests\test_execution_phases.py ..........                            [ 33%]
+src\tests\test_factory_reasoning_lift.py ......                          [ 33%]
+src\tests\test_feedback_memory.py ..............                         [ 34%]
+src\tests\test_field_run_repair_and_display.py ..................        [ 35%]
+src\tests\test_file_state.py ..........                                  [ 35%]
+src\tests\test_finalize_chat_turn.py .......                             [ 35%]
+src\tests\test_floor2_salvage.py .................                       [ 36%]
+src\tests\test_foreground_promotion.py ......                            [ 36%]
+src\tests\test_fuzzy_match.py .................                          [ 37%]
+src\tests\test_git_context.py ...................                        [ 38%]
+src\tests\test_grace_summary_hermes_law.py ...........F..........        [ 39%]
+src\tests\test_hermes_activity_parity.py ...s.....                       [ 39%]
+src\tests\test_hermes_aux_discipline.py ...........                      [ 40%]
+src\tests\test_hermes_browser_tools.py ...........F..................... [ 41%]
+.........................F...........F.                                  [ 43%]
+src\tests\test_hermes_planning_parity.py ..............                  [ 44%]
+src\tests\test_hermes_prompt_parity.py ...................s............. [ 45%]
+....F.....................F.....                                         [ 47%]
+src\tests\test_hermes_prompt_session_cache.py ..........                 [ 47%]
+src\tests\test_hermes_run_summary_parity.py .FF.                         [ 47%]
+src\tests\test_hermes_runtime_values.py .........F.Fs.                   [ 48%]
+src\tests\test_hermes_task_ask_tools.py ...................              [ 49%]
+src\tests\test_hermes_terminal_guard.py ......                           [ 49%]
+src\tests\test_hermes_tool_name_parity.py .............                  [ 49%]
+src\tests\test_history_shaper.py ..........                              [ 50%]
+src\tests\test_host_capability_broker.py .....                           [ 50%]
+src\tests\test_input_budget_and_thinking.py .....                        [ 50%]
+src\tests\test_iteration_budget.py .........                             [ 51%]
+src\tests\test_lab_fixes.py ...........................................F [ 53%]
+......F....F.............                                                [ 54%]
+src\tests\test_lang_extractors.py .......................                [ 55%]
+src\tests\test_layer_policy.py ................                          [ 56%]
+src\tests\test_live_token_streaming.py ..............                    [ 56%]
+src\tests\test_loop_guards.py .....                                      [ 56%]
+src\tests\test_lsp_performance.py ...                                    [ 57%]
+src\tests\test_mcp_client.py ......                                      [ 57%]
+src\tests\test_media_tools.py ................                           [ 58%]
+src\tests\test_memory_warmup_budget.py ....[memory] warmup: backend ready in 0.4s
+.                             [ 58%]
+src\tests\test_model_budgets.py ..........................               [ 59%]
+src\tests\test_model_endpoint_metadata.py .................F....F....... [ 60%]
+........                                                                 [ 61%]
+src\tests\test_no_import_time_agent_turns.py ..                          [ 61%]
+src\tests\test_nudge_trail_drop.py .....                                 [ 61%]
+src\tests\test_observability.py .F.                                      [ 61%]
+src\tests\test_output_limit_recovery.py ...                              [ 61%]
+src\tests\test_parallel_tools.py .......................[memory] warmup: backend ready in 0.1s
+.                [ 62%]
+src\tests\test_plan_constraint_validator.py ....                         [ 62%]
+src\tests\test_plan_messages.py ......                                   [ 63%]
+src\tests\test_plan_step_projection.py ..                                [ 63%]
+src\tests\test_plan_update_hermes_semantics.py ......                    [ 63%]
+src\tests\test_planner_phatic_gate.py ..................                 [ 64%]
+src\tests\test_planning_never_kills_turn.py ....                         [ 64%]
+src\tests\test_preview_autostart.py .......................              [ 65%]
+src\tests\test_preview_batch_turn_script.py ..........s..........        [ 66%]
+src\tests\test_preview_contract.py ................                      [ 67%]
+src\tests\test_preview_endpoint.py ...........                           [ 67%]
+src\tests\test_preview_inject.py ............                            [ 68%]
+src\tests\test_preview_prompt.py ............                            [ 68%]
+src\tests\test_preview_server.py ...................                     [ 69%]
+src\tests\test_preview_target_probe.py ....                              [ 69%]
+src\tests\test_progress_helpers.py .......................               [ 70%]
+src\tests\test_prompt_cache_audit.py .........                           [ 71%]
+src\tests\test_prompt_cache_visibility.py .........                      [ 71%]
+src\tests\test_prompt_guard.py ..................                        [ 72%]
+src\tests\test_provider_preflight.py ...                                 [ 72%]
+src\tests\test_ptc.py .............................                      [ 73%]
+src\tests\test_reasoning_effort_threading.py ................            [ 74%]
+src\tests\test_repetition_guard_port.py ............                     [ 75%]
+src\tests\test_repo_map.py ...........                                   [ 75%]
+src\tests\test_repo_map_gate.py .....                                    [ 75%]
+src\tests\test_request_sanitizer.py ........                             [ 76%]
+src\tests\test_retry_proxy.py ..........                                 [ 76%]
+src\tests\test_retry_proxy_stream_cleanup.py ......                      [ 76%]
+src\tests\test_review12.py ............F                                 [ 77%]
+src\tests\test_review12_reverify.py .....                                [ 77%]
+src\tests\test_review_autopsy_fixes.py ..............                    [ 78%]
+src\tests\test_run_bridge_turn.py ..                                     [ 78%]
+src\tests\test_safety_guard_consent.py ..................                [ 79%]
+src\tests\test_scaffold_layout_normalization.py .                        [ 79%]
+src\tests\test_scaffold_tools.py ..                                      [ 79%]
+src\tests\test_scan_budget_env.py ........                               [ 79%]
+src\tests\test_scan_budget_receipt_reason.py .....                       [ 79%]
+src\tests\test_scan_probe_honesty.py ...                                 [ 80%]
+src\tests\test_scope_artifact_gates.py .....                             [ 80%]
+src\tests\test_search_code_result_shape.py ...                           [ 80%]
+src\tests\test_search_files_literal_matching.py ..........               [ 80%]
+src\tests\test_selective_manifest_tool.py ...F.....                      [ 81%]
+src\tests\test_self_curation.py ..........                               [ 81%]
+src\tests\test_session_engines.py ...................                    [ 82%]
+src\tests\test_session_pipeline.py .......                               [ 82%]
+src\tests\test_session_search.py ..................                      [ 83%]
+src\tests\test_session_store.py ...........                              [ 84%]
+src\tests\test_session_titling.py ......                                 [ 84%]
+src\tests\test_shadow_checkpoints.py ...................                 [ 85%]
+src\tests\test_skill_bundled.py .........................                [ 86%]
+src\tests\test_skill_lifecycle.py ........                               [ 86%]
+src\tests\test_skill_tools.py ..................                         [ 87%]
+src\tests\test_skills_hub.py ....................................        [ 89%]
+src\tests\test_smart_compressor.py ......                                [ 89%]
+src\tests\test_stall_guard_continuation.py .........                     [ 89%]
+src\tests\test_stream_stall_discipline.py FF....                         [ 90%]
+src\tests\test_sub_agent_batch.py ......                                 [ 90%]
+src\tests\test_subagent_autodeny.py .......                              [ 90%]
+src\tests\test_subagent_hygiene.py ....                                  [ 90%]
+src\tests\test_subagent_lifecycle_service.py ...                         [ 90%]
+src\tests\test_task_classifier_gate.py .....                             [ 91%]
+src\tests\test_task_classifier_salvage.py ..........                     [ 91%]
+src\tests\test_task_classifier_skip.py ..............................[aux] routing to cheap/qwen/qwen3.7-flash
+... [ 93%]
+.[ContextEngine] context window 1,048,576 for 'deepseek/deepseek-v4-flash' (source: cache); token budget 996,148 (provider cap 996,148)
+[ContextEngine] scan budget: entries 1,000, files 1,000, 16 MiB, 5.0s (source: defaults)
+[ContextEngine] per-call input budget: context 32,768 + history 32,768 tokens (source: defaults)
+repo map layer: off (CRUSORAI_REPO_MAP=on to enable)
+[ContextEngine] (auto: trusting discovered window)
+.......................                                                 [ 94%]
+src\tests\test_terminal_dialect_truth.py .................               [ 94%]
+src\tests\test_terminal_masked_success.py .............                  [ 95%]
+src\tests\test_test5_guarded_script.py .....                             [ 95%]
+src\tests\test_think_stream_routing.py ..........                        [ 96%]
+src\tests\test_todo_boundary_models.py .....                             [ 96%]
+src\tests\test_token_pump_langchain.py ....                              [ 96%]
+src\tests\test_tool_crash_net.py ....                                    [ 96%]
+src\tests\test_toolsets.py ..................                            [ 97%]
+src\tests\test_typecheck_subdir_project.py .............                 [ 98%]
+src\tests\test_ui_tool_catalog.py ss                                     [ 98%]
+src\tests\test_unknown_tool_validation.py ......                         [ 98%]
+src\tests\test_vector_memory.py .....                                    [ 98%]
+src\tests\test_voice_pipeline.py ......                                  [ 98%]
+src\tests\test_volatile_tail.py ....s                                    [ 99%]
+src\tests\test_web_tools.py ........                                     [ 99%]
+src\tests\test_windows_shell_hints.py ....                               [ 99%]
+src\tests\test_workbench_capabilities.py ......                          [100%]
+
+================================== FAILURES ===================================
+_________ test_grace_print_names_both_budget_legs_and_the_tripped_one _________
+src\tests\test_grace_summary_hermes_law.py:249: in test_grace_print_names_both_budget_legs_and_the_tripped_one
+    assert "iterations 30/" in iters and "tripped: iterations" in iters
+E   AssertionError: assert ('iterations 30/' in 'iterations 30/45, tokens 0/600,000, tripped: unknown leg' and 'tripped: iterations' in 'iterations 30/45, tokens 0/600,000, tripped: unknown leg')
+____________________ test_npx_sentinel_argv_matches_hermes ____________________
+src\tests\test_hermes_browser_tools.py:100: in test_npx_sentinel_argv_matches_hermes
+    assert argv[0].endswith("npx")
+E   AssertionError: assert False
+E    +  where False = <built-in method endswith of str object at 0x00000284381BBD70>('npx')
+E    +    where <built-in method endswith of str object at 0x00000284381BBD70> = 'C:\\Program Files\\nodejs\\npx.CMD'.endswith
+____ test_full_snapshot_stores_under_the_crusor_home_for_read_file_paging _____
+src\tests\test_hermes_browser_tools.py:671: in test_full_snapshot_stores_under_the_crusor_home_for_read_file_paging
+    assert stored.exists()
+E   AssertionError: assert False
+E    +  where False = exists()
+E    +    where exists = WindowsPath('C:/Users/Administrator/AppData/Local/Temp/pytest-of-Administrator/pytest-202/test_full_snapshot_stores_unde0/home/.crusorai/browser/snapshots/last-full-snapshot.txt').exists
+____________ test_screenshot_prose_output_recovers_the_saved_file _____________
+src\tests\test_hermes_browser_tools.py:965: in test_screenshot_prose_output_recovers_the_saved_file
+    assert out["success"] is True
+E   assert False is True
+___________ test_environment_hints_are_stable_and_dialect_explicit ____________
+src\tests\test_hermes_prompt_parity.py:307: in test_environment_hints_are_stable_and_dialect_explicit
+    assert "Terminal dialect:" in stable
+E   AssertionError: assert 'Terminal dialect:' in 'You are Crusor Agent. Be direct: match the length of your reply to the weight of the ask — a one-line question gets a...eAIagent\\PulseAIRepo — git repository rooted at D:\\pulseAIagent\\PulseAIRepo on branch `arena/01a0f348-pulseairepo`.'
+________ test_dump_crusor_prompt_script_is_the_live_zero_credit_probe _________
+src\tests\test_hermes_prompt_parity.py:633: in test_dump_crusor_prompt_script_is_the_live_zero_credit_probe
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+E   AssertionError: model='deepseek/deepseek-v4-flash' provider='custom' platform='ide'
+E     --- stable: 10692 chars
+E     [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='deepseek/deepseek-v4-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'
+E     Traceback (most recent call last):
+E       File "D:\pulseAIagent\PulseAIRepo\scripts\dump_crusor_prompt.py", line 79, in <module>
+E         raise SystemExit(main())
+E                          ~~~~^^
+E       File "D:\pulseAIagent\PulseAIRepo\scripts\dump_crusor_prompt.py", line 66, in main
+E         print(body)
+E         ~~~~~^^^^^^
+E       File "C:\Users\Administrator\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\encodings\cp1252.py", line 19, in encode
+E         return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+E                ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E     UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 5278: character maps to <undefined>
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['D:\\pulseAIagent\\PulseAIRepo\\.venv\\Scripts\\python.exe', 'D:\\pulseAIagent\\PulseAIRepo\\sc...eEncodeError: \'charmap\' codec can\'t encode character \'\\u2192\' in position 5278: character maps to <undefined>\n').returncode
+______________ test_grouping_and_clauses_agree_between_surfaces _______________
+src\tests\test_hermes_run_summary_parity.py:162: in test_grouping_and_clauses_agree_between_surfaces
+    assert proc.returncode == 0, f"runner failed: {proc.stderr.strip()[:600]}"
+E   AssertionError: runner failed: node:internal/modules/esm/load:193
+E         throw new ERR_UNSUPPORTED_ESM_URL_SCHEME(parsed, schemes);
+E               ^
+E     
+E     Error [ERR_UNSUPPORTED_ESM_URL_SCHEME]: Only URLs with a scheme in: file, data, and node are supported by the default ESM loader. On Windows, absolute paths must be valid file:// URLs. Received protocol 'c:'
+E         at throwIfUnsupportedURLScheme (node:internal/modules/esm/load:193:11)
+E         at defaultLoadSync (node:internal/modules/esm/load:146:3)
+E         at #loadAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:802:12)
+E         at #loadSync (node:internal/modules/esm/loader:834:53)
+E        
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\pytest-of-Administrator\\pytest-202\\t...nk (node:internal/modules/esm/module_job:163:33) {\n  code: 'ERR_UNSUPPORTED_ESM_URL_SCHEME'\n}\n\nNode.js v24.18.0\n").returncode
+________ test_a_card_breaks_a_run_and_a_run_is_keyed_by_its_first_call ________
+src\tests\test_hermes_run_summary_parity.py:192: in test_a_card_breaks_a_run_and_a_run_is_keyed_by_its_first_call
+    assert proc.returncode == 0, proc.stderr[:400]
+E   AssertionError: node:internal/modules/esm/load:193
+E         throw new ERR_UNSUPPORTED_ESM_URL_SCHEME(parsed, schemes);
+E               ^
+E     
+E     Error [ERR_UNSUPPORTED_ESM_URL_SCHEME]: Only URLs with a scheme in: file, data, and node are supported by the default ESM loader. On Windows, absolute paths must be valid file:// URLs. Received protocol 'c:'
+E         at throwIfUnsupportedURLScheme (node:internal/modules/esm/load:193:11)
+E         at
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\pytest-of-Administrator\\pytest-202\\t...nk (node:internal/modules/esm/module_job:163:33) {\n  code: 'ERR_UNSUPPORTED_ESM_URL_SCHEME'\n}\n\nNode.js v24.18.0\n").returncode
+______________ test_foreground_terminal_observes_session_cancel _______________
+src\tests\test_hermes_runtime_values.py:158: in test_foreground_terminal_observes_session_cancel
+    assert "cancelled by the user" in result
+E   AssertionError: assert 'cancelled by the user' in 'STDERR:\n/usr/bin/bash: line 1: D:pulseAIagentPulseAIRepo.venvScriptspython.exe: command not found\n\nExit code: 127\...lseAIagentPulseAIRepo.venvScriptspython.exe`; install it or use an absolute path instead of retrying the same command.'
+______ test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes _______
+src\tests\test_hermes_runtime_values.py:185: in test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes
+    monkeypatch.setattr(terminal_tools.os, "killpg", lambda *a, **k: None)
+E   AttributeError: <module 'os' (frozen)> has no attribute 'killpg'
+_______________ test_read_file_not_found_suggests_similar_names _______________
+src\tests\test_lab_fixes.py:945: in test_read_file_not_found_suggests_similar_names
+    assert "File not found" in out
+E   AssertionError: assert 'File not found' in 'real'
+_______________ test_terminal_timeout_env_returns_pivot_message _______________
+src\tests\test_lab_fixes.py:1115: in test_terminal_timeout_env_returns_pivot_message
+    assert "timed out" in out
+E   AssertionError: assert 'timed out' in 'STDERR:\n/usr/bin/bash: line 1: D:pulseAIagentPulseAIRepo.venvScriptspython.exe: command not found\n\nExit code: 127\...lseAIagentPulseAIRepo.venvScriptspython.exe`; install it or use an absolute path instead of retrying the same command.'
+___________________ test_posix_guard_flags_posix_mkdir_tmp ____________________
+src\tests\test_lab_fixes.py:1226: in test_posix_guard_flags_posix_mkdir_tmp
+    assert "do NOT retry" in out.lower() or "do not retry" in out.lower()
+E   AssertionError: assert ('do NOT retry' in 'stdout:\nthe directory next-scaffold contains files that could conflict:\n\n  package.json\n  tsconfig.json\n\neither...create-next-app@16.3.8\nnpm notice run next-scaffold@0.1.0 npx\nnpm notice run create-next-app . --yes\n\nexit code: 1' or 'do not retry' in 'stdout:\nthe directory next-scaffold contains files that could conflict:\n\n  package.json\n  tsconfig.json\n\neither...create-next-app@16.3.8\nnpm notice run next-scaffold@0.1.0 npx\nnpm notice run create-next-app . --yes\n\nexit code: 1')
+E    +  where 'stdout:\nthe directory next-scaffold contains files that could conflict:\n\n  package.json\n  tsconfig.json\n\neither...create-next-app@16.3.8\nnpm notice run next-scaffold@0.1.0 npx\nnpm notice run create-next-app . --yes\n\nexit code: 1' = <built-in method lower of str object at 0x000002842B3263F0>()
+E    +    where <built-in method lower of str object at 0x000002842B3263F0> = 'STDOUT:\nThe directory next-scaffold contains files that could conflict:\n\n  package.json\n  tsconfig.json\n\nEither...create-next-app@16.3.8\nnpm notice run next-scaffold@0.1.0 npx\nnpm notice run create-next-app . --yes\n\nExit code: 1'.lower
+E    +  and   'stdout:\nthe directory next-scaffold contains files that could conflict:\n\n  package.json\n  tsconfig.json\n\neither...create-next-app@16.3.8\nnpm notice run next-scaffold@0.1.0 npx\nnpm notice run create-next-app . --yes\n\nexit code: 1' = <built-in method lower of str object at 0x000002842B3263F0>()
+E    +    where <built-in method lower of str object at 0x000002842B3263F0> = 'STDOUT:\nThe directory next-scaffold contains files that could conflict:\n\n  package.json\n  tsconfig.json\n\nEither...create-next-app@16.3.8\nnpm notice run next-scaffold@0.1.0 npx\nnpm notice run create-next-app . --yes\n\nExit code: 1'.lower
+______ test_no_base_url_means_no_probe_and_the_old_default_still_applies ______
+src\tests\test_model_endpoint_metadata.py:93: in test_no_base_url_means_no_probe_and_the_old_default_still_applies
+    assert window == mb.MODEL_WINDOWS["default"]
+E   assert 256000 == 8192
+___________ test_the_default_resolution_never_touches_the_endpoint ____________
+src\tests\test_model_endpoint_metadata.py:179: in test_the_default_resolution_never_touches_the_endpoint
+    assert calls == [], "the blocking path must not ask the user's server anything"
+E   AssertionError: the blocking path must not ask the user's server anything
+E   assert ['http://127.0.0.1:8000/v1'] == []
+E     
+E     Left contains one more item: 'http://127.0.0.1:8000/v1'
+E     Use -v to get more diff
+________________________ test_fail_closed_never_raises ________________________
+src\tests\test_observability.py:23: in test_fail_closed_never_raises
+    assert record_turn_receipt(thread_id="s2") is False  # swallowed, no raise
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert True is False
+E    +  where True = record_turn_receipt(thread_id='s2')
+_________ TestSubAgentDepthCap.test_sub_agent_cannot_spawn_sub_agent __________
+src\tests\test_review12.py:177: in test_sub_agent_cannot_spawn_sub_agent
+    assert "depth cap" in out.lower()
+E   AssertionError: assert 'depth cap' in '\u26d4 subagent depth limit reached (1). increase crusorai_subagent_depth to allow nested subagents. complete the decomposed steps directly instead.'
+E    +  where '\u26d4 subagent depth limit reached (1). increase crusorai_subagent_depth to allow nested subagents. complete the decomposed steps directly instead.' = <built-in method lower of str object at 0x0000028437F9B1B0>()
+E    +    where <built-in method lower of str object at 0x0000028437F9B1B0> = '\u26d4 Subagent depth limit reached (1). Increase CRUSORAI_SUBAGENT_DEPTH to allow nested subagents. Complete the decomposed steps directly instead.'.lower
+___________ test_an_overlay_that_matches_upstream_blocks_the_write ____________
+src\tests\test_selective_manifest_tool.py:127: in test_an_overlay_that_matches_upstream_blocks_the_write
+    assert tool.main(["--write", "--root", str(root)]) == 2
+E   AssertionError: assert 0 == 2
+E    +  where 0 = <function main at 0x000002842B36D6F0>(['--write', '--root', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\pytest-of-Administrator\\pytest-202\\test_an_overlay_that_matches_u0'])
+E    +    where <function main at 0x000002842B36D6F0> = <module 'refresh_selective_manifest' from 'D:\\pulseAIagent\\PulseAIRepo\\scripts\\refresh_selective_manifest.py'>.main
+---------------------------- Captured stdout call -----------------------------
+desktop/SELECTIVE_MANIFEST.json: 1 item(s) no longer match the tree:
+  [files] build/x.ts
+        recorded 0000000000000000…  now ab9dccaeec335f60…
+
+refreshed 1 item(s). The guard test should now be green:
+  python -m pytest src/tests/test_desktop_contrib_overlay.py -q
+______________ test_streaming_custom_uses_silence_sized_timeout _______________
+src\tests\test_stream_stall_discipline.py:35: in test_streaming_custom_uses_silence_sized_timeout
+    assert llm.request_timeout == 45.0, "default silence budget"
+E   AssertionError: default silence budget
+E   assert 35.0 == 45.0
+E    +  where 35.0 = ReasoningAwareOpenAI(metadata={'lc_versions': {'langchain-core': '1.5.0', 'langchain': '1.3.14', 'langchain-openai': '...s NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'}, stream_chunk_timeout=120.0).request_timeout
+__________________ test_stall_budget_is_env_tunable_per_call __________________
+src\tests\test_stream_stall_discipline.py:44: in test_stall_budget_is_env_tunable_per_call
+    assert _core(factory.get_llm("custom", "m")).request_timeout == 45.0
+E   AssertionError: assert 35.0 == 45.0
+E    +  where 35.0 = ReasoningAwareOpenAI(metadata={'lc_versions': {'langchain-core': '1.5.0', 'langchain': '1.3.14', 'langchain-openai': '...s NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'}, stream_chunk_timeout=120.0).request_timeout
+E    +    where ReasoningAwareOpenAI(metadata={'lc_versions': {'langchain-core': '1.5.0', 'langchain': '1.3.14', 'langchain-openai': '...s NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'}, stream_chunk_timeout=120.0) = _core(<src.llm.factory.RetryLLMProxy object at 0x00000284383C80D0>)
+E    +      where <src.llm.factory.RetryLLMProxy object at 0x00000284383C80D0> = <function get_llm at 0x000002840AB76770>('custom', 'm')
+E    +        where <function get_llm at 0x000002840AB76770> = factory.get_llm
+============================== warnings summary ===============================
+.venv\Lib\site-packages\google\genai\types.py:42
+  D:\pulseAIagent\PulseAIRepo\.venv\Lib\site-packages\google\genai\types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+src\tests\test_windows_shell_hints.py:57
+src/tests/test_no_import_time_agent_turns.py::test_no_test_module_calls_the_agent_at_import_time
+src/tests/test_no_import_time_agent_turns.py::test_known_import_time_turns_do_not_grow
+  D:\pulseAIagent\PulseAIRepo\src\tests\test_windows_shell_hints.py:57: SyntaxWarning: "\P" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\P"? A raw string is also an option.
+    """hermes _windows_bash_candidates: %LOCALAPPDATA%\Programs\Git is a
+
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_navigate-required0]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_click-required1]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_type-required2]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_press-required3]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_snapshot-required4]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_scroll-required5]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_back-required6]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_console-required7]
+src/tests/test_hermes_browser_tools.py::test_required_parameters_match_hermes[browser_get_images-required8]
+  D:\pulseAIagent\PulseAIRepo\src\tests\test_hermes_browser_tools.py:75: PydanticDeprecatedSince20: The `schema` method is deprecated; use `model_json_schema` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    schema = tool.args_schema.schema()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED src/tests/test_grace_summary_hermes_law.py::test_grace_print_names_both_budget_legs_and_the_tripped_one
+FAILED src/tests/test_hermes_browser_tools.py::test_npx_sentinel_argv_matches_hermes
+FAILED src/tests/test_hermes_browser_tools.py::test_full_snapshot_stores_under_the_crusor_home_for_read_file_paging
+FAILED src/tests/test_hermes_browser_tools.py::test_screenshot_prose_output_recovers_the_saved_file
+FAILED src/tests/test_hermes_prompt_parity.py::test_environment_hints_are_stable_and_dialect_explicit
+FAILED src/tests/test_hermes_prompt_parity.py::test_dump_crusor_prompt_script_is_the_live_zero_credit_probe
+FAILED src/tests/test_hermes_run_summary_parity.py::test_grouping_and_clauses_agree_between_surfaces
+FAILED src/tests/test_hermes_run_summary_parity.py::test_a_card_breaks_a_run_and_a_run_is_keyed_by_its_first_call
+FAILED src/tests/test_hermes_runtime_values.py::test_foreground_terminal_observes_session_cancel
+FAILED src/tests/test_hermes_runtime_values.py::test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes
+FAILED src/tests/test_lab_fixes.py::test_read_file_not_found_suggests_similar_names
+FAILED src/tests/test_lab_fixes.py::test_terminal_timeout_env_returns_pivot_message
+FAILED src/tests/test_lab_fixes.py::test_posix_guard_flags_posix_mkdir_tmp - ...
+FAILED src/tests/test_model_endpoint_metadata.py::test_no_base_url_means_no_probe_and_the_old_default_still_applies
+FAILED src/tests/test_model_endpoint_metadata.py::test_the_default_resolution_never_touches_the_endpoint
+FAILED src/tests/test_observability.py::test_fail_closed_never_raises - Asser...
+FAILED src/tests/test_review12.py::TestSubAgentDepthCap::test_sub_agent_cannot_spawn_sub_agent
+FAILED src/tests/test_selective_manifest_tool.py::test_an_overlay_that_matches_upstream_blocks_the_write
+FAILED src/tests/test_stream_stall_discipline.py::test_streaming_custom_uses_silence_sized_timeout
+FAILED src/tests/test_stream_stall_discipline.py::test_stall_budget_is_env_tunable_per_call
+= 20 failed, 2213 passed, 10 skipped, 1 xfailed, 13 warnings in 1052.33s (0:17:32) =
+[ai_node] custom/deepseek/deepseek-v4-flash answered in 21.1s (first token 14.3s, 6 chunks streamed)

@@ -1,0 +1,5 @@
+f91cc61872e2a47ddb2fb9fa6059830741121754
+f91cc618 Skills Hub Phase 3: in-IDE skills surface (Skills Hub + My Skills)
+30e73e5e Skills Hub: confirm install-cap fix live (install c-review ok)
+1e390e43 Skills Hub: extract only the requested subdir before the repo-file cap
+arena/01a0f348-pulseairepo
