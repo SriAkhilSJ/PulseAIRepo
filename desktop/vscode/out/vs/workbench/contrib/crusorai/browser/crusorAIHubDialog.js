@@ -46,10 +46,20 @@ let openDialog;
 // again. This block is the single source of truth for hub-dialog chrome;
 // media/crusorAI.css deliberately does not duplicate it.
 const HUB_DIALOG_CSS = `
+.crusorai-hub-backdrop {
+	position: fixed; inset: 0; z-index: 2500;
+	display: flex; align-items: center; justify-content: center;
+	background: rgba(0, 0, 0, 0.45);
+	animation: crusorai-hub-fade 120ms ease-out;
+}
+@keyframes crusorai-hub-fade {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
 .crusorai-hub-dialog {
-	position: fixed; width: 420px; max-height: 430px; z-index: 2500;
+	position: relative; width: min(560px, calc(100vw - 48px)); max-height: min(520px, calc(100vh - 64px));
 	display: flex; flex-direction: column;
-	padding: 10px; border-radius: 10px;
+	padding: 12px; border-radius: 10px;
 	border: 1px solid var(--vscode-panel-border, transparent);
 	background: var(--vscode-editorWidget-background, #1f1f1f);
 	color: var(--vscode-foreground, #cccccc);
@@ -70,14 +80,14 @@ const HUB_DIALOG_CSS = `
 	background: transparent; color: var(--vscode-foreground, #cccccc); cursor: pointer;
 }
 .crusorai-hub-dialog-close:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
-.crusorai-hub-dialog-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.crusorai-hub-dialog-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 9px 0 2px; }
 .crusorai-hub-tab {
 	padding: 3px 9px; border: none; border-radius: 5px; cursor: pointer;
 	background: transparent; color: var(--vscode-foreground, #cccccc); font: inherit; font-size: .95em;
 }
 .crusorai-hub-tab:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
 .crusorai-hub-tab.is-active { background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #ffffff); }
-.crusorai-hub-dialog-body { margin-top: 8px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.crusorai-hub-dialog-body { margin-top: 6px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; scrollbar-color: var(--vscode-scrollbarSlider-background, #424242) transparent; }
 .crusorai-hub-dialog-search {
 	width: 100%; box-sizing: border-box; padding: 6px 8px;
 	border-radius: 6px; border: 1px solid var(--vscode-panel-border, transparent);
@@ -88,7 +98,7 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-status { padding: 8px; opacity: .8; }
 .crusorai-hub-status.is-error { color: var(--vscode-errorForeground, #f48771); opacity: 1; }
 .crusorai-hub-row {
-	display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+	display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 4px 8px;
 	padding: 7px 8px; border-radius: 6px;
 	background: var(--vscode-editor-background, #1f1f1f);
 	border: 1px solid var(--vscode-panel-border, transparent);
@@ -99,7 +109,7 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-row-meta { font-size: .92em; opacity: .7; }
 .crusorai-hub-row-desc { font-size: .92em; opacity: .8; }
 .crusorai-hub-row-actions { display: flex; gap: 4px; align-items: center; }
-.crusorai-hub-row-error { width: 100%; font-size: .92em; color: var(--vscode-errorForeground, #f48771); }
+.crusorai-hub-row-error { width: 100%; font-size: .92em; word-break: break-word; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini {
 	padding: 3px 9px; border: none; border-radius: 5px; cursor: pointer;
 	background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #ffffff);
@@ -108,7 +118,7 @@ const HUB_DIALOG_CSS = `
 .crusorai-hub-mini:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
 .crusorai-hub-mini:disabled { opacity: .6; cursor: default; }
 .crusorai-hub-mini.is-done { background: transparent; color: var(--vscode-foreground, #cccccc); opacity: .85; }
-.crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground); }
+.crusorai-hub-mini.is-danger { background: transparent; color: var(--vscode-errorForeground, #f48771); }
 .crusorai-hub-mini.is-primary { align-self: flex-start; }
 .crusorai-hub-oneshot { display: flex; flex-direction: column; gap: 7px; }
 .crusorai-hub-oneshot-chips { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -187,10 +197,19 @@ export function openHubDialog(host, anchor, tab = 'marketplace') {
     const closeBtn = el('button', 'crusorai-hub-dialog-close', glyph('close'));
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', 'Close');
+    titleBar.append(closeBtn);
+    // rev 7 (owner: "spawn a dialog box rather than menu bar … pops in
+    // fork"): the card opens as a CENTERED MODAL over the whole pane —
+    // dimmed backdrop, four tabs in the card — instead of a small popup
+    // pinned above the + button. It still mounts on document.body
+    // (survives composer repaints) and still inherits the panel theme
+    // from the anchor (+ button lives inside the themed subtree).
+    const backdrop = el('div', 'crusorai-hub-backdrop');
     const root = el('div', 'crusorai-hub-dialog', titleBar, body);
-    inheritPanelTheme(root, anchor);
+    inheritPanelTheme(backdrop, anchor);
     const close = () => {
         root.remove();
+        backdrop.remove();
         document.removeEventListener('pointerdown', away, true);
         document.removeEventListener('keydown', onEscape, true);
         if (openDialog?.root === root) {
@@ -198,9 +217,9 @@ export function openHubDialog(host, anchor, tab = 'marketplace') {
         }
     };
     const away = (event) => {
-        if (!root.contains(event.target)) {
+        if (event.target === backdrop) {
             close();
-        }
+        } // click on the dim, not the card
     };
     const onEscape = (event) => {
         if (event.key === 'Escape') {
@@ -210,11 +229,8 @@ export function openHubDialog(host, anchor, tab = 'marketplace') {
     closeBtn.addEventListener('click', close);
     document.addEventListener('pointerdown', away, true);
     document.addEventListener('keydown', onEscape, true);
-    // anchor: fixed, opening UP from the + button, same left edge
-    const rect = anchor.getBoundingClientRect();
-    root.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 430))}px`;
-    root.style.bottom = `${Math.max(12, window.innerHeight - rect.top + 10)}px`;
-    document.body.append(root);
+    backdrop.append(root);
+    document.body.append(backdrop);
     openDialog = { root, close };
     const tabs = [
         { id: 'marketplace', label: 'Marketplace' },
@@ -235,7 +251,7 @@ export function openHubDialog(host, anchor, tab = 'marketplace') {
         });
         tabRow.append(btn);
     }
-    titleBar.append(tabRow, closeBtn);
+    titleBar.after(tabRow);
     const heading = titleBar.querySelector('.crusorai-hub-dialog-heading');
     const titles = {
         marketplace: 'Marketplace — install skills',

@@ -2367,61 +2367,28 @@ function composer(model, host, manager) {
     // hermes composer layout: the Think pill sits beside the execution-mode
     // picker; the Send button stays right-aligned via the toolbar's spare
     // `.crusorai-composer-left` grid track.
-    // The composer + menu (field 2026-10-02 rev 5, owner spec: "check how
-    // other dropdown menu is like — like mode, think — mimic them"): the +
-    // IS a third picker built from the exact same anatomy as the Agent and
-    // Think pills (details.crusorai-mode-picker > summary.crusorai-mode-summary
-    // > div.crusorai-mode-menu > button.crusorai-mode-option). Those rules
-    // have shipped for weeks and render in every stylesheet the field has —
-    // a bespoke add-menu stylesheet went stale on the owner's machine and
-    // painted raw white buttons (field 2026-10-02). Reusing the shipped
-    // picker classes cannot miss. Each entry still opens the IN-PANEL hub
-    // dialog (crusorAIHubDialog) — never the top-center QuickPick. Data
-    // flows through the host's skillsHubOp / oneshotRun promise hooks.
-    const plusMenu = (() => {
-        const entries = [
-            { label: 'Marketplace…', glyph: 'search', desc: 'browse & install skills', tab: 'marketplace', run: openHubDialog },
-            { label: 'Connectors…', glyph: 'plug', desc: 'MCP, plugins', tab: 'connectors', run: openHubDialog },
-            { label: 'My Skills', glyph: 'checklist', desc: 'installed skills, on/off', tab: 'myskills', run: openHubDialog },
-            { label: 'One-Shot Task…', glyph: 'zap', desc: 'quick jobs to clipboard', tab: 'oneshot', run: openHubDialog },
-        ].filter(entry => typeof host.skillsHubOp === 'function');
-        if (entries.length === 0) {
+    // The composer + (field 2026-10-02 rev 7, owner: "spawn a dialog box
+    // rather than menu bar … pops in fork rather than focussing only on
+    // Agent UI"): clicking + opens the hub dialog DIRECTLY — a centered
+    // modal carrying all four tabs (Marketplace / Connectors / My Skills /
+    // One-Shot), no intermediate menu. The button keeps the picker-pill
+    // look (same class as the Agent/Think summaries). The composer is one
+    // code path shared by the Agent pane AND the Manager chat box, so the
+    // dialog pops over either surface. Data still flows through the
+    // host's skillsHubOp / oneshotRun promise hooks.
+    const addButton = (() => {
+        if (typeof host.skillsHubOp !== 'function') {
             return undefined;
         }
-        const details = element('details', 'crusorai-mode-picker crusorai-add-picker');
-        const summary = element('summary', 'crusorai-mode-summary', icon('add'), icon('chevron-down'));
-        summary.setAttribute('aria-label', 'Add — marketplace, connectors, skills, one-shot');
-        summary.title = 'Add — marketplace, connectors, skills, one-shot';
-        const menu = element('div', 'crusorai-mode-menu');
-        menu.setAttribute('role', 'menu');
-        menu.setAttribute('aria-label', 'Add');
-        for (const entry of entries) {
-            const item = element('button', 'crusorai-mode-option', icon(entry.glyph), element('span', 'crusorai-mode-option-copy', element('strong', undefined, entry.label), element('small', undefined, entry.desc)));
-            item.type = 'button';
-            item.setAttribute('role', 'menuitem');
-            item.addEventListener('click', () => {
-                details.open = false;
-                entry.run?.(host, details);
-            });
-            menu.append(item);
-        }
-        details.append(summary, menu);
-        summary.addEventListener('click', () => {
-            if (!details.open) {
-                return;
-            }
-            setTimeout(() => {
-                const away = (event) => {
-                    if (!details.contains(event.target)) {
-                        details.open = false;
-                    }
-                };
-                document.addEventListener('click', away, { capture: true, once: true });
-            }, 0);
-        });
-        return details;
+        const button = element('button', 'crusorai-mode-summary');
+        button.type = 'button';
+        button.setAttribute('aria-label', 'Add — marketplace, connectors, skills, one-shot');
+        button.title = 'Marketplace, connectors, skills, one-shot';
+        button.append(icon('add'));
+        button.addEventListener('click', () => openHubDialog(host, button, 'marketplace'));
+        return button;
     })();
-    const toolbar = element('div', 'crusorai-composer-toolbar', plusMenu, modePicker(model, host), thinkPicker(model, host), element('span', 'crusorai-composer-left'), send);
+    const toolbar = element('div', 'crusorai-composer-toolbar', addButton, modePicker(model, host), thinkPicker(model, host), element('span', 'crusorai-composer-left'), send);
     const hint = element('div', 'crusorai-composer-hint', model.noWorkspace
         ? element('span', undefined, model.noWorkspaceHint)
         : model.workspaceSelectionRequired

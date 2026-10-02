@@ -667,43 +667,42 @@ class TestHubOps:
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
     def test_composer_plus_menu_and_in_panel_dialog(self):
-        """Field 2026-10-02, rev 5 (owner feedback): the + menu MIMICS the
-        Agent/Think pickers — same details.crusorai-mode-picker anatomy and
-        class family, so it renders correctly in every stylesheet the field
-        has — and the hub dialog carries its own CSS at runtime (style
-        injection), because a stale workbench stylesheet rendered the card
-        invisible ("buttons not working"). Entries still open the IN-PANEL
-        dialog via skillsHubOp / oneshotRun promise hooks — NEVER the
-        top-center QuickPick."""
+        """Field 2026-10-02, rev 7 (owner: "spawn a dialog box rather than
+        menu bar … pops in fork"): clicking + opens the hub dialog DIRECTLY
+        — a centered modal (dimmed backdrop over the pane) carrying all four
+        tabs — no intermediate menu; the button keeps the Agent/Think pill
+        look. The card ships its own CSS at runtime, mounts on
+        document.body, inherits the panel theme from the anchor, and every
+        var() carries a literal dark fallback. Data flows through
+        skillsHubOp / oneshotRun — NEVER the top-center QuickPick."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        assert "openHubDialog" in renderer and "crusorai-add-picker" in renderer
-        # the mimicry is structural: the + picker IS a mode-picker
-        assert "crusorai-mode-picker crusorai-add-picker" in renderer
-        assert "crusorai-mode-summary" in renderer and "crusorai-mode-menu" in renderer
-        assert "crusorai-mode-option-copy" in renderer
-        # the bespoke menu chrome stays dead
-        for dead in ("crusorai-add-menu", "crusorai-plus-summary", "openPlusMenu", "plusButton"):
+        # + opens the dialog directly
+        assert "openHubDialog(host, button, 'marketplace')" in renderer
+        assert "crusorai-mode-summary" in renderer  # pill look, same as Agent/Think
+        # every menu variant stays dead
+        for dead in ("crusorai-add-menu", "crusorai-plus-summary", "openPlusMenu",
+                     "plusButton", "crusorai-add-picker"):
             assert dead not in renderer, dead
-        assert "host.skillsHubOp === 'function'" in renderer
+        assert "typeof host.skillsHubOp !== 'function'" in renderer
         assert "oneshotRun?(" in renderer
         dialog = (browser / "crusorAIHubDialog.ts").read_text(encoding="utf-8")
         for token in ("marketplace", "connectors", "myskills", "oneshot"):
             assert f"'{token}'" in dialog, token
         assert "host.skillsHubOp!(" in dialog and "host.oneshotRun!(" in dialog
-        assert "document.body.append(root)" in dialog
+        # centered modal: backdrop over the pane, card inside it
+        assert "document.body.append(backdrop)" in dialog
+        assert "event.target === backdrop" in dialog, "click on the dim closes"
+        assert "backdrop.remove()" in dialog
         # delivery-proof chrome: the dialog ships its own stylesheet
         assert "crusorai-hub-dialog-styles" in dialog and "ensureHubDialogStyles" in dialog
-        for token in (".crusorai-hub-dialog {", "position: fixed", ".crusorai-hub-row {", ".crusorai-hub-chip {"):
+        for token in (".crusorai-hub-backdrop {", ".crusorai-hub-dialog {",
+                      ".crusorai-hub-row {", ".crusorai-hub-chip {"):
             assert token in dialog, token
-        # the card mounts on document.body — OUTSIDE the workbench's
-        # --vscode-* variable scope (field 2026-10-02 rev 5: transparent
-        # card, default black text). The resolved theme values must be
-        # copied from the anchor onto the card's inline custom properties,
-        # and every var() carries a literal dark fallback.
-        assert "inheritPanelTheme" in dialog
+        assert "flex-wrap: wrap" in dialog, "rows must drop width:100% warnings to the next line"
+        # body-mount theme inheritance + literal fallbacks (rev 5/6 lessons)
+        assert "inheritPanelTheme(backdrop, anchor)" in dialog
         assert "getPropertyValue(`--vscode-${name}`)" in dialog
-        assert "titleBar.append(tabRow, closeBtn)" in dialog, "close joins the title row"
         for token in (
             "var(--vscode-editorWidget-background, #1f1f1f)",
             "var(--vscode-foreground, #cccccc)",
@@ -716,10 +715,9 @@ class TestHubOps:
         assert "oneshotRun: (template, instructions, variables)" in service
         assert "crusorai.plusMenu" not in service
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        # the stylesheet no longer carries hub/add chrome — the dialog
-        # self-injects, the menu borrows the shipped picker rules
+        # the stylesheet carries no hub chrome — the dialog self-injects
         assert ".crusorai-hub" not in css and ".crusorai-add-menu" not in css
-        assert ".crusorai-mode-menu" in css  # the rules the + menu borrows ship here
+        assert ".crusorai-mode-summary" in css  # the pill rules the + borrows ship here
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
