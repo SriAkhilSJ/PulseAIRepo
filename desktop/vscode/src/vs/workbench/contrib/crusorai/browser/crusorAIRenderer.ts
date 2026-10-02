@@ -2501,10 +2501,17 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	// hermes composer layout: the Think pill sits beside the execution-mode
 	// picker; the Send button stays right-aligned via the toolbar's spare
 	// `.crusorai-composer-left` grid track.
-	// The composer + menu (field 2026-10-02 rev 4, owner spec): a compact
-	// menu IN THE COMPOSER SPACE; each entry opens the IN-PANEL hub dialog
-	// (crusorAIHubDialog) — never the top-center QuickPick. Data flows
-	// through the host's skillsHubOp / oneshotRun promise hooks.
+	// The composer + menu (field 2026-10-02 rev 5, owner spec: "check how
+	// other dropdown menu is like — like mode, think — mimic them"): the +
+	// IS a third picker built from the exact same anatomy as the Agent and
+	// Think pills (details.crusorai-mode-picker > summary.crusorai-mode-summary
+	// > div.crusorai-mode-menu > button.crusorai-mode-option). Those rules
+	// have shipped for weeks and render in every stylesheet the field has —
+	// a bespoke add-menu stylesheet went stale on the owner's machine and
+	// painted raw white buttons (field 2026-10-02). Reusing the shipped
+	// picker classes cannot miss. Each entry still opens the IN-PANEL hub
+	// dialog (crusorAIHubDialog) — never the top-center QuickPick. Data
+	// flows through the host's skillsHubOp / oneshotRun promise hooks.
 	const plusMenu = (() => {
 		const entries: Array<{ label: string; glyph: string; desc: string; tab: HubDialogTab; run?: (host: CrusorAIRenderHost, anchor: HTMLElement) => void }> = [
 			{ label: 'Marketplace…', glyph: 'search', desc: 'browse & install skills', tab: 'marketplace', run: openHubDialog },
@@ -2513,20 +2520,23 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 			{ label: 'One-Shot Task…', glyph: 'zap', desc: 'quick jobs to clipboard', tab: 'oneshot', run: openHubDialog },
 		].filter(entry => typeof host.skillsHubOp === 'function');
 		if (entries.length === 0) { return undefined; }
-		const details = element('details', 'crusorai-add-menu') as HTMLDetailsElement;
-		const summary = element('summary', 'crusorai-plus-summary', icon('add'));
+		const details = element('details', 'crusorai-mode-picker crusorai-add-picker') as HTMLDetailsElement;
+		const summary = element('summary', 'crusorai-mode-summary', icon('add'), icon('chevron-down'));
 		summary.setAttribute('aria-label', 'Add — marketplace, connectors, skills, one-shot');
 		summary.title = 'Add — marketplace, connectors, skills, one-shot';
-		const menu = element('div', 'crusorai-add-menu-items');
+		const menu = element('div', 'crusorai-mode-menu');
+		menu.setAttribute('role', 'menu');
+		menu.setAttribute('aria-label', 'Add');
 		for (const entry of entries) {
-			const item = element('button', 'crusorai-add-menu-item',
+			const item = element('button', 'crusorai-mode-option',
 				icon(entry.glyph),
-				element('span', 'crusorai-add-menu-text',
-					element('span', 'crusorai-add-menu-label', entry.label),
-					element('span', 'crusorai-add-menu-desc', entry.desc),
+				element('span', 'crusorai-mode-option-copy',
+					element('strong', undefined, entry.label),
+					element('small', undefined, entry.desc),
 				),
 			) as HTMLButtonElement;
 			item.type = 'button';
+			item.setAttribute('role', 'menuitem');
 			item.addEventListener('click', () => {
 				details.open = false;
 				entry.run?.(host, details);

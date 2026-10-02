@@ -667,31 +667,45 @@ class TestHubOps:
         assert "handle_hub_op" in branch and "skills_hub_result" in branch
 
     def test_composer_plus_menu_and_in_panel_dialog(self):
-        """Field 2026-10-02, rev 4 (owner spec, final): + opens a compact
-        menu IN THE COMPOSER SPACE; each entry opens the IN-PANEL hub
-        dialog (crusorAIHubDialog) — a real dialog card above the composer,
-        NEVER the top-center QuickPick. Data flows through skillsHubOp /
-        oneshotRun promise hooks."""
+        """Field 2026-10-02, rev 5 (owner feedback): the + menu MIMICS the
+        Agent/Think pickers — same details.crusorai-mode-picker anatomy and
+        class family, so it renders correctly in every stylesheet the field
+        has — and the hub dialog carries its own CSS at runtime (style
+        injection), because a stale workbench stylesheet rendered the card
+        invisible ("buttons not working"). Entries still open the IN-PANEL
+        dialog via skillsHubOp / oneshotRun promise hooks — NEVER the
+        top-center QuickPick."""
         browser = _REPO / "desktop" / "vscode" / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
         renderer = (browser / "crusorAIRenderer.ts").read_text(encoding="utf-8")
-        assert "openHubDialog" in renderer and "crusorai-add-menu" in renderer
+        assert "openHubDialog" in renderer and "crusorai-add-picker" in renderer
+        # the mimicry is structural: the + picker IS a mode-picker
+        assert "crusorai-mode-picker crusorai-add-picker" in renderer
+        assert "crusorai-mode-summary" in renderer and "crusorai-mode-menu" in renderer
+        assert "crusorai-mode-option-copy" in renderer
+        # the bespoke menu chrome stays dead
+        for dead in ("crusorai-add-menu", "crusorai-plus-summary", "openPlusMenu", "plusButton"):
+            assert dead not in renderer, dead
         assert "host.skillsHubOp === 'function'" in renderer
-        assert "openPlusMenu" not in renderer and "plusButton" not in renderer
         assert "oneshotRun?(" in renderer
         dialog = (browser / "crusorAIHubDialog.ts").read_text(encoding="utf-8")
         for token in ("marketplace", "connectors", "myskills", "oneshot"):
             assert f"'{token}'" in dialog, token
         assert "host.skillsHubOp!(" in dialog and "host.oneshotRun!(" in dialog
         assert "document.body.append(root)" in dialog
+        # delivery-proof chrome: the dialog ships its own stylesheet
+        assert "crusorai-hub-dialog-styles" in dialog and "ensureHubDialogStyles" in dialog
+        for token in (".crusorai-hub-dialog {", "position: fixed", ".crusorai-hub-row {", ".crusorai-hub-chip {"):
+            assert token in dialog, token
         hub_ts = (browser / "crusorAISkillsHub.ts").read_text(encoding="utf-8")
         assert "crusorai.plusMenu" not in hub_ts, "the QuickPick Add… stays dead"
         service = (browser / "crusorAIRendererService.ts").read_text(encoding="utf-8")
         assert "oneshotRun: (template, instructions, variables)" in service
         assert "crusorai.plusMenu" not in service
         css = (browser / "media" / "crusorAI.css").read_text(encoding="utf-8")
-        for token in (".crusorai-add-menu-items", ".crusorai-hub-dialog", ".crusorai-hub-row", ".crusorai-hub-chip"):
-            assert token in css, token
-        assert ".crusorai-plus-menu" not in css and ".crusorai-plus-button" not in css
+        # the stylesheet no longer carries hub/add chrome — the dialog
+        # self-injects, the menu borrows the shipped picker rules
+        assert ".crusorai-hub" not in css and ".crusorai-add-menu" not in css
+        assert ".crusorai-mode-menu" in css  # the rules the + menu borrows ship here
 
     def test_bridge_delegates_to_the_same_dispatcher(self):
         src = (_REPO / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
