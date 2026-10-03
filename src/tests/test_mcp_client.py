@@ -130,6 +130,54 @@ def test_split_command_spec_accepts_both_config_shapes():
     assert split_command_spec({}) is None and split_command_spec({"command": "   "}) is None
 
 
+def test_resolve_executable_applies_pathtext_before_spawn(monkeypatch):
+    """A bare ``npx`` must be resolved before Popen: subprocess ignores
+    PATHEXT, so on Windows it only ever looks for ``npx.exe`` while the real
+    file is ``npx.CMD``. Every npx-based server then raised
+    FileNotFoundError at spawn, was dropped by load_mcp_servers, and the
+    Connectors tab still said 'connected' — no MCP server ever ran."""
+    from src.tools import mcp_client as mc
+    monkeypatch.setattr(
+        mc.shutil, "which",
+        lambda name, **kw: r"C:\Program Files\nodejs\npx.CMD" if name == "npx" else None)
+    assert mc.resolve_executable(["npx", "-y", "pkg"]) == [
+        r"C:\Program Files\nodejs\npx.CMD", "-y", "pkg"]
+    # unresolvable: keep the name so the spawn still fails loudly
+    assert mc.resolve_executable(["nope_not_a_binary", "x"]) == ["nope_not_a_binary", "x"]
+    # an absolute path is never rewritten
+    assert mc.resolve_executable([sys.executable, "-V"]) == [sys.executable, "-V"]
+    assert mc.resolve_executable([]) == []
+
+
+def test_spawn_applies_executable_resolution(monkeypatch):
+    """_ensure_proc must run argv through resolve_executable. Splitting the
+    full line alone still hands CreateProcess a bare ``npx``, which is
+    FileNotFoundError on Windows — both fixes have to survive together."""
+    from src.tools import mcp_client as mc
+
+    captured: list[list[str]] = []
+
+    class Reached(Exception):
+        pass
+
+    def fake_popen(cmd, *args, **kwargs):
+        captured.append(list(cmd))
+        raise Reached()
+
+    monkeypatch.setattr(mc.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        mc.shutil, "which",
+        lambda name, **kw: r"C:\Program Files\nodejs\npx.CMD" if name == "npx" else None)
+
+    exe, args = mc.split_command_spec({"command": "npx -y pkg D:\\dir"})
+    client = mc.MCPStdioClient("probe", [exe, *args])
+    with pytest.raises(Reached):
+        client._ensure_proc()
+
+    assert captured and captured[0][0] == r"C:\Program Files\nodejs\npx.CMD"
+    assert captured[0][1:] == ["-y", "pkg", "D:\\dir"]
+
+
 def test_disabled_or_dead_servers_never_block_others(tmp_path, fake_server_cmd):
     cfg = mcp_config_path(str(tmp_path))
     cfg.parent.mkdir(parents=True, exist_ok=True)

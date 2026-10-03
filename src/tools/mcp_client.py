@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -59,7 +60,7 @@ class MCPStdioClient:
             return self._proc
         full_env = {**os.environ, **self._env}
         self._proc = subprocess.Popen(
-            self._command,
+            resolve_executable(self._command),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -168,6 +169,27 @@ def split_command_spec(spec: dict) -> tuple[str, list[str]] | None:
     if not parts:
         return None
     return parts[0], [*parts[1:], *extra]
+
+
+def resolve_executable(argv: list[str]) -> list[str]:
+    """Resolve argv[0] to something CreateProcess can actually start.
+
+    On Windows a bare ``npx`` raises FileNotFoundError — subprocess does not
+    apply PATHEXT, so it only ever looks for ``npx.exe`` while the real file
+    is ``npx.CMD``. Every npx-based MCP server (filesystem, puppeteer,
+    github, postgres, ...) then died before spawning and ``load_mcp_servers``
+    dropped it silently: the Connectors tab said "connected" while no server
+    ever ran. ``shutil.which`` applies PATHEXT and PATH, so ask it first and
+    keep the original name when it has nothing — a genuinely missing binary
+    must still fail, loudly, at spawn time.
+    """
+    if not argv:
+        return argv
+    head = argv[0]
+    if os.path.isabs(head) and os.path.exists(head):
+        return argv
+    found = shutil.which(head)
+    return [found, *argv[1:]] if found else argv
 
 
 def load_mcp_servers(workspace: str) -> dict[str, MCPStdioClient]:
