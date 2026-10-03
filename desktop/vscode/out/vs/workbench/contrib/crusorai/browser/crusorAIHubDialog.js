@@ -593,11 +593,17 @@ async function renderConnectors(body, host) {
             }
             attach.append(chips);
         }
-        attach.append(el('div', 'crusorai-hub-row-desc', 'Adds an MCP server to this workspace\u2019s .crusorai/mcp.json — it connects on the next session.'));
+        attach.append(el('div', 'crusorai-hub-row-desc', 'Adds an MCP server to this workspace\u2019s .crusorai/mcp.json — it connects on the next session. Env vars (tokens, connection strings) are stored exactly as you type them.'));
         const nameIn = el('input', 'crusorai-hub-dialog-search');
         nameIn.placeholder = 'name — e.g. filesystem';
         const cmdIn = el('input', 'crusorai-hub-dialog-search');
         cmdIn.placeholder = 'command — e.g. npx -y @modelcontextprotocol/server-filesystem ~/docs';
+        // Credentials have nowhere to go without this: github/postgres only
+        // work with a token, and the engine stores these LITERALLY (it never
+        // expands ${VAR}), so the value must be pasted, not referenced.
+        const envIn = el('textarea', 'crusorai-hub-oneshot-input');
+        envIn.placeholder = 'env (optional) — one KEY=VALUE per line, e.g. GITHUB_PERSONAL_ACCESS_TOKEN=…';
+        envIn.rows = 2;
         const addBtn = el('button', 'crusorai-hub-mini is-primary', 'Attach');
         addBtn.type = 'button';
         const err = el('div', 'crusorai-hub-row-error');
@@ -605,8 +611,13 @@ async function renderConnectors(body, host) {
         addBtn.addEventListener('click', async () => {
             addBtn.disabled = true;
             err.style.display = 'none';
-            const parts = cmdIn.value.trim().split(/\s+/).filter(Boolean);
-            const res = await host.skillsHubOp('connector_attach', { name: nameIn.value.trim(), command: parts[0] ?? '', args: parts.slice(1) });
+            // Send the command verbatim: the engine shell-splits it (quotes
+            // intact). Splitting here broke any path with a space in it.
+            const envLines = envIn.value.split('\n').map(l => l.trim()).filter(Boolean);
+            const res = await host.skillsHubOp('connector_attach', {
+                name: nameIn.value.trim(), command: cmdIn.value.trim(),
+                ...(envLines.length ? { env: envLines } : {}),
+            });
             addBtn.disabled = false;
             if (res.ok === false) {
                 err.textContent = String(res.error ?? 'attach failed');
@@ -615,7 +626,7 @@ async function renderConnectors(body, host) {
             }
             await renderConnectors(body, host); // re-probe: chip + status refresh
         });
-        attach.append(nameIn, cmdIn, addBtn, err);
+        attach.append(nameIn, cmdIn, envIn, addBtn, err);
         list.append(attach);
     }
     body.replaceChildren(list);

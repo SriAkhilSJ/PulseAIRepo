@@ -1,5 +1,5 @@
 {
-	"sourcesHash": "a1e1cd3ed8f2dc23f027fe4cdaeaa25669ef385e674d580815411fa8f135c1db",
+	"sourcesHash": "85e92c68635439635cc8c7f726dbe0a02a498f4fb9afbd94f75fa6f924b9eba9",
 	"files": {
 		"src/vs/workbench/contrib/crusorai/README.md": "430e50521a404dea5b25f0e1bc1876fcaaaebe7935bcb8ef8bff4db10846ecaa",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "a608f7bfcc5517e5ae7d207fa382362db2e87aecbd300c8e5767f99f38cc485c",
@@ -7,7 +7,7 @@
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIActivity.ts": "579a264aa21fdaf17fe4fc9b412feef254b677b485f38c8bb1bc1905ceba73f9",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIConnectors.ts": "650581ad68884873ec72e170957c0a540753100ee5edaae5c6e4674f192f7823",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.ts": "49e1772da6b8cfb1b7e56e3405834d604751c8e4d76199c09aa4985e128a6399",
-		"src/vs/workbench/contrib/crusorai/browser/crusorAIHubDialog.ts": "b9090e6eacefefcbad20b0bf2f28823041b862fda5c1642a64f42bcb128a4f02",
+		"src/vs/workbench/contrib/crusorai/browser/crusorAIHubDialog.ts": "f8537bb2d0200b203912353d6ea7d87bee4beae5fcaf2dfcd9c4eddc39b44356",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIIcons.ts": "f366f3e85ee2d09b8e3554a9d743b48b98c9d37c7ee9b40de63f9b67daa00b52",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.ts": "f0c0b39f124809071d7e6d045f2d6de29185eb3f6dafbd7c1cecde4978d28232",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIManagerEditor.ts": "f6987f3abec53e6997d67cc35b8acd6b82d061d442a7c3f9bdc36853b6decf94",
