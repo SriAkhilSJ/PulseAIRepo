@@ -26,8 +26,7 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
-import shutil
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -141,56 +140,34 @@ def mcp_config_path(workspace: str) -> Path:
     return Path(workspace) / ".crusorai" / "mcp.json"
 
 
-def server_argv(spec: dict) -> list[str]:
-    """Normalize one server spec to an argv list.
+def split_command_spec(spec: dict) -> tuple[str, list[str]] | None:
+    """Accept BOTH config shapes for a server's launch line:
 
-    Two shapes reach the engine and both are real: the panel/attach writer
-    stores ``{"command": "npx", "args": [...]}``, while hand-edited and
-    VS Code-style files store the whole command as a list
-    (``"command": ["npx", "-y", "server-filesystem"]``). Naively doing
-    ``[str(command), *args]`` turned the second shape into the literal
-    string ``"['npx', ...]"`` and never split the first when the pasted
-    command carried its own arguments, so the server silently failed to
-    spawn. A bare string with spaces and no separate args is also treated
-    as a whole command line (shell-style, so quotes survive).
-    """
-    raw = spec.get("command")
-    if not raw:
-        return []
-    args = [str(a) for a in (spec.get("args") or [])]
-    if isinstance(raw, (list, tuple)):
-        return [str(c) for c in raw if str(c)] + args
-    cmd = str(raw)
-    if not args and any(ch.isspace() for ch in cmd.strip()):
-        # A bare path that resolves (e.g. ``C:\Program Files\mcp\server.exe``)
-        # is one token, not many — only split when the string can't itself
-        # be an executable. shlex keeps quoted paths intact.
-        if Path(cmd).exists() or shutil.which(cmd):
-            return [cmd]
-        return shlex.split(cmd)
-    return [cmd] + args
+      - split (canonical): {"command": "npx", "args": ["-y", "pkg", "D:\\dir"]}
+      - full line (field 2026-10-02: the owner wrote the whole shell line
+        into ``command`` — the natural thing every other MCP tool accepts,
+        so refusing it made a valid-looking config dead with no error):
+        {"command": "npx -y pkg D:\\dir"}
 
-
-def resolve_executable(argv: list[str]) -> list[str]:
-    """Resolve argv[0] to something CreateProcess can actually start.
-
-    On Windows a bare ``npx`` raises FileNotFoundError — subprocess does
-    not apply PATHEXT, so it only ever looks for ``npx.exe`` while the real
-    file is ``npx.CMD``. Every npx-based MCP server (filesystem,
-    puppeteer, github, postgres, ...) therefore died before spawning and
-    ``load_mcp_servers`` dropped it silently: the Connectors tab said
-    "connected" while no server ever ran. ``shutil.which`` applies
-    PATHEXT and PATH, so ask it first and keep the original when it has
-    nothing (a genuinely missing binary must still fail, loudly, at
-    spawn time — that path is what the dead-server test covers).
-    """
-    if not argv:
-        return argv
-    head = argv[0]
-    if os.path.isabs(head) and os.path.exists(head):
-        return argv
-    found = shutil.which(head)
-    return [found, *argv[1:]] if found else argv
+    The full line is split the way a shell would (quotes protect spaces;
+    posix=False keeps Windows backslashes literal, then wrapping quotes
+    are stripped). Explicit ``args`` are APPENDED to a split line. Returns
+    None when nothing launchable remains."""
+    import shlex
+    command = str(spec.get("command") or "").strip()
+    if not command:
+        return None
+    extra = [str(a) for a in (spec.get("args") or [])]
+    if not re.search(r"\s", command):
+        return command, extra
+    try:
+        parts = [p for p in shlex.split(command, posix=False) if p]
+    except ValueError:
+        parts = command.split()
+    parts = [p[1:-1] if len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'" else p for p in parts]
+    if not parts:
+        return None
+    return parts[0], [*parts[1:], *extra]
 
 
 def load_mcp_servers(workspace: str) -> dict[str, MCPStdioClient]:
@@ -206,10 +183,11 @@ def load_mcp_servers(workspace: str) -> dict[str, MCPStdioClient]:
     for name, spec in (raw.get("servers") or {}).items():
         if not isinstance(spec, dict) or spec.get("enabled") is False:
             continue
-        argv = server_argv(spec)
-        if not argv:
+        split = split_command_spec(spec)
+        if split is None:
             continue
-        client = MCPStdioClient(name, resolve_executable(argv), spec.get("env") or {})
+        exe, args = split
+        client = MCPStdioClient(name, [exe, *args], spec.get("env") or {})
         try:
             client.initialize()
         except Exception:
