@@ -1,0 +1,4 @@
+[emit] compiler options inherited from src/tsconfig.json (target ES2024, experimentalDecorators=true)
+[emit] copied 549 media file(s) to out/ (css / html / preview boot files / crusorai-spa assets) — the panel and the preview window load these by URL
+[emit] DI check ok (10 DI-injected file(s) carry __param)
+[emit] wrote 40 file(s)

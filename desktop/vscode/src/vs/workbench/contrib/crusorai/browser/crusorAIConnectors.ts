@@ -9,29 +9,66 @@ import { localize2 } from '../../../../nls.js';
 import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+
+interface ConnectorPick extends IQuickPickItem {
+	id: string;
+	detail: string;
+}
+
+const CONNECTORS: ConnectorPick[] = [
+	{ label: '$(plug) MCP', description: 'Model Context Protocol', detail: 'filesystem, github, postgres, puppeteer servers from .crusorai/mcp.json — say "list my MCP servers" in chat', id: 'mcp' },
+	{ label: '$(mark-github) GitHub connector', description: 'PRs and issues', detail: 'say "open the PR reviews for this repo" — uses gh / MCP github', id: 'github-connector' },
+	{ label: '$(browser) Browser connector', description: 'CDP / puppeteer verification', detail: 'say "verify the UI works" — Crusor drives a real browser and checks the page', id: 'browser-connector' },
+	{ label: '$(database) DB connector', description: 'postgres / sqlite', detail: 'say "query the users table" — guarded read/list tools, mutations ask first', id: 'db-connector' },
+	{ label: '$(terminal) Terminal connector', description: 'guarded shell access', detail: 'run_terminal with approval gates — already wired into every session', id: 'terminal-connector' },
+];
 
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'crusorai.showConnectors',
-			title: localize2('crusorAI.showConnectors', 'Crusor: Show Connectors'),
+			title: localize2('crusorAI.showConnectors', 'Connectors (MCP, plugins)'),
 			f1: true,
 			category: localize2('crusorAI.category', 'Crusor'),
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
+		// ServicesAccessor is single-shot: every get() runs before the first await.
+		const quickInput = accessor.get(IQuickInputService);
 		const notif = accessor.get(INotificationService);
-		const connectors = [
-			'mcp - Model Context Protocol (filesystem, github, postgres, puppeteer)',
-			'github-connector - PRs/issues via gh / MCP github',
-			'browser-connector - CDP / puppeteer verify_ui_workspace',
-			'db-connector - postgres/sqlite query/list_tables',
-			'terminal-connector - run_terminal (guarded)',
-		].join('\n- ');
-		notif.notify({
-			severity: Severity.Info,
-			message: 'Crusor Connectors - 5 skills',
-			source: '- ' + connectors + '\n\nSKILL.md in PulseAIRepo/skills - Manager -> Connectors will list live mcp.json servers next.',
-		} as any);
+		const commandService = accessor.get(ICommandService);
+
+		const pick = await quickInput.pick(
+			[
+				...CONNECTORS.map(row => ({
+					...row,
+					description: `${row.description} — ${row.id}`,
+				})),
+				{ label: '$(search) Get more…', description: 'Marketplace — install skills and connector packs', id: '__marketplace', detail: '' },
+				{ label: '$(checklist) My Skills', description: 'everything installed — enable/disable, remove', id: '__myskills', detail: '' },
+			],
+			{ placeHolder: 'Crusor Connectors — what your agent can reach beyond the workspace' },
+		);
+		if (!pick) {
+			return;
+		}
+		if (pick.id === '__marketplace') {
+			void commandService.executeCommand('crusorai.skillsHub');
+			return;
+		}
+		if (pick.id === '__myskills') {
+			void commandService.executeCommand('crusorai.mySkills');
+			return;
+		}
+		const row = CONNECTORS.find(candidate => candidate.id === pick.id);
+		if (row) {
+			notif.notify({
+				severity: Severity.Info,
+				message: `${row.label.replace(/\$\([^)]+\)\s*/, '')} — ${row.detail}`,
+				source: 'Crusor Connectors',
+			} as any);
+		}
 	}
 });

@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "updated": "2026-09-30",
+  "description": "Crusor Skills Hub curated catalog. Each entry pins an exact 40-char commit SHA; installs check out exactly that commit. Adding an entry is a reviewed PR: full SHA pin, description matches reality, no self-updating content.",
+  "entries": [
+    {
+      "name": "frontend-design",
+      "repo": "https://github.com/anthropics/skills",
+      "sha": "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
+      "subdir": "skills/frontend-design",
+      "description": "Distinctive, intentional visual design for new UI — aesthetic direction, typography, layout that doesn't read as templated defaults.",
+      "category": "ui-design",
+      "trust": "curated"
+    },
+    {
+      "name": "mcp-builder",
+      "repo": "https://github.com/anthropics/skills",
+      "sha": "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
+      "subdir": "skills/mcp-builder",
+      "description": "Guidance for building high-quality MCP (Model Context Protocol) servers that let agents connect to external tools and data.",
+      "category": "integrations",
+      "trust": "curated"
+    },
+    {
+      "name": "react-best-practices",
+      "repo": "https://github.com/vercel-labs/agent-skills",
+      "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "subdir": "skills/react-best-practices",
+      "description": "React and Next.js performance optimization guidelines — components, data fetching, bundle size — from Vercel Engineering.",
+      "category": "frontend",
+      "trust": "curated"
+    },
+    {
+      "name": "web-design-guidelines",
+      "repo": "https://github.com/vercel-labs/agent-skills",
+      "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "subdir": "skills/web-design-guidelines",
+      "description": "Web interface design review guidelines — accessibility, hierarchy, responsive behavior — for auditing and improving web UI.",
+      "category": "frontend",
+      "trust": "curated"
+    },
+    {
+      "name": "c-review",
+      "repo": "https://github.com/trailofbits/skills",
+      "sha": "82fe8226252622fa807643bdca1710901198553a",
+      "subdir": "plugins/c-review/skills/c-review",
+      "description": "C/C++ security review — memory corruption, integer overflow, use-after-free, race conditions — from the Trail of Bits audit team.",
+      "category": "security",
+      "trust": "curated"
+    },
+    {
+      "name": "agentic-actions-auditor",
+      "repo": "https://github.com/trailofbits/skills",
+      "sha": "82fe8226252622fa807643bdca1710901198553a",
+      "subdir": "plugins/agentic-actions-auditor/skills/agentic-actions-auditor",
+      "description": "Audit the actions an AI coding agent took — flags risky commands, scope creep, and unsafe edits in a session's changes.",
+      "category": "security",
+      "trust": "curated"
+    },
+    {
+      "name": "brainstorming",
+      "repo": "https://github.com/obra/superpowers",
+      "sha": "8ca22dba9a94f28898bbce59f2537ff4d87c747d",
+      "subdir": "skills/brainstorming",
+      "description": "Structured ideation before creative work — explores user intent, requirements, and design before implementation starts.",
+      "category": "workflow",
+      "trust": "curated"
+    },
+    {
+      "name": "using-git-worktrees",
+      "repo": "https://github.com/obra/superpowers",
+      "sha": "8ca22dba9a94f28898bbce59f2537ff4d87c747d",
+      "subdir": "skills/using-git-worktrees",
+      "description": "Parallel work with git worktrees — isolate experiments and features in separate checkouts without stashing or branch juggling.",
+      "category": "workflow",
+      "trust": "curated"
+    }
+  ]
+}

@@ -290,6 +290,7 @@ class SkillManager:
         created_by: str = "user",
         pinned: bool = False,
         description: str = "",
+        source: dict | None = None,
     ) -> None:
         """
         Add a new skill (or update an existing one by name).
@@ -316,6 +317,8 @@ class SkillManager:
             existing["patch_count"] = int(existing.get("patch_count", 0)) + 1
             existing["updated_at"] = _NOW()
             existing["last_activity_at"] = _NOW()
+            if source is not None:
+                existing["source"] = source
             self._save()
             return
         self._skills.append(self._ensure_metadata({
@@ -331,6 +334,8 @@ class SkillManager:
             "updated_at": _NOW(),
             "last_activity_at": _NOW(),
         }))
+        if source is not None:
+            self._skills[-1]["source"] = source
         self._save()
 
     def remove_skill(self, name: str) -> bool:
@@ -346,6 +351,68 @@ class SkillManager:
                 self._save()
                 return True
         return False
+
+    def load_workspace_skills(self, workspace: str | None) -> int:
+        """Scan <workspace>/.crusorai/skills/*/SKILL.md into the index as
+        PROJECT skills (created_by='project', pinned) — the committed,
+        team-shared lane (Claude's .claude/skills parity, field 2026-10-02:
+        "that claude boring part"). The folder is the source of truth:
+
+          - idempotent: existing project entries keep their enabled flag;
+          - a file that vanished is dropped from the index (nothing on
+            disk, nothing in the model's view);
+          - a name already owned by a NON-project skill is skipped (a
+            team folder never shadows bundled/user/hub skills);
+          - malformed skills never block (D17 fail-open).
+
+        Cheap by design (listdir + small reads) — callers may invoke it
+        every chat turn. Returns the number of project skills live."""
+        ws = str(workspace or "").strip()
+        if not ws:
+            return 0
+        skills_dir = os.path.join(ws, ".crusorai", "skills")
+        try:
+            keep_enabled: dict[str, bool] = {
+                str((s.get("source") or {}).get("path") or ""): bool(s.get("enabled", True))
+                for s in self._skills if s.get("created_by") == "project"
+            }
+            owned = {s["name"] for s in self._skills if s.get("created_by") != "project"}
+            self._skills = [s for s in self._skills if s.get("created_by") != "project"]
+            if not os.path.isdir(skills_dir):
+                return 0
+            count = 0
+            for entry in sorted(os.listdir(skills_dir)):
+                md = os.path.join(skills_dir, entry, "SKILL.md")
+                if not os.path.isfile(md):
+                    continue
+                try:
+                    text = open(md, encoding="utf-8").read()
+                    frontmatter, body = _parse_skill_frontmatter(text)
+                    triggers = _frontmatter_triggers(frontmatter)
+                    raw_name = str(frontmatter.get("name", "") or "").strip().lower()
+                    name = re.sub(r"[^a-z0-9-]+", "-", raw_name).strip("-") or entry.lower()
+                    if name in owned or any(s["name"] == name for s in self._skills):
+                        continue  # never shadow a non-project skill
+                    self._skills.append(self._ensure_metadata({
+                        "name": name,
+                        "description": str(frontmatter.get("description", "") or "").strip(),
+                        "triggers": triggers or [name],
+                        "instruction": body.strip()[:_BUNDLED_INSTRUCTION_CAP],
+                        "enabled": keep_enabled.get(md, True),
+                        "created_by": "project",
+                        "pinned": True,
+                        "state": "active",
+                        "created_at": _NOW(),
+                        "updated_at": _NOW(),
+                        "last_activity_at": _NOW(),
+                        "source": {"kind": "project", "path": md},
+                    }))
+                    count += 1
+                except Exception:
+                    continue  # one broken team file never blocks the rest
+            return count
+        except Exception:
+            return 0
 
     def list_skills(self) -> list[dict]:
         return list(self._skills)

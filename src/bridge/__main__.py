@@ -1069,6 +1069,75 @@ class BridgeServer:
         if kind == "shutdown":
             self._shutdown.set()
             return False
+        if kind == "skills_hub_op":
+            # Skills Hub ops are USER-level state (catalog/registry), not
+            # session state: they are handled BEFORE workspace/session
+            # resolution so the palette works on a fresh window (no session
+            # bound yet) and a click never mints a phantom session. The
+            # result echoes the caller's session_id as-is; the panel
+            # correlates on `op`. (Field 2026-10-01: the op sat inside the
+            # session-scoped chain, so palette clicks before any chat bound
+            # went through session resolution and silently stalled.)
+            op = str(frame.get("op") or "list").strip().lower()
+            try:
+                from src.agents.skills_hub import handle_hub_op
+                result = handle_hub_op(op, frame=frame)
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)[:500]}
+            self.emit({
+                "type": "skills_hub_result",
+                "session_id": frame.get("session_id") or "",
+                "op": op, "result": result,
+            })
+            return True
+        if kind == "oneshot":
+            # One-shot quick jobs (hermes oneshot parity): template or ad-hoc
+            # ask -> ONE cheap-tier provider call. Handled BEFORE session
+            # resolution on purpose: a one-shot has nothing to do with the
+            # chat thread - it must never mint a session, append to history,
+            # or touch the prompt cache. Result rides oneshot_result.
+            #
+            # The provider call runs on a daemon thread, NOT inline: the
+            # read loop at run() is single-threaded, so an inline 30-50s
+            # provider call parked every later frame (skills_hub_op,
+            # anything) behind it and the panel's 12s listener answered
+            # "the engine did not answer the 'skill_create' request".
+            # emit() is already lock-protected, so a worker may emit.
+            template = str(frame.get("template") or "adhoc")
+            session_id = frame.get("session_id") or ""
+            variables = frame.get("variables")
+            import time as _t
+
+            def _oneshot() -> None:
+                _t0 = _t.monotonic()
+                try:
+                    from src.prompts.oneshot import run_oneshot
+                    res = run_oneshot(
+                        str(frame.get("template") or ""),
+                        instructions=str(frame.get("instructions") or ""),
+                        variables=variables if isinstance(variables, dict) else {},
+                    )
+                except Exception as exc:
+                    res = {"ok": False, "error": str(exc)[:500]}
+                # Field diagnosis: without this line, "the engine did not answer"
+                # could mean old bridge, lost frame, OR a slow provider - and
+                # nothing in the log said which.
+                print(
+                    "[bridge] oneshot "
+                    + template + f": {int((_t.monotonic() - _t0) * 1000)}ms "
+                    + (f"error: {str(res.get('error', ''))[:120]}" if res.get("error") else "ok"),
+                    file=sys.stderr, flush=True,
+                )
+                self.emit({
+                    "type": "oneshot_result",
+                    "session_id": session_id,
+                    "template": template,
+                    "text": str(res.get("text", "")),
+                    "error": str(res.get("error", "")),
+                })
+
+            threading.Thread(target=_oneshot, name="crusorai-oneshot", daemon=True).start()
+            return True
 
         raw_workspace = frame.get("workspace")
         workspace = str(raw_workspace).strip() if raw_workspace else ""
@@ -1079,6 +1148,15 @@ class BridgeServer:
         # and the preview proxy is useless without it — so this is where it gets started. Nothing
         # visible: no console window, no waiting, no failure path into the turn.
         self._start_preview_proxy(workspace)
+        # Project skills (.crusorai/skills/*/SKILL.md, committed with the
+        # repo) must be in the index BEFORE this turn's system prompt is
+        # built. Idempotent + cheap (a listdir), so every workspace-bearing
+        # frame refreshes it — pull a teammate's skill and it just works.
+        try:
+            from src.agents.skill_manager import skill_manager as _sm
+            _sm.load_workspace_skills(workspace)
+        except Exception:
+            pass  # a broken team skills folder must never block the turn
         # Hermes session-metadata reads/writes are workspace-optional: they
         # address the DURABLE row, not the live worker, so they must neither
         # mint phantom in-memory entries nor demand an open folder.

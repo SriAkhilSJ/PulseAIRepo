@@ -1,0 +1,5 @@
+91906549d408cf224db29bc92314a2cba5191144
+91906549 Re-pin SOURCES_HASH + manifest for the skills_hub bridge frames
+f4e6cadf Skills Hub Phase 2: hub_update + bridge management surface
+ac9dcd35 Crusor Skills Hub: install community Agent Skills (search, SHA-pinned, sandboxed)
+arena/01a0f348-pulseairepo

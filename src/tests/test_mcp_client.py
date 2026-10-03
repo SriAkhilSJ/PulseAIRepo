@@ -112,6 +112,24 @@ def test_one_shot_call_and_unconfigured_server(tmp_path, fake_server_cmd):
     assert "not available" in out2
 
 
+def test_split_command_spec_accepts_both_config_shapes():
+    """Field 2026-10-02: the owner's config carried the WHOLE shell line
+    in `command` — the shape every other MCP tool accepts. The loader must
+    take both, or a valid-looking file stays dead with no error."""
+    from src.tools.mcp_client import split_command_spec
+
+    # canonical split shape passes through untouched
+    assert split_command_spec({"command": "npx", "args": ["-y", "pkg"]}) == ("npx", ["-y", "pkg"])
+    # full line -> shell-style split, explicit args appended
+    exe, args = split_command_spec({"command": "npx -y @modelcontextprotocol/server-filesystem D:\\pulseAIagent"})
+    assert exe == "npx" and args == ["-y", "@modelcontextprotocol/server-filesystem", "D:\\pulseAIagent"]
+    # a quoted Windows path with spaces survives as ONE argument
+    exe, args = split_command_spec({"command": 'npx -y pkg "D:\\My Docs\\sub"'})
+    assert exe == "npx" and args[-1] == "D:\\My Docs\\sub"
+    # nothing launchable -> None
+    assert split_command_spec({}) is None and split_command_spec({"command": "   "}) is None
+
+
 def test_disabled_or_dead_servers_never_block_others(tmp_path, fake_server_cmd):
     cfg = mcp_config_path(str(tmp_path))
     cfg.parent.mkdir(parents=True, exist_ok=True)
