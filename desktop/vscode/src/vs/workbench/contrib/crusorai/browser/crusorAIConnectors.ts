@@ -6,7 +6,13 @@
 // connectors hub (mcp, github, browser, db, terminal).
 
 import { localize2 } from '../../../../nls.js';
-import { interface ConnectorPick extends IQuickPickItem {
+import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+
+interface ConnectorPick extends IQuickPickItem {
 	id: string;
 	detail: string;
 }

@@ -271,7 +271,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// permission-blocked inside the webview). The workbench service
 			// owns the privileged path; never let clipboard trouble throw.
 			try { this.clipboardService.writeText(text); } catch { /* best effort */ }
-			// Composer + dialog, One-Shot tab (field 2026-10-02 rev 4): one quick
+		},
+		// Composer + dialog, One-Shot tab (field 2026-10-02 rev 4): one quick
 		// job over the oneshot envelope — same request/response pairing as
 		// the hub op hook.
 		oneshotRun: (template, instructions, variables) => {
@@ -293,7 +294,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				this.sendOneshot(template, { instructions, variables });
 			});
 		},
-	},
 		navigateToSession: (sessionId: string) => { this.navigateToSession(sessionId); },
 		newSession: () => { this.newSession(); },
 		isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),

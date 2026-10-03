@@ -5,6 +5,10 @@
 // is warranted. Designed to be the entry point for the enterprise
 // connectors hub (mcp, github, browser, db, terminal).
 import { localize2 } from '../../../../nls.js';
+import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 const CONNECTORS = [
     { label: '$(plug) MCP', description: 'Model Context Protocol', detail: 'filesystem, github, postgres, puppeteer servers from .crusorai/mcp.json — say "list my MCP servers" in chat', id: 'mcp' },
     { label: '$(mark-github) GitHub connector', description: 'PRs and issues', detail: 'say "open the PR reviews for this repo" — uses gh / MCP github', id: 'github-connector' },

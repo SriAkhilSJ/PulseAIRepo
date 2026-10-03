@@ -426,8 +426,20 @@ async function renderMarketplace(body: HTMLElement, host: CrusorAIRenderHost): P
 	create.append(el('div', 'crusorai-hub-row-desc',
 		'No coding needed. Describe the job in your own words and press \u2728 Enhance — or paste an existing skill file and add it directly.'));
 	const scopeSel = el('select', 'crusorai-hub-dialog-search') as HTMLSelectElement;
-	scopeSel.innerHTML = '<option value="user">Just me — private, all your projects</option>'
-		+ '<option value="workspace">This workspace — team, committed to git</option>';
+	// TrustedHTML: the workbench installs a strict trusted-types policy, so
+	// assigning innerHTML here throws and the Create box renders with no
+	// scope picker (field 2026-10-02: "This document requires 'TrustedHTML'
+	// assignment"). Build the options as nodes instead — no string parsing,
+	// no policy bypass needed.
+	for (const [value, label] of [
+		['user', 'Just me — private, all your projects'],
+		['workspace', 'This workspace — team, committed to git'],
+	] as const) {
+		const opt = document.createElement('option');
+		opt.value = value;
+		opt.textContent = label;
+		scopeSel.append(opt);
+	}
 	const draftIn = el('textarea', 'crusorai-hub-oneshot-input') as HTMLTextAreaElement;
 	draftIn.rows = 3;
 	draftIn.placeholder = 'e.g. when I say \u201cship it\u201d, run the tests, build, and give me a go/no-go checklist';
