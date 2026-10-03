@@ -39,6 +39,22 @@ class TestTemplateRegistry:
         assert "FAITHFUL" in res["system"]  # never invent capabilities
         assert "when I say ship it" in res["user"] and "ship-it" in res["user"]
 
+    def test_a_hung_provider_answers_as_an_error_within_the_budget(self, monkeypatch):
+        """A stuck model call must become an error frame the panel can show
+        — never a silent hang that eats the client timeout."""
+        import time as _time
+
+        class _Sleepy:
+            def invoke(self, user):
+                _time.sleep(2)
+                return "too late"
+
+        import src.llm.factory as _factory
+        monkeypatch.setattr(_factory, "get_auxiliary_llm", lambda: _Sleepy())
+        monkeypatch.setattr(oneshot, "_PROVIDER_BUDGET_S", 0.2)
+        res = oneshot.run_oneshot("summarize", variables={"text": "hello"})
+        assert not res["ok"] and "did not finish within" in res["error"]
+
     def test_unknown_template_error_names_the_valid_set(self):
         res = oneshot.render_template("explode")
         assert not res["ok"] and "commit_message" in res["error"]

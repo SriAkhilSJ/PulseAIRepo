@@ -24,6 +24,36 @@ TemplateFn = Callable[[dict], tuple[str, str]]
 _MAX_INPUT_CHARS = 12_000
 
 
+# Hard budget for the DEFAULT provider call (seconds). A hung provider
+# must become an error frame the panel can show — never a silent hang
+# that eats the UI's timeout and reports "the engine did not answer".
+_PROVIDER_BUDGET_S = 50.0
+
+
+def _invoke_bounded(fn, user: str, budget_s: float):
+    """Run the provider call on a worker thread with a hard budget. On
+    budget blow this returns None (never raises); the thread is daemon and
+    left to finish in the background — the answer to the panel is what
+    matters, not reclaiming the call."""
+    import threading
+    box: dict = {}
+
+    def _runner():
+        try:
+            box["raw"] = fn(user)
+        except Exception as exc:  # noqa: BLE001 - re-raised in caller thread
+            box["err"] = exc
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    t.join(budget_s)
+    if t.is_alive():
+        return None
+    if "err" in box:
+        raise box["err"]
+    return box.get("raw")
+
+
 def _v(variables: dict, *keys: str) -> str:
     """First non-empty string among keys, whitespace-normalized, capped."""
     for key in keys:
@@ -187,9 +217,14 @@ def run_oneshot(
     if invoke is None:
         try:
             from src.llm.factory import get_auxiliary_llm
-            raw = get_auxiliary_llm().invoke(user)
+            raw = _invoke_bounded(get_auxiliary_llm().invoke, user, _PROVIDER_BUDGET_S)
         except Exception as exc:
             return {"ok": False, "error": f"oneshot provider call failed: {str(exc)[:300]}"}
+        if raw is None:
+            return {"ok": False, "error": (
+                f"the model call did not finish within {int(_PROVIDER_BUDGET_S)}s "
+                "- it may be busy or stuck; try again, and if it repeats check the "
+                "provider status or restart CrusorAI")}
     else:
         try:
             raw = invoke(user)

@@ -217,10 +217,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 oneshotRun: (template, instructions, variables) => {
                     return new Promise((resolve, reject) => {
                         let listener;
+                        // 60s: one-shots are REAL model calls — a slow provider is
+                        // normal-ish; the engine bounds the call itself at 50s, so a
+                        // timeout here means the frame never got answered at all.
                         const timer = setTimeout(() => {
                             listener?.dispose();
-                            reject(new Error('One-shot: the engine did not answer. Fully restart CrusorAI so the bridge runs this build.'));
-                        }, 20000);
+                            reject(new Error('One-shot: the engine did not answer in 60s. Try once more — if it repeats, fully restart CrusorAI so the bridge runs this build (the engine log prints a "[bridge] oneshot" line for every attempt).'));
+                        }, 60000);
                         listener = this.onOneshotResult(frame => {
                             clearTimeout(timer);
                             listener?.dispose();

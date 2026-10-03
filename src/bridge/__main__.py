@@ -1097,6 +1097,8 @@ class BridgeServer:
             # chat thread — it must never mint a session, append to history,
             # or touch the prompt cache. Result rides oneshot_result.
             variables = frame.get("variables")
+            import time as _t
+            _t0 = _t.monotonic()
             try:
                 from src.prompts.oneshot import run_oneshot
                 res = run_oneshot(
@@ -1106,6 +1108,15 @@ class BridgeServer:
                 )
             except Exception as exc:
                 res = {"ok": False, "error": str(exc)[:500]}
+            # Field diagnosis: without this line, "the engine did not answer"
+            # could mean old bridge, lost frame, OR a slow provider — and
+            # nothing in the log said which.
+            print(
+                "[bridge] oneshot "
+                + str(frame.get("template") or "adhoc") + f": {int((_t.monotonic() - _t0) * 1000)}ms "
+                + (f"error: {str(res.get('error', ''))[:120]}" if res.get("error") else "ok"),
+                file=sys.stderr, flush=True,
+            )
             self.emit({
                 "type": "oneshot_result",
                 "session_id": frame.get("session_id") or "",
