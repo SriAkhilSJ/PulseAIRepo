@@ -1091,7 +1091,7 @@ def connector_attach(workspace: str, name: str, command: str, args: list[str] | 
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
-            return {"ok": False, "error": ".crusorai/mcp.json is not valid JSON — fix or remove it first"}
+            return {"ok": False, "error": f"{path} is not valid JSON — open it, fix or delete it, then Attach again"}
     if not isinstance(raw, dict):
         raw = {}
     servers = raw.setdefault("servers", {})
@@ -1121,7 +1121,7 @@ def connector_detach(workspace: str, name: str) -> dict:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return {"ok": False, "error": ".crusorai/mcp.json is not valid JSON — fix or remove it first"}
+        return {"ok": False, "error": f"{path} is not valid JSON — open it, fix or delete it, then try again"}
     servers = raw.get("servers") or {}
     if cname not in servers:
         return {"ok": False, "error": f"'{cname}' is not attached"}
