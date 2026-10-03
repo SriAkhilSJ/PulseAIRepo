@@ -1094,36 +1094,49 @@ class BridgeServer:
             # One-shot quick jobs (hermes oneshot parity): template or ad-hoc
             # ask -> ONE cheap-tier provider call. Handled BEFORE session
             # resolution on purpose: a one-shot has nothing to do with the
-            # chat thread — it must never mint a session, append to history,
+            # chat thread - it must never mint a session, append to history,
             # or touch the prompt cache. Result rides oneshot_result.
+            #
+            # The provider call runs on a daemon thread, NOT inline: the
+            # read loop at run() is single-threaded, so an inline 30-50s
+            # provider call parked every later frame (skills_hub_op,
+            # anything) behind it and the panel's 12s listener answered
+            # "the engine did not answer the 'skill_create' request".
+            # emit() is already lock-protected, so a worker may emit.
+            template = str(frame.get("template") or "adhoc")
+            session_id = frame.get("session_id") or ""
             variables = frame.get("variables")
             import time as _t
-            _t0 = _t.monotonic()
-            try:
-                from src.prompts.oneshot import run_oneshot
-                res = run_oneshot(
-                    str(frame.get("template") or ""),
-                    instructions=str(frame.get("instructions") or ""),
-                    variables=variables if isinstance(variables, dict) else {},
+
+            def _oneshot() -> None:
+                _t0 = _t.monotonic()
+                try:
+                    from src.prompts.oneshot import run_oneshot
+                    res = run_oneshot(
+                        str(frame.get("template") or ""),
+                        instructions=str(frame.get("instructions") or ""),
+                        variables=variables if isinstance(variables, dict) else {},
+                    )
+                except Exception as exc:
+                    res = {"ok": False, "error": str(exc)[:500]}
+                # Field diagnosis: without this line, "the engine did not answer"
+                # could mean old bridge, lost frame, OR a slow provider - and
+                # nothing in the log said which.
+                print(
+                    "[bridge] oneshot "
+                    + template + f": {int((_t.monotonic() - _t0) * 1000)}ms "
+                    + (f"error: {str(res.get('error', ''))[:120]}" if res.get("error") else "ok"),
+                    file=sys.stderr, flush=True,
                 )
-            except Exception as exc:
-                res = {"ok": False, "error": str(exc)[:500]}
-            # Field diagnosis: without this line, "the engine did not answer"
-            # could mean old bridge, lost frame, OR a slow provider — and
-            # nothing in the log said which.
-            print(
-                "[bridge] oneshot "
-                + str(frame.get("template") or "adhoc") + f": {int((_t.monotonic() - _t0) * 1000)}ms "
-                + (f"error: {str(res.get('error', ''))[:120]}" if res.get("error") else "ok"),
-                file=sys.stderr, flush=True,
-            )
-            self.emit({
-                "type": "oneshot_result",
-                "session_id": frame.get("session_id") or "",
-                "template": str(frame.get("template") or "adhoc"),
-                "text": str(res.get("text", "")),
-                "error": str(res.get("error", "")),
-            })
+                self.emit({
+                    "type": "oneshot_result",
+                    "session_id": session_id,
+                    "template": template,
+                    "text": str(res.get("text", "")),
+                    "error": str(res.get("error", "")),
+                })
+
+            threading.Thread(target=_oneshot, name="crusorai-oneshot", daemon=True).start()
             return True
 
         raw_workspace = frame.get("workspace")

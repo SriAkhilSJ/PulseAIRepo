@@ -119,6 +119,22 @@ class TestBridgeWiring:
         branch = handle.split('if kind == "oneshot":')[1].split("return True")[0]
         assert "run_oneshot" in branch and "oneshot_result" in branch
 
+    def test_oneshot_never_blocks_the_read_loop(self):
+        """A one-shot provider call is 30-50s. run() reads stdin one frame at
+        a time and calls handle() inline, so an inline run_oneshot parked every
+        later frame (skills_hub_op, chat, ...) and the panel's 12s listener
+        answered 'the engine did not answer the skill_create request'.
+        The call must be dispatched to a worker thread; emit() is already
+        lock-protected so a worker may reply."""
+        from pathlib import Path
+        repo = Path(__file__).resolve().parents[2]
+        src = (repo / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+        branch = src.split('if kind == "oneshot":')[1].split("return True")[0]
+        assert "threading.Thread" in branch, "oneshot must run off the read loop"
+        assert "run_oneshot(" in branch
+        # nothing waits on it: no join/timeout on the worker
+        assert ".join(" not in branch
+
     def test_oneshot_bound_in_graph_protocol(self):
         from src.bridge.protocol import CLIENT_METHODS, SERVER_EVENTS
         assert "oneshot" in CLIENT_METHODS and "oneshot_result" in SERVER_EVENTS
