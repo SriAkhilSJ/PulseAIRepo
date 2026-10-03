@@ -995,18 +995,20 @@ def probe_connectors(workspace: str = "") -> dict:
     servers: list[str] = []
     mcp_detail = "no .crusorai/mcp.json in this workspace yet"
     if workspace:
+        mcp_exc: Exception | None = None
         try:
             from src.tools.mcp_client import mcp_config_path
             raw = json.loads(mcp_config_path(workspace).read_text(encoding="utf-8"))
         except FileNotFoundError:
             raw = {}
-        except Exception:
+        except Exception as exc:
             raw = None
+            mcp_exc = exc
         if raw is None:
             rows.append({
                 "id": "mcp", "label": "MCP (Model Context Protocol)",
                 "desc": "external tool servers", "status": "setup",
-                "detail": ".crusorai/mcp.json exists but is not valid JSON",
+                "detail": ".crusorai/mcp.json exists but is not valid JSON" + _json_pos(mcp_exc),
                 "hint": "say \"list my MCP servers\" in chat once the file parses",
             })
             raw = {}
@@ -1069,8 +1071,56 @@ def probe_connectors(workspace: str = "") -> dict:
     return {"ok": True, "connectors": rows}
 
 
-def connector_attach(workspace: str, name: str, command: str, args: list[str] | None = None) -> dict:
-    """Attach a custom MCP server: merge {command, args} into the
+def _json_pos(exc: Exception | None) -> str:
+    """Where the JSON broke. 'not valid JSON' alone made a hand-edit
+    unfixable from the panel — the user had no idea which line."""
+    if isinstance(exc, json.JSONDecodeError):
+        return f" (line {exc.lineno}, col {exc.colno}: {exc.msg})"
+    return ""
+
+
+def _parse_env(raw: object) -> dict[str, str]:
+    """Normalize an attach-form env block to a {KEY: value} mapping.
+
+    Three shapes arrive: the panel sends one ``KEY=VALUE`` per line (list),
+    the chat path may send ``"K=V; K2=V2"``, tests send a dict. Values are
+    stored LITERALLY — mcp_client merges them over os.environ verbatim and
+    never interpolates ``${VAR}``, which is exactly why the old hand-edited
+    config's ``"${GITHUB_TOKEN}"`` placeholder silently did nothing.
+    Raises ValueError with a message meant for the dialog.
+    """
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        pairs = [(str(k), str(v)) for k, v in raw.items()]
+    else:
+        if isinstance(raw, str):
+            chunks = re.split(r"[\n;]+", raw)
+        elif isinstance(raw, (list, tuple)):
+            chunks = [str(c) for c in raw]
+        else:
+            raise ValueError("env must be KEY=VALUE pairs")
+        pairs = []
+        for chunk in chunks:
+            if not chunk.strip():
+                continue
+            if "=" not in chunk:
+                raise ValueError(
+                    f"env entry {chunk.strip()!r} needs KEY=VALUE — e.g. GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…")
+            key, _, value = chunk.partition("=")
+            pairs.append((key.strip(), value.strip()))
+    env: dict[str, str] = {}
+    for key, value in pairs:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            raise ValueError(
+                f"env key {key!r} must start with a letter or _ and use only letters, digits and _")
+        env[key] = value
+    return env
+
+
+def connector_attach(workspace: str, name: str, command: str, args: list[str] | None = None,
+                     env: object = None) -> dict:
+    """Attach a custom MCP server: merge {command, args, env} into the
     workspace's .crusorai/mcp.json (the file/folder is created when
     missing). The panel only sends the form — the engine owns the file.
     Takes effect next session (mcp_client initializes servers per
@@ -1085,13 +1135,22 @@ def connector_attach(workspace: str, name: str, command: str, args: list[str] | 
     cmd = (command or "").strip()
     if not cmd:
         return {"ok": False, "error": "a command is required, e.g. npx -y @modelcontextprotocol/server-filesystem ~/docs"}
+    try:
+        env_map = _parse_env(env)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     path = mcp_config_path(ws)
     raw: dict = {}
+    json_exc: Exception | None = None
     if path.exists():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {"ok": False, "error": f"{path} is not valid JSON — open it, fix or delete it, then Attach again"}
+        except Exception as exc:
+            json_exc = exc
+            raw = {}
+    if json_exc is not None:
+        return {"ok": False, "error": f"{path} is not valid JSON"
+                + _json_pos(json_exc) + " — open it, fix or delete it, then Attach again"}
     if not isinstance(raw, dict):
         raw = {}
     servers = raw.setdefault("servers", {})
@@ -1099,11 +1158,17 @@ def connector_attach(workspace: str, name: str, command: str, args: list[str] | 
         return {"ok": False, "error": '.crusorai/mcp.json has a non-object "servers" — fix it first'}
     if cname in servers:
         return {"ok": False, "error": f"'{cname}' is already attached — detach it first"}
-    servers[cname] = {"command": cmd, "args": [str(a) for a in (args or [])]}
+    entry: dict = {"command": cmd, "args": [str(a) for a in (args or [])]}
+    if env_map:
+        # env keys are credentials, so they live in the same file as the
+        # server and are merged over the process env at spawn time.
+        entry["env"] = env_map
+    servers[cname] = entry
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
     res = probe_connectors(ws)
     res["attached"] = cname
+    res["env_keys"] = sorted(env_map)
     return res
 
 
@@ -1120,8 +1185,9 @@ def connector_detach(workspace: str, name: str) -> dict:
         return {"ok": False, "error": "no .crusorai/mcp.json in this workspace"}
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"ok": False, "error": f"{path} is not valid JSON — open it, fix or delete it, then try again"}
+    except Exception as exc:
+        return {"ok": False, "error": f"{path} is not valid JSON"
+                + _json_pos(exc) + " — open it, fix or delete it, then try again"}
     servers = raw.get("servers") or {}
     if cname not in servers:
         return {"ok": False, "error": f"'{cname}' is not attached"}
@@ -1356,7 +1422,8 @@ def handle_hub_op(
     if clean == "connector_attach":
         return connector_attach(
             str(f.get("workspace") or ""), str(f.get("name") or ""),
-            str(f.get("command") or ""), [str(a) for a in (f.get("args") or [])])
+            str(f.get("command") or ""), [str(a) for a in (f.get("args") or [])],
+            f.get("env"))
     if clean == "connector_detach":
         return connector_detach(str(f.get("workspace") or ""), str(f.get("name") or ""))
     if clean == "skill_create":

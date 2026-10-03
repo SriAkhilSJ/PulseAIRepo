@@ -707,6 +707,82 @@ class TestHubOps:
         again = hub.handle_hub_op("connector_detach", frame={"workspace": str(ws), "name": "filesystem"})
         assert not again["ok"] and "not attached" in again["error"]
 
+    def test_corrupt_mcp_json_names_the_line_it_broke_on(self, tmp_path):
+        """A hand-edited .crusorai/mcp.json that fails to parse must say
+        WHERE it broke. 'not valid JSON — fix or remove it first' with no
+        position left the user with a file they could not repair from the
+        panel, and attach/detach/probe all failed the same blind way."""
+        ws = tmp_path / "ws_json"
+        (ws / ".crusorai").mkdir(parents=True)
+        (ws / ".crusorai" / "mcp.json").write_text(
+            '{\n  "servers": {\n    "files": {"command": "npx"}\n  }\n',
+            encoding="utf-8",  # missing closing brace
+        )
+        res = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "filesystem", "command": "npx"})
+        assert not res["ok"] and "not valid JSON" in res["error"]
+        assert "line" in res["error"] and "col" in res["error"]
+
+        det = hub.handle_hub_op("connector_detach", frame={
+            "workspace": str(ws), "name": "filesystem"})
+        assert not det["ok"] and "line" in det["error"]
+
+        probe = hub.handle_hub_op("connectors", frame={"workspace": str(ws)})
+        mcp = next(r for r in probe["connectors"] if r["id"] == "mcp")
+        assert mcp["status"] == "setup"
+        assert "not valid JSON" in mcp["detail"] and "line" in mcp["detail"]
+
+    def test_connector_attach_carries_credentials_via_env(self, tmp_path):
+        """The attach form was name + command only, so a token-bearing
+        server (github, postgres) could only be configured by hand-editing
+        .crusorai/mcp.json. env arrives as one KEY=VALUE per line from the
+        panel, 'K=V; K2=V2' from chat, or a dict — stored LITERALLY,
+        because mcp_client merges env over os.environ and never
+        interpolates ${VAR} (which is why the old config's
+        ${GITHUB_TOKEN} placeholder silently did nothing)."""
+        import json as _json
+        ws = tmp_path / "ws_env"
+        ws.mkdir()
+
+        res = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "github", "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": ["GITHUB_PERSONAL_ACCESS_TOKEN=ghp_secret123",
+                    "GITHUB_API_URL=https://api.github.com"],
+        })
+        assert res["ok"] and res["attached"] == "github"
+        assert res["env_keys"] == ["GITHUB_API_URL", "GITHUB_PERSONAL_ACCESS_TOKEN"]
+        cfg = _json.loads((ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8"))
+        assert cfg["servers"]["github"]["env"]["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_secret123"
+        assert cfg["servers"]["github"]["args"] == ["-y", "@modelcontextprotocol/server-github"]
+
+        # no env asked for -> no empty block written
+        res2 = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "plain", "command": "echo"})
+        assert res2["ok"] and res2["env_keys"] == []
+        cfg2 = _json.loads((ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8"))
+        assert "env" not in cfg2["servers"]["plain"]
+
+        # chat-style single string
+        res3 = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "strform", "command": "echo",
+            "env": "A=1; B=2"})
+        assert res3["ok"]
+        cfg3 = _json.loads((ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8"))
+        assert cfg3["servers"]["strform"]["env"] == {"A": "1", "B": "2"}
+
+        # malformed env is refused BEFORE any write
+        before = (ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8")
+        noeq = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "noequals", "command": "echo",
+            "env": ["JUST_A_TOKEN"]})
+        assert not noeq["ok"] and "KEY=VALUE" in noeq["error"]
+        badkey = hub.handle_hub_op("connector_attach", frame={
+            "workspace": str(ws), "name": "badkey", "command": "echo",
+            "env": ["1BAD=x"]})
+        assert not badkey["ok"] and "env key" in badkey["error"]
+        assert (ws / ".crusorai" / "mcp.json").read_text(encoding="utf-8") == before
+
     def test_skill_create_adds_a_user_skill_from_the_dialog(self, env):
         """The Create box path: non-coder words -> engine normalization
         (spaces to hyphens), triggers derived from the name when the
