@@ -35,8 +35,10 @@ class TestTemplateRegistry:
         file out — frontmatter + triggers demanded, faithfulness demanded."""
         res = oneshot.render_template("enhance_skill", {"draft": "when I say ship it, run the tests", "name": "ship-it"})
         assert res["ok"]
-        assert "frontmatter" in res["system"] and "triggers" in res["system"]
+        assert "Exact shape" in res["system"] and "name:" in res["system"]
+        assert "triggers:" in res["system"] and "NOT an executable pipeline" in res["system"]
         assert "FAITHFUL" in res["system"]  # never invent capabilities
+        assert "Output ONLY" in res["system"]  # no commentary/tables/questions
         assert "when I say ship it" in res["user"] and "ship-it" in res["user"]
 
     def test_a_hung_provider_answers_as_an_error_within_the_budget(self, monkeypatch):

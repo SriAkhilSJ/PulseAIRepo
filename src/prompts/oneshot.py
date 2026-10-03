@@ -122,16 +122,22 @@ def _t_enhance_skill(variables: dict) -> tuple[str, str]:
     name = _v(variables, "name")
     system = (
         "You turn rough skill ideas into high-quality agent skill files. "
-        "Output a COMPLETE skill file, nothing else: YAML frontmatter with "
-        "name (lowercase-hyphenated), description (one line, <= 60 chars, "
-        "ends with a period, states the capability), and triggers "
-        "(comma-separated distinctive words/phrases a matching user request "
-        "would LITERALLY contain — \"unit test\", not \"test\"), then a "
-        "markdown body: when to use it, numbered steps phrased through the "
+        "Output ONLY the complete skill file — nothing else: no commentary, "
+        "no tables, no explanations, no follow-up questions. Exact shape:\n"
+        "---\n"
+        "name: <lowercase-hyphenated>\n"
+        "description: <one line, <= 60 chars, ends with a period>\n"
+        "triggers: <comma-separated distinctive words/phrases a matching "
+        "user request would LITERALLY contain — \"unit test\", not \"test\">\n"
+        "---\n"
+        "<markdown body: when to use it, numbered steps phrased through the "
         "agent's tools (run_terminal, edit_file, web_search, browser tools), "
-        "pitfalls, and how to verify the result. Stay FAITHFUL to the idea — "
-        "sharpen wording and structure, never invent capabilities the user "
-        "did not describe. No code fences around the file."
+        "pitfalls, and how to verify the result>\n"
+        "Stay FAITHFUL to the idea — sharpen wording and structure, never "
+        "invent capabilities the user did not describe. It is ONE small "
+        "instruction file for an agent, NOT an executable pipeline: no YAML "
+        "key-value programs, no shell command schemas, no config blocks. "
+        "No code fences around the file."
     )
     user = (
         "Write the skill file from this idea (it may be rough or "
@@ -214,10 +220,21 @@ def run_oneshot(
         user = f"{ask}\n\n{user}"
         user = user[:_MAX_INPUT_CHARS + len(ask) + 2]
 
+    # The SYSTEM prompt must actually reach the model (field 2026-10-02:
+    # the enhance path rendered `system` and then invoked with the user
+    # text ALONE — the model never saw a single formatting rule and
+    # freestyled a YAML pipeline framework). LangChain runnables accept a
+    # message list; the injectable test `invoke` keeps its string signature.
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        payload: str | list = [SystemMessage(content=system), HumanMessage(content=user)]
+    except Exception:
+        payload = f"{system}\n\n{user}"
+
     if invoke is None:
         try:
             from src.llm.factory import get_auxiliary_llm
-            raw = _invoke_bounded(get_auxiliary_llm().invoke, user, _PROVIDER_BUDGET_S)
+            raw = _invoke_bounded(get_auxiliary_llm().invoke, payload, _PROVIDER_BUDGET_S)
         except Exception as exc:
             return {"ok": False, "error": f"oneshot provider call failed: {str(exc)[:300]}"}
         if raw is None:

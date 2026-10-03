@@ -307,8 +307,11 @@ interface HubRow { name: string; description?: string; category?: string; trust?
 // pasted skill file: pull name/description/triggers out of the YAML
 // frontmatter when present, else treat the whole text as the body.
 function parseSkillMd(text: string): { name: string; description: string; triggers: string[]; instruction: string } {
-	const m = text.trim().match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
-	if (!m) { return { name: '', description: '', triggers: [], instruction: text.trim() }; }
+	let t = text.trim();
+	// a model may wrap the file in fences despite instructions — unwrap
+	if (t.startsWith('```')) { t = t.replace(/^```[a-zA-Z0-9]*\s*\n/, '').replace(/```\s*$/, '').trim(); }
+	const m = t.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+	if (!m) { return { name: '', description: '', triggers: [], instruction: t }; }
 	const meta = m[1];
 	const pick = (key: string): string => {
 		const mm = meta.match(new RegExp(`^${key}:\s*(.+)$`, 'm'));
@@ -465,6 +468,12 @@ async function renderMarketplace(body: HTMLElement, host: CrusorAIRenderHost): P
 	addBtn.addEventListener('click', async () => {
 		const parsed = parseSkillMd(contentIn.value);
 		if (!parsed.instruction) { say('The skill body is empty.', true); return; }
+		if (!parsed.name) {
+			// no frontmatter name — slug the idea's first words so Add still works
+			parsed.name = (draftIn.value.trim() || parsed.instruction).toLowerCase()
+				.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+				.split('-').filter(Boolean).slice(0, 4).join('-');
+		}
 		addBtn.disabled = true;
 		say('Adding\u2026');
 		const res = await host.skillsHubOp!('skill_create', {
