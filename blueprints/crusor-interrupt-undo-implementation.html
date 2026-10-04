@@ -1,0 +1,2200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crusor — Interrupt &amp; Undo · implementation blueprint</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Page chrome. Everything the PANE needs sits in the big block further down
+   under "verbatim from crusorAI.css" — this first block is only the document
+   around it (paper, headings, callouts, tables), so the two never mix.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --paper: #0b0d12;
+  --paper-2: #11141b;
+  --paper-3: #171b24;
+  --ink: #e7eaf0;
+  --ink-dim: #9aa3b2;
+  --ink-faint: #6b7484;
+  --rule: #232937;
+  --rule-soft: #1a1f2b;
+  --link: #6cb6ff;
+  --pin: #6cb6ff;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--link); }
+.page { max-width: 1200px; margin: 0 auto; padding: 40px 28px 120px; }
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+.masthead { border-bottom: 1px solid var(--rule); padding-bottom: 26px; margin-bottom: 34px; }
+.masthead .kicker {
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-faint); margin: 0 0 10px;
+}
+.masthead h1 { margin: 0 0 10px; font-size: 30px; line-height: 1.2; letter-spacing: -.02em; }
+.masthead p.lede { margin: 0; max-width: 78ch; color: var(--ink-dim); font-size: 15px; }
+.masthead .meta { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border: 1px solid var(--rule); border-radius: 999px;
+  font-size: 11px; color: var(--ink-dim);
+}
+.chip b { color: var(--ink); font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.dot.running { background: var(--crusorai-running); }
+.dot.approval { background: var(--crusorai-approval); }
+.dot.verified { background: var(--crusorai-verified); }
+.dot.failed { background: var(--crusorai-failed); }
+
+/* ── sections ───────────────────────────────────────────────────────────── */
+section { margin: 0 0 56px; }
+section > h2 {
+  font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-faint); margin: 0 0 6px; font-weight: 600;
+}
+section > h2 .num { color: var(--pin); margin-right: 8px; }
+section > h3 { font-size: 19px; margin: 0 0 14px; letter-spacing: -.01em; }
+section > p { margin: 0 0 14px; max-width: 80ch; color: var(--ink-dim); }
+section > p strong, .note strong { color: var(--ink); }
+
+/* ── the "how to read" trio ─────────────────────────────────────────────── */
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.trio .cell { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper-2); padding: 14px 16px; }
+.trio h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+.trio p { margin: 0; color: var(--ink-dim); font-size: 13px; }
+.trio code { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+
+/* ── demo grid: pane + wire feed ────────────────────────────────────────── */
+.demo-grid { display: grid; grid-template-columns: 452px minmax(0, 1fr); gap: 22px; align-items: start; }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin: 0 0 12px; padding: 10px 12px;
+  border: 1px solid var(--rule); border-radius: 10px; background: var(--paper-2);
+}
+.controls .label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-right: 4px; }
+button.act {
+  font: inherit; font-size: 12px; padding: 5px 11px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper-3); color: var(--ink);
+}
+button.act:hover { border-color: #38414f; background: #1d2230; }
+button.act[disabled] { opacity: .45; cursor: default; }
+button.act.primary { border-color: color-mix(in srgb, var(--crusorai-accent) 55%, transparent); color: var(--crusorai-accent); }
+button.act.danger { border-color: color-mix(in srgb, var(--crusorai-approval) 55%, transparent); color: var(--crusorai-approval); }
+.controls .spacer { flex: 1; }
+.controls label.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); cursor: pointer; }
+
+/* ── wire feed ──────────────────────────────────────────────────────────── */
+.feed { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper-2); overflow: hidden; }
+.feed header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; border-bottom: 1px solid var(--rule-soft);
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.feed .rows { max-height: 520px; overflow: auto; padding: 8px 0; }
+.feed .row {
+  display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 10px;
+  padding: 4px 12px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  border-left: 2px solid transparent;
+}
+.feed .row + .row { border-top: 1px solid var(--rule-soft); }
+.feed .row .kind { color: var(--ink-faint); }
+.feed .row.client .kind { color: var(--crusorai-accent); }
+.feed .row.engine .kind { color: var(--crusorai-verified); }
+.feed .row .body { color: var(--ink-dim); white-space: pre-wrap; word-break: break-word; }
+.feed .row .body b { color: var(--ink); font-weight: 600; }
+.feed .empty { padding: 18px 12px; color: var(--ink-faint); font-size: 12px; }
+
+/* ── frames ─────────────────────────────────────────────────────────────── */
+.frame { border: 1px solid var(--rule); border-radius: 12px; background: var(--paper-2); margin: 0 0 22px; overflow: hidden; }
+.frame > .frame-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 13px 16px; border-bottom: 1px solid var(--rule-soft); background: var(--paper-3);
+}
+.frame .tag {
+  font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 5px;
+  background: color-mix(in srgb, var(--pin) 14%, transparent); color: var(--pin);
+}
+.frame .frame-head h3 { margin: 0; font-size: 15px; }
+.frame .frame-head .where { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+.frame .frame-body { display: grid; grid-template-columns: 452px minmax(0, 1fr); gap: 0; }
+.frame .stage {
+  padding: 18px 16px; border-right: 1px solid var(--rule-soft);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.015), transparent 120px),
+    var(--paper);
+}
+.frame .notes { padding: 16px 18px; }
+.frame .notes ol { margin: 0; padding-left: 0; list-style: none; counter-reset: pin; }
+.frame .notes ol li {
+  position: relative; padding-left: 30px; margin-bottom: 11px; color: var(--ink-dim); font-size: 13px;
+}
+.frame .notes ol li::before {
+  counter-increment: pin; content: counter(pin);
+  position: absolute; left: 0; top: 1px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--pin) 18%, transparent); color: var(--pin);
+  font-size: 10.5px; font-weight: 600; font-family: var(--mono);
+}
+.frame .notes li code, .code-note code { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+.ref { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; }
+.ref b { color: var(--ink); }
+.frame .code-row { border-top: 1px solid var(--rule-soft); display: grid; grid-template-columns: 1fr 1fr; }
+.frame .code-row.single { grid-template-columns: 1fr; }
+.code-cell { border-right: 1px solid var(--rule-soft); }
+.code-cell:last-child { border-right: 0; }
+.code-cell > h4, .table-wrap > h4 {
+  margin: 0; padding: 8px 14px; font-size: 10.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-faint);
+  border-bottom: 1px solid var(--rule-soft); background: var(--paper-3);
+  display: flex; gap: 8px; align-items: baseline;
+}
+.code-cell > h4 .ref { margin-left: auto; }
+pre.code {
+  margin: 0; padding: 12px 14px; overflow: auto; max-height: 340px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.62; color: #cfd6e4;
+  background: #0d1017; tab-size: 4;
+}
+pre.code::-webkit-scrollbar { width: 9px; height: 9px; }
+pre.code::-webkit-scrollbar-thumb { background: #2a303d; border-radius: 4px; }
+.k { color: #ff9d6b; }   /* keyword */
+.s { color: #9ddc8a; }   /* string */
+.c { color: #5f6b7e; }   /* comment */
+.t { color: #7fd3ff; }   /* type/class */
+.p { color: #c9a6ff; }   /* property */
+
+/* ── implementation map table ───────────────────────────────────────────── */
+.table-wrap { border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--paper-2); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  text-align: left; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 600; padding: 9px 14px;
+  border-bottom: 1px solid var(--rule); background: var(--paper-3);
+}
+tbody td { padding: 9px 14px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; color: var(--ink-dim); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: rgba(255,255,255,.014); }
+tbody td.elem { color: var(--ink); }
+tbody code { font-family: var(--mono); font-size: 11.5px; color: #cfd6e4; }
+tbody td.ref { white-space: nowrap; color: var(--ink-faint); }
+
+/* ── state machine ──────────────────────────────────────────────────────── */
+.machine { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.state { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper-2); padding: 13px 15px; }
+.state h4 { margin: 0 0 4px; font-size: 13px; }
+.state .sub { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin: 0 0 8px; }
+.state ul { margin: 0; padding-left: 16px; color: var(--ink-dim); font-size: 12.5px; }
+.state ul li { margin-bottom: 3px; }
+.state.is-armed { border-left: 2px solid var(--crusorai-running); }
+.state.is-cut { border-left: 2px solid var(--crusorai-approval); }
+.state.is-done { border-left: 2px solid var(--crusorai-verified); }
+
+.callout {
+  border: 1px solid var(--rule); border-left: 2px solid var(--crusorai-approval);
+  border-radius: 8px; background: var(--paper-2); padding: 12px 15px; margin: 0 0 16px;
+  color: var(--ink-dim); font-size: 13px; max-width: 84ch;
+}
+.callout b { color: var(--ink); }
+.callout.rule { border-left-color: var(--crusorai-failed); }
+
+@media (max-width: 1060px) {
+  .demo-grid, .frame .frame-body { grid-template-columns: 1fr; }
+  .frame .stage { border-right: 0; border-bottom: 1px solid var(--rule-soft); }
+  .frame .code-row { grid-template-columns: 1fr; }
+  .code-cell { border-right: 0; border-bottom: 1px solid var(--rule-soft); }
+  .trio { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   VERBATIM from crusorAI-tokens.css + crusorAI.css.
+   These are the rules the shipped pane actually paints with. The only edit is
+   the token block at the top: the app reads --vscode-* from the live workbench
+   theme, this page stands in VS Code Dark 2026's values so the demo renders
+   outside the editor. Class names are untouched.
+   ═══════════════════════════════════════════════════════════════════════ */
+.pane-theme {
+  --vscode-foreground: #e6e6e6;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-editor-background: #11141b;
+  --vscode-sideBar-background: #14161c;
+  --vscode-editorWidget-background: #17191f;
+  --vscode-focusBorder: #45b1ff;
+  --vscode-button-background: #2b6fb3;
+  --vscode-button-foreground: #ffffff;
+  --vscode-input-placeholderForeground: #767676;
+  --vscode-panel-border: #2b2b2b;
+  --vscode-toolbar-hoverBackground: rgba(90, 93, 94, .31);
+  --vscode-list-hoverBackground: rgba(255,255,255,.06);
+  --vscode-charts-green: #89d185;
+  --vscode-charts-yellow: #cca700;
+  --vscode-charts-red: #f14c4c;
+  --vscode-errorForeground: #f14c4c;
+  --vscode-editorWarning-foreground: #cca700;
+  --vscode-testing-iconPassed: #73c991;
+  --vscode-textLink-foreground: #4daafc;
+  --vscode-symbolKindClass: #4daafc;
+
+  /* crusorAI-tokens.css — fallback chains into the host theme (verbatim) */
+  --crusorai-accent: var(--vscode-focusBorder, var(--vscode-button-background));
+  --crusorai-running: var(--crusorai-accent);
+  --crusorai-verified: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  --crusorai-approval: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+  --crusorai-failed: var(--vscode-errorForeground, var(--vscode-charts-red));
+  --crusorai-agent: var(--vscode-symbolKindClass, var(--crusorai-accent));
+  --crusorai-font-ui: var(--vscode-font-family);
+  --crusorai-font-mono: var(--vscode-editor-font-family);
+  --crusorai-text-micro: 0.5625rem;
+  --crusorai-text-meta: 0.625rem;
+  --crusorai-text-body: 0.6875rem;
+  --crusorai-text-body-lg: 0.71875rem;
+  --crusorai-text-copy: 0.75rem;
+  --crusorai-text-title: 0.8125rem;
+  --crusorai-text-page: 0.9375rem;
+  --crusorai-icon-md: 0.875rem;
+  --crusorai-track-caps: 0.08em;
+  --crusorai-terminal-max-h: 4rem;
+  --crusorai-conv-size: 0.8125rem;
+  --crusorai-conv-line: 1.125rem;
+  --crusorai-conv-tool-size: 0.6875rem;
+  --crusorai-conv-code-size: 0.7rem;
+  --crusorai-conv-meta-size: 0.625rem;
+  --crusorai-turn-gap: 0.375rem;
+  --crusorai-turn-block-gap: 0.75rem;
+  --crusorai-scaffold-gap: calc(var(--crusorai-turn-block-gap) / 3);
+  --crusorai-paragraph-gap: 0.7rem;
+  --crusorai-radius-turn: 0.75rem;
+  --crusorai-radius-code: 0.625rem;
+  --crusorai-scaffold-text: color-mix(in srgb, var(--vscode-foreground) 64%, transparent);
+  --crusorai-scaffold-meta: color-mix(in srgb, var(--vscode-foreground) 44%, transparent);
+  --crusorai-bubble-bg: color-mix(in srgb, var(--crusorai-accent) 6%, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)));
+  --crusorai-bubble-border: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  --crusorai-codecard-bg: color-mix(in srgb, var(--vscode-editor-background, var(--vscode-sideBar-background)) 88%, var(--vscode-sideBar-background));
+  --crusorai-caret-rest: 0;
+
+  font-family: var(--crusorai-font-ui, var(--sans));
+  font-size: 13px;
+  color: var(--vscode-foreground);
+}
+
+/* The pane frame the app mounts into (crusorai-agent-shell / view pane). */
+.pane {
+  display: flex; flex-direction: column; gap: 8px; min-height: 520px;
+  border: 1px solid var(--vscode-panel-border); border-radius: 10px;
+  background: var(--vscode-editor-background); overflow: hidden;
+}
+.pane-chrome {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 11px; border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background);
+  font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground);
+}
+.pane-chrome .title { color: var(--vscode-foreground); font-weight: 600; letter-spacing: .02em; }
+.pane-chrome .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.pane-scroll { flex: 1; overflow: auto; padding: 4px 10px 10px; }
+
+/* ---- transcript ---- */
+.crusorai-transcript-lane {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 14px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--crusorai-turn-block-gap);
+  overflow-wrap: anywhere;
+}
+.crusorai-request-row { display: flex; flex-direction: column; min-width: 0; }
+.crusorai-user-message {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--crusorai-bubble-border);
+  border-radius: var(--crusorai-radius-turn);
+  background: var(--crusorai-bubble-bg);
+  font-size: var(--crusorai-conv-size);
+  line-height: var(--crusorai-conv-line);
+  width: fit-content;
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+.crusorai-assistant-message {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--crusorai-turn-block-gap);
+}
+.crusorai-assistant-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--crusorai-conv-meta-size);
+  color: var(--vscode-descriptionForeground);
+}
+.crusorai-assistant-label strong { color: var(--vscode-foreground); font-weight: 600; }
+.crusorai-stream-label {
+  margin-left: auto;
+  color: var(--crusorai-running);
+  font-size: var(--crusorai-text-meta);
+  font-weight: normal;
+}
+.crusorai-assistant-copy {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: var(--crusorai-conv-size);
+  line-height: var(--crusorai-conv-line);
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+.crusorai-shimmer {
+  background: linear-gradient(90deg, var(--vscode-descriptionForeground) 0%, var(--vscode-foreground) 45%, var(--vscode-descriptionForeground) 90%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: crusorai-shimmer 2.4s linear infinite;
+}
+@keyframes crusorai-shimmer { to { background-position: -200% 0; } }
+
+/* ---- tool rows ---- */
+.crusorai-tool-row { border-bottom: 0; background: transparent; }
+.crusorai-tool-summary {
+  display: grid;
+  grid-template-columns: 14px 14px minmax(0, auto) minmax(0, 1fr) auto auto 12px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  color: var(--crusorai-scaffold-text);
+  font-size: var(--crusorai-conv-tool-size);
+  line-height: var(--crusorai-conv-line);
+  transition: color 120ms ease;
+}
+.crusorai-tool-summary strong { min-width: 0; overflow: hidden; font-weight: 400; white-space: nowrap; }
+.crusorai-tool-row.is-passed .crusorai-tool-summary > :first-child { color: var(--crusorai-verified); }
+.crusorai-tool-row.is-failed .crusorai-tool-summary > :first-child { color: var(--crusorai-failed); }
+.crusorai-tool-row.is-running .crusorai-tool-summary > :first-child { color: var(--crusorai-running); }
+.crusorai-tool-target { min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); font-variant-numeric: tabular-nums; }
+.crusorai-mini-spinner {
+  display: inline-block; width: 11px; height: 11px;
+  border: 1px solid color-mix(in srgb, var(--crusorai-running) 25%, transparent);
+  border-top-color: var(--crusorai-running);
+  border-radius: 50%;
+  animation: crusorai-spin 850ms linear infinite;
+}
+@keyframes crusorai-spin { to { transform: rotate(360deg); } }
+.glyph { display: inline-grid; place-items: center; font-size: 11px; line-height: 1; }
+
+/* ---- the brake (F1) ---- */
+.crusorai-send-button {
+  display: grid; place-items: center;
+  width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: 4px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-size: 1.1em; cursor: pointer;
+}
+.crusorai-send-button.crusorai-send-brake {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.crusorai-send-button.crusorai-send-brake.is-pulled {
+  background: var(--crusorai-approval);
+  color: var(--vscode-editor-background);
+}
+.crusorai-send-button.crusorai-send-brake:disabled { cursor: default; opacity: .85; }
+.crusorai-brake-glyph {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 2px; background: currentColor;
+}
+
+/* ---- the cut (F2) ---- */
+.crusorai-cut {
+  display: inline-block;
+  width: 3px;
+  height: .82em;
+  vertical-align: -1px;
+  margin-left: 3px;
+  background: var(--crusorai-approval);
+  border-radius: 1px;
+}
+.crusorai-verdict-square {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 2px; background: var(--crusorai-approval);
+}
+.crusorai-tool-verdict {
+  flex: none;
+  color: var(--crusorai-approval);
+  font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-tool-verdict.is-dropped { color: var(--vscode-descriptionForeground); }
+.crusorai-tool-row.is-verdict-dropped .crusorai-tool-summary > .codicon { color: var(--vscode-descriptionForeground); }
+
+/* ---- the receipt (F3) ---- */
+.crusorai-turn-receipt {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0; padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--crusorai-failed) 35%, transparent);
+  border-radius: var(--crusorai-radius-turn);
+  background: color-mix(in srgb, var(--crusorai-failed) 7%, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-turn-receipt.is-cancelled {
+  border-color: var(--crusorai-bubble-border);
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+}
+.crusorai-receipt-meta { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+
+/* ---- request-row checkpoint line (F5) ---- */
+.crusorai-checkpoint-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0 1px;
+  opacity: 0;
+  transition: opacity 120ms ease-in-out;
+}
+.crusorai-request-row:hover > .crusorai-checkpoint-line,
+.crusorai-request-row:focus-within > .crusorai-checkpoint-line,
+.crusorai-checkpoint-line:focus-within,
+.crusorai-checkpoint-line.pinned { opacity: 1; }
+.crusorai-checkpoint-hair {
+  flex: 1;
+  height: 1px;
+  background-color: var(--crusorai-bubble-border);
+}
+.crusorai-checkpoint-hair.is-left {
+  mask-image: linear-gradient(to right, transparent, black);
+  -webkit-mask-image: linear-gradient(to right, transparent, black);
+}
+.crusorai-checkpoint-hair.is-right {
+  mask-image: linear-gradient(to left, transparent, black);
+  -webkit-mask-image: linear-gradient(to left, transparent, black);
+}
+.crusorai-checkpoint-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.crusorai-checkpoint-action {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--vscode-foreground);
+  font-size: var(--crusorai-text-meta); cursor: pointer;
+}
+.crusorai-checkpoint-action:hover { background: var(--vscode-toolbar-hoverBackground); border-color: var(--crusorai-bubble-border); }
+.crusorai-checkpoint-action.is-quiet { color: var(--vscode-descriptionForeground); }
+.crusorai-checkpoint-hash { font-family: var(--crusorai-font-mono, var(--mono)); color: var(--vscode-descriptionForeground); font-size: var(--crusorai-conv-meta-size); }
+
+/* Copilot's armed restore control: one border around label + ✕, label first,
+   the confirm shimmering so the armed state is unmistakable. */
+.crusorai-inline-confirm {
+  display: inline-flex; align-items: stretch; flex: none;
+  border: 1px solid var(--crusorai-bubble-border);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--vscode-sideBar-background, transparent);
+}
+.crusorai-inline-confirm-yes {
+  display: inline-flex; align-items: center;
+  padding: 2px 10px; border: 0; background: transparent;
+  color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); cursor: pointer;
+}
+.crusorai-inline-confirm-no {
+  display: grid; place-items: center;
+  padding: 2px 8px; border: 0;
+  border-left: 1px solid var(--crusorai-bubble-border);
+  background: transparent; color: var(--vscode-descriptionForeground); cursor: pointer;
+}
+.crusorai-inline-confirm-no:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+
+/* ---- post-restore line (F7b) ---- */
+.crusorai-checkpoint-restored {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--crusorai-bubble-border);
+  border-radius: var(--crusorai-radius-turn);
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-checkpoint-restored > .glyph { color: var(--crusorai-verified); }
+.checkpoint-file { font-family: var(--crusorai-font-mono, var(--mono)); color: var(--vscode-foreground); }
+
+/* ---- snapshot log (F7c) ---- */
+.crusorai-checkpoint-log {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 0 0 8px; padding: 10px 12px;
+  border: 1px solid var(--vscode-panel-border, transparent);
+  border-left: 2px solid var(--crusorai-running);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+.crusorai-checkpoint-log-head { display: flex; align-items: center; gap: 6px; font-size: var(--crusorai-text-body); }
+.crusorai-checkpoint-log-head > .glyph { color: var(--crusorai-running); }
+.crusorai-checkpoint-log-note { flex: 1; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-checkpoint-log-rows { display: flex; flex-direction: column; gap: 4px; }
+.crusorai-checkpoint-log-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 3px 4px; border-radius: 4px;
+  font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-checkpoint-log-row:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-checkpoint-log-time { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+.crusorai-checkpoint-log-reason { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+
+/* ---- queue chip (F9) ---- */
+.crusorai-queued-chip {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 10px 5px; padding: 3px 8px;
+  border: 1px solid var(--crusorai-bubble-border);
+  border-radius: 999px;
+  align-self: flex-start;
+  color: var(--vscode-foreground);
+  font-size: var(--crusorai-text-micro);
+}
+.crusorai-queued-chip > .glyph { color: var(--crusorai-approval); }
+.crusorai-queued-note { color: var(--vscode-descriptionForeground); }
+
+/* ---- composer ---- */
+.crusorai-composer {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+.crusorai-composer-box {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 9px 6px;
+  border: 1px solid var(--crusorai-bubble-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+.crusorai-composer-input {
+  border: 0; outline: none; resize: none; width: 100%;
+  background: transparent; color: var(--vscode-foreground);
+  font: inherit; font-size: var(--crusorai-conv-size); line-height: var(--crusorai-conv-line);
+}
+.crusorai-composer-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+.crusorai-composer-toolbar { display: grid; grid-template-columns: auto auto auto 1fr auto; align-items: center; gap: 6px; }
+.crusorai-composer-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px; border: 0; border-radius: 4px;
+  background: transparent; color: var(--vscode-descriptionForeground);
+  font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-composer-hint {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+  min-width: 0; overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: var(--crusorai-text-micro);
+}
+
+/* ---- the changed-files card (F7) ---- */
+.crusorai-changed-files {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--vscode-panel-border, var(--crusorai-bubble-border));
+  border-radius: var(--crusorai-radius-turn);
+  background: var(--crusorai-codecard-bg);
+  overflow: hidden;
+}
+.crusorai-changed-files-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: var(--crusorai-conv-meta-size);
+  text-transform: uppercase; letter-spacing: var(--crusorai-track-caps);
+}
+.crusorai-changed-files-rows { display: flex; flex-direction: column; }
+.crusorai-changed-file-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 10px; min-width: 0;
+  font-size: var(--crusorai-conv-tool-size);
+}
+.crusorai-changed-file-row.is-activatable { cursor: pointer; }
+.crusorai-changed-file-row.is-activatable:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-changed-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); }
+.crusorai-diff-count { margin-left: auto; display: flex; gap: 6px; font-size: var(--crusorai-text-meta); font-variant-numeric: tabular-nums; }
+.crusorai-diff-count .is-added { color: var(--crusorai-verified); }
+.crusorai-diff-count .is-removed { color: var(--crusorai-failed); }
+.crusorai-changed-file-new {
+  flex: none; padding: 0 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--crusorai-approval) 18%, transparent);
+  color: var(--crusorai-approval);
+  font-size: var(--crusorai-text-micro); text-transform: lowercase;
+}
+.crusorai-file-undo {
+  display: inline-grid; place-items: center;
+  width: 18px; height: 18px; flex: none;
+  padding: 0; border: 0; border-radius: 4px;
+  background: transparent; color: var(--vscode-descriptionForeground);
+  cursor: pointer; font-size: 11px;
+}
+.crusorai-file-undo:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-workingset {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px 6px;
+  border-top: 1px solid var(--crusorai-bubble-border);
+}
+.crusorai-workingset-label {
+  flex: 1; color: var(--vscode-descriptionForeground);
+  font-size: var(--crusorai-text-micro); text-transform: uppercase; letter-spacing: var(--crusorai-track-caps);
+}
+
+/* ---- the turn ledger (F3/F6) ---- */
+.crusorai-turn-ledger { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0; }
+.crusorai-ledger-action {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--crusorai-bubble-border);
+  border-radius: 5px;
+  background: transparent; color: var(--vscode-foreground);
+  font-size: var(--crusorai-text-meta); cursor: pointer;
+}
+.crusorai-ledger-action:hover { background: var(--vscode-toolbar-hoverBackground); }
+.crusorai-ledger-action.is-primary { border-color: color-mix(in srgb, var(--crusorai-accent) 55%, transparent); color: var(--crusorai-accent); }
+.crusorai-ledger-action.is-danger { border-color: color-mix(in srgb, var(--crusorai-failed) 45%, transparent); }
+.crusorai-ledger-action.is-danger:hover { background: color-mix(in srgb, var(--crusorai-failed) 10%, transparent); }
+</style>
+</head>
+<body>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     Body. Every pane fragment below is built from the SAME class names the
+     renderer emits (crusorAIRenderer.ts builds nodes with element(tag, cls)),
+     so a selector here can be grepped in the shipped CSS verbatim.
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+/* demo-only helpers (this page, not the product) */
+*[hidden] { display: none !important; }
+.mini-grid { display: flex; flex-direction: column; gap: 12px; }
+.mini { border: 1px dashed var(--rule); border-radius: 8px; padding: 8px 10px 10px; background: rgba(255,255,255,.012); }
+.mini > .mini-label {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-faint); margin-bottom: 7px;
+}
+.legend { display: grid; gap: 7px; margin: 12px 0 0; }
+.legend .row { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 9px; font-size: 12.5px; color: var(--ink-dim); }
+.legend .row .n {
+  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--pin) 18%, transparent); color: var(--pin);
+  font-size: 10.5px; font-weight: 600; font-family: var(--mono);
+}
+.legend .row code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+.hot { position: relative; }
+.hot::after {
+  content: attr(data-pin);
+  position: absolute; top: -7px; right: -7px;
+  width: 15px; height: 15px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--pin); color: #0b0d12;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  box-shadow: 0 0 0 3px var(--paper-2);
+}
+.hot.inline::after { position: static; margin-left: 4px; box-shadow: none; vertical-align: 2px; }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="kicker">Implementation blueprint · desktop pane · commit b3a06e20</p>
+    <h1>Interrupt is a hand brake. Undo lives on the request row.</h1>
+    <p class="lede">
+      This page is the UI that shipped, not a mock-up of it: every pane below is built from the same
+      <code>crusorai-*</code> class names the renderer emits, and every rule in the pane is copied from
+      <code>desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css</code>. Each frame names the
+      function that builds it, the file and line it lives at, and the wire frame or field feeding it — so you can
+      read the screen and the implementation in the same glance.
+    </p>
+    <div class="meta">
+      <span class="chip"><b>Token grammar</b> every colour is a <code>--vscode-*</code> / <code>--crusorai-*</code> variable, no hex in the pane</span>
+      <span class="chip"><span class="dot running"></span><b>running</b> = accent</span>
+      <span class="chip"><span class="dot approval"></span><b>approval / landed</b> = amber</span>
+      <span class="chip"><span class="dot verified"></span><b>verified</b> = green</span>
+      <span class="chip"><span class="dot failed"></span><b>failed</b> = red</span>
+    </div>
+  </header>
+
+  <!-- ═══ 0 · how to read ══════════════════════════════════════════════ -->
+  <section id="reading">
+    <h2><span class="num">00</span>How to read this page</h2>
+    <h3>One screen, three layers</h3>
+    <p>
+      The pane has no template files: the renderer builds DOM nodes directly, so the DOM tree <em>is</em> the
+      template. Reading a frame means reading three things at once — the node, the function that created it, and the
+      frame that carries its data.
+    </p>
+    <div class="trio">
+      <div class="cell">
+        <h4>1 · The node</h4>
+        <p>
+          Built by <code>element(tag, className, …children)</code> in
+          <code>crusorAIRenderer.ts:289</code>. Class names are the product's own vocabulary
+          (<code>crusorai-…</code>), never utility soup — so a node in this page maps 1:1 to a rule in the
+          stylesheet.
+        </p>
+      </div>
+      <div class="cell">
+        <h4>2 · The builder</h4>
+        <p>
+          One small function per surface: <code>checkpointLine()</code>, <code>turnReceiptRow()</code>,
+          <code>turnLedger()</code>, <code>inlineConfirm()</code>, <code>changedFilesCard()</code>. They are pure
+          <code>(model, host) → HTMLElement</code>, so both the Agent pane and the Crusor Manager paint the same
+          markup from one code path.
+        </p>
+      </div>
+      <div class="cell">
+        <h4>3 · The data</h4>
+        <p>
+          <code>CrusorAIRenderModel</code> (the frame's fields) and <code>CrusorAIRenderHost</code> (the callbacks —
+          <code>cancel()</code>, <code>restoreCheckpoint(hash, file?)</code>, <code>forkSession()</code>). The wire
+          supplies the model; the service implements the host.
+        </p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:16px">
+      <b>Reading the annotations:</b> numbered pins sit on the element they describe, and the numbered list beside
+      each frame explains it. <span class="ref">mono</span> text is a real path, function name, or CSS selector you
+      can grep. The pane glyphs are codicons in the app (<code>codicon-*</code> font); this page stands in unicode
+      marks so it renders outside the editor — the geometry is identical.
+    </div>
+  </section>
+
+  <!-- ═══ 1 · live demo ════════════════════════════════════════════════ -->
+  <section id="live">
+    <h2><span class="num">01</span>Live run-through</h2>
+    <h3>Pull the brake, then put the tree back</h3>
+    <p>
+      The pane below is the real markup and the real CSS. The buttons drive the same sequence the app performs, and
+      the wire log shows the frames that would cross the bridge at each step.
+    </p>
+
+    <div class="controls">
+      <span class="label">turn</span>
+      <button class="act primary" id="btn-run">▶ Run this turn</button>
+      <button class="act danger" id="btn-brake">■ Pull the brake</button>
+      <button class="act" id="btn-undo">↩ Undo turn</button>
+      <button class="act" id="btn-reset">↺ Reset</button>
+      <span class="spacer"></span>
+      <label class="toggle"><input type="checkbox" id="pin-line"> pin the request-row control</label>
+      <label class="toggle"><input type="checkbox" id="show-log"> show snapshot log</label>
+    </div>
+
+    <div class="demo-grid">
+      <div class="pane-theme">
+        <div class="pane" id="pane" data-state="running">
+          <div class="pane-chrome">
+            <span class="title">Crusor</span>
+            <span>Manager</span>
+            <span class="right">
+              <span id="chrome-status">Running</span>
+              <span class="glyph">⧉</span>
+            </span>
+          </div>
+
+          <div class="pane-scroll">
+            <!-- F7c · snapshot log (hidden until asked for) -->
+            <section class="crusorai-checkpoint-log" id="cp-log" hidden>
+              <div class="crusorai-checkpoint-log-head">
+                <span class="glyph">⟲</span>
+                <strong>Earlier snapshots</strong>
+                <span class="crusorai-checkpoint-log-note">Restores the workspace to that point — chat is not rewound</span>
+                <button class="crusorai-checkpoint-action is-quiet" id="cp-log-close">✕</button>
+              </div>
+              <div class="crusorai-checkpoint-log-rows">
+                <div class="crusorai-checkpoint-log-row">
+                  <span class="crusorai-checkpoint-hash">c41d0f2a</span>
+                  <span class="crusorai-checkpoint-log-time">14:02:11</span>
+                  <span class="crusorai-checkpoint-log-reason">pre-rollback snapshot (restoring to 4f3a9c21)</span>
+                  <button class="crusorai-checkpoint-action">Restore</button>
+                </div>
+                <div class="crusorai-checkpoint-log-row">
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+                  <span class="crusorai-checkpoint-log-time">13:58:40</span>
+                  <span class="crusorai-checkpoint-log-reason">before write_file: src/app/page.tsx</span>
+                  <button class="crusorai-checkpoint-action">Restore</button>
+                </div>
+                <div class="crusorai-checkpoint-log-row">
+                  <span class="crusorai-checkpoint-hash">91bb20de</span>
+                  <span class="crusorai-checkpoint-log-time">13:41:02</span>
+                  <span class="crusorai-checkpoint-log-reason">before run_terminal: npm install</span>
+                  <button class="crusorai-checkpoint-action">Restore</button>
+                </div>
+              </div>
+            </section>
+
+            <div class="crusorai-transcript-lane">
+              <!-- request row: the bubble + the checkpoint line under it -->
+              <div class="crusorai-request-row">
+                <div class="crusorai-user-message">make the hero card rounded and add a stats row</div>
+                <div class="crusorai-checkpoint-line" id="cp-line">
+                  <span class="crusorai-checkpoint-hair is-left"></span>
+                  <div class="crusorai-checkpoint-actions">
+                    <button class="crusorai-checkpoint-action" id="undo-turn">
+                      <span class="glyph">↩</span><span>Undo turn</span>
+                    </button>
+                    <button class="crusorai-checkpoint-action is-quiet"><span class="glyph">⑂</span><span>Fork from here</span></button>
+                    <button class="crusorai-checkpoint-action is-quiet" id="cp-log-open"><span>Earlier snapshots</span></button>
+                  </div>
+                  <span class="crusorai-checkpoint-hair is-right"></span>
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+                </div>
+              </div>
+
+              <section class="crusorai-assistant-message">
+                <div class="crusorai-assistant-label">
+                  <span class="glyph">◆</span><strong>Crusor</strong>
+                  <span class="crusorai-stream-label" id="stream-label">Working</span>
+                </div>
+
+                <div class="crusorai-assistant-copy">The hero card is now rounded with the shared <code>card</code> class and the stats row is in place. Next I'd wire <span class="crusorai-cut" id="cut-mark" hidden></span></div>
+
+                <!-- running rows: one passed, one live, one queued -->
+                <div id="rows-running">
+                  <div class="crusorai-tool-row is-passed">
+                    <div class="crusorai-tool-summary">
+                      <span class="glyph">✓</span><span class="glyph">▤</span><strong>write_file</strong>
+                      <span class="crusorai-tool-target">src/app/page.tsx</span>
+                      <span class="crusorai-tool-duration">0:04</span>
+                    </div>
+                  </div>
+                  <div class="crusorai-tool-row is-running">
+                    <div class="crusorai-tool-summary">
+                      <span class="crusorai-mini-spinner"></span><span class="glyph">▤</span><strong>write_file</strong>
+                      <span class="crusorai-tool-target">src/app/globals.css</span>
+                      <span class="crusorai-tool-duration">0:01</span>
+                    </div>
+                  </div>
+                  <div class="crusorai-tool-row">
+                    <div class="crusorai-tool-summary">
+                      <span class="glyph">○</span><span class="glyph">▤</span><strong>run_terminal</strong>
+                      <span class="crusorai-tool-target">npm run build</span>
+                      <span class="crusorai-tool-verdict is-dropped" style="color:var(--vscode-descriptionForeground)">queued</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- interrupted rows: the same three calls, with the brake's verdicts -->
+                <div id="rows-cut" hidden>
+                  <div class="crusorai-tool-row is-passed">
+                    <div class="crusorai-tool-summary">
+                      <span class="glyph">✓</span><span class="glyph">▤</span><strong>write_file</strong>
+                      <span class="crusorai-tool-target">src/app/page.tsx</span>
+                      <span class="crusorai-tool-duration">0:04</span>
+                    </div>
+                  </div>
+                  <div class="crusorai-tool-row is-passed is-verdict-landed">
+                    <div class="crusorai-tool-summary">
+                      <span class="crusorai-verdict-square"></span><span class="glyph">▤</span><strong>write_file</strong>
+                      <span class="crusorai-tool-target">src/app/globals.css</span>
+                      <span class="crusorai-tool-verdict">landed</span>
+                    </div>
+                  </div>
+                  <div class="crusorai-tool-row is-failed is-verdict-dropped">
+                    <div class="crusorai-tool-summary">
+                      <span class="glyph" style="color:var(--vscode-descriptionForeground)">✕</span><span class="glyph">▤</span><strong>run_terminal</strong>
+                      <span class="crusorai-tool-target">npm run build</span>
+                      <span class="crusorai-tool-verdict is-dropped">dropped</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- F3 · receipt -->
+                <div class="crusorai-turn-receipt is-cancelled" id="receipt" hidden>
+                  <span class="crusorai-verdict-square"></span>
+                  <span>Interrupted</span>
+                  <span class="crusorai-receipt-meta">· 0:11</span>
+                  <span class="crusorai-receipt-meta">· 2 landed · 1 dropped</span>
+                </div>
+
+                <!-- F3/F6 · ledger -->
+                <div class="crusorai-turn-ledger" id="ledger" hidden>
+                  <button class="crusorai-ledger-action is-primary"><span class="glyph">▶</span><span>Continue</span></button>
+                  <button class="crusorai-ledger-action" id="keep-as-is"><span>Keep as is</span></button>
+                </div>
+
+                <!-- F7b · post-restore line -->
+                <div class="crusorai-checkpoint-restored" id="restored" hidden>
+                  <span class="glyph">✓</span>
+                  <span>Checkpoint restored</span>
+                  <span class="checkpoint-file" id="restored-file">src/app/globals.css</span>
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+                  <button class="crusorai-checkpoint-action"><span class="glyph">↩</span><span>Put it back</span></button>
+                </div>
+
+                <!-- F7 · changed files, two scopes -->
+                <div class="crusorai-changed-files" id="changed" hidden>
+                  <div class="crusorai-changed-files-head"><span>2 files changed</span></div>
+                  <div class="crusorai-changed-files-rows">
+                    <div class="crusorai-changed-file-row is-activatable">
+                      <span class="glyph">▤</span>
+                      <span class="crusorai-changed-file-name">page.tsx</span>
+                      <span class="crusorai-diff-count"><span class="is-added">+38</span><span class="is-removed">−4</span></span>
+                      <button class="crusorai-file-undo" title="Restore this path from the turn's snapshot">↩</button>
+                    </div>
+                    <div class="crusorai-changed-file-row is-activatable">
+                      <span class="glyph">▤</span>
+                      <span class="crusorai-changed-file-name">globals.css</span>
+                      <span class="crusorai-changed-file-new">new</span>
+                      <span class="crusorai-diff-count"><span class="is-added">+26</span><span class="is-removed">−5</span></span>
+                      <button class="crusorai-file-undo" title="Restore this path from the turn's snapshot">↩</button>
+                    </div>
+                  </div>
+                  <div class="crusorai-workingset">
+                    <span class="crusorai-workingset-label">Working set</span>
+                    <button class="crusorai-ledger-action is-danger" id="undo-all"><span class="glyph">↩</span><span>Undo All Edits</span></button>
+                    <button class="crusorai-ledger-action" id="keep-all"><span>Keep All Edits</span></button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <!-- F9 · queue chip -->
+          <div class="crusorai-queued-chip" id="queued" hidden>
+            <span class="glyph">◷</span><span>Queued · 2</span>
+            <span class="crusorai-queued-note">Sends when this turn ends</span>
+          </div>
+
+          <footer class="crusorai-composer">
+            <div class="crusorai-composer-box">
+              <textarea class="crusorai-composer-input" rows="2" id="composer" placeholder="Plan, @ for context, / for commands">Wire the stats row into the hero card</textarea>
+              <div class="crusorai-composer-toolbar">
+                <button class="crusorai-composer-pill">＋</button>
+                <button class="crusorai-composer-pill">Agent ▾</button>
+                <button class="crusorai-composer-pill">Think ▾</button>
+                <span></span>
+                <button class="crusorai-send-button crusorai-send-brake" id="brake" aria-label="Interrupt — stops now" title="Interrupt — stops now">
+                  <span class="crusorai-brake-glyph"></span>
+                </button>
+              </div>
+            </div>
+            <div class="crusorai-composer-hint">
+              <span id="hint-verb">Enter to queue · Esc to interrupt</span>
+              <span>Shift+Enter for new line</span>
+            </div>
+          </footer>
+        </div>
+      </div>
+
+      <div class="feed">
+        <header><span>bridge wire</span><span style="margin-left:auto;text-transform:none;letter-spacing:0" id="feed-state">running</span></header>
+        <div class="rows" id="feed"></div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══ 2 · frames ═══════════════════════════════════════════════════ -->
+  <section id="frames">
+    <h2><span class="num">02</span>Frame by frame</h2>
+    <h3>Six surfaces, and the code that paints each one</h3>
+    <p>Each frame shows the element, the numbered pins that sit on it, the builder function, and the shipped CSS rule.</p>
+
+    <!-- F1 -->
+    <article class="frame">
+      <div class="frame-head">
+        <span class="tag">F1</span>
+        <h3>Running — the brake, armed</h3>
+        <span class="where">crusorAIRenderer.ts:2917 · crusorAI.css:975</span>
+      </div>
+      <div class="frame-body">
+        <div class="stage pane-theme">
+          <div class="mini">
+            <div class="mini-label">composer, turn live</div>
+            <footer class="crusorai-composer" style="border-top:0;padding:0">
+              <div class="crusorai-composer-box">
+                <textarea class="crusorai-composer-input" rows="1" readonly>make the hero card rounded and add a stats row</textarea>
+                <div class="crusorai-composer-toolbar">
+                  <button class="crusorai-composer-pill">＋</button>
+                  <button class="crusorai-composer-pill">Agent ▾</button>
+                  <button class="crusorai-composer-pill">Think ▾</button>
+                  <span></span>
+                  <span class="hot" data-pin="1" style="display:inline-flex">
+                    <button class="crusorai-send-button crusorai-send-brake" aria-label="Interrupt — stops now"><span class="crusorai-brake-glyph"></span></button>
+                  </span>
+                </div>
+              </div>
+              <div class="crusorai-composer-hint">
+                <span class="hot inline" data-pin="4">Enter to queue · Esc to interrupt</span>
+                <span>Shift+Enter for new line</span>
+              </div>
+            </footer>
+          </div>
+          <div class="mini" style="margin-top:12px">
+            <div class="mini-label">assistant label while the turn runs</div>
+            <div class="crusorai-assistant-label">
+              <span class="glyph">◆</span><strong>Crusor</strong>
+              <span class="crusorai-stream-label hot" data-pin="3">Working</span>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>The send slot becomes the <b>brake</b>: same 26 px cell, a solid square glyph instead of the arrow. One pull, no menu, no confirmation. Class <code>crusorai-send-brake</code>; while a pull is in flight the button is <code>disabled</code>, so a second pull is ignored rather than queued.</li>
+            <li>The label is the honest one: <code>Interrupt — stops now</code>. The renderer never says "stop safely" — nothing is protected by waiting — and it never paints a pause glyph, which would imply resumable work.</li>
+            <li>The stream label flips to <b>Interrupted.</b> the instant <code>cancelRequested</code> arrives — the frame drives it, not a timer.</li>
+            <li>The hint bar names both verbs: Enter queues in the pane (steers in the Manager), Esc interrupts. The handler clicks the live brake button it finds in the DOM, so the hint can never advertise a key that does nothing.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>the button <span class="ref">crusorAIRenderer.ts:2917</span></h4>
+          <pre class="code" data-src="c-brake"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>css <span class="ref">crusorAI.css:975</span></h4>
+          <pre class="code" data-src="c-css-brake"></pre>
+        </div>
+      </div>
+      <div class="code-row single">
+        <div class="code-cell">
+          <h4>Esc pulls it — before the early return, or the hint is a lie <span class="ref">crusorAIRenderer.ts:2597</span></h4>
+          <pre class="code" data-src="c-esc"></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- F2 -->
+    <article class="frame">
+      <div class="frame-head">
+        <span class="tag">F2</span>
+        <h3>Interrupted — the cut and the verdicts</h3>
+        <span class="where">crusorAIRendererService.ts:1941 · crusorAIRenderer.ts:1789</span>
+      </div>
+      <div class="frame-body">
+        <div class="stage pane-theme">
+          <div class="mini">
+            <div class="mini-label">where the brake bit</div>
+            <div class="crusorai-assistant-copy">The hero card is now rounded with the shared <code>card</code> class and the stats row is in place. Next I'd wire <span class="crusorai-cut hot" data-pin="1"></span></div>
+          </div>
+          <div class="mini" style="margin-top:12px">
+            <div class="mini-label">the same three calls, after the pull</div>
+            <div class="crusorai-tool-row is-passed">
+              <div class="crusorai-tool-summary"><span class="glyph">✓</span><span class="glyph">▤</span><strong>write_file</strong><span class="crusorai-tool-target">src/app/page.tsx</span><span class="crusorai-tool-duration">0:04</span></div>
+            </div>
+            <div class="crusorai-tool-row is-passed hot" data-pin="2" style="padding-right:14px">
+              <div class="crusorai-tool-summary"><span class="crusorai-verdict-square"></span><span class="glyph">▤</span><strong>write_file</strong><span class="crusorai-tool-target">src/app/globals.css</span><span class="crusorai-tool-verdict">landed</span></div>
+            </div>
+            <div class="crusorai-tool-row is-failed hot" data-pin="3" style="padding-right:14px">
+              <div class="crusorai-tool-summary"><span class="glyph" style="color:var(--vscode-descriptionForeground)">✕</span><span class="glyph">▤</span><strong>run_terminal</strong><span class="crusorai-tool-target">npm run build</span><span class="crusorai-tool-verdict is-dropped">dropped</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>The <b>cut mark</b> is appended to the last streamed text node — a hard amber bar where the model actually stopped, never an ellipsis or a spinner pretending more is coming.</li>
+            <li>A call that was executing when the pull landed is closed out as <b>landed</b> (solid square, the same mark as the brake). It cannot be un-run — a write already inside the OS call is on disk — so the receipt says so, and the turn's snapshot is what undoes it.</li>
+            <li>A call the graph refused is <b>dropped</b> (hard cross, muted — never the red failure icon: nothing failed, it was refused). The engine's denial text ("⛔ … tool not executed") is what the counter keys on.</li>
+            <li>No badge on an ordinary <code>passed</code> row: a badge must be something that was measured, not decoration.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>the cut <span class="ref">crusorAIRenderer.ts:1789</span></h4>
+          <pre class="code" data-src="c-cut"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>stampInterrupt — the counts, measured once <span class="ref">crusorAIRendererService.ts:1941</span></h4>
+          <pre class="code" data-src="c-stamp"></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- F3 -->
+    <article class="frame">
+      <div class="frame-head">
+        <span class="tag">F3</span>
+        <h3>Settled — the receipt and the two verbs</h3>
+        <span class="where">crusorAIRenderer.ts:1457 · crusorAIRenderer.ts:1668</span>
+      </div>
+      <div class="frame-body">
+        <div class="stage pane-theme">
+          <div class="mini">
+            <div class="mini-label">turn ends</div>
+            <div class="crusorai-turn-receipt is-cancelled">
+              <span class="crusorai-verdict-square"></span>
+              <span>Interrupted</span>
+              <span class="crusorai-receipt-meta">· 0:11</span>
+              <span class="crusorai-receipt-meta">· 2 landed · 1 dropped</span>
+            </div>
+            <div class="crusorai-turn-ledger" style="margin-top:9px">
+              <button class="crusorai-ledger-action is-primary hot" data-pin="3"><span class="glyph">▶</span><span>Continue</span></button>
+              <button class="crusorai-ledger-action hot" data-pin="4"><span>Keep as is</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li><code>turnReceiptRow()</code> paints <b>Interrupted</b> with the brake square — distinct from <b>Run failed</b>, which keeps the red error icon. Never a green check on a cut run, and never the wire's word "cancelled" in the user's face.</li>
+            <li>The clock is frozen when the turn ends (<code>turnDurationMs</code>), so a later repaint cannot make the receipt keep ticking. The counts are what the brake actually did.</li>
+            <li><b>Continue</b> refills the composer first, then re-sends the same request: there is no resume protocol — the transcript already holds the partial work and the tool evidence, so re-asking is the honest mechanism.</li>
+            <li><b>Keep as is</b> is a dismissal, not a mutation: it records the turn in a module set that survives repaints, and never touches a draft the user has started typing.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>receipt <span class="ref">crusorAIRenderer.ts:1457</span></h4>
+          <pre class="code" data-src="c-receipt"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>ledger <span class="ref">crusorAIRenderer.ts:1668</span></h4>
+          <pre class="code" data-src="c-ledger"></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- F4 -->
+    <article class="frame">
+      <div class="frame-head">
+        <span class="tag">F4</span>
+        <h3>The request row — Undo turn, and its three states</h3>
+        <span class="where">crusorAIRenderer.ts:1490 · crusorAIRenderer.ts:1628</span>
+      </div>
+      <div class="frame-body">
+        <div class="stage pane-theme">
+          <div class="mini-grid">
+            <div class="mini">
+              <div class="mini-label">1 · at rest — invisible, exactly like Copilot</div>
+              <div class="crusorai-request-row">
+                <div class="crusorai-user-message">make the hero card rounded and add a stats row</div>
+                <div class="crusorai-checkpoint-line">
+                  <span class="crusorai-checkpoint-hair is-left"></span>
+                  <div class="crusorai-checkpoint-actions">
+                    <button class="crusorai-checkpoint-action"><span class="glyph">↩</span><span>Undo turn</span></button>
+                    <button class="crusorai-checkpoint-action is-quiet"><span class="glyph">⑂</span><span>Fork from here</span></button>
+                  </div>
+                  <span class="crusorai-checkpoint-hair is-right"></span>
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+                </div>
+              </div>
+            </div>
+            <div class="mini">
+              <div class="mini-label">2 · hovered / focused — full opacity, clickable</div>
+              <div class="crusorai-request-row">
+                <div class="crusorai-user-message">make the hero card rounded and add a stats row</div>
+                <div class="crusorai-checkpoint-line pinned hot" data-pin="2">
+                  <span class="crusorai-checkpoint-hair is-left"></span>
+                  <div class="crusorai-checkpoint-actions">
+                    <button class="crusorai-checkpoint-action"><span class="glyph">↩</span><span>Undo turn</span></button>
+                    <button class="crusorai-checkpoint-action is-quiet"><span class="glyph">⑂</span><span>Fork from here</span></button>
+                  </div>
+                  <span class="crusorai-checkpoint-hair is-right"></span>
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+                </div>
+              </div>
+            </div>
+            <div class="mini">
+              <div class="mini-label">3 · confirming — the split pill, ✕ or Esc backs out</div>
+              <div class="crusorai-request-row">
+                <div class="crusorai-user-message">make the hero card rounded and add a stats row</div>
+                <div class="crusorai-checkpoint-line pinned">
+                  <span class="crusorai-checkpoint-hair is-left"></span>
+                  <div class="crusorai-checkpoint-actions">
+                    <span class="crusorai-inline-confirm hot" data-pin="3">
+                      <button class="crusorai-inline-confirm-yes"><span class="crusorai-shimmer">Undo turn</span></button>
+                      <button class="crusorai-inline-confirm-no">✕</button>
+                    </span>
+                    <button class="crusorai-checkpoint-action is-quiet"><span class="glyph">⑂</span><span>Fork from here</span></button>
+                  </div>
+                  <span class="crusorai-checkpoint-hair is-right"></span>
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>The control lives <b>inside the user's request row</b>, under the bubble — Copilot's own anchor. That is the only placement where "Undo" has exactly one meaning: back to before I asked this. It survives interruption, because the request row above a stopped turn is always complete.</li>
+            <li>The frame is a hairline pair that fades outward (Copilot's masked gradients) with the hash beside it — the target is visible before you commit to it. Reveal is <code>:hover</code> and <code>:focus-within</code> only, never a floating overlay. (Stage 2 uses a demo-only <code>.pinned</code> helper to freeze the hover state for you.)</li>
+            <li>Because a restore discards later edits, the action arms behind <b>Copilot's inline split pill</b>: first click swaps in "Undo turn ✕", the confirming label shimmers, the second click restores. <code>cancelActiveConfirm</code> lets Esc close the pill <i>before</i> Escape can reach the brake.</li>
+            <li><b>Fork from here</b> sits beside it in the same frame — but only on the newest request row, because <code>session_fork</code> copies the conversation at the tip and "from here" would otherwise be a lie.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>the line + the hash <span class="ref">crusorAIRenderer.ts:1490</span></h4>
+          <pre class="code" data-src="c-cp-line"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>inline confirm <span class="ref">crusorAIRenderer.ts:1628</span></h4>
+          <pre class="code" data-src="c-confirm"></pre>
+        </div>
+      </div>
+      <div class="code-row single">
+        <div class="code-cell">
+          <h4>css — the reveal and the pill <span class="ref">crusorAI.css:2002, 2174</span></h4>
+          <pre class="code" data-src="c-css-cp"></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- F5 -->
+    <article class="frame">
+      <div class="frame-head">
+        <span class="tag">F5</span>
+        <h3>After the restore — reversible, and the log it came from</h3>
+        <span class="where">crusorAIRenderer.ts:1548 · crusorAIRenderer.ts:1580</span>
+      </div>
+      <div class="frame-body">
+        <div class="stage pane-theme">
+          <div class="mini">
+            <div class="mini-label">the restore says so, with the way back on the same line</div>
+            <div class="crusorai-checkpoint-restored">
+              <span class="glyph">✓</span>
+              <span>Checkpoint restored</span>
+              <span class="checkpoint-file">src/app/globals.css</span>
+              <span class="crusorai-checkpoint-hash">4f3a9c21</span>
+              <button class="crusorai-checkpoint-action hot" data-pin="2"><span class="glyph">↩</span><span>Put it back</span></button>
+            </div>
+          </div>
+          <div class="mini" style="margin-top:12px">
+            <div class="mini-label">earlier snapshots — checkpoint_list, newest first</div>
+            <section class="crusorai-checkpoint-log hot" data-pin="3" style="margin:0">
+              <div class="crusorai-checkpoint-log-head">
+                <span class="glyph">⟲</span><strong>Earlier snapshots</strong>
+                <span class="crusorai-checkpoint-log-note">Restores the workspace to that point — chat is not rewound</span>
+              </div>
+              <div class="crusorai-checkpoint-log-rows">
+                <div class="crusorai-checkpoint-log-row">
+                  <span class="crusorai-checkpoint-hash">c41d0f2a</span><span class="crusorai-checkpoint-log-time">14:02:11</span>
+                  <span class="crusorai-checkpoint-log-reason">pre-rollback snapshot (restoring to 4f3a9c21)</span>
+                  <button class="crusorai-checkpoint-action">Restore</button>
+                </div>
+                <div class="crusorai-checkpoint-log-row">
+                  <span class="crusorai-checkpoint-hash">4f3a9c21</span><span class="crusorai-checkpoint-log-time">13:58:40</span>
+                  <span class="crusorai-checkpoint-log-reason">before write_file: src/app/page.tsx</span>
+                  <button class="crusorai-checkpoint-action">Restore</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>A restore rewrites files under the editor, so it gets its own labelled divider — never a silent mutation of the tree.</li>
+            <li><b>Put it back</b> is Copilot's Redo, pointed at our own pre-rollback snapshot: the engine snapshots <i>before</i> it restores and returns that hash as <code>pre_restore</code>, so the restore is itself reversible instead of a one-way door with a dialog bolted on.</li>
+            <li>The log is the same list <code>checkpoint_list</code> returns (capped at 20 by the store). One control opens it and closes it again; a successful restore also refreshes the explorer, because files were rewritten outside the editor's own save path.</li>
+            <li><code>restoreCheckpoint(hash, file?)</code> is one host method for both scopes: no path = the whole working set, path = that one file.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>the restored line <span class="ref">crusorAIRenderer.ts:1548</span></h4>
+          <pre class="code" data-src="c-restore"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>engine: the restore reports its own snapshot <span class="ref">shadow_checkpoints.py</span></h4>
+          <pre class="code" data-src="c-py-restore"></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- F6 -->
+    <article class="frame">
+      <div class="frame-head">
+        <span class="tag">F6</span>
+        <h3>Two undo scopes, and the queue that says it is a queue</h3>
+        <span class="where">crusorAIRenderer.ts:2743 · crusorAIRenderer.ts:2997</span>
+      </div>
+      <div class="frame-body">
+        <div class="stage pane-theme">
+          <div class="mini">
+            <div class="mini-label">changed files — one path, or the working set</div>
+            <div class="crusorai-changed-files" style="margin:0">
+              <div class="crusorai-changed-files-head"><span>2 files changed</span></div>
+              <div class="crusorai-changed-files-rows">
+                <div class="crusorai-changed-file-row is-activatable">
+                  <span class="glyph">▤</span><span class="crusorai-changed-file-name">page.tsx</span>
+                  <span class="crusorai-diff-count"><span class="is-added">+38</span><span class="is-removed">−4</span></span>
+                  <button class="crusorai-file-undo hot" data-pin="1">↩</button>
+                </div>
+                <div class="crusorai-changed-file-row is-activatable">
+                  <span class="glyph">▤</span><span class="crusorai-changed-file-name">globals.css</span>
+                  <span class="crusorai-changed-file-new hot" data-pin="2">new</span>
+                  <span class="crusorai-diff-count"><span class="is-added">+26</span><span class="is-removed">−5</span></span>
+                  <button class="crusorai-file-undo">↩</button>
+                </div>
+              </div>
+              <div class="crusorai-workingset">
+                <span class="crusorai-workingset-label">Working set</span>
+                <span class="crusorai-inline-confirm hot" data-pin="3">
+                  <button class="crusorai-inline-confirm-yes"><span class="crusorai-shimmer">Undo All Edits</span></button>
+                  <button class="crusorai-inline-confirm-no">✕</button>
+                </span>
+                <button class="crusorai-ledger-action"><span>Keep All Edits</span></button>
+              </div>
+            </div>
+          </div>
+          <div class="mini" style="margin-top:12px">
+            <div class="mini-label">busy pane — the send was parked, not lost</div>
+            <div class="crusorai-queued-chip hot" data-pin="4" style="margin:0">
+              <span class="glyph">◷</span><span>Queued · 2</span>
+              <span class="crusorai-queued-note">Sends when this turn ends</span>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>Per-row <b>↩</b> restores one path from <i>this turn's</i> snapshot: <code>restoreCheckpoint(checkpoint, file.path)</code> → <code>checkpoint_restore { file_path }</code> → <code>restore(…, file_path)</code>.</li>
+            <li><code>new</code> marks a file the turn created. Restore is overwrite-only, so a created file stays on disk until a whole-set restore takes it away — the marker is the honest label for that asymmetry, and <code>write_file</code> now stamps <code>[new file]</code> into its receipt so the row is a fact rather than a guess from "+N −0".</li>
+            <li><b>Undo All Edits</b> is the working-set scope, behind the same inline confirm (Copilot asks "This will undo changes made in N files"). The pre-rollback snapshot keeps it reversible too.</li>
+            <li>The queue chip is the only acceptance signal a busy-pane send gets: <code>session_info { queued: N }</code> in, one decrement per <code>turn_started</code>. Enter's verb differs by surface — the Manager <i>steers</i> the live turn, the pane <i>queues</i> behind it — and the hint bar says which one you are about to do.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>the card's two scopes <span class="ref">crusorAIRenderer.ts:2743</span></h4>
+          <pre class="code" data-src="c-card"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>the wire: the turn's undo point <span class="ref">src/bridge/__main__.py:427</span></h4>
+          <pre class="code" data-src="c-py-bridge"></pre>
+        </div>
+      </div>
+    </article>
+  </section>
+
+
+  <!-- ═══ 3 · implementation map ═══════════════════════════════════════ -->
+  <section id="map">
+    <h2><span class="num">03</span>Implementation map</h2>
+    <h3>Every element on this page, and the line that paints it</h3>
+    <p>
+      Read this top to bottom and you have the whole change: a DOM builder in the renderer, a field on the model
+      carried by a wire frame, and (for the undo controls) a host callback into the bridge and the shadow store.
+    </p>
+    <div class="table-wrap">
+      <h4>element → builder → data → css</h4>
+      <table>
+        <thead>
+          <tr><th>UI element</th><th>Builder (file:line)</th><th>Data it reads</th><th>Wire frame / field</th><th>CSS rule</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="elem">Brake button</td>
+            <td><code>crusorAIRenderer.ts:2917</code></td>
+            <td><code>model.running</code>, <code>cancelRequested</code></td>
+            <td><code>cancel</code> → bridge <code>turn_controls.cancel(sid)</code></td>
+            <td><code>crusorAI.css:975</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Esc → interrupt</td>
+            <td><code>crusorAIRenderer.ts:2606</code></td>
+            <td>the live <code>.crusorai-send-brake:not([disabled])</code> node</td>
+            <td>same <code>cancel</code> as the click</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="elem">Stream label <b>Working / Interrupted.</b></td>
+            <td><code>crusorAIRenderer.ts:1717</code></td>
+            <td><code>spec.cancelRequested</code></td>
+            <td><code>frame.cancel_requested</code> (session_info ack)</td>
+            <td><code>crusorAI.css:182</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Cut mark</td>
+            <td><code>crusorAIRenderer.ts:1775</code></td>
+            <td>last text node + <code>live || outcome === 'cancelled'</code></td>
+            <td><code>turn_done.cancelled</code></td>
+            <td><code>crusorAI.css:993</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Row verdict <b>landed / dropped</b></td>
+            <td><code>crusorAIRenderer.ts:1167</code> + <code>verdictGlyph()</code> <code>crusorAIRenderer.ts:662</code></td>
+            <td><code>tool.verdict</code> (stamped once)</td>
+            <td><code>tool.result</code> text + <code>frame.cancelled</code></td>
+            <td><code>crusorAI.css:1005</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Receipt <b>Interrupted · 0:11 · 2 landed · 1 dropped</b></td>
+            <td><code>turnReceiptRow()</code> :1457</td>
+            <td><code>turnOutcome</code>, <code>turnDurationMs</code>, <code>interrupt</code></td>
+            <td><code>turn_done { cancelled }</code></td>
+            <td><code>crusorAI.css:404</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Ledger <b>Continue / Keep as is</b></td>
+            <td><code>turnLedger()</code> :1668</td>
+            <td><code>model.userMessage</code>, <code>keptTurnLedgers</code></td>
+            <td>new <code>prompt</code> (no resume protocol exists)</td>
+            <td><code>crusorAI.css:2117</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Request-row checkpoint line</td>
+            <td><code>checkpointLine()</code> :1490</td>
+            <td><code>model.turnCheckpoint.baseline</code> / <code>history[i].checkpoint</code></td>
+            <td><code>turn_done.checkpoint.baseline</code></td>
+            <td><code>crusorAI.css:2002</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Inline confirm pill</td>
+            <td><code>inlineConfirm()</code> :1628</td>
+            <td>click → arm → confirm</td>
+            <td>—</td>
+            <td><code>crusorAI.css:2174</code></td>
+          </tr>
+          <tr>
+            <td class="elem"><b>Checkpoint restored · hash · Put it back</b></td>
+            <td><code>restoreReceiptRow()</code> :1548</td>
+            <td><code>model.checkpointRestore</code></td>
+            <td><code>checkpoint_event.restore</code></td>
+            <td><code>crusorAI.css:2048</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Snapshot log (Earlier snapshots)</td>
+            <td><code>checkpointLog()</code> :1580</td>
+            <td><code>model.checkpoints</code></td>
+            <td><code>checkpoint_list</code> → <code>checkpoint_event.checkpoints</code></td>
+            <td><code>crusorAI.css:2084</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Per-file undo ↩ / Undo All Edits</td>
+            <td><code>changedFilesCard()</code> :2743</td>
+            <td><code>turn.checkpoint</code>, <code>file.created</code></td>
+            <td><code>checkpoint_restore { file_path? }</code></td>
+            <td><code>crusorAI.css:2149, 2163</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Queue chip <b>Queued · N</b></td>
+            <td><code>crusorAIRenderer.ts:2997</code></td>
+            <td><code>model.queuedDepth</code></td>
+            <td><code>session_info { queued }</code></td>
+            <td><code>crusorAI.css:2065</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Duration freeze</td>
+            <td><code>crusorAIRendererService.ts:1761</code></td>
+            <td><code>turnStartedAt</code> → <code>turnDurationMs</code></td>
+            <td><code>turn_done</code> / <code>turn_failed</code></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="elem">Interrupt counts</td>
+            <td><code>stampInterrupt()</code> <code>crusorAIRendererService.ts:1941</code></td>
+            <td><code>this.tools</code> rows</td>
+            <td><code>frame.cancelled</code></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="elem">Restore send + optimistic receipt</td>
+            <td><code>crusorAIRendererService.ts:278</code></td>
+            <td><code>workspacePath</code></td>
+            <td><code>checkpoint_restore</code></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="elem">Turn undo point</td>
+            <td><code>shadow_checkpoints.py:457, 478</code> — <code>mark_turn_start()</code>, <code>turn_undo_point()</code></td>
+            <td>first snapshot of the turn</td>
+            <td>—</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="elem">Reversible restore</td>
+            <td><code>shadow_checkpoints.py:572</code> — <code>restore()</code> → <code>pre_restore</code></td>
+            <td>pre-rollback commit</td>
+            <td><code>checkpoint_event.restore.pre_restore</code></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="elem"><b>new</b> file marker</td>
+            <td><code>file_tools.py:459</code></td>
+            <td><code>original == ""</code></td>
+            <td><code>tool.result</code> → <code>deriveChangedFiles()</code> keys on <code>[new file]</code></td>
+            <td><code>crusorAI.css:2140</code></td>
+          </tr>
+          <tr>
+            <td class="elem">Terminal frame carries the checkpoint</td>
+            <td><code>src/bridge/__main__.py:427</code></td>
+            <td>turn undo slot + newest snapshot</td>
+            <td><code>turn_done</code> / <code>turn_failed</code></td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══ 4 · state + wire ═════════════════════════════════════════════ -->
+  <section id="state">
+    <h2><span class="num">04</span>State and wire</h2>
+    <h3>What changes, and what crosses the bridge to make it change</h3>
+
+    <div class="machine">
+      <div class="state is-armed">
+        <h4>running</h4>
+        <p class="sub">turnOutcome = 'running'</p>
+        <ul>
+          <li>brake armed, label <b>Working</b></li>
+          <li><code>cancelRequested = false</code></li>
+          <li>no receipt, no ledger, no cut</li>
+          <li>queue chip while prompts wait</li>
+        </ul>
+      </div>
+      <div class="state is-cut">
+        <h4>interrupted</h4>
+        <p class="sub">turnOutcome = 'cancelled'</p>
+        <ul>
+          <li>label <b>Interrupted.</b> + cut mark</li>
+          <li>rows stamped <code>landed</code> / <code>dropped</code></li>
+          <li>receipt with frozen clock + counts</li>
+          <li>ledger: Continue / Keep as is</li>
+          <li>request row already offers Undo turn</li>
+        </ul>
+      </div>
+      <div class="state is-done">
+        <h4>restored</h4>
+        <p class="sub">checkpointRestore set</p>
+        <ul>
+          <li><b>Checkpoint restored · hash</b> divider</li>
+          <li>Put it back → <code>pre_restore</code></li>
+          <li>explorer refreshed, open editors follow</li>
+          <li>chat is NOT rewound — only the tree</li>
+        </ul>
+      </div>
+      <div class="state">
+        <h4>no writes</h4>
+        <p class="sub">baseline = undefined</p>
+        <ul>
+          <li>no <code>checkpoint</code> key on the frame</li>
+          <li>request row paints <b>no</b> undo control</li>
+          <li>honest empty state, never a dead button</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout rule" style="margin-top:16px">
+      <b>The one rule that decides the copy:</b> if the screen cannot prove a fact, it does not state it. No
+      "stopping" (there is no wind-down phase), no "safely" (nothing is protected by waiting), no green check on a
+      cut run, no undo button without a baseline hash to restore to.
+    </div>
+
+    <div class="frame" style="margin-top:18px">
+      <div class="frame-head">
+        <span class="tag">wire</span>
+        <h3>The two frames that carry the undo</h3>
+        <span class="where">src/bridge/__main__.py:427 · src/bridge/__main__.py:1703</span>
+      </div>
+      <div class="code-row">
+        <div class="code-cell">
+          <h4>turn ends — the undo point rides the terminal frame</h4>
+          <pre class="code" data-src="c-json-done"></pre>
+        </div>
+        <div class="code-cell">
+          <h4>restore comes back with the way back</h4>
+          <pre class="code" data-src="c-json-restore"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 5 · files ════════════════════════════════════════════════════ -->
+  <section id="files">
+    <h2><span class="num">05</span>What changed, and where to look</h2>
+    <h3>Ten source files, one emitted bundle</h3>
+    <div class="table-wrap">
+      <h4>files in commit b3a06e20</h4>
+      <table>
+        <thead><tr><th>File</th><th>What it owns</th></tr></thead>
+        <tbody>
+          <tr><td class="elem"><code>…/crusorai/browser/crusorAIRenderer.ts</code></td><td>Every builder on this page: brake, cut, verdicts, receipt, ledger, checkpoint line, inline confirm, restored line, snapshot log, per-file undo, queue chip.</td></tr>
+          <tr><td class="elem"><code>…/crusorai/browser/crusorAIRendererService.ts</code></td><td>Model fields and host callbacks: <code>turnCheckpoint</code>, <code>turnDurationMs</code>, <code>interrupt</code>, <code>checkpointRestore</code>, <code>queuedDepth</code>, <code>stampInterrupt()</code>, restore/list/fork sends.</td></tr>
+          <tr><td class="elem"><code>…/crusorai/browser/media/crusorAI.css</code></td><td>The rules reproduced on this page (§ brake, cut, verdicts, receipt meta, checkpoint line, inline pill, restored line, log, queue chip, working set).</td></tr>
+          <tr><td class="elem"><code>…/crusorai/browser/crusoraiCardFormat.ts</code></td><td><code>deriveChangedFiles()</code> now carries <code>created</code>, parsed from the write receipt's <code>[new file]</code> marker.</td></tr>
+          <tr><td class="elem"><code>…/crusorai/common/crusorAIProtocol.ts</code></td><td>Wire types: <code>CrusorTurnCheckpoint</code>, <code>CrusorCheckpointRestore</code>, <code>CrusorCheckpointRow</code>; <code>turn_done.checkpoint</code>, <code>checkpoint_event.restore</code>.</td></tr>
+          <tr><td class="elem"><code>src/tools/shadow_checkpoints.py</code></td><td>Turn-addressable undo: <code>mark_turn_start()</code>, <code>turn_undo_point()</code>, <code>latest_checkpoint()</code>, and <code>restore()</code> returning <code>pre_restore</code>.</td></tr>
+          <tr><td class="elem"><code>src/bridge/__main__.py</code></td><td><code>_checkpoint_fields()</code> — puts <code>{ baseline, latest, workspace }</code> on every terminal frame; opens the turn slot at turn start.</td></tr>
+          <tr><td class="elem"><code>src/tools/file_tools.py</code></td><td><code>write_file</code> receipt gains <code>[new file]</code> when the path did not exist.</td></tr>
+          <tr><td class="elem"><code>src/tests/test_shadow_checkpoints.py</code></td><td>Six turn-undo pins: first snapshot is the target, later snapshots never move it, a new turn gets a fresh slot, restore is reversible, restart falls back to the ref tip, disabled checkpoints offer no undo.</td></tr>
+          <tr><td class="elem"><code>src/tests/test_desktop_renderer_architecture.py</code></td><td>Architecture pins for the brake/undo vocabulary, the hover-reveal geometry, the inline pill, and the reachability of the Esc handler.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top:16px">
+      <b>Shipped bundle.</b> The pane runs from <code>desktop/vscode/out/vs/workbench/contrib/crusorai/**</code>, which is
+      checked in. <code>node scripts/emit-crusorai-bundle.mjs</code> re-emitted it and refreshed
+      <code>SOURCES_HASH</code> / <code>SOURCES_MANIFEST.json</code>, so a plain <code>git pull</code> updates the UI
+      with no local compile — and the engine's freshness banner stays green because the hash is recomputed from the
+      same sources.
+    </div>
+  </section>
+
+</div><!-- /.page -->
+
+<script type="text/plain" id="c-brake">
+	// The hand brake (F1): the same slot as send, a solid stop square, ONE pull,
+	// no menu and no confirmation, and no promise of a graceful wind-down —
+	// nothing is being protected by waiting. While a pull is in flight the
+	// button is inert: a second pull is ignored, never a queue of stops.
+	const pulled = running && model.cancelRequested;
+	const send = element('button', running ? `crusorai-send-button crusorai-send-brake${pulled ? ' is-pulled' : ''}` : 'crusorai-send-button') as HTMLButtonElement;
+	send.type = 'button';
+	send.setAttribute('aria-label', running ? (pulled ? 'Interrupting' : 'Interrupt — stops now') : 'Send');
+	send.title = running ? 'Interrupt — stops now' : 'Send';
+	send.append(running ? element('span', 'crusorai-brake-glyph') : icon('arrow-up'));
+	send.addEventListener('click', running ? host.cancel : submit);
+	if (pulled) { send.disabled = true; }
+	if (inputBlocked) { send.disabled = true; }
+</script>
+<script type="text/plain" id="c-css-brake">
+/* The hand brake (F1). Same slot as send, swapped glyph, one pull. Armed =
+   neutral solid square (a lever at rest); pulled = amber, the colour the pane
+   already means "your action, attention" — never red, which is reserved for
+   failure. It never says "stop safely": nothing is protected by waiting. */
+.crusorai-send-button.crusorai-send-brake {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.crusorai-send-button.crusorai-send-brake.is-pulled {
+	background: var(--crusorai-approval);
+	color: var(--vscode-editor-background);
+}
+.crusorai-send-button.crusorai-send-brake:disabled { cursor: default; opacity: 0.85; }
+.crusorai-brake-glyph {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	border-radius: 2px;
+	background: currentColor;
+</script>
+<script type="text/plain" id="c-esc">
+		// Esc pulls the brake — the composer hint advertises it, and the brake is
+		// one pull with nothing in the way. It sits BEFORE the clarify branch's
+		// early return (an unreachable keybinding is a lie in the hint bar), and a
+		// live clarify question keeps its own keys. The armed button is the source
+		// of truth: if it is not there, or already pulled/inert, nothing fires.
+		if (event.key === 'Escape' && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
+			&& !document.querySelector('.crusorai-clarify-form[data-live="1"]')) {
+			const brake = document.querySelector<HTMLButtonElement>('.crusorai-send-brake:not([disabled])');
+			if (brake) {
+				event.preventDefault();
+				event.stopPropagation();
+				brake.click();
+				return;
+			}
+		}
+		const form = document.querySelector<HTMLElement>('.crusorai-clarify-form[data-live="1"]');
+</script>
+<script type="text/plain" id="c-cut">
+	// The cut (F2): where the brake bit, the transcript says so with a hard
+	// amber bar after the last token — never an ellipsis or a spinner
+	// pretending more is coming. It is drawn only while the interrupted turn
+	// is the live one: the receipt below carries the fact afterwards.
+	if (lastTextNode && (live || spec.outcome === 'cancelled') && (spec.cancelRequested || spec.outcome === 'cancelled')) {
+		const anchor = lastTextNode.lastElementChild ?? lastTextNode;
+		anchor.append(element('span', 'crusorai-cut'));
+</script>
+<script type="text/plain" id="c-stamp">
+	private stampInterrupt(): { landed: number; dropped: number } {
+		let landed = 0;
+		let dropped = 0;
+		// Snapshot the entries first: the map is mutated below and a live
+		// iterator must not be the thing deciding what gets stamped.
+		for (const [id, tool] of [...this.tools]) {
+			const result = typeof tool.result === 'string' ? tool.result : '';
+			const denied = result.includes('tool not executed') || result.includes('Operation cancelled by the user');
+			if (denied || tool.state === 'queued' || tool.state === 'approval') {
+				dropped += 1;
+				this.tools.set(id, { ...tool, state: 'failed', verdict: 'dropped', verdictText: 'dropped' });
+			} else if (tool.state === 'running') {
+				landed += 1;
+				this.tools.set(id, { ...tool, state: 'passed', verdict: 'landed', verdictText: 'landed' });
+			} else if (tool.state === 'passed') {
+				landed += 1;
+			}
+		}
+		return { landed, dropped };
+</script>
+<script type="text/plain" id="c-receipt">
+function turnReceiptRow(outcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed', durationMs?: number, interrupt?: { readonly landed: number; readonly dropped: number }): HTMLElement {
+	if (outcome === 'failed') {
+		return element('div', 'crusorai-turn-receipt is-failed', icon('error'), element('span', undefined, 'Run failed'));
+	}
+	const row = element('div', 'crusorai-turn-receipt is-cancelled',
+		element('span', 'crusorai-verdict-square'),
+		element('span', undefined, 'Interrupted'));
+	if (typeof durationMs === 'number' && durationMs >= 0) {
+		row.append(element('span', 'crusorai-receipt-meta', `· ${formatElapsed(Math.round(durationMs / 1000))}`));
+	}
+	if (interrupt && (interrupt.landed > 0 || interrupt.dropped > 0)) {
+		const parts: string[] = [];
+		if (interrupt.landed > 0) { parts.push(`${interrupt.landed} landed`); }
+		if (interrupt.dropped > 0) { parts.push(`${interrupt.dropped} dropped`); }
+		row.append(element('span', 'crusorai-receipt-meta', `· ${parts.join(' · ')}`));
+	}
+	return row;
+</script>
+<script type="text/plain" id="c-ledger">
+function turnLedger(turnKey: string, requestText: string | undefined, host: CrusorAIRenderHost, options: { readonly live: boolean; readonly keep: boolean }): HTMLElement | undefined {
+	if (options.live || !requestText || keptTurnLedgers.has(turnKey)) { return undefined; }
+	const ledger = element('div', 'crusorai-turn-ledger');
+	const again = element('button', 'crusorai-ledger-action is-primary', icon('play'), element('span', undefined, 'Continue')) as HTMLButtonElement;
+	again.type = 'button';
+	again.title = 'Send this request again — the transcript already holds the partial work';
+	again.setAttribute('aria-label', 'Continue — send this request again');
+	again.addEventListener('click', () => {
+		// The draft refills first (the workbench's own restoreInput rule): if the
+		// send is refused for any reason, the words are not lost.
+		host.setDraft(requestText);
+		host.submitPrompt(requestText);
+	});
+	ledger.append(again);
+	if (options.keep) {
+		// "Keep as is" is a dismissal, not a mutation: it puts the offer away
+		// without touching the draft the user may have started typing.
+		const keep = element('button', 'crusorai-ledger-action', element('span', undefined, 'Keep as is')) as HTMLButtonElement;
+		keep.type = 'button';
+		keep.title = 'Accept the partial run and put this offer away';
+		keep.addEventListener('click', () => { keptTurnLedgers.add(turnKey); ledger.remove(); });
+		ledger.append(keep);
+	}
+	return ledger;
+</script>
+<script type="text/plain" id="c-cp-line">
+function checkpointLine(baseline: string | undefined, host: CrusorAIRenderHost, options?: { readonly fork?: boolean; readonly requestText?: string }): HTMLElement | undefined {
+	const hash = shortHash(baseline);
+	if (!hash || !baseline) { return undefined; }
+	// Captured as a plain string: the confirm's callback runs after this
+	// frame, so the narrowing has to survive it.
+	const checkpoint: string = baseline;
+	const line = element('div', 'crusorai-checkpoint-line');
+	line.dataset.component = 'checkpoint-line';
+	line.append(element('span', 'crusorai-checkpoint-hair is-left'));
+	const actions = element('div', 'crusorai-checkpoint-actions');
+	// A restore discards later edits, so Copilot puts it behind an inline
+	// confirm — and so do we: the first click arms, the second restores, ✕ or
+	// Esc backs out.
+	const undo = inlineConfirm({
+		label: 'Undo turn',
+		iconName: 'history',
+		title: `Restore this workspace to the snapshot taken before this request (${hash})`,
+		classes: 'crusorai-checkpoint-action',
+		onConfirm: () => {
+			// Restoring puts the request text back in the composer (the workbench's
+			// own restoreInput rule): "undo the ask" ends with the ask in hand, one
+			// edit away from being sent again.
+			if (options?.requestText) { host.setDraft(options.requestText); }
+			host.restoreCheckpoint(checkpoint);
+		},
+	});
+	actions.append(undo);
+</script>
+<script type="text/plain" id="c-confirm">
+function inlineConfirm(options: { readonly label: string; readonly iconName?: string; readonly title: string; readonly classes: string; readonly onConfirm: () => void }): HTMLButtonElement {
+	const button = element('button', options.classes, options.iconName ? icon(options.iconName) : undefined, element('span', undefined, options.label)) as HTMLButtonElement;
+	button.type = 'button';
+	button.title = options.title;
+	button.setAttribute('aria-label', options.title);
+	button.addEventListener('click', () => {
+		const yes = element('button', 'crusorai-inline-confirm-yes', element('span', 'crusorai-shimmer', options.label)) as HTMLButtonElement;
+		yes.type = 'button';
+		yes.title = `${options.label} — confirmed`;
+		yes.setAttribute('aria-label', `${options.label}, confirm`);
+		const no = element('button', 'crusorai-inline-confirm-no', icon('close')) as HTMLButtonElement;
+		no.type = 'button';
+		no.title = 'Cancel';
+		no.setAttribute('aria-label', 'Cancel');
+		const pill = element('span', 'crusorai-inline-confirm', yes, no);
+		const close = () => { pill.replaceWith(button); cancelActiveConfirm = undefined; };
+		yes.addEventListener('click', () => { cancelActiveConfirm = undefined; options.onConfirm(); });
+		no.addEventListener('click', close);
+		cancelActiveConfirm = close;
+		button.replaceWith(pill);
+	});
+	return button;
+</script>
+<script type="text/plain" id="c-restore">
+function restoreReceiptRow(restore: CrusorAIRenderModel['checkpointRestore'], host: CrusorAIRenderHost): HTMLElement | undefined {
+	if (!restore) { return undefined; }
+	if (restore.success === false || restore.error) {
+		return element('div', 'crusorai-checkpoint-restored is-error', icon('warning'),
+			element('span', undefined, `Restore failed${restore.error ? ` — ${restore.error}` : ''}`));
+	}
+	const row = element('div', 'crusorai-checkpoint-restored');
+	row.dataset.component = 'checkpoint-restored';
+	row.append(icon('check'), element('span', undefined, 'Checkpoint restored'));
+	// A single-path restore names the path: "Checkpoint restored" alone would
+	// leave the user guessing which of the files came back.
+	if (restore.file) { row.append(element('span', 'crusorai-checkpoint-file', restore.file)); }
+	row.append(element('span', 'crusorai-checkpoint-hash', shortHash(restore.restored_to) ?? ''));
+	const putBack = shortHash(restore.pre_restore ?? undefined);
+	if (putBack) {
+		const action = element('button', 'crusorai-checkpoint-action', icon('history'), element('span', undefined, 'Put it back')) as HTMLButtonElement;
+		action.type = 'button';
+		action.title = `Reapply what was on disk a moment ago (snapshot ${putBack})`;
+		action.setAttribute('aria-label', `Put it back — reapply the discarded changes (snapshot ${putBack})`);
+		action.addEventListener('click', () => host.restoreCheckpoint(restore.pre_restore!));
+		row.append(action);
+	}
+	return row;
+</script>
+<script type="text/plain" id="c-card">
+function changedFilesCard(files: readonly { readonly name: string; readonly path: string; readonly added: number; readonly removed: number; readonly created?: boolean }[], host: CrusorAIRenderHost, options?: { readonly checkpoint?: string; readonly turnKey?: string }): HTMLElement | undefined {
+	if (!files.length) { return undefined; }
+	const checkpoint = options?.checkpoint;
+	const turnKey = options?.turnKey ?? 'session';
+	const card = element('div', 'crusorai-changed-files');
+	card.dataset.component = 'changed-files';
+	card.append(element('div', 'crusorai-changed-files-head',
+		element('span', undefined, `${files.length} file${files.length === 1 ? '' : 's'} changed`)));
+	const rows = element('div', 'crusorai-changed-files-rows');
+	for (const file of files) {
+		const row = element('div', 'crusorai-changed-file-row is-activatable');
+		row.append(icon('file'), element('span', 'crusorai-changed-file-name', file.name));
+		// New-file rows are marked: they are the one case where "restore" and
+		// "remove" differ, and the open question stands (delete vs keep).
+		if (file.created) { row.append(element('span', 'crusorai-changed-file-new', 'new')); }
+		row.append(element('span', 'crusorai-diff-count',
+			element('span', 'is-added', `+${file.added}`),
+			element('span', 'is-removed', `−${file.removed}`)));
+		row.title = file.path;
+		row.addEventListener('click', () => host.revealFile(file.path));
+		if (checkpoint) {
+			const one = element('button', 'crusorai-file-undo', icon('history')) as HTMLButtonElement;
+			one.type = 'button';
+			one.title = `Restore ${file.path} from this turn's snapshot`;
+			one.setAttribute('aria-label', `Undo changes to ${file.name}`);
+			one.addEventListener('click', event => { event.stopPropagation(); host.restoreCheckpoint(checkpoint, file.path); });
+			row.append(one);
+		}
+		rows.append(row);
+	}
+	card.append(rows);
+</script>
+<script type="text/plain" id="c-py-bridge">
+    def _checkpoint_fields(workspace: str) -> dict:
+        """Turn-checkpoint receipt for terminal frames (D31, pane "Undo turn").
+
+        `baseline` is the snapshot this turn can be rewound to — the commit the
+        first write of the turn created from the tree BEFORE it wrote, so
+        restoring it undoes exactly this turn (and nothing the user did by
+        hand earlier). `latest` is the newest snapshot the turn produced. Both
+        ride turn_done/turn_failed so the request row can offer one undo with
+        a real target hash — no checkpoint_list round trip, no timestamp
+        guessing. No baseline => the frame carries no `checkpoint` key at all,
+        which the pane renders as "no undo here", never as a dead button.
+        """
+        baseline = agent_turn_undo_point(workspace)
+        try:
+            from src.tools.shadow_checkpoints import get_shadow_checkpoints
+            latest = get_shadow_checkpoints().latest_checkpoint(workspace)
+        except Exception:
+            latest = None
+        if not baseline:
+            return {}
+        return {"checkpoint": {
+</script>
+<script type="text/plain" id="c-py-restore">
+        # Undo-the-undo: pre-rollback snapshot so a restore is itself
+        # reversible. (Bypasses per-turn dedup on purpose.) Its hash rides
+        # the result as `pre_restore`, which is what the pane's "Put it back"
+        # sends back — a restore that cannot name where it came from is a
+        # one-way door with a confirmation dialog bolted on.
+        pre_restore = self._take(abs_dir, f"pre-rollback snapshot (restoring to {commit_hash[:8]})")
+
+        index_file = _index_path(store, _project_hash(abs_dir))
+        target = file_path if file_path else "."
+        ok, _, err = _run_git(
+            ["checkout", commit_hash, "--", target],
+            store, abs_dir, timeout=_git_timeout(), index_file=index_file,
+        )
+        if not ok:
+            return {"success": False, "error": f"Restore failed: {err}",
+                    "debug": err or None}
+
+        result = {"success": True, "restored_to": commit_hash[:8],
+                  "directory": abs_dir, "pre_restore": pre_restore or None}
+</script>
+<script type="text/plain" id="c-css-cp">
+/* .crusorai-checkpoint-line — reveal on hover / focus-within (Copilot chat.css:4455–4490) */
+.crusorai-checkpoint-line {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 5px 0 1px;
+	opacity: 0;
+	transition: opacity 120ms ease-in-out;
+}
+.crusorai-request-row:hover > .crusorai-checkpoint-line,
+.crusorai-request-row:focus-within > .crusorai-checkpoint-line,
+.crusorai-checkpoint-line:focus-within { opacity: 1; }
+.crusorai-checkpoint-hair {
+	flex: 1;
+	height: 1px;
+	background-color: var(--crusorai-bubble-border);
+
+/* Copilot's armed split pill (chat.css:4386–4438) */
+.crusorai-inline-confirm {
+	display: inline-flex;
+	align-items: stretch;
+	flex: none;
+	border: 1px solid var(--vscode-chat-requestBorder, var(--crusorai-bubble-border));
+	border-radius: 5px;
+	overflow: hidden;
+	background: var(--vscode-sideBar-background, transparent);
+}
+.crusorai-inline-confirm-yes {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 10px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-meta);
+	cursor: pointer;
+}
+</script>
+<!-- The wire payloads are literals; everything else in a <pre> is extracted from
+     the real sources at build time (see the emitter note at the bottom). -->
+<script type="text/plain" id="c-json-done">{
+  "type": "turn_done",
+  "session_id": "s-1f2a", "thread_id": "s-1f2a",
+  "message": "Operation cancelled by the user.",
+  "completed": false,
+  "cancelled": true,
+  "checkpoint": {
+    "baseline": "4f3a9c21d0b7…",   // the turn's first snapshot = its starting state
+    "latest":   "c41d0f2a88e1…",   // newest snapshot the turn produced
+    "workspace": "C:/work/hero"
+  }
+}</script>
+
+<script type="text/plain" id="c-json-restore">{
+  "type": "checkpoint_event",
+  "session_id": "s-1f2a",
+  "workspace": "C:/work/hero",
+  "restore": {
+    "success": true,
+    "restored_to": "4f3a9c21",
+    "file": "src/app/globals.css",   // only on a per-row undo
+    "directory": "C:/work/hero",
+    "pre_restore": "c41d0f2a88e1"    // what "Put it back" sends back
+  }
+}</script>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Page behaviour. Two jobs:
+     1 · copy each <pre data-src="…"> from its <script type="text/plain"> block
+         (kept raw so the shipped code needs no HTML escaping) and tint it;
+     2 · drive the demo pane through running → interrupted → restored, writing
+         the frames that would cross the bridge at each step.
+   The demo changes state by toggling the `hidden` attribute on the same nodes
+   the renderer builds — no fake markup, no second template.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ── 1 · code blocks ──────────────────────────────────────────────────── */
+  function tint(code) {
+    var esc = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc.replace(
+      /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)|\b(const|let|var|function|return|if|else|for|of|in|new|private|readonly|interface|export|import|type|from|await|async|void|this|true|false|null|undefined)\b|(\b[A-Z][A-Za-z0-9_]*\b)/g,
+      function (m, cmt, str, kw, ty) {
+        if (cmt) { return '<span class="c">' + cmt + '</span>'; }
+        if (str) { return '<span class="s">' + str + '</span>'; }
+        if (kw) { return '<span class="k">' + kw + '</span>'; }
+        if (ty) { return '<span class="t">' + ty + '</span>'; }
+        return m;
+      });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('pre.code[data-src]'), function (pre) {
+    var src = $(pre.getAttribute('data-src'));
+    if (!src) { pre.textContent = '(missing source block)'; return; }
+    pre.innerHTML = tint(src.textContent.replace(/^\n+|\s+$/g, ''));
+  });
+
+  /* ── 2 · the demo pane ────────────────────────────────────────────────── */
+  var pane = $('pane');
+  var feed = $('feed');
+  var feedState = $('feed-state');
+  var state = 'running';
+  var confirmClose = null;
+
+  function log(kind, label, body) {
+    var empty = feed.querySelector('.empty');
+    if (empty) { empty.remove(); }
+    var row = document.createElement('div');
+    row.className = 'row ' + kind;
+    var k = document.createElement('span');
+    k.className = 'kind';
+    k.textContent = label;
+    var b = document.createElement('span');
+    b.className = 'body';
+    b.textContent = body;
+    row.append(k, b);
+    feed.append(row);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function clearFeed() {
+    feed.replaceChildren();
+    var d = document.createElement('div');
+    d.className = 'empty';
+    d.textContent = 'Press “Run this turn” to start.';
+    feed.append(d);
+  }
+
+  function show(id, on) { $(id).hidden = !on; }
+
+  function render(next) {
+    state = next;
+    pane.setAttribute('data-state', next);
+    feedState.textContent = next;
+
+    var running = next === 'running';
+    var cut = next !== 'running';
+
+    show('rows-running', running);
+    show('rows-cut', cut);
+    show('queued', running);
+    show('cut-mark', cut);
+    show('receipt', cut);
+    show('ledger', cut);
+    show('changed', cut);
+    show('restored', next === 'restored');
+
+    $('stream-label').textContent = cut ? 'Interrupted.' : 'Working';
+    $('stream-label').style.color = cut ? 'var(--crusorai-approval)' : 'var(--crusorai-running)';
+    $('chrome-status').textContent = running ? 'Running' : (next === 'restored' ? 'Idle' : 'Interrupted');
+    $('hint-verb').textContent = running ? 'Enter to queue · Esc to interrupt' : 'Enter to send';
+
+    var brake = $('brake');
+    brake.disabled = !running;
+    brake.classList.toggle('is-pulled', !running);
+    brake.setAttribute('aria-label', running ? 'Interrupt — stops now' : 'Interrupted');
+    brake.title = brake.getAttribute('aria-label');
+  }
+
+  function run() {
+    if (confirmClose) { confirmClose(); }
+    clearFeed();
+    render('running');
+    log('client', 'prompt', 'prompt { text: "make the hero card rounded…" }');
+    log('engine', 'turn_started', 'turn_started { session_id: "s-1f2a" }  ·  mark_agent_turn_start(workspace) opens the undo slot');
+    log('engine', 'tool.call', 'tool.call { tool_id: "s-1f2a-c1", name: "write_file", args: { path: "src/app/page.tsx" } }');
+    log('engine', 'tool.result', 'tool.result { status: "completed", result: "File written: src/app/page.tsx (lines added: 38, removed: 4)" }');
+    log('engine', 'tool.call', 'tool.call { tool_id: "s-1f2a-c2", name: "write_file", args: { path: "src/app/globals.css" } }');
+    log('engine', 'tool.call', 'tool.call { tool_id: "s-1f2a-c3", name: "run_terminal", args: { command: "npm run build" } }  ·  queued behind the live write');
+    log('client', '(typing)', 'steer stays live — the brake and the steering wheel are different controls');
+  }
+
+  function brake() {
+    if (state !== 'running') { return; }
+    if (confirmClose) { confirmClose(); }
+    log('client', 'cancel', 'cancel { session_id: "s-1f2a" }   ← the click, or Esc');
+    log('engine', 'turn_controls.cancel', 'cancel(sid): set the cancel event, fire every registered abort handle — immediate, no wind-down');
+    log('engine', 'llm.abort', 'provider call aborted mid-stream; retry and failover are not allowed to re-issue');
+    log('engine', 'tool.gate', 'admit_action() refuses the queued batch → ToolMessage "⛔ Operation cancelled by the user — tool not executed."');
+    log('engine', 'tool.result', 'tool.result { tool_id: "s-1f2a-c2", status: "completed" }  ← already inside the write: it LANDS');
+    log('engine', 'turn_done', 'turn_done { cancelled: true, checkpoint: { baseline: "4f3a9c21…", latest: "c41d0f2a…" } }');
+    render('interrupted');
+  }
+
+  function armUndo() {
+    if (state === 'running') { return; }
+    if (confirmClose) { confirmClose(); }
+    var button = $('undo-turn');
+    var yes = document.createElement('button');
+    yes.className = 'crusorai-inline-confirm-yes';
+    yes.innerHTML = '<span class="crusorai-shimmer">Undo turn</span>';
+    var no = document.createElement('button');
+    no.className = 'crusorai-inline-confirm-no';
+    no.textContent = '✕';
+    var pill = document.createElement('span');
+    pill.className = 'crusorai-inline-confirm';
+    pill.append(yes, no);
+
+    confirmClose = function () {
+      pill.replaceWith(button);
+      confirmClose = null;
+    };
+    yes.addEventListener('click', function () {
+      confirmClose = null;
+      log('client', 'checkpoint_restore', 'checkpoint_restore { workspace: "C:/work/hero", checkpoint_hash: "4f3a9c21…" }   (no file_path → whole working set)');
+      log('engine', 'checkpoint_event', 'restore { success: true, restored_to: "4f3a9c21", pre_restore: "c41d0f2a" }');
+      log('client', 'refresh', 'workbench.files.action.refreshFilesExplorer — the tree was rewritten outside the editor');
+      $('restored-file').hidden = true;
+      render('restored');
+    });
+    no.addEventListener('click', function () { if (confirmClose) { confirmClose(); } });
+    button.replaceWith(pill);
+  }
+
+  /* ── wiring ───────────────────────────────────────────────────────────── */
+  $('btn-run').addEventListener('click', run);
+  $('btn-brake').addEventListener('click', brake);
+  $('btn-undo').addEventListener('click', armUndo);
+  $('btn-reset').addEventListener('click', function () { clearFeed(); render('running'); });
+  $('brake').addEventListener('click', brake);
+  $('undo-turn').addEventListener('click', armUndo);
+  $('keep-as-is').addEventListener('click', function () { $('ledger').remove(); });
+  $('keep-all').addEventListener('click', function () { $('changed').remove(); });
+  $('undo-all').addEventListener('click', function () {
+    if (confirmClose) { confirmClose(); }
+    var host = this;
+    var pill = document.createElement('span');
+    pill.className = 'crusorai-inline-confirm';
+    var yes = document.createElement('button');
+    yes.className = 'crusorai-inline-confirm-yes';
+    yes.innerHTML = '<span class="crusorai-shimmer">Undo All Edits</span>';
+    var no = document.createElement('button');
+    no.className = 'crusorai-inline-confirm-no';
+    no.textContent = '✕';
+    pill.append(yes, no);
+    confirmClose = function () { pill.replaceWith(host); confirmClose = null; };
+    yes.addEventListener('click', function () {
+      confirmClose = null;
+      log('client', 'checkpoint_restore', 'checkpoint_restore { checkpoint_hash: "4f3a9c21…" }   ← the working set, no file_path');
+      log('engine', 'checkpoint_event', 'restore { success: true, restored_to: "4f3a9c21", pre_restore: "c41d0f2a" }');
+      render('restored');
+    });
+    no.addEventListener('click', function () { if (confirmClose) { confirmClose(); } });
+    host.replaceWith(pill);
+  });
+
+  $('pin-line').addEventListener('change', function () {
+    $('cp-line').classList.toggle('pinned', this.checked);
+  });
+  $('show-log').addEventListener('change', function () { $('cp-log').hidden = !this.checked; });
+  $('cp-log-open').addEventListener('click', function () { $('cp-log').hidden = false; $('show-log').checked = true; });
+  $('cp-log-close').addEventListener('click', function () { $('cp-log').hidden = true; $('show-log').checked = false; });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') { return; }
+    if (confirmClose) { event.preventDefault(); confirmClose(); return; }   // the pill closes first
+    if (state === 'running') { event.preventDefault(); brake(); }           // then Escape reaches the brake
+  }, true);
+
+  render('running');
+  clearFeed();
+})();
+</script>
+
+</body>
+</html>

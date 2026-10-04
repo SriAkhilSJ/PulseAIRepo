@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Copilot blueprint — Revert &amp; Interrupt (Crusor pane)</title>
+<style>
+/* ============================================================================
+   Blueprint scaffold — a read-only mock of the Crusor Agent pane.
+   Colors mirror the crusorAI-tokens.css FALLBACK chains (VS Code Dark Modern):
+   every value below is a var() fallback the shipped pane would derive at
+   runtime from the live workbench theme. No brand hex is invented here.
+   ==========================================================================*/
+:root{
+  --bg:#1f1f1f;
+  --panel:#181818;
+  --panel-2:#202020;
+  --border:#2b2b2b;
+  --border-soft:rgba(255,255,255,.09);
+  --fg:#cccccc;
+  --fg-muted:#9d9d9d;
+  --fg-dim:#7c7c7c;
+  --accent:#0078d4;
+  --running:#4daafc;
+  --verified:#73c991;
+  --approval:#cca700;
+  --failed:#f85149;
+  --agent:#a371f7;
+  --font-ui:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:ui-monospace,Consolas,"Cascadia Mono",monospace;
+  --text-micro:9px; --text-meta:10px; --text-body:11px; --text-copy:12px;
+  --text-title:13px;
+  --track-caps:.08em;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#141414;color:var(--fg);font-family:var(--font-ui);
+  font-size:var(--text-body);line-height:1.5;
+  padding:0 0 80px;
+}
+.wrap{max-width:1280px;margin:0 auto;padding:0 24px}
+
+/* ---------- header ---------- */
+header.top{
+  position:sticky;top:0;z-index:20;background:#141414;
+  border-bottom:1px solid var(--border);padding:14px 0 0;
+}
+h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.01em}
+.sub{color:var(--fg-muted);font-size:var(--text-copy);margin:4px 0 0}
+.sub code{font-family:var(--font-mono);font-size:11px;color:#c8c8c8}
+.tabs{display:flex;gap:2px;margin:12px 0 0;flex-wrap:wrap}
+.tab{
+  appearance:none;border:1px solid transparent;border-bottom:none;
+  background:transparent;color:var(--fg-muted);font:inherit;font-size:var(--text-copy);
+  padding:7px 14px;border-radius:6px 6px 0 0;cursor:pointer;
+}
+.tab:hover{color:var(--fg);background:#1b1b1b}
+.tab[aria-selected="true"]{
+  background:var(--bg);color:#fff;border-color:var(--border);
+  box-shadow:inset 0 2px 0 var(--accent);
+}
+.tab .k{font-family:var(--font-mono);font-size:10px;color:var(--fg-dim);margin-right:6px}
+section.tabpanel{display:none;padding-top:22px}
+section.tabpanel.is-active{display:block}
+
+/* ---------- generic blocks ---------- */
+h2{font-size:14px;margin:26px 0 10px;font-weight:600}
+h2:first-child{margin-top:0}
+h3{font-size:12px;margin:0 0 8px;font-weight:600;color:#e3e3e3}
+p.note{color:var(--fg-muted);font-size:var(--text-copy);max-width:78ch;margin:6px 0 14px}
+p.note b{color:#e8e8e8;font-weight:600}
+code, .mono{font-family:var(--font-mono);font-size:11px}
+.src{
+  font-family:var(--font-mono);font-size:10px;color:var(--fg-dim);
+  background:#161616;border:1px solid var(--border);border-radius:3px;
+  padding:1px 5px;white-space:nowrap;
+}
+.grid{display:grid;grid-template-columns:440px 1fr;gap:20px;align-items:start}
+@media (max-width:980px){.grid{grid-template-columns:1fr}}
+
+/* ---------- faux workbench window ---------- */
+.win{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg)}
+.win-title{
+  display:flex;align-items:center;gap:8px;background:#181818;
+  border-bottom:1px solid var(--border);padding:6px 10px;
+  font-size:var(--text-meta);color:var(--fg-muted);
+}
+.win-title .tabname{
+  background:#1f1f1f;border:1px solid var(--border);border-bottom:none;
+  border-radius:4px 4px 0 0;color:#e8e8e8;padding:2px 10px;margin-bottom:-7px;
+}
+.win-title .right{margin-left:auto;display:flex;gap:10px;color:var(--fg-dim)}
+
+/* the Crusor pane itself — narrow column, as shipped */
+.pane{background:var(--panel);display:flex;flex-direction:column;min-height:420px}
+.pane-head{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border-bottom:1px solid var(--border);font-size:var(--text-meta);color:var(--fg-muted);
+}
+.pane-head .who{color:#e8e8e8;font-size:var(--text-title);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.dot.running{background:var(--running)}
+.dot.verified{background:var(--verified)}
+.dot.approval{background:var(--approval)}
+.dot.failed{background:var(--failed)}
+.dot.idle{background:#5a5a5a}
+.pill{
+  margin-left:auto;border:1px solid var(--border);border-radius:999px;
+  padding:1px 8px;font-size:var(--text-micro);letter-spacing:var(--track-caps);
+  text-transform:uppercase;color:var(--fg-muted);
+}
+.transcript{padding:12px 10px;display:flex;flex-direction:column;gap:14px;flex:1}
+.turn{border-left:2px solid transparent;padding-left:8px}
+.turn.is-cancelled{border-left-color:rgba(204,167,0,.5)}
+.turn.is-failed{border-left-color:rgba(248,81,73,.5)}
+
+/* user bubble */
+.msg-user{
+  background:color-mix(in srgb, var(--accent) 14%, #1b1b1b);
+  border:1px solid color-mix(in srgb,var(--fg) 12%, transparent);
+  border-radius:8px;padding:7px 9px;font-size:var(--text-body);color:#e6e6e6;
+}
+/* assistant block */
+.assistant{display:flex;flex-direction:column;gap:8px}
+.assistant-label{display:flex;align-items:center;gap:6px;font-size:var(--text-body);color:#e8e8e8}
+.assistant-label .glyph{color:var(--agent);font-size:12px}
+.stream-label{font-size:var(--text-meta);color:var(--fg-dim);font-style:italic}
+.body-copy{font-size:12px;color:#d4d4d4;line-height:1.55}
+.body-copy.dim{color:#a9a9a9}
+
+/* tool row */
+.tool-row{
+  display:flex;align-items:center;gap:7px;font-size:var(--text-meta);
+  color:var(--fg-muted);border:1px solid var(--border-soft);border-radius:6px;
+  padding:5px 7px;background:#1c1c1c;
+}
+.tool-row .name{color:#d8d8d8;font-weight:600}
+.tool-row .target{font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-row .time{margin-left:auto;font-family:var(--font-mono);font-size:10px;
+  color:var(--fg-dim);font-variant-numeric:tabular-nums}
+.tool-row.is-running{border-color:color-mix(in srgb,var(--running) 35%,transparent)}
+.tool-row.is-cancelled{color:#b9a13f;border-color:color-mix(in srgb,var(--approval) 35%,transparent)}
+.tool-row.is-cancelled .name{color:#d8c07a}
+.spin{
+  width:10px;height:10px;border-radius:50%;flex:none;
+  border:1.5px solid color-mix(in srgb,var(--running) 35%,transparent);
+  border-top-color:var(--running);
+}
+
+/* activity / status row */
+.activity{
+  display:flex;align-items:center;gap:7px;font-size:var(--text-meta);
+  color:var(--fg-muted);padding:2px 0;
+}
+.activity .hint{color:#cfcfcf}
+.activity .hint.warn{color:var(--approval)}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--running);flex:none;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--running) 18%,transparent)}
+
+/* turn receipt */
+.receipt{
+  display:flex;align-items:center;gap:7px;font-size:var(--text-meta);
+  color:var(--fg-dim);border-top:1px solid var(--border-soft);padding-top:6px;
+}
+.receipt.cancelled{color:#c9b26a}
+.receipt.ok{color:#8fbfa0}
+.receipt.failed{color:#d98b86}
+.receipt .count{margin-left:auto;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+/* receipt actions — the NEW bits (dashed accent = not shipped yet) */
+.row-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+
+/* ---- request-row checkpoint line (Copilot's .checkpoint-container frame) ----
+   Copilot renders the restore/fork toolbar inside the *request* row, below the
+   user bubble, flanked by two fading hairlines, opacity 0 → 1 on row hover.
+   Here the resting opacity is .3 only so the blueprint is legible on screen;
+   hover the row to see the shipped reveal. */
+.msg-row{position:relative;display:flex;flex-direction:column;gap:2px}
+.cp-line{
+  display:flex;align-items:center;gap:8px;margin:5px 0 1px;
+  opacity:.3;transition:opacity .12s ease-in-out;
+}
+.msg-row:hover .cp-line,.cp-line.pinned{opacity:1}
+.hair{flex:1;height:1px;background:linear-gradient(to right,transparent,var(--border-soft) 45%,var(--border-soft))}
+.hair.right{background:linear-gradient(to left,transparent,var(--border-soft) 45%,var(--border-soft))}
+.cp-actions{display:flex;align-items:center;gap:4px;flex:none}
+.cp-label{font-size:var(--text-meta);color:var(--fg-dim);white-space:nowrap}
+.cp-restored{font-size:var(--text-meta);color:var(--fg-muted);white-space:nowrap}
+.cp-restored .hash{font-family:var(--font-mono);color:#d0d0d0}
+/* inline confirm — Copilot's split label + ✕, no modal */
+.cp-confirm{display:inline-flex;align-items:stretch;flex:none;border:1px solid var(--border);
+  border-radius:5px;overflow:hidden;background:var(--panel)}
+.cp-confirm .go{
+  padding:2px 10px;font-size:var(--text-meta);display:inline-flex;align-items:center;gap:5px;
+  background:linear-gradient(90deg,var(--fg) 0%,var(--fg) 30%,var(--accent) 50%,var(--fg) 70%,var(--fg) 100%);
+  background-size:400% 100%;-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:transparent;
+}
+.cp-confirm .no{border-left:1px solid var(--border);padding:2px 8px;color:var(--fg-muted);display:grid;place-items:center}
+.hover-note{font-size:var(--text-micro);color:var(--fg-dim);letter-spacing:var(--track-caps);text-transform:uppercase}
+
+/* evidence box */
+.evbox{border:1px solid var(--border);border-left:2px solid var(--running);border-radius:7px;
+  background:var(--panel-2);padding:11px 13px}
+.evbox h3{margin-bottom:6px}
+.evbox ul{margin:0;padding-left:16px;color:#c9c9c9;font-size:var(--text-copy);display:flex;flex-direction:column;gap:5px}
+.evbox .src{display:inline-block;margin-top:8px}
+.btn{
+  appearance:none;font:inherit;font-size:var(--text-meta);color:#e6e6e6;
+  background:#2a2a2a;border:1px solid var(--border);border-radius:5px;
+  padding:3px 9px;cursor:default;display:inline-flex;align-items:center;gap:5px;
+}
+.btn.ghost{background:transparent}
+.btn.primary{background:color-mix(in srgb,var(--accent) 80%,#000);border-color:transparent;color:#fff}
+.btn.danger{background:transparent;border-color:color-mix(in srgb,var(--failed) 45%,transparent);color:#e7a09c}
+.btn.is-new{border-style:dashed;border-color:color-mix(in srgb,var(--running) 55%,transparent)}
+.btn[disabled]{opacity:.45}
+.btn .g{font-size:11px;line-height:1}
+
+/* composer */
+.composer{border-top:1px solid var(--border);padding:8px 10px 9px;background:var(--panel)}
+.input{
+  border:1px solid var(--border);border-radius:6px;background:#1c1c1c;
+  padding:7px 8px;font-size:var(--text-body);color:#bdbdbd;min-height:44px;
+}
+.input.focused{border-color:var(--accent)}
+.input.locked{color:#8a8a8a}
+.composer-bar{display:flex;align-items:center;gap:6px;margin-top:7px}
+.chip{
+  border:1px solid var(--border);border-radius:4px;padding:2px 7px;
+  font-size:var(--text-meta);color:#cfcfcf;background:#232323;display:inline-flex;gap:5px;align-items:center;
+}
+.chip .caret{color:var(--fg-dim);font-size:9px}
+.chip[aria-disabled="true"]{opacity:.5}
+.chip.queue{border-color:color-mix(in srgb,var(--running) 40%,transparent);color:#bcd8f5}
+.send{
+  margin-left:auto;width:26px;height:26px;border-radius:5px;flex:none;
+  background:var(--accent);color:#fff;display:grid;place-items:center;font-size:12px;
+}
+.send.stop{background:#e0e0e0;color:#1f1f1f}
+.send.stop.disabled{background:#4a4a4a;color:#8a8a8a}
+
+/* ---- the hand brake: same slot as send, solid stop square, one pull ----
+   Armed = neutral light square (a lever at rest). Pulled = amber, matching
+   the token that already means "your action, attention" — never red, which
+   is reserved for failure. */
+.send.brake{background:#e0e0e0;color:#1f1f1f;position:relative}
+.send.brake.pulled{background:var(--approval);color:#1f1f1f}
+.brake-glyph{display:inline-block;width:9px;height:9px;border-radius:2px;background:currentColor}
+/* the cut: where the model actually stopped — a hard bar, not an ellipsis */
+.cut{
+  display:inline-block;width:3px;height:.82em;vertical-align:-1px;margin-left:3px;
+  background:var(--approval);border-radius:1px;
+}
+.composer-foot{
+  display:flex;justify-content:space-between;font-size:var(--text-micro);
+  color:var(--fg-dim);margin-top:6px;
+}
+
+/* editor column sketch */
+.editor{background:#1f1f1f;border-left:1px solid var(--border);min-height:100%}
+.editor-head{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);
+  font-size:var(--text-meta);color:var(--fg-muted);background:#181818;
+}
+.diff{font-family:var(--font-mono);font-size:11px;padding:8px 0;overflow:auto}
+.diff div{padding:1px 12px;white-space:pre}
+.diff .hunk{color:var(--fg-dim);background:#1a1a1a}
+.diff .add{color:#a6d189;background:rgba(115,201,145,.08)}
+.diff .del{color:#e78284;background:rgba(248,81,73,.08)}
+.diff .ctx{color:#8f8f8f}
+.files{padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.file-row{
+  display:flex;align-items:center;gap:8px;font-size:var(--text-meta);
+  border:1px solid var(--border-soft);border-radius:5px;padding:4px 7px;background:#1c1c1c;
+}
+.file-row .path{font-family:var(--font-mono);font-size:10px;color:#d0d0d0}
+.file-row .stat{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--fg-dim)}
+.file-row .act{color:var(--fg-muted);font-size:11px}
+.file-row.is-new{border-style:dashed;border-color:color-mix(in srgb,var(--running) 45%,transparent)}
+.add-mark{color:var(--verified)} .del-mark{color:var(--failed)}
+
+/* modal */
+.modal-veil{background:#111;border:1px solid var(--border);border-radius:8px;padding:14px;max-width:520px}
+.modal-veil .m-title{font-size:var(--text-title);font-weight:600;color:#fff;margin-bottom:6px}
+.modal-veil .m-body{font-size:var(--text-copy);color:#c9c9c9}
+.modal-veil .m-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.modal-veil .m-check{display:flex;gap:7px;align-items:center;margin-top:12px;color:var(--fg-muted);font-size:var(--text-meta)}
+.box{width:12px;height:12px;border:1px solid #5a5a5a;border-radius:3px;display:inline-block}
+
+/* timeline panel */
+.timeline{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:10px}
+.tl-row{
+  display:grid;grid-template-columns:86px 92px 1fr auto;gap:10px;align-items:center;
+  padding:6px 6px;border-bottom:1px solid var(--border-soft);font-size:var(--text-meta);
+}
+.tl-row:last-child{border-bottom:none}
+.tl-row .hash{font-family:var(--font-mono);color:#d0d0d0}
+.tl-row .when{font-family:var(--font-mono);color:var(--fg-dim)}
+.tl-row .why{color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-row.is-head{background:color-mix(in srgb,var(--running) 8%,transparent);border-radius:5px}
+
+/* annotation pins + legend */
+.pin{
+  display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;
+  background:color-mix(in srgb,var(--running) 22%,transparent);
+  border:1px solid color-mix(in srgb,var(--running) 60%,transparent);
+  color:#d7ecff;font-size:9px;font-family:var(--font-mono);flex:none;
+  vertical-align:middle;line-height:1;
+}
+.pin.in-flow{margin-left:4px}
+ol.legend{margin:14px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+ol.legend li{display:grid;grid-template-columns:20px 1fr;gap:9px;font-size:var(--text-copy);color:#c9c9c9}
+ol.legend .n{
+  width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--running) 22%,transparent);
+  border:1px solid color-mix(in srgb,var(--running) 55%,transparent);
+  font-family:var(--font-mono);font-size:9px;color:#d7ecff;
+}
+ol.legend .src{margin-left:6px}
+
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:var(--text-copy);margin:10px 0 4px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:var(--text-meta);letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--fg-dim);font-weight:600}
+td code{color:#d6d6d6}
+tr.warnrow td{background:color-mix(in srgb,var(--failed) 7%,transparent)}
+.badge{font-size:9px;letter-spacing:var(--track-caps);text-transform:uppercase;
+  padding:1px 6px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.badge.ship{color:var(--verified)} .badge.gap{color:var(--failed)} .badge.wire{color:var(--running)}
+
+/* pipeline flow */
+.flow{display:flex;flex-direction:column;gap:0;margin:10px 0 6px}
+.fbox{
+  border:1px solid var(--border);border-radius:7px;background:var(--panel-2);
+  padding:9px 11px;font-size:var(--text-copy);
+}
+.fbox .ft{font-weight:600;color:#fff;font-size:var(--text-copy)}
+.fbox .fd{color:var(--fg-muted);font-size:var(--text-meta);margin-top:3px}
+.fbox .src{display:inline-block;margin-top:6px}
+.farrow{color:var(--fg-dim);font-family:var(--font-mono);font-size:11px;padding:4px 0 4px 16px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:980px){.split{grid-template-columns:1fr}}
+.col-head{font-size:var(--text-meta);letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--fg-dim);margin:0 0 8px}
+.new-flag{color:var(--running)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <h1>Copilot blueprint — <span style="color:var(--running)">Revert</span> &amp; <span style="color:var(--approval)">Interrupt</span> · Crusor Agent pane</h1>
+    <p class="sub">
+      Read-only frames. Every behaviour below is quoted from the shipped pipeline
+      (<code>src/runtime/turn_control.py</code>, <code>src/graphs/chat_graph.py</code>, <code>src/tools/shadow_checkpoints.py</code>,
+      <code>src/bridge/</code>, <code>desktop/vscode/src/vs/workbench/contrib/crusorai/</code>) — nothing here is implemented yet.
+      <br />
+      Two rules govern the whole document: <b>interrupt is a hand brake</b> — one pull, it bites where the turn stands,
+      no wind-down and never the words “stop safely” — and <b>undo lives on the user request row</b>, following Copilot's
+      own checkpoint line.
+    </p>
+    <div class="tabs" role="tablist" aria-label="Blueprint frames">
+      <button class="tab" role="tab" aria-selected="true" data-tab="interrupt"><span class="k">F1–F3</span>Interrupt</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="revert"><span class="k">F4–F7</span>Revert</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="continue"><span class="k">F8–F9</span>Continue &amp; queue</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="pipeline"><span class="k">F10</span>Pipeline (as read)</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ═══════════════════════════════════════════════════════════ TAB: INTERRUPT -->
+<section class="tabpanel is-active" id="tab-interrupt">
+
+  <h2>F1 · Running — the brake, armed</h2>
+  <p class="note">
+    While a turn runs, the right-hand button is not “send”. It is the <b>hand brake</b>: a solid stop square in the same
+    slot, one pull, no menu, no confirmation, no “are you sure”. Pulling it cuts the turn <b>where it stands</b> —
+    the model stops being asked, the queue is dropped, nothing else is admitted.
+    <span class="hover-note">the composer still steers while you type</span>
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot running"></span><span class="who">Crusor</span><span class="pill">Running</span></div>
+        <div class="transcript">
+          <div class="msg-user">make the hero card rounded and add a stats row, then run the build</div>
+          <div class="turn">
+            <div class="assistant">
+              <div class="assistant-label"><span class="glyph">◆</span><strong>Crusor</strong>
+                <span class="stream-label">Working<span class="pin in-flow">1</span></span></div>
+              <div class="tool-row">
+                <span style="color:var(--verified)">✓</span><span class="name">write_file</span>
+                <span class="target">src/app/page.tsx</span><span class="time">0:04</span>
+              </div>
+              <div class="tool-row is-running">
+                <span class="spin"></span><span class="name">write_file</span>
+                <span class="target">src/app/globals.css</span><span class="time">0:01</span>
+              </div>
+              <div class="tool-row">
+                <span style="color:var(--fg-dim)">○</span><span class="name">run_terminal</span>
+                <span class="target">npm run build</span><span class="time">queued</span>
+              </div>
+              <div class="activity"><span class="pulse"></span>
+                <span class="hint">Running src/app/globals.css…<span class="pin in-flow">2</span></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="input">Steer this agent or add context…<span class="pin in-flow">3</span></div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="chip">Think <span class="caret">▾</span></span>
+            <span class="chip" aria-disabled="true">+ <span class="caret">▾</span></span>
+            <span class="send brake" title="Interrupt — stops now" aria-label="Interrupt"><span class="brake-glyph"></span><span class="pin in-flow">4</span></span>
+          </div>
+          <div class="composer-foot"><span>Enter to steer · Esc to interrupt</span><span>Shift+Enter = newline</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend">
+        <li><span class="n">1</span><span>Assistant line reads <b>Working</b> while the turn is live — and <b>Interrupted.</b> the instant the brake is pulled, not “stopping”, not “winding down”. <span class="src">crusorAIRenderer.ts:1401</span></span></li>
+        <li><span class="n">2</span><span>Activity row narrates the <b>live tool</b>, never a generic “waiting on the model”. If the table goes quiet it says so: “No activity for 5:00 — the turn is still running, but nothing has arrived.” <span class="src">crusorAIRenderer.ts:1595–1625</span></span></li>
+        <li><span class="n">3</span><span>Typing while busy <b>steers</b> the live turn (<code>steer</code> frame) — the brake and the steering wheel are different controls, and both stay live. <span class="src">crusorAIRenderer.ts:2474, 2485</span></span></li>
+        <li><span class="n">4</span><span><b>The brake is one pull.</b> Same slot as send, swapped glyph, no dropdown. While a pull is in flight the button is inert — a second pull is ignored, never a queue of stops. <span class="src">crusorAIRendererService.ts:226–228</span></span></li>
+      </ol>
+
+      <div class="evbox" style="margin-top:16px">
+        <h3>The brake model (what the copy must never say)</h3>
+        <ul>
+          <li><b>No “stopping”.</b> The brake is a state transition, not a process: the turn is running, then it is interrupted.</li>
+          <li><b>No “safely”.</b> Nothing is being protected by waiting. There is no grace window, no countdown, no “finishing the current step”.</li>
+          <li><b>No confirmation.</b> Undo is already covered: the workspace snapshot was taken before the first write (F4), and the request row can put the tree back (F5).</li>
+          <li><b>One exception, stated as a fact afterwards:</b> a file write that is <i>already inside</i> the OS call cannot be un-written — it lands, and the receipt says “1 write landed” rather than pretending it was rolled back.</li>
+        </ul>
+        <span class="src">turn_control.py:cancel() · chat_graph.py:4186 · llm/factory.py:656–668</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>F2 · Interrupted — the brake bites</h2>
+  <p class="note">
+    One pull, immediate. The stream is cut where it stands, the waiting tool is dropped, the tool already writing
+    finishes its own write and is reported as landed. The pane says <b>Interrupted</b> — a fact about what happened,
+    not a promise about what is happening.
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot approval"></span><span class="who">Crusor</span><span class="pill">Interrupted</span></div>
+        <div class="transcript">
+          <div class="turn is-cancelled">
+            <div class="assistant">
+              <div class="assistant-label"><span class="glyph">◆</span><strong>Crusor</strong>
+                <span class="stream-label">Interrupted.</span></div>
+              <div class="body-copy">The hero card is now rounded with the shared <span class="mono">card</span> class and the
+                stats row is in place. Next I'd wire the<span class="cut"></span></div>
+              <div class="tool-row">
+                <span style="color:var(--verified)">✓</span><span class="name">write_file</span>
+                <span class="target">src/app/page.tsx</span><span class="time">0:04</span>
+              </div>
+              <div class="tool-row is-cancelled">
+                <span style="color:var(--approval)">■</span><span class="name">write_file</span>
+                <span class="target">src/app/globals.css</span><span class="time">landed</span>
+              </div>
+              <div class="tool-row is-cancelled">
+                <span style="color:var(--approval)">✕</span><span class="name">run_terminal</span>
+                <span class="target">npm run build</span><span class="time">dropped</span>
+              </div>
+              <div class="activity"><span class="pulse" style="background:var(--approval);box-shadow:0 0 0 3px rgba(204,167,0,.16)"></span>
+                <span class="hint warn">Interrupted at 0:11<span class="pin in-flow">5</span></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="input">Plan, @ for context, / for commands</div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="chip">Think <span class="caret">▾</span></span>
+            <span class="send" title="Send">↑</span>
+          </div>
+          <div class="composer-foot"><span>Ready — the next prompt is a fresh turn</span><span>Shift+Enter for new line</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend">
+        <li><span class="n">5</span><span>The only status line is the outcome: <b>“Interrupted at 0:11”</b>. It replaces the old “Stopping safely” hint, which promised a wind-down that does not exist. <span class="src">crusorAIRenderer.ts:1293</span></span></li>
+        <li><span class="n">6</span><span>The cut is drawn where the model actually stopped — a thin amber bar at the end of the last token — not a spinner, not an ellipsis pretending more is coming.</span></li>
+        <li><span class="n">7</span><span>The composer is <b>live again immediately</b>: no disabled input, no “waiting for the turn to settle”. The brake released the session the moment it bit.</span></li>
+      </ol>
+
+      <h3 style="margin-top:18px">What the brake cuts — four rows, one fact each</h3>
+      <table>
+        <tr><th style="width:34%">At the moment of the pull</th><th>Result</th><th style="width:24%">Source</th></tr>
+        <tr>
+          <td>Tool batch not yet admitted</td>
+          <td>Never runs. The gate refuses it and the model gets <span class="mono">⛔ … tool not executed.</span></td>
+          <td><span class="src">chat_graph.py:4186, 4147</span></td>
+        </tr>
+        <tr>
+          <td>Provider request in flight</td>
+          <td>Aborted mid-stream: <span class="mono">LLM request cancelled by the user (Stop pressed).</span> Retry and failover are not allowed to re-issue.</td>
+          <td><span class="src">llm/factory.py:410, 656–668</span></td>
+        </tr>
+        <tr>
+          <td>Tool already executing</td>
+          <td>Cannot be un-run. A write lands; a terminal command is left to its own end. The UI marks it <b>landed</b>, and the turn's snapshot is what undoes it — not the brake.</td>
+          <td><span class="src">file_tools.py:407 · turn_control.py:register_abort</span></td>
+        </tr>
+        <tr>
+          <td>Nothing running (idle session)</td>
+          <td>Rejected, not queued: cancel on an inactive session returns <code>false</code>, so a stray pull can never poison the next turn.</td>
+          <td><span class="src">turn_control.py:cancel()</span></td>
+        </tr>
+      </table>
+      <p class="note" style="margin-top:10px">
+        Ack frames: <code>→ cancel</code> · <code>← session_info {cancel_requested:true}</code> ·
+        <code>← turn_done {completed:false, cancelled:true}</code>. The wire keeps its name; the surface says
+        <b>Interrupted</b>. <span class="src">bridge/__main__.py:1501–1506, 894–901</span>
+      </p>
+    </div>
+  </div>
+
+  <h2>F3 · Settled — the interrupted receipt</h2>
+  <p class="note">
+    The turn ends like any other: with a receipt row. An interrupted run keeps every fact it produced (text so far,
+    tool results, diff) and counts what the brake actually did — landed versus dropped. It never claims success, and
+    it never deletes work.
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot approval"></span><span class="who">Crusor</span><span class="pill">Idle</span></div>
+        <div class="transcript">
+          <div class="turn is-cancelled">
+            <div class="assistant">
+              <div class="assistant-label"><span class="glyph">◆</span><strong>Crusor</strong></div>
+              <div class="body-copy">2 of 3 steps landed. <span class="mono">globals.css</span> was written; the build
+                was dropped before it started.</div>
+              <div class="receipt cancelled"><span>■</span><span>Interrupted</span><span class="count">0:11 · 2 landed · 1 dropped</span></div>
+              <div class="row-actions">
+                <span class="btn ghost">Continue</span>
+                <span class="btn ghost">2 files changed ▸</span>
+                <span class="hover-note" style="align-self:center">undo lives on the request row ↑</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="input">Plan, @ for context, / for commands</div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="chip">Think <span class="caret">▾</span></span>
+            <span class="chip">+ <span class="caret">▾</span></span>
+            <span class="send" title="Send">↑</span>
+          </div>
+          <div class="composer-foot"><span>Enter to send</span><span>Shift+Enter for new line</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend">
+        <li><span class="n">8</span><span>Receipt: <b>“Interrupted”</b> with the stop square, distinct from <b>“Run failed”</b>. Never a green check on a cut run, and never the word “cancelled” in the user's face — that is the wire's word, not the product's. <span class="src">crusorAIRenderer.ts:1489–1491</span></span></li>
+        <li><span class="n">9</span><span>The counts are the honest part: <b>landed</b> means the bytes are on disk, <b>dropped</b> means the step never ran. One line answers “what do I have to clean up?” without a log dive.</span></li>
+        <li><span class="n">10</span><span>The partial answer stays. <code>finalize</code> stores <code>task_status:"cancelled"</code> and one line — <span class="mono">Operation cancelled by the user.</span> — then the loop exits. <span class="src">chat_graph.py:2004–2009</span></span></li>
+        <li><span class="n">11</span><span>The receipt stays a <b>statement</b>, not a toolbar. Undo is not here — it lives up on the user request row (F5), which is where Copilot puts it and where “back to before this ask” is unambiguous.</span></li>
+      </ol>
+    </div>
+  </div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ TAB: REVERT -->
+<section class="tabpanel" id="tab-revert">
+
+  <h2>F4 · The snapshot model that makes Undo honest</h2>
+  <p class="note">
+    The agent does not “remember” how to undo — it <b>snapshotted the whole workspace before the first mutation</b> of
+    each iteration, transparently, into a private git store the user's project never sees
+    (<span class="mono">~/.crusorai/checkpoints/store</span>, refs <span class="mono">refs/crusorai/&lt;hash16&gt;</span>).
+    One snapshot per workspace per turn; a turn that changed nothing mints no commit.
+  </p>
+  <div class="split">
+    <div class="fbox">
+      <div class="ft">Before the first write of every iteration</div>
+      <ul style="margin:6px 0 0;padding-left:16px;color:#c9c9c9;font-size:var(--text-copy)">
+        <li><code>begin_agent_turn()</code> resets per-turn dedup at <code>ai_node</code> entry.</li>
+        <li>First <code>write_file / edit_file / execute_code / run_terminal / scaffold</code> calls
+            <code>checkpoint_before_mutation(workspace, reason)</code> — e.g. <span class="mono">“before write_file: src/app/page.tsx”</span>.</li>
+        <li>Read-only commands skip the snapshot entirely.</li>
+      </ul>
+      <span class="src">shadow_checkpoints.py:695–712 · chat_graph.py:1322 · file_tools.py:407</span>
+    </div>
+    <div class="fbox">
+      <div class="ft">Restore semantics (already implemented server-side)</div>
+      <ul style="margin:6px 0 0;padding-left:16px;color:#c9c9c9;font-size:var(--text-copy)">
+        <li><b>Overwrite, never delete:</b> files created after the snapshot stay on disk.</li>
+        <li><b>Undo the undo:</b> restoring takes a pre-rollback snapshot first, so the restore itself is reversible.</li>
+        <li><b>Cross-project guard:</b> a commit must be an ancestor of <i>this</i> workspace's checkpoint ref.</li>
+        <li>Per-file restore: <code>restore(workspace, hash, file_path)</code>.</li>
+      </ul>
+      <span class="src">shadow_checkpoints.py:410–475</span>
+    </div>
+  </div>
+
+  <h2>F5 · The request row — the checkpoint line</h2>
+  <p class="note">
+    <b>This is Copilot's own frame, reused.</b> The restore control does not live on the assistant receipt — it lives on the
+    <b>user's request row</b>, just under the bubble, as a hairline-flanked toolbar that fades in when that row is hovered
+    or focused. That placement is what makes “Undo” unambiguous: it always means <i>back to before this ask</i>.
+    <span class="hover-note">hover the request row below ↓</span>
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot verified"></span><span class="who">Crusor</span><span class="pill">Completed</span></div>
+        <div class="transcript">
+          <div class="msg-row">
+            <div class="msg-user">make the hero card rounded and add a stats row</div>
+            <div class="cp-line">
+              <span class="hair"></span>
+              <span class="cp-actions">
+                <span class="pin in-flow">1</span>
+                <span class="btn is-new"><span class="g">↩</span>Undo turn<span class="pin in-flow">2</span></span>
+                <span class="btn ghost">⑂ Fork from here<span class="pin in-flow">3</span></span>
+              </span>
+              <span class="hair right"></span>
+            </div>
+          </div>
+          <div class="turn">
+            <div class="assistant">
+              <div class="tool-row"><span style="color:var(--verified)">✓</span><span class="name">write_file</span><span class="target">src/app/page.tsx</span><span class="time">0:04</span></div>
+              <div class="tool-row"><span style="color:var(--verified)">✓</span><span class="name">write_file</span><span class="target">src/app/globals.css</span><span class="time">0:03</span></div>
+              <div class="tool-row"><span style="color:var(--verified)">✓</span><span class="name">run_terminal</span><span class="target">npm run build</span><span class="time">0:22</span></div>
+              <div class="receipt ok"><span>✓</span><span>Run completed</span><span class="count">3 steps · 2 files · 0:41</span></div>
+              <div class="row-actions">
+                <span class="btn ghost">Keep</span>
+                <span class="btn ghost">2 files changed ▸</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="input">Plan, @ for context, / for commands</div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="chip">Think <span class="caret">▾</span></span>
+            <span class="send" title="Send">↑</span>
+          </div>
+          <div class="composer-foot"><span>Enter to send</span><span>Shift+Enter for new line</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend">
+        <li><span class="n">1</span><span><b>Placement + reveal:</b> the toolbar is inside the request row, <code>opacity:0</code> → <code>1</code> on row hover, on <code>focus-within</code>, and while confirming. It never floats over the transcript. <span class="src">chatListRenderer.ts:957–1000 · chat.css:4455–4490</span></span></li>
+        <li><span class="n">2</span><span><b>The action itself:</b> Copilot labels it <i>Restore Checkpoint</i> — <span class="mono">“Restores workspace and chat to this point.”</span> In our pipeline the click carries the turn's <b>baseline hash</b> — the snapshot taken before the first write — into the already-wired <code>checkpoint_restore</code> frame. <span class="src">chatEditingActions.ts:512–513 · crusorAIRendererService.ts:250</span></span></li>
+        <li><span class="n">3</span><span><b>Sibling, same frame:</b> Copilot puts <i>Fork Conversation</i> beside it (<span class="mono">“Fork conversation from this point”</span>). Ours is <code>session_fork</code>, which already exists in the bridge protocol — so the row hosts the pair honestly. <span class="src">chatForkActions.ts:30–50 · protocol.py:10</span></span></li>
+        <li><span class="n">4</span><span><span class="new-flag">New</span> — the hairline pair is the divider Copilot draws between turns (<code>.checkpoint-line-left/right</code>, both fading outward). Cheap to reproduce in the pane, and it means the control appears only where a turn boundary actually is.</span></li>
+      </ol>
+
+      <h3 style="margin-top:16px">The three states of that one control</h3>
+      <div class="timeline" style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <div class="cp-line">
+            <span class="hair"></span>
+            <span class="cp-actions"><span class="btn is-new"><span class="g">↩</span>Undo turn</span><span class="btn ghost">⑂ Fork from here</span></span>
+            <span class="hair right"></span>
+          </div>
+          <div class="cp-label">1 · Resting — invisible in Copilot (opacity 0); shown here at 30% so the blueprint is legible</div>
+        </div>
+        <div>
+          <div class="cp-line pinned">
+            <span class="hair"></span>
+            <span class="cp-actions"><span class="btn is-new"><span class="g">↩</span>Undo turn</span><span class="btn ghost">⑂ Fork from here</span></span>
+            <span class="hair right"></span>
+          </div>
+          <div class="cp-label">2 · Row hovered / focused — full opacity, clickable</div>
+        </div>
+        <div>
+          <div class="cp-line pinned">
+            <span class="hair"></span>
+            <span class="cp-actions">
+              <span class="cp-confirm">
+                <span class="go"><span>↩</span>Undo turn</span>
+                <span class="no" title="Cancel restoring this checkpoint">✕</span>
+              </span>
+            </span>
+            <span class="hair right"></span>
+          </div>
+          <div class="cp-label">3 · Confirming — inline split button: confirm, or ✕ (Esc) to back out. No modal. <span class="src">chatRestoreCheckpointActionViewItem.ts · chat.css:4386–4438</span></div>
+        </div>
+      </div>
+
+      <div class="evbox" style="margin-top:16px">
+        <h3>Why this placement is the right one here</h3>
+        <ul>
+          <li><b>It is the only anchor with one meaning.</b> A receipt-anchored Undo has to be read as “undo the thing above/below me?”; a request-anchored one reads as “go back to before I asked this”.</li>
+          <li><b>It survives interruption.</b> Stop lands mid-response — the assistant block is partial, but the request row is always complete and always above it (F6).</li>
+          <li><b>It is where the draft belongs.</b> Restoring a checkpoint puts the request text back in the composer in Copilot; that is the same row, one gesture, no second control. <span class="src">chat.shared.contribution.ts:867</span></li>
+          <li><b>Zero new surface.</b> Our pane already draws the user bubble; this adds one hairline row to it, not a panel.</li>
+        </ul>
+        <span class="src">chatListRenderer.ts:957 (MenuId.ChatMessageCheckpoint on the request row) · chat.css:4307–4337, 4455–4490</span>
+      </div>
+
+      <p class="note" style="margin-top:14px">
+        <b>Vocabulary, one word per scope:</b> <i>Undo turn</i> = this request's snapshot · <i>Continue</i> = send the same
+        request again · <i>Undo All Edits</i> = the whole working set (F7) · <i>Cancel</i> = stop a running turn.
+        Copilot calls the first one “Restore Checkpoint” and, on the very first request, “Start Over” — an open question below.
+      </p>
+    </div>
+  </div>
+
+  <h2>F6 · Interrupted — the same control, on the request row</h2>
+  <p class="note">
+    Stop lands mid-response: the assistant block below is partial, but the request row above never is. So the restore
+    control keeps its home (F5) and gains one sibling in the turn ledger — <b>Continue</b> — where the stopped work
+    actually is. One decision per row: <i>undo the ask</i> above, <i>carry on</i> below.
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot approval"></span><span class="who">Crusor</span><span class="pill">Interrupted</span></div>
+        <div class="transcript">
+          <div class="msg-row">
+            <div class="msg-user">add a pricing table under the hero</div>
+            <div class="cp-line pinned">
+              <span class="hair"></span>
+              <span class="cp-actions">
+                <span class="pin in-flow">1</span>
+                <span class="btn is-new"><span class="g">↩</span>Undo turn</span>
+                <span class="btn ghost">⑂ Fork from here</span>
+              </span>
+              <span class="hair right"></span>
+            </div>
+          </div>
+          <div class="turn is-cancelled">
+            <div class="assistant">
+              <div class="body-copy">I'll add a three-tier pricing table and reuse the existing card styles. Writing
+                <span class="mono">components/Pricing.tsx</span> — then I need to wire it into the page.</div>
+              <div class="tool-row"><span style="color:var(--verified)">✓</span><span class="name">write_file</span><span class="target">components/Pricing.tsx</span><span class="time">new file</span></div>
+              <div class="tool-row is-cancelled"><span style="color:var(--approval)">✕</span><span class="name">edit_file</span><span class="target">src/app/page.tsx</span><span class="time">dropped</span></div>
+              <div class="receipt cancelled"><span>■</span><span>Interrupted after 1 landed write</span><span class="count">snapshot 4f3a9c21</span></div>
+              <div class="row-actions">
+                <span class="btn is-new"><span class="g">▶</span>Continue<span class="pin in-flow">2</span></span>
+                <span class="btn ghost">Keep as is</span>
+                <span class="hover-note" style="align-self:center">undo lives on the request row ↑</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="input focused">add a pricing table under the hero<span class="pin in-flow">3</span></div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="chip">Think <span class="caret">▾</span></span>
+            <span class="send" title="Send">↑</span>
+          </div>
+          <div class="composer-foot"><span>Enter to send</span><span>Shift+Enter for new line</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend">
+        <li><span class="n">1</span><span><b>Undo turn</b> = <code>checkpoint_restore</code> with this turn's baseline hash — the snapshot taken before <span class="mono">components/Pricing.tsx</span> was created. Restoring is what makes the request text come back to the composer, so re-asking is one edit away. Inline confirm (F5 · state 3) is enough here: a stopped run is already the user's intent.</span></li>
+        <li><span class="n">2</span><span><b>Continue</b> = the ordinary <code>prompt</code> frame carrying the same text. There is no resume protocol: the transcript already holds the partial work and the tool evidence, so the model picks it up from the record itself.</span></li>
+        <li><span class="n">3</span><span>The draft refills from the interrupted request (the rule the workbench already ships as <code>chat.undoRequests.restoreInput</code>). <span class="src">chat.shared.contribution.ts:867</span></span></li>
+      </ol>
+      <p class="note" style="margin-top:14px">
+        <b>Honesty rule from the pipeline:</b> a stopped run's receipt says <i>how far it got</i> (“after 1 file”) and
+        names the snapshot it can go back to. Nothing here re-labels partial work as finished — and the
+        <b>new file that was created stays on disk unless a restore puts the tree back</b>, because our restore is
+        overwrite-only (that gap is the second open question below).
+      </p>
+      <p class="note">
+        <b>Why not put Undo in the ledger too?</b> Two identical Undo buttons on one screen would be one button too
+        many; the ledger already carries the two verbs that <i>only</i> exist after an interrupt — Continue and Keep as is.
+      </p>
+    </div>
+  </div>
+
+  <h2>F7 · Changed files — per-file undo, and the whole working set</h2>
+  <p class="note">
+    The file-level view is where a user actually looks after a run. Two controls, two scopes: <b>↩</b> per row restores
+    one path from the same snapshot (<code>restore(..., file_path)</code>); <b>Undo All Edits</b> is the working-set
+    action the workbench already ships and speaks.
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="editor">
+        <div class="editor-head"><span>Changes in this session</span><span class="right" style="margin-left:auto;color:var(--fg-dim)">3 files · +64 −9</span></div>
+        <div class="files">
+          <div class="file-row">
+            <span class="path">src/app/page.tsx</span>
+            <span class="stat"><span class="add-mark">+38</span> <span class="del-mark">−4</span></span>
+            <span class="act" title="Restore this file">↩<span class="pin in-flow">1</span></span>
+          </div>
+          <div class="file-row">
+            <span class="path">src/app/globals.css</span>
+            <span class="stat"><span class="add-mark">+26</span> <span class="del-mark">−5</span></span>
+            <span class="act">↩</span>
+          </div>
+          <div class="file-row is-new">
+            <span class="path">components/Pricing.tsx<span style="color:var(--fg-dim)"> (new)</span></span>
+            <span class="stat"><span class="add-mark">+41</span></span>
+            <span class="act">↩<span class="pin in-flow">2</span></span>
+          </div>
+        </div>
+        <div class="editor-head" style="border-top:1px solid var(--border);border-bottom:none">
+          <span>Working set</span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <span class="btn ghost is-new">Undo All Edits<span class="pin in-flow">3</span></span>
+            <span class="btn ghost">Keep All Edits</span>
+          </span>
+        </div>
+        <div class="diff">
+          <div class="hunk">@@ −12,7 +12,9 @@ components/Hero.tsx</div>
+          <div class="ctx">   &lt;section className="hero"&gt;</div>
+          <div class="del">-    &lt;div className="card"&gt;</div>
+          <div class="add">+    &lt;div className="card rounded-2xl shadow-lg p-8"&gt;</div>
+          <div class="add">+      &lt;StatsRow items={stats} /&gt;</div>
+          <div class="ctx">       &lt;h1&gt;{title}&lt;/h1&gt;</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend">
+        <li><span class="n">1</span><span>Per-file restore: rewrites that path from the checkpoint the row belongs to. Files <b>created after</b> the snapshot are left alone by the server (overwrite semantics) — so a “new file” row needs an explicit <i>delete</i> step if we want it gone; that decision is yours to make (see Open questions).</span></li>
+        <li><span class="n">2</span><span>New-file rows are marked, because they are the one case where “restore” and “remove” differ.</span></li>
+        <li><span class="n">3</span><span><b>Undo All Edits</b> reuses the shipped workbench dialog and keybinding rather than inventing a second one. <span class="src">chatEditingActions.ts:288–308</span></span></li>
+      </ol>
+      <div class="modal-veil" style="margin-top:16px">
+        <div class="m-title">Undo all edits?</div>
+        <div class="m-body">This will undo changes made in 3 files. Do you want to proceed?</div>
+        <div class="m-foot"><span class="btn ghost">No</span><span class="btn primary">Yes</span></div>
+      </div>
+      <p class="note" style="margin-top:10px">
+        Copilot CLI's equivalent is blunt on purpose: <i>“Are you sure you want to discard the changes in 'x'? This
+        action cannot be undone.”</i> Crusor can say something stronger, because the pre-rollback snapshot makes it
+        reversible. <span class="src">copilotCLIChatSessions.ts:1769–1785</span>
+      </p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">F7b · After the restore — the “Checkpoint Restored” line</h3>
+  <p class="note">
+    Copilot renders the post-restore state as its own labelled divider — <b>“Checkpoint Restored · Redo”</b>, where Redo
+    re-applies the discarded changes. We can say the same sentence with the real hash in it, because our pre-rollback
+    snapshot is exactly what that Redo needs.
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane" style="min-height:230px">
+        <div class="transcript">
+          <div class="cp-line pinned" style="opacity:1">
+            <span class="hair"></span>
+            <span class="cp-actions">
+              <span class="cp-restored">Checkpoint restored · <span class="hash">4f3a9c21</span></span>
+              <span class="btn is-new"><span class="g">↩</span>Put it back<span class="pin in-flow">1</span></span>
+            </span>
+            <span class="hair right"></span>
+          </div>
+          <div class="turn">
+            <div class="assistant">
+              <div class="body-copy dim">Restored to before “make the hero card rounded and add a stats row” — 2 files
+                reverted. The state that was on disk a moment ago is still snapshot <span class="mono">c41d0f2a</span>,
+                so this line is reversible too.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend" style="margin-top:0">
+        <li><span class="n">1</span><span><b>Put it back</b> carries Copilot's Redo semantics — <span class="mono">“Reapply discarded workspace changes and chat”</span> — pointed at our pre-rollback snapshot instead of a chat-edit stack. <span class="src">chatNewActions.ts:286–300 · shadow_checkpoints.py:441–452</span></span></li>
+        <li><span class="n">2</span><span><b>The label is the audit trail:</b> “Checkpoint restored” + hash, in the same hairline frame Copilot uses, so a restore is never a silent mutation of the tree under the editor. <span class="src">chatListRenderer.ts:1024–1049 · chat.css:4455–4470</span></span></li>
+        <li><span class="n">3</span><span>Restores must also refresh what the editor shows — reload open editors and re-render the diff, the same contract as <code>git restore</code> in Copilot CLI. <span class="src">copilotCLIChatSessions.ts:1780–1790</span></span></li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>F7c · Snapshot timeline (the “where can I go back to?” panel)</h2>
+  <p class="note">
+    Optional third scope, for the Manager surface: the actual checkpoint log for this workspace — the same list
+    <code>checkpoint_list</code> already returns, most recent first, capped at 20 by the store.
+  </p>
+  <div class="timeline">
+    <div class="tl-row is-head">
+      <span class="hash">c41d0f2a</span><span class="when">14:02:11</span>
+      <span class="why">pre-rollback snapshot (restoring to 4f3a9c21)</span><span class="btn ghost">Restore</span>
+    </div>
+    <div class="tl-row">
+      <span class="hash">4f3a9c21</span><span class="when">13:58:40</span>
+      <span class="why">before write_file: src/app/page.tsx</span><span class="btn ghost">Restore</span>
+    </div>
+    <div class="tl-row">
+      <span class="hash">91bb20de</span><span class="when">13:41:02</span>
+      <span class="why">before run_terminal: npm install</span><span class="btn ghost">Restore</span>
+    </div>
+    <div class="tl-row">
+      <span class="hash">0a17c5ee</span><span class="when">13:12:55</span>
+      <span class="why">before edit_file: src/app/globals.css</span><span class="btn ghost">Restore</span>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">
+    Kill switch: <code>CRUSORAI_CHECKPOINTS=off</code> makes every hook a no-op — the pane then hides this panel
+    entirely rather than showing an empty list.
+  </p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ TAB: CONTINUE/QUEUE -->
+<section class="tabpanel" id="tab-continue">
+
+  <h2>F8 · Interrupted answer, kept</h2>
+  <p class="note">
+    Stop never deletes the text already streamed. The transcript keeps the partial answer and the tool evidence;
+    the composer is immediately ready for the next turn. There is no “discard partial output?” prompt — the user
+    can undo the work (F5), and the words are not a side effect worth a dialog.
+  </p>
+  <div class="grid">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor</span><span class="right">Manager ⧉</span></div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot idle"></span><span class="who">Crusor</span><span class="pill">Interrupted</span></div>
+        <div class="transcript">
+          <div class="turn is-cancelled">
+            <div class="assistant">
+              <div class="body-copy">The hero card is now rounded with the shared <span class="mono">card</span> class and
+                the stats row is in place. Next I'd wire the pricing table into<span class="cut"></span></div>
+              <div class="receipt cancelled" style="border-top-color:transparent;padding-top:2px">
+                <span>■</span><span>Interrupted</span><span class="count">0:09 · 1 dropped</span></div>
+            </div>
+          </div>
+          <div class="msg-user">finish the sentence — wire the pricing table into the page</div>
+          <div class="turn">
+            <div class="assistant">
+              <div class="activity"><span class="pulse"></span><span class="hint">Asking claude-sonnet-4.5…</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="input">Steer this agent or add context…</div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="chip">Think <span class="caret">▾</span></span>
+            <span class="send brake" title="Interrupt — stops now" aria-label="Interrupt"><span class="brake-glyph"></span></span>
+          </div>
+          <div class="composer-foot"><span>Enter to steer · Esc to interrupt</span><span>Shift+Enter for new line</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ol class="legend" style="margin-top:0">
+        <li><span class="n">1</span><span>A partial answer is closed cleanly, not truncated mid-word by the UI — the text is what the model produced.</span></li>
+        <li><span class="n">2</span><span>The interrupted turn and the next one are separate receipts. Two stops are two facts; nothing is merged.</span></li>
+      </ol>
+      <p class="note" style="margin-top:14px">
+        Copilot-bit for this shape: <span class="mono">Response was interrupted.</span> is written by the extension
+        only when the model had produced <b>nothing</b> yet — otherwise the partial text is the record.
+        <span class="src">copilotcliSession.ts:1176–1184</span>
+      </p>
+    </div>
+  </div>
+
+  <h2>F9 · Queue vs steer — the one behaviour that must be visible</h2>
+  <p class="note">
+    Two surfaces, two verbs. Sending while the Manager is busy <b>steers</b> the live turn (frame goes out as
+    <code>steer</code>); sending while the Agent pane is busy <b>queues</b> (<code>prompt</code> → bridge queues,
+    <code>session_info {queued:N}</code> comes back). The UI has to say which one it did, or the user will think a
+    message was lost.
+  </p>
+  <div class="split">
+    <div class="win">
+      <div class="win-title"><span class="tabname">Agent pane</span><span class="right">queues</span></div>
+      <div class="pane" style="min-height:230px">
+        <div class="composer" style="border-top:none">
+          <div class="input locked">Steer this agent or add context…</div>
+          <div class="composer-bar">
+            <span class="chip queue">Queued · 2<span class="pin in-flow">1</span></span>
+            <span class="chip" aria-disabled="true">Agent <span class="caret">▾</span></span>
+            <span class="send brake" title="Interrupt — stops now" aria-label="Interrupt"><span class="brake-glyph"></span></span>
+          </div>
+          <div class="composer-foot"><span>Sends when this turn ends</span><span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="win">
+      <div class="win-title"><span class="tabname">Crusor Manager</span><span class="right">steers</span></div>
+      <div class="pane" style="min-height:230px">
+        <div class="transcript" style="gap:8px">
+          <div class="msg-user" style="background:#232323;border-color:color-mix(in srgb,var(--running) 40%,transparent)">
+            also use our design tokens, not raw hex<span class="pin in-flow">2</span></div>
+          <div class="activity"><span class="pulse"></span><span class="hint">Steering the running turn…</span></div>
+        </div>
+        <div class="composer" style="border-top:1px solid var(--border)">
+          <div class="input">Steer this agent or add context…</div>
+          <div class="composer-bar">
+            <span class="chip">Agent <span class="caret">▾</span></span>
+            <span class="send brake" title="Interrupt — stops now" aria-label="Interrupt"><span class="brake-glyph"></span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="grid" style="grid-template-columns:1fr">
+    <ol class="legend">
+      <li><span class="n">1</span><span>Queue depth chip — the only feedback that a busy-pane send was accepted rather than dropped. <span class="src">bridge/__main__.py:1463–1464 · protocol.py:18</span></span></li>
+      <li><span class="n">2</span><span>Steered text is echoed into the transcript as user text so the user can see what the running turn was told. <span class="src">bridge/__main__.py:1506–1509</span></span></li>
+    </ol>
+  </div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ TAB: PIPELINE -->
+<section class="tabpanel" id="tab-pipeline">
+
+  <h2>F10 · The interrupt &amp; revert pipeline, as read from the code</h2>
+  <p class="note">
+    End-to-end, one click to one receipt. Left column is what happens today; the right column is what is missing
+    between the wire and the pixels.
+  </p>
+
+  <div class="split">
+    <div>
+      <p class="col-head">Interrupt — shipped end-to-end</p>
+      <div class="flow">
+        <div class="fbox"><div class="ft">1 · Stop click</div>
+          <div class="fd">Composer's send button (running) → <code>host.cancel()</code> → frame <code>{type:"cancel", session_id}</code>.</div>
+          <span class="src">crusorAIRenderer.ts:2493–2498 · crusorAIRendererService.ts:225–229</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">2 · Bridge accepts — the brake bites</div>
+          <div class="fd"><code>turn_controls.cancel(sid)</code> — sets the cancel event, snapshots the registered abort handles, fires them outside the lock. Immediate: no wind-down phase, no waiting on the running step. Inactive session → rejected.</div>
+          <span class="src">bridge/__main__.py:1501–1506 · turn_control.py:cancel()</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">3 · Turn gates</div>
+          <div class="fd">Before a tool batch: <code>admit_action()</code> → refused → “⛔ … tool not executed.” Provider call: abort → <code>TurnCancelledError</code>, no retry/failover. A tool already executing lands and is reported as such.</div>
+          <span class="src">chat_graph.py:4186 · llm/factory.py:656–668</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">4 · Finalize</div>
+          <div class="fd"><code>task_status:"cancelled"</code> + one <code>AIMessage("Operation cancelled by the user.")</code>; nudges swept out.</div>
+          <span class="src">chat_graph.py:2004–2009</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">5 · Receipt</div>
+          <div class="fd"><code>turn_done {completed:false, cancelled:true}</code> → pane flips to <b>“Interrupted”</b> with landed/dropped counts; partial text and tool results stay.</div>
+          <span class="src">bridge/__main__.py:894–901 · crusorAIRenderer.ts:1489</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="col-head">Revert — wire exists, surface does not</p>
+      <div class="flow">
+        <div class="fbox"><div class="ft">1 · Snapshot (transparent)</div>
+          <div class="fd">Every iteration resets dedup; the first mutating tool snapshots the whole tree into the private store before touching a byte.</div>
+          <span class="src">chat_graph.py:1322 · shadow_checkpoints.py:695–712</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">2 · Store</div>
+          <div class="fd"><code>~/.crusorai/checkpoints/store</code>, refs <code>refs/crusorai/&lt;hash16&gt;</code>, 20 snapshots/project, lazy daily gc, excludes node_modules/dist/.git.</div>
+          <span class="src">shadow_checkpoints.py:1–60</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">3 · Protocol</div>
+          <div class="fd">Client: <code>checkpoint_list</code>, <code>checkpoint_restore</code>. Server: <code>checkpoint_event</code>. Mirrored into the IDE's generated protocol union.</div>
+          <span class="src">protocol.py:18–19,35 · crusorAIProtocol.generated.ts:35–36,55</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox" style="border-color:color-mix(in srgb,var(--failed) 45%,transparent)">
+          <div class="ft">4 · Gap — nothing renders it</div>
+          <div class="fd">No frame is ever sent (<code>checkpoint_list</code> has no sender), no handler exists for <code>checkpoint_event</code> (it falls through the dispatch chain), and the host hook <code>restoreCheckpoint()</code> has a declaration and an implementation but <b>no caller</b>. The pane therefore shows no checkpoint UI at all today.</div>
+          <span class="src">crusorAIRenderer.ts:207 · crusorAIRendererService.ts:250</span></div>
+        <div class="farrow">▼</div>
+        <div class="fbox"><div class="ft">5 · Target surface</div>
+          <div class="fd">F5 the request row's checkpoint line + F6 Continue in the ledger + F7 file rows + F7b “Checkpoint Restored · Put it back” + F7c timeline; every one of them ends in the existing <code>checkpoint_restore</code> frame.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Coverage table</h2>
+  <table>
+    <tr><th style="width:23%">Behaviour</th><th style="width:15%">Python / bridge</th><th style="width:20%">IDE protocol</th><th style="width:20%">Crusor pane UI</th><th>Note</th></tr>
+    <tr><td>Interrupt a running turn (hand brake)</td><td><span class="badge ship">shipped</span></td><td><span class="badge ship">shipped</span> <code>cancel</code></td><td><span class="badge ship">shipped</span></td><td>F1–F3.</td></tr>
+    <tr><td>Steer a running turn</td><td><span class="badge ship">shipped</span></td><td><span class="badge ship">shipped</span> <code>steer</code></td><td><span class="badge ship">shipped</span></td><td>Manager only; pane queues instead.</td></tr>
+    <tr><td>Queue a prompt while busy</td><td><span class="badge ship">shipped</span></td><td><span class="badge ship">shipped</span> <code>queue</code></td><td><span class="badge wire">partial</span></td><td><code>session_info.queued</code> is stored but has no chip. F9.</td></tr>
+    <tr class="warnrow"><td>Snapshot before every mutation</td><td><span class="badge ship">shipped</span></td><td>—</td><td>—</td><td>Transparent by design.</td></tr>
+    <tr class="warnrow"><td>List checkpoints</td><td><span class="badge ship">shipped</span></td><td><span class="badge wire">wired</span> <code>checkpoint_list</code></td><td><span class="badge gap">absent</span></td><td>No sender, no panel. F7c.</td></tr>
+    <tr class="warnrow"><td>Restore checkpoint</td><td><span class="badge ship">shipped</span></td><td><span class="badge wire">wired</span> <code>checkpoint_restore</code></td><td><span class="badge gap">absent</span></td><td>Host hook never called. Control belongs on the request row. F5–F7b.</td></tr>
+    <tr><td>Checkpoint event stream</td><td><span class="badge ship">shipped</span></td><td><span class="badge wire">typed</span> <code>checkpoint_event</code></td><td><span class="badge gap">unhandled</span></td><td>Workspace-scoped frames are dropped on the floor today.</td></tr>
+    <tr><td>Working-set Undo All Edits</td><td>—</td><td>—</td><td><span class="badge ship">shipped</span> (stock chat)</td><td>Not wired to Crusor's own snapshots. F7.</td></tr>
+  </table>
+
+  <h2>Open questions for you (answers change the frames)</h2>
+  <table>
+    <tr><th style="width:34%">Question</th><th>Why it matters</th></tr>
+    <tr><td>The first request in a session: <b>Undo turn</b> (back to the snapshot before it) or Copilot's <b>Start Over</b> (clears the chat and undoes everything)?</td>
+      <td>Copilot swaps the label on request #1 exactly here. Our baseline snapshot for the first turn is a real, restorable state — so we either keep one word for all rows, or mirror the swap and accept two meanings on one line.</td></tr>
+    <tr><td>Keep the <b>Undo turn</b> label, or say Copilot's <b>Restore checkpoint</b> / <b>Revert</b>?</td>
+      <td>The tooltip carries the meaning either way; the label is what gets scanned. “Undo turn” reads as an action on the conversation; “Restore checkpoint” reads as an action on the files.</td></tr>
+    <tr><td>Do we <b>delete</b> files created after a snapshot when the user restores?</td>
+      <td>Server restore is overwrite-only today. Deleting is a bigger promise and needs its own confirmation.</td></tr>
+    <tr><td>Per-file <b>↩</b> in the Crusor pane, or keep file-level undo in the workbench's Changes view only?</td>
+      <td>Duplicating the working-set UI in the pane risks two sources of truth; a narrow “last turn” list does not.</td></tr>
+    <tr><td>Timeline in the <b>Manager</b> (F7c) as a full panel, or a “restore earlier…” flyout off the receipt?</td>
+      <td>20 snapshots × whole-tree restores is a power tool; the pane is 420 px wide.</td></tr>
+    <tr><td>Do we mirror Copilot's <b>Fork from here</b> on the same row now, or leave the slot empty?</td>
+      <td><code>session_fork</code> already exists in the bridge protocol, so the row can host the pair the way Copilot does — but every added control on a 420 px row costs legibility.</td></tr>
+  </table>
+
+</section>
+
+</div>
+
+<script>
+// Tab switching — blueprint only, no product logic.
+document.querySelectorAll('.tab').forEach(function (tab) {
+  tab.addEventListener('click', function () {
+    document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-selected', String(t === tab)); });
+    document.querySelectorAll('section.tabpanel').forEach(function (p) {
+      p.classList.toggle('is-active', p.id === 'tab-' + tab.dataset.tab);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+});
+</script>
+</body>
+</html>
