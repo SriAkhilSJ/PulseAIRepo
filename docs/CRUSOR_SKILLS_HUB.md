@@ -1,6 +1,7 @@
 # Crusor Skills Hub
 
-**Status:** landed (Phase 1). **Owner:** engine (`src/agents/skills_hub.py`, `src/tools/skill_hub_tools.py`).
+**Status:** landed on `main` (Phases 1-4; Phase 5 bundles and publishing still open).
+**Owner:** engine (`src/agents/skills_hub.py`, `src/tools/skill_hub_tools.py`).
 
 The Skills Hub is the INSTALL side of the skills story. Bundled skills +
 `skills_list` / `skill_view` cover what is already on disk; the Hub adds
@@ -87,14 +88,14 @@ the catalog is the trust signal. Admission rules (enforced by
 | Agent | `hub_search`, `hub_install`, `hub_update`, `hub_list`, `hub_remove` | bound in the always-on skills waist (`toolsets._SKILL_TOOLS`) and `_TOOLS_BY_NAME`; one gated prompt sentence (`_HUB_SENTENCE`) renders only when hub tools are bound |
 | Bridge | `skills_hub_op` → `skills_hub_result` (op envelope: list / search / install / update / remove) | the transport the desktop Skills panel binds to; protocol pinned at all four layers |
 | CLI | `skills_hub_cli.py search/install/update/list/remove/all/toggle` | same pipeline |
-| IDE (Phase 3) | `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows (QuickPick) | bind to the bridge envelope; install/update/remove + enable/disable + usage counts, zero trust decisions of their own |
+| IDE (Phase 3) | Composer `+` menu → centered Hub dialog (`crusorAIHubDialog.ts`, four tabs: Marketplace / Connectors / My Skills / One-Shot), plus the `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows | both bind to the bridge envelope; install/update/remove + enable/disable + usage counts, zero trust decisions of their own; the `+` entry renders only when the `skills_hub_op` host hook is bound |
 | Manager (Skills tab) | `renderManager` → `skillsHubOp` host hook → `skills_hub_op` | live list + toggle/update/remove + `manifest` ("what the model sees"); two-step remove, actions serial per row |
 | Terminal | `scripts/skills_hub_cli.py` (`search` / `install` / `list` / `remove`) | same pipeline; useful for setup scripts and catalog verification |
 | Python | `src.agents.skills_hub` | result dicts, errors never raise (skills-layer convention) |
 
 ## Verification
 
-`src/tests/test_skills_hub.py` — 31 hermetic tests (injectable fetcher +
+`src/tests/test_skills_hub.py` — 54 hermetic tests (injectable fetcher +
 ref resolver, zero network): source grammar, catalog validation (incl. the
 shipped catalog), search ranking, end-to-end installs, fail-closed ref
 resolution, traversal/symlink/cap rejections, collision + upgrade rules,

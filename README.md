@@ -28,16 +28,17 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - **Manager button** in the Agent panel header opens the Crusor Manager in a separate Electron window.
 - **Top-right account avatar** `desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIAccount.ts` — `MenuId.TitleBar` `Codicon.account` dropdown with Sign in via `crusor.in/login`, Manage Subscription, Model & Provider, Settings, Shortcuts, Themes, Docs, Changelog, Feedback, Sign out. `product.json:linkProtectionTrustedDomains` trusts `https://www.crusor.in`.
 - **Response Ready notification** `browser/crusorAIRendererService.ts` — `turn_done` fires `Response Ready — Crusor` toast with `Open Crusor` action, toggle `crusorai.notifyOnComplete`.
-- **Connectors hub** `browser/crusorAIConnectors.ts` + `skills/*` — MCP (filesystem, github, postgres, puppeteer), github-connector, browser-connector, db/terminal. `Crusor → Connectors` + `Command Palette: Crusor: Show Connectors` lists the bundled pinned skills via `src/agents/skill_manager.py` (19 as of the hermes `software-development` port: 5 connectors + 10 coding-workflow skills — TDD, systematic-debugging, code-review, simplify, subagent-driven-development, spike, node/python debuggers, ast-grep, rest-graphql-debug — + code-wiki, grill-me, skill-authoring).
+- **Connectors hub** `browser/crusorAIConnectors.ts` + `skills/*` — MCP (filesystem, github, postgres, puppeteer), github-connector, browser-connector, db/terminal. `Crusor → Connectors` + `Command Palette: Crusor: Show Connectors` lists the bundled pinned skills via `src/agents/skill_manager.py` (20 as of the `media-sourcing` port: 5 connectors — filesystem/MCP, github, db, terminal, browser — + 10 coding-workflow skills — TDD, systematic-debugging, code-review, simplify, subagent-driven-development, spike, node/python debuggers, ast-grep, rest-graphql-debug — + code-wiki, codebase-inspection, grill-me, skill-authoring, media-sourcing).
+- **Composer `+` menu → Hub dialog** `browser/crusorAIHubDialog.ts` — the `+` beside the composer opens a centered modal (never a top-center QuickPick) with four tabs: **Marketplace** (search/install/update), **Connectors**, **My Skills** (enable/disable, remove, usage), **One-Shot** (quick jobs → clipboard). It anchors over the chat space, closes on A-/Escape/click-away, injects its own stylesheet so a stale workbench CSS can never blank it, and only appears when the `skills_hub_op` hook is bound. The `Crusor: Skills Hub` / `Crusor: My Skills` palette flows are the same bridge envelope.
 - The desktop host binds each session to the currently opened workspace.
 - A desktop utility process starts the Python bridge without importing Electron APIs into web builds.
 - CopilotKit webview host in the same auxiliary bar renders `CopilotChat` + `crusor_task_schema.json` generative cards, bound with `CopilotChat agentId="crusor_agent"`. Card schemas use the **flat A2UI v0.9** wire format (`{ id, component, ...props }`) — a `props`-nested wrapper renders an empty card.
-- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`crusorAIRenderer.ts` + `a2ui/renderers.tsx`). Since `c3d7e4dc` the renderer walks the ordered `parts` timeline (`text | tool | reasoning`) so thinking cards interleave in arrival order (hermes `message.parts` parity) instead of collapsing above the tools block.
+- Tool calls, usage receipts, approvals, errors, and run state have first-party renderers (`crusorAIRenderer.ts` for the native pane, `crusor-webview/src/a2ui/renderers.tsx` for the CopilotKit card surface). Since `c3d7e4dc` the renderer walks the ordered `parts` timeline (`text | tool | reasoning`) so thinking cards interleave in arrival order (hermes `message.parts` parity) instead of collapsing above the tools block.
 - The composer selects a real runtime mode: **Agent** executes the guarded workflow, **Plan** previews without executing, **Debug** diagnoses before minimal repair and retesting, and **Ask** answers without tools.
 - Built-in Copilot UI is hidden by default without deleting its source. It can be restored with the Crusor setting/command.
 - **CrusorAI Dark** is the bundled default theme.
 - Engine root auto-detection: when neither `crusorai.engineRoot` nor `CRUSORAI_ENGINE_ROOT` is configured, the workspace path is used if it contains the engine (`src/bridge`). This enables zero-config development.
-- **Sub-agent pipeline** `src/graphs/chat_graph.py:398` `delegate_to_subagent` / `delegate_to_subagent_batch` — parallel `Explore` (opencode `Spawn agents to analyze folders`), isolated `parentMap` `crusorAIRendererService.ts:477`, `taskToolCard` clickable to sub-agent `Agent` UI (`crusorAIRenderer.ts:766`), `Back to Parent` banner (`crusorAIRenderer.ts:1679`), prompt disabled in child, `CRUSORAI_SUBAGENT_DEPTH` depth guard.
+- **Sub-agent pipeline** `src/graphs/chat_graph.py:401` `delegate_to_subagent` / `delegate_to_subagent_batch` — parallel `Explore` (opencode `Spawn agents to analyze folders`), isolated `parentMap` `crusorAIRendererService.ts:138`, `taskToolCard` clickable to sub-agent `Agent` UI (`crusorAIRenderer.ts:783`), `Back to Parent` banner (`crusorAIRenderer.ts:1701`), prompt disabled in child, `CRUSORAI_SUBAGENT_DEPTH` depth guard.
 - **Crusor Preview** — the Agent pane detects built UI from session evidence and opens it in a separate desktop window (workbench auxiliary window framing the preview proxy at `http://127.0.0.1:8931`, or a free port, `src/preview/`). The proxy starts itself, hidden, the first time a session binds the opened folder (`src/preview/autostart.py`, `CRUSORAI_PREVIEW_AUTOSTART=0` opts out) — no second terminal, no Python console next to the app. Click-to-inspect elements, pin fixes, `Review → Send to Crusor` dispatches a scoped agent turn; the window reloads when the turn ends. The Preview chip wears the target state (`closed → starting → live → down`); a red (down) click asks the agent to relaunch the dev server instead of opening a dead window. `preview.open` receipts carry `target_reachable` — the agent must not report success while it is false. Contract in `desktop/.../common/crusorAIPreview.ts`, pinned by `src/tests/test_preview_contract.py`; browser lab in `preview-lab/`.
 - **Crusor file icons** (`desktop/vscode/extensions/theme-crusor-icons/`) ship as the default file-icon theme, pinned by `src/tests/test_crusor_file_icons.py`.
 
@@ -78,13 +79,26 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 
 > **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
 
-## Recent Changes 2026-09-30 — Crusor Skills Hub: the INSTALL side of skills
+## Recent Changes 2026-10-03 — Skills Hub + One-Shot reach `main`, and the build stops lying
 
-**Branch `arena/01a0f348-pulseairepo`:**
+**PR #19 (`arena/01a0f348` → `main`, merge `4be97c17`), build follow-ups `545360f1` → `4139630d`:**
 
 | Area | Change | Verification |
 |---|---|---|
-| **Skills Hub engine** | `src/agents/skills_hub.py` — search the curated catalog, install community `SKILL.md` skills from GitHub (catalog name, `owner/repo@sha`, `@sha:subdir`, `@ref` fail-closed-resolved to a full SHA), provenance ledger, uninstall; result-dict errors, never raises | `src/tests/test_skills_hub.py` (31 hermetic tests) + live installs over a real socket |
+| **Skills Hub + One-Shot land on `main`** | `src/agents/skills_hub.py`, `src/prompts/oneshot.py`, the `skills_hub_op` / `oneshot` bridge frames, the composer `+` menu and the centered Hub dialog (`crusorAIHubDialog.ts` — Marketplace / Connectors / My Skills / One-Shot) | PR tree byte-identical to `origin/main` |
+| **4 TS errors the merge shipped with** | `crusorAIRenderer.ts` annotated the `+` menu entries *around* `.filter()`, so `tab` widened to `string`; the Skills empty state called `host.openMarketplace` — a hook no host ever implemented. `npm run compile` failed with 4 errors on a green merge | `npm run compile` → `tsc finished`, exit 0 |
+| **Empty-state marketplace button** | `Browse the marketplace` opens the Hub dialog directly (`openHubDialog(host, button, 'marketplace')`) instead of a hook that could never fire | compile green; the button renders for an empty skill store |
+| **Build integrity (torn writes)** | `gulpfile.mjs` replaces the flaky `gulp.src → gulp.dest` copy (EIO with no file path, ~1 run in 3) with a read-back-verified `fs` copy, then scans `out/**.js` for torn emits — first 4 KB kept, the rest NUL-filled — and re-emits up to twice | 9603 files scanned: 0 torn, 0 unreadable |
+
+> **Field note.** On the build box `D:` is a USB-attached Micron CT1000X9SSD9 whose NTFS volume reports `HealthStatus: Warning`; that is what tore the writes and produced `SyntaxError: Invalid or unexpected token` at `keybindings.js:97` in a running app. The build now detects and repairs the symptom — the drive still deserves a look.
+
+## Recent Changes 2026-09-30 — Crusor Skills Hub: the INSTALL side of skills
+
+**Merged to `main` in PR #19; the table below is landed history:**
+
+| Area | Change | Verification |
+|---|---|---|
+| **Skills Hub engine** | `src/agents/skills_hub.py` — search the curated catalog, install community `SKILL.md` skills from GitHub (catalog name, `owner/repo@sha`, `@sha:subdir`, `@ref` fail-closed-resolved to a full SHA), provenance ledger, uninstall; result-dict errors, never raises | `src/tests/test_skills_hub.py` (54 hermetic tests) + live installs over a real socket |
 | **Safety pipeline** | host allow-list → SHA anchoring → 25MB/2000-file/8MB caps → traversal-proof, symlink-aware extraction → skill validation → collision guard (same-source upgrade only) → **zero execution on install** | attack-simulation tests: traversal member, escaping symlink, caps, corrupt tarball |
 | **Curated catalog** | `skills/catalog.json` — 8 real entries (Anthropic, Vercel, Trail of Bits, Superpowers repos), each pinned to an exact 40-char SHA; invalid entries dropped with reasons at load | catalog validation tests |
 | **Agent tools** | `hub_search` / `hub_install` / `hub_update` / `hub_list` / `hub_remove` — bound in the always-on skills waist + `_TOOLS_BY_NAME`; one gated prompt sentence | binding tests; `_skills_lead` gated rendering |
@@ -92,7 +106,7 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 | **CLI** | `scripts/skills_hub_cli.py` — search/install/update/list/remove from a terminal (same pipeline) | live-verified |
 | **Bridge surface (Phase 2)** | `skills_hub_op` client method → `skills_hub_result` server event — one generic op envelope (list/search/install/update/remove) the desktop Skills panel binds to; manifest + Python constants + generated TS + handwritten payload union all pinned | `test_bridge_protocol_v2.py` 8/8 |
 | **Skills surface (Phase 3)** | `Crusor: Skills Hub` + `Crusor: My Skills` Command Palette flows — browse/search/install/update/remove the catalog and manage every installed skill (enable/disable, usage counts) over the `skills_hub_op` bridge envelope; engine gains one consolidated `handle_hub_op` dispatcher shared by bridge, CLI and tests (ops: list/search/install/update/remove/all/toggle) | 44 hub tests + bridge/architecture suites green; UI compile owned by desktop verification |
-| **One-shot + linter (Phases 3-4)** | `src/prompts/oneshot.py` — stateless quick jobs (commit_message / summarize / rename_ideas / title_session via the shipped titling prompt) on the cheap auxiliary tier, ad-hoc `instructions+input` fallback, injectable invoke, never touches session history or the prompt cache; bridge `oneshot` → `oneshot_result` (session-independent, protocol pinned at all four layers); `Crusor: One-Shot Task` palette flow (result → clipboard); install-time skill metadata linter — warn-only, surfaced to the installer | `test_oneshot.py` 14 tests; focused suite 272 green |
+| **One-shot + linter (Phases 3-4)** | `src/prompts/oneshot.py` — stateless quick jobs (commit_message / summarize / rename_ideas / title_session via the shipped titling prompt) on the cheap auxiliary tier, ad-hoc `instructions+input` fallback, injectable invoke, never touches session history or the prompt cache; bridge `oneshot` → `oneshot_result` (session-independent, protocol pinned at all four layers); `Crusor: One-Shot Task` palette flow (result → clipboard); install-time skill metadata linter — warn-only, surfaced to the installer | `test_oneshot.py` 17 tests; focused suite 272 green |
 
 
 
@@ -108,7 +122,7 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 | **Merge follow-ups `6ec29027`** | Protocol regen for the new frames, handwritten payload union extended, workspace-boundary pins accept both `session_create` sites, UI-stamp pins → `2026-09-27`, context cache test hermetic vs owner `.env` | 118/118 targeted tests green |
 | **Crusor file icons** | Icon theme ships as default (PR #16) | `test_crusor_file_icons.py` green |
 
-Current truth this section supersedes: the CopilotKit webview is **enabled** by default (`crusorai.copilotWebview.enabled`, `crusorAI.contribution.ts:396`) — turn it off to give the whole pane to the native renderer. The 2026-09-19 round below is landed history (LSP, breathing pulse, scroll, `pulse-webview/` removal); its "pending merge / recompile next" notes are done.
+Current truth this section supersedes: the CopilotKit webview is **enabled** by default (`crusorai.copilotWebview.enabled`, `crusorAI.contribution.ts:415`) — turn it off to give the whole pane to the native renderer. The 2026-09-19 round below is landed history (LSP, breathing pulse, scroll, `pulse-webview/` removal); its "pending merge / recompile next" notes are done.
 
 <details>
 <summary>2026-09-19 — LSP, Breathing, Scroll, Hermes Parity (landed)</summary>
@@ -142,7 +156,7 @@ Current truth this section supersedes: the CopilotKit webview is **enabled** by 
 
 - Node.js 24.18.0 (see `desktop/.nvmrc`)
 - npm 12.x
-- Vite 7 + `@copilotkit/react-core@1.69.3`
+- Vite 8 + `@copilotkit/react-core@^1.69.3`
 
 ### Desktop IDE
 
@@ -282,7 +296,7 @@ npm run valid-layers-check
 npm run compile
 ```
 
-Build outputs and `node_modules` must remain untracked.
+Build outputs stay local, with one deliberate exception: `.gitignore` keeps `out/` untracked **except** the compiled Crusor panel `out/vs/workbench/contrib/crusorai/**` (nested `desktop/vscode/.gitignore:16-23`), so a fresh checkout still boots a working panel. `node_modules/` is never tracked.
 
 ### After changing workbench sources (`contrib/crusorai/`)
 
@@ -294,7 +308,7 @@ node --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js compile  # full t
 node scripts/emit-crusorai-bundle.mjs                                     # scoped bundle + SOURCES_HASH/manifest + DI check
 ```
 
-`gulp compile` does not regenerate the sources hash; the emitter does. The engine compares the shipped hash against your sources at boot and prints `DESKTOP WORKBENCH STALE` (naming the drifted files) on mismatch. The workbench UI stamp (`CRUSORAI_UI_STAMP` in `crusorAIRenderer.ts`) moves with every UI round — bump it and its test pins together. Then fully quit and reopen the app; the running process keeps old JS in memory.
+`gulp compile` does not regenerate the sources hash; the emitter does. After `tsc`, the compile task scans every emitted `.js` under `out/` for a torn write (first 4 KB kept, the rest NUL-filled — the shape a partial write takes on flaky storage) and re-emits up to twice, and the resource copy reads every file back before accepting it; a silent partial write therefore fails the build instead of shipping as `SyntaxError: Invalid or unexpected token` in the running app. The engine compares the shipped hash against your sources at boot and prints `DESKTOP WORKBENCH STALE` (naming the drifted files) on mismatch. The workbench UI stamp (`CRUSORAI_UI_STAMP` in `crusorAIRenderer.ts`) moves with every UI round — bump it and its test pins together. Then fully quit and reopen the app; the running process keeps old JS in memory.
 
 ## Test the Python runtime
 
@@ -405,7 +419,7 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 
 ### What's built and verified
 
-The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans — they are running code:
+The engine has shipped 2,139 `def test_` functions across 40+ D-rounds. These are not plans — they are running code:
 
 | Subsystem | Module | What it does |
 |---|---|---|
@@ -426,13 +440,13 @@ The engine has shipped 465+ green tests across 40+ D-rounds. These are not plans
 | **Scaffold Tools** | `src/tools/scaffold_tools.py` | Next.js + TypeScript + Tailwind scaffolding with `_provided/` preservation, layout normalization, legacy peer deps, shadow checkpoints, repo map invalidation. |
 | **Safety** | `src/context/safety_guard.py` | Workspace path validation, destructive operation approval gates, `$()`/backtick escalation to approval, session cancellation checks. |
 | **Verification** | `src/context/verification_evidence.py` | Completion gates distinguishing successful/failed/stale/skipped/unavailable evidence. Edited-file invalidation. |
-| **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 26 client methods, 30 server events. Host tool requests, safety requests, sub-agent lifecycle (`subagent_list`, `subagent_background_completed`), telemetry, workspace binding. |
-| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering (`crusorAIRenderer.ts:54` parts timeline with inline `reasoning` slots). Crusor Preview window + proxy. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. Last recompile `6ec29027` (2026-09-27). |
+| **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 33 client methods, 34 server events. Host tool requests, safety requests, sub-agent lifecycle (`subagent_list`, `subagent_background_completed`), skills-hub and one-shot envelopes, telemetry, workspace binding. |
+| **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering (`crusorAIRenderer.ts:133` ordered parts timeline with inline `reasoning` slots). Composer `+` menu → centered Hub dialog (Marketplace / Connectors / My Skills / One-Shot). Crusor Preview window + proxy. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. Recompiled 2026-10-03 at `545360f1`. |
 | **UI Lab** | `preview-lab/` | Browser harness for the Crusor Preview flow (real feature code, mocked model turn). Deterministic replay data. Desktop-syntax check bridge. |
 
 ### Test coverage
 
-- **198 Python source files**, **93 test files** in `src/tests/`
+- **369 Python source files**, **187 test files** in `src/tests/` (2,139 test functions)
 - Provider-free validation: 183/183 focused + 65/65 pytest + 16/16 CDP
 - Desktop compile, typecheck-client, valid-layers, syntax: all green
 - Protocol generation check: green
