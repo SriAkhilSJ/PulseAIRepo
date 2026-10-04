@@ -28,8 +28,9 @@ FORK = ROOT / "desktop" / "vscode"
 OUTB = FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
 SRCB = FORK / "src" / "vs" / "workbench" / "contrib" / "crusorai" / "browser"
 
-# The two commits this round shipped. The tip may move; these must stay
-# ancestors, so a later local commit on top does not turn this check red.
+# The two product commits this round shipped (implementation + blueprint).
+# The tip may move; these must stay ancestors, so a later local commit on top
+# does not turn this check red.
 ROUND_COMMITS = ("226d742c", "47bcdf6e")
 
 # New feature classes the renderer builds AND the stylesheet styles. A class
