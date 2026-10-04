@@ -39,10 +39,11 @@ if ($LASTEXITCODE -ne 0) { throw 'pull was not a fast-forward; stop and report' 
 git log --oneline -3
 ```
 
-Expected top three lines are `f501efe8` (this pull guide), `657722de` (host
-test handoff), and `226d742c` (implementation + shipped panel). The blueprint
-commit `47bcdf6e` should also be in the history. If `226d742c` is absent, stop
-and report — nothing below is meaningful.
+The history must contain `226d742c` (implementation + shipped panel) and
+`47bcdf6e` (blueprint), plus the host-test guide commits above them. The exact
+tip can be newer as this guide evolves; the verifier in §2a checks the two
+product commits. If `226d742c` is absent, stop and report — nothing below is
+meaningful.
 
 Then look at what the pull landed in:
 
