@@ -255,14 +255,16 @@ export function deriveChangedFiles(tools) {
             }
             stats = countDiffLineStats(diff);
         }
+        const created = /\[new file\]/i.test(text);
         const existing = byPath.get(path);
         if (existing) {
             existing.added += stats.added;
             existing.removed += stats.removed;
+            existing.created = existing.created || created;
         }
         else {
             const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
-            byPath.set(path, { added: stats.added, name, path, removed: stats.removed });
+            byPath.set(path, { added: stats.added, name, path, removed: stats.removed, created });
         }
     }
     return [...byPath.values()];

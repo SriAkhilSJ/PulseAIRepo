@@ -417,6 +417,9 @@
 	border-color: var(--crusorai-bubble-border);
 	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
 }
+/* "Interrupted · 0:11 · 2 landed · 1 dropped" — the clock and the counts are
+   the honest part, so they read as meta beside the verdict, not as prose. */
+.crusorai-receipt-meta { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
 .crusorai-turn-receipt.is-completed > .codicon { color: var(--crusorai-verified); }
 .crusorai-turn-receipt.is-cancelled > .codicon { color: var(--crusorai-approval); }
 .crusorai-turn-receipt.is-failed > .codicon { color: var(--crusorai-failed); }
@@ -965,12 +968,54 @@
 	cursor: pointer;
 }
 .crusorai-send-button:hover { filter: brightness(1.08); }
-.crusorai-send-button.crusorai-send-stop {
-	background: transparent;
-	color: var(--vscode-descriptionForeground);
-	outline: 1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, transparent));
+/* The hand brake (F1). Same slot as send, swapped glyph, one pull. Armed =
+   neutral solid square (a lever at rest); pulled = amber, the colour the pane
+   already means "your action, attention" — never red, which is reserved for
+   failure. It never says "stop safely": nothing is protected by waiting. */
+.crusorai-send-button.crusorai-send-brake {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
 }
-.crusorai-send-button.crusorai-send-stop:hover { color: var(--vscode-foreground); }
+.crusorai-send-button.crusorai-send-brake.is-pulled {
+	background: var(--crusorai-approval);
+	color: var(--vscode-editor-background);
+}
+.crusorai-send-button.crusorai-send-brake:disabled { cursor: default; opacity: 0.85; }
+.crusorai-brake-glyph {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	border-radius: 2px;
+	background: currentColor;
+}
+/* The cut (F2): a hard bar where the model actually stopped, never an
+   ellipsis or a spinner pretending more is coming. */
+.crusorai-cut {
+	display: inline-block;
+	width: 3px;
+	height: 0.82em;
+	vertical-align: -1px;
+	margin-left: 3px;
+	background: var(--crusorai-approval);
+	border-radius: 1px;
+}
+/* The brake square as a row/receipt glyph: landed bytes wear the same mark as
+   the control that stopped them. Dropped rows keep a hard cross, never the
+   red failure icon — nothing failed, it was refused. */
+.crusorai-verdict-square {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	border-radius: 2px;
+	background: var(--crusorai-approval);
+}
+.crusorai-tool-row.is-verdict-dropped .crusorai-tool-summary > .codicon { color: var(--vscode-descriptionForeground); }
+.crusorai-tool-verdict {
+	flex: none;
+	color: var(--crusorai-approval);
+	font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-tool-verdict.is-dropped { color: var(--vscode-descriptionForeground); }
 .crusorai-composer-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 5px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
 .crusorai-icon-button {
 	display: inline-flex;
@@ -1946,3 +1991,214 @@
    dialog injects its own stylesheet from crusorAIHubDialog.ts — the field
    report 2026-10-02 caught a stale workbench stylesheet rendering the card
    invisible; the chrome now ships with the markup that needs it. */
+
+/* ── The request-row checkpoint line (F5) ─────────────────────────────────
+   Copilot's own frame (chatListRenderer.ts:957–1000, chat.css:4307–4490),
+   reproduced in the pane: a hairline pair that fades outward, holding the
+   restore control. It lives INSIDE the user's request row, so "Undo turn"
+   can only ever mean "back to before I asked this" — and it is invisible
+   until that row is hovered or focused, never floating over the transcript. */
+.crusorai-request-row { display: flex; flex-direction: column; min-width: 0; }
+.crusorai-checkpoint-line {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 5px 0 1px;
+	opacity: 0;
+	transition: opacity 120ms ease-in-out;
+}
+.crusorai-request-row:hover > .crusorai-checkpoint-line,
+.crusorai-request-row:focus-within > .crusorai-checkpoint-line,
+.crusorai-checkpoint-line:focus-within { opacity: 1; }
+.crusorai-checkpoint-hair {
+	flex: 1;
+	height: 1px;
+	background-color: var(--crusorai-bubble-border);
+}
+.crusorai-checkpoint-hair.is-left {
+	mask-image: linear-gradient(to right, transparent, black);
+	-webkit-mask-image: linear-gradient(to right, transparent, black);
+}
+.crusorai-checkpoint-hair.is-right {
+	mask-image: linear-gradient(to left, transparent, black);
+	-webkit-mask-image: linear-gradient(to left, transparent, black);
+}
+.crusorai-checkpoint-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.crusorai-checkpoint-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 8px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-meta);
+	cursor: pointer;
+}
+.crusorai-checkpoint-action:hover { background: var(--vscode-toolbar-hoverBackground); border-color: var(--crusorai-bubble-border); }
+.crusorai-checkpoint-action.is-quiet { color: var(--vscode-descriptionForeground); }
+.crusorai-checkpoint-hash { font-family: var(--crusorai-font-mono); color: var(--vscode-descriptionForeground); font-size: var(--crusorai-conv-meta-size); }
+
+/* ── After the restore (F7b) ──────────────────────────────────────────────
+   "Checkpoint restored · <hash> · Put it back" — a restore mutates the tree
+   under the editor, so it gets its own labelled divider, and the pre-rollback
+   snapshot makes the way back part of the same line (Copilot's Redo, pointed
+   at our snapshot instead of a chat-edit stack). */
+.crusorai-checkpoint-restored {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	border: 1px solid var(--crusorai-bubble-border);
+	border-radius: var(--crusorai-radius-turn);
+	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-checkpoint-restored > .codicon { color: var(--crusorai-verified); }
+.crusorai-checkpoint-restored.is-error > .codicon { color: var(--crusorai-failed); }
+
+/* ── Queue depth chip (F9) ────────────────────────────────────────────────
+   The only feedback that a busy-pane send was parked behind the running turn
+   rather than dropped; it says which verb the send took. */
+.crusorai-queued-chip {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 5px;
+	padding: 3px 8px;
+	border: 1px solid var(--crusorai-bubble-border);
+	border-radius: 999px;
+	align-self: flex-start;
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-micro);
+}
+.crusorai-queued-chip > .codicon { color: var(--crusorai-approval); }
+.crusorai-queued-note { color: var(--vscode-descriptionForeground); }
+
+/* ── The snapshot log (F7c) ───────────────────────────────────────────────
+   The workspace's checkpoint_list, newest first: hash, time, reason, one
+   Restore per row. A workspace-scoped panel above the transcript, closed by
+   the same control that opened it. */
+.crusorai-checkpoint-log {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0 0 8px;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-panel-border, transparent);
+	border-left: 2px solid var(--crusorai-running);
+	border-radius: 7px;
+	background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+.crusorai-checkpoint-log-head { display: flex; align-items: center; gap: 6px; font-size: var(--crusorai-text-body); }
+.crusorai-checkpoint-log-head > .codicon { color: var(--crusorai-running); }
+.crusorai-checkpoint-log-note { flex: 1; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-checkpoint-log-rows { display: flex; flex-direction: column; gap: 4px; }
+.crusorai-checkpoint-log-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 3px 4px;
+	border-radius: 4px;
+	font-size: var(--crusorai-conv-meta-size);
+}
+.crusorai-checkpoint-log-row:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-checkpoint-log-time { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+.crusorai-checkpoint-log-reason { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+
+/* ── The turn ledger (F3/F6) ──────────────────────────────────────────────
+   The two verbs an interrupted run creates, placed BELOW the work they
+   belong to: "Continue" (send the same request again — there is no resume
+   protocol) and "Keep as is" (accept the partial run). "Undo turn" stays on
+   the request row above, so the two decisions never share a screen. */
+.crusorai-turn-ledger { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0; }
+.crusorai-ledger-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 10px;
+	border: 1px solid var(--crusorai-bubble-border);
+	border-radius: 5px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-meta);
+	cursor: pointer;
+}
+.crusorai-ledger-action:hover { background: var(--vscode-toolbar-hoverBackground); }
+.crusorai-ledger-action.is-primary { border-color: color-mix(in srgb, var(--crusorai-accent) 55%, transparent); color: var(--crusorai-accent); }
+.crusorai-ledger-action.is-danger { border-color: color-mix(in srgb, var(--crusorai-failed) 45%, transparent); }
+.crusorai-ledger-action.is-danger:hover { background: color-mix(in srgb, var(--crusorai-failed) 10%, transparent); }
+
+/* ── The changed-files card's two undo scopes (F7) ────────────────────────
+   A per-row ↩ restores one path from the turn's own snapshot; the working-set
+   footer restores the tree the turn started from, behind the same inline
+   split-pill confirm F5 uses. A file the turn CREATED is marked, because that
+   is the one case where "restore" and "remove" differ. */
+.crusorai-changed-file-new {
+	flex: none;
+	padding: 0 5px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--crusorai-approval) 18%, transparent);
+	color: var(--crusorai-approval);
+	font-size: var(--crusorai-text-micro);
+	text-transform: lowercase;
+}
+.crusorai-file-undo {
+	display: inline-grid;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	flex: none;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+}
+.crusorai-file-undo:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-workingset {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 8px 1px;
+	border-top: 1px solid var(--crusorai-bubble-border);
+}
+.crusorai-workingset-label { flex: 1; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); text-transform: uppercase; letter-spacing: var(--crusorai-track-caps); }
+/* Copilot's armed restore control: one border around label + ✕, label first,
+   the confirm shimmering so the armed state is unmistakable (chat.css
+   4386–4438 · chatRestoreCheckpointActionViewItem). */
+.crusorai-inline-confirm {
+	display: inline-flex;
+	align-items: stretch;
+	flex: none;
+	border: 1px solid var(--vscode-chat-requestBorder, var(--crusorai-bubble-border));
+	border-radius: 5px;
+	overflow: hidden;
+	background: var(--vscode-sideBar-background, transparent);
+}
+.crusorai-inline-confirm-yes {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 10px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-meta);
+	cursor: pointer;
+}
+.crusorai-inline-confirm-no {
+	display: grid;
+	place-items: center;
+	padding: 2px 8px;
+	border: 0;
+	border-left: 1px solid var(--vscode-chat-requestBorder, var(--crusorai-bubble-border));
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+}
+.crusorai-inline-confirm-no:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-checkpoint-file { font-family: var(--crusorai-font-mono); color: var(--vscode-foreground); font-size: var(--crusorai-conv-meta-size); }

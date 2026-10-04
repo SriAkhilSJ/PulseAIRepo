@@ -18,8 +18,9 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
+import { CrusorAICommandId } from '../common/crusorAI.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
+import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -118,6 +119,10 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         /** Reasoning parts seen this turn — each LLM call that produces reasoning adds a new part. */
         this.reasoningParts = [];
         this.reasoningPending = false;
+        /** Workspace checkpoint log (checkpoint_list), newest first. Empty => not asked yet. */
+        this.checkpoints = [];
+        /** Queued prompts behind the running turn (session_info.queued). */
+        this.queuedDepth = 0;
         this.subAgents = new Map();
         /** OpenCode parity: parentMap child_thread_id -> parent_session_id for navigation */
         this.parentMap = new Map();
@@ -178,10 +183,43 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             openDiff: toolId => { void this.openDiff(toolId); },
             revealFile: resource => { void this.revealFile(resource); },
             resourceSrc: resource => this.resourceBrowserSrc(resource),
-            restoreCheckpoint: checkpointHash => {
+            restoreCheckpoint: (checkpointHash, filePath) => {
                 const workspace = this.workspacePath;
                 if (workspace) {
-                    this.send({ type: 'checkpoint_restore', session_id: this.sessionId, workspace, checkpoint_hash: checkpointHash });
+                    // Optimistic receipt: the user pulled the control, so the row says
+                    // "restoring" immediately; the checkpoint_event below replaces this
+                    // with the real result (or the failure text). A dead click that only
+                    // resolves seconds later on a big workspace is not an answer.
+                    this.checkpointRestore = { success: true, restored_to: checkpointHash.slice(0, 8), file: filePath };
+                    this.send({
+                        type: 'checkpoint_restore', session_id: this.sessionId, workspace,
+                        checkpoint_hash: checkpointHash,
+                        ...(filePath ? { file_path: filePath } : {}),
+                    });
+                }
+            },
+            listCheckpoints: () => {
+                // One control, two pulls: open the workspace log, close it again. A
+                // button that only ever opens leaves the panel with no way out.
+                if (this.checkpoints.length) {
+                    this.checkpoints = [];
+                    this.render();
+                }
+                else {
+                    this.requestCheckpointList();
+                }
+            },
+            hideCheckpoints: () => {
+                // The toggle's second pull: close the panel and drop the rows, so the
+                // next open always shows the log that was actually requested.
+                this.checkpoints = [];
+                this.render();
+            },
+            forkSession: () => {
+                const workspace = this.workspacePath;
+                // Tip fork (bridge copies the live transcript into a child session).
+                if (workspace) {
+                    this.send({ type: 'session_fork', session_id: this.sessionId, workspace });
                 }
             },
             retryEngine: () => {
@@ -197,7 +235,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             selectWorkspace: uri => this.selectWorkspace(uri),
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
-            openEngineSettings: () => { void this.commandService.executeCommand("crusorai.openSettings" /* CrusorAICommandId.OpenSettings */); },
+            openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
             openManager: () => { this.openManagerWindow(); },
             // Composer + -> the Add… dialog (native QuickPick; each row routes to
             // its registered command — one code path with the palette).
@@ -246,17 +284,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this._hubListeners = new Set();
         this._oneshotListeners = new Set();
         this._register(this.engineService.onDidChangeState(state => {
-            if (state === "ready" /* CrusorAIEngineState.Ready */) {
+            if (state === CrusorAIEngineState.Ready) {
                 this.restartAttempts = 0;
                 this.engineFault = undefined;
             }
-            else if (state === "crashed" /* CrusorAIEngineState.Crashed */ || state === "degraded" /* CrusorAIEngineState.Degraded */) {
+            else if (state === CrusorAIEngineState.Crashed || state === CrusorAIEngineState.Degraded) {
                 // The only trace of a dying sidecar used to be a log line: the process exit is reported by
                 // the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
                 // receives turn_done -- so the panel kept painting a live run that had no engine behind it.
                 // A setup failure already has its own actionable row, so it is not overwritten here.
                 if (!this.engineSetupError) {
-                    this.engineFault = state === "crashed" /* CrusorAIEngineState.Crashed */
+                    this.engineFault = state === CrusorAIEngineState.Crashed
                         ? 'The Crusor engine process stopped while this session was open.'
                         : 'The Crusor engine could not accept the request, so it never reached the model.';
                     if (this.running) {
@@ -359,6 +397,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.parentMap.clear();
         this.childParentId = undefined;
         this.history = [];
+        this.turnCheckpoint = undefined;
+        this.checkpointRestore = undefined;
+        this.checkpoints = [];
+        this.queuedDepth = 0;
+        this.interrupt = undefined;
+        this.turnDurationMs = undefined;
         this.plan = [];
         this.verification = undefined;
         this.telemetry = {};
@@ -431,6 +475,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             stalled: this.stalled,
             degraded: this.degraded,
             turnOutcome: this.turnOutcome,
+            turnDurationMs: this.turnDurationMs,
+            turnCheckpoint: this.turnCheckpoint,
+            checkpointRestore: this.checkpointRestore,
+            checkpoints: this.checkpoints,
+            queuedDepth: this.queuedDepth,
+            interrupt: this.interrupt,
             userMessage: this.userMessage,
             assistantText: this.assistantText,
             parts: [...this.parts],
@@ -627,7 +677,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      */
     requestSessionList() {
         const workspace = this.workspacePath;
-        if (!workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (!workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
             return;
         }
         this.send({ type: 'session_list', session_id: this.sessionId, workspace, limit: 40, archived: 'exclude' });
@@ -855,7 +905,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }, delay);
     }
     async ensureEngine() {
-        if (this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
+        if (this.engineService.state === CrusorAIEngineState.Ready) {
             return;
         }
         if (this.startPromise) {
@@ -876,7 +926,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+            if (this.engineService.state !== CrusorAIEngineState.Ready) {
                 return;
             }
             // The durable list is the session surface's memory: refresh it on every (re)connect.
@@ -931,7 +981,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     publishHostCapabilities(sessionId = this.sessionId) {
         const workspace = this.workspacePath;
-        if (!sessionId || !workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (!sessionId || !workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
             return;
         }
         const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
@@ -1059,7 +1109,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.ensureEngine(),
             new Promise(resolve => setTimeout(resolve, 20_000)),
         ]);
-        if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
+        if (this.engineService.state !== CrusorAIEngineState.Ready) {
             // The one dishonest thing the old code did: return silently. The
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,
@@ -1124,6 +1174,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 tools: [...this.tools.values()],
                 subAgents: [...this.subAgents.values()],
                 turnOutcome: this.turnOutcome,
+                duration: this.turnDurationMs,
+                // The archived turn keeps ITS undo point: an old request row must not
+                // inherit the newest turn's hash (that would rewind to the wrong state).
+                checkpoint: this.turnCheckpoint?.baseline,
+                interrupt: this.interrupt,
                 plan: this.plan,
             }].slice(-20); // keep last 20 turns
     }
@@ -1145,6 +1200,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.cancelRequested = false;
         this.turnOutcome = 'running';
         this.turnStartedAt = Date.now();
+        // Turn-scoped receipts: the previous turn's checkpoint + interrupt counts
+        // belong to the row that was just archived, not to this new turn.
+        this.turnCheckpoint = undefined;
+        this.interrupt = undefined;
+        this.turnDurationMs = undefined;
     }
     startTurn(text) {
         this.archiveLiveTurn();
@@ -1457,10 +1517,20 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (frame.renamed || frame.pin_updated || frame.archive_updated) {
                 this.requestSessionList();
             }
+            // Queue depth (a busy-pane prompt was accepted, not dropped): the only
+            // feedback that exists for a send the engine parked behind this turn.
+            if (typeof frame.queued === 'number') {
+                this.queuedDepth = Math.max(0, frame.queued);
+            }
         }
         else if (frame.type === 'turn_started') {
             this.sessionId = frame.session_id;
             this.setRememberedSession(frame.session_id);
+            // One queued prompt is consumed per new turn (the bridge pops it at
+            // the end of the previous turn): the chip counts what is still WAITING.
+            if (this.queuedDepth > 0) {
+                this.queuedDepth -= 1;
+            }
             this.running = true;
             this.cancelRequested = false;
             this.turnOutcome = 'running';
@@ -1659,6 +1729,33 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 }
             }
         }
+        else if (frame.type === 'checkpoint_event') {
+            // checkpoint_list rows (the "Earlier snapshots" flyout) and the
+            // checkpoint_restore receipt ("Checkpoint restored · <hash>"). The
+            // restore result carries `pre_restore` — the snapshot the restore
+            // itself took — which is what "Put it back" sends back, so a restore
+            // is never a one-way door.
+            const rows = frame.checkpoints;
+            if (Array.isArray(rows)) {
+                this.checkpoints = rows
+                    .map(row => valueRecord(row))
+                    .filter((row) => row !== undefined)
+                    .map(row => ({
+                    hash: String(row.hash ?? ''),
+                    short_hash: String(row.short_hash ?? row.hash ?? ''),
+                    timestamp: String(row.timestamp ?? ''),
+                    reason: String(row.reason ?? ''),
+                }))
+                    .filter(row => row.hash !== '');
+            }
+            const restore = frame.restore;
+            if (restore && typeof restore === 'object') {
+                this.checkpointRestore = restore;
+                if (restore.success) {
+                    this.refreshAfterRestore();
+                }
+            }
+        }
         else if (frame.type === 'verification_updated') {
             this.verification = frame.status;
         }
@@ -1680,6 +1777,18 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // cancelled"; calling every incomplete run cancelled is progress
             // theatre in reverse (a lie about the Stop button).
             this.turnOutcome = frame.cancelled ? 'cancelled' : 'completed';
+            if (this.turnStartedAt !== undefined && this.turnDurationMs === undefined) {
+                this.turnDurationMs = Math.max(0, Date.now() - this.turnStartedAt);
+            }
+            // The turn's undo point rides every terminal frame (bridge
+            // _checkpoint_fields). Absent means the workspace had no snapshot —
+            // the request row then shows no undo, which is the truthful state.
+            if (frame.checkpoint) {
+                this.turnCheckpoint = frame.checkpoint;
+            }
+            if (frame.cancelled) {
+                this.interrupt = this.stampInterrupt();
+            }
             if (frame.message && !this.assistantText) {
                 this.assistantText = frame.message;
                 this.appendTextPart(frame.message);
@@ -1709,9 +1818,15 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         else if (frame.type === 'turn_failed') {
             this.running = false;
             this.cancelRequested = false;
+            if (this.turnStartedAt !== undefined && this.turnDurationMs === undefined) {
+                this.turnDurationMs = Math.max(0, Date.now() - this.turnStartedAt);
+            }
             this.turnStartedAt = undefined;
             this.turnEndedAt = Date.now();
             this.turnOutcome = 'failed';
+            if (frame.checkpoint) {
+                this.turnCheckpoint = frame.checkpoint;
+            }
             this.error = frame.error;
             this.compacting = undefined;
             this.contextStatus = undefined;
@@ -1856,6 +1971,58 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             return undefined;
         }
     }
+    /**
+     * What the brake did, measured — and written onto the rows it happened to
+     * (F2). A `dropped` call is one the graph refused (the cancelled-batch
+     * denial the engine writes into the tool result) or one that never left the
+     * queue; a `landed` call is one whose bytes are already on disk — a tool
+     * still running at the pull cannot be un-run, so it is closed out as landed
+     * and the turn's snapshot is what undoes it. A finished `passed` row counts
+     * as landed without a badge (it already reads done). Called exactly once,
+     * when the cancelled turn ends, so nothing is stamped by a repaint.
+     */
+    stampInterrupt() {
+        let landed = 0;
+        let dropped = 0;
+        // Snapshot the entries first: the map is mutated below and a live
+        // iterator must not be the thing deciding what gets stamped.
+        for (const [id, tool] of [...this.tools]) {
+            const result = typeof tool.result === 'string' ? tool.result : '';
+            const denied = result.includes('tool not executed') || result.includes('Operation cancelled by the user');
+            if (denied || tool.state === 'queued' || tool.state === 'approval') {
+                dropped += 1;
+                this.tools.set(id, { ...tool, state: 'failed', verdict: 'dropped', verdictText: 'dropped' });
+            }
+            else if (tool.state === 'running') {
+                landed += 1;
+                this.tools.set(id, { ...tool, state: 'passed', verdict: 'landed', verdictText: 'landed' });
+            }
+            else if (tool.state === 'passed') {
+                landed += 1;
+            }
+        }
+        return { landed, dropped };
+    }
+    requestCheckpointList() {
+        const workspace = this.workspacePath;
+        if (workspace) {
+            this.send({ type: 'checkpoint_list', session_id: this.sessionId, workspace });
+        }
+    }
+    /**
+     * A restore rewrote files under the workspace OUTSIDE the editor's own save
+     * path, so the explorer tree can be stale (files the turn created are gone,
+     * files it deleted are back). Ask it to re-read; VS Code's file watcher
+     * already covers open editors. Best effort — a build that lacks the command
+     * still gets the receipt repaint.
+     */
+    refreshAfterRestore() {
+        try {
+            void this.commandService.executeCommand('workbench.files.action.refreshFilesExplorer');
+        }
+        catch { /* receipt still repaints */ }
+        this.render();
+    }
     async revealFile(resource) {
         try {
             await this.workbenchService.openResource(this.resourceUri(resource).toString());
@@ -1878,11 +2045,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 source: detailLine ? `${detailLine}` : 'Crusor Agent finished',
                 actions: {
                     primary: [{
-                            id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+                            id: CrusorAICommandId.Focus,
                             label: 'Open Crusor',
                             tooltip: 'Focus Crusor Agent',
                             enabled: true,
-                            run: () => { void this.commandService.executeCommand("crusorai.focus" /* CrusorAICommandId.Focus */); }
+                            run: () => { void this.commandService.executeCommand(CrusorAICommandId.Focus); }
                         }]
                 }
             });

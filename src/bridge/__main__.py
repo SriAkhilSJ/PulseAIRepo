@@ -42,6 +42,7 @@ from src.bridge.protocol import (
 )
 from src.bridge.turn_watchdog import TurnLiveness, run_stall_watchdog
 from src.runtime.identity import TurnIdentity, normalize_id
+from src.tools.shadow_checkpoints import agent_turn_undo_point, mark_agent_turn_start
 
 ENGINE_VERSION = "0.2.0-runtime"
 
@@ -423,6 +424,31 @@ class BridgeServer:
         return sid
 
     @staticmethod
+    def _checkpoint_fields(workspace: str) -> dict:
+        """Turn-checkpoint receipt for terminal frames (D31, pane "Undo turn").
+
+        `baseline` is the snapshot this turn can be rewound to — the commit the
+        first write of the turn created from the tree BEFORE it wrote, so
+        restoring it undoes exactly this turn (and nothing the user did by
+        hand earlier). `latest` is the newest snapshot the turn produced. Both
+        ride turn_done/turn_failed so the request row can offer one undo with
+        a real target hash — no checkpoint_list round trip, no timestamp
+        guessing. No baseline => the frame carries no `checkpoint` key at all,
+        which the pane renders as "no undo here", never as a dead button.
+        """
+        baseline = agent_turn_undo_point(workspace)
+        try:
+            from src.tools.shadow_checkpoints import get_shadow_checkpoints
+            latest = get_shadow_checkpoints().latest_checkpoint(workspace)
+        except Exception:
+            latest = None
+        if not baseline:
+            return {}
+        return {"checkpoint": {
+            "baseline": baseline, "latest": latest, "workspace": workspace,
+        }}
+
+    @staticmethod
     def _project_event(event: dict, identity: TurnIdentity) -> dict | None:
         """Normalize internal event-bus fields into the stable Protocol v2 wire schema."""
         kind = event.get("type", "")
@@ -736,6 +762,14 @@ class BridgeServer:
         # UI can show Stop, stream_agent's nested begin must preserve it.
         turn_controls.begin(sid)
         set_active_session(sid)
+        # D31 turn-addressable undo: OPEN the turn's undo slot before it can
+        # mutate anything. The first snapshot the turn takes fills it — `_take`
+        # commits the tree as it stands BEFORE the write that triggered it, so
+        # that commit is this turn's starting state. The value rides every
+        # terminal frame below as `checkpoint.baseline`; a turn that changed
+        # nothing has none, and the pane then offers no undo instead of a dead
+        # one.
+        mark_agent_turn_start(workspace)
         try:
             self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
             if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() == "echo":
@@ -756,6 +790,7 @@ class BridgeServer:
                             "type": "turn_done", **identity.event_fields(),
                             "message": "Operation cancelled by the user.",
                             "completed": False, "cancelled": True, "stub": False,
+                            **self._checkpoint_fields(workspace),
                         })
                         return
                 # Say that no model was called, in the transcript, BEFORE the echo lands. Without
@@ -781,6 +816,7 @@ class BridgeServer:
                 self.emit({
                     "type": "turn_done", **identity.event_fields(),
                     "message": text, "completed": True, "stub": False,
+                    **self._checkpoint_fields(workspace),
                 })
                 return
 
@@ -862,6 +898,7 @@ class BridgeServer:
                     "message": str(result),
                     "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
+                    **self._checkpoint_fields(workspace),
                 })
                 # Hermes auto-title rule: only after a FULL exchange — a completed,
                 # uncancelled turn. The titler runs async and pushes session_info.
@@ -899,6 +936,7 @@ class BridgeServer:
                         "type": "turn_done", **identity.event_fields(),
                         "message": "Operation cancelled by the user.",
                         "completed": False, "cancelled": True, "stub": False,
+                        **self._checkpoint_fields(workspace),
                     })
                 else:
                     self._touch_turn(sid, text)
@@ -906,6 +944,7 @@ class BridgeServer:
                     _emit_terminal({
                         "type": "turn_failed", **identity.event_fields(),
                         "error": str(exc), "completed": False,
+                        **self._checkpoint_fields(workspace),
                     })
                     print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
         finally:

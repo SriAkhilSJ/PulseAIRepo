@@ -13,7 +13,7 @@ import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/brows
 import { CrusorAICommandId } from '../common/crusorAI.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
-import type { CrusorClarifyQuestion, CrusorClientMethod, CrusorExecutionMode, CrusorServerEvent, CrusorSessionMessage, CrusorTodoItem } from '../common/crusorAIProtocol.js';
+import type { CrusorCheckpointRestore, CrusorCheckpointRow, CrusorClarifyQuestion, CrusorClientMethod, CrusorExecutionMode, CrusorServerEvent, CrusorSessionMessage, CrusorTodoItem, CrusorTurnCheckpoint } from '../common/crusorAIProtocol.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import type { CrusorReasoningEffortValue } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
@@ -132,6 +132,34 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private turnStartedAt: number | undefined;
 	/** When the last turn stopped, for the row's elapsed clock. Turn end is a frame, not a timer. */
 	private turnEndedAt: number | undefined;
+	/**
+	 * The finished turn's wall-clock length, frozen when it ends. The receipt
+	 * ("Interrupted · 0:11") must read the same on every later repaint — a
+	 * receipt computed from Date.now() at paint time would keep ticking after
+	 * the run it describes stopped.
+	 */
+	private turnDurationMs: number | undefined;
+	/**
+	 * The turn's undo point (D31): baseline = the shadow snapshot the turn
+	 * started from, latest = the newest snapshot it produced. Carried on every
+	 * terminal frame by the bridge; moved into the history entry when the turn
+	 * is archived, so an old request row can still offer its own undo.
+	 */
+	private turnCheckpoint?: CrusorTurnCheckpoint;
+	/** Result of the last checkpoint_restore, for the "Checkpoint restored" line. */
+	private checkpointRestore?: CrusorCheckpointRestore;
+	/** Workspace checkpoint log (checkpoint_list), newest first. Empty => not asked yet. */
+	private checkpoints: readonly CrusorCheckpointRow[] = [];
+	/** Queued prompts behind the running turn (session_info.queued). */
+	private queuedDepth = 0;
+	/**
+	 * What the brake actually did, counted when an interrupted turn ends:
+	 * `dropped` = tools the graph refused (⛔ … tool not executed), `landed` =
+	 * tools that returned a real result (an in-flight write cannot be un-run,
+	 * so it lands and is reported as such). Undefined on a clean turn — the
+	 * receipt then says nothing it did not measure.
+	 */
+	private interrupt?: { readonly landed: number; readonly dropped: number };
 	private approval: CrusorAIRenderModel['approval'];
 	private subAgents = new Map<string, CrusorAISubAgentView>();
 	/** OpenCode parity: parentMap child_thread_id -> parent_session_id for navigation */
@@ -247,9 +275,37 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openDiff: toolId => { void this.openDiff(toolId); },
 		revealFile: resource => { void this.revealFile(resource); },
 		resourceSrc: resource => this.resourceBrowserSrc(resource),
-		restoreCheckpoint: checkpointHash => {
+		restoreCheckpoint: (checkpointHash, filePath) => {
 			const workspace = this.workspacePath;
-			if (workspace) { this.send({ type: 'checkpoint_restore', session_id: this.sessionId, workspace, checkpoint_hash: checkpointHash }); }
+			if (workspace) {
+				// Optimistic receipt: the user pulled the control, so the row says
+				// "restoring" immediately; the checkpoint_event below replaces this
+				// with the real result (or the failure text). A dead click that only
+				// resolves seconds later on a big workspace is not an answer.
+				this.checkpointRestore = { success: true, restored_to: checkpointHash.slice(0, 8), file: filePath };
+				this.send({
+					type: 'checkpoint_restore', session_id: this.sessionId, workspace,
+					checkpoint_hash: checkpointHash,
+					...(filePath ? { file_path: filePath } : {}),
+				});
+			}
+		},
+		listCheckpoints: () => {
+			// One control, two pulls: open the workspace log, close it again. A
+			// button that only ever opens leaves the panel with no way out.
+			if (this.checkpoints.length) { this.checkpoints = []; this.render(); }
+			else { this.requestCheckpointList(); }
+		},
+		hideCheckpoints: () => {
+			// The toggle's second pull: close the panel and drop the rows, so the
+			// next open always shows the log that was actually requested.
+			this.checkpoints = [];
+			this.render();
+		},
+		forkSession: () => {
+			const workspace = this.workspacePath;
+			// Tip fork (bridge copies the live transcript into a child session).
+			if (workspace) { this.send({ type: 'session_fork', session_id: this.sessionId, workspace }); }
 		},
 		retryEngine: () => {
 			if (this.restartTimer !== undefined) { clearTimeout(this.restartTimer); this.restartTimer = undefined; }
@@ -421,6 +477,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.parentMap.clear();
 		this.childParentId = undefined;
 		this.history = [];
+		this.turnCheckpoint = undefined;
+		this.checkpointRestore = undefined;
+		this.checkpoints = [];
+		this.queuedDepth = 0;
+		this.interrupt = undefined;
+		this.turnDurationMs = undefined;
 		this.plan = [];
 		this.verification = undefined;
 		this.telemetry = {};
@@ -494,6 +556,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			stalled: this.stalled,
 			degraded: this.degraded,
 			turnOutcome: this.turnOutcome,
+			turnDurationMs: this.turnDurationMs,
+			turnCheckpoint: this.turnCheckpoint,
+			checkpointRestore: this.checkpointRestore,
+			checkpoints: this.checkpoints,
+			queuedDepth: this.queuedDepth,
+			interrupt: this.interrupt,
 			userMessage: this.userMessage,
 			assistantText: this.assistantText,
 			parts: [...this.parts],
@@ -1147,6 +1215,11 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
 			turnOutcome: this.turnOutcome,
+			duration: this.turnDurationMs,
+			// The archived turn keeps ITS undo point: an old request row must not
+			// inherit the newest turn's hash (that would rewind to the wrong state).
+			checkpoint: this.turnCheckpoint?.baseline,
+			interrupt: this.interrupt,
 			plan: this.plan,
 		}].slice(-20); // keep last 20 turns
 	}
@@ -1169,6 +1242,11 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.cancelRequested = false;
 		this.turnOutcome = 'running';
 		this.turnStartedAt = Date.now();
+		// Turn-scoped receipts: the previous turn's checkpoint + interrupt counts
+		// belong to the row that was just archived, not to this new turn.
+		this.turnCheckpoint = undefined;
+		this.interrupt = undefined;
+		this.turnDurationMs = undefined;
 	}
 
 	private startTurn(text: string): void {
@@ -1454,9 +1532,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			}
 			// Rename/pin/archive acks re-sync the list so the row shows the new truth.
 			if (frame.renamed || frame.pin_updated || frame.archive_updated) { this.requestSessionList(); }
+			// Queue depth (a busy-pane prompt was accepted, not dropped): the only
+			// feedback that exists for a send the engine parked behind this turn.
+			if (typeof frame.queued === 'number') { this.queuedDepth = Math.max(0, frame.queued); }
 		} else if (frame.type === 'turn_started') {
 			this.sessionId = frame.session_id;
 			this.setRememberedSession(frame.session_id);
+			// One queued prompt is consumed per new turn (the bridge pops it at
+			// the end of the previous turn): the chip counts what is still WAITING.
+			if (this.queuedDepth > 0) { this.queuedDepth -= 1; }
 			this.running = true;
 			this.cancelRequested = false;
 			this.turnOutcome = 'running';
@@ -1630,6 +1714,30 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 					this.subAgents.set(subId, { ...existing, state: 'completed' as const, result: text } as any);
 				}
 			}
+		} else if (frame.type === 'checkpoint_event') {
+			// checkpoint_list rows (the "Earlier snapshots" flyout) and the
+			// checkpoint_restore receipt ("Checkpoint restored · <hash>"). The
+			// restore result carries `pre_restore` — the snapshot the restore
+			// itself took — which is what "Put it back" sends back, so a restore
+			// is never a one-way door.
+			const rows = frame.checkpoints;
+			if (Array.isArray(rows)) {
+				this.checkpoints = rows
+					.map(row => valueRecord(row))
+					.filter((row): row is Readonly<Record<string, unknown>> => row !== undefined)
+					.map(row => ({
+						hash: String(row.hash ?? ''),
+						short_hash: String(row.short_hash ?? row.hash ?? ''),
+						timestamp: String(row.timestamp ?? ''),
+						reason: String(row.reason ?? ''),
+					}))
+					.filter(row => row.hash !== '');
+			}
+			const restore = frame.restore;
+			if (restore && typeof restore === 'object') {
+				this.checkpointRestore = restore;
+				if (restore.success) { this.refreshAfterRestore(); }
+			}
 		} else if (frame.type === 'verification_updated') {
 			this.verification = frame.status;
 		} else if (frame.type === 'telemetry') {
@@ -1649,6 +1757,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// cancelled"; calling every incomplete run cancelled is progress
 			// theatre in reverse (a lie about the Stop button).
 			this.turnOutcome = frame.cancelled ? 'cancelled' : 'completed';
+			if (this.turnStartedAt !== undefined && this.turnDurationMs === undefined) {
+				this.turnDurationMs = Math.max(0, Date.now() - this.turnStartedAt);
+			}
+			// The turn's undo point rides every terminal frame (bridge
+			// _checkpoint_fields). Absent means the workspace had no snapshot —
+			// the request row then shows no undo, which is the truthful state.
+			if (frame.checkpoint) { this.turnCheckpoint = frame.checkpoint; }
+			if (frame.cancelled) { this.interrupt = this.stampInterrupt(); }
 			if (frame.message && !this.assistantText) {
 				this.assistantText = frame.message;
 				this.appendTextPart(frame.message);
@@ -1675,9 +1791,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
 			this.cancelRequested = false;
+			if (this.turnStartedAt !== undefined && this.turnDurationMs === undefined) {
+				this.turnDurationMs = Math.max(0, Date.now() - this.turnStartedAt);
+			}
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
 			this.turnOutcome = 'failed';
+			if (frame.checkpoint) { this.turnCheckpoint = frame.checkpoint; }
 			this.error = frame.error;
 			this.compacting = undefined;
 			this.contextStatus = undefined;
@@ -1806,6 +1926,54 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		} catch (error) {
 			return undefined;
 		}
+	}
+
+	/**
+	 * What the brake did, measured — and written onto the rows it happened to
+	 * (F2). A `dropped` call is one the graph refused (the cancelled-batch
+	 * denial the engine writes into the tool result) or one that never left the
+	 * queue; a `landed` call is one whose bytes are already on disk — a tool
+	 * still running at the pull cannot be un-run, so it is closed out as landed
+	 * and the turn's snapshot is what undoes it. A finished `passed` row counts
+	 * as landed without a badge (it already reads done). Called exactly once,
+	 * when the cancelled turn ends, so nothing is stamped by a repaint.
+	 */
+	private stampInterrupt(): { landed: number; dropped: number } {
+		let landed = 0;
+		let dropped = 0;
+		// Snapshot the entries first: the map is mutated below and a live
+		// iterator must not be the thing deciding what gets stamped.
+		for (const [id, tool] of [...this.tools]) {
+			const result = typeof tool.result === 'string' ? tool.result : '';
+			const denied = result.includes('tool not executed') || result.includes('Operation cancelled by the user');
+			if (denied || tool.state === 'queued' || tool.state === 'approval') {
+				dropped += 1;
+				this.tools.set(id, { ...tool, state: 'failed', verdict: 'dropped', verdictText: 'dropped' });
+			} else if (tool.state === 'running') {
+				landed += 1;
+				this.tools.set(id, { ...tool, state: 'passed', verdict: 'landed', verdictText: 'landed' });
+			} else if (tool.state === 'passed') {
+				landed += 1;
+			}
+		}
+		return { landed, dropped };
+	}
+
+	private requestCheckpointList(): void {
+		const workspace = this.workspacePath;
+		if (workspace) { this.send({ type: 'checkpoint_list', session_id: this.sessionId, workspace }); }
+	}
+
+	/**
+	 * A restore rewrote files under the workspace OUTSIDE the editor's own save
+	 * path, so the explorer tree can be stale (files the turn created are gone,
+	 * files it deleted are back). Ask it to re-read; VS Code's file watcher
+	 * already covers open editors. Best effort — a build that lacks the command
+	 * still gets the receipt repaint.
+	 */
+	private refreshAfterRestore(): void {
+		try { void this.commandService.executeCommand('workbench.files.action.refreshFilesExplorer'); } catch { /* receipt still repaints */ }
+		this.render();
 	}
 
 	private async revealFile(resource: string): Promise<void> {

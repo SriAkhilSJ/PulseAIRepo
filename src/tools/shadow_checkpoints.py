@@ -379,6 +379,19 @@ class ShadowCheckpoints:
         self._done_this_turn: set[str] = set()
         self._git_available: Optional[bool] = None
         self._lock = threading.Lock()
+        # Turn-addressable undo (the pane's "Undo turn"). Keyed by the SAME
+        # normalized abs_dir as the dedup set, per process on purpose — the
+        # store itself is the durable record and a restart re-derives the tip
+        # with one rev-parse (latest_checkpoint), so nothing here can drift
+        # from the git truth.
+        #   _turn_undo  — the FIRST snapshot of the current user turn. `_take`
+        #                 walks the tree before the mutation that triggered it,
+        #                 so this commit IS the turn's starting state (user's
+        #                 own edits included) and is the honest "Undo turn"
+        #                 target. None until the turn writes anything.
+        #   _last_created — newest snapshot this process took per workspace.
+        self._turn_undo: dict[str, Optional[str]] = {}
+        self._last_created: dict[str, str] = {}
 
     # -- turn lifecycle ----------------------------------------------------
 
@@ -419,9 +432,65 @@ class ShadowCheckpoints:
                 if abs_dir in self._done_this_turn:
                     return False
                 self._done_this_turn.add(abs_dir)
-                return self._take(abs_dir, reason)
+                return bool(self._take(abs_dir, reason))
         except Exception:
             return False  # a broken snapshot must never break an edit
+
+    # -- turn-addressable undo (pane "Undo turn") ---------------------------
+
+    def _ref_tip(self, abs_dir: str) -> Optional[str]:
+        """Current checkpoint tip for a workspace, or None when there is no
+        history. Read-only: never creates the store, never raises."""
+        try:
+            store = _store_path(self._base)
+            if not (store / "HEAD").exists():
+                return None
+            ok, out, _ = _run_git(
+                ["rev-parse", "--verify",
+                 _ref_name(_project_hash(abs_dir)) + "^{commit}"],
+                store, abs_dir, allowed_returncodes=frozenset({128}),
+            )
+            return out if ok and out else None
+        except Exception:
+            return None
+
+    def mark_turn_start(self, working_dir: str) -> None:
+        """Open a user turn: clear the workspace's undo slot.
+
+        Called once when a user turn begins, BEFORE any mutation. The slot is
+        then filled by the FIRST snapshot the turn takes — the commit `_take`
+        creates from the tree as it stands before the first write — which is
+        the state "undo this turn" must restore. Clearing (rather than
+        recording the old ref tip) is deliberate: the ref tip may predate
+        edits the user made by hand between turns, so restoring it would
+        silently revert work this turn never touched. Never raises.
+        """
+        try:
+            if not self.enabled:
+                return
+            abs_dir = str(_normalize_path(working_dir))
+            if abs_dir in {"/", str(Path.home())}:
+                return
+            self._turn_undo[abs_dir] = None
+        except Exception:
+            return
+
+    def turn_undo_point(self, working_dir: str) -> Optional[str]:
+        """The current turn's undo target: its first snapshot, or None when
+        the turn has not written anything yet (nothing to undo)."""
+        try:
+            return self._turn_undo.get(str(_normalize_path(working_dir)))
+        except Exception:
+            return None
+
+    def latest_checkpoint(self, working_dir: str) -> Optional[str]:
+        """Newest snapshot for a workspace: this process's last commit, else
+        the ref tip (a restart keeps the answer truthful). Never raises."""
+        try:
+            abs_dir = str(_normalize_path(working_dir))
+            return self._last_created.get(abs_dir) or self._ref_tip(abs_dir)
+        except Exception:
+            return None
 
     def list_checkpoints(self, working_dir: str) -> list[dict]:
         """Checkpoints for a directory, most recent first."""
@@ -496,8 +565,11 @@ class ShadowCheckpoints:
                 return {"success": False, "error": f"Invalid file path: {file_path!r}"}
 
         # Undo-the-undo: pre-rollback snapshot so a restore is itself
-        # reversible. (Bypasses per-turn dedup on purpose.)
-        self._take(abs_dir, f"pre-rollback snapshot (restoring to {commit_hash[:8]})")
+        # reversible. (Bypasses per-turn dedup on purpose.) Its hash rides
+        # the result as `pre_restore`, which is what the pane's "Put it back"
+        # sends back — a restore that cannot name where it came from is a
+        # one-way door with a confirmation dialog bolted on.
+        pre_restore = self._take(abs_dir, f"pre-rollback snapshot (restoring to {commit_hash[:8]})")
 
         index_file = _index_path(store, _project_hash(abs_dir))
         target = file_path if file_path else "."
@@ -510,14 +582,17 @@ class ShadowCheckpoints:
                     "debug": err or None}
 
         result = {"success": True, "restored_to": commit_hash[:8],
-                  "directory": abs_dir}
+                  "directory": abs_dir, "pre_restore": pre_restore or None}
         if file_path:
             result["file"] = file_path
         return result
 
     # -- internals ----------------------------------------------------------
 
-    def _take(self, working_dir: str, reason: str) -> bool:
+    def _take(self, working_dir: str, reason: str) -> str:
+        """Snapshot now. Returns the new commit oid, or "" when nothing was
+        taken (disabled, over cap, no change, git failure). Never raises —
+        a broken snapshot must never break an edit."""
         store = _store_path(self._base)
         _init_store(store)
         _touch_project(store, working_dir)
@@ -533,7 +608,7 @@ class ShadowCheckpoints:
                 "(CRUSORAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
                 flush=True,
             )
-            return False
+            return ""
 
         dir_hash = _project_hash(working_dir)
         index_file = _index_path(store, dir_hash)
@@ -570,7 +645,7 @@ class ShadowCheckpoints:
                 "(CRUSORAI_SHADOW_RETRY_AFTER_GIVEUP=1 to retry)",
                 flush=True,
             )
-            return False
+            return ""
 
         if self.max_file_size_mb > 0:
             self._drop_oversize_from_index(store, working_dir, index_file)
@@ -583,37 +658,44 @@ class ShadowCheckpoints:
                 index_file=index_file,
             )
             if ok_same:
-                return False  # no changes this turn => no commit
+                return ""  # no changes this turn => no commit
         else:
             ok_ls, ls_out, _ = _run_git(["ls-files", "--cached"],
                                         store, working_dir, index_file=index_file)
             if ok_ls and not ls_out.strip():
-                return False  # empty tree
+                return ""  # empty tree
 
         ok_tree, tree_sha, _ = _run_git(["write-tree"], store, working_dir,
                                         index_file=index_file)
         if not ok_tree or not tree_sha:
-            return False
+            return ""
 
         commit_args = ["commit-tree", tree_sha, "-m", f"[shadow] {reason}"]
         if has_ref:
             commit_args += ["-p", ref_commit]
         ok_c, new_commit, _ = _run_git(commit_args, store, working_dir)
         if not ok_c or not new_commit:
-            return False
+            return ""
 
         ok_u, _, _ = _run_git(["update-ref", ref, new_commit], store, working_dir)
         if not ok_u:
-            return False
+            return ""
 
         self._trim_history(store, working_dir, ref, dir_hash)
         self._maybe_gc(store, working_dir)
+        # Addressable undo point: remember it as this workspace's newest, and
+        # — for the first snapshot of the user turn — as the turn's undo
+        # target, so the pane can name hashes without re-reading git.
+        key = str(_normalize_path(working_dir))
+        self._last_created[key] = new_commit
+        if not self._turn_undo.get(key):
+            self._turn_undo[key] = new_commit
         print(
             f"[shadow_checkpoint] snapshot took {time.monotonic() - started:.1f}s "
             f"({working_dir})",
             flush=True,
         )
-        return True
+        return new_commit
 
     def _drop_oversize_from_index(self, store: Path, working_dir: str,
                                   index_file: Path) -> None:
@@ -710,3 +792,20 @@ def begin_agent_turn() -> None:
         get_shadow_checkpoints().new_turn()
     except Exception:
         pass
+
+
+def mark_agent_turn_start(workspace: str) -> None:
+    """Called once when a USER turn begins (bridge _run_turn). Never raises."""
+    try:
+        get_shadow_checkpoints().mark_turn_start(workspace)
+    except Exception:
+        pass
+
+
+def agent_turn_undo_point(workspace: str) -> Optional[str]:
+    """The current turn's "Undo turn" hash (its first snapshot), or None when
+    the turn changed nothing. Never raises."""
+    try:
+        return get_shadow_checkpoints().turn_undo_point(workspace)
+    except Exception:
+        return None

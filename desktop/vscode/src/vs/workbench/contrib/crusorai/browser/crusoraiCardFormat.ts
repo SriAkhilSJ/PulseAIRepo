@@ -201,6 +201,12 @@ export interface CrusorChangedFile {
 	/** Path exactly as the tool reported it. */
 	readonly path: string;
 	readonly removed: number;
+	/**
+	 * The write CREATED this file (write_file stamps "[new file]" into its
+	 * receipt). The one case where "restore" and "remove" differ: our restore
+	 * is overwrite-only, so the row is marked instead of promising a delete.
+	 */
+	readonly created?: boolean;
 }
 
 interface ChangedFileToolLike {
@@ -232,7 +238,7 @@ function resultPathString(args: unknown, result: unknown): string {
 /** One row per file the turn edited, in first-touched order, +/- summed.
  *  Only LANDED edits count: running has no result, failed changed nothing. */
 export function deriveChangedFiles(tools: readonly ChangedFileToolLike[]): CrusorChangedFile[] {
-	const byPath = new Map<string, { added: number; name: string; path: string; removed: number }>();
+	const byPath = new Map<string, { added: number; name: string; path: string; removed: number; created: boolean }>();
 	for (const tool of tools) {
 		if (!['write_file', 'edit_file', 'copy_file'].includes(tool.name)) { continue; }
 		if (tool.state !== 'passed' && tool.state !== 'completed') { continue; }
@@ -252,13 +258,15 @@ export function deriveChangedFiles(tools: readonly ChangedFileToolLike[]): Cruso
 			if (!diff) { continue; }
 			stats = countDiffLineStats(diff);
 		}
+		const created = /\[new file\]/i.test(text);
 		const existing = byPath.get(path);
 		if (existing) {
 			existing.added += stats.added;
 			existing.removed += stats.removed;
+			existing.created = existing.created || created;
 		} else {
 			const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
-			byPath.set(path, { added: stats.added, name, path, removed: stats.removed });
+			byPath.set(path, { added: stats.added, name, path, removed: stats.removed, created });
 		}
 	}
 	return [...byPath.values()];

@@ -53,10 +53,21 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "rememberEvent" in service
     assert "cancelRequested" in service
     assert "frame.cancel_requested" in service
-    assert "Stopping." in renderer
-    assert "Run cancelled" in renderer
+    # Interrupt vocabulary (field 2026-10-04): the brake is a state
+    # transition, not a wind-down. The live label is "Interrupted." the
+    # instant the pull lands — never "Stopping.", never "safely" — and the
+    # receipt says "Interrupted" with the brake square and the measured
+    # landed/dropped counts, never the wire's word "cancelled" in the user's
+    # face, never a green check on a cut run.
+    assert "Interrupted." in renderer
+    assert "Stopping." not in renderer
+    assert "safely" not in renderer
+    assert "Run cancelled" not in renderer
+    assert "'Interrupted'" in renderer
+    assert "crusorai-send-brake" in renderer
+    assert "stampInterrupt" in service
     # Terminal mapping uses the frame's real cancel flag: an ended-incomplete
-    # run (completed:false, cancelled:false) must NOT paint "Run cancelled" —
+    # run (completed:false, cancelled:false) must NOT paint "Interrupted" —
     # the task verdict already landed in-band via finalize's trailing receipt.
     assert "frame.cancelled ? 'cancelled' : 'completed'" in service
     assert "scheduleRestart" in service
@@ -65,6 +76,58 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "preventScroll: true" in renderer
     assert "wasNearBottom" in renderer
     assert "Review change" in renderer
+
+
+def test_interrupt_is_a_hand_brake_and_undo_lives_on_the_request_row():
+    """Owner field 2026-10-04, dictated twice: "interrupted stopped, its like
+    hand brake" — one pull, it bites where the turn stands, no wind-down, and
+    the words "stop safely" must never appear in the product. And the undo
+    control belongs on the USER's request row (Copilot's own checkpoint line:
+    .checkpoint-container inside the request row, reveal on hover/focus), not
+    on the assistant receipt — that is the only anchor where "Undo" can mean
+    exactly one thing: back to before I asked this."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    # The brake: same slot as send, solid square, one pull, inert while pulled.
+    assert "crusorai-send-brake" in renderer and "crusorai-send-brake" in css
+    assert "Interrupt — stops now" in renderer
+    assert "debug-pause" not in renderer, "a pause glyph implies resumable work; the brake stops"
+    assert "crusorai-brake-glyph" in renderer and "crusorai-brake-glyph" in css
+    # Esc pulls it, from the composer the hint advertises it in — and the
+    # handler sits BEFORE the clarify branch's early return, because an
+    # unreachable keybinding is a lie in the hint bar.
+    assert "Esc to interrupt" in renderer
+    assert ".crusorai-send-brake:not([disabled])" in renderer
+    assert renderer.index(".crusorai-send-brake:not([disabled])") < renderer.index(
+        "const form = document.querySelector"), "the brake's Escape must be reachable"
+    # The cut: a hard bar where the model stopped, never an ellipsis.
+    assert "crusorai-cut" in renderer and ".crusorai-cut" in css
+    # The receipt states what the brake measured, and never calls the run a failure.
+    assert "function turnReceiptRow" in renderer
+    assert "landed" in renderer and "dropped" in renderer
+    assert "stampInterrupt" in _text("browser", "crusorAIRendererService.ts")
+    # Undo, on the request row, with Copilot's hairline frame + hover reveal.
+    assert "function checkpointLine" in renderer and "crusorai-checkpoint-line" in css
+    assert "'Undo turn'" in renderer
+    assert ".crusorai-request-row:hover > .crusorai-checkpoint-line" in css
+    line_rule = css.split(".crusorai-checkpoint-line {")[1].split("}")[0]
+    assert "opacity: 0" in line_rule, (
+        "Copilot hides the request-row control at rest and reveals it on hover/focus-within")
+    assert "mask-image" in css, "the hairline is Copilot's masked gradient (chat.css 4317–4332)"
+    assert "crusorai-inline-confirm" in renderer and "crusorai-inline-confirm" in css, (
+        "a restore discards later edits; it arms behind Copilot's split pill, never a bare click")
+    assert "cancelActiveConfirm" in renderer, "Esc backs out of the armed pill before it reaches the brake"
+    # The two sibling scopes Copilot ships beside it.
+    assert "Put it back" in renderer and "pre_restore" in renderer
+    assert "Undo All Edits" in renderer and "Keep All Edits" in renderer
+    assert "Fork from here" in renderer
+    # The ledger: the verbs only an interrupt creates.
+    assert "function turnLedger" in renderer
+    assert "'Continue'" in renderer and "'Keep as is'" in renderer
+    # Queue vs steer stays visible (F9): the chip is the only acceptance signal.
+    assert "crusorai-queued-chip" in renderer
+    assert "Enter to steer · Esc to interrupt" in renderer
+    assert "Enter to queue · Esc to interrupt" in renderer
 
 
 def test_web_fallback_and_desktop_override_share_the_engine_contract():
@@ -680,7 +743,7 @@ def test_changed_files_rollup_ported():
     )
     assert "changedFilesCard(" in renderer
     assert "lane.append(changed);" in renderer, "the rollup closes the CURRENT turn"
-    assert "turnFiles.length" in renderer, "…and re-opened history turns"
+    assert "deriveChangedFiles(turn.tools)" in renderer, "…and re-opened history turns"
     assert "files changed" in renderer
     assert "9.375rem" in css  # hermes MAX_ROWS_HEIGHT (~5 rows)
     assert "crusorai-diff-count" in css
@@ -714,7 +777,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-02';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-04';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -854,7 +917,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-02'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-04'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

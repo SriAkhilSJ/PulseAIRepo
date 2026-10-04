@@ -133,9 +133,9 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'oneshot_result'; readonly template: string; readonly text: string; readonly error?: string } & CrusorIdentity)
 	| ({ readonly type: 'subagent_background_completed'; readonly subagent_id?: string; readonly child_thread_id?: string; readonly text: string; readonly description?: string } & CrusorIdentity)
 	| ({ readonly type: 'telemetry'; readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number } & CrusorIdentity)
-	| ({ readonly type: 'checkpoint_event'; readonly checkpoint_hash?: string; readonly checkpoints?: readonly unknown[]; readonly restore?: unknown } & CrusorIdentity)
-	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean; readonly cancelled: boolean } & CrusorIdentity)
-	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false } & CrusorIdentity)
+	| ({ readonly type: 'checkpoint_event'; readonly checkpoint_hash?: string; readonly checkpoints?: readonly unknown[]; readonly restore?: CrusorCheckpointRestore } & CrusorIdentity)
+	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean; readonly cancelled: boolean; readonly checkpoint?: CrusorTurnCheckpoint } & CrusorIdentity)
+	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false; readonly checkpoint?: CrusorTurnCheckpoint } & CrusorIdentity)
 	| ({ readonly type: 'runtime_degraded'; readonly reason: string } & CrusorIdentity)
 		| ({ readonly type: 'voice_text'; readonly ok: boolean; readonly text?: string; readonly error?: string } & CrusorIdentity)
 | ({ readonly type: 'context_status'; readonly phase: string; readonly message: string; readonly severity?: string; readonly usage_percent?: number; readonly last_prompt_tokens?: number; readonly threshold_tokens?: number; readonly context_length?: number } & CrusorIdentity)
@@ -147,6 +147,38 @@ export type CrusorServerEvent =
 	| { readonly type: 'inline_completion_result'; readonly session_id: string; readonly request_id: string; readonly completions: readonly { readonly text: string; readonly range_start_line: number; readonly range_start_column: number; readonly range_end_line: number; readonly range_end_column: number; readonly confidence: number }[]; readonly error?: string }
 	| { readonly type: 'next_edit_result'; readonly session_id: string; readonly request_id: string; readonly suggestions: readonly { readonly resource: string; readonly line: number; readonly column: number; readonly end_line: number; readonly end_column: number; readonly title: string; readonly description: string; readonly confidence: number; readonly category: string }[]; readonly error?: string }
 	| { readonly type: 'error'; readonly message: string; readonly fatal?: boolean; readonly request_id?: string };
+
+/**
+ * The turn's undo point, sent on every terminal frame (bridge
+ * `_checkpoint_fields`). `baseline` is the shadow snapshot the turn STARTED
+ * from — the honest target for "Undo turn" — and `latest` is the newest
+ * snapshot the turn produced. A frame with neither key carries no checkpoint
+ * at all, which the pane renders as "no undo here", never a dead button.
+ */
+export interface CrusorTurnCheckpoint {
+	readonly baseline?: string;
+	readonly latest?: string;
+	readonly workspace?: string;
+}
+
+/** `checkpoint_event.restore` — the shadow store's restore result. */
+export interface CrusorCheckpointRestore {
+	readonly success?: boolean;
+	readonly restored_to?: string;
+	readonly directory?: string;
+	/** Pre-rollback snapshot taken by the restore itself: the "Put it back" target. */
+	readonly pre_restore?: string | null;
+	readonly file?: string;
+	readonly error?: string;
+}
+
+/** One `checkpoint_list` row (most recent first). */
+export interface CrusorCheckpointRow {
+	readonly hash: string;
+	readonly short_hash: string;
+	readonly timestamp: string;
+	readonly reason: string;
+}
 
 interface CrusorSessionRequest {
 	readonly session_id?: string;

@@ -175,12 +175,14 @@ code, .mono{font-family:var(--font-mono);font-size:11px}
 /* ---- request-row checkpoint line (Copilot's .checkpoint-container frame) ----
    Copilot renders the restore/fork toolbar inside the *request* row, below the
    user bubble, flanked by two fading hairlines, opacity 0 → 1 on row hover.
-   Here the resting opacity is .3 only so the blueprint is legible on screen;
-   hover the row to see the shipped reveal. */
+   Shipped value is `opacity: 0` — the toolbar is fully invisible until the row
+   is hovered/focused. This blueprint shows it at .3 so the frames are legible
+   on screen; the only difference from shipping is that one number. */
 .msg-row{position:relative;display:flex;flex-direction:column;gap:2px}
 .cp-line{
   display:flex;align-items:center;gap:8px;margin:5px 0 1px;
-  opacity:.3;transition:opacity .12s ease-in-out;
+  opacity:.3; /* blueprint legibility only — shipped CSS is opacity:0 */
+  transition:opacity .12s ease-in-out;
 }
 .msg-row:hover .cp-line,.cp-line.pinned{opacity:1}
 .hair{flex:1;height:1px;background:linear-gradient(to right,transparent,var(--border-soft) 45%,var(--border-soft))}

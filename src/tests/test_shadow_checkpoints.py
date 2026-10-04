@@ -372,3 +372,106 @@ def test_new_turn_is_a_plain_dedup_reset(tmp_path):
     mgr.ensure_checkpoint(ws, 'test')
     mgr.new_turn()
     assert mgr._done_this_turn == set(), 'dedup resets, next turn snapshots again'
+
+
+# ---------------------------------------------------------------------------
+# D31 turn-addressable undo: the pane's "Undo turn" needs the hash of the
+# state the turn STARTED from, and a restore that can name where it came from.
+# ---------------------------------------------------------------------------
+
+def test_turn_undo_point_is_the_first_snapshot_of_the_turn(tmp_path):
+    """`_take` commits the tree as it stands BEFORE the write that triggered
+    it, so the turn's FIRST snapshot is the turn's starting state. A second
+    write in the same turn must not move the target — otherwise "undo this
+    turn" would only undo its last write."""
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    assert mgr.turn_undo_point(ws) is None, 'no write yet => nothing to undo'
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: target.py')
+    (Path(ws) / 'target.py').write_text('def foo():\n    return 2\n', encoding='utf-8')
+    first = mgr.turn_undo_point(ws)
+    assert first, 'the first snapshot of the turn is the undo target'
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before edit_file: target.py')
+    (Path(ws) / 'target.py').write_text('def foo():\n    return 3\n', encoding='utf-8')
+    assert mgr.turn_undo_point(ws) == first, 'later snapshots never move the undo point'
+
+
+def test_undo_point_restores_the_tree_the_turn_started_from(tmp_path):
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: target.py')
+    (Path(ws) / 'target.py').write_text('def foo():\n    return 42\n', encoding='utf-8')
+    (Path(ws) / 'created.py').write_text('new\n', encoding='utf-8')
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: created.py')
+    undo = mgr.turn_undo_point(ws)
+    result = mgr.restore(ws, undo)
+    assert result['success'] is True
+    assert (Path(ws) / 'target.py').read_text(encoding='utf-8') == ORIG
+    # overwrite-only semantics, stated rather than implied: a file the turn
+    # CREATED stays on disk until a restore that can remove it exists.
+    assert (Path(ws) / 'created.py').exists()
+
+
+def test_a_new_turn_gets_a_fresh_undo_slot(tmp_path):
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: target.py')
+    (Path(ws) / 'target.py').write_text('turn one\n', encoding='utf-8')
+    first = mgr.turn_undo_point(ws)
+    mgr.mark_turn_start(ws)
+    assert mgr.turn_undo_point(ws) is None, 'a new turn starts with an empty undo slot'
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: target.py')
+    (Path(ws) / 'target.py').write_text('turn two\n', encoding='utf-8')
+    assert mgr.turn_undo_point(ws) not in (None, first), 'turn two has its own target'
+
+
+def test_restore_names_the_snapshot_it_took_first(tmp_path):
+    """Undo-the-undo must be addressable by the UI: "Put it back" sends the
+    pre-rollback hash the restore itself created, so a restore is reversible
+    rather than a one-way door."""
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: target.py')
+    (Path(ws) / 'target.py').write_text('landed\n', encoding='utf-8')
+    undo = mgr.turn_undo_point(ws)
+    result = mgr.restore(ws, undo)
+    pre = result.get('pre_restore')
+    assert pre, 'restore reports the snapshot it took first'
+    assert pre != undo
+    again = mgr.restore(ws, pre)
+    assert again['success'] is True
+    assert (Path(ws) / 'target.py').read_text(encoding='utf-8') == 'landed\n'
+
+
+def test_latest_checkpoint_survives_a_restart(tmp_path):
+    """The turn receipt's "latest" is process memory, so it must fall back to
+    the ref tip after a restart — the store is the durable record."""
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before write_file: target.py')
+    (Path(ws) / 'target.py').write_text('x\n', encoding='utf-8')
+    fresh = _mgr(tmp_path)
+    assert fresh.latest_checkpoint(ws) == mgr.latest_checkpoint(ws)
+    assert fresh.turn_undo_point(ws) is None, 'a fresh process has no open turn'
+
+
+def test_disabled_checkpoints_offer_no_undo(tmp_path):
+    mgr = ShadowCheckpoints(enabled=False, base=tmp_path / 'store-home')
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    assert mgr.turn_undo_point(ws) is None
+    assert mgr.latest_checkpoint(ws) is None

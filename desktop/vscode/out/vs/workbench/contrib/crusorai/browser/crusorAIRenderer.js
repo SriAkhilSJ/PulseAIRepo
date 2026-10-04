@@ -103,7 +103,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-02';
+const CRUSORAI_UI_STAMP = '2026-10-04';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -420,6 +420,19 @@ function statusGlyph(state) {
     }
     const name = state === 'passed' ? 'pass-filled' : state === 'failed' ? 'error' : state === 'approval' ? 'shield' : 'circle-outline';
     return icon(name);
+}
+/**
+ * A cut row's glyph (F2): `landed` wears the brake square — the same solid
+ * mark as the button that stopped it, because both mean "your action, look
+ * here" — and `dropped` wears a hard cross, never the red failure icon
+ * (nothing failed; it was refused). Absent verdict => the ordinary state
+ * glyph. The word beside the glyph is the receipt.
+ */
+function verdictGlyph(verdict) {
+    if (verdict === 'landed') {
+        return element('span', 'crusorai-verdict-square');
+    }
+    return icon('close');
 }
 function labeledPayload(label, value) {
     return element('div', 'crusorai-tool-field', element('span', 'crusorai-tool-field-label', label), element('pre', 'crusorai-tool-pre', boundedText(value)));
@@ -935,7 +948,7 @@ function toolRow(tool, host, openTools, pendingClarify) {
     }
     const presentation = crusorAIToolPresentation(tool.name);
     const isPending = tool.state === 'running' || tool.state === 'queued';
-    const details = element('details', `crusorai-tool-row is-${tool.state}`);
+    const details = element('details', `crusorai-tool-row is-${tool.state}${tool.verdict ? ` is-verdict-${tool.verdict}` : ''}`);
     details.dataset.component = 'tool-trigger';
     details.dataset.conversationScaffold = '';
     details.dataset.toolId = tool.id;
@@ -953,7 +966,10 @@ function toolRow(tool, host, openTools, pendingClarify) {
     const targetMeaningful = !!targetText
         && targetText.toLowerCase() !== tool.name.toLowerCase()
         && targetText.toLowerCase() !== presentation.title.toLowerCase();
-    const summary = element('summary', 'crusorai-tool-summary', tool.name === 'think' ? element('span', 'crusorai-glyph-spacer') : statusGlyph(tool.state), icon(presentation.icon), titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined, tool.duration ? element('span', 'crusorai-tool-duration', tool.duration) : undefined, isPending ? undefined : icon('chevron-right'));
+    const summary = element('summary', 'crusorai-tool-summary', tool.name === 'think' ? element('span', 'crusorai-glyph-spacer') : (tool.verdict ? verdictGlyph(tool.verdict) : statusGlyph(tool.state)), icon(presentation.icon), titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined, 
+    // The brake receipt (F2): "landed" / "dropped" beside the row it
+    // happened to. Ordinary rows keep their timer alone.
+    tool.verdict ? element('span', `crusorai-tool-verdict is-${tool.verdict}`, tool.verdictText ?? tool.verdict) : undefined, tool.duration ? element('span', 'crusorai-tool-duration', tool.duration) : undefined, isPending ? undefined : icon('chevron-right'));
     details.append(summary, familyBody(tool, host));
     details.addEventListener('toggle', () => details.open ? openTools.add(tool.id) : openTools.delete(tool.id));
     return details;
@@ -1148,7 +1164,9 @@ function createActivityState(tick) {
          */
         row(model) {
             const parts = activityParts(model);
-            const hint = model.cancelRequested ? 'Stopping safely' : statusHintLabel(model.compacting, verb, revealed);
+            // "Interrupted at 0:11" — the row's own elapsed meta supplies the clock
+            // beside this word, so the sentence is the outcome, not a promise.
+            const hint = model.cancelRequested ? 'Interrupted at' : statusHintLabel(model.compacting, verb, revealed);
             const slot = activityRowMode({
                 parts,
                 working: model.running,
@@ -1240,13 +1258,256 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
  * come from the view map; a tool whose start frame was missed still paints
  * (after the timeline) so a card can never silently vanish.
  */
+/**
+ * The turn-closing receipt (F3). A cut run is "Interrupted" with the brake
+ * square — never a green check, and never the wire's own word for it (that
+ * belongs to the protocol, not to the user's face) — followed by the clock
+ * and the honest counts the brake produced: `landed` bytes are on disk, `dropped` steps never ran.
+ * A failed run keeps its own row. Everything else ends without a receipt row:
+ * the answer IS the receipt.
+ */
+function turnReceiptRow(outcome, durationMs, interrupt) {
+    if (outcome === 'failed') {
+        return element('div', 'crusorai-turn-receipt is-failed', icon('error'), element('span', undefined, 'Run failed'));
+    }
+    const row = element('div', 'crusorai-turn-receipt is-cancelled', element('span', 'crusorai-verdict-square'), element('span', undefined, 'Interrupted'));
+    if (typeof durationMs === 'number' && durationMs >= 0) {
+        row.append(element('span', 'crusorai-receipt-meta', `· ${formatElapsed(Math.round(durationMs / 1000))}`));
+    }
+    if (interrupt && (interrupt.landed > 0 || interrupt.dropped > 0)) {
+        const parts = [];
+        if (interrupt.landed > 0) {
+            parts.push(`${interrupt.landed} landed`);
+        }
+        if (interrupt.dropped > 0) {
+            parts.push(`${interrupt.dropped} dropped`);
+        }
+        row.append(element('span', 'crusorai-receipt-meta', `· ${parts.join(' · ')}`));
+    }
+    return row;
+}
+/** The eight-char short form the request row and the restore line both speak. */
+function shortHash(hash) {
+    const trimmed = (hash ?? '').trim();
+    return trimmed ? trimmed.slice(0, 8) : undefined;
+}
+/**
+ * The request-row checkpoint line (F5) — Copilot's own frame: a hairline
+ * pair that fades outward, with "Undo turn" inside it. It anchors to the
+ * USER's ask, so "Undo" can only ever mean "back to before I asked this",
+ * and it is invisible at rest, full on hover/focus-within (CSS, Copilot's
+ * exact behaviour), never floating over the transcript. Shown only when the turn HAS a baseline
+ * snapshot: a workspace with no history offers no undo, not a dead button.
+ */
+function checkpointLine(baseline, host, options) {
+    const hash = shortHash(baseline);
+    if (!hash || !baseline) {
+        return undefined;
+    }
+    // Captured as a plain string: the confirm's callback runs after this
+    // frame, so the narrowing has to survive it.
+    const checkpoint = baseline;
+    const line = element('div', 'crusorai-checkpoint-line');
+    line.dataset.component = 'checkpoint-line';
+    line.append(element('span', 'crusorai-checkpoint-hair is-left'));
+    const actions = element('div', 'crusorai-checkpoint-actions');
+    // A restore discards later edits, so Copilot puts it behind an inline
+    // confirm — and so do we: the first click arms, the second restores, ✕ or
+    // Esc backs out.
+    const undo = inlineConfirm({
+        label: 'Undo turn',
+        iconName: 'history',
+        title: `Restore this workspace to the snapshot taken before this request (${hash})`,
+        classes: 'crusorai-checkpoint-action',
+        onConfirm: () => {
+            // Restoring puts the request text back in the composer (the workbench's
+            // own restoreInput rule): "undo the ask" ends with the ask in hand, one
+            // edit away from being sent again.
+            if (options?.requestText) {
+                host.setDraft(options.requestText);
+            }
+            host.restoreCheckpoint(checkpoint);
+        },
+    });
+    actions.append(undo);
+    // Sibling, same frame: Copilot puts Fork beside the restore control. Ours
+    // is session_fork, and it copies the conversation AT THE TIP — so the row
+    // only offers it where "from here" is true (the newest request), never on
+    // an old request where a tip fork would be a different thing than the
+    // words promise.
+    if (options?.fork) {
+        const fork = element('button', 'crusorai-checkpoint-action is-quiet', icon('repo-forked'), element('span', undefined, 'Fork from here'));
+        fork.type = 'button';
+        fork.title = 'Fork this conversation from the current point';
+        fork.setAttribute('aria-label', 'Fork from here — fork this conversation from the current point');
+        fork.addEventListener('click', () => host.forkSession());
+        actions.append(fork);
+    }
+    // Earlier snapshots — the workspace log, newest first (checkpoint_list).
+    const log = element('button', 'crusorai-checkpoint-action is-quiet', element('span', undefined, 'Earlier snapshots'));
+    log.type = 'button';
+    log.title = 'Show this workspace\'s snapshot log';
+    log.addEventListener('click', () => host.listCheckpoints());
+    actions.append(log);
+    line.append(actions);
+    line.append(element('span', 'crusorai-checkpoint-hair is-right'));
+    line.append(element('span', 'crusorai-checkpoint-hash', hash));
+    return line;
+}
+/**
+ * The post-restore line (F7b): "Checkpoint restored · <hash>" in the same
+ * hairline frame, plus "Put it back" — Copilot's Redo semantics pointed at
+ * our own pre-rollback snapshot, which the restore result names. That makes
+ * the restore itself reversible instead of a one-way door.
+ */
+function restoreReceiptRow(restore, host) {
+    if (!restore) {
+        return undefined;
+    }
+    if (restore.success === false || restore.error) {
+        return element('div', 'crusorai-checkpoint-restored is-error', icon('warning'), element('span', undefined, `Restore failed${restore.error ? ` — ${restore.error}` : ''}`));
+    }
+    const row = element('div', 'crusorai-checkpoint-restored');
+    row.dataset.component = 'checkpoint-restored';
+    row.append(icon('check'), element('span', undefined, 'Checkpoint restored'));
+    // A single-path restore names the path: "Checkpoint restored" alone would
+    // leave the user guessing which of the files came back.
+    if (restore.file) {
+        row.append(element('span', 'crusorai-checkpoint-file', restore.file));
+    }
+    row.append(element('span', 'crusorai-checkpoint-hash', shortHash(restore.restored_to) ?? ''));
+    const putBack = shortHash(restore.pre_restore ?? undefined);
+    if (putBack) {
+        const action = element('button', 'crusorai-checkpoint-action', icon('history'), element('span', undefined, 'Put it back'));
+        action.type = 'button';
+        action.title = `Reapply what was on disk a moment ago (snapshot ${putBack})`;
+        action.setAttribute('aria-label', `Put it back — reapply the discarded changes (snapshot ${putBack})`);
+        action.addEventListener('click', () => host.restoreCheckpoint(restore.pre_restore));
+        row.append(action);
+    }
+    return row;
+}
+/**
+ * The workspace snapshot log (F7c) — the same list `checkpoint_list` returns,
+ * newest first, capped at 20 by the store. It exists while the user asked for
+ * it and disappears on the second pull, so "Earlier snapshots" is a toggle
+ * with a surface behind it, never a button that does nothing visible. Each row
+ * restores through the same checkpoint_restore frame the request row uses.
+ */
+function checkpointLog(model, host) {
+    const rows = model.checkpoints ?? [];
+    if (!rows.length) {
+        return undefined;
+    }
+    const panel = element('section', 'crusorai-checkpoint-log');
+    panel.dataset.component = 'checkpoint-log';
+    const head = element('div', 'crusorai-checkpoint-log-head', icon('history'), element('strong', undefined, 'Earlier snapshots'), element('span', 'crusorai-checkpoint-log-note', 'Restores the workspace to that point — chat is not rewound'));
+    const close = element('button', 'crusorai-icon-button', icon('close'));
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close snapshots');
+    close.addEventListener('click', () => host.hideCheckpoints());
+    head.append(close);
+    panel.append(head);
+    const list = element('div', 'crusorai-checkpoint-log-rows');
+    for (const row of rows) {
+        const hash = shortHash(row.hash) ?? row.hash;
+        const line = element('div', 'crusorai-checkpoint-log-row', element('span', 'crusorai-checkpoint-hash', hash), element('span', 'crusorai-checkpoint-log-time', row.timestamp ?? ''), element('span', 'crusorai-checkpoint-log-reason', row.reason ?? ''));
+        const restore = element('button', 'crusorai-checkpoint-action', element('span', undefined, 'Restore'));
+        restore.type = 'button';
+        restore.title = `Restore the workspace to ${hash}`;
+        restore.addEventListener('click', () => host.restoreCheckpoint(row.hash));
+        line.append(restore);
+        list.append(line);
+    }
+    panel.append(list);
+    return panel;
+}
+/**
+ * The one open inline confirm. Copilot's restore control is a split pill —
+ * the action label, then a ✕ to back out — because restoring discards later
+ * edits. Esc closes whichever pill is open (the global key handler consults
+ * this before it lets Escape reach the brake), and nothing here can leave a
+ * half-armed destructive control behind.
+ */
+let cancelActiveConfirm;
+/**
+ * A destructive action behind Copilot's inline confirm: first click swaps the
+ * button for "label / ✕", the second click runs it. No modal, no dialog
+ * framework, and the confirming label wears the pane's shimmer so the state
+ * is visible at a glance (chat.css 4386–4438, chatRestoreCheckpointActionViewItem).
+ */
+function inlineConfirm(options) {
+    const button = element('button', options.classes, options.iconName ? icon(options.iconName) : undefined, element('span', undefined, options.label));
+    button.type = 'button';
+    button.title = options.title;
+    button.setAttribute('aria-label', options.title);
+    button.addEventListener('click', () => {
+        const yes = element('button', 'crusorai-inline-confirm-yes', element('span', 'crusorai-shimmer', options.label));
+        yes.type = 'button';
+        yes.title = `${options.label} — confirmed`;
+        yes.setAttribute('aria-label', `${options.label}, confirm`);
+        const no = element('button', 'crusorai-inline-confirm-no', icon('close'));
+        no.type = 'button';
+        no.title = 'Cancel';
+        no.setAttribute('aria-label', 'Cancel');
+        const pill = element('span', 'crusorai-inline-confirm', yes, no);
+        const close = () => { pill.replaceWith(button); cancelActiveConfirm = undefined; };
+        yes.addEventListener('click', () => { cancelActiveConfirm = undefined; options.onConfirm(); });
+        no.addEventListener('click', close);
+        cancelActiveConfirm = close;
+        button.replaceWith(pill);
+    });
+    return button;
+}
+/**
+ * Dismissals the user made with their own click, keyed by turn: "Keep as is"
+ * and a settled restore offer must survive re-renders the same way an open
+ * tool disclosure does, and the DOM is not the state here — the service
+ * repaints rows from the model. Module state, like `openTools` above.
+ */
+export const keptTurnLedgers = new Set();
+/**
+ * The turn ledger (F3/F6). An interrupted run gets exactly two verbs BELOW
+ * the work — "Continue" (send the same request again; there is no resume
+ * protocol, the transcript already holds the partial work) and "Keep as is"
+ * (accept the partial run and dismiss the offer) — while "Undo turn" stays
+ * above, on the request row, so two identical Undo buttons never share a
+ * screen. A failed run keeps only the re-ask, which is what a user does next.
+ */
+function turnLedger(turnKey, requestText, host, options) {
+    if (options.live || !requestText || keptTurnLedgers.has(turnKey)) {
+        return undefined;
+    }
+    const ledger = element('div', 'crusorai-turn-ledger');
+    const again = element('button', 'crusorai-ledger-action is-primary', icon('play'), element('span', undefined, 'Continue'));
+    again.type = 'button';
+    again.title = 'Send this request again — the transcript already holds the partial work';
+    again.setAttribute('aria-label', 'Continue — send this request again');
+    again.addEventListener('click', () => {
+        // The draft refills first (the workbench's own restoreInput rule): if the
+        // send is refused for any reason, the words are not lost.
+        host.setDraft(requestText);
+        host.submitPrompt(requestText);
+    });
+    ledger.append(again);
+    if (options.keep) {
+        // "Keep as is" is a dismissal, not a mutation: it puts the offer away
+        // without touching the draft the user may have started typing.
+        const keep = element('button', 'crusorai-ledger-action', element('span', undefined, 'Keep as is'));
+        keep.type = 'button';
+        keep.title = 'Accept the partial run and put this offer away';
+        keep.addEventListener('click', () => { keptTurnLedgers.add(turnKey); ledger.remove(); });
+        ledger.append(keep);
+    }
+    return ledger;
+}
 function assistantTurn(spec, host, openTools) {
     const live = spec.live;
     const response = element('section', `crusorai-assistant-message${live ? ' crusorai-breathing-edge is-streaming' : ''}`);
     if (spec.current) {
         response.dataset.component = 'session-turn';
     }
-    response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
+    response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Interrupted.' : 'Working') : undefined));
     // Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
     // chronological position relative to text and tools is always preserved exactly.
     // This mirrors the Hermes approach (message.content is a single ordered array).
@@ -1260,6 +1521,7 @@ function assistantTurn(spec, host, openTools) {
         : (spec.assistantText ? [{ kind: 'text', text: spec.assistantText }] : []);
     const toolsById = new Map(spec.tools.map(t => [t.id, t]));
     let lastTextIndex = -1;
+    let lastTextNode;
     for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (part.kind === 'text' && part.text) {
@@ -1300,9 +1562,19 @@ function assistantTurn(spec, host, openTools) {
             return;
         }
         flushRun();
-        response.append(markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined));
+        const textNode = markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined);
+        lastTextNode = textNode;
+        response.append(textNode);
     });
     flushRun();
+    // The cut (F2): where the brake bit, the transcript says so with a hard
+    // amber bar after the last token — never an ellipsis or a spinner
+    // pretending more is coming. It is drawn only while the interrupted turn
+    // is the live one: the receipt below carries the fact afterwards.
+    if (lastTextNode && (live || spec.outcome === 'cancelled') && (spec.cancelRequested || spec.outcome === 'cancelled')) {
+        const anchor = lastTextNode.lastElementChild ?? lastTextNode;
+        anchor.append(element('span', 'crusorai-cut'));
+    }
     // A tool with no part (a replay that lost its start frame) must still show.
     const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
     const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
@@ -1320,10 +1592,26 @@ function assistantTurn(spec, host, openTools) {
 function transcript(model, host, openTools, liveThoughtSeconds) {
     const scroll = element('div', 'crusorai-transcript-scroll');
     const lane = element('div', 'crusorai-transcript-lane');
+    // The snapshot log rides above the transcript while it is open (F7c): it is
+    // a workspace-scoped panel, not part of any one turn.
+    const log = checkpointLog(model, host);
+    if (log) {
+        lane.append(log);
+    }
     // History: previous turns (user → agent) preserved wireframe style, no breathing
-    for (const turn of model.history) {
-        if (turn.userMessage)
-            lane.append(element('div', 'crusorai-user-message', turn.userMessage));
+    for (let turnIndex = 0; turnIndex < model.history.length; turnIndex++) {
+        const turn = model.history[turnIndex];
+        if (turn.userMessage) {
+            const requestRow = element('div', 'crusorai-request-row');
+            requestRow.append(element('div', 'crusorai-user-message', turn.userMessage));
+            // Undo anchors to the ASK, not the answer (F5) — and the hash is
+            // THIS turn's baseline, never the session's newest.
+            const line = checkpointLine(turn.checkpoint, host, { requestText: turn.userMessage });
+            if (line) {
+                requestRow.append(line);
+            }
+            lane.append(requestRow);
+        }
         if (turn.assistantText || turn.parts.length || turn.tools.length) {
             lane.append(assistantTurn({
                 reasoningParts: turn.reasoningParts,
@@ -1331,6 +1619,9 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
                 parts: turn.parts,
                 tools: turn.tools,
                 live: false,
+                outcome: turn.turnOutcome,
+                durationMs: turn.duration,
+                interrupt: turn.interrupt,
                 turnKey: `history:${model.sessionId || 's'}`,
             }, host, openTools));
         }
@@ -1346,33 +1637,41 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
             lane.append(subAgents);
         }
         // Hermes pattern: no green confetti for success -- the answer IS the
-        // completion receipt. Only real deviations (cancelled, failed) get a row.
+        // completion receipt. Only real deviations (interrupted, failed) get a row.
         if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
-            const label = turn.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
-            const iconName = turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
-            lane.append(element('div', `crusorai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label)));
-        }
-        // same closing rollup for past turns (first-touched order, +/- summed)
-        const turnFiles = deriveChangedFiles(turn.tools);
-        if (turnFiles.length) {
-            const card = element('div', 'crusorai-changed-files');
-            card.dataset.component = 'changed-files';
-            card.append(element('div', 'crusorai-changed-files-head', element('span', undefined, `${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'} changed`)));
-            const rows = element('div', 'crusorai-changed-files-rows');
-            for (const file of turnFiles) {
-                const row = element('div', 'crusorai-changed-file-row is-activatable', icon('file'), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
-                row.title = file.path;
-                const target = file.path;
-                row.addEventListener('click', () => host.revealFile(target));
-                rows.append(row);
+            lane.append(turnReceiptRow(turn.turnOutcome, turn.duration, turn.interrupt));
+            const ledger = turnLedger(`history:${model.sessionId || 's'}:${turnIndex}`, turn.userMessage, host, { live: false, keep: turn.turnOutcome === 'cancelled' });
+            if (ledger) {
+                lane.append(ledger);
             }
-            card.append(rows);
+        }
+        // same closing rollup for past turns (first-touched order, +/- summed) —
+        // with THIS turn's checkpoint, so an old row can never be undone against
+        // a newer turn's snapshot.
+        const card = changedFilesCard(deriveChangedFiles(turn.tools), host, { checkpoint: turn.checkpoint, turnKey: `history:${model.sessionId || 's'}:${turnIndex}` });
+        if (card) {
             lane.append(card);
         }
     }
     // Current turn (breathing when running)
     if (model.userMessage) {
-        lane.append(element('div', 'crusorai-user-message', model.userMessage));
+        const requestRow = element('div', 'crusorai-request-row');
+        requestRow.append(element('div', 'crusorai-user-message', model.userMessage));
+        // The turn's own undo point (F5/F6). While the turn is still open the
+        // line is already there — the brake landing mid-response must not move
+        // the control: the request row above it never changes.
+        const line = checkpointLine(model.turnCheckpoint?.baseline, host, { fork: true, requestText: model.userMessage });
+        if (line) {
+            requestRow.append(line);
+        }
+        lane.append(requestRow);
+    }
+    // A restore is a mutation of the tree under the editor, so it gets its own
+    // labelled divider ("Checkpoint restored · <hash>", Copilot's frame) with
+    // the way back on it — never a silent change.
+    const restored = restoreReceiptRow(model.checkpointRestore, host);
+    if (restored) {
+        lane.append(restored);
     }
     // No assistant text means there is nothing to narrate. The line used to fall back to a sentence
     // claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
@@ -1388,6 +1687,9 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
             current: true,
             thoughtSeconds: liveThoughtSeconds,
             cancelRequested: model.cancelRequested,
+            outcome: model.turnOutcome,
+            durationMs: model.turnDurationMs,
+            interrupt: model.interrupt,
             clarify: model.clarify,
             turnKey: `current:${model.sessionId || 's'}`,
         }, host, openTools));
@@ -1431,12 +1733,14 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
         lane.append(subAgents);
     }
     if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
-        const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
-        const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
-        lane.append(element('div', `crusorai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+        lane.append(turnReceiptRow(model.turnOutcome, model.turnDurationMs, model.interrupt));
+        const ledger = turnLedger(`live:${model.sessionId || 's'}`, model.userMessage, host, { live: false, keep: model.turnOutcome === 'cancelled' });
+        if (ledger) {
+            lane.append(ledger);
+        }
     }
     // hermes changed-files-card: the turn-closing "N files changed" rollup.
-    const changed = changedFilesCard(model, host);
+    const changed = changedFilesCard(deriveChangedFiles(model.tools), host, { checkpoint: model.turnCheckpoint?.baseline, turnKey: `live:${model.sessionId || 's'}` });
     if (changed) {
         lane.append(changed);
     }
@@ -2078,6 +2382,29 @@ function ensureGlobalCardKeys() {
                 return;
             }
         }
+        // An armed inline confirm consumes Escape first (Copilot's cancel
+        // tooltip): backing out of a restore must never pull the brake.
+        if (event.key === 'Escape' && !event.defaultPrevented && cancelActiveConfirm) {
+            event.preventDefault();
+            event.stopPropagation();
+            cancelActiveConfirm();
+            return;
+        }
+        // Esc pulls the brake — the composer hint advertises it, and the brake is
+        // one pull with nothing in the way. It sits BEFORE the clarify branch's
+        // early return (an unreachable keybinding is a lie in the hint bar), and a
+        // live clarify question keeps its own keys. The armed button is the source
+        // of truth: if it is not there, or already pulled/inert, nothing fires.
+        if (event.key === 'Escape' && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
+            && !document.querySelector('.crusorai-clarify-form[data-live="1"]')) {
+            const brake = document.querySelector('.crusorai-send-brake:not([disabled])');
+            if (brake) {
+                event.preventDefault();
+                event.stopPropagation();
+                brake.click();
+                return;
+            }
+        }
         const form = document.querySelector('.crusorai-clarify-form[data-live="1"]');
         if (!form || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) {
             return;
@@ -2139,6 +2466,7 @@ function ensureGlobalCardKeys() {
                 event.preventDefault();
                 submit.click();
             }
+            return;
         }
     }, true);
 }
@@ -2236,25 +2564,82 @@ function terminalOutputContent(output, running) {
 // hermes changed-files-card.tsx: the turn-closing "N files changed" rollup —
 // one row per LANDED file edit, +/- summed, click opens the file. Wears the
 // shared widget chrome so it reads as the transcript's other inline widgets.
-function changedFilesCard(model, host) {
-    const files = deriveChangedFiles(model.tools);
+/**
+ * The changed-files rollup, with the two undo scopes the blueprint dictates
+ * (F7): a per-row `↩` that restores ONE path out of the turn's snapshot
+ * (restore(..., file_path)), and a working-set "Undo All Edits" that restores
+ * the tree the turn started from. Both are offered only when the turn HAS a
+ * snapshot — a workspace with no checkpoint shows the counts and no control,
+ * never a button that would restore the wrong state. Per-file restore is
+ * overwrite-only (the store's own semantics), so a file the turn CREATED
+ * stays on disk until a whole-set restore takes it away again; the card says
+ * that where it matters instead of implying a delete it will not do.
+ */
+function changedFilesCard(files, host, options) {
     if (!files.length) {
         return undefined;
     }
+    const checkpoint = options?.checkpoint;
+    const turnKey = options?.turnKey ?? 'session';
     const card = element('div', 'crusorai-changed-files');
     card.dataset.component = 'changed-files';
     card.append(element('div', 'crusorai-changed-files-head', element('span', undefined, `${files.length} file${files.length === 1 ? '' : 's'} changed`)));
     const rows = element('div', 'crusorai-changed-files-rows');
     for (const file of files) {
-        const row = element('div', 'crusorai-changed-file-row');
-        row.append(icon('file'), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
+        const row = element('div', 'crusorai-changed-file-row is-activatable');
+        row.append(icon('file'), element('span', 'crusorai-changed-file-name', file.name));
+        // New-file rows are marked: they are the one case where "restore" and
+        // "remove" differ, and the open question stands (delete vs keep).
+        if (file.created) {
+            row.append(element('span', 'crusorai-changed-file-new', 'new'));
+        }
+        row.append(element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
         row.title = file.path;
-        row.classList.add('is-activatable');
         row.addEventListener('click', () => host.revealFile(file.path));
+        if (checkpoint) {
+            const one = element('button', 'crusorai-file-undo', icon('history'));
+            one.type = 'button';
+            one.title = `Restore ${file.path} from this turn's snapshot`;
+            one.setAttribute('aria-label', `Undo changes to ${file.name}`);
+            one.addEventListener('click', event => { event.stopPropagation(); host.restoreCheckpoint(checkpoint, file.path); });
+            row.append(one);
+        }
         rows.append(row);
     }
     card.append(rows);
+    if (checkpoint && !keptWorkingset.has(turnKey)) {
+        card.append(workingsetFooter(checkpoint, files.length, host, turnKey));
+    }
     return card;
+}
+/** Dismissals of the working-set offer, keyed by turn (module state, like openTools). */
+export const keptWorkingset = new Set();
+/**
+ * "Working set" — the whole-turn scope, next to the per-file scope. The
+ * confirm is the same inline split pill F5 uses (confirm / ✕, no modal):
+ * the pod says exactly what it will touch before it touches it, and the
+ * pre-rollback snapshot keeps the action itself reversible.
+ */
+function workingsetFooter(checkpoint, fileCount, host, turnKey) {
+    const footer = element('div', 'crusorai-workingset');
+    footer.append(element('span', 'crusorai-workingset-label', 'Working set'));
+    // Copilot asks "Undo all edits? This will undo changes made in N files."
+    // before the working-set restore; the inline pill carries the count and the
+    // way out, and the pre-rollback snapshot keeps the action itself reversible.
+    const undo = inlineConfirm({
+        label: 'Undo All Edits',
+        iconName: 'history',
+        title: `Undo changes in ${fileCount} file${fileCount === 1 ? '' : 's'}? Restore the whole working set to this turn's snapshot`,
+        classes: 'crusorai-ledger-action is-danger',
+        onConfirm: () => host.restoreCheckpoint(checkpoint),
+    });
+    footer.append(undo);
+    const keep = element('button', 'crusorai-ledger-action', element('span', undefined, 'Keep All Edits'));
+    keep.type = 'button';
+    keep.title = 'Keep every change this turn made';
+    keep.addEventListener('click', () => { keptWorkingset.add(turnKey); footer.remove(); });
+    footer.append(keep);
+    return footer;
 }
 const executionModes = [
     { id: 'agent', label: 'Agent', description: 'Build, change, and verify', icon: 'infinity' },
@@ -2353,12 +2738,18 @@ function composer(model, host, manager) {
         }
     });
     const running = model.running;
-    const send = element('button', running ? 'crusorai-send-button crusorai-send-stop' : 'crusorai-send-button');
+    // The hand brake (F1): the same slot as send, a solid stop square, ONE pull,
+    // no menu and no confirmation, and no promise of a graceful wind-down —
+    // nothing is being protected by waiting. While a pull is in flight the
+    // button is inert: a second pull is ignored, never a queue of stops.
+    const pulled = running && model.cancelRequested;
+    const send = element('button', running ? `crusorai-send-button crusorai-send-brake${pulled ? ' is-pulled' : ''}` : 'crusorai-send-button');
     send.type = 'button';
-    send.setAttribute('aria-label', running ? 'Stop' : 'Send');
-    send.append(icon(running ? 'debug-pause' : 'arrow-up'));
+    send.setAttribute('aria-label', running ? (pulled ? 'Interrupting' : 'Interrupt — stops now') : 'Send');
+    send.title = running ? 'Interrupt — stops now' : 'Send';
+    send.append(running ? element('span', 'crusorai-brake-glyph') : icon('arrow-up'));
     send.addEventListener('click', running ? host.cancel : submit);
-    if (running && model.cancelRequested) {
+    if (pulled) {
         send.disabled = true;
     }
     if (inputBlocked) {
@@ -2422,15 +2813,26 @@ function composer(model, host, manager) {
         return details;
     })();
     const toolbar = element('div', 'crusorai-composer-toolbar', plusMenu, modePicker(model, host), thinkPicker(model, host), element('span', 'crusorai-composer-left'), send);
+    // Enter's verb depends on what the send would actually DO (F9): the Manager
+    // steers the running turn, the Agent pane queues behind it, and an idle
+    // composer just sends. Naming it is the only way the user knows a busy-pane
+    // message was accepted rather than lost.
+    // Queue depth chip (F9): the only feedback that a busy-pane prompt was
+    // parked behind the running turn instead of dropped.
+    const queuedChip = (model.queuedDepth ?? 0) > 0
+        ? element('div', 'crusorai-queued-chip', icon('clock'), element('span', undefined, `Queued · ${model.queuedDepth}`), element('span', 'crusorai-queued-note', 'Sends when this turn ends'))
+        : undefined;
     const hint = element('div', 'crusorai-composer-hint', model.noWorkspace
         ? element('span', undefined, model.noWorkspaceHint)
         : model.workspaceSelectionRequired
             ? element('span', undefined, 'Select a workspace folder to start a Crusor session.')
-            : element('span', undefined, 'Enter to send'), element('span', undefined, model.noWorkspace ? '' : 'Shift+Enter for new line'));
+            : model.running
+                ? element('span', undefined, manager ? 'Enter to steer · Esc to interrupt' : 'Enter to queue · Esc to interrupt')
+                : element('span', undefined, 'Enter to send'), element('span', undefined, model.noWorkspace ? '' : 'Shift+Enter for new line'));
     if (model.noWorkspace) {
         hint.append(button('Open Folder', 'crusorai-link-button', host.openFolder, 'folder'));
     }
-    return element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
+    return element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), queuedChip, hint);
 }
 function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
     const nodes = [];

@@ -450,6 +450,13 @@ def write_file(
     ][:12]
     preview = "\n".join(preview_lines)
     receipt = f"File written: {path} (lines added: {added}, removed: {removed})"
+    # F7 (revert UI): a file this write CREATED is the one case where
+    # "restore the snapshot" and "remove the file" differ — our restore is
+    # overwrite-only, so the pane must be able to mark the row instead of
+    # implying a delete it will not do. The marker is explicit and parseable
+    # (the changed-files card keys on it), never inferred from "+N -0".
+    if not original:
+        receipt += " [new file]"
     if preview:
         receipt += f"\n\nDiff preview:\n{preview}"
 
