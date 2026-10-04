@@ -13,7 +13,6 @@
 // owns zero engine logic. The card anchors to the + button, opens upward
 // into the chat space, closes on ×/Escape/click-away, and survives the
 // composer's per-paint rebuilds by living on document.body while open.
-const DIALOG_TIMEOUT_MS = 20000;
 function el(tag, className, ...children) {
     const node = document.createElement(tag);
     if (className) {

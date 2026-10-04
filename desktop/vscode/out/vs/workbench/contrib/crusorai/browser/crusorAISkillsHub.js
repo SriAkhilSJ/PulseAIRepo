@@ -17,7 +17,7 @@ import { localize2 } from '../../../../nls.js';
 import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { IProgressService } from '../../../../platform/progress/common/progress.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 const HUB_TIMEOUT_MS = 12000;
@@ -25,7 +25,7 @@ function hubRequest(renderer, progress, op, extra = {}) {
     // The progress badge is the click's first ACK: palette flows must show
     // life IMMEDIATELY (field 2026-10-01: a silent 45s wait read as "nothing
     // happened" when the running bridge predated the Skills Hub build).
-    return progress.withProgress({ location: ProgressLocation.Window, title: `Skills Hub: ${op}…` }, () => new Promise((resolve, reject) => {
+    return progress.withProgress({ location: 10 /* ProgressLocation.Window */, title: `Skills Hub: ${op}…` }, () => new Promise((resolve, reject) => {
         let listener;
         const timer = setTimeout(() => {
             listener?.dispose();

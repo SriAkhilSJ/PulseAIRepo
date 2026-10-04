@@ -25,14 +25,13 @@ import { localize2 } from '../../../../nls.js';
 import { MenuId, MenuRegistry, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { CrusorAICommandId } from '../common/crusorAI.js';
 const CRUSOR_ACCOUNT_MENU_ID = new MenuId('CrusorAccountMenu');
 const CRUSOR_ACCOUNT_DASHBOARD_URL = 'https://www.crusor.in/login';
 // ----- Commands ---------------------------------------------------------------
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: CrusorAICommandId.AccountSignIn,
+            id: "crusorai.account.signIn" /* CrusorAICommandId.AccountSignIn */,
             title: localize2('crusorAI.account.signIn', 'Crusor: Sign in'),
             f1: true,
             category: localize2('crusorAI.category', 'Crusor'),
@@ -46,7 +45,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: CrusorAICommandId.AccountManage,
+            id: "crusorai.account.manage" /* CrusorAICommandId.AccountManage */,
             title: localize2('crusorAI.account.manage', 'Crusor: Manage Account'),
             f1: true,
             category: localize2('crusorAI.category', 'Crusor'),
@@ -59,7 +58,7 @@ registerAction2(class extends Action2 {
 registerAction2(class extends Action2 {
     constructor() {
         super({
-            id: CrusorAICommandId.AccountSignOut,
+            id: "crusorai.account.signOut" /* CrusorAICommandId.AccountSignOut */,
             title: localize2('crusorAI.account.signOut', 'Crusor: Sign out'),
             f1: true,
             category: localize2('crusorAI.category', 'Crusor'),
@@ -120,12 +119,12 @@ MenuRegistry.appendMenuItem(MenuId.TitleBar, {
 });
 // ----- Dropdown contents — ordered by AI-IDE relevance -----------------------
 MenuRegistry.appendMenuItem(CRUSOR_ACCOUNT_MENU_ID, {
-    command: { id: CrusorAICommandId.AccountSignIn, title: localize2('crusorAI.account.signIn.label', 'Sign in with Google / GitHub').value },
+    command: { id: "crusorai.account.signIn" /* CrusorAICommandId.AccountSignIn */, title: localize2('crusorAI.account.signIn.label', 'Sign in with Google / GitHub').value },
     group: '0_account',
     order: 1,
 });
 MenuRegistry.appendMenuItem(CRUSOR_ACCOUNT_MENU_ID, {
-    command: { id: CrusorAICommandId.AccountManage, title: localize2('crusorAI.account.manage.label', 'Manage Account & Subscription').value },
+    command: { id: "crusorai.account.manage" /* CrusorAICommandId.AccountManage */, title: localize2('crusorAI.account.manage.label', 'Manage Account & Subscription').value },
     group: '0_account',
     order: 2,
 });
@@ -135,7 +134,7 @@ MenuRegistry.appendMenuItem(CRUSOR_ACCOUNT_MENU_ID, {
     order: 1,
 });
 MenuRegistry.appendMenuItem(CRUSOR_ACCOUNT_MENU_ID, {
-    command: { id: CrusorAICommandId.OpenSettings, title: localize2('crusorAI.account.crusorSettings.label', 'Agent & Model Settings').value },
+    command: { id: "crusorai.openSettings" /* CrusorAICommandId.OpenSettings */, title: localize2('crusorAI.account.crusorSettings.label', 'Agent & Model Settings').value },
     group: '1_settings',
     order: 2,
 });
@@ -165,7 +164,7 @@ MenuRegistry.appendMenuItem(CRUSOR_ACCOUNT_MENU_ID, {
     order: 3,
 });
 MenuRegistry.appendMenuItem(CRUSOR_ACCOUNT_MENU_ID, {
-    command: { id: CrusorAICommandId.AccountSignOut, title: localize2('crusorAI.account.signOut.label', 'Sign out').value },
+    command: { id: "crusorai.account.signOut" /* CrusorAICommandId.AccountSignOut */, title: localize2('crusorAI.account.signOut.label', 'Sign out').value },
     group: '3_signout',
     order: 1,
 });

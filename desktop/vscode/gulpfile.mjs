@@ -70,25 +70,108 @@ function runTsc() {
 }
 
 function copyResources() {
-	return new Promise((resolve, reject) => {
-		gulp
-			.src(
-				[
-					'src/vs/**/*.css',
-					'src/vs/**/*.ttf',
-					'src/vs/**/*.wasm',
-					'src/vs/**/*.html',
-					'src/vs/**/media/**',
-				],
-				{ cwd: FORK_ROOT, base: SRC }
-			)
-			.pipe(gulp.dest(OUT))
-			.on('finish', () => {
-				crusorLog('resources copied (css / ttf / wasm / media incl. crusorai-spa)');
-				resolve();
-			})
-			.on('error', reject);
-	});
+	// Field 2026-10-03: this used to be `gulp.src(...).pipe(gulp.dest(OUT))`,
+	// which failed at random with `EIO: i/o error, write` (reproduced ~1 run
+	// in 3 on this box, no path in the error, so the file was unfindable).
+	// A sequential fs copy of the SAME file set never fails, names the exact
+	// file when it does, and retries the transient write errors.
+	const RESOURCE_EXT = new Set(['.css', '.ttf', '.wasm', '.html']);
+	let copied = 0;
+	const copyOne = (from, to) => {
+		fs.mkdirSync(path.dirname(to), { recursive: true });
+		const data = readFileRetry(from);
+		let lastErr;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				fs.writeFileSync(to, data);
+				// read-back verify: a silently short/NUL-filled write is
+				// exactly the glitch this build step keeps hitting.
+				const written = readFileRetry(to);
+				if (written.length !== data.length || !written.equals(data)) {
+					lastErr = new Error('read-back mismatch (partial write)');
+					Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+					continue;
+				}
+				copied++;
+				return;
+			} catch (err) {
+				lastErr = err;
+				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+			}
+		}
+		throw new Error(`[crusorai-compile] resource copy failed for ${from} -> ${to}: ${lastErr.message}`);
+	};
+	const walk = (dir) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (entry.name === 'media') { fs.mkdirSync(path.join(OUT, path.relative(SRC, full)), { recursive: true }); }
+				walk(full);
+				continue;
+			}
+			const isResource = RESOURCE_EXT.has(path.extname(entry.name).toLowerCase());
+			const underMedia = full.slice(SRC.length + 1).split(path.sep).includes('media');
+			if (isResource || underMedia) {
+				copyOne(full, path.join(OUT, path.relative(SRC, full)));
+			}
+		}
+	};
+	walk(SRC);
+	crusorLog(`resources copied: ${copied} files (css / ttf / wasm / html / media incl. crusorai-spa)`);
+}
+
+function readFileRetry(file) {
+	// The D: volume (USB-attached Micron) throws transient
+	// `UNKNOWN: unknown error, read` under load — never trust one read.
+	let lastErr;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try {
+			return fs.readFileSync(file);
+		} catch (err) {
+			lastErr = err;
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+		}
+	}
+	throw lastErr;
+}
+
+function findTornOutputs() {
+	// A torn write on this box leaves the first 4 KB of an emitted .js and
+	// NUL-fills the rest — the app then dies with "SyntaxError: Invalid or
+	// unexpected token" at a line that looks like normal code. Cheap to
+	// detect (a NUL byte can never appear in emitted JS), fatal to ship.
+	const torn = [];
+	const unreadable = [];
+	const walkOut = (dir) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) { walkOut(full); continue; }
+			if (!entry.name.endsWith('.js')) { continue; }
+			try {
+				if (readFileRetry(full).includes(0)) { torn.push(full); }
+			} catch {
+				// can't even read it back — treat as damaged and re-emit
+				unreadable.push(full);
+			}
+		}
+	};
+	walkOut(OUT);
+	return [...torn, ...unreadable];
+}
+
+function compileTscWithIntegrity() {
+	runTsc();
+	for (let attempt = 1; attempt <= 2; attempt++) {
+		const torn = findTornOutputs();
+		if (torn.length === 0) { return; }
+		crusorLog(`torn emit detected (${torn.length} partial file(s)) — deleting and re-emitting (attempt ${attempt})`);
+		for (const file of torn) { fs.rmSync(file, { force: true }); }
+		runTsc();
+	}
+	const stillTorn = findTornOutputs();
+	if (stillTorn.length > 0) {
+		throw new Error(`[crusorai-compile] still torn after 2 re-emits: ${stillTorn.join(', ')}`);
+	}
 }
 
 function writeBuildInfo() {
@@ -109,7 +192,7 @@ function writeBuildInfo() {
 
 export async function compile() {
 	ensureNodeModules();
-	runTsc();
+	compileTscWithIntegrity();
 	await copyResources();
 	writeBuildInfo();
 	crusorLog('done: out/ is ready — fully quit the app and reopen it');

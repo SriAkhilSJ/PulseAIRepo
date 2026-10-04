@@ -2512,12 +2512,14 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	// Agent pane AND the Manager chat box, so both surfaces get the same
 	// flow. Data flows through the host's skillsHubOp / oneshotRun hooks.
 	const plusMenu = (() => {
-		const entries: Array<{ label: string; glyph: string; desc: string; tab: HubDialogTab; run: (host: CrusorAIRenderHost, anchor: HTMLElement) => void }> = [
+		type PlusEntry = { label: string; glyph: string; desc: string; tab: HubDialogTab; run: (host: CrusorAIRenderHost, anchor: HTMLElement) => void };
+		const allEntries: PlusEntry[] = [
 			{ label: 'Marketplace…', glyph: 'search', desc: 'browse & install skills', tab: 'marketplace', run: openHubDialog },
 			{ label: 'Connectors…', glyph: 'plug', desc: 'MCP, plugins', tab: 'connectors', run: openHubDialog },
 			{ label: 'My Skills', glyph: 'checklist', desc: 'installed skills, on/off', tab: 'myskills', run: openHubDialog },
 			{ label: 'One-Shot Task…', glyph: 'zap', desc: 'quick jobs to clipboard', tab: 'oneshot', run: openHubDialog },
-		].filter(entry => typeof host.skillsHubOp === 'function');
+		];
+		const entries = allEntries.filter(entry => typeof host.skillsHubOp === 'function');
 		if (entries.length === 0) { return undefined; }
 		const details = element('details', 'crusorai-mode-picker crusorai-add-picker') as HTMLDetailsElement;
 		const summary = element('summary', 'crusorai-mode-summary', icon('add'), icon('chevron-down'));
@@ -2817,9 +2819,8 @@ function skillsPanel(ui: CrusorAIManagerUi, host: CrusorAIRenderHost): HTMLEleme
 		pane.append(retry);
 	} else if (rows.length === 0) {
 		pane.append(element('div', 'crusorai-skills-empty', 'No skills installed yet.'));
-		if (host.openMarketplace) {
-			pane.append(button('Browse the marketplace', 'crusorai-skills-refresh', () => host.openMarketplace?.(), 'package'));
-		}
+		const browse = button('Browse the marketplace', 'crusorai-skills-refresh', () => openHubDialog(host, browse, 'marketplace'), 'package');
+		pane.append(browse);
 	} else {
 		if (ui.skills.hubError) { pane.append(skillsErrorRow(`Update badges unavailable: ${ui.skills.hubError}`)); }
 		for (const row of rows) {

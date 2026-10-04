@@ -18,8 +18,6 @@ import type { CrusorAIRenderHost } from './crusorAIRenderer.js';
 
 export type HubDialogTab = 'marketplace' | 'connectors' | 'myskills' | 'oneshot';
 
-const DIALOG_TIMEOUT_MS = 20000;
-
 type Child = Node | string | undefined | false | null;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, ...children: Child[]): HTMLElementTagNameMap[K] {
