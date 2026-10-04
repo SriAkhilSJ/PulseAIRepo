@@ -21,9 +21,20 @@ it is the step most likely to dirty your tree (§3 says how to undo that).
 $ErrorActionPreference = 'Stop'
 cd D:\pulseAIagent\PulseAIRepo
 
-git fetch origin arena/01a10795-pulseairepo
-git checkout arena/01a10795-pulseairepo        # first time; skip if already on it
-git pull --ff-only
+$branch = 'arena/01a10795-pulseairepo'
+# Fetch this exact remote-tracking ref, including on a fresh clone.
+git fetch origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+if ($LASTEXITCODE -ne 0) { throw 'fetch failed' }
+
+git show-ref --verify --quiet "refs/heads/$branch"
+if ($LASTEXITCODE -eq 0) {
+    git switch $branch
+} else {
+    git switch --track --create $branch "origin/$branch"
+}
+if ($LASTEXITCODE -ne 0) { throw 'could not switch to the Arena branch' }
+git pull --ff-only origin $branch
+if ($LASTEXITCODE -ne 0) { throw 'pull was not a fast-forward; stop and report' }
 
 git log --oneline -3
 ```
@@ -54,8 +65,10 @@ git status --porcelain
 ### 2a. The panel check (scripts/verify_crusor_interrupt_undo.py)
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\verify_crusor_interrupt_undo.py
+python scripts\verify_crusor_interrupt_undo.py
 ```
+
+This check is standard-library only — it does not need `.venv` or any `pip install`.
 
 **PASS = `RESULT: all checks passed`**, exit 0, and 88 `PASS` lines. It checks
 that the two commits are in your history, that your `out/`
@@ -104,6 +117,8 @@ and so does the cleanup afterwards.
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
+node --version                 # repo pins 24.18.0; record the version you used
+if (!(Test-Path node_modules)) { npm install }
 npm run typecheck-client       # must exit 0
 npm run valid-layers-check     # browser/ must not reach for electron/node
 npm run compile                # several minutes cold
