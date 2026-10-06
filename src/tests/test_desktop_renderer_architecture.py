@@ -32,6 +32,20 @@ def test_agent_and_manager_mount_one_shared_renderer_service():
     assert "boot-main" not in manager
 
 
+def test_renderer_model_types_live_and_archived_turn_durations():
+    """Frozen duration state is consumed by both the live receipt and archived history rows."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    model = renderer.split("export interface CrusorAIRenderModel {", 1)[1].split(
+        "\n}\n\nexport interface CrusorAIRenderHost", 1
+    )[0]
+    assert "readonly turnDurationMs?: number;" in model
+    history = model.split("readonly history: readonly {", 1)[1].split("\n\t\t}[];", 1)[0]
+    assert "readonly duration?: number;" in history
+    assert "turnDurationMs: this.turnDurationMs" in service
+    assert "duration: this.turnDurationMs" in service
+
+
 def test_renderer_boundary_is_browser_safe_and_text_only():
     renderer = _text("browser", "crusorAIRenderer.ts")
     service = _text("browser", "crusorAIRendererService.ts")

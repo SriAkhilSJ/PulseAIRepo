@@ -139,6 +139,8 @@ export interface CrusorAIRenderModel {
 	readonly running: boolean;
 	readonly cancelRequested: boolean;
 	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+	/** Frozen wall-clock duration of the live turn, in milliseconds. */
+	readonly turnDurationMs?: number;
 	/**
 	 * This turn's undo point. `baseline` is the shadow snapshot the turn STARTED
 	 * from (bridge _checkpoint_fields) — the honest target for the request row's
@@ -220,6 +222,8 @@ export interface CrusorAIRenderModel {
 		readonly tools: readonly CrusorAIToolView[];
 		readonly subAgents: readonly CrusorAISubAgentView[];
 		readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+		/** Frozen wall-clock duration of this archived turn, in milliseconds. */
+		readonly duration?: number;
 		/** THIS turn's baseline snapshot — an old request row must not inherit a newer hash. */
 		readonly checkpoint?: string;
 		readonly interrupt?: { readonly landed: number; readonly dropped: number };

@@ -93,7 +93,7 @@ you that.
     src\tests\test_shadow_checkpoints.py -q
 ```
 
-**PASS = `81 passed, 1 skipped, 1 xfailed`.** One of those tests
+**PASS = `82 passed, 1 skipped, 1 xfailed`.** One of those tests
 (`test_engine_hash_matches_the_shipped_panel_on_this_repo`) recomputes the
 engine's source hash from your checkout and compares it to the shipped
 `SOURCES_HASH`; it passing is the machine proof that your sources and the
@@ -107,7 +107,7 @@ Broader lane, same pass/fail shape, ~25 s:
 .\.venv\Scripts\python.exe -m pytest src\tests -q -k "renderer or checkpoint or protocol_v2 or file_state or file_tools or bridge"
 ```
 
-**PASS = `218 passed, 1 skipped, 1 xfailed, 2076 deselected`.**
+**PASS = `219 passed, 1 skipped, 1 xfailed, 2076 deselected`.**
 
 Do **not** run the whole suite as a verdict: it has 27 failures that reproduce
 on the pre-round commit (`a2c3c9b5`) and have nothing to do with this change.
