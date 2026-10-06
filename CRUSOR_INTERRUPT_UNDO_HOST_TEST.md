@@ -8,10 +8,11 @@
 > and `47bcdf6e` (blueprints). Read `CRUSOR_PREVIEW_DESKTOP_APP_TEST.md` for
 > the standing gate order; this file does not replace it.
 
-The shipped panel under `desktop/vscode/out/` is **committed**. That is what
-the app loads at launch — so **you do not need to compile anything to test
-this UI**. Compile is only for proving the sources build on your machine, and
-it is the step most likely to dirty your tree (§3 says how to undo that).
+The Crusor panel bundle under `desktop/vscode/out/` is **committed**, but that
+is only the panel slice — not a compiled desktop IDE. Since your clone has no
+dependencies yet, follow §3 to set up the Python worker and the Code OSS build
+before trying to launch `code.bat`. The verifier in §2a can run first (stdlib
+Python only); the UI test itself needs the desktop build.
 
 ---
 
@@ -112,15 +113,76 @@ Do **not** run the whole suite as a verdict: it has 27 failures that reproduce
 on the pre-round commit (`a2c3c9b5`) and have nothing to do with this change.
 Chasing them wastes your afternoon.
 
-## 3. Compile — only if you want to prove the sources build
+## 3. Set up dependencies and build the desktop IDE
 
-Skip this whole section if 2a and 2b pass. Compiling is not what makes the app
-show this UI; `out/` already does. But if you do compile, the order matters
-and so does the cleanup afterwards.
+Because this clone has no dependencies, this section is **required** before
+launch. The committed `out/` panel saves rebuilding Crusor's slice by hand,
+but it does not provide the rest of the Code OSS desktop executable.
+
+### 3a. Python worker + pytest environment
+
+From the repo root, install the locked runtime and dev dependencies. This
+creates `.venv` and includes the packages the bridge and focused tests import:
+
+```powershell
+cd D:\pulseAIagent\PulseAIRepo
+uv --version                      # if missing, install Astral uv first
+uv python install 3.14
+uv sync --group dev
+```
+
+Expected environment: `.venv\Scripts\python.exe`. This is a first-time
+install and may take a while; it installs the repo's full Python dependency
+set, not only pytest.
+
+### 3b. Node dependencies + Code OSS build
+
+The desktop fork pins Node **24.18.0** (`desktop/.nvmrc`). Select/install that
+version first; record `node --version` and `npm --version`. Before `npm install`,
+check for the two upstream build helpers the npm hooks and launcher need:
 
 ```powershell
 cd D:\pulseAIagent\PulseAIRepo\desktop\vscode
-node --version                 # repo pins 24.18.0; record the version you used
+Test-Path build\npm\preinstall.ts
+Test-Path build\lib\preLaunch.ts
+```
+
+If either prints `False`, the upstream `build/` helpers are missing. A plain
+clone omits them because the top-level repo ignores upstream build files (only
+the fork's `buildfile.ts` and `build/next/index.ts` are tracked); npm's
+preinstall and `scripts\code.bat`'s prelaunch need them. Restore the ignored
+local build tree from the exact upstream pin before continuing. In a clean
+checkout, this PowerShell sequence fetches just that folder and puts the two
+tracked Crusor overlay files back from this branch afterwards:
+
+```powershell
+cd D:\pulseAIagent\PulseAIRepo
+$pin = (Get-Content desktop\UPSTREAM_PIN -Raw).Trim()
+$upstream = Join-Path $env:TEMP "vscode-upstream-$pin"
+if (!(Test-Path $upstream)) {
+    git clone --filter=blob:none --no-checkout https://github.com/microsoft/vscode.git $upstream
+    git -C $upstream sparse-checkout init --cone
+    git -C $upstream sparse-checkout set build
+    git -C $upstream checkout --detach $pin
+}
+
+# Do not overwrite local edits to the two tracked fork files.
+if (git status --porcelain -- desktop\vscode\build\buildfile.ts desktop\vscode\build\next\index.ts) {
+    throw 'Local Crusor build-file edits exist; preserve them and stop before copying.'
+}
+robocopy "$upstream\build" "desktop\vscode\build" /E /R:2 /W:1
+if ($LASTEXITCODE -ge 8) { throw 'Robocopy of pinned upstream build failed' }
+git restore --source=HEAD --worktree -- desktop/vscode/build/buildfile.ts desktop/vscode/build/next/index.ts
+```
+
+Then rerun the two `Test-Path` checks; both must be `True`. If the fetch/copy
+fails, stop and report the exact error. Do not bypass npm hooks with
+`--ignore-scripts` or invent build helpers.
+
+Once both helpers exist, install the Node dependencies if they are absent,
+then run the build gates in order:
+
+```powershell
 if (!(Test-Path node_modules)) { npm install }
 npm run typecheck-client       # must exit 0
 npm run valid-layers-check     # browser/ must not reach for electron/node
@@ -129,25 +191,24 @@ node scripts\emit-crusorai-bundle.mjs
 node scripts\audit-preview-pipeline.mjs
 ```
 
-`compile` rewrites `out/` with **your** toolchain; the emitter then re-emits
-the crusorai files and the hashes. Your `tsc` may inline some things (const
-enums) slightly differently from the shipped bytes — that is drift, not a
-feature. So finish with:
+`compile` builds the desktop shell; the emitter produces Crusor's scoped panel
+bundle and source hashes. Compare the generated panel with the committed one:
 
 ```powershell
 git status --porcelain -- desktop\vscode\out
 ```
 
-Anything listed there is your compiler's handwriting, not this round's.
-Discard it so the tree matches what was tested:
+If the compiler reports local changes under `out/`, restore only that tracked
+panel slice to the pulled version before testing the pushed bundle:
 
 ```powershell
 git checkout -- desktop\vscode\out
 ```
 
-Then re-run 2a and 2b. (The `SOURCES_HASH` the engine compares at boot is
-written by the emitter, so the panel stays current either way — but a dirty
-`out/` means the next person cannot tell what you tested.)
+Then rerun §2a and §2b. The app can still use the locally compiled desktop
+shell; this restores the tracked Crusor panel files to the exact bytes reviewed
+in this branch. `npm run gulp minify-vscode` is not needed for this in-app dev
+test; it is for a packaged build.
 
 ## 4. Launch — keyless, guarded
 
