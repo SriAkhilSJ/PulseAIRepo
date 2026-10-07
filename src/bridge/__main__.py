@@ -424,6 +424,19 @@ class BridgeServer:
         return sid
 
     @staticmethod
+    def _echo_seed_checkpoint_enabled() -> bool:
+        """The UI-test checkpoint seam is strictly opt-in and echo-only.
+
+        The ordinary echo guard must remain mutation-free (and therefore have
+        no Undo point). Tests that need to drive the checkpoint UI opt in with
+        both CRUSORAI_BRIDGE_RUNNER=echo and CRUSORAI_ECHO_SEED_CHECKPOINT=1.
+        """
+        return (
+            os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() == "echo"
+            and os.environ.get("CRUSORAI_ECHO_SEED_CHECKPOINT", "").strip() == "1"
+        )
+
+    @staticmethod
     def _checkpoint_fields(workspace: str) -> dict:
         """Turn-checkpoint receipt for terminal frames (D31, pane "Undo turn").
 
@@ -773,6 +786,24 @@ class BridgeServer:
         try:
             self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
             if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() == "echo":
+                if self._echo_seed_checkpoint_enabled():
+                    # UI-only test seam: take a REAL snapshot of this fixture's
+                    # starting tree through the normal mutation hook. This is
+                    # deliberately opt-in; an ordinary echo still changes
+                    # nothing and must carry no `checkpoint` in turn_done.
+                    from src.tools.shadow_checkpoints import (
+                        agent_turn_undo_point,
+                        begin_agent_turn,
+                        checkpoint_before_mutation,
+                    )
+                    begin_agent_turn()
+                    checkpoint_before_mutation(workspace, "echo UI test turn baseline")
+                    if not agent_turn_undo_point(workspace):
+                        print(
+                            "[bridge] echo checkpoint seed produced no undo point; "
+                            "use a non-empty workspace fixture",
+                            file=sys.stderr, flush=True,
+                        )
                 # Test seam (CRUSORAI_ECHO_DELAY_MS): simulate an in-flight turn
                 # that honours a cancel request, mirroring real turn semantics.
                 # Used by the reliability-benchmark harness (PBR-012) to verify

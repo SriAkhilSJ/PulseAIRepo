@@ -93,7 +93,7 @@ you that.
     src\tests\test_shadow_checkpoints.py -q
 ```
 
-**PASS = `82 passed, 1 skipped, 1 xfailed`.** One of those tests
+**PASS = `82 passed, 1 skipped, 1 xfailed`.** One of the pinned-lane tests
 (`test_engine_hash_matches_the_shipped_panel_on_this_repo`) recomputes the
 engine's source hash from your checkout and compares it to the shipped
 `SOURCES_HASH`; it passing is the machine proof that your sources and the
@@ -101,13 +101,24 @@ panel agree, i.e. the pane chip cannot read `STALE` on this tree. If it fails,
 report it as a real finding with `git status --porcelain` output — do not
 "fix" it by re-emitting unless you changed something.
 
+The echo-seed wire/restore proof is also included in `test_bridge.py`; it runs
+without a model key and verifies both the opt-in gate and the real baseline →
+restore → Put it back round trip:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest src\tests\test_bridge.py -q
+```
+
+**PASS = `34 passed`** at this guide revision.
+
 Broader lane, same pass/fail shape, ~25 s:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest src\tests -q -k "renderer or checkpoint or protocol_v2 or file_state or file_tools or bridge"
 ```
 
-**PASS = `219 passed, 1 skipped, 1 xfailed, 2076 deselected`.**
+**PASS = `221 passed, 1 skipped, 1 xfailed, 2076 deselected`** with the two
+new bridge seed tests selected by `-k checkpoint`.
 
 Do **not** run the whole suite as a verdict: it has 27 failures that reproduce
 on the pre-round commit (`a2c3c9b5`) and have nothing to do with this change.
@@ -187,10 +198,18 @@ if (!(Test-Path node_modules)) { npm install }
 npm run typecheck-client       # must exit 0
 npm run valid-layers-check     # browser/ must not reach for electron/node
 npm run compile                # several minutes cold; compiles the workbench client
-npm run build-fast-extensions  # built-in extension outputs + codicon font (needed by code.bat)
+npm run build-fast-extensions  # known issue below; do not count the plain command as green
 node scripts\emit-crusorai-bundle.mjs
 node scripts\audit-preview-pipeline.mjs
 ```
+
+Known separate build issue in this checkout: the plain
+`npm run build-fast-extensions` currently fails with `Task never defined:
+copy-codicons` because the root `gulpfile.mjs` does not import the build
+Gulpfiles. This echo/checkpoint change does not fix that issue. The host has a
+separate reported `--gulpfile build/gulpfile.ts` workaround; use the already
+established invocation if you need that output, and do not report the
+unqualified command as passing.
 
 `compile` builds the desktop shell; the emitter produces Crusor's scoped panel
 bundle and source hashes. Compare the generated panel with the committed one:
@@ -221,10 +240,28 @@ cd D:\pulseAIagent\PulseAIRepo
 Remove-Item Env:CRUSORAI_ALLOW_LIVE_AGENT_TEST -ErrorAction SilentlyContinue
 $env:CRUSORAI_BRIDGE_RUNNER = 'echo'
 $env:CRUSORAI_ECHO_DELAY_MS = '3000'      # slow the echo turn down so the brake is reachable
+$env:CRUSORAI_ECHO_SEED_CHECKPOINT = '1'  # test-only baseline for rows 6–9; both flags are required
+
+# A fresh, non-empty throwaway workspace makes ensure_checkpoint create a real
+# snapshot on its first call. Do not rely on an unchanged/empty tree or Git status.
+$undoWorkspace = Join-Path $env:TEMP ("crusorai-echo-undo-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $undoWorkspace | Out-Null
+Set-Content -Path (Join-Path $undoWorkspace 'probe.txt') -Value 'before turn' -NoNewline
 
 cd desktop\vscode
-.\scripts\code.bat "D:\work\your-project"
+.\scripts\code.bat "$undoWorkspace"
 ```
+
+The seed flag is **strictly test-only**: the snapshot path runs only when both
+`CRUSORAI_BRIDGE_RUNNER=echo` and `CRUSORAI_ECHO_SEED_CHECKPOINT=1` are set. It
+uses `checkpoint_before_mutation` → `ensure_checkpoint` against the actual
+workspace; it does not fabricate a hash or change ordinary echo/live-runner
+behavior. Keep this fresh fixture for rows 6–9. After testing, clear the flag
+in this PowerShell session with
+`Remove-Item Env:CRUSORAI_ECHO_SEED_CHECKPOINT -ErrorAction SilentlyContinue`.
+Row 5 is independent: the echo runner does not create a pending clarify form,
+so test its Esc precedence only when an actual clarify card is available; this
+checkpoint seam does not fake that event.
 
 **Quit and relaunch if the app was already open** — a running process keeps
 the old JS in memory and will show you the previous round with no hint that
@@ -233,7 +270,19 @@ anything is wrong.
 ## 5. What to look at — the evidence
 
 Work down the table with the app in front of you. "Send" = paste the pane text
-for that row.
+for that row. Rows 6–9 use the fresh `undoWorkspace` above: send one prompt,
+wait for its echo reply, and then hover that finished request. Before confirming
+Undo in row 8, change the fixture externally so restore has a genuine
+pre-restore state to capture:
+
+```powershell
+Set-Content -Path (Join-Path $undoWorkspace 'probe.txt') -Value 'after turn' -NoNewline
+```
+
+After row 8, `Get-Content -Raw (Join-Path $undoWorkspace 'probe.txt')` should
+show `before turn`; after row 9's **Put it back**, it should show `after turn`.
+Echo does not mutate files, so this explicit post-turn edit is required to
+exercise the reversible restore chain.
 
 | # | Do this | Pass looks like | If it fails |
 | --- | --- | --- | --- |
@@ -244,8 +293,8 @@ for that row.
 | 5 | While a clarify form is open, press `Esc` | the form closes, the turn is **not** interrupted (designed precedence) | turn cut instead = send it |
 | 6 | Hover **the user bubble** of a finished request (row hover, no click) | a hairline pair fades in **under the user's message** with `↩ Undo turn` and `Fork from here`; invisible at rest | control on the assistant receipt instead = wrong anchor, send it |
 | 7 | Click `Undo turn` | the button becomes a split pill: shimmering **confirm** + `✕`. `✕` restores the button untouched — nothing happens to the tree | pill missing = §2a was not green |
-| 8 | Confirm it | the tree goes back to just before that turn; the line reads `Checkpoint restored · <hash>` and offers **`Put it back`** | send the line you got |
-| 9 | Click `Put it back` | the pre-restore state is returned (the undo is itself undone) | send it |
+| 8 | Confirm it (after the fixture edit below) | the file returns to its seeded `before turn` content; the line reads `Checkpoint restored · <hash>` and offers **`Put it back`** | send the line you got |
+| 9 | Click `Put it back` | the fixture returns to its post-turn `after turn` content (the restore is itself undone) | send it |
 | 10 | On the changed-files card: `Undo All Edits` | same split pill; a file the turn **created** carries a `[new file]` marker | send it |
 | 11 | Send a second prompt while the first runs | a `Queued · …` chip appears — no silent drop | silent drop = real finding, send it |
 

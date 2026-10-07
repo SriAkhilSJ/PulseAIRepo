@@ -8,9 +8,10 @@ the fork will see.
 from __future__ import annotations
 
 import json
-import uuid
+import shutil
 import subprocess
 import sys
+import uuid
 
 import pytest
 
@@ -82,7 +83,13 @@ def _send(proc, obj):
 def sidecar(tmp_path):
     import os
     env = dict(os.environ)
+    env["PYTHON_DOTENV_DISABLED"] = "1"
     env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
+    env["CRUSORAI_ECHO_DELAY_MS"] = "0"
+    # Default-lane tests pin the old, mutation-free echo contract even if the
+    # developer's shell happens to opt into the UI-only checkpoint seam.
+    env.pop("CRUSORAI_ECHO_SEED_CHECKPOINT", None)
+    env["CRUSORAI_CHECKPOINT_HOME"] = str(tmp_path / "checkpoints")
     # Hermetic durable store: prompts persist session rows, which must never
     # touch the developer's real ~/.crusorai/sessions.db.
     env["CRUSORAI_SESSIONS_DB"] = str(tmp_path / "sessions.db")
@@ -123,8 +130,103 @@ def test_sidecar_hello_then_real_runtime_shape(sidecar):
     assert bound and bound[0]["hops"] == "."
     done = frames[-1]
     assert done["stub"] is False and done["session_id"] == "t1"
+    assert "checkpoint" not in done, (
+        "default echo remains mutation-free and offers no undo baseline"
+    )
     assert done["turn_id"].startswith("turn-")
     assert done["workspace_id"].startswith("ws-")
+
+
+def test_echo_checkpoint_seed_flag_is_explicit_and_echo_only(monkeypatch):
+    from src.bridge.__main__ import BridgeServer
+
+    monkeypatch.setenv("CRUSORAI_BRIDGE_RUNNER", "echo")
+    monkeypatch.setenv("CRUSORAI_ECHO_SEED_CHECKPOINT", "1")
+    assert BridgeServer._echo_seed_checkpoint_enabled() is True
+
+    monkeypatch.setenv("CRUSORAI_ECHO_SEED_CHECKPOINT", "true")
+    assert BridgeServer._echo_seed_checkpoint_enabled() is False
+    monkeypatch.setenv("CRUSORAI_ECHO_SEED_CHECKPOINT", "1")
+    monkeypatch.setenv("CRUSORAI_BRIDGE_RUNNER", "agent")
+    assert BridgeServer._echo_seed_checkpoint_enabled() is False
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="real shadow checkpoints require git")
+def test_echo_checkpoint_seed_restores_and_puts_back_real_workspace_state(tmp_path):
+    """The opt-in echo seam drives turn receipt, restore, and restore-the-restore."""
+    import os
+
+    workspace = tmp_path / "fixture"
+    workspace.mkdir()
+    probe = workspace / "probe.txt"
+    probe.write_text("before\n", encoding="utf-8")
+    session_id = "echo-checkpoint-roundtrip"
+
+    env = dict(os.environ)
+    env["PYTHON_DOTENV_DISABLED"] = "1"
+    env["CRUSORAI_BRIDGE_RUNNER"] = "echo"
+    env["CRUSORAI_ECHO_DELAY_MS"] = "0"
+    env["CRUSORAI_ECHO_SEED_CHECKPOINT"] = "1"
+    # The repository-wide pytest hygiene fixture disables snapshots for graph
+    # tests; this sidecar owns a real, isolated store and explicitly reenables it.
+    env["CRUSORAI_CHECKPOINTS"] = "on"
+    env["CRUSORAI_CHECKPOINT_HOME"] = str(tmp_path / "checkpoint-store")
+    env["CRUSORAI_SESSIONS_DB"] = str(tmp_path / "sessions.db")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "src.bridge"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, env=env,
+    )
+    try:
+        hello_reply = _send(proc, {"type": "hello", "protocol": PROTOCOL_VERSION})
+        assert hello_reply["type"] == "hello"
+
+        proc.stdin.write(json.dumps({
+            "type": "prompt", "text": "echo undo fixture",
+            "session_id": session_id, "workspace": str(workspace),
+        }) + "\n")
+        proc.stdin.flush()
+        frames = []
+        while True:
+            line = proc.stdout.readline()
+            assert line, "sidecar closed before the echo turn finished"
+            frame = json.loads(line)
+            frames.append(frame)
+            if frame.get("type") == "turn_done":
+                break
+
+        done = frames[-1]
+        checkpoint = done.get("checkpoint")
+        assert isinstance(checkpoint, dict), frames
+        baseline = checkpoint.get("baseline")
+        assert isinstance(baseline, str) and len(baseline) == 40, checkpoint
+        assert checkpoint.get("workspace") == str(workspace)
+        assert probe.read_text(encoding="utf-8") == "before\n"
+
+        # Echo itself never mutates. Simulate post-turn workspace edits so the
+        # genuine restore path has state to undo and can create pre_restore.
+        probe.write_text("after\n", encoding="utf-8")
+        restored = _send(proc, {
+            "type": "checkpoint_restore", "session_id": session_id,
+            "workspace": str(workspace), "checkpoint_hash": baseline,
+        })
+        assert restored["type"] == "checkpoint_event", restored
+        result = restored.get("restore")
+        assert isinstance(result, dict) and result.get("success") is True, restored
+        pre_restore = result.get("pre_restore")
+        assert isinstance(pre_restore, str) and len(pre_restore) == 40, result
+        assert probe.read_text(encoding="utf-8") == "before\n"
+
+        put_back = _send(proc, {
+            "type": "checkpoint_restore", "session_id": session_id,
+            "workspace": str(workspace), "checkpoint_hash": pre_restore,
+        })
+        assert put_back["type"] == "checkpoint_event", put_back
+        assert put_back.get("restore", {}).get("success") is True, put_back
+        assert probe.read_text(encoding="utf-8") == "after\n"
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 def test_sidecar_negotiates_legacy_v1_without_downgrading_latest(sidecar):
