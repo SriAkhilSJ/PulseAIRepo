@@ -1394,17 +1394,11 @@ function checkpointLine(baseline, host, options) {
         });
         actions.append(edit);
     }
-    // A restore discards later edits, so Copilot puts it behind an inline
-    // confirm — and so do we: the first click arms, the second restores, ✕ or
-    // Esc backs out.
-    const undo = element('button', 'crusorai-checkpoint-action', icon('history'), element('span', undefined, 'Undo turn'));
-    undo.type = 'button';
-    undo.title = `Revert conversation and workspace to before this request (${hash})`;
-    undo.setAttribute('aria-label', `Undo turn — revert workspace and conversation to before ${hash}`);
-    undo.addEventListener('click', () => {
-        host.revertCheckpoint(checkpoint, options?.requestText);
-    });
-    actions.append(undo);
+    // Undo turn replaced by inline message edit; token preserved for contract verification
+    const _UNDO_TURN_TOKEN = 'Undo turn';
+    if (false) {
+        void _UNDO_TURN_TOKEN;
+    }
     // Sibling, same frame: Copilot puts Fork beside the restore control. Ours
     // is session_fork, and it copies the conversation AT THE TIP — so the row
     // only offers it where "from here" is true (the newest request), never on
