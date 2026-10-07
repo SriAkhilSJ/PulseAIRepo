@@ -171,7 +171,7 @@ def _drop_tool_pairs(messages: list) -> list:
 _EMPTY_SUMMARY_RESPONSE = (
     "I reached the iteration limit and couldn't generate a summary."
 )
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_THINK_BLOCK_RE = re.compile(r"<(?:think|thought)>.*?</(?:think|thought)>\s*", re.DOTALL | re.IGNORECASE)
 
 
 def _is_tool_messages_rejection(exc: Exception) -> bool:
@@ -209,7 +209,7 @@ def _summary_text_from(result: Any) -> str:
     if not text:
         extracted = _result_answer_text(result)
         text = extracted or ""
-    if "<think>" in text:
+    if "<think" in text.lower() or "<thought" in text.lower():
         text = _THINK_BLOCK_RE.sub("", text).strip()
     return text.strip()
 
@@ -2329,12 +2329,12 @@ def _result_reasoning_text(result: Any) -> str:
         # layer; here we surface the thought itself.
         try:
             content = getattr(result, "content", "")
-            if isinstance(content, str) and _THINK_OPEN in content:
+            if isinstance(content, str):
                 spans = re.findall(
-                    r"<think>(.*?)</think>", content, flags=re.DOTALL
+                    r"<(?:think|thought)>(.*?)</(?:think|thought)>", content, flags=re.DOTALL | re.IGNORECASE
                 )
                 if spans:
-                    return "\n".join(s for s in spans).strip()
+                    return "\n".join(s.strip() for s in spans if s.strip()).strip()
         except Exception:
             pass
         raw = raw if isinstance(raw, str) else (str(raw) if raw else "")
@@ -2353,7 +2353,7 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
     text = _result_answer_text(result)
     if not text.strip():
         return False
-    if _THINK_OPEN in text:
+    if "<think" in text.lower() or "<thought" in text.lower():
         # Inline-think routers: the thought rides the content. The Thinking
         # card already got it via _flush_unstreamed_reasoning — the answer
         # frame must carry the reply only (same contract as the live
@@ -2559,12 +2559,11 @@ class _AgentTokenPump(BaseCallbackHandler):
         if piece:
             self._emit_text(piece)
 
-    # Holdback covers any split of the LONGER tag ("</think>" is 8 chars;
-    # "<think>" 7). Same discipline as the <tool_call> filter below.
-    _THINK_HOLD = 7  # len("</think>") - 1
+    # Holdback covers any split of the LONGER tag ("</thought>" is 10 chars).
+    _THINK_HOLD = 10
 
     def _split_inline_think(self, piece: str) -> str:
-        """Route inline <think>…</think> spans to the Thinking card.
+        """Route inline <think>…</think> or <thought>…</thought> spans to the Thinking card.
 
         Returns the ANSWER portion of `piece` (may be empty); reasoning is
         accumulated and emitted as reasoning.update frames directly. An
@@ -2576,14 +2575,24 @@ class _AgentTokenPump(BaseCallbackHandler):
         self._think_tag_carry = ""
         out: list[str] = []
         while True:
+            lower_carry = carry.lower()
             if self._in_think:
-                end = carry.find(_THINK_CLOSE)
+                end_think = lower_carry.find(_THINK_CLOSE)
+                end_thought = lower_carry.find("</thought>")
+                end = -1
+                close_len = 0
+                if end_think != -1 and (end_thought == -1 or end_think < end_thought):
+                    end = end_think
+                    close_len = len(_THINK_CLOSE)
+                elif end_thought != -1:
+                    end = end_thought
+                    close_len = len("</thought>")
+
                 if end != -1:
                     self._emit_think(carry[:end])
-                    # Same contract as the buffered _THINK_BLOCK_RE
-                    # (`</think>\s*`): whitespace after the thought is
-                    # router layout, not the answer's leading text.
-                    carry = carry[end + len(_THINK_CLOSE):].lstrip()
+                    # Same contract as the buffered _THINK_BLOCK_RE:
+                    # whitespace after the thought is router layout, not answer text.
+                    carry = carry[end + close_len:].lstrip()
                     self._in_think = False
                     continue
                 # Stay inside the thought; hold back a possible split tag.
@@ -2594,18 +2603,28 @@ class _AgentTokenPump(BaseCallbackHandler):
                 else:
                     self._think_tag_carry = carry
                 break
-            start = carry.find(_THINK_OPEN)
+
+            start_think = lower_carry.find(_THINK_OPEN)
+            start_thought = lower_carry.find("<thought>")
+            start = -1
+            open_len = 0
+            if start_think != -1 and (start_thought == -1 or start_think < start_thought):
+                start = start_think
+                open_len = len(_THINK_OPEN)
+            elif start_thought != -1:
+                start = start_thought
+                open_len = len("<thought>")
+
             if start != -1:
                 out.append(carry[:start])
                 self._in_think = True
                 self._think_seen = True
-                carry = carry[start + len(_THINK_OPEN):]
+                carry = carry[start + open_len:]
                 # Leading newline right after the open tag is layout, not thought.
                 carry = carry.lstrip("\r\n") if carry.startswith("\r") or carry.startswith("\n") else carry
                 continue
             # No open tag in the free portion. Hold back a tail that could
-            # be a split "<think>" tag prefix — SHORT carries can be prefixes
-            # too ("<th" + "ink>…" as separate chunks). Bounded holdback:
+            # be a split tag prefix. Bounded holdback:
             # flush_tail releases it as answer text if the tag never closes.
             if "<" in carry:
                 keep = carry[-self._THINK_HOLD:] if len(carry) > self._THINK_HOLD else carry
