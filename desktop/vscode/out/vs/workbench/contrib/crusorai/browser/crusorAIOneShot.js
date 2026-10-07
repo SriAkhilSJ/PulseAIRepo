@@ -8,11 +8,11 @@ import { registerAction2, Action2 } from '../../../../platform/actions/common/ac
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
-import { IProgressService } from '../../../../platform/progress/common/progress.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 const ONESHOT_TIMEOUT_MS = 60000;
 function oneshotRequest(renderer, progress, template, extra) {
-    return progress.withProgress({ location: 10 /* ProgressLocation.Window */, title: 'Crusor one-shot…' }, () => new Promise((resolve, reject) => {
+    return progress.withProgress({ location: ProgressLocation.Window, title: 'Crusor one-shot…' }, () => new Promise((resolve, reject) => {
         let listener;
         const timer = setTimeout(() => {
             listener?.dispose();

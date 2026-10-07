@@ -49,12 +49,16 @@ if (!parsed) { throw new Error(`[emit] cannot parse ${configPath}`); }
 // sets it.
 const compilerOptions = {
 	...parsed.options,
+	target: parsed.options.target ?? ts.ScriptTarget.ES2022,
 	module: ts.ModuleKind.ESNext,
 	// pairs with the forced module kind; resolution is irrelevant for
 	// transpile (specifiers emit verbatim) — this only silences the
 	// nodenext-pairing diagnostic.
 	moduleResolution: ts.ModuleResolutionKind.Bundler,
 };
+if (!compilerOptions.target) {
+	compilerOptions.target = ts.ScriptTarget.ES2022;
+}
 if (compilerOptions.experimentalDecorators !== true) {
 	throw new Error('[emit] refusing to run: the fork tsconfig must set experimentalDecorators (DI parameter decorators)');
 }

@@ -55,6 +55,7 @@ import { IPathService } from '../../../services/path/common/pathService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
+import { CrusorAICommandId } from '../common/crusorAI.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -482,7 +483,7 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
             this.logService.info('[crusor-preview] relaunch: no live Agent session; the request opens a fresh session');
         }
         try {
-            await this.commandService.executeCommand("crusorai.focus" /* CrusorAICommandId.Focus */);
+            await this.commandService.executeCommand(CrusorAICommandId.Focus);
         }
         catch (error) {
             this.logService.warn('[crusor-preview] could not focus the Agent surface', error);
@@ -656,7 +657,7 @@ let CrusorAIPreviewService = class CrusorAIPreviewService extends Disposable {
         // point in this contribution funnels through the same focus command; the turn is already sent,
         // and `preserveFocus`-style stealing is avoided by letting the command own the focus rules.
         try {
-            await this.commandService.executeCommand("crusorai.focus" /* CrusorAICommandId.Focus */);
+            await this.commandService.executeCommand(CrusorAICommandId.Focus);
         }
         catch (error) {
             this.logService.warn('[crusor-preview] could not focus the Agent surface', error);

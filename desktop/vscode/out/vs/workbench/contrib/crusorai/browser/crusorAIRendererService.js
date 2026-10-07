@@ -20,6 +20,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { CrusorAICommandId } from '../common/crusorAI.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
@@ -85,7 +86,7 @@ function stringField(source, keys) {
     return undefined;
 }
 let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
-    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService) {
+    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, dialogService) {
         super();
         this.engineService = engineService;
         this.workbenchService = workbenchService;
@@ -96,6 +97,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.auxiliaryWindowService = auxiliaryWindowService;
         this.sessionStore = sessionStore;
         this.notificationService = notificationService;
+        this.dialogService = dialogService;
         this.mounts = new Set();
         this.tools = new Map();
         this.seenEventIds = new Set();
@@ -202,6 +204,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     });
                 }
             },
+            revertCheckpoint: (checkpointHash, requestText) => {
+                void this.revertCheckpointWithConfirmation(checkpointHash, requestText);
+            },
             listCheckpoints: () => {
                 // One control, two pulls: open the workspace log, close it again. A
                 // button that only ever opens leaves the panel with no way out.
@@ -287,6 +292,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         // are isolated so one broken panel never eats the frame dispatch.
         this._hubListeners = new Set();
         this._oneshotListeners = new Set();
+        this.pendingPreviews = new Map();
         this._register(this.engineService.onDidChangeState(state => {
             if (state === CrusorAIEngineState.Ready) {
                 this.restartAttempts = 0;
@@ -1734,6 +1740,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }
         else if (frame.type === 'checkpoint_event') {
+            if (frame.request_id && this.pendingPreviews.has(frame.request_id)) {
+                const resolve = this.pendingPreviews.get(frame.request_id);
+                this.pendingPreviews.delete(frame.request_id);
+                resolve(frame.preview);
+                return;
+            }
             // checkpoint_list rows (the "Earlier snapshots" flyout) and the
             // checkpoint_restore receipt ("Checkpoint restored · <hash>"). The
             // restore result carries `pre_restore` — the snapshot the restore
@@ -2009,6 +2021,120 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         return { landed, dropped };
     }
+    async revertCheckpointWithConfirmation(checkpointHash, requestText) {
+        const workspace = this.workspacePath;
+        if (!workspace) {
+            return;
+        }
+        // 1. Request read-only preview of affected paths
+        const reqId = `prev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        let previewPromise = new Promise((resolve) => {
+            this.pendingPreviews.set(reqId, resolve);
+            setTimeout(() => {
+                if (this.pendingPreviews.delete(reqId)) {
+                    resolve(null);
+                }
+            }, 4000);
+        });
+        this.send({
+            type: 'checkpoint_preview',
+            session_id: this.sessionId,
+            workspace,
+            checkpoint_hash: checkpointHash,
+            request_id: reqId,
+        });
+        const preview = await previewPromise;
+        const files = preview?.files ?? [];
+        // 2. Format Copilot-style confirmation message & detail
+        let title = 'Revert to Checkpoint?';
+        let message = 'Your context and edits from this point forward will disappear.';
+        let detail = '';
+        if (files.length > 0) {
+            const added = files.filter(f => f.change === 'added');
+            const modified = files.filter(f => f.change === 'modified');
+            const deleted = files.filter(f => f.change === 'deleted');
+            const summaryParts = [];
+            if (added.length) {
+                summaryParts.push(`${added.length} created file/folder${added.length === 1 ? '' : 's'} will be removed`);
+            }
+            if (modified.length) {
+                summaryParts.push(`${modified.length} modified file${modified.length === 1 ? '' : 's'} will be restored`);
+            }
+            if (deleted.length) {
+                summaryParts.push(`${deleted.length} deleted file${deleted.length === 1 ? '' : 's'} will be restored`);
+            }
+            const sampleList = files.slice(0, 8).map(f => `• [${f.change}] ${f.path}`).join('\n');
+            const remaining = files.length > 8 ? `\n...and ${files.length - 8} more` : '';
+            detail = `Affected changes (${summaryParts.join(', ')}):\n${sampleList}${remaining}\n\nAre you sure you want to proceed?`;
+        }
+        else {
+            detail = 'No file changes detected since this snapshot. Restoring will rewind the conversation and restore your prompt.';
+        }
+        const confirmResult = await this.dialogService.confirm({
+            type: 'warning',
+            title,
+            message,
+            detail,
+            primaryButton: '&&Revert',
+            cancelButton: 'Cancel',
+        });
+        if (!confirmResult.confirmed) {
+            return;
+        }
+        // 3. User confirmed: apply full workspace revert
+        this.checkpointRestore = { success: true, restored_to: checkpointHash.slice(0, 8) };
+        this.send({
+            type: 'checkpoint_restore',
+            session_id: this.sessionId,
+            workspace,
+            checkpoint_hash: checkpointHash,
+            full_revert: true,
+            workspace_fingerprint: preview?.workspace_fingerprint,
+        });
+        // 4. Rewind conversation context back to before this request
+        this.rewindConversation(checkpointHash, requestText);
+        // 5. Place the reverted user prompt back into the composer draft
+        if (requestText) {
+            this.draft = requestText;
+        }
+        this.render();
+    }
+    rewindConversation(checkpointHash, targetPrompt) {
+        // Prune in-memory history turns
+        if (this.turnCheckpoint?.baseline === checkpointHash || this.userMessage === targetPrompt) {
+            // Current active turn was the one reverted
+            this.userMessage = undefined;
+            this.assistantText = '';
+            this.parts = [];
+            this.reasoningParts = [];
+            this.tools.clear();
+            this.subAgents.clear();
+            this.plan = [];
+            this.turnCheckpoint = undefined;
+            this.interrupt = undefined;
+        }
+        else {
+            const idx = this.history.findIndex(t => t.checkpoint === checkpointHash || (targetPrompt && t.userMessage === targetPrompt));
+            if (idx !== -1) {
+                this.history = this.history.slice(0, idx);
+                this.userMessage = undefined;
+                this.assistantText = '';
+                this.parts = [];
+                this.reasoningParts = [];
+                this.tools.clear();
+                this.subAgents.clear();
+                this.plan = [];
+                this.turnCheckpoint = undefined;
+                this.interrupt = undefined;
+            }
+        }
+        // Notify bridge to rewind graph messages and update durable session counts
+        this.send({
+            type: 'session_rewind',
+            session_id: this.sessionId,
+            target_prompt: targetPrompt,
+        });
+    }
     requestCheckpointList() {
         const workspace = this.workspacePath;
         if (workspace) {
@@ -2100,6 +2226,7 @@ CrusorAIRendererService = __decorate([
     __param(5, IClipboardService),
     __param(6, IAuxiliaryWindowService),
     __param(7, ICrusorAISessionStore),
-    __param(8, INotificationService)
+    __param(8, INotificationService),
+    __param(9, IDialogService)
 ], CrusorAIRendererService);
 export { CrusorAIRendererService };
