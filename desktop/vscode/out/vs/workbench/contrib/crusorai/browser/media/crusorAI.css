@@ -168,6 +168,92 @@
 	width: fit-content;
 	max-width: 100%;
 	white-space: pre-wrap;
+	cursor: pointer;
+	position: relative;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.crusorai-user-message:hover {
+	border-color: var(--vscode-focusBorder, var(--crusorai-accent));
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder, var(--crusorai-accent));
+}
+
+.crusorai-user-message-edit-icon {
+	display: none;
+	margin-left: 6px;
+	opacity: 0.75;
+	font-size: 11px;
+	vertical-align: middle;
+}
+
+.crusorai-user-message:hover .crusorai-user-message-edit-icon {
+	display: inline-flex;
+	align-items: center;
+}
+
+.crusorai-user-edit-container {
+	margin: 0 0 var(--crusorai-h-turn-gap) auto;
+	width: 100%;
+	max-width: 90%;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px 10px;
+	border: 1px solid var(--vscode-focusBorder, var(--crusorai-accent));
+	border-radius: var(--crusorai-h-radius);
+	background: var(--vscode-input-background, var(--crusorai-h-bubble));
+}
+
+.crusorai-user-edit-textarea {
+	width: 100%;
+	box-sizing: border-box;
+	border: none;
+	outline: none;
+	resize: vertical;
+	min-height: 44px;
+	background: transparent;
+	color: var(--vscode-input-foreground, var(--vscode-editor-foreground));
+	font-family: inherit;
+	font-size: var(--crusorai-h-prose-size);
+	line-height: var(--crusorai-h-prose-line);
+}
+
+.crusorai-user-edit-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.crusorai-user-edit-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 10px;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.crusorai-user-edit-btn.is-save {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.crusorai-user-edit-btn.is-save:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.crusorai-user-edit-btn.is-cancel {
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	border-color: var(--vscode-input-border, transparent);
+}
+
+.crusorai-user-edit-btn.is-cancel:hover {
+	background: var(--vscode-toolbar-hoverBackground);
 }
 
 .crusorai-assistant-message {

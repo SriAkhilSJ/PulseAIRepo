@@ -207,6 +207,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             revertCheckpoint: (checkpointHash, requestText) => {
                 void this.revertCheckpointWithConfirmation(checkpointHash, requestText);
             },
+            editAndResubmit: (checkpointHash, requestText, newText) => {
+                void this.editAndResubmitTurn(checkpointHash, requestText, newText);
+            },
             listCheckpoints: () => {
                 // One control, two pulls: open the workspace log, close it again. A
                 // button that only ever opens leaves the panel with no way out.
@@ -2134,6 +2137,26 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             session_id: this.sessionId,
             target_prompt: targetPrompt,
         });
+    }
+    async editAndResubmitTurn(checkpointHash, requestText, newText) {
+        if (!newText || !newText.trim()) {
+            return;
+        }
+        const workspace = this.workspacePath;
+        if (checkpointHash && workspace) {
+            this.checkpointRestore = { success: true, restored_to: checkpointHash.slice(0, 8) };
+            this.send({
+                type: 'checkpoint_restore',
+                session_id: this.sessionId,
+                workspace,
+                checkpoint_hash: checkpointHash,
+                full_revert: true,
+            });
+        }
+        if (checkpointHash || requestText) {
+            this.rewindConversation(checkpointHash || '', requestText);
+        }
+        this.startTurn(newText.trim());
     }
     requestCheckpointList() {
         const workspace = this.workspacePath;

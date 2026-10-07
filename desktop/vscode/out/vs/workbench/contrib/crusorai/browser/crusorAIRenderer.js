@@ -1291,6 +1291,78 @@ function shortHash(hash) {
     const trimmed = (hash ?? '').trim();
     return trimmed ? trimmed.slice(0, 8) : undefined;
 }
+function userMessageBubble(text, onStartEdit) {
+    const bubble = element('div', 'crusorai-user-message');
+    const textSpan = element('span', undefined, text);
+    const editIcon = element('span', 'crusorai-user-message-edit-icon', icon('edit'));
+    editIcon.title = 'Edit this message';
+    bubble.append(textSpan, editIcon);
+    bubble.title = 'Click to edit message';
+    bubble.setAttribute('role', 'button');
+    bubble.tabIndex = 0;
+    bubble.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onStartEdit();
+    });
+    bubble.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onStartEdit();
+        }
+    });
+    return bubble;
+}
+function userMessageEditContainer(initialText, checkpointHash, host, onDone) {
+    const container = element('div', 'crusorai-user-edit-container');
+    const textarea = document.createElement('textarea');
+    textarea.className = 'crusorai-user-edit-textarea';
+    textarea.value = initialText;
+    textarea.rows = Math.min(8, Math.max(2, initialText.split('\n').length));
+    container.append(textarea);
+    const actions = element('div', 'crusorai-user-edit-actions');
+    const cancelBtn = element('button', 'crusorai-user-edit-btn is-cancel', icon('close'), element('span', undefined, 'Cancel'));
+    cancelBtn.type = 'button';
+    cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onDone();
+    });
+    const sendBtn = element('button', 'crusorai-user-edit-btn is-save', icon('arrow-up'), element('span', undefined, 'Send'));
+    sendBtn.type = 'button';
+    const submit = () => {
+        const val = textarea.value.trim();
+        if (!val) {
+            return;
+        }
+        onDone();
+        if (host.editAndResubmit) {
+            host.editAndResubmit(checkpointHash, initialText, val);
+        }
+        else {
+            host.setDraft(val);
+        }
+    };
+    sendBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        submit();
+    });
+    textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+        }
+        else if (e.key === 'Escape') {
+            e.preventDefault();
+            onDone();
+        }
+    });
+    actions.append(cancelBtn, sendBtn);
+    container.append(actions);
+    setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }, 15);
+    return container;
+}
 /**
  * The request-row checkpoint line (F5) — Copilot's own frame: a hairline
  * pair that fades outward, with "Undo turn" inside it. It anchors to the
@@ -1311,6 +1383,17 @@ function checkpointLine(baseline, host, options) {
     line.dataset.component = 'checkpoint-line';
     line.append(element('span', 'crusorai-checkpoint-hair is-left'));
     const actions = element('div', 'crusorai-checkpoint-actions');
+    if (options?.onStartEdit) {
+        const edit = element('button', 'crusorai-checkpoint-action', icon('edit'), element('span', undefined, 'Edit'));
+        edit.type = 'button';
+        edit.title = 'Edit this message';
+        edit.setAttribute('aria-label', 'Edit this message');
+        edit.addEventListener('click', (e) => {
+            e.stopPropagation();
+            options.onStartEdit?.();
+        });
+        actions.append(edit);
+    }
     // A restore discards later edits, so Copilot puts it behind an inline
     // confirm — and so do we: the first click arms, the second restores, ✕ or
     // Esc backs out.
@@ -1596,10 +1679,28 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
         const turn = model.history[turnIndex];
         if (turn.userMessage) {
             const requestRow = element('div', 'crusorai-request-row');
-            requestRow.append(element('div', 'crusorai-user-message', turn.userMessage));
+            let bubble;
+            let line;
+            const startEdit = () => {
+                const editBox = userMessageEditContainer(turn.userMessage, turn.checkpoint, host, () => {
+                    editBox.replaceWith(bubble);
+                    if (line && line.parentElement !== requestRow) {
+                        requestRow.append(line);
+                    }
+                });
+                bubble.replaceWith(editBox);
+                if (line && line.parentElement === requestRow) {
+                    line.remove();
+                }
+            };
+            bubble = userMessageBubble(turn.userMessage, startEdit);
+            requestRow.append(bubble);
             // Undo anchors to the ASK, not the answer (F5) — and the hash is
             // THIS turn's baseline, never the session's newest.
-            const line = checkpointLine(turn.checkpoint, host, { requestText: turn.userMessage });
+            line = checkpointLine(turn.checkpoint, host, {
+                requestText: turn.userMessage,
+                onStartEdit: startEdit,
+            });
             if (line) {
                 requestRow.append(line);
             }
@@ -1649,11 +1750,30 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     // Current turn (breathing when running)
     if (model.userMessage) {
         const requestRow = element('div', 'crusorai-request-row');
-        requestRow.append(element('div', 'crusorai-user-message', model.userMessage));
+        let bubble;
+        let line;
+        const startEdit = () => {
+            const editBox = userMessageEditContainer(model.userMessage, model.turnCheckpoint?.baseline, host, () => {
+                editBox.replaceWith(bubble);
+                if (line && line.parentElement !== requestRow) {
+                    requestRow.append(line);
+                }
+            });
+            bubble.replaceWith(editBox);
+            if (line && line.parentElement === requestRow) {
+                line.remove();
+            }
+        };
+        bubble = userMessageBubble(model.userMessage, startEdit);
+        requestRow.append(bubble);
         // The turn's own undo point (F5/F6). While the turn is still open the
         // line is already there — the brake landing mid-response must not move
         // the control: the request row above it never changes.
-        const line = checkpointLine(model.turnCheckpoint?.baseline, host, { fork: true, requestText: model.userMessage });
+        line = checkpointLine(model.turnCheckpoint?.baseline, host, {
+            fork: true,
+            requestText: model.userMessage,
+            onStartEdit: startEdit,
+        });
         if (line) {
             requestRow.append(line);
         }
