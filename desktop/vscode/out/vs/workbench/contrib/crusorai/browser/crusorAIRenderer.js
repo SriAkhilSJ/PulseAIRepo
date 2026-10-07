@@ -1590,6 +1590,7 @@ function assistantTurn(spec, host, openTools) {
     return response;
 }
 function transcript(model, host, openTools, liveThoughtSeconds) {
+    ensureGlobalCardKeys();
     const scroll = element('div', 'crusorai-transcript-scroll');
     const lane = element('div', 'crusorai-transcript-lane');
     // The snapshot log rides above the transcript while it is open (F7c): it is

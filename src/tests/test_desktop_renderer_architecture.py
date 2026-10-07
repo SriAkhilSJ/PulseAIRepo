@@ -116,6 +116,10 @@ def test_interrupt_is_a_hand_brake_and_undo_lives_on_the_request_row():
     # handler sits BEFORE the clarify branch's early return, because an
     # unreachable keybinding is a lie in the hint bar.
     assert "Esc to interrupt" in renderer
+    transcript_head = renderer.split("function transcript(", 1)[1].split("\n\tconst scroll", 1)[0]
+    assert "ensureGlobalCardKeys();" in transcript_head, (
+        "the global Escape listener must be installed for every transcript, not only cards"
+    )
     assert ".crusorai-send-brake:not([disabled])" in renderer
     assert renderer.index(".crusorai-send-brake:not([disabled])") < renderer.index(
         "const form = document.querySelector"), "the brake's Escape must be reachable"
