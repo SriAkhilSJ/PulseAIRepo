@@ -1222,7 +1222,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     startTurn(text) {
         this.archiveLiveTurn();
         this.resetTurnState(text);
-        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
+        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'medium' });
         this.render();
     }
     /**

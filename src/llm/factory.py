@@ -1025,7 +1025,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "nvidia":
-        llm = ChatOpenAI(
+        llm = ReasoningAwareOpenAI(
             model=model,
             api_key=NVIDIA_API_KEY,
             base_url="https://integrate.api.nvidia.com/v1",
@@ -1037,7 +1037,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "openai":
-        llm = ChatOpenAI(
+        llm = ReasoningAwareOpenAI(
             api_key=OPENAI_API_KEY,
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),

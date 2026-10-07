@@ -1814,11 +1814,22 @@ function assistantTurn(
 	const parts = spec.parts.length
 		? spec.parts
 		: (spec.assistantText ? [{ kind: 'text' as const, text: spec.assistantText }] : []);
+
+	// Hermes parity: Ensure any reasoning parts not explicitly in parts are rendered at the start of the turn
+	const indexedReasoning = new Set(parts.filter(p => p.kind === 'reasoning').map(p => p.reasoningIndex));
+	const unindexedReasoning: CrusorAITurnPart[] = [];
+	for (let r = 0; r < reasoningParts.length; r++) {
+		if (!indexedReasoning.has(r)) {
+			unindexedReasoning.push({ kind: 'reasoning', reasoningIndex: r });
+		}
+	}
+	const orderedParts = unindexedReasoning.length ? [...unindexedReasoning, ...parts] : parts;
+
 	const toolsById = new Map(spec.tools.map(t => [t.id, t]));
 	let lastTextIndex = -1;
 	let lastTextNode: HTMLElement | undefined;
-	for (let i = 0; i < parts.length; i++) {
-		const part = parts[i];
+	for (let i = 0; i < orderedParts.length; i++) {
+		const part = orderedParts[i];
 		if (part.kind === 'text' && part.text) { lastTextIndex = i; }
 	}
 	// The streaming slot rides the LAST text segment only: the painter's fast
@@ -1829,7 +1840,7 @@ function assistantTurn(
 		response.append(toolSection(run, host, openTools, live, false, spec.clarify));
 		run = [];
 	};
-	parts.forEach((part, index) => {
+	orderedParts.forEach((part, index) => {
 		if (part.kind === 'reasoning') {
 			// Flush any accumulated tool run BEFORE the reasoning block (preserves order)
 			flushRun();
@@ -1837,7 +1848,7 @@ function assistantTurn(
 			if (rp && rp.text) {
 				// A reasoning block is "live" (spinner + growing text) only when it is the
 				// last part in the timeline and the turn is still running.
-				const isLastPart = index === parts.length - 1;
+				const isLastPart = index === orderedParts.length - 1;
 				response.append(thinkingBlock(rp.text, openTools, live && isLastPart, spec.thoughtSeconds, `${spec.turnKey || 'turn'}:${part.reasoningIndex}`));
 			}
 			return;
