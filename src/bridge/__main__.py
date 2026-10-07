@@ -995,6 +995,64 @@ class BridgeServer:
         if queued and not self._shutdown.is_set():
             self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1])
 
+    def _rewind_session_state(self, sid: str, target_prompt: str | None) -> dict:
+        """Rewind graph messages and durable store activity back to target_prompt."""
+        try:
+            import concurrent.futures as _cf
+            from src.graphs.chat_graph import graph as _graph
+            from langchain_core.messages import RemoveMessage
+
+            config = {"configurable": {"thread_id": sid}}
+            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                snap = _ex.submit(_graph.get_state, config).result(timeout=2.0)
+            values = dict(snap.values or {}) if snap else {}
+            raw = list(values.get("messages") or [])
+
+            if target_prompt and raw:
+                # Find the user prompt matching target_prompt (case-sensitive or trimmed)
+                clean_target = target_prompt.strip()
+                target_idx = None
+                for idx, msg in enumerate(raw):
+                    mtype = str(getattr(msg, "type", "") or "").lower()
+                    if mtype in ("human", "user"):
+                        content = getattr(msg, "content", "")
+                        if isinstance(content, str) and content.strip() == clean_target:
+                            target_idx = idx
+                            break
+                        elif str(content).strip() == clean_target:
+                            target_idx = idx
+                            break
+
+                if target_idx is not None:
+                    to_remove = [
+                        RemoveMessage(id=m.id)
+                        for m in raw[target_idx:]
+                        if getattr(m, "id", None)
+                    ]
+                    if to_remove:
+                        with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                            _ex.submit(_graph.update_state, config, {"messages": to_remove}).result(timeout=2.0)
+
+            # Update durable store message count & preview
+            try:
+                store = self._durable_store()
+                with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                    snap_after = _ex.submit(_graph.get_state, config).result(timeout=2.0)
+                remaining = list((dict(snap_after.values or {}) if snap_after else {}).get("messages") or [])
+                last_user = ""
+                for m in reversed(remaining):
+                    if str(getattr(m, "type", "") or "").lower() in ("human", "user"):
+                        last_user = str(getattr(m, "content", "") or "")
+                        break
+                store.touch_activity(sid, preview=last_user[:500], message_count=len(remaining))
+            except Exception as e:
+                print(f"[bridge] durable store update on rewind failed: {e!r}", file=sys.stderr, flush=True)
+
+            return {"success": True, "session_id": sid}
+        except Exception as exc:
+            print(f"[bridge] rewind session state failed for {sid}: {exc!r}", file=sys.stderr, flush=True)
+            return {"success": False, "error": str(exc)}
+
     def _handle_session_meta(self, kind: str, sid: str, frame: dict, workspace: str) -> bool:
         """Durable-row session APIs (Hermes PATCH/DELETE/GET messages parity)."""
         try:
@@ -1733,14 +1791,39 @@ class BridgeServer:
             })
         elif kind == "checkpoint_restore":
             from src.tools.shadow_checkpoints import get_shadow_checkpoints
-            result = get_shadow_checkpoints().restore(
-                workspace, str(frame.get("checkpoint_hash") or ""),
-                str(frame.get("file_path")) if frame.get("file_path") else None,
-            )
+            c_hash = str(frame.get("checkpoint_hash") or "")
+            f_path = str(frame.get("file_path")) if frame.get("file_path") else None
+            full_revert = bool(frame.get("full_revert", False))
+            fingerprint = str(frame.get("workspace_fingerprint") or "") or None
+            if full_revert and not f_path:
+                result = get_shadow_checkpoints().restore_full(
+                    workspace, c_hash, expected_fingerprint=fingerprint,
+                )
+            else:
+                result = get_shadow_checkpoints().restore(workspace, c_hash, f_path)
             self.emit({
                 "type": "checkpoint_event", "session_id": sid,
                 "workspace": workspace, "restore": result,
+                "request_id": frame.get("request_id"),
             })
+        elif kind == "checkpoint_preview":
+            from src.tools.shadow_checkpoints import get_shadow_checkpoints
+            result = get_shadow_checkpoints().preview_restore(
+                workspace, str(frame.get("checkpoint_hash") or ""),
+            )
+            self.emit({
+                "type": "checkpoint_event", "session_id": sid,
+                "workspace": workspace, "preview": result,
+                "request_id": frame.get("request_id"),
+            })
+        elif kind == "session_rewind":
+            target_prompt = frame.get("target_prompt")
+            rewind_result = self._rewind_session_state(sid, target_prompt)
+            self.emit({
+                "type": "session_info", "session_id": sid,
+                "rewound": True, "result": rewind_result,
+            })
+
         elif kind == "events_replay":
             from src.runtime.factory import get_runtime_services
             stored = get_runtime_services().journal.list_events(

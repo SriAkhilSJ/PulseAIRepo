@@ -54,6 +54,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -178,6 +179,7 @@ def _run_git(
     timeout: int = _GIT_TIMEOUT,
     allowed_returncodes: frozenset[int] = frozenset(),
     index_file: Optional[Path] = None,
+    preserve_output: bool = False,
 ) -> tuple[bool, str, str]:
     """Run git against the shared store. Returns (ok, stdout, stderr)."""
     wd = _normalize_path(working_dir)
@@ -206,7 +208,9 @@ def _run_git(
         return False, "", str(exc)
 
     ok = result.returncode == 0
-    return ok, result.stdout.strip(), result.stderr.strip()
+    stdout = result.stdout if preserve_output else result.stdout.strip()
+    stderr = result.stderr.strip()
+    return ok, stdout, stderr
 
 
 # Directory patterns whose entries may already sit in a legacy store's index.
@@ -514,6 +518,208 @@ class ShadowCheckpoints:
                     "timestamp": parts[2], "reason": parts[3],
                 })
         return out
+
+    def _validated_restore_target(self, working_dir: str, commit_hash: str):
+        """Return (absolute workspace, store, ref tip, error) for a checkpoint.
+
+        The object database is shared across workspaces, so a valid object hash
+        is not enough: restore targets must be ancestors of this workspace's
+        own shadow-checkpoint ref.
+        """
+        if not _HASH_RE.match(commit_hash or ""):
+            return None, None, None, {"success": False, "error": f"Invalid checkpoint hash: {commit_hash!r}"}
+        abs_dir = str(_normalize_path(working_dir))
+        store = _store_path(self._base)
+        if not (store / "HEAD").exists():
+            return None, None, None, {"success": False, "error": "No checkpoints exist for this directory"}
+        ok, _, err = _run_git(["cat-file", "-t", commit_hash], store, abs_dir)
+        if not ok:
+            return None, None, None, {
+                "success": False, "error": f"Checkpoint '{commit_hash}' not found", "debug": err or None,
+            }
+        ref = _ref_name(_project_hash(abs_dir))
+        ok_ref, tip, _ = _run_git(
+            ["rev-parse", "--verify", ref + "^{commit}"],
+            store, abs_dir, allowed_returncodes=frozenset({128}),
+        )
+        if not (ok_ref and tip):
+            return None, None, None, {"success": False, "error": "No checkpoint history for this directory"}
+        ok_anc, _, _ = _run_git(["merge-base", "--is-ancestor", commit_hash, tip], store, abs_dir)
+        if not ok_anc:
+            return None, None, None, {
+                "success": False,
+                "error": "Checkpoint does not belong to this directory's history",
+            }
+        return abs_dir, store, tip, None
+
+    def _preview_restore_unlocked(self, working_dir: str, commit_hash: str) -> dict:
+        """Compare the snapshot policy's view of the current tree to a target.
+
+        A throwaway index keeps preview read-only: the user's workspace, the
+        shared checkpoint index, and the checkpoint ref are never changed.
+        """
+        abs_dir, store, _tip, error = self._validated_restore_target(working_dir, commit_hash)
+        if error:
+            return error
+        index_file = _index_path(store, _project_hash(abs_dir)).with_name(
+            f"{_project_hash(abs_dir)}.preview-{uuid.uuid4().hex}"
+        )
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            ok, _, err = _run_git(["read-tree", commit_hash], store, abs_dir, index_file=index_file)
+            if not ok:
+                return {"success": False, "error": f"Could not prepare checkpoint preview: {err}"}
+            ok, _, err = _run_git(
+                ["add", "-A"], store, abs_dir, timeout=_git_timeout(), index_file=index_file,
+            )
+            if not ok:
+                return {"success": False, "error": f"Could not scan workspace for checkpoint preview: {err}"}
+            if self.max_file_size_mb > 0:
+                self._drop_oversize_from_index(store, abs_dir, index_file)
+            ok_tree, tree_sha, err = _run_git(
+                ["write-tree"], store, abs_dir, index_file=index_file,
+            )
+            if not ok_tree or not tree_sha:
+                return {"success": False, "error": f"Could not fingerprint workspace for checkpoint preview: {err}"}
+            ok_diff, raw, err = _run_git(
+                ["diff-index", "--cached", "--name-status", "--no-renames", "-z", commit_hash],
+                store, abs_dir, allowed_returncodes=frozenset({1}),
+                index_file=index_file, preserve_output=True,
+            )
+            if not ok_diff:
+                return {"success": False, "error": f"Could not compare workspace with checkpoint: {err}"}
+            fields = raw.split("\x00")
+            files: list[dict[str, str]] = []
+            for index in range(0, len(fields) - 1, 2):
+                status, path = fields[index], fields[index + 1]
+                if not status or not path:
+                    continue
+                code = status[0]
+                change = "added" if code == "A" else "deleted" if code == "D" else "modified"
+                files.append({
+                    "path": path,
+                    "change": change,
+                    "action": "delete" if change == "added" else "restore",
+                })
+            fingerprint = hashlib.sha256(
+                f"{abs_dir}\0{commit_hash}\0{tree_sha}".encode("utf-8")
+            ).hexdigest()
+            return {
+                "success": True,
+                "checkpoint": commit_hash,
+                "files": files,
+                "changed_paths": len(files),
+                "workspace_fingerprint": fingerprint,
+                "limitations": [
+                    "Ignored, generated/dependency, and oversized files are outside the shadow-checkpoint snapshot policy and are not included in this restore."
+                ],
+            }
+        finally:
+            try:
+                index_file.unlink(missing_ok=True)
+                index_file.with_name(index_file.name + ".lock").unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def preview_restore(self, working_dir: str, commit_hash: str) -> dict:
+        """Read-only list of workspace paths that a full revert would change."""
+        try:
+            with self._lock:
+                return self._preview_restore_unlocked(working_dir, commit_hash)
+        except Exception as exc:
+            return {"success": False, "error": f"Checkpoint preview failed: {exc}"}
+
+    def restore_full(
+        self,
+        working_dir: str,
+        commit_hash: str,
+        *,
+        expected_fingerprint: str | None = None,
+    ) -> dict:
+        """Restore the complete checkpointed working tree, including removals.
+
+        Unlike the older `restore` API (used by one-file and snapshot-log
+        actions), this stages the current checkpointable tree into a temporary
+        index before `reset --hard`. That lets Git remove paths added since the
+        target while leaving ignored/excluded content outside the checkpoint
+        policy untouched. A pre-restore checkpoint is required before any
+        destructive workspace change.
+        """
+        try:
+            with self._lock:
+                abs_dir, store, _tip, error = self._validated_restore_target(working_dir, commit_hash)
+                if error:
+                    return error
+                preview = self._preview_restore_unlocked(abs_dir, commit_hash)
+                if not preview.get("success"):
+                    return preview
+                if expected_fingerprint and preview.get("workspace_fingerprint") != expected_fingerprint:
+                    return {"success": False, "error": "Workspace changed after the preview. Review the affected paths and try again."}
+
+                pre_restore = self._take(abs_dir, f"pre-rollback snapshot (full revert to {commit_hash[:8]})")
+                if not pre_restore:
+                    # If workspace matches the latest snapshot, latest_checkpoint is our pre_restore!
+                    pre_restore = self.latest_checkpoint(abs_dir)
+                # _take may advance the per-project ref to the safety snapshot.
+                # Seed a private index from that tip, stage the current tree,
+                # then reset it to the requested checkpoint. Added paths are
+                # in the temporary index and are removed by reset --hard.
+                ref = _ref_name(_project_hash(abs_dir))
+                ok_tip, current_tip, _ = _run_git(
+                    ["rev-parse", "--verify", ref + "^{commit}"],
+                    store, abs_dir, allowed_returncodes=frozenset({128}),
+                )
+                if not (ok_tip and current_tip):
+                    current_tip = commit_hash
+                index_file = _index_path(store, _project_hash(abs_dir)).with_name(
+                    f"{_project_hash(abs_dir)}.restore-{uuid.uuid4().hex}"
+                )
+                index_file.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    ok, _, err = _run_git(["read-tree", current_tip], store, abs_dir, index_file=index_file)
+                    if not ok:
+                        return {"success": False, "error": f"Could not prepare full restore: {err}"}
+                    ok, _, err = _run_git(
+                        ["add", "-A"], store, abs_dir, timeout=_git_timeout(), index_file=index_file,
+                    )
+                    if not ok:
+                        return {"success": False, "error": f"Could not stage checkpointable workspace paths: {err}"}
+                    if self.max_file_size_mb > 0:
+                        self._drop_oversize_from_index(store, abs_dir, index_file)
+                    ok, _, err = _run_git(
+                        ["reset", "--hard", commit_hash], store, abs_dir,
+                        timeout=_git_timeout(), index_file=index_file,
+                    )
+                    if not ok:
+                        compensated = False
+                        if pre_restore:
+                            ok_restore, _, _ = _run_git(
+                                ["reset", "--hard", pre_restore], store, abs_dir,
+                                timeout=_git_timeout(), index_file=index_file,
+                            )
+                            compensated = ok_restore
+                        return {
+                            "success": False,
+                            "error": f"Full restore failed: {err}",
+                            "workspace_rollback": "restored" if compensated else "not_confirmed",
+                        }
+                finally:
+                    try:
+                        index_file.unlink(missing_ok=True)
+                        index_file.with_name(index_file.name + ".lock").unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                return {
+                    "success": True,
+                    "restored_to": commit_hash[:8],
+                    "directory": abs_dir,
+                    "pre_restore": pre_restore or None,
+                    "files": preview.get("files", []),
+                    "workspace_fingerprint": preview.get("workspace_fingerprint"),
+                    "limitations": preview.get("limitations", []),
+                }
+        except Exception as exc:
+            return {"success": False, "error": f"Full restore failed: {exc}"}
 
     def restore(
         self,

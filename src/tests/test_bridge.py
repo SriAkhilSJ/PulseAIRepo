@@ -206,16 +206,43 @@ def test_echo_checkpoint_seed_restores_and_puts_back_real_workspace_state(tmp_pa
         # Echo itself never mutates. Simulate post-turn workspace edits so the
         # genuine restore path has state to undo and can create pre_restore.
         probe.write_text("after\n", encoding="utf-8")
-        restored = _send(proc, {
-            "type": "checkpoint_restore", "session_id": session_id,
+
+        # Test checkpoint_preview
+        preview_resp = _send(proc, {
+            "type": "checkpoint_preview", "session_id": session_id,
             "workspace": str(workspace), "checkpoint_hash": baseline,
         })
-        assert restored["type"] == "checkpoint_event", restored
-        result = restored.get("restore")
-        assert isinstance(result, dict) and result.get("success") is True, restored
-        pre_restore = result.get("pre_restore")
-        assert isinstance(pre_restore, str) and len(pre_restore) == 40, result
+        assert preview_resp["type"] == "checkpoint_event", preview_resp
+        preview_data = preview_resp.get("preview")
+        assert isinstance(preview_data, dict) and preview_data.get("success") is True, preview_resp
+        paths = [f["path"] for f in preview_data.get("files", [])]
+        assert "probe.txt" in paths
+
+        # Create an added file to test full revert cleanup
+        created = workspace / "created_by_agent.txt"
+        created.write_text("should be cleaned up\n", encoding="utf-8")
+
+        # Full revert
+        full_restored = _send(proc, {
+            "type": "checkpoint_restore", "session_id": session_id,
+            "workspace": str(workspace), "checkpoint_hash": baseline,
+            "full_revert": True,
+        })
+        assert full_restored["type"] == "checkpoint_event"
+        assert full_restored.get("restore", {}).get("success") is True
         assert probe.read_text(encoding="utf-8") == "before\n"
+        assert not created.exists()
+
+        # Session rewind
+        rewind_resp = _send(proc, {
+            "type": "session_rewind", "session_id": session_id,
+            "target_prompt": "echo undo fixture",
+        })
+        assert rewind_resp["type"] == "session_info"
+        assert rewind_resp.get("rewound") is True
+
+        pre_restore = full_restored.get("restore", {}).get("pre_restore")
+        assert isinstance(pre_restore, str) and len(pre_restore) == 40, full_restored
 
         put_back = _send(proc, {
             "type": "checkpoint_restore", "session_id": session_id,

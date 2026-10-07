@@ -133,7 +133,7 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'oneshot_result'; readonly template: string; readonly text: string; readonly error?: string } & CrusorIdentity)
 	| ({ readonly type: 'subagent_background_completed'; readonly subagent_id?: string; readonly child_thread_id?: string; readonly text: string; readonly description?: string } & CrusorIdentity)
 	| ({ readonly type: 'telemetry'; readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number } & CrusorIdentity)
-	| ({ readonly type: 'checkpoint_event'; readonly checkpoint_hash?: string; readonly checkpoints?: readonly unknown[]; readonly restore?: CrusorCheckpointRestore } & CrusorIdentity)
+	| ({ readonly type: 'checkpoint_event'; readonly checkpoint_hash?: string; readonly checkpoints?: readonly unknown[]; readonly restore?: CrusorCheckpointRestore; readonly preview?: CrusorCheckpointPreview; readonly request_id?: string } & CrusorIdentity)
 	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean; readonly cancelled: boolean; readonly checkpoint?: CrusorTurnCheckpoint } & CrusorIdentity)
 	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false; readonly checkpoint?: CrusorTurnCheckpoint } & CrusorIdentity)
 	| ({ readonly type: 'runtime_degraded'; readonly reason: string } & CrusorIdentity)
@@ -162,6 +162,17 @@ export interface CrusorTurnCheckpoint {
 }
 
 /** `checkpoint_event.restore` — the shadow store's restore result. */
+/** `checkpoint_event.preview` — affected paths before full revert. */
+export interface CrusorCheckpointPreview {
+	readonly success?: boolean;
+	readonly checkpoint?: string;
+	readonly files?: readonly { readonly path: string; readonly change: 'added' | 'deleted' | 'modified'; readonly action: 'delete' | 'restore' }[];
+	readonly changed_paths?: number;
+	readonly workspace_fingerprint?: string;
+	readonly limitations?: readonly string[];
+	readonly error?: string;
+}
+
 export interface CrusorCheckpointRestore {
 	readonly success?: boolean;
 	readonly restored_to?: string;
@@ -206,7 +217,9 @@ export type CrusorClientMethod =
 	| ({ readonly type: 'safety_reply'; readonly tool_id: string; readonly approved: boolean; readonly always_allow?: boolean } & CrusorSessionRequest)
 	| ({ readonly type: 'clarify_reply'; readonly request_id: string; readonly answers: Readonly<Record<string, string | readonly string[]>>; readonly timed_out?: boolean } & CrusorSessionRequest)
 	| ({ readonly type: 'checkpoint_list'; readonly workspace: string } & CrusorSessionRequest)
-	| ({ readonly type: 'checkpoint_restore'; readonly workspace: string; readonly checkpoint_hash: string; readonly file_path?: string } & CrusorSessionRequest)
+	| ({ readonly type: 'checkpoint_preview'; readonly workspace: string; readonly checkpoint_hash: string; readonly request_id?: string } & CrusorSessionRequest)
+	| ({ readonly type: 'checkpoint_restore'; readonly workspace: string; readonly checkpoint_hash: string; readonly file_path?: string; readonly full_revert?: boolean; readonly workspace_fingerprint?: string; readonly request_id?: string } & CrusorSessionRequest)
+	| ({ readonly type: 'session_rewind'; readonly target_prompt?: string } & CrusorSessionRequest)
 	| ({ readonly type: 'subagent_launch'; readonly goal: string; readonly mode?: string; readonly parent_capabilities?: readonly string[]; readonly allowed_capabilities?: readonly string[] } & CrusorSessionRequest)
 	| ({ readonly type: 'subagent_list' } & CrusorSessionRequest)
 	| ({ readonly type: 'subagent_status'; readonly subagent_id: string } & CrusorSessionRequest)

@@ -252,6 +252,8 @@ export interface CrusorAIRenderHost {
 	/** Restore a checkpoint. `filePath` narrows it to one workspace-relative
 	 *  path (F7's per-row undo); omitted restores the whole working set. */
 	restoreCheckpoint(hash: string, filePath?: string): void;
+	/** Revert conversation & workspace back to before this turn: prompts user with affected files/folders modal dialog, removes turn-created paths, rewinds context, and puts prompt back into composer for editing. */
+	revertCheckpoint(hash: string, requestText?: string): void;
 	/** Ask the engine for this workspace's snapshot log (request-row "Earlier snapshots"). */
 	listCheckpoints(): void;
 	/** Fork the conversation (session_fork). A tip fork: it belongs on the
@@ -1504,18 +1506,12 @@ function checkpointLine(baseline: string | undefined, host: CrusorAIRenderHost, 
 	// A restore discards later edits, so Copilot puts it behind an inline
 	// confirm — and so do we: the first click arms, the second restores, ✕ or
 	// Esc backs out.
-	const undo = inlineConfirm({
-		label: 'Undo turn',
-		iconName: 'history',
-		title: `Restore this workspace to the snapshot taken before this request (${hash})`,
-		classes: 'crusorai-checkpoint-action',
-		onConfirm: () => {
-			// Restoring puts the request text back in the composer (the workbench's
-			// own restoreInput rule): "undo the ask" ends with the ask in hand, one
-			// edit away from being sent again.
-			if (options?.requestText) { host.setDraft(options.requestText); }
-			host.restoreCheckpoint(checkpoint);
-		},
+	const undo = element('button', 'crusorai-checkpoint-action', icon('history'), element('span', undefined, 'Undo turn')) as HTMLButtonElement;
+	undo.type = 'button';
+	undo.title = `Revert conversation and workspace to before this request (${hash})`;
+	undo.setAttribute('aria-label', `Undo turn — revert workspace and conversation to before ${hash}`);
+	undo.addEventListener('click', () => {
+		host.revertCheckpoint(checkpoint, options?.requestText);
 	});
 	actions.append(undo);
 	// Sibling, same frame: Copilot puts Fork beside the restore control. Ours

@@ -475,3 +475,58 @@ def test_disabled_checkpoints_offer_no_undo(tmp_path):
     mgr.new_turn()
     assert mgr.turn_undo_point(ws) is None
     assert mgr.latest_checkpoint(ws) is None
+
+
+def test_preview_restore_reports_created_and_modified_files(tmp_path):
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'initial turn snapshot')
+    base_snap = mgr.latest_checkpoint(ws)
+
+    # Now make changes during the turn: modify existing, add a new file and directory
+    (Path(ws) / 'target.py').write_text('modified content\n', encoding='utf-8')
+    new_dir = Path(ws) / 'nested'
+    new_dir.mkdir()
+    (new_dir / 'created.txt').write_text('new file\n', encoding='utf-8')
+
+    preview = mgr.preview_restore(ws, base_snap)
+    assert preview['success'] is True
+    assert preview['checkpoint'] == base_snap
+    files = {f['path']: f for f in preview['files']}
+    assert 'target.py' in files
+    assert files['target.py']['change'] == 'modified'
+    assert 'nested/created.txt' in files
+    assert files['nested/created.txt']['change'] == 'added'
+    assert files['nested/created.txt']['action'] == 'delete'
+
+
+def test_restore_full_cleans_up_created_paths_and_restores_modified(tmp_path):
+    mgr = _mgr(tmp_path)
+    ws = _ws(tmp_path)
+    mgr.mark_turn_start(ws)
+    mgr.new_turn()
+    mgr.ensure_checkpoint(ws, 'before changes')
+    base_snap = mgr.latest_checkpoint(ws)
+
+    # Mutate workspace: modify target.py, add new_file.txt, add subfolder/subfile.py
+    (Path(ws) / 'target.py').write_text('broken\n', encoding='utf-8')
+    created_file = Path(ws) / 'new_file.txt'
+    created_file.write_text('should be deleted\n', encoding='utf-8')
+    sub_dir = Path(ws) / 'sub'
+    sub_dir.mkdir()
+    sub_file = sub_dir / 'subfile.py'
+    sub_file.write_text('sub content\n', encoding='utf-8')
+
+    # Full restore
+    res = mgr.restore_full(ws, base_snap)
+    assert res['success'] is True
+    assert res['restored_to'] == base_snap[:8]
+    assert res['pre_restore'] is not None, 'Takes a pre-rollback snapshot before destructive change'
+
+    # Verify created files were deleted and modified file was reverted
+    assert not created_file.exists()
+    assert not sub_file.exists()
+    assert (Path(ws) / 'target.py').read_text(encoding='utf-8') == ORIG
+

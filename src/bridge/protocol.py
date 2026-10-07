@@ -15,7 +15,7 @@ CLIENT_METHODS = frozenset({
     "session_archive", "session_delete", "session_messages",
     "prompt", "cancel", "steer", "queue", "safety_reply",
     "clarify_reply",
-    "checkpoint_list", "checkpoint_restore",
+    "checkpoint_list", "checkpoint_restore", "checkpoint_preview", "session_rewind",
     "subagent_launch", "subagent_list", "subagent_status", "subagent_cancel", "subagent_result",
     "skills_hub_op",
     "oneshot",
