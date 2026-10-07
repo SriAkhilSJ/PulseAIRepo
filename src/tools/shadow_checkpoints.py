@@ -476,6 +476,7 @@ class ShadowCheckpoints:
             if abs_dir in {"/", str(Path.home())}:
                 return
             self._turn_undo[abs_dir] = None
+            self._done_this_turn.discard(abs_dir)
         except Exception:
             return
 
@@ -712,6 +713,30 @@ class ShadowCheckpoints:
                             "error": f"Full restore failed: {err}",
                             "workspace_rollback": "restored" if compensated else "not_confirmed",
                         }
+
+                    # Clean up untracked/ignored paths created by terminal commands (e.g. nature/, node_modules/)
+                    _run_git(
+                        ["clean", "-fdx", "-e", ".git", "-e", ".vscode", "-e", ".pulseai"],
+                        store, abs_dir, index_file=index_file,
+                    )
+                    try:
+                        ok_tree, tree_out, _ = _run_git(["ls-tree", "--name-only", commit_hash], store, abs_dir)
+                        if ok_tree:
+                            expected_entries = set(tree_out.splitlines())
+                            ws_path = Path(abs_dir)
+                            for entry in ws_path.iterdir():
+                                if entry.name.startswith("."):
+                                    continue
+                                if entry.name not in expected_entries:
+                                    try:
+                                        if entry.is_dir():
+                                            shutil.rmtree(entry, ignore_errors=True)
+                                        else:
+                                            entry.unlink(missing_ok=True)
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
                 finally:
                     try:
                         index_file.unlink(missing_ok=True)
@@ -873,6 +898,9 @@ class ShadowCheckpoints:
                 index_file=index_file,
             )
             if ok_same:
+                key = str(_normalize_path(working_dir))
+                if not self._turn_undo.get(key) and ref_commit:
+                    self._turn_undo[key] = ref_commit
                 return ""  # no changes this turn => no commit
         else:
             ok_ls, ls_out, _ = _run_git(["ls-files", "--cached"],

@@ -766,72 +766,53 @@ def terminal(
         process = subprocess.Popen(argv if argv is not None else command, **popen_kwargs)
         started = time.monotonic()
         stdout = stderr = ""
-        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
-        from src.runtime.turn_control import turn_controls
-        while True:
+        from src.runtime.turn_control import turn_controls, active_session
+        session_id = (
+            str((config or {}).get("configurable", {}).get("thread_id", "") or "")
+            or active_session()
+            or "default"
+        )
+
+        def _abort_terminal_proc() -> None:
             try:
-                stdout, stderr = process.communicate(timeout=0.2)
-                break
-            except subprocess.TimeoutExpired:
-                if turn_controls.cancelled(session_id):
-                    # TREE kill on both platforms: the same disease the timeout
-                    # branch below already cures. process.terminate() stops only
-                    # the shell wrapper on Windows, so the real child survives and
-                    # keeps holding the stdout/stderr handles; the unguarded
-                    # communicate() that followed then raised TimeoutExpired out of
-                    # the loop and into the outer handler, which answered a
-                    # cancellation with the TIMEOUT text (live round on a Windows
-                    # host: the foreground-cancel contract never held there).
-                    try:
-                        if _IS_WINDOWS:
-                            from src.context.git_context import _taskkill_tree
-                            if not _taskkill_tree(process.pid):
-                                process.kill()
-                        else:
-                            import signal
-                            os.killpg(process.pid, signal.SIGTERM)
-                    except Exception:
-                        try:
-                            process.kill()
-                        except Exception:
-                            pass
-                    try:
-                        # Bounded and never fatal. Orphaned grandchildren can keep
-                        # the pipes open for their own lifetime, and a truthful
-                        # "cancelled" beats whatever partial output we drop.
-                        stdout, stderr = process.communicate(timeout=_CANCEL_DRAIN_TIMEOUT_S)
-                    except Exception:
-                        stdout, stderr = "", ""
-                    return (
-                        "⛔ Terminal command cancelled by the user before completion. "
-                        f"Command: {command}"
-                    )
-                if time.monotonic() - started >= timeout:
-                    # TREE kill, both platforms. process.kill() on Windows
-                    # kills only the shell wrapper -- npm/node grandchildren
-                    # survive, hold the stdout/stderr pipes, and the old
-                    # unbounded communicate() then hung FOREVER (test5-2: no
-                    # tool_call_end for 322s, watchdog kill on a healthy
-                    # build). Same disease git_context's _taskkill_tree
-                    # already cures; reuse it.
-                    try:
-                        if _IS_WINDOWS:
-                            from src.context.git_context import _taskkill_tree
-                            if not _taskkill_tree(process.pid):
-                                process.kill()
-                        else:
-                            import signal
-                            try:
-                                os.killpg(process.pid, signal.SIGKILL)
-                            except Exception:
-                                process.kill()
-                    except Exception:
+                if _IS_WINDOWS:
+                    from src.context.git_context import _taskkill_tree
+                    if not _taskkill_tree(process.pid):
                         process.kill()
-                    try:
-                        process.communicate(timeout=10)
-                    except Exception:
-                        pass  # pipes may be held by orphaned grandchildren; never hang here
-                    raise subprocess.TimeoutExpired(command, timeout)
+                else:
+                    import signal
+                    os.killpg(process.pid, signal.SIGKILL)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+        turn_controls.register_abort(session_id, _abort_terminal_proc)
+        try:
+            while True:
+                try:
+                    stdout, stderr = process.communicate(timeout=0.1)
+                    break
+                except subprocess.TimeoutExpired:
+                    if turn_controls.cancelled(session_id):
+                        _abort_terminal_proc()
+                        try:
+                            stdout, stderr = process.communicate(timeout=0.5)
+                        except Exception:
+                            stdout, stderr = "", ""
+                        return (
+                            "⛔ Terminal command cancelled by the user before completion. "
+                            f"Command: {command}"
+                        )
+                    if time.monotonic() - started >= timeout:
+                        _abort_terminal_proc()
+                        return (
+                            f"⛔ Terminal command timed out after {timeout} seconds. "
+                            f"Command: {command}"
+                        )
+        finally:
+            turn_controls.unregister_abort(session_id, _abort_terminal_proc)
 
         output = ""
         if stdout:

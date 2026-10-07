@@ -2106,20 +2106,22 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private async editAndResubmitTurn(checkpointHash?: string, requestText?: string, newText?: string): Promise<void> {
 		if (!newText || !newText.trim()) { return; }
 		const workspace = this.workspacePath;
+		const hash = checkpointHash || this.turnCheckpoint?.baseline || (this.history.length ? this.history[this.history.length - 1].checkpoint : undefined);
 
-		if (checkpointHash && workspace) {
-			this.checkpointRestore = { success: true, restored_to: checkpointHash.slice(0, 8) };
+		if (hash && workspace) {
+			this.checkpointRestore = { success: true, restored_to: hash.slice(0, 8) };
 			this.send({
 				type: 'checkpoint_restore',
 				session_id: this.sessionId,
 				workspace,
-				checkpoint_hash: checkpointHash,
+				checkpoint_hash: hash,
 				full_revert: true,
 			});
+			this.refreshAfterRestore();
 		}
 
-		if (checkpointHash || requestText) {
-			this.rewindConversation(checkpointHash || '', requestText);
+		if (hash || requestText) {
+			this.rewindConversation(hash || '', requestText);
 		}
 
 		this.startTurn(newText.trim());

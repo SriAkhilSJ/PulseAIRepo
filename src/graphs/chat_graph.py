@@ -2317,6 +2317,9 @@ def _result_reasoning_text(result: Any) -> str:
     raw = (
         additional.get("reasoning_content")
         or additional.get("reasoning")
+        or additional.get("thought")
+        or additional.get("thinking")
+        or additional.get("reasoning_text")
         or getattr(result, "reasoning_content", None)
         or ""
     )
@@ -2505,7 +2508,13 @@ class _AgentTokenPump(BaseCallbackHandler):
         reasoning_piece = ""
         if chunk is not None:
             extra = getattr(chunk, "additional_kwargs", None) or {}
-            raw = extra.get("reasoning_content") or extra.get("reasoning")
+            raw = (
+                extra.get("reasoning_content")
+                or extra.get("reasoning")
+                or extra.get("thought")
+                or extra.get("thinking")
+                or extra.get("reasoning_text")
+            )
             if isinstance(raw, str) and raw and len(raw) > len(self._reasoning_acc) \
                     and raw.startswith(self._reasoning_acc):
                 # cumulative payload: take only the new tail
@@ -2515,7 +2524,13 @@ class _AgentTokenPump(BaseCallbackHandler):
             else:
                 message = getattr(chunk, "message", None)
                 message_extra = getattr(message, "additional_kwargs", None) or {}
-                raw = message_extra.get("reasoning_content") or message_extra.get("reasoning")
+                raw = (
+                    message_extra.get("reasoning_content")
+                    or message_extra.get("reasoning")
+                    or message_extra.get("thought")
+                    or message_extra.get("thinking")
+                    or message_extra.get("reasoning_text")
+                )
                 if isinstance(raw, str) and raw and len(raw) > len(self._reasoning_acc) \
                         and raw.startswith(self._reasoning_acc):
                     reasoning_piece = raw[len(self._reasoning_acc):]

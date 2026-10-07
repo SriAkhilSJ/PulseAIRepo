@@ -1241,11 +1241,16 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
     // Split accumulated reasoning into separate blocks (one per LLM call)
     const body = element('div', 'crusorai-thought-body');
     const blocks = reasoning.split(/\n\n---\n\n/);
+    let hasContent = false;
     for (const block of blocks) {
         const trimmed = block.trim();
         if (trimmed) {
+            hasContent = true;
             body.append(element('p', undefined, trimmed));
         }
+    }
+    if (!hasContent && live) {
+        body.append(element('p', undefined, 'Thinking...'));
     }
     details.append(element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be')), body);
     return details;
@@ -1581,13 +1586,31 @@ function assistantTurn(spec, host, openTools) {
     // chronological position relative to text and tools is always preserved exactly.
     // This mirrors the Hermes approach (message.content is a single ordered array).
     const reasoningParts = (spec.reasoningParts || []).filter(p => p && p.text);
-    // Parts are the ordering source. A turn that predates them (or somehow
-    // carries text without a single text part) falls back to the legacy
-    // single-block paint so the answer can never be dropped by a missing
-    // timeline.
-    const parts = spec.parts.length
-        ? spec.parts
-        : (spec.assistantText ? [{ kind: 'text', text: spec.assistantText }] : []);
+    // Parts are the ordering source. Synthesize missing reasoning parts or fallback
+    // so thoughts are never dropped by timeline assembly.
+    let parts = spec.parts;
+    if (!parts.length) {
+        const synthesized = [];
+        for (let r = 0; r < reasoningParts.length; r++) {
+            synthesized.push({ kind: 'reasoning', reasoningIndex: r });
+        }
+        if (spec.assistantText) {
+            synthesized.push({ kind: 'text', text: spec.assistantText });
+        }
+        parts = synthesized;
+    }
+    else {
+        const seen = new Set(parts.filter(p => p.kind === 'reasoning').map(p => p.reasoningIndex));
+        const missing = [];
+        for (let r = 0; r < reasoningParts.length; r++) {
+            if (!seen.has(r)) {
+                missing.push({ kind: 'reasoning', reasoningIndex: r });
+            }
+        }
+        if (missing.length) {
+            parts = [...missing, ...parts];
+        }
+    }
     const toolsById = new Map(spec.tools.map(t => [t.id, t]));
     let lastTextIndex = -1;
     let lastTextNode;
@@ -1636,6 +1659,9 @@ function assistantTurn(spec, host, openTools) {
         response.append(textNode);
     });
     flushRun();
+    if (live && reasoningParts.length === 0 && !spec.assistantText && spec.tools.length === 0 && spec.current) {
+        response.append(thinkingBlock('', openTools, true, spec.thoughtSeconds, `${spec.turnKey || 'turn'}:live-thinking`));
+    }
     // The cut (F2): where the brake bit, the transcript says so with a hard
     // amber bar after the last token — never an ellipsis or a spinner
     // pretending more is coming. It is drawn only while the interrupted turn

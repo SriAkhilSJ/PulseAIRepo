@@ -885,7 +885,9 @@ def streaming_enabled(default: bool) -> bool:
 # =========================================================
 # Keys an OpenAI-compatible router may use for hidden-reasoning text.
 # (Module-level: pydantic v2 claims underscore class attrs as private.)
-_REASONING_DELTA_KEYS = ("reasoning_content", "reasoning")
+_REASONING_DELTA_KEYS = (
+    "reasoning_content", "reasoning", "thought", "thinking", "reasoning_text"
+)
 
 
 class ReasoningAwareOpenAI(ChatOpenAI):

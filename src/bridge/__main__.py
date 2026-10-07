@@ -455,6 +455,8 @@ class BridgeServer:
             latest = get_shadow_checkpoints().latest_checkpoint(workspace)
         except Exception:
             latest = None
+        if not baseline and latest:
+            baseline = latest
         if not baseline:
             return {}
         return {"checkpoint": {
