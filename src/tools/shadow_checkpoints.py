@@ -487,6 +487,15 @@ class ShadowCheckpoints:
         except Exception:
             return None
 
+    def seed_turn_undo_point(self, working_dir: str, commit_hash: str) -> None:
+        """Seed the current turn's undo target (used by the echo test seam when
+        the workspace has not changed since the last snapshot)."""
+        try:
+            abs_dir = str(_normalize_path(working_dir))
+            self._turn_undo[abs_dir] = commit_hash
+        except Exception:
+            pass
+
     def latest_checkpoint(self, working_dir: str) -> Optional[str]:
         """Newest snapshot for a workspace: this process's last commit, else
         the ref tip (a restart keeps the answer truthful). Never raises."""

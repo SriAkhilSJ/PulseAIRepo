@@ -795,9 +795,15 @@ class BridgeServer:
                         agent_turn_undo_point,
                         begin_agent_turn,
                         checkpoint_before_mutation,
+                        get_shadow_checkpoints,
                     )
                     begin_agent_turn()
                     checkpoint_before_mutation(workspace, "echo UI test turn baseline")
+                    sc = get_shadow_checkpoints()
+                    if not sc.turn_undo_point(workspace):
+                        latest = sc.latest_checkpoint(workspace)
+                        if latest:
+                            sc.seed_turn_undo_point(workspace, latest)
                     if not agent_turn_undo_point(workspace):
                         print(
                             "[bridge] echo checkpoint seed produced no undo point; "
