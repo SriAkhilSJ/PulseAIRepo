@@ -30,6 +30,10 @@ import { mountCrusorAIRenderer, } from './crusorAIRenderer.js';
 function valueRecord(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
 }
+/** The bridge's generic terminal notice is transport metadata, not assistant prose. */
+function isUserCancellationNotice(message, cancelled) {
+    return cancelled && typeof message === 'string' && /^operation cancelled by the user\.?$/i.test(message.trim());
+}
 function toolState(status) {
     const value = status.toLowerCase();
     if (value.includes('fail') || value.includes('error') || value.includes('denied') || value.includes('cancel')) {
@@ -1789,7 +1793,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (frame.cancelled) {
                 this.interrupt = this.stampInterrupt();
             }
-            if (frame.message && !this.assistantText) {
+            // A cut turn already has the truthful Interrupted receipt below. Do not
+            // paint the bridge's generic cancellation notice as if the assistant said it.
+            if (frame.message && !this.assistantText && !isUserCancellationNotice(frame.message, frame.cancelled)) {
                 this.assistantText = frame.message;
                 this.appendTextPart(frame.message);
             }

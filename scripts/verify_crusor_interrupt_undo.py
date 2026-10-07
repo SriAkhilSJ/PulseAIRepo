@@ -75,7 +75,7 @@ RENDERER_TOKENS = [
     "Put it back",
     "Fork from here",
     "Undo All Edits",
-    "CRUSORAI_UI_STAMP = '2026-10-04'",
+    "CRUSORAI_UI_STAMP = '2026-10-07'",
 ]
 
 # Words this round removed on purpose. If any is back, the wind-down has

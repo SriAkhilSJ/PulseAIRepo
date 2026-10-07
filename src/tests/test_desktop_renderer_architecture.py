@@ -84,6 +84,11 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     # run (completed:false, cancelled:false) must NOT paint "Interrupted" —
     # the task verdict already landed in-band via finalize's trailing receipt.
     assert "frame.cancelled ? 'cancelled' : 'completed'" in service
+    # The bridge's generic terminal notice is not assistant prose. The visible
+    # Interrupted receipt must be the only cancellation copy after a cut.
+    assert "function isUserCancellationNotice" in service
+    assert r"/^operation cancelled by the user\.?$/i.test(message.trim())" in service
+    assert "!isUserCancellationNotice(frame.message, frame.cancelled)" in service
     assert "scheduleRestart" in service
     assert "restartAttempts >= 3" in service
     assert "requestAnimationFrame" in service
@@ -776,22 +781,17 @@ def test_markdown_block_grammar_ported():
     assert ".crusorai-md .crusorai-md-link" in css
 
 
-def test_ui_stamp_bumped_for_the_preview_chrome_round():
-    """The stamp moves with EVERY workbench UI round — this one is the preview chrome.
+def test_ui_stamp_matches_the_current_desktop_bundle():
+    """The chip compares the hand-maintained UI date with the engine build date.
 
-    Pin moved 2026-09-30 -> 2026-10-01 for the bridge-ACK round (076987b7 landed
-    2026-10-01, so the engine build date is 10-01 and the old pin false-flagged
-    STALE), then 2026-10-01 -> 2026-10-02 for the Manager Skills tab round (the
-    owner's screenshot showed `ui 2026-10-01 STALE` against a 10-02 engine build
-    even though the sha256 panel check passed). The stamp is a hand-maintained
-    constant precisely so a stale `out/` can be told from a current
-    one: the chip reads `ui <stamp>` and appends STALE when the engine build date is newer. That
-    makes forgetting to bump it a *false* STALE, which is what happened — the preview chrome landed
-    on 2026-09-26 (crusorAIPreviewService.ts, the overlay, the media) while the stamp still said
-    2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
+    On 2026-10-07 the owner showed `ui 2026-10-04 STALE` even though the
+    engine's per-file SHA-256 check said the compiled panel matched source.
+    The engine build (4c8d6f55) is dated 2026-10-06; this UI round fixes the
+    cancellation placeholder and pins the date to the current desktop bundle,
+    so a correct panel no longer advertises itself as stale.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-04';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-07';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -927,11 +927,10 @@ def test_plan_card_is_a_desktop_status_section_disclosure():
     assert "crusorai-plan-details" in bundle and "Tasks ${done}/${rows.length}" in bundle
 
 
-def test_ui_stamp_bumped_for_the_plan_disclosure_round():
-    """The freshness stamp bumps with EVERY workbench UI round — a stale
-    out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
+def test_freshness_chip_uses_the_updated_ui_stamp():
+    """The chip's displayed UI date must match the pinned desktop round."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-04'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-07'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

@@ -1,7 +1,7 @@
 # Host test — interrupt as a hand brake, undo on the request row
 
 > Hand this file to the desktop agent along with the branch. It is the whole
-> path for **this round only** (2026-10-04): pull → verify → (optionally)
+> path for **this round only** (2026-10-07 follow-up to the 2026-10-04 UI): pull → verify →
 > compile → launch → what to look at → what to send back.
 >
 > Branch `arena/01a10795-pulseairepo`, tips `226d742c` (code + shipped panel)
@@ -186,7 +186,8 @@ then run the build gates in order:
 if (!(Test-Path node_modules)) { npm install }
 npm run typecheck-client       # must exit 0
 npm run valid-layers-check     # browser/ must not reach for electron/node
-npm run compile                # several minutes cold
+npm run compile                # several minutes cold; compiles the workbench client
+npm run build-fast-extensions  # built-in extension outputs + codicon font (needed by code.bat)
 node scripts\emit-crusorai-bundle.mjs
 node scripts\audit-preview-pipeline.mjs
 ```
@@ -236,7 +237,7 @@ for that row.
 
 | # | Do this | Pass looks like | If it fails |
 | --- | --- | --- | --- |
-| 1 | Look at the engine chip at the bottom of the pane | `ui 2026-10-04`, no `STALE` | `STALE` or an older date = `out/` is not this round; go back to §2a |
+| 1 | Look at the engine chip at the bottom of the pane | `ui 2026-10-07`, no `STALE` | `STALE` or an older date = `out/` is not this round; go back to §2a |
 | 2 | Send any prompt with the delay set, then look at the composer | send slot is a solid **square**; hover reads `Interrupt — stops now`; the hint bar shows `Esc to interrupt` | send arrow still there = not this round's renderer |
 | 3 | Pull it mid-turn (click the square) | the moment it lands: the assistant row reads **`Interrupted.`**, a **cut mark** sits on the last frame, and the receipt says `Interrupted` with landed/dropped counts. **No** "stopping", no wind-down, no question asked | any transitional wording or a confirm dialog = a real finding, send it |
 | 4 | Same, with the keyboard: press `Esc` while a turn runs | identical to row 3 | nothing happens = Esc-handler finding; send it |

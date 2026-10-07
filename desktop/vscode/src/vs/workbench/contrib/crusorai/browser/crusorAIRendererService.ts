@@ -37,6 +37,11 @@ function valueRecord(value: unknown): Readonly<Record<string, unknown>> | undefi
 	return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Readonly<Record<string, unknown>> : undefined;
 }
 
+/** The bridge's generic terminal notice is transport metadata, not assistant prose. */
+function isUserCancellationNotice(message: string | undefined, cancelled: boolean): boolean {
+	return cancelled && typeof message === 'string' && /^operation cancelled by the user\.?$/i.test(message.trim());
+}
+
 function toolState(status: string): CrusorAIToolState {
 	const value = status.toLowerCase();
 	if (value.includes('fail') || value.includes('error') || value.includes('denied') || value.includes('cancel')) { return 'failed'; }
@@ -1765,7 +1770,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// the request row then shows no undo, which is the truthful state.
 			if (frame.checkpoint) { this.turnCheckpoint = frame.checkpoint; }
 			if (frame.cancelled) { this.interrupt = this.stampInterrupt(); }
-			if (frame.message && !this.assistantText) {
+			// A cut turn already has the truthful Interrupted receipt below. Do not
+			// paint the bridge's generic cancellation notice as if the assistant said it.
+			if (frame.message && !this.assistantText && !isUserCancellationNotice(frame.message, frame.cancelled)) {
 				this.assistantText = frame.message;
 				this.appendTextPart(frame.message);
 			}
