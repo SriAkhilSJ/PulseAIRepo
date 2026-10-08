@@ -341,6 +341,11 @@ def headed_mode() -> bool:
 
 _recording_lock = threading.Lock()
 _RECORDING_SESSIONS: set[str] = set()  # hermes _recording_sessions shape
+# Sessions THIS process actually opened a browser window for. Turn teardown
+# uses it to skip `close` on browser-free turns: a cold `close` starts the
+# daemon and, in headed mode, launches a Chromium window only to close it —
+# the white-window flash + seconds the user sees on Stop/Esc.
+_OPEN_SESSIONS: set[str] = set()
 
 
 def recording_enabled() -> bool:
@@ -420,8 +425,16 @@ def close_browser_for_thread(thread_id: str) -> bool:
     after the recording is saved, CLOSE the browser so a testing turn leaves
     no headed window or tab cluster behind — the user asked for visible
     tests, not a desktop full of leftover pages."""
+    session = _session_name(thread_id)
+    if session not in _OPEN_SESSIONS:
+        # Nothing to clean: this turn never opened a window. Calling `close`
+        # anyway would cold-start the agent-browser daemon — and in headed
+        # mode launch a visible Chromium window just to close it again (the
+        # white flash + teardown seconds on Stop/Esc for browser-free turns).
+        return False
+    _OPEN_SESSIONS.discard(session)
     try:
-        return close_browser_session(_session_name(thread_id))
+        return close_browser_session(session)
     except Exception:
         return False
 
@@ -894,6 +907,7 @@ def browser_navigate(
                                  timeout=_open_timeout(first_open=is_first_nav))
     if result.get("success"):
         _FIRST_NAV_SEEN.add(session)
+        _OPEN_SESSIONS.add(session)
     if not result.get("success"):
         return _failed_response(result, "Navigation failed")
     if not is_first_nav:
