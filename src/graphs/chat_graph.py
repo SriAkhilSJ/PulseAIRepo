@@ -5483,6 +5483,10 @@ def stream_agent(
                             })
 
         print("[turn] stream loop ended", flush=True)
+        # Idle reaches the desktop BEFORE the best-effort browser teardown:
+        # on the interrupt path every ms spent before this emit is perceived
+        # Stop-latency, and teardown must never gate the ack again.
+        event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # hermes saves the browser recording in cleanup_browser ("saves the
         # file before close"); the turn end is crusor's closest equivalent —
         # the .webm is the visible-testing artifact (owner 2026-09-07,
@@ -5505,7 +5509,6 @@ def stream_agent(
                 print("[turn] browser closed (tab/window cleanup)", flush=True)
         except Exception as _close_exc:
             print(f"[turn] browser close skipped: {type(_close_exc).__name__}: {_close_exc}", flush=True)
-        event_bus.emit("session.status", {"status": "idle", "thread_id": thread_id})
         # D38: post-run bounded background self-curation (memory review on the
         # aux model). Never blocks the response — state is snapshotted from the
         # checkpointer and reviewed on a daemon thread.

@@ -5,7 +5,16 @@
  * React/DOM") and lib/ansi.ts ("returns a flat array of styled segments").
  * The renderer paints; this file decides WHAT is painted.
  *--------------------------------------------------------------------------------------------*/
-const FG_BY_CODE = {
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
+var FG_BY_CODE = {
     30: 'black', 31: 'red', 32: 'green', 33: 'yellow',
     34: 'blue', 35: 'magenta', 36: 'cyan', 37: 'white',
     90: 'bright-black', 91: 'bright-red', 92: 'bright-green', 93: 'bright-yellow',
@@ -13,9 +22,9 @@ const FG_BY_CODE = {
 };
 // CSI = ESC '[' params 'final'. Only SGR (final 'm') is applied; other finals
 // are matched and consumed so they don't leak into the rendered text.
-const CSI_RE = /\x1b\[([\d;]*)([\x40-\x7e])/g;
+var CSI_RE = /\x1b\[([\d;]*)([\x40-\x7e])/g;
 // Other escapes (single-char OSC/SS3 etc.) — stripped silently.
-const OTHER_ESCAPE_RE = /\x1b[@-Z\\-_]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+var OTHER_ESCAPE_RE = /\x1b[@-Z\\-_]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 export function hasAnsiCodes(input) {
     return /\x1b\[/.test(input);
 }
@@ -29,34 +38,34 @@ export function parseAnsi(input) {
     if (!input) {
         return [];
     }
-    const cleaned = input.replace(OTHER_ESCAPE_RE, '');
-    const segments = [];
-    let cursor = 0;
-    let bold = false;
-    let fg = null;
-    const pushText = (text) => {
+    var cleaned = input.replace(OTHER_ESCAPE_RE, '');
+    var segments = [];
+    var cursor = 0;
+    var bold = false;
+    var fg = null;
+    var pushText = function (text) {
         if (!text) {
             return;
         }
-        const last = segments[segments.length - 1];
+        var last = segments[segments.length - 1];
         if (last && last.bold === bold && last.fg === fg) {
-            segments[segments.length - 1] = { bold, fg, text: last.text + text };
+            segments[segments.length - 1] = { bold: bold, fg: fg, text: last.text + text };
             return;
         }
-        segments.push({ bold, fg, text });
+        segments.push({ bold: bold, fg: fg, text: text });
     };
     CSI_RE.lastIndex = 0;
-    let match;
+    var match;
     while ((match = CSI_RE.exec(cleaned)) !== null) {
-        const start = match.index;
+        var start = match.index;
         if (start > cursor) {
             pushText(cleaned.slice(cursor, start));
         }
         if (match[2] === 'm') {
-            const codes = match[1].split(';').map(part => (part === '' ? 0 : Number(part)))
-                .filter(value => Number.isFinite(value));
-            for (let i = 0; i < codes.length; i += 1) {
-                const code = codes[i];
+            var codes = match[1].split(';').map(function (part) { return (part === '' ? 0 : Number(part)); })
+                .filter(function (value) { return Number.isFinite(value); });
+            for (var i = 0; i < codes.length; i += 1) {
+                var code = codes[i];
                 if (code === 0) {
                     bold = false;
                     fg = null;
@@ -91,28 +100,33 @@ export function parseAnsi(input) {
     }
     return segments;
 }
-const DIFF_HEADER_PREFIXES = [
+var DIFF_HEADER_PREFIXES = [
     'diff --git', 'index ', '--- ', '+++ ',
     'similarity ', 'rename ', 'new file', 'deleted file',
 ];
 function isArrowHeaderLine(line) {
-    const trimmed = line.trim();
+    var trimmed = line.trim();
     return trimmed.includes('→') && /^\S.*→\s*\S+$/.test(trimmed) && !/^[+\-@]/.test(trimmed);
 }
 /** hermes stripDiffFileHeaders: strip the header zone up to the first hunk. */
 export function stripDiffFileHeaders(diff) {
-    const lines = diff.split('\n');
-    let start = 0;
-    for (; start < lines.length; start += 1) {
-        const line = lines[start];
+    var lines = diff.split('\n');
+    var start = 0;
+    var _loop_1 = function () {
+        var line = lines[start];
         if (line.startsWith('@@')) {
-            break;
+            return "break";
         }
         if (line.trim() === '' || isArrowHeaderLine(line)
-            || DIFF_HEADER_PREFIXES.some(prefix => line.startsWith(prefix))) {
-            continue;
+            || DIFF_HEADER_PREFIXES.some(function (prefix) { return line.startsWith(prefix); })) {
+            return "continue";
         }
-        break;
+        return "break";
+    };
+    for (; start < lines.length; start += 1) {
+        var state_1 = _loop_1();
+        if (state_1 === "break")
+            break;
     }
     return lines.slice(start).join('\n');
 }
@@ -135,17 +149,18 @@ function stripDiffMarker(line) {
 /** hermes parseDiff: hunks parsed, line numbers tracked, blank separator
  *  between hunks; non-hunk payloads fall back to line-by-line kinds. */
 export function parseDiff(diff) {
-    const cleaned = stripDiffFileHeaders(diff);
-    const rawLines = cleaned.split('\n');
-    const out = [];
-    let emitted = false;
-    let oldNo = 1;
-    let newNo = 1;
-    let active = null;
-    let inHunk = false;
-    for (const line of rawLines) {
+    var cleaned = stripDiffFileHeaders(diff);
+    var rawLines = cleaned.split('\n');
+    var out = [];
+    var emitted = false;
+    var oldNo = 1;
+    var newNo = 1;
+    var active = null;
+    var inHunk = false;
+    for (var _i = 0, rawLines_1 = rawLines; _i < rawLines_1.length; _i++) {
+        var line = rawLines_1[_i];
         if (line.startsWith('@@')) {
-            const match = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+            var match = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
             if (!match) {
                 active = null;
                 continue;
@@ -162,8 +177,8 @@ export function parseDiff(diff) {
         if (!inHunk || !active || line.startsWith('\\')) {
             continue;
         }
-        const kind = diffKind(line);
-        const entry = { kind, text: stripDiffMarker(line) };
+        var kind = diffKind(line);
+        var entry = { kind: kind, text: stripDiffMarker(line) };
         if (kind === 'add') {
             entry.newNo = newNo++;
         }
@@ -179,15 +194,16 @@ export function parseDiff(diff) {
     }
     if (!emitted) {
         // Fallback for unexpected non-hunk payloads (hermes does the same).
-        return rawLines.map(line => ({ kind: diffKind(line), text: stripDiffMarker(line) }));
+        return rawLines.map(function (line) { return ({ kind: diffKind(line), text: stripDiffMarker(line) }); });
     }
     return out;
 }
 /** hermes countDiffLineStats: +/- lines, git headers excluded. */
 export function countDiffLineStats(diff) {
-    let added = 0;
-    let removed = 0;
-    for (const line of diff.split('\n')) {
+    var added = 0;
+    var removed = 0;
+    for (var _i = 0, _a = diff.split('\n'); _i < _a.length; _i++) {
+        var line = _a[_i];
         if (line.startsWith('+++') || line.startsWith('---')) {
             continue;
         }
@@ -198,14 +214,14 @@ export function countDiffLineStats(diff) {
             removed += 1;
         }
     }
-    return { added, removed };
+    return { added: added, removed: removed };
 }
 function resultDiffString(result) {
     if (typeof result === 'string') {
         return result;
     }
     if (result && typeof result === 'object') {
-        const diff = result['diff'];
+        var diff = result['diff'];
         if (typeof diff === 'string') {
             return diff;
         }
@@ -213,9 +229,11 @@ function resultDiffString(result) {
     return '';
 }
 function resultPathString(args, result) {
-    for (const source of [args, result]) {
+    var _a;
+    for (var _i = 0, _b = [args, result]; _i < _b.length; _i++) {
+        var source = _b[_i];
         if (source && typeof source === 'object') {
-            const path = source['path'] ?? source['dest'];
+            var path = (_a = source['path']) !== null && _a !== void 0 ? _a : source['dest'];
             if (typeof path === 'string' && path) {
                 return path;
             }
@@ -226,15 +244,16 @@ function resultPathString(args, result) {
 /** One row per file the turn edited, in first-touched order, +/- summed.
  *  Only LANDED edits count: running has no result, failed changed nothing. */
 export function deriveChangedFiles(tools) {
-    const byPath = new Map();
-    for (const tool of tools) {
+    var byPath = new Map();
+    for (var _i = 0, tools_1 = tools; _i < tools_1.length; _i++) {
+        var tool = tools_1[_i];
         if (!['write_file', 'edit_file', 'copy_file'].includes(tool.name)) {
             continue;
         }
         if (tool.state !== 'passed' && tool.state !== 'completed') {
             continue;
         }
-        const path = resultPathString(tool.arguments, tool.result);
+        var path = resultPathString(tool.arguments, tool.result);
         if (!path) {
             continue;
         }
@@ -242,36 +261,37 @@ export function deriveChangedFiles(tools) {
         // "(lines added: N, removed: M)" — the bounded diff PREVIEW in the
         // same result would undercount a large change (field 2026-09-10:
         // the old bare "File written: <path>" receipt counted +0 -0).
-        const text = typeof tool.result === 'string' ? tool.result : '';
-        const receiptStats = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(text);
-        let stats;
+        var text = typeof tool.result === 'string' ? tool.result : '';
+        var receiptStats = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(text);
+        var stats = void 0;
         if (receiptStats) {
             stats = { added: Number(receiptStats[1]), removed: Number(receiptStats[2]) };
         }
         else {
-            const diff = resultDiffString(tool.result);
+            var diff = resultDiffString(tool.result);
             if (!diff) {
                 continue;
             }
             stats = countDiffLineStats(diff);
         }
-        const existing = byPath.get(path);
+        var existing = byPath.get(path);
         if (existing) {
             existing.added += stats.added;
             existing.removed += stats.removed;
         }
         else {
-            const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
-            byPath.set(path, { added: stats.added, name, path, removed: stats.removed });
+            var name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+            byPath.set(path, { added: stats.added, name: name, path: path, removed: stats.removed });
         }
     }
-    return [...byPath.values()];
+    return __spreadArray([], byPath.values(), true);
 }
 /** Lines are clamped for *paint*, never for correctness. */
-export function windowedTailLines(text, max = 400) {
-    const lines = (text ?? '').split('\n');
+export function windowedTailLines(text, max) {
+    if (max === void 0) { max = 400; }
+    var lines = (text !== null && text !== void 0 ? text : '').split('\n');
     if (lines.length <= max) {
-        return { lines, hidden: 0 };
+        return { lines: lines, hidden: 0 };
     }
     return { lines: lines.slice(lines.length - max), hidden: lines.length - max };
 }
@@ -285,16 +305,16 @@ export function windowedTailLines(text, max = 400) {
 // NOT dropped here: terminalBody parses it for the status row first.
 /** True when the text carries the engine's terminal envelope signature. */
 export function hasTerminalEnvelope(text) {
-    return /^STDOUT:\s*$/m.test(text ?? '') && /^Exit code: -?\d+\s*$/m.test(text ?? '');
+    return /^STDOUT:\s*$/m.test(text !== null && text !== void 0 ? text : '') && /^Exit code: -?\d+\s*$/m.test(text !== null && text !== void 0 ? text : '');
 }
 /** Drop the engine's STDOUT:/STDERR: marker lines, keep the output itself. */
 export function stripTerminalEnvelope(text) {
-    const lines = (text ?? '').split('\n');
+    var lines = (text !== null && text !== void 0 ? text : '').split('\n');
     if (!lines.length) {
-        return text ?? '';
+        return text !== null && text !== void 0 ? text : '';
     }
-    const enveloped = hasTerminalEnvelope(text);
-    const keep = lines.filter((line, i) => {
+    var enveloped = hasTerminalEnvelope(text);
+    var keep = lines.filter(function (line, i) {
         if (i === 0 && line.trimEnd() === 'STDOUT:') {
             return false;
         }

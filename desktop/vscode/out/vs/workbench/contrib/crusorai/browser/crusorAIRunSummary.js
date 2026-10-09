@@ -10,8 +10,8 @@
  * CopilotKit surface and as a dozen rows here. Two surfaces, one agent, two stories.
  *--------------------------------------------------------------------------------------------*/
 /** Clause order is fixed so the same run always reads the same way. */
-const CATEGORY_ORDER = ['edit', 'explore', 'run', 'delegate', 'other'];
-const CATEGORY_COPY = {
+var CATEGORY_ORDER = ['edit', 'explore', 'run', 'delegate', 'other'];
+var CATEGORY_COPY = {
     delegate: { noun: ['task', 'tasks'], past: 'Delegated', present: 'Delegating' },
     edit: { noun: ['file', 'files'], past: 'Edited', present: 'Editing' },
     explore: { noun: ['file', 'files'], past: 'Explored', present: 'Exploring' },
@@ -19,10 +19,10 @@ const CATEGORY_COPY = {
     run: { noun: ['command', 'commands'], past: 'Ran', present: 'Running' },
 };
 /** The webview's tables, copied rather than re-derived: names Crusor actually registers. */
-const FILE_EDIT_TOOL_NAMES = new Set(['write_file', 'edit_file', 'copy_file', 'scaffold_nextjs']);
-const CARD_TOOL_NAMES = new Set(['ask_user', 'display_crusor_task', 'invoke_host_capability', 'delegate_to_subagent', 'delegate_to_subagent_batch']);
-const SILENT_TOOL_NAMES = new Set(['think']);
-const EXPLORE_TOOLS = new Set([
+var FILE_EDIT_TOOL_NAMES = new Set(['write_file', 'edit_file', 'copy_file', 'scaffold_nextjs']);
+var CARD_TOOL_NAMES = new Set(['ask_user', 'display_crusor_task', 'invoke_host_capability', 'delegate_to_subagent', 'delegate_to_subagent_batch']);
+var SILENT_TOOL_NAMES = new Set(['think']);
+var EXPLORE_TOOLS = new Set([
     'list_files', 'read_file', 'search_code', 'session_search', 'web_fetch', 'web_search',
     'discover_host_capabilities', 'read_terminal_output', 'check_terminal',
     'list_terminal_processes', 'typecheck_workspace', 'verify_ui_routes', 'verify_ui_workspace',
@@ -40,7 +40,7 @@ export function isSilentTool(toolName) {
     return SILENT_TOOL_NAMES.has(toolName);
 }
 export function runCategory(toolName) {
-    const name = toolName ?? '';
+    var name = toolName !== null && toolName !== void 0 ? toolName : '';
     if (isFileEditTool(name)) {
         return 'edit';
     }
@@ -70,15 +70,16 @@ function isPending(tool) {
  * hard clamp, the same shape the webview applies (`compactPreview` / `timelinePreview`).
  * Clamped for *display* only -- the row behind it still carries the whole command.
  */
-export function compactTarget(value, max = 48) {
+export function compactTarget(value, max) {
+    if (max === void 0) { max = 48; }
     if (!value) {
         return undefined;
     }
-    const collapsed = value.replace(/\s+/g, ' ').trim();
+    var collapsed = value.replace(/\s+/g, ' ').trim();
     if (!collapsed.length) {
         return undefined;
     }
-    return collapsed.length <= max ? collapsed : `${collapsed.slice(0, max - 1).trimEnd()}\u2026`;
+    return collapsed.length <= max ? collapsed : "".concat(collapsed.slice(0, max - 1).trimEnd(), "\u2026");
 }
 function lowerFirst(text) {
     return text.charAt(0).toLowerCase() + text.slice(1);
@@ -91,13 +92,14 @@ function lowerFirst(text) {
  * name that is empty is not a tool call at all and passes through as its own card.
  */
 export function splitRunGroups(tools) {
-    const items = [];
-    let run = null;
-    tools.forEach((tool, index) => {
-        const name = tool.name ?? '';
+    var items = [];
+    var run = null;
+    tools.forEach(function (tool, index) {
+        var _a;
+        var name = (_a = tool.name) !== null && _a !== void 0 ? _a : '';
         if (!name || isCardTool(name)) {
             run = null;
-            items.push({ kind: 'card', tool });
+            items.push({ kind: 'card', tool: tool });
             return;
         }
         if (run) {
@@ -112,12 +114,12 @@ export function splitRunGroups(tools) {
     return items;
 }
 function clause(category, tools, live, target) {
-    const copy = CATEGORY_COPY[category];
-    const verb = live ? copy.present : copy.past;
+    var copy = CATEGORY_COPY[category];
+    var verb = live ? copy.present : copy.past;
     if (target && tools.length === 1 && (live || category !== 'run')) {
-        return `${verb} ${target}`;
+        return "".concat(verb, " ").concat(target);
     }
-    return `${verb} ${tools.length} ${copy.noun[tools.length === 1 ? 0 : 1]}`;
+    return "".concat(verb, " ").concat(tools.length, " ").concat(copy.noun[tools.length === 1 ? 0 : 1]);
 }
 /**
  * Collapse a run into the one grey line that stands in for it -- "Explored 3 files,
@@ -130,15 +132,17 @@ function clause(category, tools, live, target) {
  * and when counting wins -- are the ones shared with the webview.
  */
 export function summarizeToolRun(tools, live, targetOf) {
+    var _a;
     if (!tools.length) {
         return '';
     }
-    const narrating = live ? (tools.find(isPending) ?? tools.at(-1)) : undefined;
-    const liveCategory = narrating ? runCategory(narrating.name) : null;
-    const byCategory = new Map();
-    for (const tool of tools) {
-        const category = runCategory(tool.name);
-        const group = byCategory.get(category);
+    var narrating = live ? ((_a = tools.find(isPending)) !== null && _a !== void 0 ? _a : tools.at(-1)) : undefined;
+    var liveCategory = narrating ? runCategory(narrating.name) : null;
+    var byCategory = new Map();
+    for (var _i = 0, tools_1 = tools; _i < tools_1.length; _i++) {
+        var tool = tools_1[_i];
+        var category = runCategory(tool.name);
+        var group = byCategory.get(category);
         if (group) {
             group.push(tool);
         }
@@ -146,13 +150,14 @@ export function summarizeToolRun(tools, live, targetOf) {
             byCategory.set(category, [tool]);
         }
     }
-    const clauses = [];
-    for (const category of CATEGORY_ORDER) {
-        const group = byCategory.get(category);
+    var clauses = [];
+    for (var _b = 0, CATEGORY_ORDER_1 = CATEGORY_ORDER; _b < CATEGORY_ORDER_1.length; _b++) {
+        var category = CATEGORY_ORDER_1[_b];
+        var group = byCategory.get(category);
         if (!group) {
             continue;
         }
         clauses.push(clause(category, group, category === liveCategory, group.length === 1 ? targetOf(group[0]) : undefined));
     }
-    return clauses.map((text, index) => (index === 0 ? text : lowerFirst(text))).join(', ');
+    return clauses.map(function (text, index) { return (index === 0 ? text : lowerFirst(text)); }).join(', ');
 }

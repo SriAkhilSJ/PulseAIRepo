@@ -11,9 +11,9 @@
  * keeps that rule exactly: solid SVG when this table covers the name, `codicon` otherwise.
  *--------------------------------------------------------------------------------------------*/
 import * as DOM from '../../../../base/browser/dom.js';
-const SVG_NS = 'http://www.w3.org/2000/svg';
-export const TOOL_ICON_VIEWBOX = '0 0 256 256';
-export const TOOL_ICON_PATHS = {
+var SVG_NS = 'http://www.w3.org/2000/svg';
+export var TOOL_ICON_VIEWBOX = '0 0 256 256';
+export var TOOL_ICON_PATHS = {
     'brain': 'M248,124a56.11,56.11,0,0,0-32-50.61V72a48,48,0,0,0-88-26.49A48,48,0,0,0,40,72v1.39a56,56,0,0,0,0,101.22V176a48,48,0,0,0,88,26.49A48,48,0,0,0,216,176v-1.39A56.09,56.09,0,0,0,248,124ZM88,208a32,32,0,0,1-31.81-28.56A55.87,55.87,0,0,0,64,180h8a8,8,0,0,0,0-16H64A40,40,0,0,1,51.2,86.1a8,8,0,0,0,5.6-6.83A32,32,0,0,1,120,72v75.36A47.79,47.79,0,0,0,88,136a8,8,0,0,0,0,16,32,32,0,0,1,32,32A24,24,0,0,1,88,208Zm104-44h-8a8,8,0,0,0,0,16h8a55.87,55.87,0,0,0,7.81-.56A32,32,0,1,1,136,184a32,32,0,0,1,32-32,8,8,0,0,0,0-16,47.79,47.79,0,0,0-32,11.36V72a32,32,0,0,1,63.2-7.27,8,8,0,0,0,5.6,6.83A40,40,0,0,1,192,164Z',
     'diff': 'M118.18,213.08c-.11.14-.24.27-.36.4l-.16.18-.17.15a4.83,4.83,0,0,1-.42.37,3.92,3.92,0,0,1-.32.25l-.3.22-.38.23a2.91,2.91,0,0,1-.3.17l-.37.19-.34.15-.36.13a2.84,2.84,0,0,1-.38.13l-.36.1c-.14,0-.26.07-.4.09l-.42.07-.35.05a7,7,0,0,1-.79,0H64a8,8,0,0,1,0-16H92.69L55,162.34a23.85,23.85,0,0,1-7-17V95a32,32,0,1,1,16,0v50.38A8,8,0,0,0,66.34,151L104,188.69V160a8,8,0,0,1,16,0v48a7,7,0,0,1,0,.8c0,.11,0,.21,0,.32s0,.3-.07.46a2.83,2.83,0,0,1-.09.37c0,.13-.06.26-.1.39s-.08.23-.12.35l-.14.39-.15.31c-.06.13-.12.27-.19.4s-.11.18-.16.28l-.24.39-.21.28ZM208,161V110.63a23.85,23.85,0,0,0-7-17L163.31,56H192a8,8,0,0,0,0-16H143.82l-.6,0c-.14,0-.28,0-.41.06l-.37,0-.43.11-.33.08-.4.14-.34.13-.35.16-.36.18a3.14,3.14,0,0,0-.31.18c-.12.07-.25.14-.36.22a3.55,3.55,0,0,0-.31.23,3.81,3.81,0,0,0-.32.24c-.15.12-.28.24-.42.37l-.17.15-.16.18c-.12.13-.25.26-.36.4l-.26.35-.21.28-.24.39c-.05.1-.11.19-.16.28s-.13.27-.19.4l-.15.31-.14.39c0,.12-.09.23-.12.35s-.07.26-.1.39a2.83,2.83,0,0,0-.09.37c0,.16,0,.31-.07.46s0,.21-.05.32a7,7,0,0,0,0,.8V96a8,8,0,0,0,16,0V67.31L189.66,105a8,8,0,0,1,2.34,5.66V161a32,32,0,1,0,16,0Z',
     'edit': 'M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM192,108.68,147.31,64l24-24L216,84.68Z',
@@ -37,27 +37,28 @@ export function isSolidToolIcon(name) {
  * same node has to land at the same size inside a summary row, a scaffold line and a card head,
  * whose flex contexts differ -- matching upstream, which also passes `size` in.
  */
-export function renderToolIcon(name, size = '0.875rem') {
-    const path = TOOL_ICON_PATHS[name];
+export function renderToolIcon(name, size) {
+    if (size === void 0) { size = '0.875rem'; }
+    var path = TOOL_ICON_PATHS[name];
     if (!path) {
-        const node = DOM.$('span');
-        node.classList.add('codicon', `codicon-${name}`);
-        node.setAttribute('aria-hidden', 'true');
-        node.style.fontSize = size;
-        return node;
+        var node_1 = DOM.$('span');
+        node_1.classList.add('codicon', "codicon-".concat(name));
+        node_1.setAttribute('aria-hidden', 'true');
+        node_1.style.fontSize = size;
+        return node_1;
     }
     // Every caller drops the glyph into a child position (`element(...)` takes `Node`), and the
     // codicon fallback is an HTMLElement, so one declared type covers both shapes: the node is an
     // SVGSVGElement at runtime and is only widened for the return, which is the same idiom
     // `DOM.$<T>` uses across the workbench.
-    const svg = document.createElementNS(SVG_NS, 'svg');
+    var svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', TOOL_ICON_VIEWBOX);
     svg.setAttribute('fill', 'currentColor');
     svg.setAttribute('aria-hidden', 'true');
     svg.style.height = size;
     svg.style.width = size;
     svg.style.flexShrink = '0';
-    const node = document.createElementNS(SVG_NS, 'path');
+    var node = document.createElementNS(SVG_NS, 'path');
     node.setAttribute('d', path);
     svg.appendChild(node);
     return svg;

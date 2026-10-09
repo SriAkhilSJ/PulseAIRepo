@@ -1,8 +1,11 @@
 /*---------------------------------------------------------------------------------------------
  * Stable Crusor capability vocabulary. Code OSS service names stay behind the workbench host.
  *--------------------------------------------------------------------------------------------*/
-const cap = (id, phase, risk, provider, requiresTrust = false) => ({ id, phase, risk, provider, requiresTrust });
-export const CRUSOR_AI_WORKBENCH_CAPABILITIES = [
+var cap = function (id, phase, risk, provider, requiresTrust) {
+    if (requiresTrust === void 0) { requiresTrust = false; }
+    return ({ id: id, phase: phase, risk: risk, provider: provider, requiresTrust: requiresTrust });
+};
+export var CRUSOR_AI_WORKBENCH_CAPABILITIES = [
     cap('editor.activeSelection', 'context', 'read', 'editorService'),
     cap('editor.dirtyText', 'context', 'read', 'textFileService'),
     cap('editor.history', 'context', 'read', 'historyService'),

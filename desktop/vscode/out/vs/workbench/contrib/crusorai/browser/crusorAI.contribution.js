@@ -8,6 +8,21 @@
  *   - F1 Command Palette: "Crusor: Open Agent"
  *   - View menu (auto-added by viewsService for AuxiliaryBar views)
  *--------------------------------------------------------------------------------------------*/
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -17,17 +32,55 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __generator = (this && this.__generator) || function (thisArg, body) {
+    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g = Object.create((typeof Iterator === "function" ? Iterator : Object).prototype);
+    return g.next = verb(0), g["throw"] = verb(1), g["return"] = verb(2), typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
+    function verb(n) { return function (v) { return step([n, v]); }; }
+    function step(op) {
+        if (f) throw new TypeError("Generator is already executing.");
+        while (g && (g = 0, op[0] && (_ = 0)), _) try {
+            if (f = 1, y && (t = op[0] & 2 ? y["return"] : op[0] ? y["throw"] || ((t = y["return"]) && t.call(y), 0) : y.next) && !(t = t.call(y, op[1])).done) return t;
+            if (y = 0, t) op = [op[0] & 2, t.value];
+            switch (op[0]) {
+                case 0: case 1: t = op; break;
+                case 4: _.label++; return { value: op[1], done: false };
+                case 5: _.label++; y = op[1]; op = [0]; continue;
+                case 7: op = _.ops.pop(); _.trys.pop(); continue;
+                default:
+                    if (!(t = _.trys, t = t.length > 0 && t[t.length - 1]) && (op[0] === 6 || op[0] === 2)) { _ = 0; continue; }
+                    if (op[0] === 3 && (!t || (op[1] > t[0] && op[1] < t[3]))) { _.label = op[1]; break; }
+                    if (op[0] === 6 && _.label < t[1]) { _.label = t[1]; t = op; break; }
+                    if (t && _.label < t[2]) { _.label = t[2]; _.ops.push(op); break; }
+                    if (t[2]) _.ops.pop();
+                    _.trys.pop(); continue;
+            }
+            op = body.call(thisArg, _);
+        } catch (e) { op = [6, e]; y = 0; } finally { f = t = 0; }
+        if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
+    }
+};
 import { Codicon } from '../../../../base/common/codicons.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { MenuId, MenuRegistry, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { registerWorkbenchContribution2 } from '../../../common/contributions.js';
+import { ConfigurationScope, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { ICrusorAISessionStore, CrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -38,10 +91,10 @@ import './crusorAISessionController.js';
 import './crusorAISkillsHub.js';
 import './crusorAIOneShot.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { Extensions as ViewContainerExtensions, } from '../../../common/views.js';
+import { Extensions as ViewContainerExtensions, ViewContainerLocation, } from '../../../common/views.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { CRUSOR_AI_VIEW_CONTAINER_ID, CRUSOR_AI_VIEW_ID, } from '../common/crusorAI.js';
+import { CRUSOR_AI_VIEW_CONTAINER_ID, CRUSOR_AI_VIEW_ID, CrusorAICommandId, } from '../common/crusorAI.js';
 import { ICrusorAIEngineService } from '../common/crusorAIEngineService.js';
 import { ICrusorAIRendererService } from '../common/crusorAIRendererService.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
@@ -61,23 +114,23 @@ import './crusorAIHideCopilot.js';
 import './crusorAIAccount.js';
 // Connectors hub — MCP/connectors visible in fork (Hermes hub parity)
 import './crusorAIConnectors.js';
-const CRUSOR_AI_MENU_ID = new MenuId('MenubarCrusorAI');
+var CRUSOR_AI_MENU_ID = new MenuId('MenubarCrusorAI');
 // Keep common/web hosts constructable. The desktop entrypoint registers its
 // utility-process implementation later, replacing this no-process fallback.
-registerSingleton(ICrusorAIEngineService, CrusorAIUnavailableEngineService, 1 /* InstantiationType.Delayed */);
-registerSingleton(ICrusorAIWorkbenchService, CrusorAIWorkbenchService, 1 /* InstantiationType.Delayed */);
-registerSingleton(ICrusorAIRendererService, CrusorAIRendererService, 1 /* InstantiationType.Delayed */);
+registerSingleton(ICrusorAIEngineService, CrusorAIUnavailableEngineService, InstantiationType.Delayed);
+registerSingleton(ICrusorAIWorkbenchService, CrusorAIWorkbenchService, InstantiationType.Delayed);
+registerSingleton(ICrusorAIRendererService, CrusorAIRendererService, InstantiationType.Delayed);
 // The Agent Manager's session list and the workbench's own Agent Sessions list are projections of
 // this store. It is a singleton rather than renderer state so that a session the user ran is
 // remembered even while neither surface is mounted.
-registerSingleton(ICrusorAISessionStore, CrusorAISessionStore, 1 /* InstantiationType.Delayed */);
+registerSingleton(ICrusorAISessionStore, CrusorAISessionStore, InstantiationType.Delayed);
 // Crusor Preview: availability from what the session actually built, the separate preview window, and
 // the reviewed-batch handoff back into the Agent (steps 1, 2 and 9 of the flow; 3-8 live in the window).
-registerSingleton(ICrusorAIPreviewService, CrusorAIPreviewService, 1 /* InstantiationType.Delayed */);
+registerSingleton(ICrusorAIPreviewService, CrusorAIPreviewService, InstantiationType.Delayed);
 // --- Crusor container (right-side auxiliary bar) ---------------------------
 // Lives on the right (secondary) sidebar — same default location as Cursor's
 // chat panel, Windsurf's Cascade, and VS Code's Copilot Chat.
-const container = Registry.as(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer({
+var container = Registry.as(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer({
     id: CRUSOR_AI_VIEW_CONTAINER_ID,
     title: localize2('crusorAI.viewContainer.title', 'Crusor'),
     icon: Codicon.cursor,
@@ -87,7 +140,7 @@ const container = Registry.as(ViewContainerExtensions.ViewContainersRegistry).re
     ]),
     storageId: CRUSOR_AI_VIEW_CONTAINER_ID,
     order: 6,
-}, 2 /* ViewContainerLocation.AuxiliaryBar */);
+}, ViewContainerLocation.AuxiliaryBar);
 Registry.as(ViewContainerExtensions.ViewsRegistry).registerViews([{
         id: CRUSOR_AI_VIEW_ID,
         name: localize2('crusorAI.view.name', 'Crusor Agent'),
@@ -97,19 +150,20 @@ Registry.as(ViewContainerExtensions.ViewsRegistry).registerViews([{
         ctorDescriptor: new SyncDescriptor(CrusorAIViewPane),
     }], container);
 // Fixed agent — hidden until Ctrl+L (no auto-open, no title card)
-let CrusorAutoHideContribution = class CrusorAutoHideContribution {
-    static { this.ID = 'workbench.contrib.crusorai.autoHide'; }
-    constructor(viewsService) {
+var CrusorAutoHideContribution = /** @class */ (function () {
+    function CrusorAutoHideContribution(viewsService) {
         try {
             viewsService.closeView(CRUSOR_AI_VIEW_ID);
         }
-        catch { }
+        catch (_a) { }
     }
-};
-CrusorAutoHideContribution = __decorate([
-    __param(0, IViewsService)
-], CrusorAutoHideContribution);
-registerWorkbenchContribution2(CrusorAutoHideContribution.ID, CrusorAutoHideContribution, 3 /* WorkbenchPhase.AfterRestored */);
+    CrusorAutoHideContribution.ID = 'workbench.contrib.crusorai.autoHide';
+    CrusorAutoHideContribution = __decorate([
+        __param(0, IViewsService)
+    ], CrusorAutoHideContribution);
+    return CrusorAutoHideContribution;
+}());
+registerWorkbenchContribution2(CrusorAutoHideContribution.ID, CrusorAutoHideContribution, WorkbenchPhase.AfterRestored);
 // --- Crusor Manager (full-width editor tab, Copilot "Agents Window" analogue)
 Registry.as(EditorExtensions.EditorFactory).registerEditorSerializer(CrusorAIManagerInput.ID, CrusorAIManagerInputSerializer);
 Registry.as(EditorExtensions.EditorPane).registerEditorPane(EditorPaneDescriptor.create(CrusorAIManagerEditor, CrusorAIManagerEditor.ID, localize('crusorAI.manager.editor', 'Crusor Manager')), [new SyncDescriptor(CrusorAIManagerInput)]);
@@ -118,29 +172,45 @@ Registry.as(EditorExtensions.EditorPane).registerEditorPane(EditorPaneDescriptor
 // "talk to the AI" chord: Cursor, Windsurf). Weighted at WorkbenchContrib
 // (200) which outranks the editor's built-in expandLineSelection (EditorCore
 // = 0) — same global-steal trick Cursor and Windsurf ship.
-async function openCrusorAgent(accessor) {
-    // openView with focus=true behaves like every other VS Code "open view"
-    // command (Explorer, Search, SCM, Debug, Terminal, Chat): if the view is
-    // already open it just focuses it; if closed it opens and mounts the pane.
-    // Deliberately avoids casting to any or reaching into private API.
-    await accessor.get(IViewsService).openView(CRUSOR_AI_VIEW_ID, true);
+function openCrusorAgent(accessor) {
+    return __awaiter(this, void 0, Promise, function () {
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: 
+                // openView with focus=true behaves like every other VS Code "open view"
+                // command (Explorer, Search, SCM, Debug, Terminal, Chat): if the view is
+                // already open it just focuses it; if closed it opens and mounts the pane.
+                // Deliberately avoids casting to any or reaching into private API.
+                return [4 /*yield*/, accessor.get(IViewsService).openView(CRUSOR_AI_VIEW_ID, true)];
+                case 1:
+                    // openView with focus=true behaves like every other VS Code "open view"
+                    // command (Explorer, Search, SCM, Debug, Terminal, Chat): if the view is
+                    // already open it just focuses it; if closed it opens and mounts the pane.
+                    // Deliberately avoids casting to any or reaching into private API.
+                    _a.sent();
+                    return [2 /*return*/];
+            }
+        });
+    });
 }
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_1, _super);
+    function class_1() {
+        return _super.call(this, {
+            id: CrusorAICommandId.Focus,
             title: localize2('crusorAI.focus', 'Crusor: Open Agent'),
             f1: true,
             category: localize2('crusorAI.category', 'Crusor'),
             icon: Codicon.cursor,
             keybinding: {
-                weight: 200 /* KeybindingWeight.WorkbenchContrib */,
-                primary: 2048 /* KeyMod.CtrlCmd */ | 42 /* KeyCode.KeyL */,
+                weight: KeybindingWeight.WorkbenchContrib,
+                primary: KeyMod.CtrlCmd | KeyCode.KeyL,
             },
-        });
+        }) || this;
     }
-    run(accessor) { return openCrusorAgent(accessor); }
-});
+    class_1.prototype.run = function (accessor) { return openCrusorAgent(accessor); };
+    return class_1;
+}(Action2)));
 // --- Top-level Crusor menu (between Terminal and Help) ---------------------
 // Menubar order reference (menubar.contribution.ts + debug.contribution.ts):
 //   File(1) · Edit(2) · Selection(3) · View(4) · Go(5) · Run(6) · Terminal(7)
@@ -158,7 +228,7 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 // Ctrl+L shortcut shows up next to it automatically.
 MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
     command: {
-        id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+        id: CrusorAICommandId.Focus,
         title: localize('crusorAI.menu.openAgent', 'Open Crusor Agent'),
     },
     group: '0_open',
@@ -171,17 +241,18 @@ MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
 // (default in modern Code OSS).
 MenuRegistry.appendMenuItem(MenuId.CommandCenterCenter, {
     command: {
-        id: "crusorai.focus" /* CrusorAICommandId.Focus */,
+        id: CrusorAICommandId.Focus,
         title: localize2('crusorAI.commandCenter.tooltip', 'Open Crusor Agent (Ctrl+L)'),
         icon: Codicon.cursor,
     },
     order: -100,
 });
 // --- Session / review / control / settings entries -----------------------
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.newSession" /* CrusorAICommandId.NewSession */,
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_2, _super);
+    function class_2() {
+        return _super.call(this, {
+            id: CrusorAICommandId.NewSession,
             title: localize2('crusorAI.newSession', 'New Agent Session'),
             f1: true,
             icon: Codicon.add,
@@ -189,97 +260,132 @@ registerAction2(class extends Action2 {
                 { id: CRUSOR_AI_MENU_ID, group: '1_session', order: 1 },
                 { id: MenuId.ViewTitle, when: ContextKeyExpr.equals('view', CRUSOR_AI_VIEW_ID), group: 'navigation', order: 0 }
             ],
+        }) || this;
+    }
+    class_2.prototype.run = function (accessor) {
+        return __awaiter(this, void 0, Promise, function () {
+            var rendererService;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        rendererService = accessor.get(ICrusorAIRendererService);
+                        return [4 /*yield*/, openCrusorAgent(accessor)];
+                    case 1:
+                        _a.sent();
+                        rendererService.newSession();
+                        return [2 /*return*/];
+                }
+            });
         });
-    }
-    async run(accessor) {
-        // ServicesAccessor is single-shot: every get() must run BEFORE the first await — a
-        // get() after yielding throws "Illegal state" (field 2026-09-28: the pre-fix shape
-        // called accessor.get() after `await openCrusorAgent` and died at runtime).
-        const rendererService = accessor.get(ICrusorAIRendererService);
-        await openCrusorAgent(accessor);
-        rendererService.newSession();
-    }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.openManager" /* CrusorAICommandId.OpenManager */,
+    };
+    return class_2;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_3, _super);
+    function class_3() {
+        return _super.call(this, {
+            id: CrusorAICommandId.OpenManager,
             title: localize2('crusorAI.openManager', 'Open Crusor Manager'),
             f1: true,
             icon: Codicon.organization,
             menu: [
                 { id: CRUSOR_AI_MENU_ID, group: '1_session', order: 2 },
             ],
+        }) || this;
+    }
+    class_3.prototype.run = function (accessor) {
+        return __awaiter(this, void 0, Promise, function () {
+            var input;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        input = accessor.get(IInstantiationService).createInstance(CrusorAIManagerInput);
+                        return [4 /*yield*/, accessor.get(IEditorService).openEditor(input, { pinned: true })];
+                    case 1:
+                        _a.sent();
+                        return [2 /*return*/];
+                }
+            });
         });
-    }
-    async run(accessor) {
-        const input = accessor.get(IInstantiationService).createInstance(CrusorAIManagerInput);
-        await accessor.get(IEditorService).openEditor(input, { pinned: true });
-    }
-});
+    };
+    return class_3;
+}(Action2)));
 MenuRegistry.appendMenuItem(CRUSOR_AI_MENU_ID, {
     command: { id: 'crusorai.showConnectors', title: localize('crusorAI.menu.connectors', 'Connectors') },
     group: '1_session',
     order: 3,
 });
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_4, _super);
+    function class_4() {
+        return _super.call(this, {
             id: 'crusorai.openPreview',
             title: localize2('crusorAI.openPreview', 'Open Crusor Preview'),
             f1: true,
             icon: Codicon.openPreview,
             menu: [{ id: CRUSOR_AI_MENU_ID, group: '1_session', order: 4 }],
+        }) || this;
+    }
+    class_4.prototype.run = function (accessor, target) {
+        return __awaiter(this, void 0, Promise, function () {
+            return __generator(this, function (_a) {
+                // Opens the SEPARATE desktop window for the UI the agent built. It REFUSES
+                // with a reason when the pre-flight conditions fail (no proxy, dead dev
+                // server, nothing to preview) — an honest {ok:false} beats a white window
+                // every time, and preview.open forwards that refusal to the agent.
+                return [2 /*return*/, accessor.get(ICrusorAIPreviewService).openPreview(target)];
+            });
         });
-    }
-    async run(accessor, target) {
-        // Opens the SEPARATE desktop window for the UI the agent built. It REFUSES
-        // with a reason when the pre-flight conditions fail (no proxy, dead dev
-        // server, nothing to preview) — an honest {ok:false} beats a white window
-        // every time, and preview.open forwards that refusal to the agent.
-        return accessor.get(ICrusorAIPreviewService).openPreview(target);
-    }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.reviewChanges" /* CrusorAICommandId.ReviewChanges */,
+    };
+    return class_4;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_5, _super);
+    function class_5() {
+        return _super.call(this, {
+            id: CrusorAICommandId.ReviewChanges,
             title: localize2('crusorAI.reviewChanges', 'Review Changes'),
             f1: true,
             icon: Codicon.diff,
             menu: [{ id: CRUSOR_AI_MENU_ID, group: '2_review', order: 1 }],
-        });
+        }) || this;
     }
-    run(accessor) { return openCrusorAgent(accessor); }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.openCheckpoints" /* CrusorAICommandId.OpenCheckpoints */,
+    class_5.prototype.run = function (accessor) { return openCrusorAgent(accessor); };
+    return class_5;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_6, _super);
+    function class_6() {
+        return _super.call(this, {
+            id: CrusorAICommandId.OpenCheckpoints,
             title: localize2('crusorAI.openCheckpoints', 'Checkpoints'),
             f1: true,
             icon: Codicon.history,
             menu: [{ id: CRUSOR_AI_MENU_ID, group: '2_review', order: 2 }],
-        });
+        }) || this;
     }
-    run(accessor) { return openCrusorAgent(accessor); }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.stopActiveRun" /* CrusorAICommandId.StopActiveRun */,
+    class_6.prototype.run = function (accessor) { return openCrusorAgent(accessor); };
+    return class_6;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_7, _super);
+    function class_7() {
+        return _super.call(this, {
+            id: CrusorAICommandId.StopActiveRun,
             title: localize2('crusorAI.stopActiveRun', 'Stop Active Run'),
             f1: true,
             icon: Codicon.debugStop,
             menu: [{ id: CRUSOR_AI_MENU_ID, group: '3_control', order: 1 }],
-        });
+        }) || this;
     }
-    run(accessor) { return openCrusorAgent(accessor); }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.acceptDiff" /* CrusorAICommandId.AcceptDiff */,
+    class_7.prototype.run = function (accessor) { return openCrusorAgent(accessor); };
+    return class_7;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_8, _super);
+    function class_8() {
+        return _super.call(this, {
+            id: CrusorAICommandId.AcceptDiff,
             title: localize2('crusorAI.acceptDiff', 'Accept Change'),
             f1: true,
             icon: Codicon.check,
@@ -288,16 +394,18 @@ registerAction2(class extends Action2 {
                     group: 'navigation@1',
                     when: ContextKeyExpr.has('crusorai.hasActiveDiff'),
                 }],
-        });
+        }) || this;
     }
-    run(accessor) {
+    class_8.prototype.run = function (accessor) {
         accessor.get(ICrusorAIWorkbenchService).acceptActiveDiff();
-    }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.rejectDiff" /* CrusorAICommandId.RejectDiff */,
+    };
+    return class_8;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_9, _super);
+    function class_9() {
+        return _super.call(this, {
+            id: CrusorAICommandId.RejectDiff,
             title: localize2('crusorAI.rejectDiff', 'Reject Change'),
             f1: true,
             icon: Codicon.close,
@@ -306,29 +414,42 @@ registerAction2(class extends Action2 {
                     group: 'navigation@2',
                     when: ContextKeyExpr.has('crusorai.hasActiveDiff'),
                 }],
-        });
+        }) || this;
     }
-    run(accessor) {
+    class_9.prototype.run = function (accessor) {
         accessor.get(ICrusorAIWorkbenchService).rejectActiveDiff();
-    }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
-            id: "crusorai.openSettings" /* CrusorAICommandId.OpenSettings */,
+    };
+    return class_9;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_10, _super);
+    function class_10() {
+        return _super.call(this, {
+            id: CrusorAICommandId.OpenSettings,
             title: localize2('crusorAI.openSettings', 'Crusor Settings'),
             f1: true,
             icon: Codicon.settingsGear,
             menu: [{ id: CRUSOR_AI_MENU_ID, group: '4_settings', order: 1 }],
+        }) || this;
+    }
+    class_10.prototype.run = function (accessor) {
+        return __awaiter(this, void 0, Promise, function () {
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, accessor.get(ICommandService).executeCommand('workbench.action.openSettings', 'crusorai')];
+                    case 1:
+                        _a.sent();
+                        return [2 /*return*/];
+                }
+            });
         });
-    }
-    async run(accessor) {
-        await accessor.get(ICommandService).executeCommand('workbench.action.openSettings', 'crusorai');
-    }
-});
-registerAction2(class extends Action2 {
-    constructor() {
-        super({
+    };
+    return class_10;
+}(Action2)));
+registerAction2(/** @class */ (function (_super) {
+    __extends(class_11, _super);
+    function class_11() {
+        return _super.call(this, {
             id: 'crusorai.showHistory',
             title: localize2('crusorAI.showHistory', 'Crusor: Show Session History'),
             f1: true,
@@ -340,40 +461,49 @@ registerAction2(class extends Action2 {
                     group: 'navigation',
                     order: 1
                 }]
-        });
+        }) || this;
     }
-    async run(accessor) {
-        // ServicesAccessor is single-shot: every get() runs before the first await.
-        const quickInput = accessor.get(IQuickInputService);
-        const store = accessor.get(ICrusorAISessionStore);
-        const viewsService = accessor.get(IViewsService);
-        const rendererService = accessor.get(ICrusorAIRendererService);
-        // Newest activity first — the same projection order both session lists use, so the
-        // picker, the Manager and the workbench list cannot disagree about recency.
-        const records = store.records();
-        const rows = crusorSessionRows(records, undefined, Date.now());
-        const byId = new Map(records.map(item => [item.sessionId, item]));
-        const picks = rows.slice(0, 20).map(row => {
-            const id = crusorSessionIdFromUri(row.resource) ?? '';
-            const count = byId.get(id)?.messageCount;
-            return {
-                label: row.label || 'Untitled session',
-                description: [row.description, typeof count === 'number' && count > 0 ? `${count} messages` : ''].filter(part => part.length > 0).join(' · '),
-                id,
-            };
+    class_11.prototype.run = function (accessor) {
+        return __awaiter(this, void 0, Promise, function () {
+            var quickInput, store, viewsService, rendererService, records, rows, byId, picks, pick;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        quickInput = accessor.get(IQuickInputService);
+                        store = accessor.get(ICrusorAISessionStore);
+                        viewsService = accessor.get(IViewsService);
+                        rendererService = accessor.get(ICrusorAIRendererService);
+                        records = store.records();
+                        rows = crusorSessionRows(records, undefined, Date.now());
+                        byId = new Map(records.map(function (item) { return [item.sessionId, item]; }));
+                        picks = rows.slice(0, 20).map(function (row) {
+                            var _a, _b;
+                            var id = (_a = crusorSessionIdFromUri(row.resource)) !== null && _a !== void 0 ? _a : '';
+                            var count = (_b = byId.get(id)) === null || _b === void 0 ? void 0 : _b.messageCount;
+                            return {
+                                label: row.label || 'Untitled session',
+                                description: [row.description, typeof count === 'number' && count > 0 ? "".concat(count, " messages") : ''].filter(function (part) { return part.length > 0; }).join(' · '),
+                                id: id,
+                            };
+                        });
+                        if (picks.length === 0)
+                            picks.push({ label: 'No sessions yet', description: 'Start a chat with Ctrl+L', id: '' });
+                        return [4 /*yield*/, quickInput.pick(picks, { placeHolder: 'Crusor Session History — pick to open' })];
+                    case 1:
+                        pick = _a.sent();
+                        if (!(pick && pick.id)) return [3 /*break*/, 3];
+                        return [4 /*yield*/, viewsService.openView(CRUSOR_AI_VIEW_ID, true)];
+                    case 2:
+                        _a.sent();
+                        rendererService.openSession(pick.id);
+                        _a.label = 3;
+                    case 3: return [2 /*return*/];
+                }
+            });
         });
-        if (picks.length === 0)
-            picks.push({ label: 'No sessions yet', description: 'Start a chat with Ctrl+L', id: '' });
-        const pick = await quickInput.pick(picks, { placeHolder: 'Crusor Session History — pick to open' });
-        // "Pick to open" OPENS: focus the Agent surface, then rebind it to the picked
-        // session (its transcript hydrates from the checkpoints). A dismissed picker, or
-        // the "No sessions yet" row, is a no-op by design.
-        if (pick && pick.id) {
-            await viewsService.openView(CRUSOR_AI_VIEW_ID, true);
-            rendererService.openSession(pick.id);
-        }
-    }
-});
+    };
+    return class_11;
+}(Action2)));
 Registry.as(ConfigurationExtensions.Configuration).registerConfiguration({
     id: 'crusorai',
     title: localize2('crusorai.copilotWebview.title', 'CrusorAI CopilotKit Webview').value,
@@ -382,13 +512,13 @@ Registry.as(ConfigurationExtensions.Configuration).registerConfiguration({
         'crusorai.copilotWebview.enabled': {
             type: 'boolean',
             default: true,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorai.copilotWebview.enabled.desc', "Show the CopilotKit React surface (crusor-webview) under the native Crusor Agent view. Turn off to give the whole pane to the native renderer."),
         },
         'crusorai.copilotWebview.url': {
             type: 'string',
             default: 'local',
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorai.copilotWebview.url.desc', "What the CopilotKit tab loads. 'local' (default) uses the SPA built into the app by `npm run build` in crusor-webview, which needs no server and works in packaged or remote windows. Any other value is an absolute URL framed as-is -- the workbench CSP allows only 'self' and vscode-webview:, so an http URL will be refused unless you extend the frame policy, and a dev server on :5173 therefore belongs in a browser tab, not here.")
         },
         'crusorai.copilotWebview.height': {
@@ -396,13 +526,13 @@ Registry.as(ConfigurationExtensions.Configuration).registerConfiguration({
             default: 50,
             minimum: 10,
             maximum: 85,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorai.copilotWebview.height.desc', "Share of the Crusor view given to the CopilotKit webview, in percent. The native Agent renderer keeps the rest."),
         },
         'crusorai.notifyOnComplete': {
             type: 'boolean',
             default: true,
-            scope: 1 /* ConfigurationScope.APPLICATION */,
+            scope: ConfigurationScope.APPLICATION,
             description: localize('crusorAI.notifyOnComplete.desc', "Show a 'Response Ready — Crusor' notification when the agent finishes a run. Disable to keep runs silent."),
         },
     },

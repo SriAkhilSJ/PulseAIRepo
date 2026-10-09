@@ -3,4 +3,4 @@
  * The renderer/engine never imports editor internals directly.
  *--------------------------------------------------------------------------------------------*/
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-export const ICrusorAIWorkbenchService = createDecorator('crusorAIWorkbenchService');
+export var ICrusorAIWorkbenchService = createDecorator('crusorAIWorkbenchService');
