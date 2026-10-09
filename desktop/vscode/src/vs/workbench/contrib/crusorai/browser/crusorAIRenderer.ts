@@ -2910,6 +2910,11 @@ function renderManager(root: HTMLElement, model: CrusorAIRenderModel, host: Crus
 }
 
 export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurface, host: CrusorAIRenderHost): CrusorAIRenderMount {
+	// Global keys (Esc-to-interrupt, approval-dock and clarify shortcuts)
+	// used to install only when an approval/clarify card first rendered —
+	// a plain turn had NO Escape handler at all. The installer is flag-
+	// guarded, so mounting the pane once is enough for the app's lifetime.
+	ensureGlobalCardKeys();
 	const openTools = new Set<string>();
 	let planOpen: boolean | undefined;
 	let planSession: string | undefined;
