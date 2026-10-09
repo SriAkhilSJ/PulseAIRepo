@@ -1946,3 +1946,10 @@
    dialog injects its own stylesheet from crusorAIHubDialog.ts — the field
    report 2026-10-02 caught a stale workbench stylesheet rendering the card
    invisible; the chrome now ships with the markup that needs it. */
+
+/* Interrupt ledger meta on the cancelled receipt row (landed/dropped). */
+.crusorai-turn-receipt .crusorai-receipt-meta {
+	opacity: 0.75;
+	font-size: 11px;
+	margin-left: 6px;
+}

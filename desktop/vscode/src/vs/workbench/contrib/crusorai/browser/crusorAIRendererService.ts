@@ -100,6 +100,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
+	/** What the Stop actually did, counted when an interrupted turn ends:
+	 *  `landed` = tool calls whose result already exists, `dropped` = calls
+	 *  the brake caught before dispatch. Written onto the receipt row. */
+	private interrupt?: { readonly landed: number; readonly dropped: number };
 	/** Pending hermes clarify batch (the ask tool): the card answers per qid. */
 	private clarify?: {
 		readonly requestId: string;
@@ -479,6 +483,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			reasoningEffort: this.reasoningEffort || undefined,
 			running: this.running,
 			cancelRequested: this.cancelRequested,
+			interrupt: this.interrupt,
 			turnStartedAt: this.turnStartedAt,
 			// Wired: the engine now emits `context_status` frames (compaction start/done and
 			// the overflow warning), projected by the bridge from the session-scoped
@@ -1147,12 +1152,28 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
 			turnOutcome: this.turnOutcome,
+			interrupt: this.interrupt,
 			plan: this.plan,
 		}].slice(-20); // keep last 20 turns
 	}
 
+	/** Measure the brake at turn end: which tool calls had already landed. */
+	private stampInterrupt(): { landed: number; dropped: number } {
+		let landed = 0;
+		let dropped = 0;
+		for (const tool of this.tools.values()) {
+			if (tool.state === 'queued' || tool.state === 'approval' || tool.state === 'running') {
+				dropped++;
+			} else {
+				landed++;
+			}
+		}
+		return { landed, dropped };
+	}
+
 	/** Fresh-turn state: the user's text becomes the bubble; everything else clears. */
 	private resetTurnState(text: string): void {
+		this.interrupt = undefined;
 		this.userMessage = text;
 		this.assistantText = '';
 		this.parts = [];
@@ -1387,6 +1408,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				for (const row of frame.sessions) { this.noteEngineRow(row); }
 			}
 			if (frame.session) { this.noteEngineRow(frame.session); }
+			// Stop ack from the bridge: another surface (or a queued cancel)
+			// may have pulled the brake — this pane's button must agree.
+			if (typeof frame.cancel_requested === 'boolean') { this.cancelRequested = frame.cancel_requested; }
 			// Live auto-title push (Hermes session.title parity): the engine titler runs
 			// async after the turn and emits the same ack shape as rename. A titled row
 			// is noted directly — even a foreign one — so no list refetch is needed.
@@ -1636,6 +1660,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.telemetry = { ...this.telemetry, input: frame.input, output: frame.output, cache: frame.cache, cost: frame.cost };
 		} else if (frame.type === 'turn_done') {
 			this.running = false;
+			if ((frame as { cancelled?: boolean }).cancelled === true) {
+				this.interrupt = this.stampInterrupt();
+			}
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();

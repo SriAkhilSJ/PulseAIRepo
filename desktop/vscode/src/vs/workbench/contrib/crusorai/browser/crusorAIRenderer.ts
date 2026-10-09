@@ -127,6 +127,8 @@ export interface CrusorAIRenderModel {
 	readonly reasoningEffort?: string;
 	readonly running: boolean;
 	readonly cancelRequested: boolean;
+	/** What the Stop did to this turn (landed vs dropped tool calls). */
+	readonly interrupt?: { readonly landed: number; readonly dropped: number };
 	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
 	readonly userMessage?: string;
 	readonly assistantText: string;
@@ -182,6 +184,7 @@ export interface CrusorAIRenderModel {
 		readonly tools: readonly CrusorAIToolView[];
 		readonly subAgents: readonly CrusorAISubAgentView[];
 		readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+		readonly interrupt?: { readonly landed: number; readonly dropped: number };
 		readonly plan: readonly CrusorAIPlanStepView[];
 	}[];
 }
@@ -1489,7 +1492,15 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 		if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
 			const label = turn.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
 			const iconName = turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
-			lane.append(element('div', `crusorai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+			const row = element('div', `crusorai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label));
+			const intr = turn.interrupt;
+			if (intr && (intr.landed > 0 || intr.dropped > 0)) {
+				const bits: string[] = [];
+				if (intr.landed > 0) { bits.push(`${intr.landed} landed`); }
+				if (intr.dropped > 0) { bits.push(`${intr.dropped} dropped`); }
+				row.append(element('span', 'crusorai-receipt-meta', `· ${bits.join(' · ')}`));
+			}
+			lane.append(row);
 		}
 		// same closing rollup for past turns (first-touched order, +/- summed)
 		const turnFiles = deriveChangedFiles(turn.tools);
@@ -1569,7 +1580,15 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
 		const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
 		const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
-		lane.append(element('div', `crusorai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label)));
+		const row = element('div', `crusorai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label));
+		const intr = model.interrupt;
+		if (intr && (intr.landed > 0 || intr.dropped > 0)) {
+			const bits: string[] = [];
+			if (intr.landed > 0) { bits.push(`${intr.landed} landed`); }
+			if (intr.dropped > 0) { bits.push(`${intr.dropped} dropped`); }
+			row.append(element('span', 'crusorai-receipt-meta', `· ${bits.join(' · ')}`));
+		}
+		lane.append(row);
 	}
 	// hermes changed-files-card: the turn-closing "N files changed" rollup.
 	const changed = changedFilesCard(model, host);
@@ -2249,6 +2268,19 @@ function ensureGlobalCardKeys(): void {
 			}
 		}
 		const form = document.querySelector<HTMLElement>('.crusorai-clarify-form[data-live="1"]');
+		// Esc pulls the Stop button — the composer hint advertises it, and a
+		// stop is one pull with nothing in the way. A live clarify question
+		// keeps its own Escape (deny/close), and the approval dock above
+		// already consumed Escape for deny before we get here.
+		if (event.key === 'Escape' && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey && !form) {
+			const stop = document.querySelector<HTMLButtonElement>('.crusorai-send-stop:not([disabled])');
+			if (stop) {
+				event.preventDefault();
+				event.stopPropagation();
+				stop.click();
+				return;
+			}
+		}
 		if (!form || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) { return; }
 		const active = document.activeElement as HTMLElement | null;
 		if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable)) { return; }
@@ -2567,7 +2599,7 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 			? element('span', undefined, model.noWorkspaceHint)
 			: model.workspaceSelectionRequired
 				? element('span', undefined, 'Select a workspace folder to start a Crusor session.')
-				: element('span', undefined, 'Enter to send'),
+				: element('span', undefined, model.running ? 'Esc to interrupt' : 'Enter to send'),
 		element('span', undefined, model.noWorkspace ? '' : 'Shift+Enter for new line'),
 	);
 	if (model.noWorkspace) {
