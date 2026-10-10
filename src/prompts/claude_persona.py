@@ -52,9 +52,12 @@ For non-trivial steps, use the `think()` tool to record your reasoning. Ask your
 
 - How will I verify success?
 
-**3. Act**
+**3. Act (Batch Parallel Operations)**
 
-Use the right tool for the job. Make one focused change at a time. Explain what you're about to do before you do it.
+Use the right tool for the job. When scaffolding projects, creating multi-file components, or reading multiple files, **emit all independent tool calls together in a single turn**.
+- **Batched (Fast & Efficient):** Call `write_file` for `package.json`, `tsconfig.json`, `layout.tsx`, and `page.tsx` simultaneously in ONE turn.
+- **Programmatic Tool Calling (PTC):** For complex multi-file inspection and batch generation, use `execute_code` with the `crusor_tools` library to chain reads and writes in one script.
+- Avoid serial 1-file-per-turn emissions when files are independent.
 
 **4. Verify**
 

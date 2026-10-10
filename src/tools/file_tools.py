@@ -125,6 +125,10 @@ def _msys_to_windows_path(path: str) -> str:
 # markdown link that spans the whole argument, plus surrounding backticks
 # and quotes. Content paths (mid-string links) are data and left alone.
 _MD_LINK_WRAP_RE = re.compile(r"^\[([^[\]]+)\]\([^)]*\)$")
+_TRAILING_FORMAT_RE = re.compile(
+    r"^(.+\.(?:json|tsx?|jsx?|py|md|html|css|ya?ml|toml|env|txt|sh|bat))\s+(?:json|tsx?|jsx?|py|python|md|markdown|javascript|typescript|yaml|toml|code)\b.*$",
+    re.IGNORECASE,
+)
 
 
 def _coerce_tool_path(path: str) -> str:
@@ -134,6 +138,9 @@ def _coerce_tool_path(path: str) -> str:
     m = _MD_LINK_WRAP_RE.match(p)
     if m:
         p = m.group(1).strip()
+    fm = _TRAILING_FORMAT_RE.match(p)
+    if fm:
+        p = fm.group(1).strip()
     return p
 
 
