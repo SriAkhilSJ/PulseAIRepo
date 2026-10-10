@@ -7,24 +7,13 @@
  * mean -- that happens here, where src/tests/test_hermes_session_projection_parity.py can bundle
  * the file and pin every branch without a browser.
  *--------------------------------------------------------------------------------------------*/
-var __assign = (this && this.__assign) || function () {
-    __assign = Object.assign || function(t) {
-        for (var s, i = 1, n = arguments.length; i < n; i++) {
-            s = arguments[i];
-            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
-                t[p] = s[p];
-        }
-        return t;
-    };
-    return __assign.apply(this, arguments);
-};
 import { URI } from '../../../../base/common/uri.js';
 /**
  * Crusor's chat session type. `getChatSessionType()` (chat/common/model/chatUri.ts) returns
  * `resource.scheme` for any contributed type, so the type id and the URI scheme are the same
  * string: inventing a second scheme would be a second identity for one session.
  */
-export var CRUSOR_CHAT_SESSION_TYPE = 'crusorai';
+export const CRUSOR_CHAT_SESSION_TYPE = 'crusorai';
 /**
  * The id is percent-encoded into the path and read back out of `URI.path`, never out of
  * `toString()`: an id containing `/` or `%` would otherwise survive a round trip here and be
@@ -32,7 +21,7 @@ export var CRUSOR_CHAT_SESSION_TYPE = 'crusorai';
  * per-resource key the workbench stores is built from this same function, so both ends agree.
  */
 export function crusorSessionUri(sessionId) {
-    return URI.from({ scheme: CRUSOR_CHAT_SESSION_TYPE, path: "/".concat(encodeURIComponent(sessionId)) });
+    return URI.from({ scheme: CRUSOR_CHAT_SESSION_TYPE, path: `/${encodeURIComponent(sessionId)}` });
 }
 export function isCrusorSessionUri(resource) {
     return resource.scheme === CRUSOR_CHAT_SESSION_TYPE;
@@ -41,14 +30,14 @@ export function crusorSessionIdFromUri(resource) {
     if (!isCrusorSessionUri(resource)) {
         return undefined;
     }
-    var head = resource.path.split('/').filter(function (part) { return part.length > 0; })[0];
+    const head = resource.path.split('/').filter(part => part.length > 0)[0];
     if (!head) {
         return undefined;
     }
     try {
         return decodeURIComponent(head);
     }
-    catch (_a) {
+    catch {
         return head;
     }
 }
@@ -78,11 +67,11 @@ export function crusorSessionStatusName(input) {
 }
 /** A row label is the user's own first message, whitespace-collapsed and cut at word loss. */
 export function crusorSessionLabel(userMessage, sessionId) {
-    var text = (userMessage !== null && userMessage !== void 0 ? userMessage : '').replace(/\s+/g, ' ').trim();
+    const text = (userMessage ?? '').replace(/\s+/g, ' ').trim();
     if (!text) {
         return sessionId ? 'Crusor session' : 'New Crusor session';
     }
-    return text.length > 90 ? "".concat(text.slice(0, 89), "\u2026") : text;
+    return text.length > 90 ? `${text.slice(0, 89)}\u2026` : text;
 }
 /** True when a label is the generated fallback rather than a user's message — safe to overwrite. Derived from the single source so the two spellings cannot drift. */
 export function crusorSessionLabelIsFallback(label) {
@@ -110,7 +99,7 @@ export function crusorSessionElapsedLabel(seconds, statusName) {
     if (seconds === undefined) {
         return '';
     }
-    return seconds < 60 ? 'now' : "".concat(Math.floor(seconds / 60), "m");
+    return seconds < 60 ? 'now' : `${Math.floor(seconds / 60)}m`;
 }
 /** True when a row should be marked unread-attention: finished, and not opened since. */
 export function crusorSessionNeedsAttention(input) {
@@ -125,19 +114,30 @@ export function crusorSessionNeedsAttention(input) {
     return input.isRead !== true;
 }
 export function crusorSessionRow(facts, activeSessionId, now, isRead) {
-    var _a, _b, _c, _d, _e, _f;
-    var origin = (_c = (_b = (_a = facts.turnEndedAt) !== null && _a !== void 0 ? _a : facts.lastActiveAt) !== null && _b !== void 0 ? _b : facts.turnStartedAt) !== null && _c !== void 0 ? _c : facts.firstSeenAt;
-    var seconds = crusorSessionElapsedSeconds(now, origin);
-    return __assign(__assign(__assign({ resource: crusorSessionUri(facts.sessionId), label: facts.label, description: facts.workspaceLabel, statusName: facts.statusName, timing: {
-            created: (_e = (_d = facts.createdAt) !== null && _d !== void 0 ? _d : facts.firstSeenAt) !== null && _e !== void 0 ? _e : now,
+    const origin = facts.turnEndedAt ?? facts.lastActiveAt ?? facts.turnStartedAt ?? facts.firstSeenAt;
+    const seconds = crusorSessionElapsedSeconds(now, origin);
+    return {
+        resource: crusorSessionUri(facts.sessionId),
+        label: facts.label,
+        description: facts.workspaceLabel,
+        statusName: facts.statusName,
+        timing: {
+            created: facts.createdAt ?? facts.firstSeenAt ?? now,
             lastRequestStarted: facts.turnStartedAt,
-            lastRequestEnded: (_f = facts.turnEndedAt) !== null && _f !== void 0 ? _f : facts.lastActiveAt,
-        } }, (facts.changes ? { changes: facts.changes } : {})), (facts.archived !== undefined ? { archived: facts.archived } : {})), { elapsedLabel: crusorSessionElapsedLabel(seconds, facts.statusName), isActive: facts.sessionId === activeSessionId, needsAttention: crusorSessionNeedsAttention({ statusName: facts.statusName, archived: facts.archived, isRead: isRead, unread: facts.unread }), seconds: seconds });
+            lastRequestEnded: facts.turnEndedAt ?? facts.lastActiveAt,
+        },
+        // Omitted, not zeroed: callers must be able to tell "no diff reported" from "no changes".
+        ...(facts.changes ? { changes: facts.changes } : {}),
+        ...(facts.archived !== undefined ? { archived: facts.archived } : {}),
+        elapsedLabel: crusorSessionElapsedLabel(seconds, facts.statusName),
+        isActive: facts.sessionId === activeSessionId,
+        needsAttention: crusorSessionNeedsAttention({ statusName: facts.statusName, archived: facts.archived, isRead, unread: facts.unread }),
+        seconds,
+    };
 }
 /** The row the fork's list would call "last updated": the most recent of the three it knows. */
 function lastActivity(row) {
-    var _a, _b;
-    return Math.max(row.timing.created, (_a = row.timing.lastRequestStarted) !== null && _a !== void 0 ? _a : 0, (_b = row.timing.lastRequestEnded) !== null && _b !== void 0 ? _b : 0);
+    return Math.max(row.timing.created, row.timing.lastRequestStarted ?? 0, row.timing.lastRequestEnded ?? 0);
 }
 /**
  * The whole list, newest activity first, deduplicated by session id. Sorting lives here so the
@@ -146,8 +146,8 @@ function lastActivity(row) {
  */
 export function crusorSessionRows(records, activeSessionId, now, readState) {
     return records
-        .map(function (facts) { return crusorSessionRow(facts, activeSessionId, now, readState === null || readState === void 0 ? void 0 : readState.get(facts.sessionId)); })
-        .sort(function (left, right) { return lastActivity(right) - lastActivity(left); });
+        .map(facts => crusorSessionRow(facts, activeSessionId, now, readState?.get(facts.sessionId)))
+        .sort((left, right) => lastActivity(right) - lastActivity(left));
 }
 /** A durable row's label: the stored title, else the preview's first line, never blank. */
 /**
@@ -156,10 +156,9 @@ export function crusorSessionRows(records, activeSessionId, now, readState) {
  * rows render the generic placeholder until the titler's live push lands.
  */
 export function crusorEngineRowLabel(row) {
-    var _a;
-    var title = ((_a = row.title) !== null && _a !== void 0 ? _a : '').replace(/\s+/g, ' ').trim();
+    const title = (row.title ?? '').replace(/\s+/g, ' ').trim();
     if (title) {
-        return title.length > 90 ? "".concat(title.slice(0, 89), "\u2026") : title;
+        return title.length > 90 ? `${title.slice(0, 89)}\u2026` : title;
     }
     return 'Crusor session';
 }
@@ -168,9 +167,8 @@ export function crusorEngineRowLabel(row) {
  * everything durable. `firstSeenAt` stays a sighting -- `createdAt` is the server-side created.
  */
 export function crusorFactsFromEngineRow(row, input) {
-    var _a, _b, _c, _d;
     return {
-        sessionId: (_b = (_a = row.session_id) !== null && _a !== void 0 ? _a : row.id) !== null && _b !== void 0 ? _b : '',
+        sessionId: row.session_id ?? row.id ?? '',
         label: crusorEngineRowLabel(row),
         workspaceLabel: input.workspaceLabel,
         statusName: input.statusName,
@@ -182,8 +180,8 @@ export function crusorFactsFromEngineRow(row, input) {
         preview: row.preview,
         createdAt: row.created_at,
         lastActiveAt: row.last_active,
-        parentSessionId: (_c = row.parent_session_id) !== null && _c !== void 0 ? _c : undefined,
-        lineageRootId: (_d = row.lineage_root_id) !== null && _d !== void 0 ? _d : undefined,
+        parentSessionId: row.parent_session_id ?? undefined,
+        lineageRootId: row.lineage_root_id ?? undefined,
         lazy: row.lazy,
     };
 }

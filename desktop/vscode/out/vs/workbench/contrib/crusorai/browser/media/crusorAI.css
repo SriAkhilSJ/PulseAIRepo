@@ -378,15 +378,25 @@
 
 .crusorai-terminal-command {
 	display: flex;
+	align-items: flex-start;
 	gap: 7px;
-	padding: 2px 0;
-	background: transparent;
+	padding: 4px 6px;
+	background: var(--vscode-editor-background, rgba(0, 0, 0, 0.15));
+	border-radius: 4px;
+	max-height: 140px;
+	overflow-x: auto;
+	overflow-y: auto;
+	scrollbar-width: thin;
 	font-family: var(--crusorai-font-mono);
 	font-size: var(--crusorai-conv-code-size);
 	line-height: 1.45;
 }
-.crusorai-terminal-prompt { color: var(--crusorai-scaffold-meta); }
-.crusorai-terminal-command code { overflow-wrap: anywhere; }
+.crusorai-terminal-prompt { color: var(--crusorai-scaffold-meta); flex-shrink: 0; }
+.crusorai-terminal-command code {
+	white-space: pre;
+	overflow-wrap: normal;
+	word-break: normal;
+}
 /* Hermes terminal-output.tsx (mechanism 8): max-h-16 — a 4rem window on the
  * output, not the tall panel this used to be; monospace does not wrap
  * lines horizontally, whitespace: pre); meta-size text. boundedText keeps
@@ -558,13 +568,23 @@
 
 .crusorai-approval-dock {
 	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	flex-shrink: 0;
+	min-width: 0;
+	padding: 8px 10px;
+	border-top: 1px solid var(--crusorai-approval);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--crusorai-approval) 9%, var(--vscode-sideBar-background));
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.crusorai-approval-header-row {
+	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	flex-wrap: wrap;
 	gap: 8px;
-	min-width: 0;
-	padding: 7px 9px;
-	border-top: 1px solid var(--crusorai-approval);
-	background: color-mix(in srgb, var(--crusorai-approval) 9%, var(--vscode-sideBar-background));
+	width: 100%;
 }
 .crusorai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
 .crusorai-approval-copy > .codicon { margin-top: 2px; color: var(--crusorai-approval); }
@@ -577,7 +597,8 @@
 	align-items: flex-start;
 	gap: 6px;
 	width: 100%;
-	padding: 5px 8px;
+	word-break: break-word;
+	padding: 6px 8px;
 	border-radius: 4px;
 	border: 1px solid color-mix(in srgb, var(--crusorai-approval) 30%, transparent);
 	background: color-mix(in srgb, var(--crusorai-approval) 12%, transparent);
@@ -638,12 +659,12 @@
 }
 
 /* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
-.crusorai-approval-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.crusorai-approval-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
 .crusorai-approval-pill {
 	position: relative;
 	display: inline-flex;
 	align-items: stretch;
-	height: 24px;
+	min-height: 26px;
 	overflow: visible;
 	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
 	border-radius: 6px;
@@ -652,7 +673,7 @@
 }
 .crusorai-approval-run {
 	display: inline-flex; align-items: center; gap: 4px;
-	height: 100%; padding: 0 8px; border: none; border-radius: 5px 0 0 5px;
+	padding: 2px 8px; border: none; border-radius: 5px 0 0 5px;
 	background: transparent; color: inherit; font-size: var(--crusorai-text-body-lg); font-weight: 500;
 	cursor: pointer;
 }
@@ -660,7 +681,7 @@
 .crusorai-approval-divider { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent); }
 .crusorai-approval-more {
 	display: inline-flex; align-items: center; justify-content: center;
-	width: 20px; height: 100%; padding: 0; border: none; border-radius: 0 5px 5px 0;
+	width: 22px; padding: 0; border: none; border-radius: 0 5px 5px 0;
 	background: transparent; color: inherit; cursor: pointer;
 }
 .crusorai-approval-more:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
@@ -676,7 +697,7 @@
 .crusorai-approval-menu.is-open { display: grid; gap: 1px; }
 .crusorai-approval-menu-item {
 	display: flex; align-items: center; gap: 7px;
-	height: 26px; padding: 0 8px; border: none; border-radius: 4px;
+	min-height: 26px; padding: 3px 8px; border: none; border-radius: 4px;
 	background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
 	font-size: var(--crusorai-text-body-lg); text-align: left; cursor: pointer;
 }
@@ -685,14 +706,14 @@
 .crusorai-approval-menu-item .codicon { font-size: var(--crusorai-text-title); }
 .crusorai-approval-reject {
 	display: inline-flex; align-items: center; gap: 4px;
-	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	min-height: 26px; padding: 2px 8px; border: none; border-radius: 6px;
 	background: transparent; color: var(--vscode-descriptionForeground);
 	font-size: var(--crusorai-text-body-lg); cursor: pointer;
 }
 .crusorai-approval-reject:hover { color: var(--vscode-foreground); }
 .crusorai-approval-review {
 	display: inline-flex; align-items: center; gap: 4px;
-	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	min-height: 26px; padding: 2px 8px; border: none; border-radius: 6px;
 	background: transparent; color: var(--vscode-descriptionForeground);
 	font-size: var(--crusorai-text-body-lg); cursor: pointer;
 }
@@ -707,12 +728,13 @@
 .crusorai-approval-command-toggle:hover { color: var(--vscode-foreground); }
 .crusorai-approval-command {
 	display: none;
-	width: 100%; max-height: 160px; overflow: auto;
+	width: 100%; max-height: 160px; overflow-x: auto; overflow-y: auto; scrollbar-width: thin;
 	margin: 6px 0 0; padding: 6px 10px;
 	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
 	border-radius: 6px;
-	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-body-lg); line-height: 1.45;
-	white-space: pre-wrap; word-break: break-word;
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-meta); line-height: 1.45;
+	white-space: pre; word-break: normal;
+	background: var(--vscode-editor-background);
 }
 .crusorai-approval-command.is-open { display: block; }
 .crusorai-dialog-overlay {

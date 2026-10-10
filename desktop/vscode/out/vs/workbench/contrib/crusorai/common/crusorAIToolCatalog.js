@@ -2,16 +2,13 @@
  * Renderer-neutral catalog for canonical Crusor tools. Native hosts select a
  * disclosure body by family rather than hard-coding individual tool names.
  *--------------------------------------------------------------------------------------------*/
-var tool = function (title, family, icon, defaultOpen) {
-    if (defaultOpen === void 0) { defaultOpen = 'never'; }
-    return ({ title: title, family: family, icon: icon, defaultOpen: defaultOpen });
-};
+const tool = (title, family, icon, defaultOpen = 'never') => ({ title, family, icon, defaultOpen });
 // Icon names are Hermes' own (`crusor-webview/src/hermes-ui/model/fallback-model.ts` TOOL_META,
 // which is a port of upstream's table), not the fork's earlier guesses: the native renderer and
 // the webview resolve a glyph by the same key, so the two surfaces cannot show different icons
 // for the same call. `browser/crusorAIIcons.ts` turns these names into filled SVGs where Hermes
 // has solid paths and falls back to the codicon font otherwise -- upstream's rule, verbatim.
-export var CRUSOR_AI_TOOL_CATALOG = {
+export const CRUSOR_AI_TOOL_CATALOG = {
     // Hermes ThinkingDisclosure: live reasoning is VISIBLE (open), a settled
     // thought collapses to one quiet row. 'running' gives exactly that.
     think: tool('Think', 'control', 'brain', 'running'),
@@ -76,20 +73,20 @@ export var CRUSOR_AI_TOOL_CATALOG = {
     plan_update: tool('Plan Update', 'plan', 'list-ordered', 'running'),
     todo_list: tool('Todo list', 'plan', 'list-ordered', 'running'),
 };
-var GENERIC_ICON = 'tools';
+const GENERIC_ICON = 'tools';
 export function crusorAIToolPresentation(name) {
     if (!name) {
         return tool('Tool', 'generic', GENERIC_ICON);
     }
-    var known = CRUSOR_AI_TOOL_CATALOG[name];
+    const known = CRUSOR_AI_TOOL_CATALOG[name];
     if (known) {
         return known;
     }
     // Hermes titleForTool (fallback-model.ts): unknown tools take the
     // title-cased name -- `plan_update` reads `Plan Update`, never a flat
     // `Tool`. Same rule the webview's toolMeta fallback already runs.
-    var normalized = name.replace(/^browser_/, '').replace(/^web_/, '');
-    var title = normalized.split('_').filter(Boolean)
-        .map(function (part) { return part.charAt(0).toUpperCase() + part.slice(1); }).join(' ') || name;
+    const normalized = name.replace(/^browser_/, '').replace(/^web_/, '');
+    const title = normalized.split('_').filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ') || name;
     return tool(title, 'generic', GENERIC_ICON);
 }

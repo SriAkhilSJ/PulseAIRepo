@@ -8,7 +8,7 @@ import { Server as UtilityProcessServer } from '../../../../base/parts/ipc/node/
 import { isUtilityProcess } from '../../../../base/parts/sandbox/node/electronTypes.js';
 import { CRUSOR_AI_WORKER_CHANNEL } from '../common/crusorAIWorkerService.js';
 import { CrusorAIWorkerProcessService } from './crusorAIWorkerProcessService.js';
-var server;
+let server;
 if (isUtilityProcess(process)) {
     server = new UtilityProcessServer();
 }

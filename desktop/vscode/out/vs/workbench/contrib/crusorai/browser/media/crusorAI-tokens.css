@@ -34,19 +34,16 @@
 	--crusorai-font-ui: var(--vscode-font-family);
 	--crusorai-font-mono: var(--vscode-editor-font-family);
 
-	/* Scale — every size the pane paints, named by role (hermes scaffold
-	 * grammar: sizes are tokens, never literals). Values carry the pane's
-	 * existing steps 1:1 — a centralization, not a redesign; a later pass can
-	 * tighten them onto a modular scale. rem so the host's font-size
-	 * preference scales the pane (px ignored the user's setting). */
-	--crusorai-text-micro: 0.5625rem;   /* 9px scaffold floor + eyebrow */
-	--crusorai-text-meta: 0.625rem;     /* 10px meta — hermes' meta size */
-	--crusorai-text-body: 0.6875rem;    /* 11px default UI text */
-	--crusorai-text-body-lg: 0.71875rem;/* 11.5px transcript/tool rows */
-	--crusorai-text-copy: 0.75rem;      /* 12px reading copy, starters */
-	--crusorai-text-title: 0.8125rem;   /* 13px pane heading */
-	--crusorai-text-page: 0.9375rem;    /* 15px manager page title */
-	--crusorai-icon-md: 0.875rem;       /* 14px codicon glyph cell */
+	/* Scale — readable, modern typographic scale mapped to rem so workbench
+	 * font settings scale proportionally with host preferences. */
+	--crusorai-text-micro: 0.625rem;   /* 10px scaffold floor + eyebrow */
+	--crusorai-text-meta: 0.6875rem;   /* 11px meta labels + status */
+	--crusorai-text-body: 0.75rem;     /* 12px default UI text */
+	--crusorai-text-body-lg: 0.8125rem;/* 13px transcript/tool rows */
+	--crusorai-text-copy: 0.8125rem;   /* 13px reading copy, starters */
+	--crusorai-text-title: 0.875rem;   /* 14px pane heading */
+	--crusorai-text-page: 1rem;        /* 16px manager page title */
+	--crusorai-icon-md: 0.875rem;      /* 14px codicon glyph cell */
 
 	/* Caps tracking — hermes styles.css:0.08em on spaced uppercase labels.
 	 * ONE tracking value for every caps label (the old 0.04em/0.08em split
@@ -54,9 +51,9 @@
 	--crusorai-track-caps: 0.08em;
 
 	/* Terminal output window — hermes terminal-output.tsx `max-h-16`: a
-	 * 4rem viewport on stdout with the tail pinned (the end of the stream
+	 * 5rem viewport on stdout with the tail pinned (the end of the stream
 	 * is the payload), never a tall panel that eats the transcript. */
-	--crusorai-terminal-max-h: 4rem;
+	--crusorai-terminal-max-h: 5rem;
 }
 
 /* Tabular numerals wherever digits update in place (hermes meta grammar):
@@ -70,17 +67,13 @@
 
 /* Hermes conversation system (apps/desktop styles.css, conversation block) —
  * ported verbatim. Sizes/metrics are hermes tokens; every color stays
- * semantic (derived from the live workbench theme at runtime by crusorTheme).
- * Values: prose 0.8125rem on a 1.125rem line grid; tool rows 0.6875rem; meta
- * 0.625rem tabular; code bodies 0.7rem; turn gap 0.375rem; block gap
- * 0.75rem; scaffold gap = block/3; paragraph gap 0.7rem; radius turn 0.75rem,
- * code card 0.625rem; disclosure caret rests at opacity 0. */
+ * semantic (derived from the live workbench theme at runtime by crusorTheme). */
 :root {
-	--crusorai-conv-size: 0.8125rem;
-	--crusorai-conv-line: 1.125rem;
-	--crusorai-conv-tool-size: 0.6875rem;
-	--crusorai-conv-code-size: 0.7rem;
-	--crusorai-conv-meta-size: 0.625rem;
+	--crusorai-conv-size: 0.875rem;
+	--crusorai-conv-line: 1.35rem;
+	--crusorai-conv-tool-size: 0.75rem;
+	--crusorai-conv-code-size: 0.75rem;
+	--crusorai-conv-meta-size: 0.6875rem;
 	--crusorai-turn-gap: 0.375rem;
 	--crusorai-turn-block-gap: 0.75rem;
 	--crusorai-scaffold-gap: calc(var(--crusorai-turn-block-gap) / 3);
