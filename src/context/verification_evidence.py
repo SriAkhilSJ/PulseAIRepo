@@ -29,14 +29,42 @@ _VERIFY_RE = re.compile(
     # like "run adb devices to look" from recording phantom evidence.
     r"(?:\.{1,2}[/\\])?gradlew(?:\.bat)?\s+[a-zA-Z][\w:-]*|"
     r"gradle\s+[a-zA-Z][\w:-]*|"
-    r"adb\s+(?:install|shell|push|pull|logcat)|"
+    # adb: only the two invocations whose exit code actually proves
+    # something -- install (the APK deployed) and `shell am instrument`
+    # (the instrumented test runner). `adb shell ls /sdcard`, `adb logcat`
+    # and `adb push` gather evidence but prove nothing by themselves.
+    r"adb\s+install(?:\s|-|$)|"
+    r"adb\s+shell\s+am\s+instrument|"
     r"maestro\s+test|"
-    r"agent-device\s+(?:test|replay|artifacts))",
+    r"agent-device\s+(?:test|replay))",
     re.IGNORECASE,
 )
 _TARGET_RE = re.compile(
     r"(?:^|\s)([^\s]+(?:::\S+|\.(?:py|ts|tsx|js|jsx|rs|go|kt|kts|java|xml)))"
 )
+
+# Gradle tasks that only REPORT on the project. `./gradlew tasks` proves
+# nothing about the code, yet a matcher widened to catch `gradlew <task>`
+# happily classified it as a test run. Same principle as refusing `adb
+# devices`: a probe is not proof. Not exhaustive of every community plugin,
+# but covers the built-ins that ship with every Gradle distribution.
+_GRADLE_INFO_TASKS = frozenset({
+    "tasks", "help", "projects", "properties", "dependencies", "wrapper",
+    "init", "buildenvironment", "outgoingvariants", "preparekotlinbuildscriptmodel",
+    "kotlinbuildreport", "androiddependencies", "signingreport", "dependenciesreport",
+})
+
+_GRADLE_MATCH_RE = re.compile(r"gradlew?(?:\.bat)?\s+([a-zA-Z][\w:-]*)", re.IGNORECASE)
+
+
+def _is_gradle_informational(matched: str) -> bool:
+    """True when the matched Gradle invocation only reports on the project."""
+    info = _GRADLE_MATCH_RE.search(matched or "")
+    if not info:
+        return False
+    # Strip a leading `:app:` module path so `:app:tasks` is caught too.
+    return info.group(1).rsplit(":", 1)[-1].lower() in _GRADLE_INFO_TASKS
+
 
 
 # hermes agent/verification_evidence.py port (2026-09-10): a piped/`||`ed/
@@ -165,6 +193,8 @@ class VerificationLedger:
         if not match:
             return None
         low = match.group(1).lower()
+        if _is_gradle_informational(match.group(1)):
+            return None
         kind = "test"
         if "lint" in low or "ruff" in low:
             kind = "lint"

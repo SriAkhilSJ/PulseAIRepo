@@ -62,7 +62,6 @@ def test_gradle_commands_are_recognized_and_correctly_kinded(command, expected_k
     ("adb install app-debug.apk", "build"),
     ("adb install -r app/build/outputs/apk/debug/app-debug.apk", "build"),
     ("adb shell am instrument -w com.example/.TestRunner", "test"),
-    ("adb logcat -d", "test"),
 ])
 def test_adb_verification_commands_are_recognized(command, expected_kind):
     result = VerificationLedger.classify(command)
@@ -75,7 +74,6 @@ def test_adb_verification_commands_are_recognized(command, expected_kind):
     "maestro test --format junit flows/",
     "agent-device test",
     "agent-device replay flows/checkout.ad",
-    "agent-device artifacts ./evidence",
 ])
 def test_mobile_ui_test_drivers_are_recognized(command):
     assert VerificationLedger.classify(command) is not None
@@ -244,7 +242,6 @@ def test_stop_gate_rejects_android_failure():
 # ---------------------------------------------------------------------------
 # (4) regression — the existing web/python toolchain is unchanged
 # ---------------------------------------------------------------------------
-
 @pytest.mark.parametrize("command,expected_kind", [
     ("pytest -q", "test"),
     ("npm run build", "build"),
@@ -260,3 +257,118 @@ def test_existing_toolchains_still_classify_identically(command, expected_kind):
     result = VerificationLedger.classify(command)
     assert result is not None
     assert result[0] == expected_kind
+
+
+# ---------------------------------------------------------------------------
+# (5) reporting-only invocations are not verification, on EITHER surface
+#
+# The first cut of this change guarded `adb devices` and `agent-device
+# snapshot` but let `./gradlew tasks` and `adb shell ls` through — the same
+# phantom-evidence hole, just on the tools that were newly matched. These
+# tests hold both surfaces to one rule.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("command", [
+    "gradle tasks",
+    "./gradlew tasks",
+    "./gradlew tasks --all",
+    "./gradlew help",
+    "./gradlew projects",
+    "./gradlew properties",
+    "./gradlew dependencies",
+    "./gradlew wrapper",
+    "./gradlew signingReport",
+    ":app:tasks",                              # module-qualified
+    "./gradlew :app:dependencies --configuration debugRuntimeClasspath",
+])
+def test_gradle_reporting_tasks_are_not_phantom_evidence(command):
+    assert VerificationLedger.classify(command) is None
+
+
+@pytest.mark.parametrize("command", [
+    "adb shell ls /sdcard",
+    "adb shell getprop ro.build.version.sdk",
+    "adb logcat -d",
+    "adb push file.txt /sdcard/",
+    "adb pull /sdcard/screen.png .",
+])
+def test_adb_inspection_is_not_phantom_evidence(command):
+    """Only `adb install` and `adb shell am instrument` prove anything."""
+    assert VerificationLedger.classify(command) is None
+
+
+@pytest.mark.parametrize("command,expected_kind", [
+    ("adb install app-debug.apk", "build"),
+    ("adb install -r -t app-debug.apk", "build"),
+    ("adb shell am instrument -w com.example/.TestRunner", "test"),
+])
+def test_adb_verification_survives_the_narrowing(command, expected_kind):
+    result = VerificationLedger.classify(command)
+    assert result is not None
+    assert result[0] == expected_kind
+
+
+@pytest.mark.parametrize("command", [
+    "./gradlew tasks",
+    "./gradlew help",
+    "gradle dependencies",
+    "cd app && cat build.gradle.kts",   # `cd` must not launder a pure read
+    "adb shell ls /sdcard",
+])
+def test_stop_gate_rejects_reporting_and_chained_reads(command):
+    status = _verification_receipt_status(_state_with_terminal(command))
+    assert status["static"] is False
+
+
+# ---------------------------------------------------------------------------
+# (6) the two surfaces must not drift apart again
+#
+# This bug existed because recognition was written twice. A shared table,
+# asserted against BOTH surfaces, is the cheapest thing that keeps them
+# honest. Anything added to one list without the other fails here.
+# ---------------------------------------------------------------------------
+
+_SHOULD_VERIFY = [
+    "./gradlew assembleDebug",
+    "./gradlew build",
+    "./gradlew test",
+    "./gradlew connectedAndroidTest",
+    "./gradlew lint",
+    "gradlew.bat assembleDebug",
+    "adb install app-debug.apk",
+    "adb shell am instrument -w com.example/.TestRunner",
+    "maestro test flows/login.yaml",
+    "agent-device replay flows/checkout.ad",
+    "pytest -q",
+    "npm run build",
+]
+
+_SHOULD_NOT_VERIFY = [
+    "gradle tasks",
+    "./gradlew help",
+    "./gradlew projects",
+    "adb devices",
+    "adb shell ls /sdcard",
+    "adb logcat -d",
+    "agent-device snapshot",
+    "agent-device doctor",
+    "cat build.gradle.kts",
+    "cd app && cat build.gradle.kts",
+    "ls -la",
+]
+
+
+@pytest.mark.parametrize("command", _SHOULD_VERIFY)
+def test_both_surfaces_agree_this_is_verification(command):
+    assert VerificationLedger.classify(command) is not None, "ledger disagrees"
+    assert _verification_receipt_status(_state_with_terminal(command))["static"] is True, (
+        "stop gate disagrees"
+    )
+
+
+@pytest.mark.parametrize("command", _SHOULD_NOT_VERIFY)
+def test_both_surfaces_agree_this_is_not_verification(command):
+    assert VerificationLedger.classify(command) is None, "ledger disagrees"
+    assert _verification_receipt_status(_state_with_terminal(command))["static"] is False, (
+        "stop gate disagrees"
+    )

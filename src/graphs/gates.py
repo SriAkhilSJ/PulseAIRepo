@@ -24,6 +24,16 @@ from langchain_core.messages import SystemMessage, ToolMessage
 from src.graphs.state import AgentState
 from src.graphs.budget import _budget_exhausted
 
+# Single source of truth for "is this Gradle invocation only reporting?".
+# Imported rather than re-implemented: this file and verification_evidence.py
+# already hold two copies of verification recognition, and duplicating a
+# third predicate is how they drift apart again.
+from src.context.verification_evidence import _is_gradle_informational
+
+
+def _is_gradle_informational_command(command: str) -> bool:
+    return _is_gradle_informational(command or "")
+
 
 # =========================================================
 # ROUTING
@@ -723,11 +733,12 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
                     # `connectedAndroidTest` (THE Android UI test task) and
                     # `assembleDebug` both failed to match. Match on the
                     # tool name instead of the task name.
-                    "gradlew", "gradle ", "adb install", "adb shell",
+                    "gradlew", "gradle ", "adb install",
+                    "adb shell am instrument",
                     "maestro test", "agent-device test",
                     "agent-device replay",
                 )
-            )
+            ) and not _is_gradle_informational_command(command)
             if is_check:
                 status["static"] = "exit code: 0" in low
         elif name == "browser_navigate":
@@ -795,11 +806,17 @@ _READONLY_LEADERS = frozenset({
 
 _CHAIN_OPERATORS = re.compile(r"&&|\|\||[;|\n]")
 
+# Directory changes carry no verification and no read of their own; they are
+# skipped so `cd app && cat build.gradle.kts` is still recognized as a pure
+# read. Without this the `all()` below saw "cd" (not a reader) and let the
+# command through to the token match, where `" build"` fired.
+_TRANSPARENT_LEADERS = frozenset({"cd", "pushd"})
+
 
 def _is_readonly_inspection(command: str) -> bool:
-    """True when EVERY segment of the command only reads.
+    """True when EVERY meaningful segment of the command only reads.
 
-    Only whole-command reads are excluded, so a real check behind a chain
+    Directory changes are transparent. A real check anywhere in the chain
     still counts: `cd app && ./gradlew test` and `./gradlew test | tail -40`
     both fall through to the normal token match.
     """
@@ -807,11 +824,15 @@ def _is_readonly_inspection(command: str) -> bool:
     if not stripped:
         return False
     segments = [s.strip() for s in _CHAIN_OPERATORS.split(stripped) if s.strip()]
-    if not segments:
+    meaningful = [
+        s for s in segments
+        if re.split(r"\s+", s, maxsplit=1)[0] not in _TRANSPARENT_LEADERS
+    ]
+    if not meaningful:
         return False
     return all(
         re.split(r"\s+", segment, maxsplit=1)[0] in _READONLY_LEADERS
-        for segment in segments
+        for segment in meaningful
     )
 
 
