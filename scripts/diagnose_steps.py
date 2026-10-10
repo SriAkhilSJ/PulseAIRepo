@@ -27,5 +27,10 @@ if sys.platform == "win32":
 from src.runtime.step_tracker import print_step_report
 
 if __name__ == "__main__":
-    session_id = sys.argv[1] if len(sys.argv) > 1 else None
+    session_id = None
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ("--session", "-s") and len(sys.argv) > 2:
+            session_id = sys.argv[2]
+        else:
+            session_id = sys.argv[1]
     print_step_report(session_id)

@@ -125,6 +125,10 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `execute_code(script)` — Run ONE Python script that can call the other tools (`read_file`, `search_files`, `terminal`, ...) as functions and returns only what it prints. Use it to collapse multi-step exploration or repeated checks into a single call instead of many separate tool calls.
 
+- **Parallel Tool Batching**:
+  - **File Operations**: Batch 2–4 related file creations or edits in a single turn. Do not emit more than 4 massive files in one response to avoid provider output token truncation.
+  - **Browser & Verification**: Combine complementary browser checks in the same turn (e.g., `browser_scroll(direction='down')` and `browser_screenshot(name='view.png')`, or `browser_console()` and `browser_screenshot()`) instead of single-tool polling across many turns.
+
 ### Verification (Finish Strong)
 
 - `typecheck_workspace()` — Run the workspace's TypeScript compiler (`tsc --noEmit`) and get type errors grouped by file. Run it after writing or editing `.ts`/`.tsx`/`.js` files and fix ALL reported errors before finishing.

@@ -249,7 +249,7 @@ class TokenTracker:
         cached = 0
         try:
             details = meta.get("input_token_details") or {}
-            cached = int(details.get("cache_read") or 0)
+            cached = int(details.get("cache_read") or details.get("cached_tokens") or 0)
         except (TypeError, ValueError):
             cached = 0
         if not cached:
@@ -258,6 +258,14 @@ class TokenTracker:
                     "prompt_tokens_details"
                 ) or {}
                 cached = int(raw.get("cached_tokens") or 0)
+            except (TypeError, ValueError):
+                cached = 0
+        if not cached:
+            try:
+                resp_meta = getattr(response, "response_metadata", {}) or {}
+                usage_dict = resp_meta.get("token_usage") or resp_meta.get("usage") or {}
+                raw = usage_dict.get("prompt_tokens_details") or {}
+                cached = int(raw.get("cached_tokens") or usage_dict.get("cache_read_input_tokens") or 0)
             except (TypeError, ValueError):
                 cached = 0
 
