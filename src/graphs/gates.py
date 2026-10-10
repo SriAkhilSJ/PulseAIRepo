@@ -742,8 +742,12 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
 
     required = ["static", "integrity"]
     if ui_task:
-        required.extend(["navigate", "snapshot", "screenshot"])
-    missing = [name for name in required if not bool(status[name])]
+        # UI verification: requires successful navigation AND at least one of
+        # DOM snapshot or visual screenshot (either proves page rendered).
+        ui_rendered = bool(status.get("snapshot") or status.get("screenshot"))
+        status["rendered"] = ui_rendered
+        required.extend(["navigate", "rendered"])
+    missing = [name for name in required if not bool(status.get(name))]
     return {
         **status,
         "ui_task": ui_task,

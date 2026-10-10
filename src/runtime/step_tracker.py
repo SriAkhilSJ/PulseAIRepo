@@ -1,0 +1,579 @@
+"""Granular Step-by-Step Diagnostic & Performance Engine for CrusorAI / PulseAI.
+
+Tracks every internal node execution, tool dispatch, token usage, prompt-cache hit,
+verification state, and diagnosed bottleneck across the entire lifecycle of an agent turn.
+
+Exports to:
+  - System traces at ~/.crusorai/traces/{session_id}.jsonl
+  - Workspace reports at diagnostics/
+      ├── traces/{session_id}.jsonl
+      ├── PERFORMANCE_REPORT_{session_id}.md
+      └── LATEST_PERFORMANCE_AUDIT.md
+  - Rich CLI visualizer via `python scripts/diagnose_steps.py`
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import threading
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+_TRACE_LOCK = threading.Lock()
+
+# Standard pricing table per 1M tokens ($ USD)
+MODEL_PRICING: dict[str, dict[str, float]] = {
+    "deepseek-v3": {"input": 0.27, "output": 1.10, "cached": 0.07},
+    "deepseek-chat": {"input": 0.27, "output": 1.10, "cached": 0.07},
+    "claude-3-5-sonnet": {"input": 3.00, "output": 15.00, "cached": 0.30},
+    "claude-3-7-sonnet": {"input": 3.00, "output": 15.00, "cached": 0.30},
+    "gpt-4o": {"input": 2.50, "output": 10.00, "cached": 1.25},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached": 0.075},
+    "gemini-1.5-flash": {"input": 0.075, "output": 0.30, "cached": 0.018},
+    "gemini-1.5-pro": {"input": 1.25, "output": 5.00, "cached": 0.3125},
+    "default": {"input": 1.00, "output": 3.00, "cached": 0.50},
+}
+
+
+def estimate_cost(model_name: str, input_tokens: int, output_tokens: int, cached_tokens: int) -> float:
+    """Calculate estimated cost in USD based on model pricing."""
+    model_key = "default"
+    clean_name = (model_name or "").lower()
+    for k in MODEL_PRICING:
+        if k in clean_name:
+            model_key = k
+            break
+    prices = MODEL_PRICING.get(model_key, MODEL_PRICING["default"])
+    uncached_input = max(0, input_tokens - cached_tokens)
+    cost = (
+        (uncached_input * prices["input"] / 1_000_000.0)
+        + (cached_tokens * prices.get("cached", prices["input"] * 0.2) / 1_000_000.0)
+        + (output_tokens * prices["output"] / 1_000_000.0)
+    )
+    return round(cost, 6)
+
+
+@dataclass
+class ToolExecutionRecord:
+    name: str
+    args_summary: str = ""
+    status: str = "success"  # success, failed, timeout, denied
+    duration_ms: float = 0.0
+    exit_code: Optional[int] = None
+    output_preview: str = ""
+    error: Optional[str] = None
+
+
+@dataclass
+class StepRecord:
+    session_id: str
+    step_index: int
+    node_name: str
+    started_at: float
+    ended_at: float = 0.0
+    duration_s: float = 0.0
+    llm_duration_s: float = 0.0
+    tool_duration_s: float = 0.0
+    model: str = ""
+    provider: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    cache_hit_ratio: float = 0.0
+    tokens_per_second: float = 0.0
+    estimated_cost_usd: float = 0.0
+    tool_calls: list[ToolExecutionRecord] = field(default_factory=list)
+    verification_status: str = "not_applicable"
+    compaction_active: bool = False
+    plan_progress: str = ""
+    diagnostics: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["started_at_iso"] = datetime.fromtimestamp(
+            self.started_at, tz=timezone.utc
+        ).isoformat()
+        if self.ended_at:
+            d["ended_at_iso"] = datetime.fromtimestamp(
+                self.ended_at, tz=timezone.utc
+            ).isoformat()
+        return d
+
+
+class StepTracker:
+    """Session-scoped tracker that records granular step metrics and auto-diagnoses bottlenecks."""
+
+    _instances: dict[str, StepTracker] = {}
+    _lock = threading.Lock()
+
+    @classmethod
+    def get_tracker(cls, session_id: str = "default", workspace_root: Optional[str] = None) -> StepTracker:
+        with cls._lock:
+            if session_id not in cls._instances:
+                cls._instances[session_id] = StepTracker(session_id, workspace_root)
+            return cls._instances[session_id]
+
+    def __init__(self, session_id: str, workspace_root: Optional[str] = None):
+        self.session_id = session_id or "default"
+        self.steps: list[StepRecord] = []
+        self._current_step: Optional[StepRecord] = None
+        self._step_counter = 0
+        self.start_time = time.time()
+
+        # System-wide trace directory
+        self.system_trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
+        self.system_trace_dir.mkdir(parents=True, exist_ok=True)
+        self.system_trace_file = self.system_trace_dir / f"{self.session_id}.jsonl"
+        self.latest_symlink = self.system_trace_dir / "latest.jsonl"
+
+        # Workspace diagnostics folder (always easily accessible)
+        ws = Path(workspace_root) if workspace_root else Path.cwd()
+        self.workspace_diag_dir = ws / "diagnostics"
+        self.workspace_traces_dir = self.workspace_diag_dir / "traces"
+        self.workspace_diag_dir.mkdir(parents=True, exist_ok=True)
+        self.workspace_traces_dir.mkdir(parents=True, exist_ok=True)
+        self.workspace_trace_file = self.workspace_traces_dir / f"{self.session_id}.jsonl"
+
+    def start_step(self, node_name: str, state: Optional[dict[str, Any]] = None) -> StepRecord:
+        """Called when a LangGraph node starts executing."""
+        self._step_counter += 1
+        now = time.time()
+        v_status = "not_applicable"
+        plan_str = ""
+        compaction_flag = False
+
+        if state:
+            v_status = str(state.get("verification_status") or "not_applicable")
+            plan = state.get("plan") or []
+            if plan:
+                done = sum(1 for p in plan if p.get("status") == "completed")
+                plan_str = f"{done}/{len(plan)}"
+            compaction_flag = bool(state.get("usage_pressure_active", False))
+
+        step = StepRecord(
+            session_id=self.session_id,
+            step_index=self._step_counter,
+            node_name=node_name,
+            started_at=now,
+            verification_status=v_status,
+            compaction_active=compaction_flag,
+            plan_progress=plan_str,
+        )
+        self._current_step = step
+        return step
+
+    def record_llm_metrics(
+        self,
+        *,
+        model: str,
+        provider: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_tokens: int = 0,
+        duration_s: float = 0.0,
+    ) -> None:
+        """Attach LLM token, latency, and cache metrics to the current step."""
+        if not self._current_step:
+            return
+        self._current_step.model = str(model or "")
+        self._current_step.provider = str(provider or "")
+        self._current_step.input_tokens = int(input_tokens or 0)
+        self._current_step.output_tokens = int(output_tokens or 0)
+        self._current_step.cached_tokens = int(cached_tokens or 0)
+        self._current_step.llm_duration_s = round(float(duration_s or 0.0), 3)
+
+        if self._current_step.input_tokens > 0:
+            self._current_step.cache_hit_ratio = round(
+                self._current_step.cached_tokens / self._current_step.input_tokens, 4
+            )
+        if duration_s > 0 and self._current_step.output_tokens > 0:
+            self._current_step.tokens_per_second = round(
+                self._current_step.output_tokens / duration_s, 1
+            )
+
+        self._current_step.estimated_cost_usd = estimate_cost(
+            self._current_step.model,
+            self._current_step.input_tokens,
+            self._current_step.output_tokens,
+            self._current_step.cached_tokens,
+        )
+
+    def record_tool_call(
+        self,
+        name: str,
+        args: Any = None,
+        status: str = "success",
+        duration_ms: float = 0.0,
+        exit_code: Optional[int] = None,
+        output: str = "",
+        error: Optional[str] = None,
+    ) -> None:
+        """Record an executed tool call on the current step."""
+        if not self._current_step:
+            return
+
+        if isinstance(args, dict):
+            args_str = ", ".join(f"{k}={repr(v)[:50]}" for k, v in args.items())
+        else:
+            args_str = str(args)[:100]
+
+        out_preview = str(output or "").strip()
+        if len(out_preview) > 150:
+            out_preview = out_preview[:140] + "..."
+
+        rec = ToolExecutionRecord(
+            name=name,
+            args_summary=args_str,
+            status=status,
+            duration_ms=round(duration_ms, 2),
+            exit_code=exit_code,
+            output_preview=out_preview,
+            error=error,
+        )
+        self._current_step.tool_calls.append(rec)
+        self._current_step.tool_duration_s += round(duration_ms / 1000.0, 3)
+
+    def finish_step(self, custom_diagnostics: Optional[list[str]] = None) -> StepRecord:
+        """Finalize the current step, run automatic bottleneck checks, and persist."""
+        if not self._current_step:
+            return None  # type: ignore
+
+        step = self._current_step
+        step.ended_at = time.time()
+        step.duration_s = round(step.ended_at - step.started_at, 3)
+
+        # Performance Diagnostic Rules
+        if step.node_name == "ai":
+            if len(step.tool_calls) == 1 and step.tool_calls[0].name in (
+                "read_file",
+                "write_file",
+                "edit_file",
+            ):
+                step.diagnostics.append(
+                    "⚠️ UNDER_BATCHED: Single file tool emitted. Batching or PTC can collapse multiple turns into one."
+                )
+
+            if step.provider in ("openai", "anthropic", "deepseek", "groq") and step.input_tokens > 4000:
+                if step.cached_tokens == 0:
+                    step.diagnostics.append(
+                        "⚠️ CACHE_MISS: 0 cached tokens on a large prompt. Ensure prompt prefix is byte-stable."
+                    )
+                elif step.cache_hit_ratio >= 0.70:
+                    step.diagnostics.append(
+                        f"✅ CACHE_HIT: {int(step.cache_hit_ratio * 100)}% of prompt served from cache."
+                    )
+
+            if step.duration_s > 15.0:
+                step.diagnostics.append(
+                    f"⚠️ LATENCY_SPIKE: Step took {step.duration_s}s (LLM: {step.llm_duration_s}s, Tools: {step.tool_duration_s}s)."
+                )
+
+        for tc in step.tool_calls:
+            if tc.status != "success" or (tc.exit_code is not None and tc.exit_code != 0):
+                step.diagnostics.append(
+                    f"❌ TOOL_FAILURE: '{tc.name}' failed (exit {tc.exit_code}): {tc.error or tc.output_preview}"
+                )
+
+        if step.compaction_active:
+            step.diagnostics.append(
+                "ℹ️ COMPACTION_ACTIVE: Usage crossed 75% window threshold; running in lean history mode."
+            )
+
+        if custom_diagnostics:
+            step.diagnostics.extend(custom_diagnostics)
+
+        self.steps.append(step)
+        self._current_step = None
+
+        self._persist_step(step)
+        self._export_markdown_report()
+        return step
+
+    def _persist_step(self, step: StepRecord) -> None:
+        try:
+            line = json.dumps(step.to_dict(), ensure_ascii=False)
+            with _TRACE_LOCK:
+                # 1. System trace
+                with open(self.system_trace_file, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+                with open(self.latest_symlink, "w", encoding="utf-8") as f:
+                    f.write(self.system_trace_file.name)
+
+                # 2. Workspace trace
+                with open(self.workspace_trace_file, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+        except Exception:
+            pass
+
+    def compute_performance_score(self) -> dict[str, Any]:
+        """Compute an overall 0-100 Agent Performance Health Score."""
+        if not self.steps:
+            return {"score": 100, "grade": "A+", "breakdown": {}}
+
+        total_steps = len(self.steps)
+        total_duration = sum(s.duration_s for s in self.steps)
+        avg_step_duration = total_duration / total_steps if total_steps > 0 else 0
+
+        total_input_tokens = sum(s.input_tokens for s in self.steps)
+        total_cached_tokens = sum(s.cached_tokens for s in self.steps)
+        cache_hit_rate = (
+            total_cached_tokens / total_input_tokens if total_input_tokens > 0 else 0.0
+        )
+
+        all_tool_calls = [tc for s in self.steps for tc in s.tool_calls]
+        failed_tool_calls = [
+            tc
+            for tc in all_tool_calls
+            if tc.status != "success" or (tc.exit_code is not None and tc.exit_code != 0)
+        ]
+        tool_failure_rate = (
+            len(failed_tool_calls) / len(all_tool_calls) if all_tool_calls else 0.0
+        )
+
+        ai_steps = [s for s in self.steps if s.node_name == "ai"]
+        multi_tool_steps = [s for s in ai_steps if len(s.tool_calls) > 1]
+        batch_rate = (
+            len(multi_tool_steps) / len(ai_steps) if len(ai_steps) > 0 else 1.0
+        )
+
+        # 1. Latency Score (Max 25 pts)
+        latency_score = max(5.0, min(25.0, 25.0 - (max(0.0, avg_step_duration - 3.0) * 0.9)))
+
+        # 2. Cache Score (Max 25 pts)
+        cache_score = 5.0 + (cache_hit_rate * 20.0)
+
+        # 3. Correctness & Error Score (Max 25 pts)
+        error_score = max(0.0, 25.0 - (tool_failure_rate * 100.0))
+
+        # 4. Batching & Concurrency Score (Max 25 pts)
+        batch_score = 15.0 + (batch_rate * 10.0)
+
+        total_score = round(latency_score + cache_score + error_score + batch_score, 1)
+
+        if total_score >= 90:
+            grade = "A (Elite)"
+        elif total_score >= 80:
+            grade = "B (Strong)"
+        elif total_score >= 70:
+            grade = "C (Moderate Bottlenecks)"
+        else:
+            grade = "D (Needs Optimization)"
+
+        # Actionable Optimization Ideas
+        ideas = []
+        if cache_hit_rate < 0.60 and total_input_tokens > 20000:
+            ideas.append("⚡ **Enable Prompt Caching:** Your prompt cache hit rate is below 60%. Ensure your system persona and tool definitions are placed at the static prefix to prevent cache-busting.")
+        if avg_step_duration > 15.0:
+            ideas.append("⏱️ **Reduce Turn Latency:** Consider using a direct-API caching provider (e.g. DeepSeek V3 or Claude Sonnet) or narrowing the active toolset.")
+        if len(failed_tool_calls) > 0:
+            ideas.append(f"🔧 **Tool Error Remediation:** {len(failed_tool_calls)} tool calls failed. Check environment setup, missing dependencies, or file paths.")
+        if batch_rate < 0.30 and len(ai_steps) > 4:
+            ideas.append("📦 **Encourage Parallel Tool Calling & PTC:** The model is emitting tools serially. Add prompt examples demonstrating multi-file writes in a single assistant turn.")
+
+        if not ideas:
+            ideas.append("🎉 **Optimal Performance:** Agent execution is fast, cache-aligned, and error-free.")
+
+        return {
+            "score": total_score,
+            "grade": grade,
+            "breakdown": {
+                "latency_score": round(latency_score, 1),
+                "cache_score": round(cache_score, 1),
+                "correctness_score": round(error_score, 1),
+                "batching_score": round(batch_score, 1),
+            },
+            "metrics": {
+                "avg_step_duration_s": round(avg_step_duration, 2),
+                "cache_hit_rate_pct": round(cache_hit_rate * 100, 1),
+                "tool_failure_rate_pct": round(tool_failure_rate * 100, 1),
+                "total_cost_usd": round(sum(s.estimated_cost_usd for s in self.steps), 4),
+            },
+            "actionable_ideas": ideas,
+        }
+
+    def _export_markdown_report(self) -> None:
+        """Export a clean Markdown audit report to diagnostics/ folder."""
+        try:
+            perf = self.compute_performance_score()
+            total_tokens_in = sum(s.input_tokens for s in self.steps)
+            total_tokens_out = sum(s.output_tokens for s in self.steps)
+            cached_tokens = sum(s.cached_tokens for s in self.steps)
+            total_time = sum(s.duration_s for s in self.steps)
+            total_cost = perf["metrics"]["total_cost_usd"]
+
+            md = []
+            md.append(f"# 📊 Agent Performance & Diagnostics Audit")
+            md.append(f"**Session ID:** `{self.session_id}`  ")
+            md.append(f"**Generated At:** `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}`  ")
+            md.append("")
+            md.append("---")
+            md.append("## 🏆 Overall Health Scorecard")
+            md.append("")
+            md.append(f"| Metric | Result | Target |")
+            md.append(f"| :--- | :--- | :--- |")
+            md.append(f"| **Overall Health Score** | **{perf['score']} / 100** (`{perf['grade']}`) | $\ge 85$ (Grade A) |")
+            md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step) | $<5.0$s / step |")
+            md.append(f"| **Total Token Usage** | {total_tokens_in:,} input / {total_tokens_out:,} output | Dynamic Bounded |")
+            md.append(f"| **Prompt Cache Hit Rate** | **{perf['metrics']['cache_hit_rate_pct']}%** ({cached_tokens:,} cached) | $\ge 70\%$ |")
+            md.append(f"| **Estimated Cost** | **${total_cost:.4f} USD** | $< $0.05 / task |")
+            md.append("")
+            md.append("### Score Breakdown")
+            md.append(f"- **Latency Efficiency:** `{perf['breakdown']['latency_score']} / 25`")
+            md.append(f"- **Prompt Cache Stability:** `{perf['breakdown']['cache_score']} / 25`")
+            md.append(f"- **Tool Correctness & Safety:** `{perf['breakdown']['correctness_score']} / 25`")
+            md.append(f"- **Batching & Concurrency:** `{perf['breakdown']['batching_score']} / 25`")
+            md.append("")
+            md.append("---")
+            md.append("## 💡 Actionable Improvement Ideas (How to Make it Better)")
+            md.append("")
+            for idea in perf["actionable_ideas"]:
+                md.append(f"- {idea}")
+            md.append("")
+            md.append("---")
+            md.append("## 📜 Step-by-Step Execution Log")
+            md.append("")
+            md.append("| Step | Node | Duration | Tokens (In/Out) | Cache % | Tools Executed & Status |")
+            md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+
+            for s in self.steps:
+                tools_str = ""
+                for tc in s.tool_calls:
+                    icon = "✅" if tc.status == "success" and (tc.exit_code is None or tc.exit_code == 0) else "❌"
+                    tools_str += f"`{icon} {tc.name}` "
+                if not tools_str:
+                    tools_str = "*None*"
+
+                cache_str = f"{int(s.cache_hit_ratio * 100)}%" if s.input_tokens > 0 else "-"
+                tok_str = f"{s.input_tokens:,} / {s.output_tokens:,}" if s.input_tokens > 0 else "-"
+                md.append(f"| **{s.step_index}** | `{s.node_name}` | {s.duration_s:.2f}s | {tok_str} | {cache_str} | {tools_str} |")
+
+            md_content = "\n".join(md)
+
+            # Write specific session report and latest pointer
+            session_report = self.workspace_diag_dir / f"PERFORMANCE_REPORT_{self.session_id}.md"
+            latest_report = self.workspace_diag_dir / "LATEST_PERFORMANCE_AUDIT.md"
+
+            with _TRACE_LOCK:
+                with open(session_report, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+                with open(latest_report, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+        except Exception:
+            pass
+
+
+def print_step_report(session_id: Optional[str] = None) -> None:
+    """CLI printer that renders a clean colored diagnostic view of the agent run."""
+    trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
+    if not session_id:
+        latest_file = trace_dir / "latest.jsonl"
+        if latest_file.exists():
+            session_id = latest_file.read_text().strip().replace(".jsonl", "")
+        else:
+            files = sorted(trace_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+            if files:
+                session_id = files[0].stem
+            else:
+                # Check workspace traces
+                ws_traces = sorted(Path("diagnostics/traces").glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+                if ws_traces:
+                    session_id = ws_traces[0].stem
+                else:
+                    print("❌ No trace records found.")
+                    return
+
+    target_file = trace_dir / f"{session_id}.jsonl"
+    if not target_file.exists():
+        target_file = Path("diagnostics/traces") / f"{session_id}.jsonl"
+        if not target_file.exists():
+            print(f"❌ Trace file not found: {target_file}")
+            return
+
+    records = []
+    with open(target_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    records.append(json.loads(line))
+                except Exception:
+                    pass
+
+    if not records:
+        print("❌ Trace file is empty.")
+        return
+
+    tracker = StepTracker(session_id)
+    tracker.steps = [
+        StepRecord(
+            session_id=session_id,
+            step_index=r.get("step_index", i + 1),
+            node_name=r.get("node_name", ""),
+            started_at=r.get("started_at", 0),
+            ended_at=r.get("ended_at", 0),
+            duration_s=r.get("duration_s", 0),
+            llm_duration_s=r.get("llm_duration_s", 0),
+            tool_duration_s=r.get("tool_duration_s", 0),
+            model=r.get("model", ""),
+            provider=r.get("provider", ""),
+            input_tokens=r.get("input_tokens", 0),
+            output_tokens=r.get("output_tokens", 0),
+            cached_tokens=r.get("cached_tokens", 0),
+            cache_hit_ratio=r.get("cache_hit_ratio", 0),
+            tokens_per_second=r.get("tokens_per_second", 0),
+            estimated_cost_usd=r.get("estimated_cost_usd", 0),
+            tool_calls=[ToolExecutionRecord(**tc) for tc in r.get("tool_calls", [])],
+            verification_status=r.get("verification_status", "not_applicable"),
+            compaction_active=r.get("compaction_active", False),
+            diagnostics=r.get("diagnostics", []),
+        )
+        for i, r in enumerate(records)
+    ]
+
+    perf = tracker.compute_performance_score()
+    total_tokens_in = sum(s.input_tokens for s in tracker.steps)
+    total_tokens_out = sum(s.output_tokens for s in tracker.steps)
+    cached_tokens = sum(s.cached_tokens for s in tracker.steps)
+    total_time = sum(s.duration_s for s in tracker.steps)
+
+    print("=" * 80)
+    print(f" 📊 CRUSORAI PERFORMANCE SCORECARD — Session: {session_id}")
+    print("=" * 80)
+    print(f"• Overall Health Score : {perf['score']}/100 [{perf['grade']}]")
+    print(f"• Total Steps          : {len(tracker.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step)")
+    print(f"• Total Tokens         : {total_tokens_in:,} in / {total_tokens_out:,} out")
+    print(f"• Prompt Cache Hit Rate: {perf['metrics']['cache_hit_rate_pct']}% ({cached_tokens:,} tokens cached)")
+    print(f"• Estimated Cost       : ${perf['metrics']['total_cost_usd']:.4f} USD")
+    print("-" * 80)
+    print(f"  Score Breakdown: Latency: {perf['breakdown']['latency_score']}/25 | Cache: {perf['breakdown']['cache_score']}/25 | Correctness: {perf['breakdown']['correctness_score']}/25 | Batching: {perf['breakdown']['batching_score']}/25")
+    print("=" * 80)
+
+    print(f"{'#':<3} | {'Node':<10} | {'Time':<6} | {'Tokens (In/Out)':<16} | {'Cache %':<8} | {'Tools Executed / Status':<28}")
+    print("-" * 80)
+
+    for s in tracker.steps:
+        tools_str = ""
+        for tc in s.tool_calls:
+            icon = "✅" if tc.status == "success" and (tc.exit_code is None or tc.exit_code == 0) else "❌"
+            tools_str += f"{icon} {tc.name} "
+        if not tools_str:
+            tools_str = "(no tools)"
+        c_hit = f"{int(s.cache_hit_ratio * 100)}%"
+        tok_str = f"{s.input_tokens}/{s.output_tokens}"
+        print(f"{s.step_index:<3} | {s.node_name:<10} | {s.duration_s:<5.2f}s | {tok_str:<16} | {c_hit:<8} | {tools_str:<28}")
+
+    print("\n" + "=" * 80)
+    print(" 💡 ACTIONABLE IMPROVEMENT IDEAS (Saved to diagnostics/ folder):")
+    print("=" * 80)
+    for idea in perf["actionable_ideas"]:
+        print(f" • {idea}")
+    print("=" * 80 + "\n")
+
+
+if __name__ == "__main__":
+    sid = sys.argv[1] if len(sys.argv) > 1 else None
+    print_step_report(sid)

@@ -1944,6 +1944,24 @@ def ai_node(
             flush=True,
         )
 
+    # Step Tracker: Record step metrics & diagnostics for local inspection
+    try:
+        from src.runtime.step_tracker import StepTracker
+        _tracker = StepTracker.get_tracker(session_id)
+        _tracker.start_step("ai", state)
+        _tracker.record_llm_metrics(
+            model=call_model,
+            provider=provider,
+            input_tokens=call_usage.prompt_tokens,
+            output_tokens=call_usage.completion_tokens,
+            cached_tokens=call_usage.cached_tokens,
+        )
+        for _tc in (getattr(result, "tool_calls", None) or []):
+            _tracker.record_tool_call(name=_tc.get("name", ""), args=_tc.get("args", {}))
+        _tracker.finish_step()
+    except Exception:
+        pass
+
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
         [call_usage],
@@ -4406,6 +4424,25 @@ class SafeToolNode:
                         "Re-check the effect (e.g. read the file) before relying on it.",
                         config,
                     )]
+
+            # Step Tracker: Record executed tool outputs for diagnostics
+            try:
+                from src.runtime.step_tracker import StepTracker
+                _trk = StepTracker.get_tracker(_cfg_sid)
+                _trk.start_step("tools", state)
+                for _m in (msg_list or []):
+                    _tname = getattr(_m, "name", "") or getattr(_m, "tool", "") or "tool"
+                    _tcontent = str(getattr(_m, "content", "") or "")
+                    _is_err = any(k in _tcontent.lower() for k in ("error:", "exception:", "traceback", "failed", "denied"))
+                    _trk.record_tool_call(
+                        name=_tname,
+                        output=_tcontent,
+                        status="failed" if _is_err else "success",
+                    )
+                _trk.finish_step()
+            except Exception:
+                pass
+
             if _repaired_ai is None:
                 return {"messages": msg_list}
             return {"messages": [_repaired_ai, *msg_list]}

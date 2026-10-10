@@ -72,6 +72,20 @@ class _AbortState:
         with self.lock:
             self._async_targets.discard((loop, task))
 
+    def reset(self) -> None:
+        """Reset abort state for a fresh turn so a new request can proceed."""
+        with self.lock:
+            self.aborted = False
+            self.event.clear()
+            self._async_targets.clear()
+        # Reset any closed client on the underlying provider so LangChain recreates it
+        for attr in ("client", "async_client", "root_client", "_client", "_async_client"):
+            if hasattr(self.owner, attr):
+                try:
+                    setattr(self.owner, attr, None)
+                except Exception:
+                    pass
+
     def abort(self) -> None:
         with self.lock:
             if self.aborted:
@@ -427,6 +441,8 @@ class RetryLLMProxy:
         # gate below raises without starting provider traffic.
         sid = active_session()
         abort_handle = self.abort
+        if sid is not None and not turn_controls.cancelled(sid):
+            self._abort_state.reset()
         # LangChain's synchronous invoke() owns and drains its configured
         # streaming iterator. Wrapping streaming=True in a fresh async loop
         # left Response.aiter_raw pending in desktop Attempt 8 and obscured

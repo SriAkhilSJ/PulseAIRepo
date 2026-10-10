@@ -261,7 +261,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// Clear the fault the moment a manual retry starts: leaving it up claims the engine is still
 			// broken while it is being restarted, and the row's own action would look like a no-op.
 			this.engineFault = undefined;
-			void this.ensureEngine();
+			this.error = undefined;
+			void this.ensureEngine().then(() => {
+				if (this.pendingPrompt && this.engineService.state === CrusorAIEngineState.Ready) {
+					const prompt = this.pendingPrompt;
+					this.pendingPrompt = undefined;
+					void this.submitPrompt(prompt);
+				}
+			});
 		},
 		selectWorkspace: uri => this.selectWorkspace(uri),
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
