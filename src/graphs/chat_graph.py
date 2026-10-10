@@ -311,6 +311,7 @@ from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.android_tools import android_doctor
 from src.tools.android_scaffold import scaffold_android
+from src.tools.android_verify import verify_android_app
 from src.tools.session_search_tool import session_search
 from src.tools.host_tools import HOST_TOOLS
 from src.prompts.claude_persona import system_persona  # D35 (§47)
@@ -852,6 +853,11 @@ tools = [
     # memory fails on version mismatches and missing intent filters; those are
     # identical every time, so the runtime owns them.
     scaffold_android,
+
+    # One-receipt Android verification: build, install, launch, prove the
+    # process is alive, scan logcat, and write an evidence bundle. Reads the
+    # REAL returncode rather than grepping rendered text, and never pipes.
+    verify_android_app,
 
     # Lazily discovered read-only intelligence from the native Code OSS host.
     *HOST_TOOLS,

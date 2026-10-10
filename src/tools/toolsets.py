@@ -49,7 +49,9 @@ _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
 )
 # Mobile. android_doctor is a read-only probe, so binding it costs nothing but
 # a prompt line and saves a dozen guessing turns when the toolchain is absent.
-_ANDROID_TOOLS: tuple[str, ...] = ("android_doctor", "scaffold_android")
+_ANDROID_TOOLS: tuple[str, ...] = (
+    "android_doctor", "scaffold_android", "verify_android_app",
+)
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
 # Skills are always in context (index + eager injection), so the pull tools

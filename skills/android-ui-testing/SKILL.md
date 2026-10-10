@@ -57,8 +57,37 @@ agent-device close
 the refs from *its* diff. Take a fresh snapshot only when the diff omits what
 you need. Re-using a stale ref is the most common failure.
 
-Do not probe with `--help`, `--version`, `devices` or `screenshot` before
-starting — open the app and follow the snapshot.
+## Rules that keep this cheap and reliable
+
+These come from how agent-device is designed; ignoring them costs turns.
+
+- **Do not probe first.** No `--help`, `--version`, `devices`, `appstate`,
+  `snapshot` or `screenshot` before starting. Open the app and follow the
+  snapshot it returns. Every probe is a wasted turn.
+- **Copy refs byte-for-byte** — `@e12`, `@e12~s4`. Keep the `@` and any `~sN`.
+  Prefer current refs, then `id`/`label`/`role` selectors; coordinates are a
+  last resort.
+- **Use `--settle`.** The action returns a *diff* of what changed, so you do
+  not need a fresh snapshot after every step.
+- **Reaching an off-screen element is ONE command:** `scroll down --until
+  <selector>`. A loop of bare `scroll down` calls is the slow way.
+- **Follow the corrective hint in an error instead of re-planning.** The error
+  output already says what to do; re-deriving a plan burns a turn and usually
+  reproduces the same failure.
+- **If the snapshot is sparse or reports AX unavailable, its refs are invalid.**
+  Take a screenshot, read the image, use coordinates, then retry `snapshot -i`
+  after navigating.
+
+## One receipt, not a transcript
+
+Prefer `verify_android_app` over driving each step yourself. It runs build →
+install → launch → process-alive → logcat in one call, reads the **real** exit
+code rather than grepping text, never pipes, and writes the evidence bundle.
+Pass `flow_yaml` to have it drive the UI too, and `run_tests=true` for the
+project's own Gradle tests.
+
+Drive agent-device step by step only when you are *exploring* the app. To
+*prove* something, use the receipt.
 
 ## Evidence tiers — know which one you are claiming
 

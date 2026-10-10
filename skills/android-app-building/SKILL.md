@@ -26,6 +26,18 @@ If it reports `⛔ NOT READY`, tell the user what is missing and stop. Do not
 attempt a build against an absent toolchain and do not silently scaffold
 around it.
 
+## Proving it works
+
+Once it builds, call **`verify_android_app`** — build, install, launch,
+process-alive check and logcat scan in one call, with an evidence bundle
+written to `.crusorai/android-evidence/<run-id>/`. Cite that receipt, not your
+own summary. It reads the real exit code, so a piped or masked build cannot
+fake a pass.
+
+It returns `⛔ UNAVAILABLE` when the toolchain is missing and `⚠️ PARTIAL` when
+the app built but no device was attached. **Pass both to the user as-is.**
+Neither is a failure of the code, and neither is a working app.
+
 ## Stack
 
 - **Kotlin + Jetpack Compose** for UI. Compose is declarative and has no XML
