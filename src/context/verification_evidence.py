@@ -16,10 +16,27 @@ _VERIFY_RE = re.compile(
     r"(?:^|\s)(pytest|python\s+-m\s+pytest|npm\s+(?:run\s+)?(?:test|lint|typecheck|build)|"
     r"pnpm\s+(?:run\s+)?(?:test|lint|typecheck|build)|yarn\s+(?:test|lint|typecheck|build)|"
     r"tsc(?:\s|$)|mypy(?:\s|$)|pyright(?:\s|$)|ruff(?:\s|$)|cargo\s+(?:test|check|build)|"
-    r"go\s+test|make\s+(?:test|lint|check|build))",
+    r"go\s+test|make\s+(?:test|lint|check|build)|"
+    # --- Android / mobile toolchain (2026-10-10) -------------------------
+    # The ledger was blind to every mobile build/test tool, so an app that
+    # really did compile and really did pass on a device still recorded as
+    # UNVERIFIED -- and an unverified ledger is what lets a model claim
+    # success with nothing behind it. Gradle, adb, Maestro and agent-device
+    # are recognized here. The capture deliberately INCLUDES the task/sub
+    # command because `assembleDebug` is a build while `connectedAndroidTest`
+    # is a test, and the kind derivation below reads the captured text.
+    # Restricted sub-command lists (adb, agent-device, maestro) keep prose
+    # like "run adb devices to look" from recording phantom evidence.
+    r"(?:\.{1,2}[/\\])?gradlew(?:\.bat)?\s+[a-zA-Z][\w:-]*|"
+    r"gradle\s+[a-zA-Z][\w:-]*|"
+    r"adb\s+(?:install|shell|push|pull|logcat)|"
+    r"maestro\s+test|"
+    r"agent-device\s+(?:test|replay|artifacts))",
     re.IGNORECASE,
 )
-_TARGET_RE = re.compile(r"(?:^|\s)([^\s]+(?:::\S+|\.(?:py|ts|tsx|js|jsx|rs|go)))")
+_TARGET_RE = re.compile(
+    r"(?:^|\s)([^\s]+(?:::\S+|\.(?:py|ts|tsx|js|jsx|rs|go|kt|kts|java|xml)))"
+)
 
 
 # hermes agent/verification_evidence.py port (2026-09-10): a piped/`||`ed/
@@ -153,7 +170,13 @@ class VerificationLedger:
             kind = "lint"
         elif "typecheck" in low or "tsc" in low or "mypy" in low or "pyright" in low:
             kind = "typecheck"
-        elif "build" in low or "cargo check" in low:
+        elif (
+            "build" in low or "cargo check" in low
+            # Gradle's assemble* tasks are the Android build; `adb install`
+            # is deployment of a built artifact. Neither contains "build",
+            # so without these they would fall through to kind="test".
+            or "assemble" in low or "adb install" in low
+        ):
             kind = "build"
         scope = "targeted" if _TARGET_RE.search(command or "") else "full"
         return kind, scope

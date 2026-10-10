@@ -711,10 +711,23 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             status["static"] = passed
         elif name == "run_terminal":
             command = str(tool_args(message).get("command", "")).lower()
-            is_check = any(token in command for token in (
-                "pytest", " test", "npm test", "typecheck", "tsc ",
-                " lint", " build", "cargo check", "go test",
-            ))
+            is_check = not _is_readonly_inspection(command) and any(
+                token in command for token in (
+                    "pytest", " test", "npm test", "typecheck", "tsc ",
+                    " lint", " build", "cargo check", "go test",
+                    # Android/mobile (2026-10-10). This list is the SECOND
+                    # copy of verification recognition -- the one that
+                    # actually gates "✅ Finished". It missed the whole
+                    # mobile toolchain, and the gap is not symmetric with
+                    # the ledger: `" test"` needs a leading space, so
+                    # `connectedAndroidTest` (THE Android UI test task) and
+                    # `assembleDebug` both failed to match. Match on the
+                    # tool name instead of the task name.
+                    "gradlew", "gradle ", "adb install", "adb shell",
+                    "maestro test", "agent-device test",
+                    "agent-device replay",
+                )
+            )
             if is_check:
                 status["static"] = "exit code: 0" in low
         elif name == "browser_navigate":
@@ -766,6 +779,40 @@ def _looks_like_ui_task(task: str) -> bool:
         return True
     words = set(re.findall(r"[a-z0-9]+", t))
     return bool(words & _UI_TASK_WORDS)
+
+
+# A read-only inspector can never BE a verification, however much its
+# arguments look like one. `cat build.gradle.kts` and `cat build.sh` both
+# matched the `" build"` token in the run_terminal check below and satisfied
+# the static domain without executing anything — the agent could read a file
+# and be told it had verified the build. Pre-existing, confirmed on 75b0add2
+# before the Android matcher widened; found by widening it.
+_READONLY_LEADERS = frozenset({
+    "cat", "ls", "head", "tail", "less", "more", "wc", "file", "stat",
+    "grep", "egrep", "fgrep", "rg", "find", "tree", "du", "df", "echo",
+    "pwd", "which", "realpath", "basename", "dirname", "diff", "xxd",
+})
+
+_CHAIN_OPERATORS = re.compile(r"&&|\|\||[;|\n]")
+
+
+def _is_readonly_inspection(command: str) -> bool:
+    """True when EVERY segment of the command only reads.
+
+    Only whole-command reads are excluded, so a real check behind a chain
+    still counts: `cd app && ./gradlew test` and `./gradlew test | tail -40`
+    both fall through to the normal token match.
+    """
+    stripped = (command or "").strip()
+    if not stripped:
+        return False
+    segments = [s.strip() for s in _CHAIN_OPERATORS.split(stripped) if s.strip()]
+    if not segments:
+        return False
+    return all(
+        re.split(r"\s+", segment, maxsplit=1)[0] in _READONLY_LEADERS
+        for segment in segments
+    )
 
 
 def _snapshot_shows_content(content: str) -> bool:
