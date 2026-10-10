@@ -62,7 +62,7 @@ class TestStepTracker(TestCase):
 
         # Verify persistence to JSONL
         self.assertTrue(self.tracker.system_trace_file.exists())
-        lines = self.tracker.system_trace_file.read_text().splitlines()
+        lines = self.tracker.system_trace_file.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(lines), 1)
         data = json.loads(lines[0])
         self.assertEqual(data["node_name"], "ai")
@@ -71,7 +71,7 @@ class TestStepTracker(TestCase):
         # Verify Markdown report in workspace diagnostics/
         report_file = Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
         self.assertTrue(report_file.exists())
-        self.assertIn("Agent Performance & Diagnostics Audit", report_file.read_text())
+        self.assertIn("Agent Performance & Diagnostics Audit", report_file.read_text(encoding="utf-8"))
 
     def test_performance_score_computation(self):
         # Step 1: AI with high cache hit and 2 batched tools

@@ -91,6 +91,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private restartAttempts = 0;
 	private engineFault: string | undefined;
 	private pendingPrompt: string | undefined;
+	private lastSubmittedPrompt: string | undefined;
 	/** Session id whose transcript hydration (session_messages) is still in flight. A page for a session the user already left is dropped against this. */
 	private pendingHydration: string | undefined;
 	private draft = '';
@@ -262,11 +263,11 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// broken while it is being restarted, and the row's own action would look like a no-op.
 			this.engineFault = undefined;
 			this.error = undefined;
+			const promptToRetry = this.pendingPrompt || this.lastSubmittedPrompt;
 			void this.ensureEngine().then(() => {
-				if (this.pendingPrompt && this.engineService.state === CrusorAIEngineState.Ready) {
-					const prompt = this.pendingPrompt;
+				if (promptToRetry && this.engineService.state === CrusorAIEngineState.Ready) {
 					this.pendingPrompt = undefined;
-					void this.submitPrompt(prompt);
+					void this.submitPrompt(promptToRetry);
 				}
 			});
 		},
@@ -1110,6 +1111,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 		this.draft = '';
 		this.error = undefined;
+		this.lastSubmittedPrompt = text;
 		if (!this.sessionId) {
 			this.pendingPrompt = text;
 			this.send({ type: 'session_create', workspace: this.workspacePath });

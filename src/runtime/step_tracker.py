@@ -468,11 +468,20 @@ class StepTracker:
 
 def print_step_report(session_id: Optional[str] = None) -> None:
     """CLI printer that renders a clean colored diagnostic view of the agent run."""
+    if sys.platform == "win32":
+        try:
+            if hasattr(sys.stdout, "reconfigure"):
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            if hasattr(sys.stderr, "reconfigure"):
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
     if not session_id:
         latest_file = trace_dir / "latest.jsonl"
         if latest_file.exists():
-            session_id = latest_file.read_text().strip().replace(".jsonl", "")
+            session_id = latest_file.read_text(encoding="utf-8").strip().replace(".jsonl", "")
         else:
             files = sorted(trace_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
             if files:
