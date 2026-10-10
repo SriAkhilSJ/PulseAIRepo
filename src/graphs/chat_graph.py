@@ -311,6 +311,7 @@ from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.android_tools import android_doctor
 from src.tools.android_scaffold import scaffold_android
+from src.tools.android_device import android_device
 from src.tools.android_verify import verify_android_app
 from src.tools.session_search_tool import session_search
 from src.tools.host_tools import HOST_TOOLS
@@ -858,6 +859,11 @@ tools = [
     # process is alive, scan logcat, and write an evidence bundle. Reads the
     # REAL returncode rather than grepping rendered text, and never pipes.
     verify_android_app,
+
+    # The interactive half of Android UI testing: snapshot the screen as
+    # accessibility refs, act on a ref, snapshot again. Allowlisted against
+    # agent-device's real command registry and never run through a shell.
+    android_device,
 
     # Lazily discovered read-only intelligence from the native Code OSS host.
     *HOST_TOOLS,

@@ -38,20 +38,32 @@ Treat install/upgrade as the user's step — do not run it autonomously, and do
 not substitute `npx -y agent-device@latest`.
 
 It reads the app's **accessibility tree** as token-efficient snapshots instead
-of reasoning over screenshots, acts through refs, and saves evidence. Add it to
-`.crusorai/mcp.json` for MCP, or drive it through `run_terminal`.
+of reasoning over screenshots, acts through refs, and saves evidence.
+
+**Call it through the `android_device` tool**, not `run_terminal`. That tool
+takes `subcommand` plus `arguments` as a list, checks the subcommand against
+agent-device's real command registry, runs it without a shell, reads the true
+exit code, and appends every invocation to
+`.crusorai/android-evidence/device-log.jsonl` with the full output saved. It
+also labels each step `read-only` / `mutating` / `consequential`, so the trail
+says plainly which calls changed the device.
+
+```
+android_device("open", ["com.example.notes", "--foreground"])
+android_device("snapshot", ["-i"])        →  @e2 [button] "Add note"
+android_device("press", ["@e2", "--settle"])   → the diff shows new refs
+android_device("fill", ["@e7", "First real note", "--settle"])
+```
+
+Shell metacharacters are refused, so `;`, `&&`, pipes and redirection are not
+available — split the work into separate calls.
 
 ## The inspect → act → verify loop
 
-```bash
-agent-device doctor                                  # toolchain check
-agent-device open com.example.notes --platform android --foreground
-agent-device snapshot -i                             # @e2 [button] "Add note"
-agent-device press @e2 --settle                      # the diff shows new refs
-agent-device fill @e7 "First real note" --settle
-agent-device screenshot ./evidence/02-note-created.png
-agent-device close
-```
+`doctor` first if the toolchain is in doubt, then `open`, then alternate
+`snapshot` and action. `screenshot` is for the user to look at, never as the
+only proof that something worked — cite the snapshot refs and the exit codes.
+Finish with `close` so the next run starts clean.
 
 **Refs are valid only in the latest output.** After a `--settle` command, use
 the refs from *its* diff. Take a fresh snapshot only when the diff omits what
