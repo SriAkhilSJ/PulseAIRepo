@@ -112,6 +112,57 @@ Baseline taken from a separate `git worktree` at `75b0add2`, not a stash, so the
 
 ---
 
+### 0.3 Phase 2 + Phase 3 — DONE: `scaffold_android` and `verify_android_app`
+
+Two tools landed. The agent can now generate a project and prove a build,
+which it previously could not do at all.
+
+**`scaffold_android`** (`src/tools/android_scaffold.py`, commit `9626d1d6`)
+generates a Compose project from templates. Pins AGP 8.5.2 / Kotlin 2.0.20 /
+Gradle 8.9 / Compose BOM 2024.09.00 / compileSdk 34 / minSdk 24. Validated by
+generating `com.akhil.notes` and machine-checking the result: all XML and TOML
+parse, the Kotlin package matches its directory, `namespace` and
+`applicationId` both equal the package id, MAIN+LAUNCHER are present, and
+**every one of the 14 library and 3 plugin catalog aliases the generated
+Gradle files reference resolves** — so no
+`libs.androidx.foo` points at an alias that does not exist.
+
+Reserved-segment handling is split root-vs-any-depth: `java`, `android`,
+`androidx`, `kotlin`, `google` are refused only at the **root**; language
+keywords are refused at any depth. `com.*`, `org.*` and `net.*` are accepted —
+rejecting `com` would have broken the standard Android convention.
+
+**`verify_android_app`** (`src/tools/android_verify.py`, commit `0f020de6`) is
+the evidence receipt. preflight → `gradle assembleDebug` → APK identity →
+`adb install` → launch → `pidof` → logcat fatal scan → optional `gradle test`
+→ optional `agent-device replay <flow>`. Writes
+`.crusorai/android-evidence/<run-id>/` with `evidence.json`, the build/install/
+launch/test logs, `logcat.txt`, `flow.yaml` and `apk.sha256`.
+
+Two properties are the point, and both are enforced by tests:
+
+1. **It reads `subprocess.run().returncode` and never pipes.** The rest of the
+   codebase decides success by grepping `"exit code: 0"` out of rendered text;
+   a piped Gradle build reports the pipe's status, so that check can be
+   satisfied by a build that failed. This tool cannot be fooled that way, and
+   distinguishes 127 (binary missing) from 124 (timeout) from a real failure.
+2. **Four verdicts, not two.** `⛔ UNAVAILABLE` (toolchain absent), `⚠️ PARTIAL`
+   (built but no device / no UI proof), `❌ FAILED`, `✅ PASSED`. Collapsing the
+   first two into `failed` would tell the user their app is broken when the
+   real problem is a missing JDK.
+
+What counts as proof, encoded as assertions: a green exit with **no APK** is a
+FAILURE; an APK whose real package differs from the requested one is a FAILURE;
+a launch that exits 0 but whose process is not alive is caught by `pidof`; a UI
+flow that could not run prevents the run from claiming Tier 3.
+
+**What is still not done.** The build has never been executed against a real
+JDK/SDK — the version pins are unproven, only internally consistent. And the
+agent still has **no path to `agent-device`** for the interactive
+open/snapshot/click loop: `verify_android_app` shells out to `agent-device
+replay`, but there is no `mcp.json` writer and no CLI-passthrough tool. That is
+the next gap.
+
 ## 1. The short version, in plain English
 
 Three things need to happen, and they are independent enough to ship one at a time.
