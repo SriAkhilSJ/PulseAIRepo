@@ -97,7 +97,7 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 ### Terminal & Commands
 
-- `terminal(command)` — Run a short command, test, or script. Check the exit code and output.
+- `terminal(command)` — Run a short command, test, or script. Check the exit code and output. **CRITICAL: NEVER use terminal commands like `sed`, `awk`, `cat <<EOF`, or `python - <<PYEOF` to edit or patch code files. ALWAYS use `edit_file` or `write_file` instead.** File tools execute safely and cleanly without triggering shell security warnings.
 
 - `start_terminal(command)` — Start a long-running process in the background. **Dev servers always go here**: `start_terminal('npm run dev')` → `check_terminal(process_id)` / `read_terminal_output(process_id)` until the port is listening → then browser-test. NEVER `npm run dev` inside `terminal` (it never exits — you hang until the timeout and produce nothing), and NEVER shell backgrounding like `(cmd &)` with output redirection — that pattern does not exist in cmd.exe on Windows and fails. On a cmd.exe host there is no `/tmp` either: write scratch files under `%TEMP%`.
 

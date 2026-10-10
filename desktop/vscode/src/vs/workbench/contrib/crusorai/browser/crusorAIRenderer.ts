@@ -1894,18 +1894,16 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 		element('div', 'crusorai-approval-copy', icon('shield'), element('div', undefined,
 			element('strong', undefined, `${crusorAIToolPresentation(approval.name).title} needs approval`),
 			element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })))),
-	);
-	if (warningBox) { dock.append(warningBox); }
-	if (shellRiskBadge) { dock.append(shellRiskBadge); }
-	if (inlineDiffCard) { dock.append(inlineDiffCard); }
-	dock.append(
 		element('div', 'crusorai-approval-bar',
 			pill,
 			reject,
 			approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined,
 			commandText && !diffString ? commandToggle : undefined,
-		)
+		),
 	);
+	if (warningBox) { dock.append(warningBox); }
+	if (shellRiskBadge) { dock.append(shellRiskBadge); }
+	if (inlineDiffCard) { dock.append(inlineDiffCard); }
 	if (commandText && !diffString) { dock.append(commandPre); }
 	dock.append(overlay);
 	return dock;
