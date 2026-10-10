@@ -1,6 +1,6 @@
 # Making Crusor build Android apps and test their UI
 
-**Status:** Phase 0 Part A **landed and tested** — see §0 below
+**Status:** Phase 0A **and** Phase 1 **landed and tested** — see §0 below
 **Branch:** `arena/f83d13ef-pulseairepo`
 **Decisions locked from owner:** whole Android app **+** tester · free and open source only · good performance · **the user must be able to watch the agent work** · **evidence, not screenshots**
 
@@ -65,6 +65,50 @@ All 3 failures reproduce identically on stashed `75b0add2` (verified by `git sta
 Pipe-masking guard (`_exit_status_is_attributable`) verified intact on the Android toolchain — `./gradlew test 2>&1 | tail -40` still records **no** evidence, so widening the matcher did not re-open the attempts-11/12 failure mode.
 
 **Still open in Phase 0:** Part B — the `evidence.json` schema v1, Tier 0–4 model, and rules R1–R9 as pure functions (see `ANDROID_EVIDENCE_CONTRACT.md`). Much of R1/R3/R7 is now delegated to agent-device; what remains is Crusor's side: tier gating and the Gradle/`aapt`/`logcat` artifacts agent-device does not produce.
+
+### 0.2 Phase 1 — DONE: `CAP_ANDROID` + a real tool + skills
+
+"Adopted agent-device" was true only in this document. It is now true in code.
+
+**Posture (`src/agents/runtime_profile.py`)**
+- `CAP_ANDROID` **appended** to `CAPABILITY_ORDER` (prompt-cache contract — inserting mid-tuple churns unrelated keys). Pinned by `test_cap_android_is_registered_and_last`.
+- **Misrouting bug fixed:** `_BROWSER_PATTERNS` contains `\bui\b`, so *"build an Android UI"* resolved to the **browser** posture and bound CDP/Playwright tools that cannot drive a phone. Android now owns the `ui` signal.
+- `_WEB_STACK_PATTERNS` lets an explicit web stack win, so *"Android app + landing page"* keeps browser access instead of silently losing the ability to verify the site.
+- `_ANDROID_PATTERNS` is deliberately qualified — bare `activity`, `fragment`, `compose` are ordinary English and `docker compose` is not Jetpack Compose. Pinned by `test_non_android_tasks_do_not_get_the_android_posture`.
+
+Routing, executed:
+
+| task | profile | android | browser |
+|---|---|---|---|
+| build an Android notes app in Kotlin | `android` | ✅ | — |
+| build me an Android UI with Jetpack Compose | `android` | ✅ | — *(was browser)* |
+| run connectedAndroidTest on the emulator | `android` | ✅ | — |
+| build me a React dashboard | `ui_engineering` | — | ✅ |
+| log user activity to the database | `general` | — | — |
+| write a docker compose file | `artifact` | — | — |
+| build an Android app and a landing page | `android` | ✅ | ✅ |
+
+**Tool (`src/tools/android_tools.py`)** — `android_doctor`: read-only probe of JDK / SDK / adb / emulator / AVDs / Gradle wrapper / Node / agent-device. Names versions and the exact fix per gap, then a verdict naming the **blocking** component. D17: returns a string, never raises. Boots, installs and builds nothing. Bound in `chat_graph`, gated on `CAP_ANDROID`; `all_known_tool_names() - _TOOLS_BY_NAME == ∅` verified.
+
+**Skills** — `android-app-building` and `android-ui-testing` (`skills/`), registered in `skills/SKILL.md` and pinned in `test_expected_skill_names_present`.
+
+**Connectors panel** — an `android` row, probed with `shutil.which` only (runs on every tab open; no process spawn).
+
+**Verification — full suite, both trees:**
+
+```
+baseline 75b0add2   29 failed, 2223 passed
+this branch         29 failed, 2376 passed   (+153 tests)
+diff of FAILED sets: IDENTICAL — zero regressions
+```
+
+Baseline taken from a separate `git worktree` at `75b0add2`, not a stash, so the comparison could not be contaminated by my own edits.
+
+> **Field note.** Two test defects surfaced while landing this, both worth keeping:
+> `test_skills_hub` asserted a connector by positional index `[-2]`, which broke
+> when the `android` row landed — rewritten to the `by_id` pattern the rest of
+> that test already used; and `test_lsp_performance` fails under full-suite load
+> but passes 3/3 in isolation (timing-sensitive, pre-existing flake).
 
 ---
 

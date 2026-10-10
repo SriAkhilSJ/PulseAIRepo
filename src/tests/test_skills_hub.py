@@ -671,7 +671,9 @@ class TestHubOps:
 
         # no workspace: still a full row set, mcp says what to do next
         res4 = hub.handle_hub_op("connectors", frame={})
-        assert {r["id"] for r in res4["connectors"]} == {"mcp", "github", "browser", "db", "terminal"}
+        assert {r["id"] for r in res4["connectors"]} == {
+            "mcp", "github", "browser", "db", "android", "terminal",
+        }
         assert "workspace" in res4["connectors"][0]["detail"]
 
     def test_connector_attach_and_detach_write_the_workspace_config(self, env, tmp_path):

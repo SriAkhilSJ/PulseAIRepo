@@ -119,6 +119,7 @@ def test_expected_skill_names_present():
         "subagent-driven-development", "spike", "node-inspect-debugger",
         "python-debugpy", "ast-grep", "rest-graphql-debug", "code-wiki",
         "grill-me", "skill-authoring",
+        "android-app-building", "android-ui-testing",
     }
     missing = expected - bundled
     assert not missing, f"bundled skills missing: {sorted(missing)}"
