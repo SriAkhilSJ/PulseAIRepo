@@ -34,6 +34,10 @@
 ### Media
 - **media-sourcing** — search (Openverse/Wikimedia/Pexels), download and license-correctly wire real photos/videos into UI work via `media_search` + `media_download`
 
+### Mobile
+- **android-app-building** — Kotlin/Jetpack Compose + Gradle wrapper; manifest/permissions rules; `android_doctor` before any build; what a *proven* build is
+- **android-ui-testing** — drive a real device via `agent-device` (MIT); evidence tiers 0-4; a screenshot is never load-bearing; `unavailable` ≠ `passed`
+
 ## Trigger mechanics
 
 `SkillManager` derives triggers from (1) the `**Triggers:**` line, (2) frontmatter

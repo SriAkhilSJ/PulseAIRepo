@@ -309,6 +309,7 @@ except Exception as _browser_mcp_exc:  # ImportError + any transitive boot failu
 from src.tools.code_exec_tool import execute_code
 from src.tools.scaffold_tools import scaffold_nextjs
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
+from src.tools.android_tools import android_doctor
 from src.tools.session_search_tool import session_search
 from src.tools.host_tools import HOST_TOOLS
 from src.prompts.claude_persona import system_persona  # D35 (§47)
@@ -839,6 +840,12 @@ tools = [
 
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
+
+    # Android toolchain probe. Read-only: never boots a device, installs
+    # anything, or builds. Bound behind CAP_ANDROID so a phone task can answer
+    # "is the toolchain even here?" in one turn instead of failing a Gradle
+    # build and guessing at the cause.
+    android_doctor,
 
     # Lazily discovered read-only intelligence from the native Code OSS host.
     *HOST_TOOLS,

@@ -11,6 +11,7 @@ import os
 from typing import Any
 
 from src.agents.runtime_profile import (
+    CAP_ANDROID,
     CAP_BROWSER,
     CAP_DELEGATION,
     CAP_EXECUTION,
@@ -46,6 +47,9 @@ _VERIFICATION_TOOLS: tuple[str, ...] = ("typecheck_workspace",)
 _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
     "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
 )
+# Mobile. android_doctor is a read-only probe, so binding it costs nothing but
+# a prompt line and saves a dozen guessing turns when the toolchain is absent.
+_ANDROID_TOOLS: tuple[str, ...] = ("android_doctor",)
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
 # Skills are always in context (index + eager injection), so the pull tools
@@ -98,6 +102,8 @@ def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> l
         names.extend(_browser_tool_names())
         if CAP_VERIFICATION in caps:
             names.extend(_UI_SCAFFOLD_TOOLS)
+    if CAP_ANDROID in caps:
+        names.extend(_ANDROID_TOOLS)
     if CAP_DELEGATION in caps:
         names.extend(_DELEGATION_TOOLS)
 
@@ -132,6 +138,7 @@ def all_known_tool_names() -> list[str]:
         *_MEDIA_TOOLS,
         *_browser_tool_names(),
         *_UI_SCAFFOLD_TOOLS,
+        *_ANDROID_TOOLS,
         *_DELEGATION_TOOLS,
     ]
     return list(dict.fromkeys(names))

@@ -1064,6 +1064,32 @@ def probe_connectors(workspace: str = "") -> dict:
                      "status": "setup", "detail": "no DATABASE_URL / PGHOST in environment",
                      "hint": "set DATABASE_URL to connect — sqlite needs no server; mutations always ask first"})
 
+    # Android — device automation and UI testing. Probed with shutil.which
+    # only (this runs on every tab open: never spawn a process here). The
+    # Android SDK leaves `adb` on PATH; `agent-device` is the UI layer.
+    adb = shutil.which("adb")
+    agent_device = shutil.which("agent-device")
+    if adb and agent_device:
+        android_status, android_detail = "connected", "adb + agent-device both on PATH"
+    elif adb:
+        android_status, android_detail = "setup", (
+            "adb found, agent-device missing — UI testing unavailable"
+        )
+    elif agent_device:
+        android_status, android_detail = "setup", (
+            "agent-device found, adb missing — no device to drive"
+        )
+    else:
+        android_status, android_detail = "setup", (
+            "neither adb nor agent-device on PATH"
+        )
+    rows.append({
+        "id": "android", "label": "Android connector",
+        "desc": "device automation + UI testing",
+        "status": android_status, "detail": android_detail,
+        "hint": "say \"check my Android setup\" — Crusor runs android_doctor and names every gap",
+    })
+
     # Terminal — the guarded shell ships with every session.
     rows.append({"id": "terminal", "label": "Terminal connector", "desc": "guarded shell access",
                  "status": "connected", "detail": "wired into every session",

@@ -652,9 +652,16 @@ class TestHubOps:
         assert by_id["github"]["status"] == "connected" and "gh" in by_id["github"]["detail"]
         assert by_id["db"]["status"] == "setup"
         assert by_id["terminal"]["status"] == "connected"
+        # which() is patched to return None for everything but gh, so the
+        # Android row must honestly report setup rather than a fake green.
+        assert by_id["android"]["status"] == "setup"
+        assert "adb" in by_id["android"]["detail"]
 
         monkeypatch.setenv("DATABASE_URL", "postgres://localhost/db")
-        assert hub.handle_hub_op("connectors", frame={"workspace": str(ws)})["connectors"][-2]["status"] == "connected"
+        # by_id, not a positional index: the row list grows as connectors are
+        # added, and [-2] silently asserted the wrong row once `android` landed.
+        res_db = hub.handle_hub_op("connectors", frame={"workspace": str(ws)})
+        assert {r["id"]: r for r in res_db["connectors"]}["db"]["status"] == "connected"
 
         # broken json is named honestly, never swallowed
         (ws / ".crusorai" / "mcp.json").write_text("{oops", encoding="utf-8")

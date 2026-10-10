@@ -23,7 +23,11 @@ CAP_VERIFICATION = "verification"
 CAP_RESEARCH = "research"
 CAP_BROWSER = "browser"
 CAP_DELEGATION = "delegation"
+CAP_ANDROID = "android"
 
+# APPEND-ONLY. This order is part of the prompt-cache contract: inserting a
+# capability mid-tuple reorders every profile that contains it and churns
+# cache keys repo-wide. New capabilities go at the end.
 CAPABILITY_ORDER: tuple[str, ...] = (
     CAP_WORKSPACE_READ,
     CAP_WORKSPACE_WRITE,
@@ -32,6 +36,7 @@ CAPABILITY_ORDER: tuple[str, ...] = (
     CAP_RESEARCH,
     CAP_BROWSER,
     CAP_DELEGATION,
+    CAP_ANDROID,
 )
 KNOWN_CAPABILITIES = frozenset(CAPABILITY_ORDER)
 
@@ -59,6 +64,28 @@ _BROWSER_PATTERNS = (
     r"\buser interface\b", r"\bfrontend\b", r"\bfront-end\b", r"\breact\b",
     r"\bnext\.?js\b", r"\bvue\b", r"\bsvelte\b", r"\bdashboard\b",
     r"\bcomponent\b", r"\bchat app\b", r"\bweb app(?:lication)?\b",
+)
+# Android/mobile. Deliberately narrow: bare "activity" and "fragment" are
+# ordinary English words that would fire on any analytics or logging task, and
+# bare "compose" collides with `docker compose`. Terms are qualified instead.
+_ANDROID_PATTERNS = (
+    r"\bandroid\b", r"\bkotlin\b", r"\bjetpack\s+compose\b", r"\bandroidx\b",
+    r"\bgradlew?\b", r"\bapk\b", r"\baab\b", r"\bandroid\s+manifest\b",
+    r"\bavd\b", r"\badb\b", r"\bandroid\s+emulator\b", r"\bandroid\s+studio\b",
+    r"\bplay\s+store\b", r"\bandroid\s+app\b", r"\bagent[- ]device\b",
+    r"\bmaestro\b", r"\bespresso\b", r"\brobolectric\b", r"\bui\s?automator\b",
+    r"\bconnectedandroidtest\b", r"\bassemble(?:debug|release)\b",
+    r"\.kt\b", r"\.kts\b",
+)
+# An explicit web stack outranks an inferred Android posture. "Build an Android
+# app and a landing page" should keep browser access; "build an Android UI"
+# must not be handed Playwright/CDP tools just because it contains "ui".
+_WEB_STACK_PATTERNS = (
+    r"\bwebsite\b", r"\bweb ?site\b", r"\bweb ?page\b", r"\blanding page\b",
+    r"\bweb app(?:lication)?\b", r"\bbrowser\b",
+    r"\breact\b", r"\bnext\.?js\b", r"\bvue\b", r"\bsvelte\b", r"\bhtml\b",
+    r"\bnavigate\b", r"\blocalhost\b", r"\bhttps?://\b", r"\btailwind\b",
+    r"\bvite\b", r"\bdom\b", r"\bcss\b",
 )
 _CODE_PATTERNS = (
     r"\bcode(?:base)?\b", r"\bbug\b", r"\bdebug\b", r"\brefactor\b",
@@ -133,6 +160,8 @@ def _ordered(capabilities: set[str]) -> tuple[str, ...]:
 
 
 def _profile_name(capabilities: set[str]) -> str:
+    if CAP_ANDROID in capabilities:
+        return "android"
     if CAP_BROWSER in capabilities and CAP_VERIFICATION in capabilities:
         return "ui_engineering"
     if CAP_VERIFICATION in capabilities:
@@ -171,8 +200,14 @@ def resolve_runtime_profile(task: str, config: Any = None) -> RuntimeProfile:
             reasons=("client_strict",),
         )
 
+    android = _matches(text, _ANDROID_PATTERNS)
+    web_stack = _matches(text, _WEB_STACK_PATTERNS)
     research = _matches(text, _RESEARCH_PATTERNS)
-    browser = _matches(text, _BROWSER_PATTERNS)
+    # Android owns the "ui" signal. `_BROWSER_PATTERNS` includes \bui\b, so
+    # "build an Android UI" used to resolve to the BROWSER posture and bind
+    # CDP/Playwright tools that cannot drive a phone. An explicit web stack
+    # still wins, so mixed tasks keep browser access.
+    browser = _matches(text, _BROWSER_PATTERNS) and not (android and not web_stack)
     coding = _matches(text, _CODE_PATTERNS)
     artifact = _matches(text, _ARTIFACT_PATTERNS)
     workspace_read = _matches(text, _READ_PATTERNS)
@@ -199,6 +234,17 @@ def resolve_runtime_profile(task: str, config: Any = None) -> RuntimeProfile:
             CAP_VERIFICATION,
         })
         reasons.append("coding")
+    if android:
+        # Building and device-testing an app is a full coding posture plus the
+        # mobile toolchain. It never relies on the browser inference above.
+        capabilities.add(CAP_ANDROID)
+        capabilities.update({
+            CAP_WORKSPACE_READ,
+            CAP_WORKSPACE_WRITE,
+            CAP_EXECUTION,
+            CAP_VERIFICATION,
+        })
+        reasons.append("android")
     if browser:
         capabilities.add(CAP_BROWSER)
         reasons.append("browser")
@@ -240,4 +286,5 @@ __all__ = [
     "CAP_RESEARCH",
     "CAP_BROWSER",
     "CAP_DELEGATION",
+    "CAP_ANDROID",
 ]
