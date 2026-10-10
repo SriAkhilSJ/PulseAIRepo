@@ -659,12 +659,12 @@
 }
 
 /* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
-.crusorai-approval-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.crusorai-approval-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
 .crusorai-approval-pill {
 	position: relative;
 	display: inline-flex;
 	align-items: stretch;
-	height: 24px;
+	min-height: 26px;
 	overflow: visible;
 	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
 	border-radius: 6px;
@@ -673,7 +673,7 @@
 }
 .crusorai-approval-run {
 	display: inline-flex; align-items: center; gap: 4px;
-	height: 100%; padding: 0 8px; border: none; border-radius: 5px 0 0 5px;
+	padding: 2px 8px; border: none; border-radius: 5px 0 0 5px;
 	background: transparent; color: inherit; font-size: var(--crusorai-text-body-lg); font-weight: 500;
 	cursor: pointer;
 }
@@ -681,7 +681,7 @@
 .crusorai-approval-divider { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent); }
 .crusorai-approval-more {
 	display: inline-flex; align-items: center; justify-content: center;
-	width: 20px; height: 100%; padding: 0; border: none; border-radius: 0 5px 5px 0;
+	width: 22px; padding: 0; border: none; border-radius: 0 5px 5px 0;
 	background: transparent; color: inherit; cursor: pointer;
 }
 .crusorai-approval-more:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
@@ -697,7 +697,7 @@
 .crusorai-approval-menu.is-open { display: grid; gap: 1px; }
 .crusorai-approval-menu-item {
 	display: flex; align-items: center; gap: 7px;
-	height: 26px; padding: 0 8px; border: none; border-radius: 4px;
+	min-height: 26px; padding: 3px 8px; border: none; border-radius: 4px;
 	background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
 	font-size: var(--crusorai-text-body-lg); text-align: left; cursor: pointer;
 }
@@ -706,14 +706,14 @@
 .crusorai-approval-menu-item .codicon { font-size: var(--crusorai-text-title); }
 .crusorai-approval-reject {
 	display: inline-flex; align-items: center; gap: 4px;
-	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	min-height: 26px; padding: 2px 8px; border: none; border-radius: 6px;
 	background: transparent; color: var(--vscode-descriptionForeground);
 	font-size: var(--crusorai-text-body-lg); cursor: pointer;
 }
 .crusorai-approval-reject:hover { color: var(--vscode-foreground); }
 .crusorai-approval-review {
 	display: inline-flex; align-items: center; gap: 4px;
-	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
+	min-height: 26px; padding: 2px 8px; border: none; border-radius: 6px;
 	background: transparent; color: var(--vscode-descriptionForeground);
 	font-size: var(--crusorai-text-body-lg); cursor: pointer;
 }
