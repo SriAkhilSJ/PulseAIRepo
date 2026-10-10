@@ -558,13 +558,32 @@
 
 .crusorai-approval-dock {
 	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
+	flex-direction: column;
 	gap: 8px;
 	min-width: 0;
-	padding: 7px 9px;
+	max-height: min(70vh, 420px);
+	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: thin;
+	padding: 8px 10px;
 	border-top: 1px solid var(--crusorai-approval);
+	border-radius: 6px;
 	background: color-mix(in srgb, var(--crusorai-approval) 9%, var(--vscode-sideBar-background));
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.crusorai-approval-header-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 8px;
+	width: 100%;
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	padding-bottom: 4px;
+	border-bottom: 1px solid color-mix(in srgb, var(--crusorai-approval) 25%, transparent);
+	background: color-mix(in srgb, var(--crusorai-approval) 14%, var(--vscode-sideBar-background));
 }
 .crusorai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
 .crusorai-approval-copy > .codicon { margin-top: 2px; color: var(--crusorai-approval); }
@@ -577,14 +596,16 @@
 	align-items: flex-start;
 	gap: 6px;
 	width: 100%;
-	max-height: 140px;
+	max-height: 160px;
 	overflow-y: auto;
+	scrollbar-width: thin;
 	word-break: break-word;
-	padding: 5px 8px;
+	padding: 6px 8px;
 	border-radius: 4px;
 	border: 1px solid color-mix(in srgb, var(--crusorai-approval) 30%, transparent);
 	background: color-mix(in srgb, var(--crusorai-approval) 12%, transparent);
 	color: var(--vscode-foreground);
+	font-family: var(--vscode-editor-font-family, Consolas, monospace);
 	font-size: var(--crusorai-text-meta);
 	line-height: 1.4;
 }

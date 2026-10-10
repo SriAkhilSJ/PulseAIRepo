@@ -1890,7 +1890,7 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 	overlay.append(dialog);
 	overlay.addEventListener('click', event => { if (event.target === overlay) overlay.classList.remove('is-open'); });
 
-	dock.append(
+	const headerRow = element('div', 'crusorai-approval-header-row',
 		element('div', 'crusorai-approval-copy', icon('shield'), element('div', undefined,
 			element('strong', undefined, `${crusorAIToolPresentation(approval.name).title} needs approval`),
 			element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })))),
@@ -1901,6 +1901,7 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 			commandText && !diffString ? commandToggle : undefined,
 		),
 	);
+	dock.append(headerRow);
 	if (warningBox) { dock.append(warningBox); }
 	if (shellRiskBadge) { dock.append(shellRiskBadge); }
 	if (inlineDiffCard) { dock.append(inlineDiffCard); }
