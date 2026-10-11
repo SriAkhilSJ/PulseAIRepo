@@ -495,13 +495,55 @@ def generate_image(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    velona_key = os.environ.get("VELONA_API_KEY", "").strip()
+    velona_base = os.environ.get("VELONA_BASE_URL", "https://api.velona.in/v1").rstrip("/")
     fal_key = os.environ.get("FAL_KEY", "").strip()
     together_key = os.environ.get("TOGETHER_API_KEY", "").strip()
     stability_key = os.environ.get("STABILITY_API_KEY", "").strip()
 
     model_choice = (model or "auto").strip().lower()
 
-    # 1. OpenAI DALL-E 3 path
+    # 1. Velona.in Gateway path (UPI / INR Indian Unified Gateway)
+    if (model_choice in ("auto", "velona") and velona_key):
+        try:
+            res = _post_json(
+                f"{velona_base}/images/generations",
+                headers={"Authorization": f"Bearer {velona_key}"},
+                data={
+                    "model": "dall-e-3" if "dall" in model_choice else "flux-1-schnell",
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": dalle_size,
+                    "response_format": "b64_json",
+                },
+                timeout=60,
+            )
+            data = res.get("data", [])
+            if data and data[0].get("b64_json"):
+                import base64
+                img_bytes = base64.b64decode(data[0]["b64_json"])
+                path.write_bytes(img_bytes)
+                kb = len(img_bytes) / 1024
+                rel = path.as_posix()
+                return (
+                    f"saved: {rel} ({kb:.0f} KB, image/png, {dalle_size})\n"
+                    f"Generated custom AI image via Velona Gateway from prompt: {prompt!r}\n"
+                    f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+                )
+            elif data and data[0].get("url"):
+                img_bytes = _fetch_bytes(data[0]["url"], timeout=30)
+                path.write_bytes(img_bytes)
+                kb = len(img_bytes) / 1024
+                rel = path.as_posix()
+                return (
+                    f"saved: {rel} ({kb:.0f} KB, image/png, {dalle_size})\n"
+                    f"Generated custom AI image via Velona Gateway from prompt: {prompt!r}\n"
+                    f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+                )
+        except Exception:
+            pass  # Fall through to other providers
+
+    # 2. OpenAI DALL-E 3 path
     if (model_choice in ("auto", "dall-e-3", "dalle", "openai") and openai_key):
         try:
             res = _post_json(
