@@ -3135,7 +3135,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 			if (slot) {
 				slot.replaceChildren(markdownCopy(streaming.text, 'session-turn-content'));
 				const scroller = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
-				if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32) {
+				if (scroller && (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120 || model.running)) {
 					scroller.scrollTop = scroller.scrollHeight;
 				}
 				lastPaint = { signature, text: streaming.text };
@@ -3146,7 +3146,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		}
 		const previousScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
 		const scrollTop = previousScroll?.scrollTop ?? 0;
-		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
+		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 120 || model.running;
 		const activeElement = document.activeElement;
 		const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
 		// Don't steal focus from ask tool (clarify card) — vibrations/streaming re-renders were
