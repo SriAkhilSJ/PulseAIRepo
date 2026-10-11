@@ -496,7 +496,7 @@ def generate_image(
 
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     velona_key = os.environ.get("VELONA_API_KEY", "").strip()
-    velona_base = os.environ.get("VELONA_BASE_URL", "https://api.velona.in/v1").rstrip("/")
+    velona_base = os.environ.get("VELONA_BASE_URL", "https://velona.in/gateway/v1").rstrip("/")
     fal_key = os.environ.get("FAL_KEY", "").strip()
     together_key = os.environ.get("TOGETHER_API_KEY", "").strip()
     stability_key = os.environ.get("STABILITY_API_KEY", "").strip()
