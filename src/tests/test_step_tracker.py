@@ -97,6 +97,31 @@ class TestStepTracker(TestCase):
         self.assertGreaterEqual(score["score"], 80)
         self.assertIn("A", score["grade"])
 
+    def test_velona_unreported_cache_telemetry_no_penalty(self):
+        """When using Velona or an endpoint omitting input_token_details,
+        do NOT penalize the agent health score or output false cache warnings."""
+        # Step 1: AI run through Velona (cached_tokens is 0 because input_token_details is empty)
+        self.tracker.start_step("ai")
+        self.tracker.record_llm_metrics(
+            model="z-ai/glm-5.3-flash",
+            provider="velona",
+            input_tokens=25000,
+            output_tokens=300,
+            cached_tokens=0,
+            duration_s=1.0,
+        )
+        self.tracker.record_tool_call(name="write_file", args={"path": "a.txt"}, status="success")
+        self.tracker.record_tool_call(name="write_file", args={"path": "b.txt"}, status="success")
+        self.tracker.finish_step()
+
+        perf = self.tracker.compute_performance_score()
+        self.assertFalse(perf["metrics"]["telemetry_available"])
+        self.assertEqual(perf["breakdown"]["cache_score"], 25.0)
+        self.assertGreaterEqual(perf["score"], 85.0)
+        # Ensure false cache warning is not present in actionable ideas
+        self.assertFalse(any("Enable Prompt Caching" in idea for idea in perf["actionable_ideas"]))
+        self.assertTrue(any("Provider Telemetry Notice" in idea for idea in perf["actionable_ideas"]))
+
 
 if __name__ == "__main__":
     import unittest

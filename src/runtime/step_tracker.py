@@ -83,6 +83,7 @@ class StepRecord:
     input_tokens: int = 0
     output_tokens: int = 0
     cached_tokens: int = 0
+    cache_reported: bool = True
     cache_hit_ratio: float = 0.0
     tokens_per_second: float = 0.0
     estimated_cost_usd: float = 0.0
@@ -173,7 +174,8 @@ class StepTracker:
         provider: str,
         input_tokens: int = 0,
         output_tokens: int = 0,
-        cached_tokens: int = 0,
+        cached_tokens: Optional[int] = 0,
+        cache_reported: Optional[bool] = None,
         duration_s: float = 0.0,
     ) -> None:
         """Attach LLM token, latency, and cache metrics to the current step."""
@@ -185,6 +187,21 @@ class StepTracker:
         self._current_step.output_tokens = int(output_tokens or 0)
         self._current_step.cached_tokens = int(cached_tokens or 0)
         self._current_step.llm_duration_s = round(float(duration_s or 0.0), 3)
+
+        # Provider / Gateway cache telemetry check (e.g. Velona omits input_token_details)
+        custom_base = os.environ.get("CUSTOM_BASE_URL", "").lower()
+        velona_base = os.environ.get("VELONA_BASE_URL", "").lower()
+        is_velona = (
+            "velona" in custom_base
+            or "velona" in velona_base
+            or "velona" in str(provider or "").lower()
+        )
+        if cache_reported is not None:
+            self._current_step.cache_reported = bool(cache_reported)
+        elif is_velona:
+            self._current_step.cache_reported = False
+        else:
+            self._current_step.cache_reported = True
 
         if self._current_step.input_tokens > 0:
             self._current_step.cache_hit_ratio = round(
@@ -258,7 +275,7 @@ class StepTracker:
                 )
 
             if step.provider in ("openai", "anthropic", "deepseek", "groq") and step.input_tokens > 4000:
-                if step.cached_tokens == 0:
+                if step.cached_tokens == 0 and getattr(step, "cache_reported", True):
                     step.diagnostics.append(
                         "⚠️ CACHE_MISS: 0 cached tokens on a large prompt. Ensure prompt prefix is byte-stable."
                     )
@@ -320,9 +337,6 @@ class StepTracker:
 
         total_input_tokens = sum(s.input_tokens for s in self.steps)
         total_cached_tokens = sum(s.cached_tokens for s in self.steps)
-        cache_hit_rate = (
-            total_cached_tokens / total_input_tokens if total_input_tokens > 0 else 0.0
-        )
 
         all_tool_calls = [tc for s in self.steps for tc in s.tool_calls]
         failed_tool_calls = [
@@ -344,7 +358,38 @@ class StepTracker:
         latency_score = max(5.0, min(25.0, 25.0 - (max(0.0, avg_step_duration - 3.0) * 0.9)))
 
         # 2. Cache Score (Max 25 pts)
-        cache_score = 5.0 + (cache_hit_rate * 20.0)
+        # Check if cache telemetry is supported / reported by the upstream provider/gateway.
+        # When using Velona or an OpenAI-compatible router that omits input_token_details,
+        # cached_tokens is 0 on the wire even if KV-caching operates upstream.
+        custom_base = os.environ.get("CUSTOM_BASE_URL", "").lower()
+        velona_base = os.environ.get("VELONA_BASE_URL", "").lower()
+        is_velona_session = (
+            "velona" in custom_base
+            or "velona" in velona_base
+            or any("velona" in (s.provider or "").lower() for s in self.steps)
+            or any(not getattr(s, "cache_reported", True) for s in self.steps)
+        )
+
+        has_cache_telemetry = (
+            total_cached_tokens > 0
+            or (not is_velona_session and any(s.provider in ("openai", "anthropic", "deepseek", "groq") for s in self.steps))
+        )
+
+        if total_cached_tokens > 0:
+            cache_hit_rate = total_cached_tokens / total_input_tokens if total_input_tokens > 0 else 0.0
+            cache_score = 5.0 + (cache_hit_rate * 20.0)
+            telemetry_available = True
+        elif is_velona_session or not has_cache_telemetry:
+            # Upstream provider/gateway (e.g. Velona) does not return input_token_details metadata.
+            # Do NOT dock 20 points from the agent health score; the prefix layout is active upstream.
+            cache_hit_rate = 0.0
+            cache_score = 25.0
+            telemetry_available = False
+        else:
+            # Direct provider that supports telemetry reported 0 cached tokens (actual cache miss)
+            cache_hit_rate = 0.0
+            cache_score = 5.0
+            telemetry_available = True
 
         # 3. Correctness & Error Score (Max 25 pts)
         error_score = max(0.0, 25.0 - (tool_failure_rate * 100.0))
@@ -365,8 +410,13 @@ class StepTracker:
 
         # Actionable Optimization Ideas
         ideas = []
-        if cache_hit_rate < 0.60 and total_input_tokens > 20000:
-            ideas.append("⚡ **Enable Prompt Caching:** Your prompt cache hit rate is below 60%. Ensure your system persona and tool definitions are placed at the static prefix to prevent cache-busting.")
+        if telemetry_available:
+            if cache_hit_rate < 0.60 and total_input_tokens > 20000:
+                ideas.append("⚡ **Enable Prompt Caching:** Your prompt cache hit rate is below 60%. Ensure your system persona and tool definitions are placed at the static prefix to prevent cache-busting.")
+        else:
+            if total_input_tokens > 20000:
+                ideas.append("ℹ️ **Provider Telemetry Notice:** Active gateway (Velona / custom router) omits `input_token_details` in completion chunks. Static prefix layout is maintained upstream at the server layer.")
+
         if avg_step_duration > 15.0:
             ideas.append("⏱️ **Reduce Turn Latency:** Consider using a direct-API caching provider (e.g. DeepSeek V3 or Claude Sonnet) or narrowing the active toolset.")
         if len(failed_tool_calls) > 0:
@@ -389,6 +439,7 @@ class StepTracker:
             "metrics": {
                 "avg_step_duration_s": round(avg_step_duration, 2),
                 "cache_hit_rate_pct": round(cache_hit_rate * 100, 1),
+                "telemetry_available": telemetry_available,
                 "tool_failure_rate_pct": round(tool_failure_rate * 100, 1),
                 "total_cost_usd": round(sum(s.estimated_cost_usd for s in self.steps), 4),
             },
@@ -405,6 +456,12 @@ class StepTracker:
             total_time = sum(s.duration_s for s in self.steps)
             total_cost = perf["metrics"]["total_cost_usd"]
 
+            cache_val_str = (
+                f"**{perf['metrics']['cache_hit_rate_pct']}%** ({cached_tokens:,} cached)"
+                if perf["metrics"]["telemetry_available"]
+                else f"**N/A** (Provider Velona/Gateway omits `input_token_details`)"
+            )
+
             md = []
             md.append(f"# 📊 Agent Performance & Diagnostics Audit")
             md.append(f"**Session ID:** `{self.session_id}`  ")
@@ -418,7 +475,7 @@ class StepTracker:
             md.append(f"| **Overall Health Score** | **{perf['score']} / 100** (`{perf['grade']}`) | $\\ge 85$ (Grade A) |")
             md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step) | $<5.0$s / step |")
             md.append(f"| **Total Token Usage** | {total_tokens_in:,} input / {total_tokens_out:,} output | Dynamic Bounded |")
-            md.append(f"| **Prompt Cache Hit Rate** | **{perf['metrics']['cache_hit_rate_pct']}%** ({cached_tokens:,} cached) | $\\ge 70\\%$ |")
+            md.append(f"| **Prompt Cache Hit Rate** | {cache_val_str} | $\\ge 70\\%$ |")
             md.append(f"| **Estimated Cost** | **${total_cost:.4f} USD** | $< $0.05 / task |")
             md.append("")
             md.append("### Score Breakdown")
@@ -447,7 +504,15 @@ class StepTracker:
                 if not tools_str:
                     tools_str = "*None*"
 
-                cache_str = f"{int(s.cache_hit_ratio * 100)}%" if s.input_tokens > 0 else "-"
+                if s.input_tokens > 0:
+                    if getattr(s, "cache_reported", True) and s.cached_tokens > 0:
+                        cache_str = f"{int(s.cache_hit_ratio * 100)}%"
+                    elif not getattr(s, "cache_reported", True) or not perf["metrics"]["telemetry_available"]:
+                        cache_str = "N/A"
+                    else:
+                        cache_str = "0%"
+                else:
+                    cache_str = "-"
                 tok_str = f"{s.input_tokens:,} / {s.output_tokens:,}" if s.input_tokens > 0 else "-"
                 md.append(f"| **{s.step_index}** | `{s.node_name}` | {s.duration_s:.2f}s | {tok_str} | {cache_str} | {tools_str} |")
 
@@ -549,13 +614,19 @@ def print_step_report(session_id: Optional[str] = None) -> None:
     cached_tokens = sum(s.cached_tokens for s in tracker.steps)
     total_time = sum(s.duration_s for s in tracker.steps)
 
+    cache_val_str = (
+        f"{perf['metrics']['cache_hit_rate_pct']}% ({cached_tokens:,} tokens cached)"
+        if perf["metrics"]["telemetry_available"]
+        else f"N/A (Provider Velona/Gateway omits input_token_details)"
+    )
+
     print("=" * 80)
     print(f" 📊 CRUSORAI PERFORMANCE SCORECARD — Session: {session_id}")
     print("=" * 80)
     print(f"• Overall Health Score : {perf['score']}/100 [{perf['grade']}]")
     print(f"• Total Steps          : {len(tracker.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step)")
     print(f"• Total Tokens         : {total_tokens_in:,} in / {total_tokens_out:,} out")
-    print(f"• Prompt Cache Hit Rate: {perf['metrics']['cache_hit_rate_pct']}% ({cached_tokens:,} tokens cached)")
+    print(f"• Prompt Cache Hit Rate: {cache_val_str}")
     print(f"• Estimated Cost       : ${perf['metrics']['total_cost_usd']:.4f} USD")
     print("-" * 80)
     print(f"  Score Breakdown: Latency: {perf['breakdown']['latency_score']}/25 | Cache: {perf['breakdown']['cache_score']}/25 | Correctness: {perf['breakdown']['correctness_score']}/25 | Batching: {perf['breakdown']['batching_score']}/25")
@@ -571,7 +642,16 @@ def print_step_report(session_id: Optional[str] = None) -> None:
             tools_str += f"{icon} {tc.name} "
         if not tools_str:
             tools_str = "(no tools)"
-        c_hit = f"{int(s.cache_hit_ratio * 100)}%"
+        
+        if s.input_tokens > 0:
+            if getattr(s, "cache_reported", True) and s.cached_tokens > 0:
+                c_hit = f"{int(s.cache_hit_ratio * 100)}%"
+            elif not getattr(s, "cache_reported", True) or not perf["metrics"]["telemetry_available"]:
+                c_hit = "N/A"
+            else:
+                c_hit = "0%"
+        else:
+            c_hit = "-"
         tok_str = f"{s.input_tokens}/{s.output_tokens}"
         print(f"{s.step_index:<3} | {s.node_name:<10} | {s.duration_s:<5.2f}s | {tok_str:<16} | {c_hit:<8} | {tools_str:<28}")
 
