@@ -250,14 +250,14 @@ def media_search(query: str, media_type: str = "image", max_results: int = 6) ->
         unique.append(item)
 
     if not unique:
-        msg = f"No media found for: {query!r} (media_type={media_type})"
+        msg = f"No stock media found for: {query!r} (media_type={media_type})"
         if failures:
             msg += "\nSource errors: " + "; ".join(failures)
         else:
             msg += (
-                "\nTip: try broader terms ('perfume bottle' not 'Chanel No 5 Guerlain "
-                "bottle png'), or media_type='all'. Videos: Wikimedia/Pexels need "
-                "specific terms; images are the reliable path."
+                "\nTip: If this is a custom, bespoke, or unique asset that cannot be found in stock libraries "
+                "(e.g. custom logo, fictional mascot, specialized 3D icon), generate it directly using: "
+                f"generate_image(prompt={query!r}, filename='assets/custom_asset.png')"
             )
         return msg
 
@@ -496,6 +496,8 @@ def generate_image(
 
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     fal_key = os.environ.get("FAL_KEY", "").strip()
+    together_key = os.environ.get("TOGETHER_API_KEY", "").strip()
+    stability_key = os.environ.get("STABILITY_API_KEY", "").strip()
 
     model_choice = (model or "auto").strip().lower()
 
@@ -555,9 +557,41 @@ def generate_image(
                     f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
                 )
         except Exception:
-            pass  # Fall through to zero-key provider
+            pass  # Fall through to other providers
 
-    # 3. High-Quality Zero-Key Fallback (Pollinations AI)
+    # 3. Together AI Flux path
+    if (model_choice in ("auto", "flux", "together") and together_key):
+        try:
+            res = _post_json(
+                "https://api.together.xyz/v1/images/generations",
+                headers={"Authorization": f"Bearer {together_key}"},
+                data={
+                    "model": "black-forest-labs/FLUX.1-schnell",
+                    "prompt": prompt,
+                    "width": width,
+                    "height": height,
+                    "steps": 4,
+                    "n": 1,
+                    "response_format": "b64_json",
+                },
+                timeout=45,
+            )
+            data = res.get("data", [])
+            if data and data[0].get("b64_json"):
+                import base64
+                img_bytes = base64.b64decode(data[0]["b64_json"])
+                path.write_bytes(img_bytes)
+                kb = len(img_bytes) / 1024
+                rel = path.as_posix()
+                return (
+                    f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
+                    f"Generated custom AI image via Together FLUX from prompt: {prompt!r}\n"
+                    f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+                )
+        except Exception:
+            pass
+
+    # 4. High-Quality Zero-Key Fallback (Pollinations AI)
     # Allows image generation out of the box without requiring paid keys.
     encoded_prompt = quote_plus(prompt)
     fallback_url = (

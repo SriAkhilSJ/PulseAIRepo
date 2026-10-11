@@ -125,10 +125,13 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 ### Media & Custom Image Generation
 
-- `media_search(query, media_type)` — Find openly-licensed real/stock photos and videos (Openverse, Wikimedia, Pexels) for real-world items (e.g. "coffee cup", "modern office background", "headphones").
+- `media_search(query, media_type)` — Find openly-licensed real/stock photos and videos (Openverse, Wikimedia, Pexels) for existing real-world items (e.g. "coffee cup", "modern office background", "headphones", "city skyline").
 - `media_download(url, filename)` — Download a discovered stock media asset directly into the workspace as a local file (e.g. `public/hero.jpg`). Always reference the saved local file in code rather than hotlinking.
 - `generate_image(prompt, filename, aspect_ratio)` — **Generate a custom AI image** and save it directly to the workspace (e.g. `generate_image('minimalist cybernetic falcon logo, vector, dark background', filename='public/logo.png')`).
-  - **CUSTOM ASSET PRINCIPLE:** Use `generate_image` whenever the user requests **custom, unique, bespoke, or fictional** visual content that stock photos cannot provide (e.g. custom company brand logos, game sprites, fictional UI graphics, app mascots, tailored illustrations). For standard real-world photos, use `media_search` + `media_download`.
+
+**STRICT ASSET SELECTION RULE:**
+1. **Existing Market / Real Items**: When the user needs ordinary real-world photos or stock backgrounds (e.g. "photo of a laptop on a table", "nature wallpaper", "office meeting") → use `media_search` + `media_download`.
+2. **Custom / Not in the Market**: When the user asks for **anything custom, unique, bespoke, fictional, or brand-specific** that cannot exist in stock libraries (e.g. "create a logo for our startup AcmeAI", "a futuristic mascot wearing space goggles", "bespoke 3D isometric dashboard icons", "custom game sprites") → **NEVER search stock libraries**. Immediately call `generate_image(prompt=..., filename=...)` to synthesize the exact bespoke asset. If API keys (`OPENAI_API_KEY`, `FAL_KEY`, `TOGETHER_API_KEY`) are configured, high-definition models (DALL-E 3 / Flux) generate the asset; otherwise the built-in generative engine generates it.
 
 ### Math
 
