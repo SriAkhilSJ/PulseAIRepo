@@ -1,6 +1,6 @@
 # 📊 Agent Performance & Diagnostics Audit (Task Quality & Execution)
-**Session ID:** `t5-4939968b02`  
-**Generated At:** `2026-10-11 18:35:31 UTC`  
+**Session ID:** `t5-9111a1c14c`  
+**Generated At:** `2026-10-11 18:53:01 UTC`  
 **User Ask:** *"Build a full-stack real-time analytics & task engine in this workspace.
 
 Backend (FastAPI/Python):
@@ -53,10 +53,10 @@ Verification:
 | Metric | Result | Target |
 | :--- | :--- | :--- |
 | **Runtime Health Score** | **90.0 / 25** (`A (Elite)`) | $\ge 85$ (Grade A) |
-| **Total Steps & Duration** | 1 steps in 0.0s (avg 0.0s/step) | $<5.0$s / step |
-| **Total Token Usage** | 7,980 input / 10 output | Dynamic Bounded |
+| **Total Steps & Duration** | 4 steps in 0.0s (avg 0.0s/step) | $<5.0$s / step |
+| **Total Token Usage** | 32,088 input / 15 output | Dynamic Bounded |
 | **Prompt Cache Hit Rate** | **N/A** (Provider Velona/Gateway omits `input_token_details`) | $\ge 70\%$ |
-| **Estimated Cost** | **$0.0080 USD** | $< $0.05 / task |
+| **Estimated Cost** | **$0.0321 USD** | $< $0.05 / task |
 
 ### Runtime Sub-Scores
 - **Latency Efficiency:** `25.0 / 25`
@@ -68,11 +68,14 @@ Verification:
 ## 💡 Actionable Improvement Ideas (How to Compete with Sharks)
 
 - ✨ **User Presentation:** Provide concise, structured walkthroughs with direct run commands and deliverable links.
-- 🎉 **Optimal Performance:** Agent execution is fast, cache-aligned, and error-free.
+- ℹ️ **Provider Telemetry Notice:** Active gateway (Velona / custom router) omits `input_token_details` in completion chunks. Static prefix layout is maintained upstream at the server layer.
 
 ---
 ## 📜 Step-by-Step Execution Log
 
 | Step | Node | Duration | Tokens (In/Out) | Cache % | Tools Executed & Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1** | `ai` | 0.00s | 7,980 / 10 | N/A | *None* |
+| **1** | `ai` | 0.00s | 7,981 / 4 | N/A | *None* |
+| **2** | `ai` | 0.00s | 8,035 / 2 | N/A | *None* |
+| **3** | `ai` | 0.00s | 8,036 / 1 | N/A | *None* |
+| **4** | `ai` | 0.00s | 8,036 / 8 | N/A | *None* |
