@@ -1633,6 +1633,7 @@ def ai_node(
     # tools: the grace/ask path invokes the unbound `llm`, everything
     # else a tools-bound callable.
     tools_bound = call_llm is not llm
+    t_llm_start = time.time()
     try:
         result = _invoke_with_token_pump(
             call_llm, messages, session_id, provider, model,
@@ -1955,6 +1956,7 @@ def ai_node(
             input_tokens=call_usage.prompt_tokens,
             output_tokens=call_usage.completion_tokens,
             cached_tokens=call_usage.cached_tokens,
+            duration_s=round(time.time() - t_llm_start, 3),
         )
         for _tc in (getattr(result, "tool_calls", None) or []):
             _tracker.record_tool_call(name=_tc.get("name", ""), args=_tc.get("args", {}))
@@ -4335,6 +4337,7 @@ class SafeToolNode:
         return ordered
 
     def __call__(self, state, config=None):
+        _t_tool_start = time.time()
         # ── Pre-execution cancellation gate ─────────────────────────
         # If the user pressed Stop before tool execution begins, deny
         # ALL pending tool calls with cancellation ToolMessages. This
@@ -4430,6 +4433,10 @@ class SafeToolNode:
                 from src.runtime.step_tracker import StepTracker
                 _trk = StepTracker.get_tracker(_cfg_sid)
                 _trk.start_step("tools", state)
+                _tool_dur = round(time.time() - _t_tool_start, 3)
+                if _trk._current_step:
+                    _trk._current_step.tool_duration_s = _tool_dur
+                    _trk._current_step.duration_s = _tool_dur
                 for _m in (msg_list or []):
                     _tname = getattr(_m, "name", "") or getattr(_m, "tool", "") or "tool"
                     _tcontent = str(getattr(_m, "content", "") or "")
