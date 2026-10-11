@@ -24,12 +24,18 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 try:
     import httpx
 except ImportError:
     httpx = None
+
+try:
+    from langchain_core.runnables import RunnableConfig
+except ImportError:
+    RunnableConfig = Any  # type: ignore
 
 try:
     from langchain_core.tools import tool
@@ -290,25 +296,35 @@ _EXT_BY_CONTENT_TYPE = {
 # magic-byte sniffing fallback for servers that lie about content-type
 
 
-def _sanitize_dest(filename: str, content_type: str) -> tuple[Path, str | None]:
-    """Workspace-relative destination path. Returns (path, error)."""
+def _resolve_workspace_root(config: RunnableConfig = None) -> Path:
+    if config and isinstance(config, dict):
+        ws = config.get("configurable", {}).get("workspace")
+        if ws:
+            return Path(str(ws)).resolve()
+    return Path.cwd().resolve()
+
+
+def _sanitize_dest(filename: str, content_type: str, workspace_root: Path | None = None) -> tuple[Path, Path, str | None]:
+    """Workspace-relative destination path. Returns (rel_path, abs_path, error)."""
     raw = (filename or "").strip()
     filename = raw.strip("/").replace("\\", "/")
     if not filename:
-        return Path(), "filename must not be empty"
+        return Path(), Path(), "filename must not be empty"
     if raw.startswith(("/", "~")) or ".." in Path(filename).parts:
-        return Path(), f"filename must be a workspace-relative path (no absolute/.. paths): {filename!r}"
+        return Path(), Path(), f"filename must be a workspace-relative path (no absolute/.. paths): {filename!r}"
     path = Path(filename)
     # neutralize unsafe segments but keep structure
     safe_parts = [re.sub(r"[^\w.\- ()]", "_", part) for part in path.parts]
-    path = Path(*safe_parts)
-    if path.suffix == "":
-        path = path.with_suffix(_EXT_BY_CONTENT_TYPE.get(content_type, ".bin"))
-    return path, None
+    rel_path = Path(*safe_parts)
+    if rel_path.suffix == "":
+        rel_path = rel_path.with_suffix(_EXT_BY_CONTENT_TYPE.get(content_type, ".bin"))
+    root = (workspace_root or Path.cwd()).resolve()
+    abs_path = (root / rel_path).resolve()
+    return rel_path, abs_path, None
 
 
 @tool
-def media_download(url: str, filename: str) -> str:
+def media_download(url: str, filename: str, config: RunnableConfig = None) -> str:
     """
     Download a web image or video into the workspace so HTML/CSS can
     reference it as a local asset. Validates content-type (image/* or
@@ -323,6 +339,8 @@ def media_download(url: str, filename: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         return f"media_download error: only http/https URLs are supported: {url!r}"
+
+    workspace_root = _resolve_workspace_root(config)
 
     for attempt in (1, 2):
         rate_limited = False
@@ -351,26 +369,26 @@ def media_download(url: str, filename: str) -> str:
                         mb = cap // (1024 * 1024)
                         return f"media_download error: file too large ({int(declared)} bytes; cap {mb}MB for {content_type})"
 
-                    path, err = _sanitize_dest(filename, content_type)
+                    rel_path, abs_path, err = _sanitize_dest(filename, content_type, workspace_root)
                     if err:
                         return f"media_download error: {err}"
-                    if path.suffix == ".bin":
+                    if rel_path.suffix == ".bin":
                         return (
                             "media_download error: unsupported media content-type "
                             f"{content_type!r} — pick a jpg/png/webp/gif/svg/mp4/webm source"
                         )
 
-                    path.parent.mkdir(parents=True, exist_ok=True)
+                    abs_path.parent.mkdir(parents=True, exist_ok=True)
                     written = 0
                     first = b""
-                    with open(path, "wb") as fh:
+                    with open(abs_path, "wb") as fh:
                         for chunk in response.iter_bytes(_CHUNK):
                             if not first:
                                 first = chunk[:16]
                             written += len(chunk)
                             if written > cap:
                                 fh.close()
-                                path.unlink(missing_ok=True)
+                                abs_path.unlink(missing_ok=True)
                                 mb = cap // (1024 * 1024)
                                 return f"media_download error: stream exceeded {mb}MB cap — aborted, partial file removed"
                             fh.write(chunk)
@@ -393,7 +411,7 @@ def media_download(url: str, filename: str) -> str:
         )
 
     if written == 0:
-        path.unlink(missing_ok=True)
+        abs_path.unlink(missing_ok=True)
         return "media_download error: empty response body — nothing saved"
 
     # content-type lied? sniff magic bytes and fix the extension
@@ -406,17 +424,19 @@ def media_download(url: str, filename: str) -> str:
         sniffed = ".gif"
     elif first.startswith(b"RIFF") and first[8:12] == b"WEBP":
         sniffed = ".webp"
-    if sniffed and path.suffix.lower() != sniffed:
-        fixed = path.with_suffix(sniffed)
-        path.rename(fixed)
-        path = fixed
+    if sniffed and abs_path.suffix.lower() != sniffed:
+        fixed_abs = abs_path.with_suffix(sniffed)
+        fixed_rel = rel_path.with_suffix(sniffed)
+        abs_path.rename(fixed_abs)
+        abs_path = fixed_abs
+        rel_path = fixed_rel
 
     kb = written / 1024
     size = f"{kb:.0f} KB" if kb < 1024 else f"{written / (1024 * 1024):.1f} MB"
-    rel = path.as_posix()
+    rel_str = rel_path.as_posix()
     return (
-        f"saved: {rel} ({size}, {content_type})\n"
-        f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}') — never hotlink the remote URL."
+        f"saved: {rel_str} ({size}, {content_type})\n"
+        f"Reference it locally — e.g. src=\"{rel_str}\" / url('{rel_str}') — never hotlink the remote URL."
     )
 
 
@@ -520,6 +540,7 @@ def generate_image(
     filename: str = "assets/generated_image.png",
     aspect_ratio: str = "1:1",
     model: str = "auto",
+    config: RunnableConfig = None,
 ) -> str:
     """
     Generate a brand-new custom AI image from a text description and save it
@@ -553,10 +574,11 @@ def generate_image(
         width, height = 1024, 1024
         dalle_size = "1024x1024"
 
-    path, err = _sanitize_dest(filename, "image/png")
+    workspace_root = _resolve_workspace_root(config)
+    rel_path, abs_path, err = _sanitize_dest(filename, "image/png", workspace_root)
     if err:
         return f"generate_image error: {err}"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
 
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     velona_key = os.environ.get("VELONA_API_KEY", "").strip()
@@ -589,9 +611,9 @@ def generate_image(
             if data and data[0].get("b64_json"):
                 import base64
                 img_bytes = base64.b64decode(data[0]["b64_json"])
-                path.write_bytes(img_bytes)
+                abs_path.write_bytes(img_bytes)
                 kb = len(img_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {dalle_size})\n"
                     f"Generated custom AI image via Velona Gateway from prompt: {prompt!r}\n"
@@ -599,9 +621,9 @@ def generate_image(
                 )
             elif data and data[0].get("url"):
                 img_bytes = _fetch_bytes(data[0]["url"], timeout=30)
-                path.write_bytes(img_bytes)
+                abs_path.write_bytes(img_bytes)
                 kb = len(img_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {dalle_size})\n"
                     f"Generated custom AI image via Velona Gateway from prompt: {prompt!r}\n"
@@ -629,9 +651,9 @@ def generate_image(
             if data and data[0].get("b64_json"):
                 import base64
                 img_bytes = base64.b64decode(data[0]["b64_json"])
-                path.write_bytes(img_bytes)
+                abs_path.write_bytes(img_bytes)
                 kb = len(img_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {dalle_size})\n"
                     f"Generated custom AI image via DALL-E 3 from prompt: {prompt!r}\n"
@@ -661,9 +683,9 @@ def generate_image(
             if data and data[0].get("b64_json"):
                 import base64
                 img_bytes = base64.b64decode(data[0]["b64_json"])
-                path.write_bytes(img_bytes)
+                abs_path.write_bytes(img_bytes)
                 kb = len(img_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
                     f"Generated custom AI image via Together FLUX from prompt: {prompt!r}\n"
@@ -689,9 +711,9 @@ def generate_image(
             if images and images[0].get("url"):
                 img_url = images[0]["url"]
                 img_bytes = _fetch_bytes(img_url, timeout=30)
-                path.write_bytes(img_bytes)
+                abs_path.write_bytes(img_bytes)
                 kb = len(img_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
                     f"Generated custom AI image via Flux from prompt: {prompt!r}\n"
@@ -706,9 +728,9 @@ def generate_image(
             hf_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
             img_bytes = _fetch_bytes(hf_url, headers={"Authorization": f"Bearer {hf_token}"}, timeout=45)
             if img_bytes and len(img_bytes) > 100:
-                path.write_bytes(img_bytes)
+                abs_path.write_bytes(img_bytes)
                 kb = len(img_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
                     f"Generated custom AI image via HuggingFace FLUX from prompt: {prompt!r}\n"
@@ -734,9 +756,9 @@ def generate_image(
             content = _fetch_bytes(endpoint, timeout=30)
             if content and len(content) > 100:
                 cleaned_bytes = _strip_watermark(content, height)
-                path.write_bytes(cleaned_bytes)
+                abs_path.write_bytes(cleaned_bytes)
                 kb = len(cleaned_bytes) / 1024
-                rel = path.as_posix()
+                rel = rel_path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
                     f"Generated custom AI image via Free FLUX.1 Engine (watermark cleanly removed) from prompt: {prompt!r}\n"
@@ -748,10 +770,10 @@ def generate_image(
     # 7. Resilient Pure Vector Artwork Synthesizer (Zero-Failure Fallback)
     # Guarantees the agent always delivers a clean, beautiful visual graphic even if external APIs are 402/down.
     try:
-        svg_content = _generate_procedural_vector_asset(prompt, width, height, path)
-        path.write_bytes(svg_content)
+        svg_content = _generate_procedural_vector_asset(prompt, width, height, abs_path)
+        abs_path.write_bytes(svg_content)
         kb = len(svg_content) / 1024
-        rel = path.as_posix()
+        rel = rel_path.as_posix()
         return (
             f"saved: {rel} ({kb:.0f} KB, image/svg+xml, {width}x{height})\n"
             f"Generated custom high-resolution modern vector artwork matching prompt: {prompt!r}\n"

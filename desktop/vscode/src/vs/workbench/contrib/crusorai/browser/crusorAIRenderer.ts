@@ -913,6 +913,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 					img.src = src;
 					img.alt = promptText ? `Generated image: ${promptText}` : `Media ${savedPath}`;
 					img.loading = 'lazy';
+					img.onerror = () => { mediaWrap.remove(); };
 					mediaWrap.append(img);
 					body.append(mediaWrap);
 				}
@@ -977,6 +978,8 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 					const img = element('img', 'crusorai-browser-screenshot');
 					img.src = src;
 					img.alt = `Screenshot ${saved}`;
+					img.loading = 'lazy';
+					img.onerror = () => { img.remove(); };
 					body.append(img);
 				}
 				body.append(element('div', 'crusorai-tool-actions',
