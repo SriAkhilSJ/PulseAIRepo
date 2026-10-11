@@ -836,9 +836,15 @@
 	align-items: center;
 	gap: 6px;
 	min-height: 22px;
+	padding: 2px 4px;
+	border-radius: 4px;
 	cursor: pointer;
 	user-select: none;
 	font-size: var(--crusorai-text-meta, 12px);
+	transition: background 120ms ease;
+}
+.crusorai-todo-header:hover {
+	background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
 }
 .crusorai-todo-title {
 	font-weight: 600;
