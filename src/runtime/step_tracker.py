@@ -93,6 +93,7 @@ class StepRecord:
     verification_status: str = "not_applicable"
     compaction_active: bool = False
     plan_progress: str = ""
+    user_ask: str = ""
     diagnostics: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,6 +205,7 @@ class StepTracker:
             verification_status=v_status,
             compaction_active=compaction_flag,
             plan_progress=plan_str,
+            user_ask=self.user_ask,
         )
         self._current_step = step
         return step
@@ -715,12 +717,20 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
             verification_status=r.get("verification_status", "not_applicable"),
             compaction_active=r.get("compaction_active", False),
             diagnostics=r.get("diagnostics", []),
+            user_ask=r.get("user_ask", ""),
         )
         for i, r in enumerate(records)
     ]
 
+    inferred_user_ask = user_ask
+    if not inferred_user_ask:
+        for r in records:
+            if r.get("user_ask"):
+                inferred_user_ask = r["user_ask"]
+                break
+
     perf = tracker.compute_performance_score()
-    quality = tracker.compute_quality_score(user_ask)
+    quality = tracker.compute_quality_score(inferred_user_ask)
     total_tokens_in = sum(s.input_tokens for s in tracker.steps)
     total_tokens_out = sum(s.output_tokens for s in tracker.steps)
     cached_tokens = sum(s.cached_tokens for s in tracker.steps)
