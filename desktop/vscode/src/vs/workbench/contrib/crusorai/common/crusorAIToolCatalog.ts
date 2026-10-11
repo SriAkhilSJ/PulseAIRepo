@@ -78,6 +78,11 @@ export const CRUSOR_AI_TOOL_CATALOG: Readonly<Record<string, CrusorAIToolPresent
 	verify_ui_routes: tool('Verify routes', 'verification', 'check', 'running'),
 	scaffold_nextjs: tool('Scaffold Next.js', 'scaffold', 'add', 'running'),
 
+	media_search: tool('Search media', 'search', 'file-media'),
+	media_download: tool('Download media', 'file-write', 'cloud-download'),
+	generate_image: tool('Generate image', 'file-write', 'file-media', 'always'),
+	open_preview: tool('Open preview', 'control', 'preview', 'running'),
+
 	web_search: tool('Search web', 'web', 'search'),
 	web_extract: tool('Extract page', 'web', 'globe'),
 	web_fetch: tool('Fetch page', 'web', 'globe'),
