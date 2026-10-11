@@ -20,11 +20,24 @@ from __future__ import annotations
 import os
 import re
 import time
+import urllib.request
+import urllib.parse
+import urllib.error
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
-import httpx
-from langchain_core.tools import tool
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+try:
+    from langchain_core.tools import tool
+except ImportError:
+    # Standalone fallback decorator
+    def tool(fn):
+        fn.invoke = lambda args: fn(**args) if isinstance(args, dict) else fn(args)
+        return fn
 
 _USER_AGENT = "CrusorAI-Agent/1.0 (media tools)"
 # Binary size caps: hero images and short product loops, not raw footage.
@@ -404,3 +417,166 @@ def media_download(url: str, filename: str) -> str:
         f"saved: {rel} ({size}, {content_type})\n"
         f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}') — never hotlink the remote URL."
     )
+
+
+def _fetch_bytes(url: str, headers: dict | None = None, timeout: int = 30) -> bytes:
+    """Fetch binary content with httpx if available, falling back to urllib."""
+    hdrs = dict(headers or {})
+    if "User-Agent" not in hdrs:
+        hdrs["User-Agent"] = _USER_AGENT
+    if httpx is not None:
+        resp = httpx.get(url, headers=hdrs, timeout=timeout, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.content
+    req = urllib.request.Request(url, headers=hdrs)
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return response.read()
+
+
+def _post_json(url: str, data: dict, headers: dict | None = None, timeout: int = 45) -> dict:
+    """POST JSON with httpx if available, falling back to urllib."""
+    import json
+    hdrs = dict(headers or {})
+    if "User-Agent" not in hdrs:
+        hdrs["User-Agent"] = _USER_AGENT
+    hdrs["Content-Type"] = "application/json"
+    body = json.dumps(data).encode("utf-8")
+    if httpx is not None:
+        resp = httpx.post(url, headers=hdrs, content=body, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    req = urllib.request.Request(url, data=body, headers=hdrs, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+@tool
+def generate_image(
+    prompt: str,
+    filename: str = "assets/generated_image.png",
+    aspect_ratio: str = "1:1",
+    model: str = "auto",
+) -> str:
+    """
+    Generate a brand-new custom AI image from a text description and save it
+    directly into the workspace as a local file (e.g. "public/logo.png" or "assets/banner.png").
+
+    Use this tool when the user asks for CUSTOM, UNIQUE, or BESPOKE visual assets that
+    cannot be found in stock libraries — such as custom brand logos, bespoke app icons,
+    futuristic UI artwork, fantasy graphics, or tailored mascots.
+    For standard real-world photos (landscapes, generic people, stock objects),
+    prefer media_search + media_download instead.
+
+    Args:
+        prompt: Detailed visual prompt describing the custom image to create.
+        filename: Workspace-relative path to save the generated image (e.g. "public/logo.png").
+        aspect_ratio: "1:1" (square: 1024x1024), "16:9" (landscape: 1280x720), or "9:16" (portrait: 720x1280).
+        model: "auto", "dall-e-3", "flux", or "pollinations".
+    """
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "generate_image error: prompt must not be empty"
+
+    # Resolve dimensions
+    ar = (aspect_ratio or "1:1").strip().lower()
+    if ar in ("16:9", "landscape", "banner", "wide"):
+        width, height = 1280, 720
+        dalle_size = "1792x1024"
+    elif ar in ("9:16", "portrait", "story", "tall"):
+        width, height = 720, 1280
+        dalle_size = "1024x1792"
+    else:
+        width, height = 1024, 1024
+        dalle_size = "1024x1024"
+
+    path, err = _sanitize_dest(filename, "image/png")
+    if err:
+        return f"generate_image error: {err}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    fal_key = os.environ.get("FAL_KEY", "").strip()
+
+    model_choice = (model or "auto").strip().lower()
+
+    # 1. OpenAI DALL-E 3 path
+    if (model_choice in ("auto", "dall-e-3", "dalle", "openai") and openai_key):
+        try:
+            res = _post_json(
+                "https://api.openai.com/v1/images/generations",
+                headers={"Authorization": f"Bearer {openai_key}"},
+                data={
+                    "model": "dall-e-3",
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": dalle_size,
+                    "response_format": "b64_json",
+                },
+                timeout=60,
+            )
+            data = res.get("data", [])
+            if data and data[0].get("b64_json"):
+                import base64
+                img_bytes = base64.b64decode(data[0]["b64_json"])
+                path.write_bytes(img_bytes)
+                kb = len(img_bytes) / 1024
+                rel = path.as_posix()
+                return (
+                    f"saved: {rel} ({kb:.0f} KB, image/png, {dalle_size})\n"
+                    f"Generated custom AI image via DALL-E 3 from prompt: {prompt!r}\n"
+                    f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+                )
+        except Exception:
+            pass  # Fall through to other providers
+
+    # 2. Fal.ai Flux path
+    if (model_choice in ("auto", "flux", "fal") and fal_key):
+        try:
+            res = _post_json(
+                "https://fal.run/fal-ai/flux/schnell",
+                headers={"Authorization": f"Key {fal_key}"},
+                data={
+                    "prompt": prompt,
+                    "image_size": {"width": width, "height": height},
+                    "num_inference_steps": 4,
+                },
+                timeout=45,
+            )
+            images = res.get("images", [])
+            if images and images[0].get("url"):
+                img_url = images[0]["url"]
+                img_bytes = _fetch_bytes(img_url, timeout=30)
+                path.write_bytes(img_bytes)
+                kb = len(img_bytes) / 1024
+                rel = path.as_posix()
+                return (
+                    f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
+                    f"Generated custom AI image via Flux from prompt: {prompt!r}\n"
+                    f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+                )
+        except Exception:
+            pass  # Fall through to zero-key provider
+
+    # 3. High-Quality Zero-Key Fallback (Pollinations AI)
+    # Allows image generation out of the box without requiring paid keys.
+    encoded_prompt = quote_plus(prompt)
+    fallback_url = (
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        f"?width={width}&height={height}&nologo=true&enhance=true&model=flux"
+    )
+    try:
+        content = _fetch_bytes(fallback_url, timeout=60)
+        if content and len(content) > 0:
+            path.write_bytes(content)
+            kb = len(content) / 1024
+            rel = path.as_posix()
+            return (
+                f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
+                f"Generated custom AI image from prompt: {prompt!r}\n"
+                f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+            )
+    except Exception as exc:
+        return f"generate_image error: failed to generate image ({exc})"
+
+    return "generate_image error: could not generate image from available providers"
+

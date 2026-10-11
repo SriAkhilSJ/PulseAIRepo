@@ -47,7 +47,7 @@ _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
     "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
 )
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
-_MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download")
+_MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download", "generate_image")
 # Skills are always in context (index + eager injection), so the pull tools
 # that load a skill body on demand are always bound — Agent Skills parity.
 # The hub tools are the INSTALL side of the same story and ride the same

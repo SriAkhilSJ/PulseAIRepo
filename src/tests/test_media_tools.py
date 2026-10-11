@@ -18,6 +18,7 @@ import pytest
 from src.tools.media_tools import (
     _MAX_IMAGE_BYTES,
     _sanitize_dest,
+    generate_image,
     media_download,
     media_search,
 )
@@ -373,4 +374,33 @@ def test_media_tools_in_research_toolset():
     from src.agents.runtime_profile import CAP_RESEARCH, RuntimeProfile
     profile = RuntimeProfile(name="test-profile", capabilities=(CAP_RESEARCH,))
     names = resolve_runtime_tool_names(profile)
-    assert "media_search" in names and "media_download" in names
+    assert "media_search" in names and "media_download" in names and "generate_image" in names
+
+
+# ---------------------------------------------------------------------------
+# generate_image — custom AI image generation
+# ---------------------------------------------------------------------------
+
+def test_generate_image_validation():
+    assert "must not be empty" in generate_image.invoke({"prompt": "   "})
+    assert "workspace-relative" in generate_image.invoke({"prompt": "cat", "filename": "/etc/cat.png"})
+
+
+def test_generate_image_happy_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"image_data_here" * 50
+
+    class FakeResp:
+        status_code = 200
+        content = fake_png
+
+    monkeypatch.setattr("src.tools.media_tools.httpx.get", lambda *a, **k: FakeResp())
+    out = generate_image.invoke({
+        "prompt": "futuristic cyber dragon logo",
+        "filename": "public/dragon.png",
+        "aspect_ratio": "16:9",
+    })
+    assert "saved: public/dragon.png" in out
+    assert (tmp_path / "public" / "dragon.png").exists()
+    assert (tmp_path / "public" / "dragon.png").read_bytes() == fake_png
+

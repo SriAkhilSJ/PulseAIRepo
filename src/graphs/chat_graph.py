@@ -285,7 +285,7 @@ from src.tools.terminal_tools import (
     read_terminal_output
 )
 from src.tools.web_tools import web_search, web_fetch, web_extract
-from src.tools.media_tools import media_search, media_download
+from src.tools.media_tools import media_search, media_download, generate_image
 from src.tools.skill_tools import skills_list, skill_view, skill_manage
 from src.tools.skill_hub_tools import hub_search, hub_install, hub_update, hub_list, hub_remove
 # #8 (external review): fault-tolerant browser-tool import. The optional
@@ -806,11 +806,11 @@ tools = [
     web_fetch,
     web_extract,
 
-    # Media tools — stock image/video search + binary download into the
-    # workspace, so UI tasks can source real product photos instead of
-    # leaving broken placeholders.
+    # Media tools — stock image/video search, binary download into the
+    # workspace, and custom text-to-image AI generation.
     media_search,
     media_download,
+    generate_image,
 
     # Skill pull tools — Agent Skills / Copilot parity: the compact index
     # rides the system prompt; the full SKILL.md body loads on demand when

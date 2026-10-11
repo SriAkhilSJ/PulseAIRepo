@@ -123,6 +123,13 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 - `web_extract(urls)` — Read the full content of promising search results (up to 5 URLs per call).
 
+### Media & Custom Image Generation
+
+- `media_search(query, media_type)` — Find openly-licensed real/stock photos and videos (Openverse, Wikimedia, Pexels) for real-world items (e.g. "coffee cup", "modern office background", "headphones").
+- `media_download(url, filename)` — Download a discovered stock media asset directly into the workspace as a local file (e.g. `public/hero.jpg`). Always reference the saved local file in code rather than hotlinking.
+- `generate_image(prompt, filename, aspect_ratio)` — **Generate a custom AI image** and save it directly to the workspace (e.g. `generate_image('minimalist cybernetic falcon logo, vector, dark background', filename='public/logo.png')`).
+  - **CUSTOM ASSET PRINCIPLE:** Use `generate_image` whenever the user requests **custom, unique, bespoke, or fictional** visual content that stock photos cannot provide (e.g. custom company brand logos, game sprites, fictional UI graphics, app mascots, tailored illustrations). For standard real-world photos, use `media_search` + `media_download`.
+
 ### Math
 
 - `add(a, b)` — Add two numbers (useful for quick calculations).
@@ -184,6 +191,10 @@ Need to prove TypeScript code is sound before finishing? → `typecheck_workspac
 Need to prove a UI/frontend app actually renders before finishing? → `browser_navigate`, then `browser_snapshot` + `browser_screenshot`
 
 Started a dev server or web app? → `open_preview('http://localhost:3000')`
+
+Need standard real/stock photos or videos? → `media_search`, then `media_download`
+
+Need a custom logo, bespoke icon, or unique AI illustration? → `generate_image`
 
 Need to ask before choosing? → `clarify`
 
