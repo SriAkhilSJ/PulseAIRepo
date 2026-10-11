@@ -2,9 +2,11 @@
 import tempfile
 from pathlib import Path
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from src.runtime.quality_evaluator import UserAskQualityEvaluator, STUB_PATTERNS
 from src.runtime.step_tracker import StepTracker
+from src.graphs.gates import should_continue, finish_gate_node
 
 
 def test_quality_evaluator_all_deliverables_created_and_clean():
@@ -56,6 +58,27 @@ def test_quality_evaluator_detects_missing_file_and_stubs():
         assert any("Missing" in gap for gap in report.identified_gaps)
 
 
+def test_quality_evaluator_zero_mutation_failure_mode():
+    """Evaluates the desktop bug: model monologued with 0 tool calls and 0 files created.
+    Must fail severely (Grade D) rather than false positive 90+ score."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ws = Path(tmpdir)
+        evaluator = UserAskQualityEvaluator(str(ws))
+        report = evaluator.evaluate(
+            user_ask="Build a full-stack real-time analytics engine in backend.py and frontend.html",
+            marked_edits=[],
+            tool_records=[],
+            verification_status="passed",
+            final_assistant_message="Done.",
+        )
+
+        # Zero files created for an execution task MUST fail
+        assert report.quality_score < 50.0
+        assert report.quality_grade.startswith("D")
+        assert report.pillars["deliverables"].score == 0.0
+        assert any("Zero Mutation Failure" in gap for gap in report.identified_gaps)
+
+
 def test_quality_evaluator_negative_constraint_violation():
     """Evaluates when the user explicitly said 'no jQuery' or 'do not use external libraries' and agent violated it."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,3 +120,21 @@ def test_step_tracker_unified_champion_score():
         assert unified["unified_score"] >= 80.0
         assert "quality" in unified
         assert "runtime" in unified
+
+
+def test_gates_zero_work_execution_task_nudge():
+    """Hard gate test: when a model tries to stop without calling any mutation tools on an execution task,
+    should_continue must route to finish_gate, NOT finalize."""
+    state = {
+        "current_task": "Build a weather forecast app in app.py",
+        "messages": [
+            HumanMessage(content="Build a weather forecast app in app.py"),
+            AIMessage(content="I will think about how to structure this app..."),
+        ],
+        "finish_nudges": 0,
+        "iteration_used": 1,
+        "workspace": "/tmp",
+    }
+
+    route = should_continue(state)
+    assert route == "finish_gate"

@@ -2064,12 +2064,20 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # Honesty is independent of the bounded nudge budget. A run that exhausted
     # its continuation attempts is still unverified when required receipts are
     # absent; bounded routing must never turn missing evidence into a PASS.
-    from src.graphs.gates import _verification_ran_and_passed
+    from src.graphs.gates import _verification_ran_and_passed, _named_deliverables_exist
     from src.graphs.progress_helpers import trailing_batch_failed
     unverified = (
         _looks_like_execution_task(current_task)
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
+    )
+    # Zero Mutation / Empty Execution Check: if the user requested building or executing
+    # a task, but the turn finalized with zero files modified and no deliverable produced
+    # (e.g. model monologued without emitting mutation tools), report as incomplete/failed.
+    no_work_done = (
+        _looks_like_execution_task(current_task)
+        and not _wrote_code_files(state)
+        and not _named_deliverables_exist(state, state.get("workspace", "."))
     )
     # hermes turn-finalizer honesty (turn_finalizer.py::_resolve_budget_fallback
     # records max_iterations_reached(N/M)): a turn that ended because the
@@ -2089,7 +2097,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # (unrecovered — the model's final act was the failure) or D9-unverified
     # code marks the turn incomplete.
     trailing_failed = trailing_batch_failed(state.get("messages") or [])
-    task_succeeded = not unverified and not trailing_failed and not budget_cut
+    task_succeeded = not unverified and not trailing_failed and not budget_cut and not no_work_done
     if not task_succeeded:
         plan = finalize_plan(
             plan=list(state.get("plan", [])),

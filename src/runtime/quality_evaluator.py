@@ -152,10 +152,21 @@ class UserAskQualityEvaluator:
                 if path_val:
                     all_artifacts.add(str(path_val))
 
+        # Check if the prompt requested creating or modifying software
+        is_creation_intent = any(
+            marker in user_ask.lower()
+            for marker in (
+                "build", "create", "implement", "make", "scaffold", "write",
+                "develop", "add", "fix", "setup", "craft", "design", "compose",
+                "generate", "construct", "app", "application", "server", "api",
+                "dashboard", "portfolio", "timer", "component", "screen"
+            )
+        )
+
         # -----------------------------------------------------------------
         # Pillar 1: Requirement & Deliverable Fulfillment (35.0 pts)
         # -----------------------------------------------------------------
-        p1 = self._eval_requirement_and_deliverables(user_ask, all_artifacts)
+        p1 = self._eval_requirement_and_deliverables(user_ask, all_artifacts, is_creation_intent)
 
         # -----------------------------------------------------------------
         # Pillar 2: Instruction & Constraint Adherence (25.0 pts)
@@ -169,6 +180,8 @@ class UserAskQualityEvaluator:
             verification_status=verification_status,
             verification_receipts=verification_receipts,
             tool_records=tool_records,
+            all_artifacts=all_artifacts,
+            is_creation_intent=is_creation_intent,
         )
 
         # -----------------------------------------------------------------
@@ -249,7 +262,12 @@ class UserAskQualityEvaluator:
     # Internal Pillar Evaluators
     # ---------------------------------------------------------------------
 
-    def _eval_requirement_and_deliverables(self, user_ask: str, artifacts: set[str]) -> PillarScore:
+    def _eval_requirement_and_deliverables(
+        self,
+        user_ask: str,
+        artifacts: set[str],
+        is_creation_intent: bool = False,
+    ) -> PillarScore:
         score = 35.0
         details = []
         deductions = []
@@ -282,13 +300,21 @@ class UserAskQualityEvaluator:
                     missing_files.add(rf)
 
             if missing_files:
-                penalty = min(15.0, len(missing_files) * 5.0)
-                score -= penalty
-                deductions.append(f"Missing {len(missing_files)} requested file(s): {', '.join(sorted(missing_files))} (-{penalty:.1f} pts)")
+                # If nothing was created at all, penalize full deliverable budget
+                if not artifacts:
+                    score = 0.0
+                    deductions.append(f"🚨 [Zero Mutation Failure] Zero files created. Missing all {len(missing_files)} requested deliverable(s): {', '.join(sorted(missing_files))} (-35.0 pts)")
+                else:
+                    penalty = min(25.0, len(missing_files) * 10.0)
+                    score -= penalty
+                    deductions.append(f"Missing {len(missing_files)} requested file(s): {', '.join(sorted(missing_files))} (-{penalty:.1f} pts)")
             else:
                 details.append(f"All {len(matched_files)} explicitly requested file deliverables created successfully.")
         else:
-            if artifacts:
+            if not artifacts and is_creation_intent:
+                score = 0.0
+                deductions.append("🚨 [Zero Mutation Failure] User requested building software, but ZERO files were created or modified (-35.0 pts)")
+            elif artifacts:
                 details.append(f"Created/modified {len(artifacts)} workspace artifact(s).")
             else:
                 # If the user ask was a question or chat prompt, no files were needed
@@ -427,10 +453,19 @@ class UserAskQualityEvaluator:
         verification_status: str,
         verification_receipts: dict[str, Any],
         tool_records: list[dict[str, Any]],
+        all_artifacts: Optional[set[str]] = None,
+        is_creation_intent: bool = False,
     ) -> PillarScore:
         score = 25.0
         details = []
         deductions = []
+
+        all_artifacts = all_artifacts or set()
+
+        if is_creation_intent and not all_artifacts:
+            score = 0.0
+            deductions.append("Zero deliverables created: cannot verify soundness on non-existent code (-25.0 pts)")
+            return PillarScore("Verification & Soundness", 0.0, 25.0, "fail", details, deductions)
 
         # 1. Overall Status check (from gates / evidence ledger)
         status_clean = (verification_status or "passed").lower()
