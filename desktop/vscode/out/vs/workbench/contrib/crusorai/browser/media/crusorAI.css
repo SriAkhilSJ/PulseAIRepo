@@ -820,12 +820,70 @@
 .crusorai-clarify-late-hint { margin: 2px 0 0; padding: 0 6px; font-size: var(--crusorai-text-body); color: var(--vscode-descriptionForeground); }
 
 /* ── Hermes todo panel (the task tool) ── */
-.crusorai-todo-stack { display: grid; gap: 4px; }
-.crusorai-todo-list { display: grid; gap: 1px; }
+.crusorai-todo-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	flex-shrink: 0;
+	margin: 2px 0 4px;
+	padding: 3px 8px;
+	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.18));
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 85%, transparent);
+}
+.crusorai-todo-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 22px;
+	padding: 2px 4px;
+	border-radius: 4px;
+	cursor: pointer;
+	user-select: none;
+	font-size: var(--crusorai-text-meta, 12px);
+	transition: background 120ms ease;
+}
+.crusorai-todo-header:hover {
+	background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
+}
+.crusorai-todo-title {
+	font-weight: 600;
+	color: var(--vscode-foreground);
+}
+.crusorai-todo-active-preview {
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta, 12px);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1 1 auto;
+}
+.crusorai-todo-caret {
+	margin-left: auto;
+	color: var(--vscode-descriptionForeground);
+	display: flex;
+	align-items: center;
+}
+.crusorai-todo-list {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	max-height: 120px;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	padding-top: 2px;
+}
+.crusorai-todo-list.is-hidden { display: none; }
 .crusorai-todo-row {
 	display: flex; align-items: center; gap: 8px;
-	min-height: 20px; padding: 1px 8px;
+	min-height: 20px; padding: 1px 4px;
 	font-size: var(--crusorai-text-meta, 12px); color: var(--vscode-foreground);
+}
+.crusorai-todo-content {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1 1 auto;
 }
 .crusorai-todo-row.is-completed .crusorai-todo-content { color: var(--vscode-descriptionForeground); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--vscode-descriptionForeground) 60%, transparent); }
 .crusorai-todo-row.is-completed > .codicon, .crusorai-todo-row.is-completed > svg { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }

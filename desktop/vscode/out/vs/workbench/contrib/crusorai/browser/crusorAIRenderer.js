@@ -2028,6 +2028,7 @@ function clarifyCard(tool, host, _openTools, pending) {
 // glyphs, not spinner-and-dot — a dashed ring while pending, codicons once the
 // item resolves, a live spinner only on the in_progress item; depth-indented
 // subtasks; an X/Y count. Rendered ABOVE the composer, like upstream.
+let todoStackExpanded = false;
 function todoStack(model) {
     const todos = model.todos;
     if (!todos.length) {
@@ -2035,10 +2036,28 @@ function todoStack(model) {
     } // hermes: no active list, no panel
     const counted = todos.filter(t => t.status !== 'cancelled');
     const done = counted.filter(t => t.status === 'completed').length;
+    const active = todos.find(t => t.status === 'in_progress') || todos.find(t => t.status !== 'completed' && t.status !== 'cancelled');
     const stack = element('section', 'crusorai-todo-stack');
     stack.dataset.component = 'todo-stack';
-    stack.append(element('div', 'crusorai-section-heading', icon('list-ordered'), element('span', undefined, 'Tasks'), element('span', 'crusorai-section-count', `${done}/${counted.length}`)));
-    const list = element('div', 'crusorai-todo-list');
+    const caret = icon(todoStackExpanded ? 'chevron-down' : 'chevron-right');
+    const previewSpan = active ? element('span', 'crusorai-todo-active-preview', `· ${active.content}`) : undefined;
+    if (previewSpan && todoStackExpanded) {
+        previewSpan.style.display = 'none';
+    }
+    const heading = element('div', 'crusorai-todo-header', icon('list-ordered'), element('strong', 'crusorai-todo-title', 'Tasks'), element('span', 'crusorai-section-count', `${done}/${counted.length}`), previewSpan, element('span', 'crusorai-todo-caret', caret));
+    heading.addEventListener('click', () => {
+        todoStackExpanded = !todoStackExpanded;
+        list.classList.toggle('is-hidden', !todoStackExpanded);
+        const caretHost = heading.querySelector('.crusorai-todo-caret');
+        if (caretHost) {
+            caretHost.replaceChildren(icon(todoStackExpanded ? 'chevron-down' : 'chevron-right'));
+        }
+        if (previewSpan) {
+            previewSpan.style.display = todoStackExpanded ? 'none' : 'inline';
+        }
+    });
+    stack.append(heading);
+    const list = element('div', `crusorai-todo-list${todoStackExpanded ? '' : ' is-hidden'}`);
     for (const todo of todos) {
         const depth = todoDepth(todo, todos);
         const glyph = todoGlyph(todo.status);
