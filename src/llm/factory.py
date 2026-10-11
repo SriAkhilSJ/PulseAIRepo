@@ -1131,6 +1131,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             base_url="https://integrate.api.nvidia.com/v1",
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            stream_usage=True,
             max_retries=0,
             **reasoning_kwargs,
         )
@@ -1142,6 +1143,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            stream_usage=True,
             max_retries=0,
             **reasoning_kwargs,
         )
@@ -1167,6 +1169,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            stream_usage=True,
             max_retries=0,  # hermes #54465: RetryLLMProxy owns the retry policy
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,
@@ -1198,6 +1201,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=effective_timeout,
             streaming=streaming,
+            stream_usage=True,
             max_retries=0,  # hermes #54465: the proxy owns retries; SDK-hidden ones multiply wall time
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,

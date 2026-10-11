@@ -1,4 +1,9 @@
-from dotenv import load_dotenv, find_dotenv
+try:
+    from dotenv import load_dotenv, find_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs): pass
+    def find_dotenv(*args, **kwargs): return ""
+
 from pathlib import Path
 import os
 import sys
