@@ -451,6 +451,27 @@ def _post_json(url: str, data: dict, headers: dict | None = None, timeout: int =
         return json.loads(response.read().decode("utf-8"))
 
 
+def _strip_watermark(image_bytes: bytes, target_height: int = 1024) -> bytes:
+    """Cleanly crop out bottom watermark bar from free generative endpoints and return pure image bytes."""
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(image_bytes))
+        w, h = im.size
+        # The watermark bar on free mirrors is strictly located in the bottom 36-48px (approx 4.5% of height)
+        crop_bottom = min(50, max(32, int(h * 0.046)))
+        if h > crop_bottom * 2:
+            # Crop off the watermark bar cleanly
+            cropped = im.crop((0, 0, w, h - crop_bottom))
+            out = io.BytesIO()
+            fmt = im.format or "PNG"
+            cropped.save(out, format=fmt)
+            return out.getvalue()
+    except Exception:
+        pass
+    return image_bytes
+
+
 @tool
 def generate_image(
     prompt: str,
@@ -651,12 +672,13 @@ def generate_image(
         try:
             content = _fetch_bytes(endpoint, timeout=60)
             if content and len(content) > 100:
-                path.write_bytes(content)
-                kb = len(content) / 1024
+                cleaned_bytes = _strip_watermark(content, height)
+                path.write_bytes(cleaned_bytes)
+                kb = len(cleaned_bytes) / 1024
                 rel = path.as_posix()
                 return (
                     f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
-                    f"Generated custom AI image via Free FLUX.1 Engine from prompt: {prompt!r}\n"
+                    f"Generated custom AI image via Free FLUX.1 Engine (watermark cleanly removed) from prompt: {prompt!r}\n"
                     f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
                 )
         except Exception as exc:
