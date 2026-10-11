@@ -343,6 +343,9 @@
 .crusorai-tool-checks strong { margin-left: auto; color: var(--vscode-foreground); font-size: var(--crusorai-text-micro); text-transform: uppercase; }
 .crusorai-browser-snapshot { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
 .crusorai-browser-screenshot { display: block; max-width: 100%; max-height: 320px; margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
+.crusorai-media-preview-container { display: flex; align-items: center; justify-content: center; margin-top: 8px; padding: 6px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.08)); border-radius: 6px; overflow: hidden; }
+.crusorai-generated-image { display: block; max-width: 100%; max-height: 280px; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); transition: transform 0.2s ease; }
+.crusorai-generated-image:hover { transform: scale(1.02); cursor: pointer; }
 .crusorai-raw-call { margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
 .crusorai-raw-call summary { padding: 4px 6px; cursor: pointer; opacity: 0.85; }
 .crusorai-raw-call-pre { margin: 0; padding: 4px 8px; max-height: 160px; overflow: auto; }

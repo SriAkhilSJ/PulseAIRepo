@@ -729,20 +729,51 @@ function familyBody(tool, host) {
         body.append(element('div', 'crusorai-tool-actions', button('Open file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file'), copyButton(target, host)));
     }
     else if (presentation.family === 'file-write') {
-        const rawText = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
-        const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
-        const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
-        const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
-        const rows = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
-        // 'syntax valid' was a second always-true row; only surface a receipt the
-        // tool actually reported.
-        const receipt = firstString(result, ['receipt', 'syntax']);
-        if (receipt) {
-            rows.push(['Receipt', receipt]);
+        if (tool.name === 'generate_image' || tool.name === 'media_download') {
+            const rawResult = typeof tool.result === 'string' ? tool.result : '';
+            const savedMatch = /saved:\s*([^\s(]+)/i.exec(rawResult);
+            const savedPath = savedMatch?.[1] ?? firstString(args, ['filename']) ?? target;
+            const promptText = firstString(args, ['prompt']) ?? firstString(args, ['query']);
+            const sizeMatch = /\(([^)]+)\)/.exec(rawResult);
+            const rows = [['File', savedPath]];
+            if (promptText) {
+                rows.push(['Prompt', promptText]);
+            }
+            if (sizeMatch?.[1]) {
+                rows.push(['Details', sizeMatch[1]]);
+            }
+            body.append(toolFields(rows));
+            if (savedPath && tool.state !== 'failed') {
+                const src = host.resourceSrc(savedPath);
+                if (src) {
+                    const mediaWrap = element('div', 'crusorai-media-preview-container');
+                    const img = element('img', 'crusorai-generated-image');
+                    img.src = src;
+                    img.alt = promptText ? `Generated image: ${promptText}` : `Media ${savedPath}`;
+                    img.loading = 'lazy';
+                    img.onerror = () => { mediaWrap.remove(); };
+                    mediaWrap.append(img);
+                    body.append(mediaWrap);
+                }
+            }
+            body.append(element('div', 'crusorai-tool-actions', button('Reveal image in files', 'crusorai-link-button', () => host.revealFile(savedPath), 'file-media'), copyButton(savedPath, host)));
         }
-        body.append(toolFields(rows));
-        body.append(diffPreview(diff));
-        body.append(element('div', 'crusorai-tool-actions', button('Open native diff', 'crusorai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file')));
+        else {
+            const rawText = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
+            const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
+            const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
+            const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
+            const rows = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
+            // 'syntax valid' was a second always-true row; only surface a receipt the
+            // tool actually reported.
+            const receipt = firstString(result, ['receipt', 'syntax']);
+            if (receipt) {
+                rows.push(['Receipt', receipt]);
+            }
+            body.append(toolFields(rows));
+            body.append(diffPreview(diff));
+            body.append(element('div', 'crusorai-tool-actions', button('Open native diff', 'crusorai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file')));
+        }
     }
     else if (presentation.family === 'search') {
         body.append(toolFields([['Query', target], ['Scope', 'workspace'], ['Matches', firstString(result, ['matches', 'count']) ?? '—']]));
@@ -787,6 +818,8 @@ function familyBody(tool, host) {
                     const img = element('img', 'crusorai-browser-screenshot');
                     img.src = src;
                     img.alt = `Screenshot ${saved}`;
+                    img.loading = 'lazy';
+                    img.onerror = () => { img.remove(); };
                     body.append(img);
                 }
                 body.append(element('div', 'crusorai-tool-actions', button('Reveal screenshot', 'crusorai-link-button', () => host.revealFile(saved), 'device-camera'), copyButton(saved, host)));
