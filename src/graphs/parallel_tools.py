@@ -66,9 +66,9 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 FILE_PATH_TOOLS = frozenset({
     "read_file", "list_files", "search_files", "search_code",
-    "write_file", "edit_file",
+    "write_file", "edit_file", "media_download", "generate_image",
 })
-MUTATING_TOOLS = frozenset({"write_file", "edit_file"})
+MUTATING_TOOLS = frozenset({"write_file", "edit_file", "media_download", "generate_image"})
 WILDCARD_TOOLS = frozenset({
     "execute_code", "run_terminal", "start_terminal", "check_terminal",
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
@@ -94,7 +94,8 @@ def _batch_conflict(tool_calls: list[dict], workspace: str) -> bool:
         name = tc.get("name", "")
         if name not in FILE_PATH_TOOLS:
             continue
-        rel = (tc.get("args") or {}).get("path", ".")
+        args = tc.get("args") or {}
+        rel = args.get("path") or args.get("filename") or args.get("filepath") or "."
         entries.append((name in MUTATING_TOOLS, _resolved(workspace, rel)))
     for i in range(len(entries)):
         for j in range(i + 1, len(entries)):
