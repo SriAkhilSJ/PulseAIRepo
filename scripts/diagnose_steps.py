@@ -28,9 +28,21 @@ from src.runtime.step_tracker import print_step_report
 
 if __name__ == "__main__":
     session_id = None
-    if len(sys.argv) > 1:
-        if sys.argv[1] in ("--session", "-s") and len(sys.argv) > 2:
-            session_id = sys.argv[2]
+    user_ask = None
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--session", "-s") and i + 1 < len(args):
+            session_id = args[i + 1]
+            i += 2
+        elif arg in ("--ask", "-a", "--user-ask") and i + 1 < len(args):
+            user_ask = args[i + 1]
+            i += 2
+        elif not arg.startswith("-") and session_id is None:
+            session_id = arg
+            i += 1
         else:
-            session_id = sys.argv[1]
-    print_step_report(session_id)
+            i += 1
+
+    print_step_report(session_id, user_ask)

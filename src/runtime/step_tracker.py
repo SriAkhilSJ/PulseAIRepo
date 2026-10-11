@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from src.runtime.quality_evaluator import UserAskQualityEvaluator, QualityReport
+
 _TRACE_LOCK = threading.Lock()
 
 # Standard pricing table per 1M tokens ($ USD)
@@ -124,6 +126,11 @@ class StepTracker:
         self._current_step: Optional[StepRecord] = None
         self._step_counter = 0
         self.start_time = time.time()
+        self.user_ask: str = ""
+        self.marked_edits: list[str] = []
+        self.verification_status: str = "passed"
+        self.final_assistant_message: str = ""
+        self.verification_receipts: dict[str, Any] = {}
 
         # System-wide trace directory
         self.system_trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
@@ -133,11 +140,27 @@ class StepTracker:
 
         # Workspace diagnostics folder (always easily accessible)
         ws = Path(workspace_root) if workspace_root else Path.cwd()
+        self.workspace_root = ws
         self.workspace_diag_dir = ws / "diagnostics"
         self.workspace_traces_dir = self.workspace_diag_dir / "traces"
         self.workspace_diag_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_traces_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_trace_file = self.workspace_traces_dir / f"{self.session_id}.jsonl"
+
+    def set_user_ask(self, user_ask: str) -> None:
+        """Set or update the user's prompt instruction."""
+        if user_ask:
+            self.user_ask = str(user_ask).strip()
+
+    def set_final_message(self, message: str) -> None:
+        """Set the final assistant completion message."""
+        if message:
+            self.final_assistant_message = str(message).strip()
+
+    def set_verification_receipts(self, receipts: dict[str, Any]) -> None:
+        """Attach verified receipts (e.g. browser console errors, typechecks)."""
+        if receipts:
+            self.verification_receipts = dict(receipts)
 
     def start_step(self, node_name: str, state: Optional[dict[str, Any]] = None) -> StepRecord:
         """Called when a LangGraph node starts executing."""
@@ -149,6 +172,24 @@ class StepTracker:
 
         if state:
             v_status = str(state.get("verification_status") or "not_applicable")
+            self.verification_status = v_status
+            if not self.user_ask:
+                # Extract initial user ask from task or messages
+                task_candidate = state.get("current_task") or state.get("latest_instruction") or state.get("task")
+                if task_candidate:
+                    self.user_ask = str(task_candidate).strip()
+                elif "messages" in state and state["messages"]:
+                    for m in state["messages"]:
+                        m_type = getattr(m, "type", None) or type(m).__name__.lower()
+                        if "human" in m_type or "user" in m_type:
+                            self.user_ask = str(getattr(m, "content", "")).strip()
+                            break
+
+            if state.get("marked_edits"):
+                for edit_path in state["marked_edits"]:
+                    if edit_path not in self.marked_edits:
+                        self.marked_edits.append(str(edit_path))
+
             plan = state.get("plan") or []
             if plan:
                 done = sum(1 for p in plan if p.get("status") == "completed")
@@ -446,10 +487,45 @@ class StepTracker:
             "actionable_ideas": ideas,
         }
 
+    def compute_quality_score(self, user_ask: Optional[str] = None) -> QualityReport:
+        """Evaluate output quality, deliverable fulfillment, and constraint adherence against user prompt."""
+        ask_text = user_ask or self.user_ask or ""
+        all_tool_calls = [
+            {"name": tc.name, "args": tc.args_summary, "status": tc.status, "exit_code": tc.exit_code}
+            for s in self.steps
+            for tc in s.tool_calls
+        ]
+        runtime_perf = self.compute_performance_score()
+
+        evaluator = UserAskQualityEvaluator(str(self.workspace_root))
+        return evaluator.evaluate(
+            user_ask=ask_text,
+            session_id=self.session_id,
+            runtime_score=runtime_perf["score"],
+            marked_edits=self.marked_edits,
+            tool_records=all_tool_calls,
+            verification_status=self.verification_status,
+            final_assistant_message=self.final_assistant_message,
+            verification_receipts=self.verification_receipts,
+        )
+
+    def compute_unified_agent_score(self, user_ask: Optional[str] = None) -> dict[str, Any]:
+        """Compute complete multi-dimensional scorecard (Quality + Runtime Execution)."""
+        runtime = self.compute_performance_score()
+        quality_rep = self.compute_quality_score(user_ask)
+
+        return {
+            "unified_score": quality_rep.unified_score,
+            "unified_grade": quality_rep.unified_grade,
+            "quality": quality_rep.to_dict(),
+            "runtime": runtime,
+        }
+
     def _export_markdown_report(self) -> None:
-        """Export a clean Markdown audit report to diagnostics/ folder."""
+        """Export a clean Markdown audit report with both Runtime and Output Quality scorecards."""
         try:
             perf = self.compute_performance_score()
+            quality = self.compute_quality_score()
             total_tokens_in = sum(s.input_tokens for s in self.steps)
             total_tokens_out = sum(s.output_tokens for s in self.steps)
             cached_tokens = sum(s.cached_tokens for s in self.steps)
@@ -463,31 +539,56 @@ class StepTracker:
             )
 
             md = []
-            md.append(f"# 📊 Agent Performance & Diagnostics Audit")
+            md.append(f"# 📊 Agent Performance & Diagnostics Audit (Task Quality & Execution)")
             md.append(f"**Session ID:** `{self.session_id}`  ")
             md.append(f"**Generated At:** `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}`  ")
+            if self.user_ask:
+                md.append(f"**User Ask:** *\"{self.user_ask}\"*  ")
             md.append("")
             md.append("---")
-            md.append("## 🏆 Overall Health Scorecard")
+            md.append("## 🏆 Champion Agent Unified Scorecard")
+            md.append("")
+            md.append(f"| Dimension | Score | Grade | Weight |")
+            md.append(f"| :--- | :--- | :--- | :--- |")
+            md.append(f"| **Unified Benchmark Score** | **{quality.unified_score} / 100** | **`{quality.unified_grade}`** | **100%** |")
+            md.append(f"| 🎯 **Output Quality & Fulfillment** | **{quality.quality_score} / 100** | `{quality.quality_grade}` | 60% |")
+            md.append(f"| ⚡ **Runtime Execution & Economics** | **{perf['score']} / 100** | `{perf['grade']}` | 40% |")
+            md.append("")
+            md.append("---")
+            md.append("## 🎯 Output Quality & Intent Fulfillment Breakdown")
+            md.append("")
+            for p_key, p_val in quality.pillars.items():
+                p_dict = p_val.to_dict()
+                icon = "✅" if p_dict["status"] == "pass" else ("⚠️" if p_dict["status"] == "warning" else "❌")
+                md.append(f"### {icon} {p_dict['name']}: `{p_dict['score']} / {p_dict['max_score']}`")
+                for d in p_dict["details"]:
+                    md.append(f"- 🔹 {d}")
+                for ded in p_dict["deductions"]:
+                    md.append(f"- ⚠️ {ded}")
+                md.append("")
+
+            md.append("---")
+            md.append("## ⚡ Runtime Execution & Economics Scorecard")
             md.append("")
             md.append(f"| Metric | Result | Target |")
             md.append(f"| :--- | :--- | :--- |")
-            md.append(f"| **Overall Health Score** | **{perf['score']} / 100** (`{perf['grade']}`) | $\\ge 85$ (Grade A) |")
+            md.append(f"| **Runtime Health Score** | **{perf['score']} / 25** (`{perf['grade']}`) | $\\ge 85$ (Grade A) |")
             md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step) | $<5.0$s / step |")
             md.append(f"| **Total Token Usage** | {total_tokens_in:,} input / {total_tokens_out:,} output | Dynamic Bounded |")
             md.append(f"| **Prompt Cache Hit Rate** | {cache_val_str} | $\\ge 70\\%$ |")
             md.append(f"| **Estimated Cost** | **${total_cost:.4f} USD** | $< $0.05 / task |")
             md.append("")
-            md.append("### Score Breakdown")
+            md.append("### Runtime Sub-Scores")
             md.append(f"- **Latency Efficiency:** `{perf['breakdown']['latency_score']} / 25`")
             md.append(f"- **Prompt Cache Stability:** `{perf['breakdown']['cache_score']} / 25`")
             md.append(f"- **Tool Correctness & Safety:** `{perf['breakdown']['correctness_score']} / 25`")
             md.append(f"- **Batching & Concurrency:** `{perf['breakdown']['batching_score']} / 25`")
             md.append("")
             md.append("---")
-            md.append("## 💡 Actionable Improvement Ideas (How to Make it Better)")
+            md.append("## 💡 Actionable Improvement Ideas (How to Compete with Sharks)")
             md.append("")
-            for idea in perf["actionable_ideas"]:
+            all_ideas = quality.recommendations + perf["actionable_ideas"]
+            for idea in all_ideas:
                 md.append(f"- {idea}")
             md.append("")
             md.append("---")
@@ -531,7 +632,7 @@ class StepTracker:
             pass
 
 
-def print_step_report(session_id: Optional[str] = None) -> None:
+def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] = None) -> None:
     """CLI printer that renders a clean colored diagnostic view of the agent run."""
     if sys.platform == "win32":
         try:
@@ -562,10 +663,20 @@ def print_step_report(session_id: Optional[str] = None) -> None:
 
     target_file = trace_dir / f"{session_id}.jsonl"
     if not target_file.exists():
-        target_file = Path("diagnostics/traces") / f"{session_id}.jsonl"
-        if not target_file.exists():
-            print(f"❌ Trace file not found: {target_file}")
-            return
+        # Try prefix matching in trace_dir
+        matches = list(trace_dir.glob(f"*{session_id}*.jsonl"))
+        if matches:
+            target_file = matches[0]
+        else:
+            ws_matches = list((Path("diagnostics/traces")).glob(f"*{session_id}*.jsonl"))
+            if ws_matches:
+                target_file = ws_matches[0]
+            else:
+                target_file = Path("diagnostics/traces") / f"{session_id}.jsonl"
+
+    if not target_file.exists():
+        print(f"❌ Trace file not found for session: {session_id}")
+        return
 
     records = []
     with open(target_file, "r", encoding="utf-8") as f:
@@ -609,6 +720,7 @@ def print_step_report(session_id: Optional[str] = None) -> None:
     ]
 
     perf = tracker.compute_performance_score()
+    quality = tracker.compute_quality_score(user_ask)
     total_tokens_in = sum(s.input_tokens for s in tracker.steps)
     total_tokens_out = sum(s.output_tokens for s in tracker.steps)
     cached_tokens = sum(s.cached_tokens for s in tracker.steps)
@@ -621,15 +733,17 @@ def print_step_report(session_id: Optional[str] = None) -> None:
     )
 
     print("=" * 80)
-    print(f" 📊 CRUSORAI PERFORMANCE SCORECARD — Session: {session_id}")
+    print(f" 📊 CHAMPION AGENT EVALUATION REPORT — Session: {session_id}")
     print("=" * 80)
-    print(f"• Overall Health Score : {perf['score']}/100 [{perf['grade']}]")
-    print(f"• Total Steps          : {len(tracker.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step)")
-    print(f"• Total Tokens         : {total_tokens_in:,} in / {total_tokens_out:,} out")
-    print(f"• Prompt Cache Hit Rate: {cache_val_str}")
-    print(f"• Estimated Cost       : ${perf['metrics']['total_cost_usd']:.4f} USD")
+    print(f"• UNIFIED BENCHMARK SCORE : {quality.unified_score}/100 [{quality.unified_grade}]")
+    print(f"• 🎯 Output Quality Score : {quality.quality_score}/100 [{quality.quality_grade}]")
+    print(f"• ⚡ Runtime Health Score : {perf['score']}/100 [{perf['grade']}]")
+    print(f"• Total Steps & Duration  : {len(tracker.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step)")
+    print(f"• Total Tokens & Cost     : {total_tokens_in:,} in / {total_tokens_out:,} out (${perf['metrics']['total_cost_usd']:.4f} USD)")
+    print(f"• Prompt Cache Hit Rate   : {cache_val_str}")
     print("-" * 80)
-    print(f"  Score Breakdown: Latency: {perf['breakdown']['latency_score']}/25 | Cache: {perf['breakdown']['cache_score']}/25 | Correctness: {perf['breakdown']['correctness_score']}/25 | Batching: {perf['breakdown']['batching_score']}/25")
+    print(f"  Quality Pillars: Deliverables: {quality.pillars['deliverables'].score}/35 | Constraints: {quality.pillars['constraints'].score}/25 | Soundness: {quality.pillars['soundness'].score}/25 | Polish: {quality.pillars['presentation'].score}/15")
+    print(f"  Runtime Pillars: Latency: {perf['breakdown']['latency_score']}/25 | Cache: {perf['breakdown']['cache_score']}/25 | Tools: {perf['breakdown']['correctness_score']}/25 | Batching: {perf['breakdown']['batching_score']}/25")
     print("=" * 80)
 
     print(f"{'#':<3} | {'Node':<10} | {'Time':<6} | {'Tokens (In/Out)':<16} | {'Cache %':<8} | {'Tools Executed / Status':<28}")
@@ -658,7 +772,7 @@ def print_step_report(session_id: Optional[str] = None) -> None:
     print("\n" + "=" * 80)
     print(" 💡 ACTIONABLE IMPROVEMENT IDEAS (Saved to diagnostics/ folder):")
     print("=" * 80)
-    for idea in perf["actionable_ideas"]:
+    for idea in (quality.recommendations + perf["actionable_ideas"]):
         print(f" • {idea}")
     print("=" * 80 + "\n")
 
