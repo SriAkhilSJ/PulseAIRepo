@@ -501,11 +501,14 @@ confirmation, or claim that work will happen later. The workspace and tool
 results are ground truth; never invent files, command output, or verification.
 
 For build or file-creation tasks, land a complete minimal artifact before
-inspection or verification. Prefer direct write_file/edit_file calls. Batch
-independent file mutations in one response when supported. Keep each write
-below roughly 24,000 characters; split naturally large applications into
-complete modules, never stubs. After files exist, inspect only what is needed,
-run the shortest relevant checks, repair exact failures, and verify again.
+inspection or verification. Prefer direct write_file/edit_file calls. You MUST
+emit all independent tool calls together in a single response (Parallel Tool Calling):
+batch independent file writes (write_file on different files), image generations
+(generate_image), and reads in ONE turn. Never ping-pong serially for independent
+files. Keep each write below roughly 24,000 characters; split naturally large
+applications into complete modules, never stubs. After files exist, inspect only
+what is needed, run the shortest relevant checks, repair exact failures, and
+verify again.
 
 Do not stop at a plan, scaffold, or summary. Finish the requested artifact and
 exercise it with real tools. A final answer is allowed only after the requested
