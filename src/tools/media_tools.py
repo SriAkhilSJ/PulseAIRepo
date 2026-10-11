@@ -37,6 +37,7 @@ except ImportError:
     # Standalone fallback decorator
     def tool(fn):
         fn.invoke = lambda args: fn(**args) if isinstance(args, dict) else fn(args)
+        fn.name = fn.__name__
         return fn
 
 _USER_AGENT = "CrusorAI-Agent/1.0 (media tools)"
@@ -633,26 +634,37 @@ def generate_image(
         except Exception:
             pass
 
-    # 4. High-Quality Zero-Key Fallback (Pollinations AI)
-    # Allows image generation out of the box without requiring paid keys.
+    # 4. High-Quality Zero-Key Free FLUX Engine (Pollinations / Open-Access FLUX)
+    # Allows instant high-definition AI image generation out of the box with zero API keys or payment.
+    import random
+    seed = random.randint(1000, 999999)
     encoded_prompt = quote_plus(prompt)
-    fallback_url = (
-        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        f"?width={width}&height={height}&nologo=true&enhance=true&model=flux"
-    )
-    try:
-        content = _fetch_bytes(fallback_url, timeout=60)
-        if content and len(content) > 0:
-            path.write_bytes(content)
-            kb = len(content) / 1024
-            rel = path.as_posix()
-            return (
-                f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
-                f"Generated custom AI image from prompt: {prompt!r}\n"
-                f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
-            )
-    except Exception as exc:
-        return f"generate_image error: failed to generate image ({exc})"
+    
+    fallback_endpoints = [
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&enhance=true&model=flux&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&model=flux-realism&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&model=turbo&seed={seed}",
+    ]
+
+    last_error = None
+    for endpoint in fallback_endpoints:
+        try:
+            content = _fetch_bytes(endpoint, timeout=60)
+            if content and len(content) > 100:
+                path.write_bytes(content)
+                kb = len(content) / 1024
+                rel = path.as_posix()
+                return (
+                    f"saved: {rel} ({kb:.0f} KB, image/png, {width}x{height})\n"
+                    f"Generated custom AI image via Free FLUX.1 Engine from prompt: {prompt!r}\n"
+                    f"Reference it locally — e.g. src=\"{rel}\" / url('{rel}')."
+                )
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if last_error:
+        return f"generate_image error: failed to generate image ({last_error})"
 
     return "generate_image error: could not generate image from available providers"
 
