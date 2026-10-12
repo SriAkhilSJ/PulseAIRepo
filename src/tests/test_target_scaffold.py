@@ -1,18 +1,18 @@
 """Hermetic contracts for the deterministic mobile/desktop scaffolders.
 
-No Flutter SDK, no Expo, no Rust: each test puts a *fake* generator on PATH and
-asserts the boilerplate this module actually owns — validation, refusal to merge
-over an existing project, generation in a temp sibling, one install at the
-correct root, and ``_provided`` preservation.
+No Flutter SDK, Expo, or Rust installation is needed: happy-path tests stub the
+command runner and generated files, so they exercise the scaffold contract on
+Windows, macOS, and Linux alike. They cover validation, refusal to merge over an
+existing project, generation in a temp sibling, installation at the correct
+root, and ``_provided`` preservation.
 """
 from __future__ import annotations
 
-import os
-import stat
 from pathlib import Path
 
 import pytest
 
+import src.tools.target_scaffold as target_scaffold_module
 from src.tools.target_scaffold import (
     TARGET_SCAFFOLD_TOOLS,
     scaffold_flutter,
@@ -27,12 +27,22 @@ def _config(workspace: Path) -> dict:
     return {"configurable": {"workspace": str(workspace)}}
 
 
-def _fake_bin(directory: Path, name: str, script: str) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / name
-    path.write_text("#!/bin/sh\nset -eu\n" + script, encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return path
+def _stub_tool_runtime(monkeypatch, executables: dict[str, str]) -> None:
+    """Make scaffold happy paths hermetic and independent of the host OS/SDKs."""
+    monkeypatch.setattr(
+        target_scaffold_module,
+        "_resolve_tool",
+        lambda *tool_ids: next(
+            (executables[tool_id] for tool_id in tool_ids if tool_id in executables), ""
+        ),
+    )
+
+    def which(command: str) -> str | None:
+        normalized = command[:-4] if command.lower().endswith(".cmd") else command
+        return executables.get(normalized)
+
+    # React Native resolves npx directly rather than through _resolve_tool.
+    monkeypatch.setattr(target_scaffold_module.shutil, "which", which)
 
 
 @pytest.fixture()
@@ -127,23 +137,23 @@ def test_flutter_happy_path_merges_installs_and_preserves_inputs(tmp_path, clean
     workspace = tmp_path / "workspace"
     (workspace / "_provided").mkdir(parents=True)
     (workspace / "_provided" / "brief.md").write_text("# brief\n", encoding="utf-8")
-    bin_dir = tmp_path / "bin"
-    _fake_bin(
-        bin_dir, "flutter",
-        'if [ "$1" = "create" ]; then\n'
-        '  dir=""; for a in "$@"; do dir="$a"; done\n'
-        '  mkdir -p "$dir/lib"; printf \'name: demo\\n\' > "$dir/pubspec.yaml"\n'
-        '  printf \'void main() {}\\n\' > "$dir/lib/main.dart"\n'
-        '  printf \'generated-outside-workspace\\n\' > "$dir/.dart_tool"\n'
-        '  exit 0\n'
-        "fi\n"
-        'if [ "$1" = "pub" ]; then printf \'%s\\n\' "$*" >> "$FAKE_FLUTTER_LOG"; exit 0; fi\n'
-        "exit 1\n",
-    )
-    clean_env.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    log = tmp_path / "flutter.log"
-    clean_env.setenv("FAKE_FLUTTER_LOG", str(log))
+    _stub_tool_runtime(clean_env, {"flutter": "fake-flutter"})
+    calls: list[tuple[list[str], Path]] = []
 
+    def fake_run(argv, *, cwd, timeout):
+        calls.append((argv[1:], Path(cwd)))
+        if argv[1] == "create":
+            generated = Path(argv[-1])
+            (generated / "lib").mkdir(parents=True)
+            (generated / "pubspec.yaml").write_text("name: demo\n", encoding="utf-8")
+            (generated / "lib" / "main.dart").write_text("void main() {}\n", encoding="utf-8")
+            (generated / ".dart_tool").mkdir()
+            return 0, ""
+        if argv[1] == "pub":
+            return 0, ""
+        raise AssertionError(f"Unexpected fake Flutter command: {argv}")
+
+    clean_env.setattr(target_scaffold_module, "_run", fake_run)
     message = scaffold_flutter.invoke(
         {"project_name": "demo", "org": "com.acme", "platforms": "android,ios", "packages": ["http"]},
         config=_config(workspace),
@@ -152,11 +162,11 @@ def test_flutter_happy_path_merges_installs_and_preserves_inputs(tmp_path, clean
     assert message.startswith("✅"), message
     assert (workspace / "pubspec.yaml").is_file()
     assert (workspace / "lib" / "main.dart").is_file()
+    assert not (workspace / ".dart_tool").exists()
     assert (workspace / "_provided" / "brief.md").is_file()
     assert "http" in message
-    calls = log.read_text(encoding="utf-8").splitlines()
-    assert calls[0].startswith("pub get")
-    assert calls[1] == "pub add http"  # extras install at the root, not in the temp dir
+    assert [args for args, _ in calls[1:]] == [["pub", "get"], ["pub", "add", "http"]]
+    assert all(cwd == workspace for _, cwd in calls[1:])
     # generated temp sibling is gone; nothing nests one level too deep
     assert not any(p.name.startswith("crusor-scaffold-") for p in tmp_path.iterdir())
     assert not (workspace / "workspace").exists()
@@ -166,26 +176,24 @@ def test_react_native_happy_path_installs_extras_once_at_the_root(tmp_path, clea
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "_provided").mkdir()
-    bin_dir = tmp_path / "bin"
-    _fake_bin(
-        bin_dir, "npx",
-        'if [ "$1" = "create-expo-app@latest" ]; then\n'
-        '  dir="$2"; mkdir -p "$dir/app"; printf \'{"name":"demo"}\\n\' > "$dir/package.json"\n'
-        '  printf \'{"expo":{}}\\n\' > "$dir/app.json"\n'
-        '  mkdir -p "$dir/node_modules"; printf \'junk\\n\' > "$dir/node_modules/leftover"\n'
-        '  exit 0\n'
-        "fi\n"
-        "exit 1\n",
-    )
-    _fake_bin(
-        bin_dir, "npm",
-        'printf \'%s\\n\' "$*" >> "$FAKE_NPM_LOG"\n'
-        "exit 0\n",
-    )
-    clean_env.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    log = tmp_path / "npm.log"
-    clean_env.setenv("FAKE_NPM_LOG", str(log))
+    _stub_tool_runtime(clean_env, {"npx": "fake-npx", "npm": "fake-npm"})
+    calls: list[tuple[list[str], Path]] = []
 
+    def fake_run(argv, *, cwd, timeout):
+        if argv[0] == "fake-npx" and argv[1] == "create-expo-app@latest":
+            generated = Path(argv[2])
+            (generated / "app").mkdir(parents=True)
+            (generated / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+            (generated / "app.json").write_text('{"expo":{}}\n', encoding="utf-8")
+            (generated / "node_modules").mkdir()
+            (generated / "node_modules" / "leftover").write_text("junk\n", encoding="utf-8")
+            return 0, ""
+        if argv[0] == "fake-npm" and argv[1] == "install":
+            calls.append((argv[1:], Path(cwd)))
+            return 0, ""
+        raise AssertionError(f"Unexpected fake React Native command: {argv}")
+
+    clean_env.setattr(target_scaffold_module, "_run", fake_run)
     message = scaffold_react_native.invoke(
         {"project_name": "demo", "template": "blank-typescript", "packages": ["axios"]},
         config=_config(workspace),
@@ -196,28 +204,33 @@ def test_react_native_happy_path_installs_extras_once_at_the_root(tmp_path, clea
     assert (workspace / "app.json").is_file()
     # the generator's own node_modules must never be copied into the workspace
     assert not (workspace / "node_modules").exists()
-    assert log.read_text(encoding="utf-8").splitlines() == ["install axios --legacy-peer-deps"]
+    assert [args for args, _ in calls] == [["install", "axios", "--legacy-peer-deps"]]
+    assert calls[0][1] == workspace
 
 
 def test_tauri_happy_path_passes_identifier_and_keeps_src_tauri(tmp_path, clean_env):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    bin_dir = tmp_path / "bin"
-    _fake_bin(
-        bin_dir, "npm",
-        'if [ "$1" = "create" ]; then\n'
-        '  dir="$3"; shift 3; mkdir -p "$dir/src-tauri"\n'
-        '  printf \'{"identifier":"%s"}\\n\' "$(printf \'%s\' "$*" | sed -n \'s/.*--identifier \\([^ ]*\\).*/\\1/p\')" > "$dir/src-tauri/tauri.conf.json"\n'
-        '  printf \'{"name":"demo"}\\n\' > "$dir/package.json"\n'
-        '  exit 0\n'
-        "fi\n"
-        'printf \'%s\\n\' "$*" >> "$FAKE_NPM_LOG"\n'
-        "exit 0\n",
-    )
-    clean_env.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    log = tmp_path / "npm.log"
-    clean_env.setenv("FAKE_NPM_LOG", str(log))
+    _stub_tool_runtime(clean_env, {"npm": "fake-npm"})
+    calls: list[tuple[list[str], Path]] = []
 
+    def fake_run(argv, *, cwd, timeout):
+        if argv[0] == "fake-npm" and argv[1] == "create":
+            generated = Path(argv[3])
+            src_tauri = generated / "src-tauri"
+            src_tauri.mkdir(parents=True)
+            identifier = argv[argv.index("--identifier") + 1]
+            (src_tauri / "tauri.conf.json").write_text(
+                f'{{"identifier":"{identifier}"}}\n', encoding="utf-8"
+            )
+            (generated / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+            return 0, ""
+        if argv[0] == "fake-npm" and argv[1] == "install":
+            calls.append((argv[1:], Path(cwd)))
+            return 0, ""
+        raise AssertionError(f"Unexpected fake Tauri command: {argv}")
+
+    clean_env.setattr(target_scaffold_module, "_run", fake_run)
     message = scaffold_tauri.invoke(
         {"project_name": "demo", "identifier": "io.acme.demo", "frontend": "react-ts"},
         config=_config(workspace),
@@ -227,4 +240,5 @@ def test_tauri_happy_path_passes_identifier_and_keeps_src_tauri(tmp_path, clean_
     conf = (workspace / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8")
     assert "io.acme.demo" in conf
     assert "Rust is not installed" in message  # honest, actionable warning on this host
-    assert log.read_text(encoding="utf-8").splitlines() == ["install --legacy-peer-deps"]
+    assert [args for args, _ in calls] == [["install", "--legacy-peer-deps"]]
+    assert calls[0][1] == workspace
