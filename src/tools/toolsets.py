@@ -43,6 +43,10 @@ _EXECUTION_TOOLS: tuple[str, ...] = (
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
 )
 _VERIFICATION_TOOLS: tuple[str, ...] = ("typecheck_workspace",)
+_PLATFORM_TOOLS: tuple[str, ...] = (
+    "detect_platforms", "build_project", "test_project",
+    "run_ui_e2e", "scaffold_ui_e2e",
+)
 _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
     "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
 )
@@ -91,6 +95,7 @@ def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> l
         names.extend(_EXECUTION_TOOLS)
     if CAP_VERIFICATION in caps:
         names.extend(_VERIFICATION_TOOLS)
+        names.extend(_PLATFORM_TOOLS)
     if CAP_RESEARCH in caps and web_available(config):
         names.extend(_RESEARCH_TOOLS)
         names.extend(_MEDIA_TOOLS)
@@ -128,6 +133,7 @@ def all_known_tool_names() -> list[str]:
         *_WORKSPACE_WRITE_TOOLS,
         *_EXECUTION_TOOLS,
         *_VERIFICATION_TOOLS,
+        *_PLATFORM_TOOLS,
         *_RESEARCH_TOOLS,
         *_MEDIA_TOOLS,
         *_browser_tool_names(),

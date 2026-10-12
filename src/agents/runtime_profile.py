@@ -61,6 +61,9 @@ _BROWSER_PATTERNS = (
     r"\bcomponent\b", r"\bchat app\b", r"\bweb app(?:lication)?\b",
 )
 _CODE_PATTERNS = (
+    r"\bandroid\b", r"\bios app\b", r"\biphone\b", r"\bflutter\b", r"\breact native\b",
+    r"\bexpo\b", r"\belectron\b", r"\btauri\b", r"\bdesktop app\b", r"\bmobile app\b",
+    r"\bapk\b", r"\bemulator\b", r"\be2e\b", r"\bend[- ]to[- ]end ui\b",
     r"\bcode(?:base)?\b", r"\bbug\b", r"\bdebug\b", r"\brefactor\b",
     r"\bfunction\b", r"\bclass\b", r"\bmethod\b", r"\bmodule\b", r"\bapi\b",
     r"\bendpoint\b", r"\bcompile\b", r"\btypecheck\b", r"\blint\b",

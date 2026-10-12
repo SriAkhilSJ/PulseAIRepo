@@ -150,6 +150,7 @@ _VERIFY_NUDGE_BUDGET = 2
 
 _VERIFY_TOOL_NAMES = frozenset({
     "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes", "run_terminal",
+    "build_project", "test_project", "run_ui_e2e",
     "browser_navigate", "browser_snapshot", "browser_screenshot",
     "browser_click", "browser_type",
 })
@@ -678,6 +679,12 @@ def _fresh_verification_messages(state: AgentState) -> list[ToolMessage]:
     ]
 
 
+def _receipt_platform(content: str) -> str:
+    """Extract the PLATFORM: id from a platform receipt ('' when absent)."""
+    match = re.search(r"PLATFORM:\s*([a-z_]+)", content)
+    return match.group(1) if match else ""
+
+
 def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     """Aggregate evidence by domain instead of trusting the newest check.
 
@@ -694,8 +701,10 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "navigate": False,
         "snapshot": False,
         "screenshot": False,
+        "e2e": False,
     }
     seen: set[str] = set()
+    platforms_seen: set[str] = set()
     all_messages = list(state.get("messages", []))
 
     def tool_args(message: ToolMessage) -> dict:
@@ -724,6 +733,24 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             passed = content.startswith("✅") and "0 errors" in low
             status["typecheck"] = passed
             status["static"] = passed
+        elif name in {"build_project", "test_project"}:
+            # Platform build/unit-test receipts (web, Electron, Tauri, Flutter,
+            # React Native, Android, iOS, Python desktop). Only a real pass counts.
+            if content.startswith("✅ PLATFORM"):
+                status["static"] = True
+                platforms_seen.add(_receipt_platform(content))
+        elif name == "run_ui_e2e":
+            # End-to-end UI proof. A passing e2e run on a web/Electron/Tauri
+            # frontend is real browser proof, so it also satisfies the browser
+            # rendering domains.
+            if content.startswith("✅ UI E2E PASSED"):
+                status["e2e"] = True
+                platform = _receipt_platform(content)
+                platforms_seen.add(platform)
+                if platform in {"web", "electron", "tauri"}:
+                    status["navigate"] = True
+                    status["snapshot"] = True
+                    status["screenshot"] = True
         elif name == "run_terminal":
             command = str(tool_args(message).get("command", "")).lower()
             is_check = any(token in command for token in (
@@ -756,7 +783,12 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     status["integrity"] = not integrity_issues
 
     required = ["static", "integrity"]
-    if ui_task:
+    native_ui = bool(platforms_seen - {"web", "electron", "tauri", ""})
+    if ui_task and native_ui:
+        # Native app (Android, iOS, Flutter, React Native, Python desktop): a
+        # browser cannot drive it, so the UI proof is a passing end-to-end run.
+        required.append("e2e")
+    elif ui_task:
         # UI verification: requires successful navigation AND at least one of
         # DOM snapshot or visual screenshot (either proves page rendered).
         ui_rendered = bool(status.get("snapshot") or status.get("screenshot"))
