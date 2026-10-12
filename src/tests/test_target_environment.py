@@ -13,13 +13,11 @@ and no install advice for a target this host cannot run at all.
 """
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 
 import pytest
 
-from src.targets import toolchain
 from src.targets.contract import HOST_LINUX, HOST_MACOS, HOST_WINDOWS
 from src.targets.providers.base import tool_path
 from src.targets.toolchain import (
