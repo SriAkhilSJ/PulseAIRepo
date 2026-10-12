@@ -2528,11 +2528,11 @@ const thinkOptions: readonly { readonly id: CrusorReasoningEffortValue; readonly
 
 function thinkPicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLElement {
 	const details = element('details', 'crusorai-mode-picker crusorai-think-picker') as HTMLDetailsElement;
-	const current = model.reasoningEffort ?? '';
+	const current = model.reasoningEffort ?? 'none';
 	const summary = element('summary', 'crusorai-mode-summary',
-		element('span', undefined, current ? reasoningEffortLabel(current) : 'Think'),
+		element('span', undefined, reasoningEffortLabel(current)),
 		icon('chevron-down'));
-	summary.setAttribute('aria-label', `Thinking effort: ${current ? reasoningEffortLabel(current) : 'engine default'}`);
+	summary.setAttribute('aria-label', `Thinking effort: ${reasoningEffortLabel(current)}`);
 	if (model.running) {
 		summary.setAttribute('aria-disabled', 'true');
 		summary.addEventListener('click', event => event.preventDefault());
@@ -2541,7 +2541,7 @@ function thinkPicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTML
 	menu.setAttribute('role', 'menu');
 	menu.setAttribute('aria-label', 'Thinking effort');
 	for (const option of thinkOptions) {
-		const selected = option.id === current;
+		const selected = option.id === current || (!current && option.id === 'none');
 		const item = element('button', selected ? 'crusorai-mode-option is-selected' : 'crusorai-mode-option',
 			icon(option.id === 'none' ? 'circle-slash' : 'lightbulb'),
 			element('span', 'crusorai-mode-option-copy', element('strong', undefined, reasoningEffortLabel(option.id)), element('small', undefined, option.description)),

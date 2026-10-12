@@ -89,19 +89,11 @@ def _resolve_reasoning_config(configurable: dict | None = None) -> dict | None:
     The desktop's Think picker sends ``reasoning_effort`` on every prompt
     frame; the bridge threads it through ``stream_agent`` into
     ``configurable``. A manual pick therefore wins over the static
-    ``REASONING_EFFORT`` env var, which remains the fallback for surfaces
-    that do not send one (dashboard, direct graph callers). An unrecognized
-    value falls back the same way instead of breaking the turn.
+    ``REASONING_EFFORT`` env var.
 
-    Returns a parsed config dict suitable for passing to get_llm(), or None
-    when thinking is not configured (provider default applies).
-
-    Callers pass either the full RunnableConfig (ai_node) or the bare
-    configurable dict (unit tests, direct callers). Accept both shapes: the
-    2026-09-17 field bug was ai_node passing the full config while this
-    function read ``reasoning_effort`` off the top level, so the per-turn
-    Think-picker pick was silently dropped and every request fell back to the
-    static REASONING_EFFORT env var.
+    When thinking is not explicitly configured or set, default to disabled
+    (none / {"enabled": False}) so models never emit unwanted thinking tokens
+    and no Thought card appears unless the user explicitly chooses to enable it.
     """
     if (
         isinstance(configurable, dict)
@@ -114,9 +106,12 @@ def _resolve_reasoning_config(configurable: dict | None = None) -> dict | None:
         if parsed is not None:
             return parsed
     env_effort = _env_reasoning_effort()
-    if not env_effort:
-        return None
-    return parse_reasoning_effort(env_effort)
+    if env_effort:
+        parsed = parse_reasoning_effort(env_effort)
+        if parsed is not None:
+            return parsed
+    # Unset thinking defaults to disabled (none)
+    return {"enabled": False}
 
 
 def _drop_tool_pairs(messages: list) -> list:
@@ -2455,8 +2450,9 @@ class _AgentTokenPump(BaseCallbackHandler):
 
     run_inline = True
 
-    def __init__(self, thread_id: str, strip_tool_blocks: bool = False):
+    def __init__(self, thread_id: str, strip_tool_blocks: bool = False, enable_reasoning: bool = True):
         self._thread_id = thread_id
+        self.enable_reasoning = enable_reasoning
         self.streamed = False
         self._reasoning_acc = ""
         # Inline-think router (field 2026-09-17: zero Thinking cards on
@@ -2506,6 +2502,8 @@ class _AgentTokenPump(BaseCallbackHandler):
         with none stays silent, which is the honest state.
         """
         self._reasoning_acc += piece
+        if not self.enable_reasoning:
+            return
         self._think_seen = True  # reasoning already reached the client
         try:
             event_bus.emit("reasoning.update", {
@@ -2746,7 +2744,12 @@ def _invoke_with_token_pump(
     first token ~120 s = endpoint slow/silent (stall budget owns it);
     "non-streaming" = streaming got disabled upstream.
     """
-    pump = _AgentTokenPump(thread_id, strip_tool_blocks=strip_tool_blocks)
+    enable_reasoning = bool(reasoning_config and reasoning_config.get("enabled", False))
+    pump = _AgentTokenPump(
+        thread_id,
+        strip_tool_blocks=strip_tool_blocks,
+        enable_reasoning=enable_reasoning,
+    )
     _model_t0 = time.monotonic()
     try:
         result = call_llm.invoke(messages, config={"callbacks": [pump]})
@@ -2763,7 +2766,7 @@ def _invoke_with_token_pump(
     _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
         time.monotonic() - _model_t0
     )
-    if not pump._think_seen:
+    if enable_reasoning and not pump._think_seen:
         # Streamed but thought-less: some routers carry reasoning only on the
         # AGGREGATED response (reasoning_content), never on chunks. Flush it
         # FIRST (thought precedes the reply) so the Thinking card paints even

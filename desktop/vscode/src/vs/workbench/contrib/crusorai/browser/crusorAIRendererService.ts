@@ -96,8 +96,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private pendingHydration: string | undefined;
 	private draft = '';
 	private mode: CrusorExecutionMode = 'agent';
-	/** Think level ('' = inherit the engine's REASONING_EFFORT env default). */
-	private reasoningEffort: CrusorReasoningEffortValue | '' = '';
+	/** Think level ('none' = thinking disabled by default). */
+	private reasoningEffort: CrusorReasoningEffortValue | '' = 'none';
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
@@ -488,7 +488,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			engineSetupError: this.engineSetupError,
 			sessionId: this.sessionId,
 			mode: this.mode,
-			reasoningEffort: this.reasoningEffort || undefined,
+			reasoningEffort: this.reasoningEffort || 'none',
 			running: this.running,
 			cancelRequested: this.cancelRequested,
 			interrupt: this.interrupt,
@@ -1204,7 +1204,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private startTurn(text: string): void {
 		this.archiveLiveTurn();
 		this.resetTurnState(text);
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
+		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none' });
 		this.render();
 	}
 

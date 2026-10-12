@@ -61,10 +61,10 @@ def test_blank_or_unknown_per_turn_value_falls_back(monkeypatch):
     }
 
 
-def test_no_config_anywhere_resolves_to_none(monkeypatch):
+def test_no_config_anywhere_defaults_to_disabled(monkeypatch):
     monkeypatch.delenv("REASONING_EFFORT", raising=False)
-    assert _resolve_reasoning_config({}) is None
-    assert _resolve_reasoning_config(None) is None
+    assert _resolve_reasoning_config({}) == {"enabled": False}
+    assert _resolve_reasoning_config(None) == {"enabled": False}
 
 
 def test_per_turn_none_disables_thinking(monkeypatch):
