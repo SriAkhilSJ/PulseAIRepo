@@ -13,6 +13,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 | Agent runtime | `src/` | LangGraph workflow, tools, context engine ABC, safety gates, provider routing, persistence, and verification |
 | Desktop bridge | `src/bridge/` | Versioned newline-delimited JSON protocol over stdio |
 | Crusor Webview | `crusor-webview/` | CopilotKit React SPA (Vite) — fixed right-side AG-UI chat with generative cards. Vite `5173` → CopilotRuntime `8200` → FastAPI AG-UI agent `8123` |
+| Agent tracing | `src/runtime/otel_tracing.py` + `langfuse/` | OpenTelemetry spans (turn → node → llm → tool) exported to self-hosted Langfuse over OTLP — hermes langfuse-plugin parity, opt-in `CRUSORAI_OTEL=on`, local-only |
 | Reliability benchmark | `benchmarks/` | Scenario contracts, drivers, grading, and report generation |
 | Tests | `src/tests/` and `crusor-webview/` | Runtime, bridge, desktop-boundary, branding, and webview e2e |
 | Design and engineering docs | `docs/` | Current architecture, roadmap, benchmark, and design decisions |
@@ -53,6 +54,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - Task-aware bounded context assembly (32 layers, the pluggable Hermes-parity `ContextEngine` ABC), repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
 - Usage-driven compaction: the engine owns the compaction decision from the provider's ACTUAL token usage (75% of the real window), tightens the history budget toward the lean tail while pressure persists, and re-arms after relaxation.
 - Prompt-cache prefix audit with **cache-break detection** (a regression of the stable prefix — >5% and >~2000 tokens below the session peak — is a latched `runtime.cache_break` receipt naming the offending layer) and a unified `get_status()` telemetry surface.
+- **Agent tracing** (`src/runtime/otel_tracing.py`): opt-in OpenTelemetry spans in hermes langfuse-plugin shape — a root turn span, one span per graph node, a generation span per LLM call (model, provider, token usage), and a span per tool (redacted args, logical status) — exported over OTLP to a self-hosted Langfuse (`langfuse/docker-compose.yml`, official upstream compose). Env-gated `CRUSORAI_OTEL=on`, local-only, fail-closed (tracing can never break a turn).
 - Memory layers sanitize untrusted content (secret redaction + 6k cap) before it reaches the prompt.
 - Event-safe pipeline: session-scoped SSE delivery (a session can never observe another's events, live or on replay), bounded history/replay that always keeps the NEWEST state, evicted dead subscribers, unique event ids, tool events that survive compaction strictly paired (no unanswered `tool_calls` — APIs reject those), latched once-per-session `runtime.*` receipts with bounded thread-scoped payloads, and approvals that fail closed (cross-session resolve rejected, timeout = deny). Pinned by `src/tests/test_event_safety.py` (21 contracts).
 - Lazy persistent memory with local embedding cache only by default; graph import never downloads a model.

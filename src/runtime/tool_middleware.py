@@ -34,6 +34,16 @@ def execute_tool_transaction(
         workspace_id=workspace_id(workspace), tool_call_id=tool_call_id,
     )
 
+    # OTel tool span (no-op unless CRUSORAI_OTEL=on); reflects the LOGICAL
+    # status, which is only known after the outcome heuristics below.
+    try:
+        from src.runtime.otel_tracing import tool_span_start
+
+        span = tool_span_start(name, args)
+    except Exception:
+        span = None
+    tool_error: Exception | None = None
+
     status = "ok"
     try:
         raw = invoke()
@@ -59,6 +69,7 @@ def execute_tool_transaction(
         ):
             status = "error"
     except Exception as exc:
+        tool_error = exc
         status = "error"
         content = f"Error: {name}() failed: {type(exc).__name__}: {exc}"
         try:
@@ -66,6 +77,12 @@ def execute_tool_transaction(
             content = redact_sensitive_text(content, force=True)
         except Exception:
             pass
+    try:
+        from src.runtime.otel_tracing import tool_span_end
+
+        tool_span_end(span, status=status, error=tool_error)
+    except Exception:
+        pass
 
     persisted = services.journal.append(
         "tool.result", {"tool_name": name, "status": status, "content": content},
