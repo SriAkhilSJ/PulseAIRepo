@@ -5,6 +5,33 @@ claim gap were found by running the repo's own hermetic suite against the shippe
 code; all four are fixed here, each with a regression pin that fails against the
 old code. CI was added — the repo had none, which is *how* these shipped.
 
+## 2026-10-12 follow-up: Reliability Metrics Engine
+
+New `src/runtime/reliability_metrics.py` brings the multi-trial evaluators the
+suite previously lacked, each pinned to the strongest open-source standard:
+
+- **pass@k** — unbiased combinatorial estimator `1 − C(n−c,k)/C(n,k)`
+  (HumanEval / Chen et al. 2021). The naive `(c/n)^k` plug-in samples with
+  replacement and biases upward; deliberately not implemented.
+- **pass^k** — exact `C(c,k)/C(n,k)`. The capability/reliability gap IS the
+  flakiness story: 80% pass@1 ⇒ ~33% pass^5 (Cline `metrics.ts`,
+  τ-bench pass^k formulation).
+- **Wilson CI** — calibrated for small n; the textbook Wald interval is
+  anti-conservative below n=30.
+- **ICC(1)** — one-way random effects, n0-corrected; near 0 means a single run
+  is a coin flip, not a measurement.
+- **Cost-per-correct-edit** — Aider's CFO-grade $/edit; raw price-per-token is
+  deceptive because inefficient models burn cheap tokens in retry loops.
+- **Attributable test-execution parsing** — SWE-bench `grading.py` lesson:
+  `Executed 0 of 0` under FAIL_ONLY eval scores every test as passing; parsed
+  output with zero counts is INVALID, not a pass.
+- **Honest-UNKNOWN rule** — pass@k is never estimated from fewer than k trials.
+
+`quality_evaluator.py` gained an economics pillar (cost/edit + tool efficiency),
+attributable verification-proof in Soundness, and malformed-response detection
+in Polish. `diagnose_steps.py` prints the reliability footer on every report.
+42/42 quality+reliability tests green; broad regression 70/70.
+
 ## What changed
 
 | # | Defect (audit) | Fix | Files |
