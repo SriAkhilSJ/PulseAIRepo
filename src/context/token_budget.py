@@ -8,7 +8,10 @@ This file makes sure we don't send too many words to the AI.
 Every AI has a "token limit" (like a max word count).
 If we go over, the AI gets confused or the API rejects us.
 """
-import tiktoken
+try:
+    import tiktoken
+except ImportError:
+    tiktoken = None
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from src.config.settings import CONTEXT_MODEL

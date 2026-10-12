@@ -72,6 +72,98 @@ class _AbortState:
         with self.lock:
             self._async_targets.discard((loop, task))
 
+    def _owner_transport_closed(self) -> bool:
+        """True when the provider's resolved httpx transport reports closed.
+
+        The abort state is per proxy instance but langchain-openai's default
+        httpx clients are process-global lru-cached singletons: an abort on
+        one turn poisons turns whose proxies never aborted. Probe the actual
+        transport instead of trusting this instance's flag.
+        """
+        seen: set[int] = set()
+        for root_attr in ("client", "async_client", "root_client", "root_async_client"):
+            try:
+                current = getattr(self.owner, root_attr, None)
+            except Exception:
+                continue
+            for _ in range(6):
+                if current is None or id(current) in seen:
+                    break
+                seen.add(id(current))
+                try:
+                    # openai SDK v2 exposes is_closed as a bound METHOD,
+                    # httpx as a bool property — normalize both.
+                    flag = getattr(current, "is_closed", False)
+                    if callable(flag):
+                        try:
+                            flag = flag()
+                        except Exception:
+                            flag = False
+                    if flag:
+                        return True
+                except Exception:
+                    pass
+                try:
+                    current = getattr(current, "_client", None)
+                except Exception:
+                    break
+        return False
+
+    def _heal_closed_transport(self) -> None:
+        """Evict + rebuild when the resolved transport reports closed.
+
+        Shared by reset() (long-lived proxies) and birth-heal at proxy
+        construction (fresh proxies born onto a poisoned process-global
+        cache). Never raises; fakes without SDK clients are no-ops.
+        """
+        if not self._owner_transport_closed():
+            # Pooled transports are healthy; keep them instead of churning
+            # fresh TCP+TLS handshakes on every model call.
+            return
+        # The resolved transport is closed — typically an abort ran
+        # _close_owner_transport, which walks down to langchain-openai's
+        # lru-cached SHARED httpx client. Rebuilding the SDK clients alone
+        # would reuse that closed shared transport (deterministic post-Esc
+        # APIConnectionError), so evict the caches first and rebuild fresh.
+        try:
+            from langchain_openai.chat_models import _client_utils as _lco_clients
+            for _fn in ("_cached_sync_httpx_client", "_cached_async_httpx_client"):
+                _cached = getattr(_lco_clients, _fn, None)
+                _clear = getattr(_cached, "cache_clear", None)
+                if callable(_clear):
+                    try:
+                        _clear()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # Reset any closed client on the underlying provider so LangChain recreates it
+        for attr in ("client", "async_client", "root_client", "_client", "_async_client"):
+            if hasattr(self.owner, attr):
+                try:
+                    setattr(self.owner, attr, None)
+                except Exception:
+                    pass
+        # langchain-openai builds those clients exactly once, in
+        # validate_environment at construction time. A nulled client left
+        # as None makes every later sync invoke raise "Sync client is not
+        # available", so re-run the validator to rebuild fresh transports
+        # now. Owners without the validator (fakes) keep flag-only reset.
+        revalidate = getattr(self.owner, "validate_environment", None)
+        if callable(revalidate):
+            try:
+                revalidate()
+            except Exception:
+                pass
+
+    def reset(self) -> None:
+        """Reset abort state for a fresh turn so a new request can proceed."""
+        with self.lock:
+            self.aborted = False
+            self.event.clear()
+            self._async_targets.clear()
+        self._heal_closed_transport()
+
     def abort(self) -> None:
         with self.lock:
             if self.aborted:
@@ -331,6 +423,14 @@ class RetryLLMProxy:
         self._llm = llm
         self._max_attempts = max_attempts
         self._abort_state = _abort_state or _AbortState(llm)
+        # Birth-heal: ai_node builds a fresh proxy per model call, so a proxy
+        # can be born onto langchain-openai's poisoned process-global httpx
+        # cache after another turn's abort. Heal now (no-op when healthy or
+        # for fakes) rather than failing the first invoke deterministically.
+        try:
+            self._abort_state._heal_closed_transport()
+        except Exception:
+            pass
         # Lazily resolved when PROVIDER_SAFE_LIMIT=0 (auto mode); memoized
         # so per-invoke guard checks never re-read the disk cache.
         self._auto_limit: int | None = None
@@ -427,6 +527,8 @@ class RetryLLMProxy:
         # gate below raises without starting provider traffic.
         sid = active_session()
         abort_handle = self.abort
+        if sid is not None and not turn_controls.cancelled(sid):
+            self._abort_state.reset()
         # LangChain's synchronous invoke() owns and drains its configured
         # streaming iterator. Wrapping streaming=True in a fresh async loop
         # left Response.aiter_raw pending in desktop Attempt 8 and obscured
@@ -1029,6 +1131,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             base_url="https://integrate.api.nvidia.com/v1",
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            stream_usage=True,
             max_retries=0,
             **reasoning_kwargs,
         )
@@ -1040,6 +1143,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            stream_usage=True,
             max_retries=0,
             **reasoning_kwargs,
         )
@@ -1065,6 +1169,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
             streaming=streaming_enabled(default=True),
+            stream_usage=True,
             max_retries=0,  # hermes #54465: RetryLLMProxy owns the retry policy
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,
@@ -1096,6 +1201,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             model=model,
             request_timeout=effective_timeout,
             streaming=streaming,
+            stream_usage=True,
             max_retries=0,  # hermes #54465: the proxy owns retries; SDK-hidden ones multiply wall time
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,

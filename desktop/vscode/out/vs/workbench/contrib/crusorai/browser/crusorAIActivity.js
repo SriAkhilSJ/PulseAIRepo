@@ -13,16 +13,16 @@ import { isSilentTool } from './crusorAIRunSummary.js';
  * silent -- a row that appeared for 300ms between every call would strobe down a long run --
  * short enough that a real gap is timed almost as soon as it starts.
  */
-export var TURN_QUIET_S = 2;
+export const TURN_QUIET_S = 2;
 /**
  * Long enough that a tool whose arguments arrive in a few frames never gets to strobe a label,
  * short enough that a real wait is named almost immediately.
  */
-export var DRAFTING_REVEAL_MS = 200;
+export const DRAFTING_REVEAL_MS = 200;
 /** Compaction is in flight -- it outranks every other hint. */
-export var COMPACTION_LABEL = 'Summarizing thread';
+export const COMPACTION_LABEL = 'Summarizing thread';
 /** The row's `aria-label` and the visible label's stand-in when there is nothing to name yet. */
-export var UNNAMED_WAIT_LABEL = 'Crusor is working';
+export const UNNAMED_WAIT_LABEL = 'Crusor is working';
 /**
  * What the tail message has produced so far, as a value that changes exactly when the turn
  * makes visible progress.
@@ -33,10 +33,9 @@ export var UNNAMED_WAIT_LABEL = 'Crusor is working';
  * the same silence and dates the gap after it from whenever the call started.
  */
 export function activitySignature(parts) {
-    var textLength = 0;
-    var settledTools = 0;
-    for (var _i = 0, parts_1 = parts; _i < parts_1.length; _i++) {
-        var part = parts_1[_i];
+    let textLength = 0;
+    let settledTools = 0;
+    for (const part of parts) {
         if (typeof part.text === 'string') {
             textLength += part.text.length;
         }
@@ -44,7 +43,7 @@ export function activitySignature(parts) {
             settledTools += 1;
         }
     }
-    return "".concat(parts.length, ":").concat(textLength, ":").concat(settledTools);
+    return `${parts.length}:${textLength}:${settledTools}`;
 }
 /**
  * Whether a tool call is already narrating this wait.
@@ -54,7 +53,7 @@ export function activitySignature(parts) {
  * the reasoning disclosure, so a wait on one of those is as unnarrated as a wait on nothing.
  */
 export function toolNarratesWait(parts) {
-    return parts.some(function (part) { var _a; return part.type === 'tool-call' && part.result === undefined && !isSilentTool((_a = part.toolName) !== null && _a !== void 0 ? _a : ''); });
+    return parts.some(part => part.type === 'tool-call' && part.result === undefined && !isSilentTool(part.toolName ?? ''));
 }
 /**
  * The fork's copy of upstream's timer registry (`model/activity-timer.ts`), which exists because
@@ -63,23 +62,21 @@ export function toolNarratesWait(parts) {
  * and a finished duration would be lost the moment its row scrolled away. Keyed, module-level,
  * and never cleared between renders -- `closeMeasurement` retires an origin and remembers it.
  */
-var startedAtByKey = new Map();
-var durationByKey = new Map();
+const startedAtByKey = new Map();
+const durationByKey = new Map();
 /** Whole seconds since this key's origin, arming the origin on first use. */
 export function elapsedFor(key, now) {
-    var _a;
-    var origin = (_a = startedAtByKey.get(key)) !== null && _a !== void 0 ? _a : now;
+    const origin = startedAtByKey.get(key) ?? now;
     startedAtByKey.set(key, origin);
     return Math.max(0, Math.floor((now - origin) / 1000));
 }
 /** Stop watching `key` and keep the number. Idempotent: closing twice reports the same duration. */
 export function closeMeasurement(key, now) {
-    var _a;
-    var origin = startedAtByKey.get(key);
+    const origin = startedAtByKey.get(key);
     if (origin === undefined) {
         return durationByKey.get(key);
     }
-    var finalElapsed = Math.max((_a = durationByKey.get(key)) !== null && _a !== void 0 ? _a : 0, Math.floor((now - origin) / 1000));
+    const finalElapsed = Math.max(durationByKey.get(key) ?? 0, Math.floor((now - origin) / 1000));
     durationByKey.set(key, finalElapsed);
     startedAtByKey.delete(key);
     return finalElapsed;
@@ -91,9 +88,9 @@ export function measuredDuration(key) {
 /** `45s`, then `1:05`. Never a moving decimal: a ticking fraction reads as a benchmark. */
 export function formatElapsed(seconds) {
     if (seconds < 60) {
-        return "".concat(seconds, "s");
+        return `${seconds}s`;
     }
-    return "".concat(Math.floor(seconds / 60), ":").concat(String(seconds % 60).padStart(2, '0'));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 /** Whole seconds since `origin`; 0 when there is no origin yet or the clock went backwards. */
 export function elapsedSeconds(now, origin) {
@@ -103,7 +100,7 @@ export function elapsedSeconds(now, origin) {
     return Math.max(0, Math.floor((now - origin) / 1000));
 }
 /** The settled states of the fork's tool lifecycle -- `result` presence is what upstream reads. */
-var SETTLED_STATES = new Set(['completed', 'passed', 'failed', 'cancelled']);
+const SETTLED_STATES = new Set(['completed', 'passed', 'failed', 'cancelled']);
 /**
  * The fork's render model, expressed as the part list upstream computes over.
  *
@@ -112,25 +109,23 @@ var SETTLED_STATES = new Set(['completed', 'passed', 'failed', 'cancelled']);
  * which is the same signal the webview gets from the store.
  */
 export function activityParts(model) {
-    var _a;
-    var parts = [];
+    const parts = [];
     if (model.reasoning) {
         parts.push({ type: 'reasoning', text: model.reasoning });
     }
     if (model.assistantText) {
         parts.push({ type: 'text', text: model.assistantText });
     }
-    for (var _i = 0, _b = model.tools; _i < _b.length; _i++) {
-        var tool = _b[_i];
-        var settled = SETTLED_STATES.has(tool.state);
-        parts.push({ type: 'tool-call', toolName: tool.name, result: settled ? (_a = tool.result) !== null && _a !== void 0 ? _a : true : undefined });
+    for (const tool of model.tools) {
+        const settled = SETTLED_STATES.has(tool.state);
+        parts.push({ type: 'tool-call', toolName: tool.name, result: settled ? tool.result ?? true : undefined });
     }
     return parts;
 }
 /** The call the wait is named after: the newest one still in flight, if any. */
 export function draftingToolName(tools) {
-    for (var index = tools.length - 1; index >= 0; index--) {
-        var tool = tools[index];
+    for (let index = tools.length - 1; index >= 0; index--) {
+        const tool = tools[index];
         if (tool.state === 'running' || tool.state === 'queued' || tool.state === 'pending') {
             return tool.name;
         }
@@ -173,6 +168,5 @@ export function activityRowMode(input) {
  * turn's start; anything else counts from the moment the turn last produced something.
  */
 export function activityOrigin(input) {
-    var _a;
-    return input.compacting ? input.turnStartedAt : ((_a = input.quietSince) !== null && _a !== void 0 ? _a : input.turnStartedAt);
+    return input.compacting ? input.turnStartedAt : (input.quietSince ?? input.turnStartedAt);
 }

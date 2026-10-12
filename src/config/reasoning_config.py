@@ -20,14 +20,21 @@ logger = logging.getLogger(__name__)
 # ── Effort ladder (Hermes-compatible) ─────────────────────────────────
 VALID_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max", "ultra")
 
-# Anthropic adaptive-thinking effort levels and their budget_tokens fallback.
-# Claude 4.6 only exposes low/medium/high/max; xhigh arrived with 4.7.
-ANTHROPIC_BUDGET_TOKENS: dict[str, int] = {
+# Standard thinking budget token ladder across providers
+THINKING_BUDGET_TOKENS: dict[str, int] = {
+    "ultra": 32000,
+    "max": 32000,
     "xhigh": 32000,
     "high": 16000,
     "medium": 8000,
     "low": 4000,
+    "minimal": 2048,
+    "none": 0,
 }
+
+# Anthropic adaptive-thinking effort levels and their budget_tokens fallback.
+# Claude 4.6 only exposes low/medium/high/max; xhigh arrived with 4.7.
+ANTHROPIC_BUDGET_TOKENS: dict[str, int] = THINKING_BUDGET_TOKENS
 
 ANTHROPIC_ADAPTIVE_EFFORT_MAP: dict[str, str] = {
     "ultra": "max",
@@ -102,26 +109,55 @@ def build_model_kwargs_for_reasoning(
 ) -> dict[str, Any]:
     """Build extra kwargs to inject into the LangChain LLM constructor.
 
-    These kwargs become ``model_kwargs`` on ChatOpenAI / ChatGroq, which are
-    forwarded verbatim in the HTTP request body.
+    These kwargs become ``model_kwargs`` or native constructor parameters on
+    ChatOpenAI / ChatGroq / ChatGoogleGenerativeAI, which are forwarded
+    verbatim in the HTTP request body.
 
-    Provider-specific wire mapping (following Hermes anthropic_adapter):
+    Provider-specific wire mapping:
       - Anthropic: ``thinking`` + ``output_config`` (adaptive) or
         ``thinking`` + ``budget_tokens`` + ``temperature=1`` (manual)
-      - OpenAI-compatible: ``reasoning_effort`` (o-series, GPT-5)
-      - DeepSeek: ``reasoning_content`` is already handled by StreamingPump;
-        this just sets the effort hint if the endpoint supports it.
+      - OpenAI / Custom / Cheap: ``reasoning_effort`` + ``extra_body`` thinking
+        token caps to strictly prevent unbounded thinking latency runaway.
+      - Groq: ``reasoning_effort`` + ``reasoning_format``
+      - Gemini: ``thinking_budget``
+      - NVIDIA: ``reasoning_effort`` + ``extra_body``
     """
     if not reasoning_config or not reasoning_config.get("enabled"):
         if reasoning_config and not reasoning_config.get("enabled"):
-            # Explicit disable
-            if provider == "anthropic" and _is_claude(model):
+            # Explicit disable across provider adapters
+            if provider == "anthropic":
                 return {"thinking": {"type": "disabled"}}
-            # OpenAI/o-series: no wire-level disable; omit reasoning_effort
+            if provider in ("custom", "cheap"):
+                return {
+                    "reasoning_effort": "none",
+                    "extra_body": {
+                        "reasoning": {"effort": "none", "max_tokens": 0},
+                        "thinking": {"type": "disabled", "budget_tokens": 0},
+                        "chat_template_kwargs": {"thinking": False},
+                    },
+                }
+            if provider == "openai":
+                return {
+                    "reasoning_effort": "none",
+                    "extra_body": {
+                        "reasoning": {"effort": "none", "max_tokens": 0},
+                        "thinking": {"type": "disabled", "budget_tokens": 0},
+                    },
+                }
+            if provider == "groq":
+                return {
+                    "reasoning_effort": "none",
+                    "reasoning_format": "hidden",
+                }
+            if provider == "gemini":
+                return {"thinking_budget": 0}
+            if provider == "nvidia":
+                return {"reasoning_effort": "none"}
             return {}
         return {}
 
     effort = reasoning_config.get("effort", "medium")
+    budget = THINKING_BUDGET_TOKENS.get(effort, 8000)
 
     # ── Anthropic (Claude) ────────────────────────────────────────────
     if provider == "anthropic":
@@ -136,32 +172,50 @@ def build_model_kwargs_for_reasoning(
             return kwargs
         else:
             # Legacy manual thinking
-            budget = ANTHROPIC_BUDGET_TOKENS.get(effort, 8000)
             return {
                 "thinking": {"type": "enabled", "budget_tokens": budget},
                 "temperature": 1,
             }
 
     # ── OpenAI (o-series, GPT-5) ─────────────────────────────────────
-    if provider in ("openai", "custom", "cheap"):
-        # OpenAI uses reasoning_effort in the request body for o-series/GPT-5.
-        # ChatOpenAI passes model_kwargs verbatim.
-        return {"reasoning_effort": effort}
+    if provider == "openai":
+        return {
+            "reasoning_effort": effort,
+            "extra_body": {
+                "reasoning": {"effort": effort, "max_tokens": budget},
+                "thinking": {"type": "enabled", "budget_tokens": budget},
+            },
+        }
+
+    # ── Custom / Cheap OpenAI-compatible (Velona, OpenRouter, DeepSeek, GLM, Qwen) ──
+    if provider in ("custom", "cheap"):
+        return {
+            "reasoning_effort": effort,
+            "extra_body": {
+                "reasoning": {"effort": effort, "max_tokens": budget},
+                "thinking": {"type": "enabled", "budget_tokens": budget},
+                "chat_template_kwargs": {"thinking": True},
+            },
+        }
 
     # ── Groq (openai-compatible) ──────────────────────────────────────
     if provider == "groq":
-        # Groq supports reasoning_effort on supported models.
-        return {"reasoning_effort": effort}
+        return {
+            "reasoning_effort": effort,
+            "reasoning_format": "parsed",
+        }
 
     # ── Gemini ────────────────────────────────────────────────────────
     if provider == "gemini":
-        # Gemini uses thinkingConfig; langchain_google_genai doesn't expose
-        # a native param, so we set it via model_kwargs if the endpoint
-        # accepts it.
-        return {"thinking_config": {"thinking_budget": ANTHROPIC_BUDGET_TOKENS.get(effort, 8000)}}
+        return {"thinking_budget": budget}
 
     # ── NVIDIA (openai-compatible) ────────────────────────────────────
     if provider == "nvidia":
-        return {"reasoning_effort": effort}
+        return {
+            "reasoning_effort": effort,
+            "extra_body": {
+                "reasoning": {"effort": effort, "max_tokens": budget},
+            },
+        }
 
     return {}

@@ -498,7 +498,22 @@ def should_continue(state: AgentState):
         _repetition = is_repetition_dominated(
             str(getattr(last_message, "content", "") or "")
         )
-        if _repetition or _no_tool_streak >= NO_TOOL_TURN_LIMIT:
+        if _repetition:
+            return "finalize"
+
+        # Hard Gate: If this is an execution/creation task and NO work tools have executed,
+        # do NOT let the turn finalize prematurely on no_tool_streak if finish nudges remain.
+        # Force the model to stop monologuing and execute mutation tools.
+        if (
+            _looks_like_execution_task(state.get("current_task", ""))
+            and _tool_call_count(state) < 1
+            and not _named_deliverables_exist(state, state.get("workspace", "."))
+            and state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
+            and not _budget_exhausted(state)
+        ):
+            return "finish_gate"
+
+        if _no_tool_streak >= NO_TOOL_TURN_LIMIT:
             return "finalize"
         # ── Hermes stall guard (agent/turn_final_response.py, verbatim) ──
         # "Said-continue-but-stopped": no tool calls, but the short reply
@@ -742,8 +757,12 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
 
     required = ["static", "integrity"]
     if ui_task:
-        required.extend(["navigate", "snapshot", "screenshot"])
-    missing = [name for name in required if not bool(status[name])]
+        # UI verification: requires successful navigation AND at least one of
+        # DOM snapshot or visual screenshot (either proves page rendered).
+        ui_rendered = bool(status.get("snapshot") or status.get("screenshot"))
+        status["rendered"] = ui_rendered
+        required.extend(["navigate", "rendered"])
+    missing = [name for name in required if not bool(status.get(name))]
     return {
         **status,
         "ui_task": ui_task,

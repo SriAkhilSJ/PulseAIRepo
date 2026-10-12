@@ -89,19 +89,11 @@ def _resolve_reasoning_config(configurable: dict | None = None) -> dict | None:
     The desktop's Think picker sends ``reasoning_effort`` on every prompt
     frame; the bridge threads it through ``stream_agent`` into
     ``configurable``. A manual pick therefore wins over the static
-    ``REASONING_EFFORT`` env var, which remains the fallback for surfaces
-    that do not send one (dashboard, direct graph callers). An unrecognized
-    value falls back the same way instead of breaking the turn.
+    ``REASONING_EFFORT`` env var.
 
-    Returns a parsed config dict suitable for passing to get_llm(), or None
-    when thinking is not configured (provider default applies).
-
-    Callers pass either the full RunnableConfig (ai_node) or the bare
-    configurable dict (unit tests, direct callers). Accept both shapes: the
-    2026-09-17 field bug was ai_node passing the full config while this
-    function read ``reasoning_effort`` off the top level, so the per-turn
-    Think-picker pick was silently dropped and every request fell back to the
-    static REASONING_EFFORT env var.
+    When thinking is not explicitly configured or set, default to disabled
+    (none / {"enabled": False}) so models never emit unwanted thinking tokens
+    and no Thought card appears unless the user explicitly chooses to enable it.
     """
     if (
         isinstance(configurable, dict)
@@ -114,9 +106,12 @@ def _resolve_reasoning_config(configurable: dict | None = None) -> dict | None:
         if parsed is not None:
             return parsed
     env_effort = _env_reasoning_effort()
-    if not env_effort:
-        return None
-    return parse_reasoning_effort(env_effort)
+    if env_effort:
+        parsed = parse_reasoning_effort(env_effort)
+        if parsed is not None:
+            return parsed
+    # Unset thinking defaults to disabled (none)
+    return {"enabled": False}
 
 
 def _drop_tool_pairs(messages: list) -> list:
@@ -285,7 +280,7 @@ from src.tools.terminal_tools import (
     read_terminal_output
 )
 from src.tools.web_tools import web_search, web_fetch, web_extract
-from src.tools.media_tools import media_search, media_download
+from src.tools.media_tools import media_search, media_download, generate_image
 from src.tools.skill_tools import skills_list, skill_view, skill_manage
 from src.tools.skill_hub_tools import hub_search, hub_install, hub_update, hub_list, hub_remove
 # #8 (external review): fault-tolerant browser-tool import. The optional
@@ -806,11 +801,11 @@ tools = [
     web_fetch,
     web_extract,
 
-    # Media tools — stock image/video search + binary download into the
-    # workspace, so UI tasks can source real product photos instead of
-    # leaving broken placeholders.
+    # Media tools — stock image/video search, binary download into the
+    # workspace, and custom text-to-image AI generation.
     media_search,
     media_download,
+    generate_image,
 
     # Skill pull tools — Agent Skills / Copilot parity: the compact index
     # rides the system prompt; the full SKILL.md body loads on demand when
@@ -1633,6 +1628,7 @@ def ai_node(
     # tools: the grace/ask path invokes the unbound `llm`, everything
     # else a tools-bound callable.
     tools_bound = call_llm is not llm
+    t_llm_start = time.time()
     try:
         result = _invoke_with_token_pump(
             call_llm, messages, session_id, provider, model,
@@ -1944,6 +1940,25 @@ def ai_node(
             flush=True,
         )
 
+    # Step Tracker: Record step metrics & diagnostics for local inspection
+    try:
+        from src.runtime.step_tracker import StepTracker
+        _tracker = StepTracker.get_tracker(session_id)
+        _tracker.start_step("ai", state)
+        _tracker.record_llm_metrics(
+            model=call_model,
+            provider=provider,
+            input_tokens=call_usage.prompt_tokens,
+            output_tokens=call_usage.completion_tokens,
+            cached_tokens=call_usage.cached_tokens,
+            duration_s=round(time.time() - t_llm_start, 3),
+        )
+        for _tc in (getattr(result, "tool_calls", None) or []):
+            _tracker.record_tool_call(name=_tc.get("name", ""), args=_tc.get("args", {}))
+        _tracker.finish_step()
+    except Exception:
+        pass
+
     token_usage = _merge_token_usage(
         state.get("token_usage", {}),
         [call_usage],
@@ -2044,12 +2059,20 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # Honesty is independent of the bounded nudge budget. A run that exhausted
     # its continuation attempts is still unverified when required receipts are
     # absent; bounded routing must never turn missing evidence into a PASS.
-    from src.graphs.gates import _verification_ran_and_passed
+    from src.graphs.gates import _verification_ran_and_passed, _named_deliverables_exist
     from src.graphs.progress_helpers import trailing_batch_failed
     unverified = (
         _looks_like_execution_task(current_task)
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
+    )
+    # Zero Mutation / Empty Execution Check: if the user requested building or executing
+    # a task, but the turn finalized with zero files modified and no deliverable produced
+    # (e.g. model monologued without emitting mutation tools), report as incomplete/failed.
+    no_work_done = (
+        _looks_like_execution_task(current_task)
+        and not _wrote_code_files(state)
+        and not _named_deliverables_exist(state, state.get("workspace", "."))
     )
     # hermes turn-finalizer honesty (turn_finalizer.py::_resolve_budget_fallback
     # records max_iterations_reached(N/M)): a turn that ended because the
@@ -2069,7 +2092,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # (unrecovered — the model's final act was the failure) or D9-unverified
     # code marks the turn incomplete.
     trailing_failed = trailing_batch_failed(state.get("messages") or [])
-    task_succeeded = not unverified and not trailing_failed and not budget_cut
+    task_succeeded = not unverified and not trailing_failed and not budget_cut and not no_work_done
     if not task_succeeded:
         plan = finalize_plan(
             plan=list(state.get("plan", [])),
@@ -2427,8 +2450,9 @@ class _AgentTokenPump(BaseCallbackHandler):
 
     run_inline = True
 
-    def __init__(self, thread_id: str, strip_tool_blocks: bool = False):
+    def __init__(self, thread_id: str, strip_tool_blocks: bool = False, enable_reasoning: bool = True):
         self._thread_id = thread_id
+        self.enable_reasoning = enable_reasoning
         self.streamed = False
         self._reasoning_acc = ""
         # Inline-think router (field 2026-09-17: zero Thinking cards on
@@ -2478,6 +2502,8 @@ class _AgentTokenPump(BaseCallbackHandler):
         with none stays silent, which is the honest state.
         """
         self._reasoning_acc += piece
+        if not self.enable_reasoning:
+            return
         self._think_seen = True  # reasoning already reached the client
         try:
             event_bus.emit("reasoning.update", {
@@ -2718,7 +2744,12 @@ def _invoke_with_token_pump(
     first token ~120 s = endpoint slow/silent (stall budget owns it);
     "non-streaming" = streaming got disabled upstream.
     """
-    pump = _AgentTokenPump(thread_id, strip_tool_blocks=strip_tool_blocks)
+    enable_reasoning = bool(reasoning_config and reasoning_config.get("enabled", False))
+    pump = _AgentTokenPump(
+        thread_id,
+        strip_tool_blocks=strip_tool_blocks,
+        enable_reasoning=enable_reasoning,
+    )
     _model_t0 = time.monotonic()
     try:
         result = call_llm.invoke(messages, config={"callbacks": [pump]})
@@ -2735,7 +2766,7 @@ def _invoke_with_token_pump(
     _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
         time.monotonic() - _model_t0
     )
-    if not pump._think_seen:
+    if enable_reasoning and not pump._think_seen:
         # Streamed but thought-less: some routers carry reasoning only on the
         # AGGREGATED response (reasoning_content), never on chunks. Flush it
         # FIRST (thought precedes the reply) so the Thinking card paints even
@@ -4317,6 +4348,7 @@ class SafeToolNode:
         return ordered
 
     def __call__(self, state, config=None):
+        _t_tool_start = time.time()
         # ── Pre-execution cancellation gate ─────────────────────────
         # If the user pressed Stop before tool execution begins, deny
         # ALL pending tool calls with cancellation ToolMessages. This
@@ -4406,6 +4438,39 @@ class SafeToolNode:
                         "Re-check the effect (e.g. read the file) before relying on it.",
                         config,
                     )]
+
+            # Step Tracker: Record executed tool outputs for diagnostics
+            try:
+                from src.runtime.step_tracker import StepTracker
+                _trk = StepTracker.get_tracker(_cfg_sid)
+                _trk.start_step("tools", state)
+                _tool_dur = round(time.time() - _t_tool_start, 3)
+                if _trk._current_step:
+                    _trk._current_step.tool_duration_s = _tool_dur
+                    _trk._current_step.duration_s = _tool_dur
+                for _m in (msg_list or []):
+                    _tname = getattr(_m, "name", "") or getattr(_m, "tool", "") or "tool"
+                    _tcontent = str(getattr(_m, "content", "") or "")
+                    _is_err = getattr(_m, "status", None) == "error" or getattr(_m, "is_error", False)
+                    if not _is_err:
+                        _low = _tcontent.lower()
+                        if _tname in ("read_file", "search_files", "list_files", "write_file", "edit_file"):
+                            _is_err = _low.startswith("error:") or _low.startswith("file not found:") or _low.startswith("permission denied:")
+                        elif _tname in ("terminal", "run_terminal", "start_terminal"):
+                            _is_err = "command failed" in _low or ("exit code " in _low and "exit code 0" not in _low)
+                        elif _tname == "execute_code":
+                            _is_err = "traceback (most recent call last):" in _low or _low.startswith("error in execute_code:")
+                        else:
+                            _is_err = _low.startswith("error:") or "traceback (most recent call last):" in _low
+                    _trk.record_tool_call(
+                        name=_tname,
+                        output=_tcontent,
+                        status="failed" if _is_err else "success",
+                    )
+                _trk.finish_step()
+            except Exception:
+                pass
+
             if _repaired_ai is None:
                 return {"messages": msg_list}
             return {"messages": [_repaired_ai, *msg_list]}

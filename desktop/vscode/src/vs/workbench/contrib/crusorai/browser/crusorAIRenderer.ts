@@ -894,18 +894,48 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 		body.append(element('pre', 'crusorai-tool-pre crusorai-code-preview', content.slice(0, 800)));
 		body.append(element('div', 'crusorai-tool-actions', button('Open file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file'), copyButton(target, host)));
 	} else if (presentation.family === 'file-write') {
-		const rawText = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
-		const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
-		const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
-		const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
-		const rows: [string, string][] = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
-		// 'syntax valid' was a second always-true row; only surface a receipt the
-		// tool actually reported.
-		const receipt = firstString(result, ['receipt', 'syntax']);
-		if (receipt) { rows.push(['Receipt', receipt]); }
-		body.append(toolFields(rows));
-		body.append(diffPreview(diff));
-		body.append(element('div', 'crusorai-tool-actions', button('Open native diff', 'crusorai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file')));
+		if (tool.name === 'generate_image' || tool.name === 'media_download') {
+			const rawResult = typeof tool.result === 'string' ? tool.result : '';
+			const savedMatch = /saved:\s*([^\s(]+)/i.exec(rawResult);
+			const savedPath = savedMatch?.[1] ?? firstString(args, ['filename']) ?? target;
+			const promptText = firstString(args, ['prompt']) ?? firstString(args, ['query']);
+			const sizeMatch = /\(([^)]+)\)/.exec(rawResult);
+			const rows: [string, string][] = [['File', savedPath]];
+			if (promptText) { rows.push(['Prompt', promptText]); }
+			if (sizeMatch?.[1]) { rows.push(['Details', sizeMatch[1]]); }
+			body.append(toolFields(rows));
+
+			if (savedPath && tool.state !== 'failed') {
+				const src = host.resourceSrc(savedPath);
+				if (src) {
+					const mediaWrap = element('div', 'crusorai-media-preview-container');
+					const img = element('img', 'crusorai-generated-image');
+					img.src = src;
+					img.alt = promptText ? `Generated image: ${promptText}` : `Media ${savedPath}`;
+					img.loading = 'lazy';
+					img.onerror = () => { mediaWrap.remove(); };
+					mediaWrap.append(img);
+					body.append(mediaWrap);
+				}
+			}
+			body.append(element('div', 'crusorai-tool-actions',
+				button('Reveal image in files', 'crusorai-link-button', () => host.revealFile(savedPath), 'file-media'),
+				copyButton(savedPath, host),
+			));
+		} else {
+			const rawText = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
+			const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
+			const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
+			const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
+			const rows: [string, string][] = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
+			// 'syntax valid' was a second always-true row; only surface a receipt the
+			// tool actually reported.
+			const receipt = firstString(result, ['receipt', 'syntax']);
+			if (receipt) { rows.push(['Receipt', receipt]); }
+			body.append(toolFields(rows));
+			body.append(diffPreview(diff));
+			body.append(element('div', 'crusorai-tool-actions', button('Open native diff', 'crusorai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file')));
+		}
 	} else if (presentation.family === 'search') {
 		body.append(toolFields([['Query', target], ['Scope', 'workspace'], ['Matches', firstString(result, ['matches', 'count']) ?? '—']]));
 		const matches = result?.matches ?? result?.results;
@@ -948,6 +978,8 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 					const img = element('img', 'crusorai-browser-screenshot');
 					img.src = src;
 					img.alt = `Screenshot ${saved}`;
+					img.loading = 'lazy';
+					img.onerror = () => { img.remove(); };
 					body.append(img);
 				}
 				body.append(element('div', 'crusorai-tool-actions',
@@ -1890,22 +1922,21 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 	overlay.append(dialog);
 	overlay.addEventListener('click', event => { if (event.target === overlay) overlay.classList.remove('is-open'); });
 
-	dock.append(
+	const headerRow = element('div', 'crusorai-approval-header-row',
 		element('div', 'crusorai-approval-copy', icon('shield'), element('div', undefined,
 			element('strong', undefined, `${crusorAIToolPresentation(approval.name).title} needs approval`),
 			element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })))),
-	);
-	if (warningBox) { dock.append(warningBox); }
-	if (shellRiskBadge) { dock.append(shellRiskBadge); }
-	if (inlineDiffCard) { dock.append(inlineDiffCard); }
-	dock.append(
 		element('div', 'crusorai-approval-bar',
 			pill,
 			reject,
 			approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined,
 			commandText && !diffString ? commandToggle : undefined,
-		)
+		),
 	);
+	dock.append(headerRow);
+	if (warningBox) { dock.append(warningBox); }
+	if (shellRiskBadge) { dock.append(shellRiskBadge); }
+	if (inlineDiffCard) { dock.append(inlineDiffCard); }
 	if (commandText && !diffString) { dock.append(commandPre); }
 	dock.append(overlay);
 	return dock;
@@ -2196,19 +2227,45 @@ function clarifyCard(
 // item resolves, a live spinner only on the in_progress item; depth-indented
 // subtasks; an X/Y count. Rendered ABOVE the composer, like upstream.
 
+let todoStackExpanded = false;
+
 function todoStack(model: CrusorAIRenderModel): HTMLElement | undefined {
 	const todos = model.todos;
 	if (!todos.length) { return undefined; }  // hermes: no active list, no panel
 	const counted = todos.filter(t => t.status !== 'cancelled');
 	const done = counted.filter(t => t.status === 'completed').length;
+	const active = todos.find(t => t.status === 'in_progress') || todos.find(t => t.status !== 'completed' && t.status !== 'cancelled');
+
 	const stack = element('section', 'crusorai-todo-stack');
 	stack.dataset.component = 'todo-stack';
-	stack.append(element('div', 'crusorai-section-heading',
+
+	const caret = icon(todoStackExpanded ? 'chevron-down' : 'chevron-right');
+	const previewSpan = active ? element('span', 'crusorai-todo-active-preview', `· ${active.content}`) : undefined;
+	if (previewSpan && todoStackExpanded) {
+		previewSpan.style.display = 'none';
+	}
+
+	const heading = element('div', 'crusorai-todo-header',
 		icon('list-ordered'),
-		element('span', undefined, 'Tasks'),
+		element('strong', 'crusorai-todo-title', 'Tasks'),
 		element('span', 'crusorai-section-count', `${done}/${counted.length}`),
-	));
-	const list = element('div', 'crusorai-todo-list');
+		previewSpan,
+		element('span', 'crusorai-todo-caret', caret),
+	);
+	heading.addEventListener('click', () => {
+		todoStackExpanded = !todoStackExpanded;
+		list.classList.toggle('is-hidden', !todoStackExpanded);
+		const caretHost = heading.querySelector('.crusorai-todo-caret');
+		if (caretHost) {
+			caretHost.replaceChildren(icon(todoStackExpanded ? 'chevron-down' : 'chevron-right'));
+		}
+		if (previewSpan) {
+			previewSpan.style.display = todoStackExpanded ? 'none' : 'inline';
+		}
+	});
+	stack.append(heading);
+
+	const list = element('div', `crusorai-todo-list${todoStackExpanded ? '' : ' is-hidden'}`);
 	for (const todo of todos) {
 		const depth = todoDepth(todo, todos);
 		const glyph = todoGlyph(todo.status);
@@ -2471,11 +2528,11 @@ const thinkOptions: readonly { readonly id: CrusorReasoningEffortValue; readonly
 
 function thinkPicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLElement {
 	const details = element('details', 'crusorai-mode-picker crusorai-think-picker') as HTMLDetailsElement;
-	const current = model.reasoningEffort ?? '';
+	const current = model.reasoningEffort ?? 'none';
 	const summary = element('summary', 'crusorai-mode-summary',
-		element('span', undefined, current ? reasoningEffortLabel(current) : 'Think'),
+		element('span', undefined, reasoningEffortLabel(current)),
 		icon('chevron-down'));
-	summary.setAttribute('aria-label', `Thinking effort: ${current ? reasoningEffortLabel(current) : 'engine default'}`);
+	summary.setAttribute('aria-label', `Thinking effort: ${reasoningEffortLabel(current)}`);
 	if (model.running) {
 		summary.setAttribute('aria-disabled', 'true');
 		summary.addEventListener('click', event => event.preventDefault());
@@ -2484,7 +2541,7 @@ function thinkPicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTML
 	menu.setAttribute('role', 'menu');
 	menu.setAttribute('aria-label', 'Thinking effort');
 	for (const option of thinkOptions) {
-		const selected = option.id === current;
+		const selected = option.id === current || (!current && option.id === 'none');
 		const item = element('button', selected ? 'crusorai-mode-option is-selected' : 'crusorai-mode-option',
 			icon(option.id === 'none' ? 'circle-slash' : 'lightbulb'),
 			element('span', 'crusorai-mode-option-copy', element('strong', undefined, reasoningEffortLabel(option.id)), element('small', undefined, option.description)),
@@ -3078,7 +3135,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 			if (slot) {
 				slot.replaceChildren(markdownCopy(streaming.text, 'session-turn-content'));
 				const scroller = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
-				if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32) {
+				if (scroller && (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120 || model.running)) {
 					scroller.scrollTop = scroller.scrollHeight;
 				}
 				lastPaint = { signature, text: streaming.text };
@@ -3089,7 +3146,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		}
 		const previousScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
 		const scrollTop = previousScroll?.scrollTop ?? 0;
-		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32;
+		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 120 || model.running;
 		const activeElement = document.activeElement;
 		const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
 		// Don't steal focus from ask tool (clarify card) — vibrations/streaming re-renders were

@@ -15,9 +15,9 @@ export const CRUSOR_AI_REASONING_EFFORT_VALUES = ['none', ...CRUSOR_AI_REASONING
 
 export type CrusorReasoningEffortValue = (typeof CRUSOR_AI_REASONING_EFFORT_VALUES)[number];
 
-/** Hermes' built-in level when neither the surface nor the config specifies
- *  one (mirrors the backend's own fallback). */
-export const CRUSOR_AI_DEFAULT_REASONING_EFFORT: CrusorReasoningEffort = 'medium';
+/** Built-in level when neither the surface nor the config specifies
+ *  one: thinking is disabled by default unless explicitly chosen. */
+export const CRUSOR_AI_DEFAULT_REASONING_EFFORT: CrusorReasoningEffortValue = 'none';
 
 /** Compact labels for chrome where space is tight (pill, picker rows). The
  *  backend accepts the full hermes ladder; this surface exposes the three
@@ -31,23 +31,24 @@ const SHORT_LABELS: Record<string, string> = {
 
 export function reasoningEffortLabel(effort: string): string {
 	const key = effort.trim().toLowerCase();
-	return key ? (SHORT_LABELS[key] ?? effort) : '';
+	return key ? (SHORT_LABELS[key] ?? effort) : 'Off';
 }
 
 export const isReasoningEffort = (value: string): value is CrusorReasoningEffort =>
 	(CRUSOR_AI_REASONING_EFFORTS as readonly string[]).includes(value.trim().toLowerCase());
 
-/** Thinking is on unless a level explicitly says otherwise; an empty value
- *  means "inherit", so it resolves through `fallback` first. */
-export const isThinkingEnabled = (effort: string, fallback: string = CRUSOR_AI_DEFAULT_REASONING_EFFORT): boolean =>
-	(effort.trim().toLowerCase() || fallback) !== 'none';
+/** Thinking is off unless a level explicitly enables it (e.g. low, medium, high). */
+export const isThinkingEnabled = (effort: string, fallback: string = CRUSOR_AI_DEFAULT_REASONING_EFFORT): boolean => {
+	const val = (effort.trim().toLowerCase() || fallback);
+	return val !== 'none' && val !== '';
+};
 
-/** The level a scale control should show. Empty inherits `fallback`; `none`
- *  (thinking off) selects nothing; anything unrecognized clamps to the default. */
+/** The level a scale control should show. Empty or 'none' selects 'none';
+ *  anything unrecognized clamps to 'none'. */
 export function resolveReasoningEffort(effort: string, fallback: string = CRUSOR_AI_DEFAULT_REASONING_EFFORT): string {
 	const value = effort.trim().toLowerCase() || fallback;
-	if (value === 'none') {
-		return '';
+	if (value === 'none' || !value) {
+		return 'none';
 	}
-	return isReasoningEffort(value) ? value : CRUSOR_AI_DEFAULT_REASONING_EFFORT;
+	return isReasoningEffort(value) ? value : 'none';
 }

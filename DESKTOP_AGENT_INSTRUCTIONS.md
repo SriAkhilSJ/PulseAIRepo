@@ -1,4 +1,5 @@
-﻿> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
+> **Update 2026-10-12:** Reasoning Latency Throttling, Default `Off` Thinking, and Champion Quality Evaluation Suite active on branch `arena/e7d553cf-pulseairepo`. See README.md Recent Changes.
+> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
 
 > **Historical record (branch era).** This runbook drove verification on `arena/01a0564d` (PR #14 era); branch names, tips, and gate expectations below are frozen at that run. Current work runs on `main`.
 # Desktop Agent Instructions â€” Hermes parity (merged)

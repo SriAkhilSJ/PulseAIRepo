@@ -143,8 +143,8 @@ _INEFFECTIVE_COOLDOWN = 10
 _SUMMARY_MAX_CHARS = 3_000
 _DROPPED_TEXT_BUDGET = 6_000
 _DROPPED_PER_MSG = 220
-_FILE_MUTATION_TOOLS = frozenset({"write_file", "edit_file", "copy_file"})
-_MUTATION_PAYLOAD_KEYS = frozenset({"content", "old_text", "new_text"})
+_FILE_MUTATION_TOOLS = frozenset({"write_file", "edit_file", "copy_file", "generate_image", "media_download"})
+_MUTATION_PAYLOAD_KEYS = frozenset({"content", "old_text", "new_text", "body", "script", "code"})
 _MUTATION_PAYLOAD_PLACEHOLDER = "[Persisted file payload omitted; read the workspace for current content]"
 # -- Hermes lean tail parity (context_compressor.py:951) --
 LEAN_TAIL_FLOOR = 10_000

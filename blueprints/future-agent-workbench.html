@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CrusorAI — Next-Generation Autonomous Agent Workbench Blueprint</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #090a0f;
+      --bg-surface: #0e1117;
+      --bg-card: #151922;
+      --bg-card-hover: #1c222e;
+      --bg-overlay: rgba(14, 17, 23, 0.85);
+      
+      --border-subtle: rgba(255, 255, 255, 0.07);
+      --border-medium: rgba(255, 255, 255, 0.12);
+      --border-accent: rgba(99, 102, 241, 0.35);
+      
+      --accent-primary: #6366f1;
+      --accent-primary-hover: #4f46e5;
+      --accent-emerald: #10b981;
+      --accent-cyan: #06b6d4;
+      --accent-amber: #f59e0b;
+      --accent-crimson: #f43f5e;
+      --accent-purple: #a855f7;
+      
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-faint: #64748b;
+      
+      --diff-add-bg: rgba(16, 185, 129, 0.12);
+      --diff-add-border: rgba(16, 185, 129, 0.4);
+      --diff-add-text: #34d399;
+      --diff-del-bg: rgba(244, 63, 94, 0.12);
+      --diff-del-border: rgba(244, 63, 94, 0.4);
+      --diff-del-text: #fb7185;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'Fira Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+      
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+      --shadow-glow-purple: 0 0 24px rgba(168, 85, 247, 0.25);
+      --shadow-glow-emerald: 0 0 24px rgba(16, 185, 129, 0.25);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    }
+
+    *::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.28);
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.5;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* Top Global Header */
+    header.workbench-header {
+      height: 42px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+      z-index: 50;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-logo {
+      width: 22px;
+      height: 22px;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.5);
+    }
+
+    .brand-logo svg {
+      width: 14px;
+      height: 14px;
+      fill: #fff;
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: -0.3px;
+      background: linear-gradient(90deg, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .session-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent-emerald);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-emerald);
+      animation: pulse-ring 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse-ring {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .header-telemetry {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+    }
+
+    .telemetry-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      padding: 3px 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+    }
+
+    .telemetry-chip strong {
+      color: var(--accent-cyan);
+    }
+
+    .telemetry-chip.health-score strong {
+      color: var(--accent-emerald);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-header {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-header:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-medium);
+    }
+
+    .btn-header.primary {
+      background: var(--accent-primary);
+      border-color: var(--accent-primary-hover);
+      color: #fff;
+      box-shadow: 0 0 14px rgba(99, 102, 241, 0.35);
+    }
+
+    .btn-header.primary:hover {
+      background: var(--accent-primary-hover);
+    }
+
+    /* Main Tri-Pane Grid */
+    .workbench-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 420px 1fr 480px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Pane 1: Agent Command Center */
+    .pane-agent {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .agent-header-bar {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--bg-base);
+    }
+
+    .agent-config-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .custom-select {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 500;
+      outline: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .think-effort-pill {
+      display: flex;
+      align-items: center;
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--accent-purple);
+      font-weight: 600;
+      cursor: pointer;
+      gap: 4px;
+    }
+
+    /* Plan & Task Dock */
+    .plan-dock {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin: 10px 14px 0 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .plan-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+    }
+
+    .plan-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .plan-progress-pill {
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-emerald);
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    .plan-items {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 140px;
+      overflow-y: auto;
+      padding-top: 4px;
+    }
+
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      color: var(--text-muted);
+      transition: background 0.1s ease;
+    }
+
+    .task-item:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .task-item.completed {
+      color: var(--text-faint);
+      text-decoration: line-through;
+    }
+
+    .task-item.active {
+      color: var(--text-main);
+      font-weight: 600;
+      background: rgba(99, 102, 241, 0.1);
+      border-left: 2px solid var(--accent-primary);
+    }
+
+    .task-icon {
+      font-size: 12px;
+    }
+
+    /* Agent Timeline / Stream Container */
+    .agent-timeline {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Message Bubbles */
+    .chat-bubble {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border-radius: 8px;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .chat-bubble.user {
+      align-self: flex-end;
+      max-width: 90%;
+      background: #1e2433;
+      border: 1px solid var(--border-medium);
+      padding: 10px 14px;
+    }
+
+    .chat-bubble.assistant {
+      align-self: stretch;
+      background: transparent;
+    }
+
+    /* Reasoning Stream Accordion */
+    .reasoning-box {
+      background: rgba(168, 85, 247, 0.04);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+
+    .reasoning-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      color: var(--accent-purple);
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .reasoning-content {
+      margin-top: 8px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: #c084fc;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      border-left: 2px solid rgba(168, 85, 247, 0.3);
+      padding-left: 10px;
+    }
+
+    /* Tool Execution Cards */
+    .tool-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .tool-card-header {
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+      font-family: var(--font-mono);
+    }
+
+    .tool-identity {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 600;
+    }
+
+    .tool-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .tool-badge.write { background: rgba(16, 185, 129, 0.2); color: var(--accent-emerald); }
+    .tool-badge.terminal { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+    .tool-badge.preview { background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); }
+    .tool-badge.browser { background: rgba(99, 102, 241, 0.2); color: var(--accent-primary); }
+
+    .tool-card-body {
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      max-height: 180px;
+      overflow-y: auto;
+      background: #0b0e14;
+    }
+
+    .tool-receipt-ok {
+      color: var(--accent-emerald);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Floating Prompt Bar */
+    .prompt-dock {
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+    }
+
+    .mode-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mode-pill {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 14px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+
+    .mode-pill.active {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: var(--accent-primary);
+      color: #fff;
+    }
+
+    .prompt-input-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+      transition: border-color 0.2s ease;
+    }
+
+    .prompt-input-container:focus-within {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 16px rgba(99, 102, 241, 0.2);
+    }
+
+    .context-chips {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .context-chip {
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .prompt-textarea {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      resize: none;
+      min-height: 48px;
+      line-height: 1.4;
+    }
+
+    .prompt-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 4px;
+    }
+
+    .prompt-toggles {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--text-faint);
+    }
+
+    .btn-send {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
+      border: none;
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+      transition: transform 0.1s ease;
+    }
+
+    .btn-send:hover {
+      transform: translateY(-1px);
+    }
+
+    /* Pane 2: Code Editor & Live Diffs */
+    .pane-editor {
+      background: var(--bg-base);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .editor-tabs {
+      height: 36px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 4px;
+      overflow-x: auto;
+    }
+
+    .editor-tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: transparent;
+      border-radius: 6px 6px 0 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+    }
+
+    .editor-tab.active {
+      background: var(--bg-base);
+      color: var(--text-main);
+      border-bottom-color: var(--accent-primary);
+      font-weight: 600;
+    }
+
+    .editor-breadcrumbs {
+      padding: 6px 16px;
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 11px;
+      color: var(--text-faint);
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .editor-diff-container {
+      flex: 1;
+      overflow: auto;
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      background: #090b10;
+    }
+
+    .diff-line {
+      display: flex;
+      padding: 1px 0;
+      white-space: pre-wrap;
+    }
+
+    .diff-line-number {
+      width: 44px;
+      color: var(--text-faint);
+      text-align: right;
+      padding-right: 14px;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .diff-line-code {
+      flex: 1;
+    }
+
+    .diff-line.add {
+      background: var(--diff-add-bg);
+      border-left: 3px solid var(--accent-emerald);
+      color: var(--diff-add-text);
+    }
+
+    .diff-line.del {
+      background: var(--diff-del-bg);
+      border-left: 3px solid var(--accent-crimson);
+      color: var(--diff-del-text);
+    }
+
+    .diff-actions-bar {
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .btn-diff {
+      padding: 5px 12px;
+      border-radius: 5px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-diff.accept {
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid var(--accent-emerald);
+      color: var(--accent-emerald);
+    }
+
+    .btn-diff.reject {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid var(--accent-crimson);
+      color: var(--accent-crimson);
+    }
+
+    /* Pane 3: Live Preview & Webview Inspector */
+    .pane-preview {
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .preview-address-bar {
+      height: 38px;
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      gap: 10px;
+    }
+
+    .preview-url-input {
+      flex: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 3px 12px;
+      font-size: 11.5px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .viewport-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-viewport {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .btn-viewport.active {
+      background: var(--bg-card);
+      border-color: var(--border-medium);
+      color: #fff;
+    }
+
+    .preview-frame-container {
+      flex: 1;
+      background: #030712;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      overflow: auto;
+    }
+
+    /* Simulated Live Webview App */
+    .simulated-app {
+      width: 100%;
+      height: 100%;
+      background: #0f172a;
+      border: 1px solid var(--border-medium);
+      border-radius: 8px;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: var(--font-sans);
+    }
+
+    .app-nav {
+      height: 44px;
+      background: #1e293b;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+    }
+
+    .app-body {
+      flex: 1;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .kanban-col {
+      background: #1e293b;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .kanban-card {
+      background: #334155;
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      border-left: 3px solid var(--accent-emerald);
+      cursor: grab;
+    }
+
+    /* Click-to-Edit Overlay Badge */
+    .inspector-badge {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(99, 102, 241, 0.9);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Global Header -->
+  <header class="workbench-header">
+    <div class="brand-section">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </div>
+      <span class="brand-title">CrusorAI Future Workbench</span>
+      <div class="session-badge">
+        <span class="pulse-dot"></span>
+        <span>arena/e7d553cf-pulseairepo</span>
+      </div>
+    </div>
+
+    <div class="header-telemetry">
+      <div class="telemetry-chip health-score">
+        <span>Agent Health:</span>
+        <strong id="healthScore">78.4 / 100</strong>
+      </div>
+      <div class="telemetry-chip">
+        <span>Tokens:</span>
+        <strong id="tokenCount">131k (86% cached)</strong>
+      </div>
+      <div class="telemetry-chip">
+        <span>Session Cost:</span>
+        <strong id="costVal">$0.141 USD</strong>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <button class="btn-header" onclick="triggerRunDiagnostics()">📊 Diagnostics</button>
+      <button class="btn-header primary" onclick="simulateNextAgentAction()">▶ Simulate Next Action</button>
+    </div>
+  </header>
+
+  <!-- Tri-Pane Grid -->
+  <main class="workbench-body">
+
+    <!-- Pane 1: Agent Command Center -->
+    <section class="pane-agent">
+      <div class="agent-header-bar">
+        <div class="agent-config-row">
+          <select class="custom-select" id="modelSelect">
+            <option value="claude-3-7-sonnet" selected>✨ Claude 3.7 Sonnet (Hybrid Think)</option>
+            <option value="deepseek-v3">⚡ DeepSeek V3 (MoE)</option>
+            <option value="gpt-4-5-preview">🧠 GPT-4.5 Preview</option>
+            <option value="sarvam-105b">🇮🇳 Sarvam 105B</option>
+          </select>
+          <div class="think-effort-pill" onclick="cycleThinkEffort()" id="thinkEffortBadge">
+            <span>🧠 Think: High (8k)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plan / Task Dock -->
+      <div class="plan-dock">
+        <div class="plan-header" onclick="togglePlanCollapse()">
+          <div class="plan-title-group">
+            <span>Active Goal: Real-Time Kanban Board</span>
+          </div>
+          <span class="plan-progress-pill" id="planProgressPill">3 / 5 Done (60%)</span>
+        </div>
+        <div class="plan-items" id="planItemsList">
+          <div class="task-item completed">
+            <span class="task-icon">✓</span>
+            <span>1. Scaffold Next.js 15 App with Tailwind & Lucide</span>
+          </div>
+          <div class="task-item completed">
+            <span class="task-icon">✓</span>
+            <span>2. Build Responsive Kanban Board UI & Drag-Drop State</span>
+          </div>
+          <div class="task-item active">
+            <span class="task-icon">🔵</span>
+            <span>3. Start Dev Server & Open Live Interactive Preview</span>
+          </div>
+          <div class="task-item">
+            <span class="task-icon">⚪</span>
+            <span>4. Execute Headless Browser Verification & Snapshot Tests</span>
+          </div>
+          <div class="task-item">
+            <span class="task-icon">⚪</span>
+            <span>5. Verify Typecheck & Finalize Delivery</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Timeline Stream -->
+      <div class="agent-timeline" id="agentTimeline">
+        
+        <!-- User Bubble -->
+        <div class="chat-bubble user">
+          Build a real-time responsive Kanban board with drag-and-drop state in Next.js 15, launch the dev server, and open live preview.
+        </div>
+
+        <!-- Reasoning Accordion -->
+        <div class="reasoning-box">
+          <div class="reasoning-header" onclick="toggleReasoning()">
+            <span>🧠 Thinking Process (1.4s · 412 tokens)</span>
+            <span id="reasoningToggleIcon">▼</span>
+          </div>
+          <div class="reasoning-content" id="reasoningContent">
+1. Analyzed workspace files and dependencies (Next.js 15, React 19, Tailwind CSS).
+2. Designed state machine for Kanban columns: Backlog, In Progress, Review, Done.
+3. Prepared `start_terminal("npm run dev")` with 2.5s startup probe.
+4. Auto-invoking `open_preview("http://localhost:3000")` for bidirectional webview interaction.
+5. Headless browser verification will validate button clicks and DOM integrity.</div>
+        </div>
+
+        <!-- Tool Card: Generate Image (Custom AI Logo) -->
+        <div class="tool-card">
+          <div class="tool-card-header">
+            <div class="tool-identity">
+              <span class="tool-badge write" style="background:rgba(168, 85, 247, 0.2); color:#c084fc;">IMAGE_GEN</span>
+              <span>generate_image("minimalist glowing cyber falcon logo, 1:1")</span>
+            </div>
+            <span class="tool-receipt-ok">✓ Saved (1.1s)</span>
+          </div>
+          <div class="tool-card-body">
+            <div style="color:var(--text-muted); font-size:11px; margin-bottom:6px;">
+              <strong>File:</strong> public/logo.png · <strong>Model:</strong> FLUX.1 Schnell (Velona Gateway) · <strong>Size:</strong> 1024x1024 (218 KB)
+            </div>
+            <div style="background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:10px; display:flex; align-items:center; justify-content:center;">
+              <svg width="80" height="80" viewBox="0 0 100 100" fill="none" style="filter: drop-shadow(0 0 12px rgba(99,102,241,0.6));">
+                <circle cx="50" cy="50" r="45" stroke="url(#logoGlow)" stroke-width="2.5" fill="#090d16"/>
+                <polygon points="50,15 80,75 50,60 20,75" fill="url(#polyGrad)"/>
+                <defs>
+                  <linearGradient id="logoGlow" x1="0" y1="0" x2="100" y2="100">
+                    <stop offset="0%" stop-color="#38bdf8"/>
+                    <stop offset="100%" stop-color="#a855f7"/>
+                  </linearGradient>
+                  <linearGradient id="polyGrad" x1="20" y1="15" x2="80" y2="75">
+                    <stop offset="0%" stop-color="#6366f1"/>
+                    <stop offset="100%" stop-color="#10b981"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tool Card: Dev Server & Probe -->
+        <div class="tool-card">
+          <div class="tool-card-header">
+            <div class="tool-identity">
+              <span class="tool-badge terminal">TERMINAL</span>
+              <span>start_terminal("npm run dev")</span>
+            </div>
+            <span class="tool-receipt-ok">✓ Ready (1.8s)</span>
+          </div>
+          <div class="tool-card-body">
+[Next.js 15.1.0] Ready in 1.8s
+▲ Local: http://localhost:3000
+▲ Network: http://192.168.1.12:3000
+✓ Claude Code Startup Probe: Detected port 3000 in 1.8s (0 polling turns wasted)</div>
+        </div>
+
+        <!-- Tool Card: Open Preview -->
+        <div class="tool-card">
+          <div class="tool-card-header">
+            <div class="tool-identity">
+              <span class="tool-badge preview">PREVIEW</span>
+              <span>open_preview("http://localhost:3000")</span>
+            </div>
+            <span class="tool-receipt-ok">✓ Active</span>
+          </div>
+          <div class="tool-card-body">
+{"opened": true, "url": "http://localhost:3000", "target_reachable": true}
+Live interactive Webview mounted into desktop preview tab.</div>
+        </div>
+
+      </div>
+
+      <!-- Floating Prompt Dock -->
+      <div class="prompt-dock">
+        <div class="mode-pills">
+          <span class="mode-pill active">⚡ Autonomous Agent</span>
+          <span class="mode-pill">📋 Architect Plan</span>
+          <span class="mode-pill">💬 Fast Ask</span>
+          <span class="mode-pill">✏️ Inline Edit</span>
+        </div>
+        <div class="prompt-input-container">
+          <div class="context-chips">
+            <span class="context-chip">📄 KanbanBoard.tsx</span>
+            <span class="context-chip">⚡ npm dev (:3000)</span>
+            <span class="context-chip">🎯 Webview Attached</span>
+          </div>
+          <textarea class="prompt-textarea" placeholder="Ask CrusorAI to edit components, add features, or run tests... (Enter to send, Shift+Enter for newline)"></textarea>
+          <div class="prompt-footer">
+            <div class="prompt-toggles">
+              <span>🌐 Web Search (On)</span>
+              <span>🧠 Auto-Preview (On)</span>
+            </div>
+            <button class="btn-send" onclick="simulateUserPrompt()">Send ↵</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pane 2: Code Editor & Live Diffs -->
+    <section class="pane-editor">
+      <div class="editor-tabs">
+        <div class="editor-tab active">
+          <span>📄 KanbanBoard.tsx</span>
+          <span>•</span>
+        </div>
+        <div class="editor-tab">
+          <span>📄 types.ts</span>
+        </div>
+        <div class="editor-tab">
+          <span>📄 globals.css</span>
+        </div>
+      </div>
+
+      <div class="editor-breadcrumbs">
+        <span>src</span> &gt; <span>components</span> &gt; <span>KanbanBoard.tsx</span> &gt; <span>function KanbanColumn</span>
+      </div>
+
+      <div class="editor-diff-container">
+        <div class="diff-line">
+          <span class="diff-line-number">24</span>
+          <span class="diff-line-code">export function KanbanBoard() {</span>
+        </div>
+        <div class="diff-line del">
+          <span class="diff-line-number">25</span>
+          <span class="diff-line-code">-   const [tasks, setTasks] = useState([]);</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">25</span>
+          <span class="diff-line-code">+   const [tasks, setTasks] = useState&lt;Task[]&gt;(initialTasks);</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">26</span>
+          <span class="diff-line-code">+   const [activeFilter, setActiveFilter] = useState&lt;Priority | 'ALL'&gt;('ALL');</span>
+        </div>
+        <div class="diff-line">
+          <span class="diff-line-number">27</span>
+          <span class="diff-line-code"></span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">28</span>
+          <span class="diff-line-code">+   const handleDragEnd = (result: DropResult) =&gt; {</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">29</span>
+          <span class="diff-line-code">+     if (!result.destination) return;</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">30</span>
+          <span class="diff-line-code">+     const updated = reorderCards(tasks, result.source, result.destination);</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">31</span>
+          <span class="diff-line-code">+     setTasks(updated);</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">32</span>
+          <span class="diff-line-code">+   };</span>
+        </div>
+        <div class="diff-line">
+          <span class="diff-line-number">33</span>
+          <span class="diff-line-code"></span>
+        </div>
+        <div class="diff-line">
+          <span class="diff-line-number">34</span>
+          <span class="diff-line-code">    return (</span>
+        </div>
+        <div class="diff-line add">
+          <span class="diff-line-number">35</span>
+          <span class="diff-line-code">+     &lt;div className="grid grid-cols-4 gap-4 p-6 bg-slate-900 rounded-xl"&gt;</span>
+        </div>
+        <div class="diff-line">
+          <span class="diff-line-number">36</span>
+          <span class="diff-line-code">        {COLUMNS.map(col =&gt; (</span>
+        </div>
+      </div>
+
+      <div class="diff-actions-bar">
+        <span style="font-size:11.5px; color:var(--text-muted); font-family:var(--font-mono);">Diff: +8 lines, -1 line in KanbanBoard.tsx</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-diff reject" onclick="alert('Diff Reverted')">✕ Reject</button>
+          <button class="btn-diff accept" onclick="alert('Diff Accepted & Landed')">✓ Accept All Diffs (Cmd+Y)</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pane 3: Live Preview & Webview Inspector -->
+    <section class="pane-preview">
+      <div class="preview-address-bar">
+        <div class="preview-url-input">
+          <span style="color:var(--accent-emerald);">🔒</span>
+          <span>http://localhost:3000/dashboard</span>
+        </div>
+        <div class="viewport-controls">
+          <button class="btn-viewport active" onclick="setViewport('desktop', this)">🖥️ Desktop</button>
+          <button class="btn-viewport" onclick="setViewport('tablet', this)">📱 Tablet</button>
+          <button class="btn-viewport" onclick="setViewport('mobile', this)">📱 Mobile</button>
+        </div>
+      </div>
+
+      <div class="preview-frame-container" id="previewFrameContainer">
+        <!-- Simulated Web Application -->
+        <div class="simulated-app" id="simulatedApp">
+          <div class="app-nav">
+            <span style="font-weight:700; font-size:13px; color:#38bdf8;">⚡ PulseFlow Kanban</span>
+            <span style="font-size:11px; background:#334155; padding:2px 8px; border-radius:10px;">🟢 Live HMR</span>
+          </div>
+          <div class="app-body">
+            <div class="kanban-col">
+              <span style="font-weight:600; font-size:12px; color:#94a3b8;">📌 BACKLOG (2)</span>
+              <div class="kanban-card">Setup PostgreSQL Prisma Schema</div>
+              <div class="kanban-card">Integrate Stripe Webhook</div>
+            </div>
+            <div class="kanban-col">
+              <span style="font-weight:600; font-size:12px; color:#38bdf8;">🔄 IN PROGRESS (1)</span>
+              <div class="kanban-card" style="border-left-color:#38bdf8;">Real-Time DND Column State</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-badge" onclick="alert('Click-to-Edit Inspector enabled! Click any UI element in the preview to jump directly to its JSX definition.')">
+        <span>🎯 Click-to-Edit Active</span>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    let stepCount = 3;
+    const thinkEfforts = ['Low (2k)', 'Medium (4k)', 'High (8k)', 'Max Thinking (16k)'];
+    let currentEffortIndex = 2;
+
+    function cycleThinkEffort() {
+      currentEffortIndex = (currentEffortIndex + 1) % thinkEfforts.length;
+      document.getElementById('thinkEffortBadge').innerHTML = `<span>🧠 Think: ${thinkEfforts[currentEffortIndex]}</span>`;
+    }
+
+    function toggleReasoning() {
+      const content = document.getElementById('reasoningContent');
+      const icon = document.getElementById('reasoningToggleIcon');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.innerText = '▼';
+      } else {
+        content.style.display = 'none';
+        icon.innerText = '▶';
+      }
+    }
+
+    function setViewport(type, btn) {
+      document.querySelectorAll('.btn-viewport').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const app = document.getElementById('simulatedApp');
+      if (type === 'mobile') {
+        app.style.maxWidth = '375px';
+      } else if (type === 'tablet') {
+        app.style.maxWidth = '768px';
+      } else {
+        app.style.maxWidth = '100%';
+      }
+    }
+
+    function simulateNextAgentAction() {
+      const timeline = document.getElementById('agentTimeline');
+      
+      const newCard = document.createElement('div');
+      newCard.className = 'tool-card';
+      newCard.innerHTML = `
+        <div class="tool-card-header">
+          <div class="tool-identity">
+            <span class="tool-badge browser">BROWSER_VERIFY</span>
+            <span>browser_navigate("http://localhost:3000")</span>
+          </div>
+          <span class="tool-receipt-ok">✓ 100% Passed</span>
+        </div>
+        <div class="tool-card-body">
+✓ Headless Chrome attached (CDP Socket session-49a)
+✓ Accessibility Snapshot: Found [@e1: Backlog], [@e2: In Progress], [@e3: Add Card Button]
+✓ Action: browser_click("@e3") → Successfully triggered task modal
+✓ Screenshot captured: /diagnostics/screenshots/kanban_live.png (0 visual regressions)</div>
+      `;
+      timeline.appendChild(newCard);
+      timeline.scrollTop = timeline.scrollHeight;
+
+      // Update Plan
+      const items = document.querySelectorAll('.task-item');
+      if (items[2]) {
+        items[2].className = 'task-item completed';
+        items[2].querySelector('.task-icon').innerText = '✓';
+      }
+      if (items[3]) {
+        items[3].className = 'task-item active';
+        items[3].querySelector('.task-icon').innerText = '🔵';
+      }
+      document.getElementById('planProgressPill').innerText = '4 / 5 Done (80%)';
+      document.getElementById('healthScore').innerText = '82.6 / 100';
+    }
+
+    function simulateUserPrompt() {
+      const textarea = document.querySelector('.prompt-textarea');
+      const text = textarea.value.trim();
+      if (!text) return;
+
+      const timeline = document.getElementById('agentTimeline');
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble user';
+      bubble.innerText = text;
+      timeline.appendChild(bubble);
+      textarea.value = '';
+      timeline.scrollTop = timeline.scrollHeight;
+
+      setTimeout(() => {
+        simulateNextAgentAction();
+      }, 600);
+    }
+
+    function triggerRunDiagnostics() {
+      alert("Opening latest performance audit from diagnostics/LATEST_PERFORMANCE_AUDIT.md\n\nHealth Score: 78.4/100\nTotal Tokens: 131,400\nCost: $0.141 USD\nAverage Tool Latency: 120ms\nZero wasted polling turns detected!");
+    }
+  </script>
+</body>
+</html>

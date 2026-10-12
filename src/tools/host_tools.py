@@ -108,4 +108,16 @@ def invoke_host_capability(
     return json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
-HOST_TOOLS = [discover_host_capabilities, invoke_host_capability]
+@tool
+def open_preview(url: str, config: RunnableConfig) -> str:
+    """Open the live interactive Crusor Preview tab/window for the user.
+
+    ALWAYS call this whenever you start or build any web application or dev server (e.g. Next.js, Vite, React)
+    so the user can immediately see, interact with, and visually edit the running page in the IDE.
+    Arguments:
+      url: The local URL where the app is listening (e.g. 'http://localhost:3000' or 'http://localhost:5173').
+    """
+    return invoke_host_capability.func("preview.open", {"url": url}, config)
+
+
+HOST_TOOLS = [discover_host_capabilities, invoke_host_capability, open_preview]

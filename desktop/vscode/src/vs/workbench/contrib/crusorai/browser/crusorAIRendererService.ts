@@ -91,12 +91,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private restartAttempts = 0;
 	private engineFault: string | undefined;
 	private pendingPrompt: string | undefined;
+	private lastSubmittedPrompt: string | undefined;
 	/** Session id whose transcript hydration (session_messages) is still in flight. A page for a session the user already left is dropped against this. */
 	private pendingHydration: string | undefined;
 	private draft = '';
 	private mode: CrusorExecutionMode = 'agent';
-	/** Think level ('' = inherit the engine's REASONING_EFFORT env default). */
-	private reasoningEffort: CrusorReasoningEffortValue | '' = '';
+	/** Think level ('none' = thinking disabled by default). */
+	private reasoningEffort: CrusorReasoningEffortValue | '' = 'none';
 	private sessionId: string | undefined;
 	private running = false;
 	private cancelRequested = false;
@@ -261,7 +262,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// Clear the fault the moment a manual retry starts: leaving it up claims the engine is still
 			// broken while it is being restarted, and the row's own action would look like a no-op.
 			this.engineFault = undefined;
-			void this.ensureEngine();
+			this.error = undefined;
+			const promptToRetry = this.pendingPrompt || this.lastSubmittedPrompt;
+			void this.ensureEngine().then(() => {
+				if (promptToRetry && this.engineService.state === CrusorAIEngineState.Ready) {
+					this.pendingPrompt = undefined;
+					void this.submitPrompt(promptToRetry);
+				}
+			});
 		},
 		selectWorkspace: uri => this.selectWorkspace(uri),
 		openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
@@ -480,7 +488,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			engineSetupError: this.engineSetupError,
 			sessionId: this.sessionId,
 			mode: this.mode,
-			reasoningEffort: this.reasoningEffort || undefined,
+			reasoningEffort: this.reasoningEffort || 'none',
 			running: this.running,
 			cancelRequested: this.cancelRequested,
 			interrupt: this.interrupt,
@@ -1103,6 +1111,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 		this.draft = '';
 		this.error = undefined;
+		this.lastSubmittedPrompt = text;
 		if (!this.sessionId) {
 			this.pendingPrompt = text;
 			this.send({ type: 'session_create', workspace: this.workspacePath });
@@ -1195,7 +1204,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private startTurn(text: string): void {
 		this.archiveLiveTurn();
 		this.resetTurnState(text);
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
+		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none' });
 		this.render();
 	}
 

@@ -61,10 +61,10 @@ def test_blank_or_unknown_per_turn_value_falls_back(monkeypatch):
     }
 
 
-def test_no_config_anywhere_resolves_to_none(monkeypatch):
+def test_no_config_anywhere_defaults_to_disabled(monkeypatch):
     monkeypatch.delenv("REASONING_EFFORT", raising=False)
-    assert _resolve_reasoning_config({}) is None
-    assert _resolve_reasoning_config(None) is None
+    assert _resolve_reasoning_config({}) == {"enabled": False}
+    assert _resolve_reasoning_config(None) == {"enabled": False}
 
 
 def test_per_turn_none_disables_thinking(monkeypatch):
@@ -117,23 +117,65 @@ def test_anthropic_adaptive_and_legacy_budgets():
 def test_openai_compatible_reasoning_effort():
     from src.config.reasoning_config import build_model_kwargs_for_reasoning
 
-    for provider in ("openai", "custom", "cheap", "groq"):
+    # OpenAI-compatible custom/cheap endpoints send reasoning_effort and extra_body thinking budget
+    for provider in ("openai", "custom", "cheap"):
         kwargs = build_model_kwargs_for_reasoning(
             provider, "any-model", {"enabled": True, "effort": "low"}
         )
-        assert kwargs == {"reasoning_effort": "low"}
+        assert kwargs["reasoning_effort"] == "low"
+        assert "extra_body" in kwargs
+        assert kwargs["extra_body"]["reasoning"]["effort"] == "low"
+        assert kwargs["extra_body"]["thinking"]["budget_tokens"] == 4000
+
+    # Groq sends reasoning_effort and parsed reasoning_format
+    groq_kwargs = build_model_kwargs_for_reasoning(
+        "groq", "llama-3.3-70b-versatile", {"enabled": True, "effort": "low"}
+    )
+    assert groq_kwargs == {"reasoning_effort": "low", "reasoning_format": "parsed"}
+
+    # Gemini sends thinking_budget directly
+    gemini_kwargs = build_model_kwargs_for_reasoning(
+        "gemini", "gemini-2.0-flash", {"enabled": True, "effort": "low"}
+    )
+    assert gemini_kwargs == {"thinking_budget": 4000}
 
 
-def test_disabled_thinking_disables_anthropic_only():
+def test_disabled_thinking_across_all_providers():
     from src.config.reasoning_config import build_model_kwargs_for_reasoning
 
+    # Anthropic disables thinking via type="disabled"
     assert build_model_kwargs_for_reasoning(
         "anthropic", "claude-opus-4-7-20260101", {"enabled": False}
     ) == {"thinking": {"type": "disabled"}}
-    # OpenAI-compat has no wire-level disable.
-    assert build_model_kwargs_for_reasoning(
+
+    # OpenAI / Custom / Cheap send wire-level disable payloads
+    for provider in ("custom", "cheap"):
+        kwargs = build_model_kwargs_for_reasoning(
+            provider, "glm-5.3-flash", {"enabled": False}
+        )
+        assert kwargs["reasoning_effort"] == "none"
+        assert kwargs["extra_body"]["reasoning"] == {"effort": "none", "max_tokens": 0}
+        assert kwargs["extra_body"]["thinking"] == {"type": "disabled", "budget_tokens": 0}
+        assert kwargs["extra_body"]["chat_template_kwargs"] == {"thinking": False}
+
+    openai_kwargs = build_model_kwargs_for_reasoning(
         "openai", "gpt-5", {"enabled": False}
-    ) == {}
+    )
+    assert openai_kwargs["reasoning_effort"] == "none"
+    assert openai_kwargs["extra_body"]["reasoning"] == {"effort": "none", "max_tokens": 0}
+    assert openai_kwargs["extra_body"]["thinking"] == {"type": "disabled", "budget_tokens": 0}
+
+    # Groq disables reasoning with hidden format
+    groq_kwargs = build_model_kwargs_for_reasoning(
+        "groq", "deepseek-r1-distill-llama-70b", {"enabled": False}
+    )
+    assert groq_kwargs == {"reasoning_effort": "none", "reasoning_format": "hidden"}
+
+    # Gemini disables thinking with thinking_budget=0
+    gemini_kwargs = build_model_kwargs_for_reasoning(
+        "gemini", "gemini-2.0-flash", {"enabled": False}
+    )
+    assert gemini_kwargs == {"thinking_budget": 0}
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import pytest
 from src.tools.media_tools import (
     _MAX_IMAGE_BYTES,
     _sanitize_dest,
+    generate_image,
     media_download,
     media_search,
 )
@@ -161,7 +162,7 @@ def test_search_all_sources_failing_returns_error_string(monkeypatch):
         raise RuntimeError("network down")
     monkeypatch.setattr("src.tools.media_tools.httpx.get", _raise)
     out = media_search.invoke({"query": "perfume", "media_type": "image"})
-    assert out.startswith("No media found")
+    assert "No stock media found" in out or "No media found" in out
     assert "network down" in out
 
 
@@ -197,18 +198,18 @@ def test_search_wikimedia_video_query_uses_filetype_video(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_sanitize_dest_rejects_traversal_and_absolute():
-    err1 = _sanitize_dest("../escape.png", "image/png")[1]
-    err2 = _sanitize_dest("/etc/passwd", "image/png")[1]
-    err3 = _sanitize_dest("", "image/png")[1]
+    err1 = _sanitize_dest("../escape.png", "image/png")[2]
+    err2 = _sanitize_dest("/etc/passwd", "image/png")[2]
+    err3 = _sanitize_dest("", "image/png")[2]
     assert err1 and "workspace-relative" in err1
     assert err2 and "workspace-relative" in err2
     assert err3 and "empty" in err3
 
 
 def test_sanitize_dest_infers_extension():
-    path, err = _sanitize_dest("assets/perfume", "image/jpeg")
+    rel_path, abs_path, err = _sanitize_dest("assets/perfume", "image/jpeg")
     assert err is None
-    assert path.as_posix() == "assets/perfume.jpg"
+    assert rel_path.as_posix() == "assets/perfume.jpg"
 
 
 def test_download_rejects_non_http_and_non_media(tmp_path, monkeypatch):
@@ -373,4 +374,36 @@ def test_media_tools_in_research_toolset():
     from src.agents.runtime_profile import CAP_RESEARCH, RuntimeProfile
     profile = RuntimeProfile(name="test-profile", capabilities=(CAP_RESEARCH,))
     names = resolve_runtime_tool_names(profile)
-    assert "media_search" in names and "media_download" in names
+    assert "media_search" in names and "media_download" in names and "generate_image" in names
+
+
+# ---------------------------------------------------------------------------
+# generate_image — custom AI image generation
+# ---------------------------------------------------------------------------
+
+def test_generate_image_validation():
+    assert "must not be empty" in generate_image.invoke({"prompt": "   "})
+    assert "workspace-relative" in generate_image.invoke({"prompt": "cat", "filename": "/etc/cat.png"})
+
+
+def test_generate_image_happy_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"image_data_here" * 50
+
+    class FakeResp:
+        status_code = 200
+        content = fake_png
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr("src.tools.media_tools.httpx.get", lambda *a, **k: FakeResp())
+    out = generate_image.invoke({
+        "prompt": "futuristic cyber dragon logo",
+        "filename": "public/dragon.png",
+        "aspect_ratio": "16:9",
+    })
+    assert "saved: public/dragon.png" in out
+    assert (tmp_path / "public" / "dragon.png").exists()
+    assert (tmp_path / "public" / "dragon.png").read_bytes() == fake_png
+

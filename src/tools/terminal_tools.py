@@ -243,10 +243,28 @@ def _spawn_tracked_background(command: str, config: RunnableConfig) -> str:
 
     reader_thread.start()
 
+    # Fast startup window probe (Hermes / Claude Code pattern): probe initial output up to 2.5s
+    # so the agent immediately receives the listening URL / port without wasting 6+ check_terminal turns.
+    time.sleep(0.8)
+    for _ in range(6):
+        with _process_lock:
+            proc_info = _processes.get(process_id, {})
+            current_out = "".join(proc_info.get("output", []))
+        if any(term in current_out.lower() for term in ("ready", "listening", "http://", "localhost:", "compiled", "failed", "error", "vite", "next")):
+            break
+        time.sleep(0.3)
+
+    with _process_lock:
+        proc_info = _processes.get(process_id, {})
+        initial_output = "".join(proc_info.get("output", [])).strip()
+        proc_info["cursor"] = len(proc_info.get("output", []))
+
+    out_preview = f"\n\nInitial startup output:\n{initial_output[:800]}" if initial_output else ""
+
     return (
         f"Process started.\n"
         f"Process ID: {process_id}\n"
-        f"Command: {command}"
+        f"Command: {command}{out_preview}"
     )
 
 @tool

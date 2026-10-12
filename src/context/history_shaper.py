@@ -157,6 +157,7 @@ class HistoryShaper:
         # else touches the list (hermes parity: their stale-replay prune and
         # image retirement are also pre-pipeline). Counted, not silent.
         from src.context.compaction import (
+            compact_file_mutation_arguments,
             prune_stale_reasoning_replay,
             retire_stale_tool_images,
         )
@@ -166,14 +167,14 @@ class HistoryShaper:
         self._stale_images_retired = getattr(self, "_stale_images_retired", 0) + (
             retire_stale_tool_images(history)
         )
+        # Omit landed large file mutation payloads on the request-only copy:
+        history = compact_file_mutation_arguments(history, keep_recent=2)
 
         if os.environ.get("CRUSORAI_COMPACTION", "").strip().lower() == "off":
             # Even the structural-compaction kill switch must not replay every
             # landed write payload until the run-level token budget is gone.
-            from src.context.compaction import compact_file_mutation_arguments
             trim_fn = kill_switch_trim if kill_switch_trim is not None else self.trim
-            compacted = compact_file_mutation_arguments(history)
-            return trim_fn(self.summarize_tool_messages(compacted), budget)
+            return trim_fn(self.summarize_tool_messages(history), budget)
 
         self.ensure_compactor()
         compressor = SmartCompressor(

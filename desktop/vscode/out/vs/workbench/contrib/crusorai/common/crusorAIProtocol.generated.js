@@ -3,14 +3,14 @@
  * Source: src/bridge/protocol_v2.json
  * Do not edit by hand.
  *--------------------------------------------------------------------------------------------*/
-export var CRUSOR_AI_PROTOCOL_VERSION = 2;
-export var CRUSOR_AI_EXECUTION_MODES = [
+export const CRUSOR_AI_PROTOCOL_VERSION = 2;
+export const CRUSOR_AI_EXECUTION_MODES = [
     'agent',
     'plan',
     'debug',
     'ask',
 ];
-export var CRUSOR_AI_CLIENT_METHODS = [
+export const CRUSOR_AI_CLIENT_METHODS = [
     'hello',
     'session_create',
     'session_load',
@@ -45,7 +45,7 @@ export var CRUSOR_AI_CLIENT_METHODS = [
     'shutdown',
     'voice_transcribe',
 ];
-export var CRUSOR_AI_SERVER_EVENTS = [
+export const CRUSOR_AI_SERVER_EVENTS = [
     'checkpoint_event',
     'clarify_request',
     'context_status',
@@ -81,7 +81,7 @@ export var CRUSOR_AI_SERVER_EVENTS = [
     'voice_text',
     'workspace.bound',
 ];
-export var CRUSOR_AI_IDENTITY_FIELDS = [
+export const CRUSOR_AI_IDENTITY_FIELDS = [
     'workspace_id',
     'session_id',
     'runtime_session_id',
@@ -90,4 +90,4 @@ export var CRUSOR_AI_IDENTITY_FIELDS = [
     'tool_id',
     'lineage_id',
 ];
-export var CRUSOR_AI_APPROVAL_IDENTITY_FIELD = 'tool_id';
+export const CRUSOR_AI_APPROVAL_IDENTITY_FIELD = 'tool_id';
