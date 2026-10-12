@@ -4448,7 +4448,17 @@ class SafeToolNode:
                 for _m in (msg_list or []):
                     _tname = getattr(_m, "name", "") or getattr(_m, "tool", "") or "tool"
                     _tcontent = str(getattr(_m, "content", "") or "")
-                    _is_err = any(k in _tcontent.lower() for k in ("error:", "exception:", "traceback", "failed", "denied"))
+                    _is_err = getattr(_m, "status", None) == "error" or getattr(_m, "is_error", False)
+                    if not _is_err:
+                        _low = _tcontent.lower()
+                        if _tname in ("read_file", "search_files", "list_files", "write_file", "edit_file"):
+                            _is_err = _low.startswith("error:") or _low.startswith("file not found:") or _low.startswith("permission denied:")
+                        elif _tname in ("terminal", "run_terminal", "start_terminal"):
+                            _is_err = "command failed" in _low or ("exit code " in _low and "exit code 0" not in _low)
+                        elif _tname == "execute_code":
+                            _is_err = "traceback (most recent call last):" in _low or _low.startswith("error in execute_code:")
+                        else:
+                            _is_err = _low.startswith("error:") or "traceback (most recent call last):" in _low
                     _trk.record_tool_call(
                         name=_tname,
                         output=_tcontent,
