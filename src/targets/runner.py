@@ -540,15 +540,19 @@ def _run_handler(
 
 
 def _reap_background(outcome: RunOutcome) -> None:
-    killed: set[int] = set()
+    tree_stopped: set[int] = set()
     for record in list(outcome.background):
         pid = int(record.get("pid") or 0)
         if pid <= 0:
             continue
         try:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                               capture_output=True, check=False, timeout=20)
+                result = subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True, check=False, timeout=20,
+                )
+                if result.returncode == 0:
+                    tree_stopped.add(pid)
             else:
                 os.killpg(os.getpgid(pid), signal.SIGTERM)
                 time.sleep(0.3)
@@ -556,18 +560,35 @@ def _reap_background(outcome: RunOutcome) -> None:
                     os.killpg(os.getpgid(pid), signal.SIGKILL)
                 except OSError:
                     pass
+                tree_stopped.add(pid)
         except (OSError, subprocess.SubprocessError):
-            continue
-        killed.add(pid)
-        record["stopped"] = True
+            # The process may already have exited, or the platform tree-kill
+            # utility may be unavailable. The owned Popen handle below is the
+            # portable last-resort for the direct child.
+            pass
+
+    stopped = set(tree_stopped)
     # Reap our own children so a killed app is really gone (a zombie still
-    # answers os.kill(pid, 0) and would look "alive" to the next probe).
+    # answers os.kill(pid, 0) and would look "alive" to the next probe). On
+    # Windows, taskkill can fail or race with process startup; terminate the
+    # owned child directly if it is still running, then always wait for it.
     for handle in outcome.handles:
+        pid = int(getattr(handle, "pid", 0) or 0)
         try:
-            if int(getattr(handle, "pid", 0) or 0) in killed or handle.poll() is None:
-                handle.wait(timeout=5)
+            if handle.poll() is None:
+                try:
+                    handle.kill()
+                except OSError:
+                    pass
+            handle.wait(timeout=5)
+            if handle.poll() is not None and pid > 0:
+                stopped.add(pid)
         except (subprocess.SubprocessError, OSError, ValueError):
             continue
+
+    for record in outcome.background:
+        if int(record.get("pid") or 0) in stopped:
+            record["stopped"] = True
     if outcome.background and outcome.artifacts_dir:
         _write_pid_file(Path(outcome.artifacts_dir), outcome.background)
 

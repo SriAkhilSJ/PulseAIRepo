@@ -155,7 +155,16 @@ class StageResult:
         if not argv and self.stage.handler:
             argv = f"[deterministic] {self.stage.handler.split(':')[-1]}"
         if len(argv) > 96:
-            argv = argv[:93] + "..."
+            command = self.resolved_argv or self.stage.argv
+            if command:
+                # Absolute executable paths can exceed the display budget on
+                # Windows (pytest/temp and user profile roots are long). Keep
+                # the executable name and arguments visible instead of clipping
+                # away the useful part of the plan, e.g. ``gradlew``.
+                executable = command[0].replace("\\", "/").rsplit("/", 1)[-1]
+                argv = " ".join((executable, *command[1:]))
+            if len(argv) > 96:
+                argv = argv[:93] + "..."
         return (
             f"STAGE {self.stage.name[:width]:<{width}} {verdict:<9} "
             f"{self.duration_s:6.1f}s  {argv}"

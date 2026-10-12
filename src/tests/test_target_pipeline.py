@@ -14,10 +14,10 @@ place where an agent could otherwise claim success without evidence:
 from __future__ import annotations
 
 import json
-import os
 import sys
 import threading
 import time
+from types import SimpleNamespace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -460,11 +460,35 @@ def test_background_stage_is_reaped_unless_kept_running(tmp_path):
               kind="probe", background=True, required=True),
     ))
     outcome = execute_plan(plan, TargetRequest(keep_running=False), workspace=tmp_path)
-    pid = int(outcome.background[0]["pid"])
-    time.sleep(0.3)
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
-    Path(tmp_path / "background-pids.json").exists()  # idempotent file write path
+    assert outcome.background
+    assert outcome.handles and all(handle.returncode is not None for handle in outcome.handles)
+    assert outcome.background[0]["stopped"] is True
+    pid_file = Path(outcome.artifacts_dir) / "background-pids.json"
+    assert json.loads(pid_file.read_text(encoding="utf-8"))[0]["stopped"] is True
+
+
+def test_windows_reaper_kills_owned_child_when_taskkill_fails(tmp_path, monkeypatch):
+    import src.targets.runner as runner
+
+    plan = RunPlan(target="web", provider="web", stages=(
+        Stage(name="dev_server", argv=(sys.executable, "-c", "import time; time.sleep(60)"),
+              kind="probe", background=True, required=True),
+    ))
+    outcome = execute_plan(plan, TargetRequest(keep_running=True), workspace=tmp_path)
+    try:
+        assert outcome.handles and outcome.handles[0].poll() is None
+        monkeypatch.setattr(runner, "os", SimpleNamespace(name="nt"))
+        monkeypatch.setattr(
+            runner.subprocess, "run",
+            lambda *args, **kwargs: SimpleNamespace(returncode=1),
+        )
+        runner._reap_background(outcome)
+        assert outcome.handles[0].returncode is not None
+        assert outcome.background[0]["stopped"] is True
+    finally:
+        if outcome.handles and outcome.handles[0].poll() is None:
+            outcome.handles[0].kill()
+            outcome.handles[0].wait(timeout=5)
 
 
 def test_process_alive_probe_reports_a_dead_launch(tmp_path):
@@ -684,13 +708,16 @@ def test_verify_target_app_dry_run_is_a_plan_not_a_pass(tmp_path):
     pytest.importorskip("langchain_core")
     from src.tools.target_tools import build_target, verify_target_app
 
-    workspace = _android_workspace(tmp_path / "android")
+    # A long root mimics Windows pytest/temp paths and ensures the rendered plan
+    # preserves the executable name when an absolute argv would otherwise be clipped.
+    workspace = _android_workspace(tmp_path / ("workspace-" + "x" * 48) / "android")
     config = {"configurable": {"workspace": str(workspace)}}
     preview = build_target.invoke({"target": "android", "dry_run": True}, config=config)
     assert preview.startswith(DRY_PREFIX) and "gradlew" in preview
     verify = verify_target_app.invoke(
         {"target": "android", "assertions": ["text=Sign in"], "dry_run": True}, config=config)
     assert verify.startswith(DRY_PREFIX)
+    assert "gradlew" in verify
     assert "PLANNED ASSERTIONS" in verify and "Sign in" in verify
     assert PASS_PREFIX not in verify
 

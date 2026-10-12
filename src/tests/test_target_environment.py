@@ -14,6 +14,7 @@ and no install advice for a target this host cannot run at all.
 from __future__ import annotations
 
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,29 @@ def _fake_sdk(root: Path, *, host: str) -> Path:
     return root
 
 
+def _stub_version_probe(monkeypatch) -> None:
+    """Read fake SDK versions without executing POSIX scripts on Windows."""
+    import src.targets.toolchain as toolchain
+
+    versions = {
+        "adb": "Android Debug Bridge version 1.0.41",
+        "emulator": "Android emulator version 35.1.4",
+        "sdkmanager": "13.0",
+        "avdmanager": "13.0",
+        "android": "Android CLI 1.0",
+    }
+
+    def fake_run(argv, **_kwargs):
+        executable = str(argv[0]).replace(chr(92), "/").rsplit("/", 1)[-1].lower()
+        for suffix in (".exe", ".bat"):
+            if executable.endswith(suffix):
+                executable = executable[:-len(suffix)]
+        version = versions.get(executable, f"{executable} version")
+        return subprocess.CompletedProcess(argv, 0, stdout=version + "\n", stderr="")
+
+    monkeypatch.setattr(toolchain.subprocess, "run", fake_run)
+
+
 # --------------------------------------------------------------------------- #
 # roots
 # --------------------------------------------------------------------------- #
@@ -76,9 +100,9 @@ def test_default_roots_match_each_hosts_installer(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
         monkeypatch.delenv(name, raising=False)
-    windows = {str(root) for root in sdk_roots(HOST_WINDOWS)}
-    macos = {str(root) for root in sdk_roots(HOST_MACOS)}
-    linux = {str(root) for root in sdk_roots(HOST_LINUX)}
+    windows = {root.as_posix() for root in sdk_roots(HOST_WINDOWS)}
+    macos = {root.as_posix() for root in sdk_roots(HOST_MACOS)}
+    linux = {root.as_posix() for root in sdk_roots(HOST_LINUX)}
     assert any("AppData" in root and "Android" in root for root in windows), windows
     assert any(root.endswith("Library/Android/sdk") for root in macos), macos
     assert any(root.endswith("Android/Sdk") for root in linux), linux
@@ -123,6 +147,7 @@ def test_non_windows_candidates_drop_windows_spellings(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 def test_probe_finds_adb_in_the_sdk_root_when_path_is_empty(tmp_path, monkeypatch):
+    _stub_version_probe(monkeypatch)
     sdk = _fake_sdk(tmp_path / "Sdk", host=HOST_LINUX)
     monkeypatch.setenv("ANDROID_HOME", str(sdk))
     empty = tmp_path / "empty-bin"
@@ -135,7 +160,7 @@ def test_probe_finds_adb_in_the_sdk_root_when_path_is_empty(tmp_path, monkeypatc
 
     statuses = probe(HOST_LINUX, fresh=True)
     assert statuses["adb"].available and statuses["emulator"].available
-    assert "SDK root" in statuses["adb"].reason or statuses["adb"].path.endswith("platform-tools/adb")
+    assert "SDK root" in statuses["adb"].reason or statuses["adb"].path.replace(chr(92), "/").endswith("platform-tools/adb")
 
 
 def test_probe_reports_where_it_looked_when_the_sdk_is_absent(tmp_path, monkeypatch):
@@ -150,17 +175,28 @@ def test_probe_reports_where_it_looked_when_the_sdk_is_absent(tmp_path, monkeypa
 
 
 def test_tool_path_resolves_the_same_binary_the_doctor_reported(tmp_path, monkeypatch):
-    sdk = _fake_sdk(tmp_path / "Sdk", host=HOST_LINUX)
+    _stub_version_probe(monkeypatch)
+    host = host_platform()
+    windows = host == HOST_WINDOWS
+    sdk = _fake_sdk(tmp_path / "Sdk", host=host)
     monkeypatch.setenv("ANDROID_HOME", str(sdk))
     empty = tmp_path / "empty-bin"
     empty.mkdir()
     monkeypatch.setenv("PATH", str(empty))
-    assert tool_path("adb") == str(sdk / "platform-tools" / "adb")
-    assert tool_path("emulator") == str(sdk / "emulator" / "emulator")
-    assert tool_path("sdkmanager") == str(sdk / "cmdline-tools" / "latest" / "bin" / "sdkmanager")
+
+    expected = {
+        "adb": sdk / "platform-tools" / ("adb.exe" if windows else "adb"),
+        "emulator": sdk / "emulator" / ("emulator.exe" if windows else "emulator"),
+        "sdkmanager": sdk / "cmdline-tools" / "latest" / "bin" / ("sdkmanager.bat" if windows else "sdkmanager"),
+    }
+    for tool_id, expected_path in expected.items():
+        doctor_path, _ = _probe_binary(TOOLS_BY_ID[tool_id], host)
+        assert doctor_path == str(expected_path)
+        assert tool_path(tool_id) == doctor_path
 
 
 def test_explicit_override_beats_the_sdk_root(tmp_path, monkeypatch):
+    _stub_version_probe(monkeypatch)
     sdk = _fake_sdk(tmp_path / "Sdk", host=HOST_LINUX)
     monkeypatch.setenv("ANDROID_HOME", str(sdk))
     custom = tmp_path / "my-adb"
@@ -300,6 +336,7 @@ def test_setup_ios_windows_explains_prebuilt_physical_device_only(monkeypatch):
 
 
 def test_android_cli_tool_spec_is_optional_and_override_aware(monkeypatch, tmp_path):
+    _stub_version_probe(monkeypatch)
     spec = TOOLS_BY_ID["android-cli"]
     assert spec.required is False
     assert "Google.AndroidCLI" in spec.hint_for(HOST_WINDOWS)
