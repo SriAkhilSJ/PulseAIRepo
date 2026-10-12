@@ -2033,6 +2033,6 @@
 /* Interrupt ledger meta on the cancelled receipt row (landed/dropped). */
 .crusorai-turn-receipt .crusorai-receipt-meta {
 	opacity: 0.75;
-	font-size: 11px;
+	font-size: var(--crusorai-text-meta);
 	margin-left: 6px;
 }

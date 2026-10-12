@@ -340,8 +340,17 @@ def test_streaming_isolation_only_the_message_part_repaints():
     assert "planOpen = undefined;" in renderer and "lastPaint = undefined" in renderer
     # the delta patch keeps the near-bottom scroll rule (delta path uses
     # `scroller`, the full paint `previousScroll`)
-    assert "scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 32" in renderer
-    assert "previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 32" in renderer
+    #
+    # The follow-window is 120px at BOTH sites, and pinning the value is the
+    # point: the rule only holds if the delta path and the full paint agree,
+    # and a one-sided edit is exactly the drift this catches. (Audit
+    # 2026-10-12: this pin carried 32 while the shipped source uses 120 at
+    # both sites — a follow-window widened deliberately, most likely for
+    # "streaming stopped following while I was slightly scrolled up". Pinned
+    # to the shipped value; if the product wants 32 back, change BOTH the
+    # source and this line together.)
+    assert "scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120" in renderer
+    assert "previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 120" in renderer
 
 
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}\\b")
@@ -706,7 +715,10 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     2026-10-01, so the engine build date is 10-01 and the old pin false-flagged
     STALE), then 2026-10-01 -> 2026-10-02 for the Manager Skills tab round (the
     owner's screenshot showed `ui 2026-10-01 STALE` against a 10-02 engine build
-    even though the sha256 panel check passed). The stamp is a hand-maintained
+    even though the sha256 panel check passed), then 2026-10-02 -> 2026-10-12 for
+    the agent-core desktop round (terminal max-h-16 token corrected to 4rem, the
+    receipt-meta font size tokenized, the Manager column explicitly spread).
+    The stamp is a hand-maintained
     constant precisely so a stale `out/` can be told from a current
     one: the chip reads `ui <stamp>` and appends STALE when the engine build date is newer. That
     makes forgetting to bump it a *false* STALE, which is what happened — the preview chrome landed
@@ -714,7 +726,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-02';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-12';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -854,7 +866,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-02'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-12'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

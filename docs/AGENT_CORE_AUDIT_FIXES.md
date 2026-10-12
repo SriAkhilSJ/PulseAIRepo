@@ -85,3 +85,37 @@ Then the part that needs the app: open the desktop IDE and run a UI task that
 asks for a screenshot — the turn must not report completion without the
 screenshot receipt, and a read-only "verify the test2 folder" turn must report
 `task_status="completed"`.
+
+---
+
+## Desktop pins round (same audit, second pass)
+
+The 5 remaining failures were pinned to the desktop contrib sources
+(`desktop/vscode/src/vs/workbench/contrib/crusorai/**`). Four were small
+drifts and are fixed here; the fifth is a build artifact and needs your
+rebuild.
+
+| Pin | Drift found | Fix |
+|---|---|---|
+| `test_reveal_paths_and_terminal_obey_hermes` | `--crusorai-terminal-max-h` was `5rem` under a comment claiming hermes `max-h-16` parity (Tailwind `max-h-16` = **4rem**) | token corrected to `4rem` |
+| `test_crusorai_type_grammar_is_tokenized` | one raw `font-size: 11px` survived the type grammar | → `var(--crusorai-text-meta)` (0.6875rem = 11px, exact) |
+| `test_hermes_activity_parity::…mount_the_same_column…` | the Manager mount spread the column through the enclosing ternary, so the literal `...agentColumn(...)` appeared once; the pane and the Manager must both spread the column explicitly | Manager site now `[...agentColumn(...)]` (behaviour identical) |
+| `test_streaming_isolation_only_the_message_part_repaints` | pin carried a 32px follow-window; the shipped source uses **120px at both sites** | pin updated to the shipped value, with a comment naming both sites — **if you want 32 back, change the source and the pin together** |
+| `test_engine_hash_matches_the_shipped_panel_on_this_repo` | tracked `out/**` build output is older than the sources | **your rebuild** (below) |
+
+The workbench UI stamp moved `2026-10-02 → 2026-10-12` with it (the engine's
+`engineBuild` is the HEAD commit date, so without the bump the chip would
+false-flag `STALE`), and both stamp pins moved together.
+
+### Regenerate the desktop panel (fixes the last pin)
+
+```bash
+cd desktop/vscode
+gulp compile                          # ~4–7 min
+node scripts/emit-crusorai-bundle.mjs # regenerates out/** + SOURCES_HASH + manifest + DI check
+cd ../.. && git add desktop/vscode/out && git commit -m "build(desktop): rebuild crusorai panel"
+```
+
+Then **fully quit and reopen** the app (a running process keeps the old JS in
+memory). The chip should read `ui 2026-10-12` with no `STALE`, and the hash pin
+goes green.
