@@ -35,7 +35,7 @@ ALIASES: dict[str, str] = {
     "android": "android", "apk": "android", "gradle": "android", "kotlin": "android",
     "java-android": "android", "mobile": "android", "phone": "android",
     "ios": "ios", "iphone": "ios", "ipad": "ios", "swift": "ios", "xcode": "ios",
-    "simulator": "ios", "ios-simulator": "ios",
+    "simulator": "ios", "ios-simulator": "ios", "ios-device": "ios", "iphone-device": "ios",
     "flutter": "flutter", "dart": "flutter",
     "react-native": "react-native", "rn": "react-native", "expo": "react-native",
     "react_native": "react-native",

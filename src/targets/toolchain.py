@@ -65,11 +65,17 @@ class ToolSpec:
 
 _ANDROID_HINT = {
     HOST_WINDOWS: (
-        'winget install Google.AndroidStudio (or Google.PlatformTools for adb alone) — this pipeline '
-        'also finds %LOCALAPPDATA%\\Android\\Sdk without PATH edits'
+        'No Android Studio required: winget install --id Google.AndroidCLI, then install SDK packages; '
+        'the doctor resolves %LOCALAPPDATA%\\Android\\Sdk without PATH edits'
     ),
-    HOST_MACOS: 'brew install --cask android-commandlinetools  ·  or sdkmanager "platform-tools" "emulator"',
-    HOST_LINUX: 'apt install android-sdk-platform-tools android-sdk  ·  or sdkmanager "platform-tools" "emulator"',
+    HOST_MACOS: (
+        'Install Android CLI from developer.android.com/tools/agents/android-cli/download, '
+        'then android sdk install platform-tools emulator'
+    ),
+    HOST_LINUX: (
+        'Install Android CLI from developer.android.com/tools/agents/android-cli/download, '
+        'then android sdk install platform-tools emulator'
+    ),
 }
 
 #: Env vars that name an Android SDK root, most explicit first.
@@ -88,6 +94,12 @@ _CMD_LINE_TOOLS_BIN = re.compile(r"cmdline-tools[\\/][^\\/]+[\\/]bin[\\/]?$")
 
 TOOLS: tuple[ToolSpec, ...] = (
     # ---- Android -------------------------------------------------------- #
+    ToolSpec("android-cli", "Android CLI (agent-facing build/device tools)",
+             ("android", "android.exe"), "CRUSORAI_ANDROID_CLI", ("--version",), ALL_HOSTS, {
+                 HOST_WINDOWS: "winget install --id Google.AndroidCLI  (Android Studio is not required)",
+                 HOST_MACOS: "developer.android.com/tools/agents/android-cli/download  (macOS CLI installer)",
+                 HOST_LINUX: "developer.android.com/tools/agents/android-cli/download  (Linux CLI installer)",
+             }, required=False),
     ToolSpec("adb", "Android Debug Bridge", ("adb", "adb.exe"), "CRUSORAI_ADB",
              ("version",), ALL_HOSTS, _ANDROID_HINT,
              sdk_subpaths=("platform-tools/adb", "platform-tools/adb.exe")),
@@ -144,6 +156,12 @@ TOOLS: tuple[ToolSpec, ...] = (
                  "any": "pip install pymobiledevice3  (install an .ipa/app bundle on a physical iPhone from Linux/Windows)",
              }, required=False),
     ToolSpec("idevicesyslog", "iOS device console", ("idevicesyslog",), "",
+             ("-h",), ALL_HOSTS, {
+                 HOST_MACOS: "brew install libimobiledevice",
+                 HOST_LINUX: "apt install libimobiledevice-utils",
+                 HOST_WINDOWS: "scoop install libimobiledevice",
+             }, required=False),
+    ToolSpec("idevicescreenshot", "iOS device screenshot", ("idevicescreenshot",), "",
              ("-h",), ALL_HOSTS, {
                  HOST_MACOS: "brew install libimobiledevice",
                  HOST_LINUX: "apt install libimobiledevice-utils",
@@ -416,28 +434,41 @@ def requirement_report(required: Sequence[str], host: str | None = None) -> str:
 # --------------------------------------------------------------------------- #
 
 TARGET_REQUIREMENTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    # target id -> (required, recommended)
-    "android": (("adb", "java"), ("emulator", "sdkmanager", "scrcpy", "maestro")),
-    "ios": (("xcrun", "xcodebuild"), ("pod", "idevicesyslog")),
-    "ios-device": (("pymobiledevice3",), ("idevicesyslog",)),
+    # target id -> (required, recommended). The target-specific provider performs
+    # a stricter workspace-aware check before execution; this is the host-level
+    # doctor summary and the default setup-plan input.
+    "android": (("adb", "java"), ("android-cli", "emulator", "sdkmanager", "avdmanager", "scrcpy", "maestro")),
+    "ios": (("xcrun", "xcodebuild"), ("pod", "idevicesyslog", "idevicescreenshot")),
+    "ios-device": (("pymobiledevice3",), ("idevicesyslog", "idevicescreenshot")),
     "flutter": (("flutter", "java", "adb"), ("dart", "emulator", "scrcpy")),
     "react-native": (("node", "java", "adb"), ("npm", "emulator", "maestro")),
     "desktop": (("node",), ("playwright", "xvfb-run", "cargo", "dotnet", "tauri-driver")),
     "electron": (("node",), ("npm", "playwright")),
     "tauri": (("cargo", "node"), ("rustc", "tauri-driver")),
+    "wails": (("go", "wails"), ("node",)),
+    "dotnet-desktop": (("dotnet",), ()),
     "web": (("node",), ("npm", "pnpm")),
 }
 
 
 def target_readiness(host: str | None = None, *, targets: Iterable[str] | None = None) -> dict[str, dict[str, object]]:
-    """READY / MISSING verdict per target id, plus the tool details behind it."""
+    """READY / MISSING verdict per target id, plus the tool details behind it.
+
+    iOS is intentionally host-dependent: macOS is the build + Simulator path;
+    Windows/Linux can install and inspect a prebuilt IPA on a physical device via
+    pymobiledevice3, but cannot build an Xcode project or run Simulator.
+    """
     resolved = host_platform(host)
     statuses = probe(resolved)
+    selected = set(targets) if targets is not None else None
     report: dict[str, dict[str, object]] = {}
     for target_id, (required, recommended) in TARGET_REQUIREMENTS.items():
-        if targets is not None and target_id not in set(targets):
+        if selected is not None and target_id not in selected:
             continue
         host_gate = _host_supported(target_id, resolved)
+        if target_id == "ios" and resolved != HOST_MACOS:
+            required = ("pymobiledevice3",)
+            recommended = ("idevicesyslog", "idevicescreenshot")
         absent = [statuses[t] for t in required if t in statuses and not statuses[t].available]
         report[target_id] = {
             "host": resolved,
@@ -457,11 +488,10 @@ def target_readiness(host: str | None = None, *, targets: Iterable[str] | None =
 
 
 def _host_supported(target_id: str, host: str) -> tuple[bool, str]:
-    if target_id.startswith("ios") and host != HOST_MACOS and target_id != "ios-device":
-        return False, (
-            "iOS simulator builds require macOS + Xcode. On Linux/Windows use a physical "
-            "device via pymobiledevice3 (target 'ios-device'), or run the iOS job on a "
-            "macOS runner (GitHub Actions macos-14) / a cloud Mac."
+    if target_id == "ios" and host != HOST_MACOS:
+        return True, (
+            "physical-device proof only on this host: a prebuilt IPA and pymobiledevice3 are needed; "
+            "building the app or using iOS Simulator requires macOS + Xcode"
         )
     return True, ""
 
@@ -484,8 +514,10 @@ def doctor_report(host: str | None = None, *, targets: Iterable[str] | None = No
             optional = info["optional_missing"]
             suffix = f" (optional missing: {', '.join(optional)})" if optional else ""
             lines.append(f"  {target_id:<14} READY{suffix}")
-            continue
-        lines.append(f"  {target_id:<14} MISSING {', '.join(info['missing'])}")
-        for detail in info["missing_detail"]:
-            lines.append(f"      - {detail}")
+        else:
+            lines.append(f"  {target_id:<14} MISSING {', '.join(info['missing'])}")
+            for detail in info["missing_detail"]:
+                lines.append(f"      - {detail}")
+        if info.get("host_reason"):
+            lines.append(f"      NOTE: {info['host_reason']}")
     return "\n".join(lines)

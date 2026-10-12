@@ -516,15 +516,16 @@ def test_unknown_tool_id_fails_closed():
     assert not statuses[0].available
 
 
-def test_ios_is_host_gated_with_an_actionable_reason():
+def test_ios_readiness_reports_physical_device_path_on_non_macos():
     readiness = target_readiness("linux", targets=["ios"])
     info = readiness["ios"]
-    if not info["host_supported"]:                      # no pymobiledevice3 installed
-        assert "macOS" in str(info["host_reason"])
-    else:                                               # pymobiledevice3 present: device path only
-        assert info["host_supported"]
+    assert info["host_supported"]  # a prebuilt IPA can be installed on a physical device
+    assert "physical-device" in str(info["host_reason"])
+    if not info["ready"]:
+        assert info["missing"] == ["pymobiledevice3"]
     macos = target_readiness("darwin", targets=["ios"])
     assert macos["ios"]["host_supported"]
+    assert "xcodebuild" in macos["ios"]["missing"] or macos["ios"]["ready"]
 
 
 def test_registry_aliases_resolve_to_providers():
@@ -610,6 +611,73 @@ def test_agent_tools_expose_the_multiplatform_surface(tmp_path):
     }
     for tool in TARGET_TOOLS:
         assert tool.description
+
+
+def test_device_ui_prefers_android_cli_layout_json(tmp_path, monkeypatch):
+    pytest.importorskip("langchain_core")
+    from types import SimpleNamespace
+
+    import src.tools.target_tools as target_tools
+    import src.targets.toolchain as toolchain
+
+    sdk = tmp_path / "Sdk"
+    sdk.mkdir()
+    layout = json.dumps({"root": {"text": "Sign in", "resourceId": "com.acme:id/login"}})
+    captured = []
+
+    monkeypatch.setattr(target_tools, "_adb_serial", lambda device: ("adb", "emulator-5554"))
+    monkeypatch.setattr(target_tools, "android_cli_path", lambda: r"C:\Android\android.exe")
+    monkeypatch.setattr(target_tools, "android_runner", lambda: "android-cli")
+    monkeypatch.setattr(toolchain, "sdk_roots", lambda: [sdk])
+
+    def fake_run(argv, **kwargs):
+        captured.append((list(argv), kwargs))
+        return SimpleNamespace(returncode=0, stdout=layout, stderr="")
+
+    monkeypatch.setattr(target_tools.subprocess, "run", fake_run)
+    result = target_tools.device_ui.invoke({"device": "emulator-5554"})
+
+    assert result.startswith("ANDROID CLI UI LAYOUT on emulator-5554")
+    assert '"Sign in"' in result
+    argv, kwargs = captured[0]
+    assert argv == [r"C:\Android\android.exe", f"--sdk={sdk}", "layout",
+                    "--device=emulator-5554", "--pretty"]
+    assert kwargs["timeout"] == 120
+
+
+def test_device_ui_falls_back_to_adb_when_android_cli_layout_is_not_json(tmp_path, monkeypatch):
+    pytest.importorskip("langchain_core")
+    from types import SimpleNamespace
+
+    import src.tools.target_tools as target_tools
+    import src.targets.toolchain as toolchain
+
+    monkeypatch.setattr(target_tools, "_adb_serial", lambda device: ("adb", "emulator-5554"))
+    monkeypatch.setattr(target_tools, "android_cli_path", lambda: "android")
+    monkeypatch.setattr(target_tools, "android_runner", lambda: "android-cli")
+    monkeypatch.setattr(toolchain, "sdk_roots", lambda: [])
+    monkeypatch.setattr(
+        target_tools.subprocess, "run",
+        lambda argv, **kwargs: SimpleNamespace(returncode=0, stdout="not-json", stderr=""),
+    )
+
+    adb_calls = []
+
+    def fake_adb(serial, *args, timeout=90):
+        adb_calls.append((serial, args))
+        if "uiautomator" in args:
+            return 0, "UI hierchary dumped"
+        return 0, (
+            '<hierarchy><node text="Home" resource-id="com.acme:id/home" '
+            'bounds="[0,0][100,100]" clickable="true" /></hierarchy>'
+        )
+
+    monkeypatch.setattr(target_tools, "_adb_run", fake_adb)
+    result = target_tools.device_ui.invoke({"device": "emulator-5554"})
+
+    assert "UI hierarchy on emulator-5554" in result
+    assert "Home" in result and "fell back to adb" in result
+    assert [args[1][0] for args in adb_calls] == ["shell", "exec-out"]
 
 
 def test_verify_target_app_dry_run_is_a_plan_not_a_pass(tmp_path):
@@ -709,3 +777,48 @@ def test_target_build_receipt_is_static_evidence_only(tmp_path):
     assert status["static"] and status["typecheck"]
     assert not status["navigate"]          # a build is not runtime proof
     assert status["passed"] is False
+
+
+def test_android_cli_adapter_uses_android_run_for_a_prebuilt_apk(tmp_path, monkeypatch):
+    from src.targets.providers import android as android_provider
+
+    workspace = _android_workspace(tmp_path / "android-cli")
+    monkeypatch.setenv("CRUSORAI_ANDROID_RUNNER", "android-cli")
+    monkeypatch.setattr(android_provider, "android_cli_path", lambda: str(tmp_path / "android.exe"))
+    monkeypatch.setattr(android_provider, "connected_devices", lambda: ["emulator-5554"])
+
+    plan = registry.build_plan(
+        workspace, "android", TargetRequest(mode="verify", device="emulator-5554")
+    )
+    run_stage = next(stage for stage in plan.stages if stage.name == "run")
+    assert run_stage.handler.endswith("android_cli_run")
+    assert run_stage.argv == ("{device}", "{apk}")
+    assert "Gradle" in run_stage.note and "does not" not in run_stage.note
+    assert "{adb}" not in " ".join(run_stage.argv)
+
+
+def test_android_cli_run_passes_device_apk_and_discovered_sdk(tmp_path, monkeypatch):
+    from src.targets.providers import android as android_provider
+
+    cli = tmp_path / "android.exe"
+    sdk = tmp_path / "Sdk"
+    sdk.mkdir()
+    apk = tmp_path / "app-debug.apk"
+    apk.write_bytes(b"apk")
+    monkeypatch.setenv("ANDROID_HOME", str(sdk))
+    monkeypatch.setattr(android_provider, "android_cli_path", lambda: str(cli))
+    captured = []
+
+    def fake_run(argv, *, timeout=90):
+        captured.append((list(argv), timeout))
+        return 0, "run complete"
+
+    monkeypatch.setattr(android_provider, "_run", fake_run)
+    code, output = android_provider.android_cli_run({
+        "tokens": {"device": "emulator-5554", "apk": str(apk)},
+        "workspace": tmp_path,
+    })
+    assert code == 0 and "Gradle already built" in output
+    argv, timeout = captured[0]
+    assert argv == [str(cli), f"--sdk={sdk}", "run", "--device=emulator-5554", f"--apks={apk}"]
+    assert timeout == 600

@@ -68,6 +68,15 @@ _BROWSER_PATTERNS = (
     r"\bnext\.?js\b", r"\bvue\b", r"\bsvelte\b", r"\bdashboard\b",
     r"\bcomponent\b", r"\bchat app\b", r"\bweb app(?:lication)?\b",
 )
+# If a prompt names a native target, generic UI/React terms describe that app's
+# UI—not a browser session. Only add browser tools to a mixed native+web task
+# when it also identifies an actual web surface (including React, but not React
+# Native). This keeps the postures separate without blocking explicit hybrids.
+_WEB_TARGET_PATTERNS = (
+    r"\bweb\b", r"\bbrowser\b", r"\bwebsite\b", r"\bweb page\b",
+    r"\bfrontend\b", r"\bfront-end\b", r"\breact\b(?![\s-]+native\b)",
+    r"\bnext\.?js\b", r"\bvue\b", r"\bsvelte\b",
+)
 _CODE_PATTERNS = (
     r"\bcode(?:base)?\b", r"\bbug\b", r"\bdebug\b", r"\brefactor\b",
     r"\bfunction\b", r"\bclass\b", r"\bmethod\b", r"\bmodule\b", r"\bapi\b",
@@ -206,9 +215,11 @@ def resolve_runtime_profile(task: str, config: Any = None) -> RuntimeProfile:
         )
 
     research = _matches(text, _RESEARCH_PATTERNS)
-    browser = _matches(text, _BROWSER_PATTERNS)
     mobile = _matches(text, _MOBILE_PATTERNS)
     desktop = _matches(text, _DESKTOP_PATTERNS)
+    browser = _matches(text, _BROWSER_PATTERNS)
+    if (mobile or desktop) and not _matches(text, _WEB_TARGET_PATTERNS):
+        browser = False
     coding = _matches(text, _CODE_PATTERNS)
     artifact = _matches(text, _ARTIFACT_PATTERNS)
     workspace_read = _matches(text, _READ_PATTERNS)

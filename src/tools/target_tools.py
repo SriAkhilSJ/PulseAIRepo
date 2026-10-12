@@ -38,7 +38,7 @@ from pathlib import Path
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from src.targets.providers.android import connected_devices
+from src.targets.providers.android import android_cli_path, android_runner, connected_devices
 from src.targets.providers.base import tool_path
 from src.targets.registry import (
     detect,
@@ -366,6 +366,34 @@ def device_ui(device: str = "", config: RunnableConfig | None = None) -> str:
     _, serial = _adb_serial(device)
     if not serial:
         return "⛔ device_ui: no device attached (start an emulator or pass device=)"
+
+    # Prefer the official Android CLI's structured accessibility layout when
+    # installed. Keep the direct adb/uiautomator path as the reliable fallback
+    # (and for users who pin CRUSORAI_ANDROID_RUNNER=adb).
+    layout_fallback = ""
+    try:
+        cli = android_cli_path()
+        if cli and android_runner() == "android-cli":
+            from src.targets.toolchain import sdk_roots
+
+            argv = [cli]
+            sdk_root = next((root for root in sdk_roots() if root.is_dir()), None)
+            if sdk_root is not None:
+                argv.append(f"--sdk={sdk_root}")
+            argv.extend(("layout", f"--device={serial}", "--pretty"))
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=120, check=False)
+            output = (proc.stdout or "").strip()
+            if proc.returncode == 0 and output:
+                try:
+                    json.loads(output)
+                    return f"ANDROID CLI UI LAYOUT on {serial}\n{output[:6000]}"
+                except json.JSONDecodeError:
+                    layout_fallback = "Android CLI layout returned non-JSON output; fell back to adb."
+            else:
+                layout_fallback = f"Android CLI layout exited {proc.returncode}; fell back to adb."
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        layout_fallback = f"Android CLI layout unavailable ({type(exc).__name__}); fell back to adb."
+
     dump_path = "/sdcard/crusorai-ui-dump.xml"
     code, out = _adb_run(serial, "shell", "uiautomator", "dump", dump_path, timeout=120)
     if code != 0:
@@ -393,6 +421,8 @@ def device_ui(device: str = "", config: RunnableConfig | None = None) -> str:
             center = element.center
             if center:
                 lines.append(f"  ({center[0]},{center[1]}) {element.label()[:70]}")
+    if layout_fallback:
+        lines.append("\n" + layout_fallback)
     return "\n".join(lines)
 
 

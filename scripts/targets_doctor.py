@@ -25,6 +25,7 @@ from src.targets import registry  # noqa: E402
 from src.targets.runner import TargetRequest  # noqa: E402
 from src.targets.contract import HOST_LINUX, HOST_MACOS, HOST_WINDOWS  # noqa: E402
 from src.targets.toolchain import (  # noqa: E402
+    TARGET_REQUIREMENTS,
     TOOLS_BY_ID,
     doctor_report,
     host_platform,
@@ -32,95 +33,227 @@ from src.targets.toolchain import (  # noqa: E402
 )
 
 
-#: One command per SDK tool per host, as the vendor actually spells it. Only the
-#: Android emulator path is spelled out end to end: it is the one every platform
-#: gets wrong (a bare "install Android Studio" leaves no AVD to boot into).
-_SETUP_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
-    HOST_WINDOWS: {
+#: Per-target copy/paste recipes. Generic tools (Flutter, Rust, .NET, etc.)
+#: do not share one install command; never print Android instructions for an
+#: unrelated target. Android is the one end-to-end bootstrap because the
+#: Windows SDK/AVD layout is especially easy to get wrong.
+_SETUP_COMMANDS: dict[tuple[str, str], dict[str, tuple[str, ...]]] = {
+    (HOST_WINDOWS, "android"): {
         "base": (
-            '# Windows PowerShell — Android Studio brings the SDK, JDK and emulator',
-            'winget install Google.AndroidStudio',
-            '$sdk = "$env:LOCALAPPDATA\\Android\\Sdk"',
-            '& "$sdk\\cmdline-tools\\latest\\bin\\sdkmanager.bat" --licenses',
-            '& "$sdk\\cmdline-tools\\latest\\bin\\sdkmanager.bat" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"',
-            '& "$sdk\\cmdline-tools\\latest\\bin\\avdmanager.bat" create avd -n crusor -k "system-images;android-35;google_apis;x86_64" -d pixel_7',
-            '# Then confirm this tool sees everything (no PATH edits needed):',
+            '# Windows PowerShell — Android CLI + SDK only; Android Studio is NOT required',
+            '# Install the JDK and Android CLI; close/reopen PowerShell after winget finishes.',
+            'winget install --id Microsoft.OpenJDK.21 --exact',
+            'winget install --id Google.AndroidCLI --exact',
+            '# In a NEW PowerShell window, use the standard per-user Android SDK location:',
+            r'$sdk = "$env:LOCALAPPDATA\Android\Sdk"',
+            '$env:ANDROID_HOME = $sdk',
+            '$env:ANDROID_SDK_ROOT = $sdk',
+            '[Environment]::SetEnvironmentVariable("ANDROID_HOME", $sdk, "User")',
+            '[Environment]::SetEnvironmentVariable("ANDROID_SDK_ROOT", $sdk, "User")',
+            'android "--sdk=$sdk" init',
+            'android "--sdk=$sdk" sdk install platform-tools emulator cmdline-tools/latest platforms/android-35 build-tools/35.0.0 system-images/android-35/google_apis/x86_64',
+            r'& "$sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses',
+            r'echo no | & "$sdk\cmdline-tools\latest\bin\avdmanager.bat" create avd -n crusor -k "system-images;android-35;google_apis;x86_64" -d pixel_7',
+            '# The Android CLI emulator subcommand is currently disabled on Windows; start the SDK emulator directly.',
+            r'& "$sdk\emulator\emulator.exe" -accel-check',
             'python -m scripts.targets_doctor --require android',
         ),
         "accelerated": (
-            '# Hardware acceleration: Windows Hypervisor Platform (needs a reboot)',
+            '# Run as Administrator; enables Windows Hypervisor Platform. Reboot afterwards.',
             'dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart',
         ),
     },
-    HOST_MACOS: {
+    (HOST_MACOS, "android"): {
         "base": (
-            '# macOS — command line tools, then the same SDK steps',
-            'brew install --cask android-commandlinetools',
-            'export ANDROID_HOME="$HOME/Library/Android/sdk"',
+            '# macOS — Android CLI + SDK; no Android Studio required',
+            'brew install openjdk@21',
+            '# Apple Silicon: use darwin_arm64; Intel Macs: replace with darwin_x86_64.',
+            'curl -fsSL https://dl.google.com/android/cli/latest/darwin_arm64/install.sh | bash',
+            'android init',
+            'android sdk install platform-tools emulator cmdline-tools/latest platforms/android-35 build-tools/35.0.0 system-images/android-35/google_apis/arm64-v8a',
             'sdkmanager --licenses',
-            'sdkmanager "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;arm64-v8a"',
             'avdmanager create avd -n crusor -k "system-images;android-35;google_apis;arm64-v8a" -d pixel_7',
             'python -m scripts.targets_doctor --require android',
         ),
     },
-    HOST_LINUX: {
+    (HOST_LINUX, "android"): {
         "base": (
-            '# Linux — KVM is required for an emulator worth waiting for',
-            'sudo apt install openjdk-21-jdk android-sdk-platform-tools android-sdk adb',
-            'ls -l /dev/kvm || echo "no /dev/kvm: enable virtualization in BIOS, or use a physical device"',
+            '# Linux — Android CLI + SDK; no Android Studio required',
+            'sudo apt install openjdk-21-jdk',
+            'curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash',
+            'android init',
+            'android sdk install platform-tools emulator cmdline-tools/latest platforms/android-35 build-tools/35.0.0 system-images/android-35/google_apis/x86_64',
             'sdkmanager --licenses',
-            'sdkmanager "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"',
             'avdmanager create avd -n crusor -k "system-images;android-35;google_apis;x86_64" -d pixel_7',
+            'ls -l /dev/kvm || echo "no /dev/kvm: enable virtualization in BIOS or use a physical device"',
             'python -m scripts.targets_doctor --require android',
         ),
+    },
+    (HOST_WINDOWS, "ios"): {
+        "base": (
+            '# Windows cannot build an Xcode project or run the iOS Simulator.',
+            '# This installs only the optional physical-device path for a prebuilt IPA:',
+            'python -m pip install pymobiledevice3',
+            '# Build and Simulator verification still require a macOS host with full Xcode.',
+        ),
+    },
+    (HOST_LINUX, "ios"): {
+        "base": (
+            '# Linux cannot build an Xcode project or run the iOS Simulator.',
+            '# This installs only the optional physical-device path for a prebuilt IPA:',
+            'python -m pip install pymobiledevice3',
+            '# Build and Simulator verification still require a macOS host with full Xcode.',
+        ),
+    },
+    (HOST_MACOS, "ios"): {
+        "base": (
+            '# macOS — install full Xcode from the App Store (Command Line Tools alone do not include Simulator).',
+            'xcode-select --install',
+            'sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer',
+            'sudo xcodebuild -license accept',
+            '# CocoaPods is needed only when this project has a Podfile:',
+            'sudo gem install cocoapods',
+        ),
+    },
+    (HOST_WINDOWS, "flutter"): {
+        "base": ('# Install Flutter for Windows: https://docs.flutter.dev/get-started/install/windows',
+                 '# For Android targets, run: python -m scripts.targets_doctor --setup android'),
+    },
+    (HOST_MACOS, "flutter"): {
+        "base": ('# Install Flutter for macOS: https://docs.flutter.dev/get-started/install/macos',
+                 '# Then install the platform SDK required by this project (Android or Xcode).'),
+    },
+    (HOST_LINUX, "flutter"): {
+        "base": ('# Install Flutter for Linux: https://docs.flutter.dev/get-started/install/linux',
+                 '# For Android targets, run: python -m scripts.targets_doctor --setup android'),
+    },
+    (HOST_WINDOWS, "react-native"): {
+        "base": ('winget install --id OpenJS.NodeJS.LTS --exact',
+                 'winget install --id Microsoft.OpenJDK.21 --exact',
+                 '# Reopen PowerShell, then run: python -m scripts.targets_doctor --setup android'),
+    },
+    (HOST_MACOS, "react-native"): {
+        "base": ('brew install node@22 openjdk@21',
+                 '# iOS builds/tests additionally require full Xcode and CocoaPods.'),
+    },
+    (HOST_LINUX, "react-native"): {
+        "base": ('sudo apt install nodejs npm openjdk-21-jdk',
+                 '# For Android targets, run: python -m scripts.targets_doctor --setup android'),
+    },
+    (HOST_WINDOWS, "desktop"): {
+        "base": ('winget install --id OpenJS.NodeJS.LTS --exact',
+                 '# Tauri also needs Rust + Microsoft C++ Build Tools; Wails needs Go; .NET apps need the .NET SDK.',
+                 '# Use --setup tauri, --setup wails, or --setup dotnet-desktop for the shell-specific hints.'),
+    },
+    (HOST_MACOS, "desktop"): {
+        "base": ('brew install node@22',
+                 '# Tauri needs rustup; Wails needs Go; .NET apps need the .NET SDK.'),
+    },
+    (HOST_LINUX, "desktop"): {
+        "base": ('sudo apt install nodejs npm',
+                 '# Tauri also needs Rust and WebKitGTK build dependencies; Wails needs Go.'),
+    },
+    (HOST_WINDOWS, "tauri"): {
+        "base": ('winget install --id OpenJS.NodeJS.LTS --exact',
+                 'winget install --id Rustlang.Rustup --exact',
+                 '# Also install Microsoft C++ Build Tools (Desktop development with C++).'),
+    },
+    (HOST_MACOS, "tauri"): {
+        "base": ('brew install node@22 rustup', 'rustup-init'),
+    },
+    (HOST_LINUX, "tauri"): {
+        "base": ('sudo apt install nodejs npm build-essential libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev',
+                 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh'),
+    },
+    (HOST_WINDOWS, "wails"): {
+        "base": ('winget install --id GoLang.Go --exact',
+                 'go install github.com/wailsapp/wails/v2/cmd/wails@latest'),
+    },
+    (HOST_MACOS, "wails"): {
+        "base": ('brew install go', 'go install github.com/wailsapp/wails/v2/cmd/wails@latest'),
+    },
+    (HOST_LINUX, "wails"): {
+        "base": ('sudo apt install golang-go', 'go install github.com/wailsapp/wails/v2/cmd/wails@latest'),
+    },
+    (HOST_WINDOWS, "dotnet-desktop"): {
+        "base": ('winget install --id Microsoft.DotNet.SDK.10 --exact',),
+    },
+    (HOST_MACOS, "dotnet-desktop"): {
+        "base": ('Install the .NET SDK for macOS: https://dotnet.microsoft.com/download',),
+    },
+    (HOST_LINUX, "dotnet-desktop"): {
+        "base": ('Install the .NET SDK for Linux: https://dotnet.microsoft.com/download',),
     },
 }
 
 
 def _setup_plan(targets: list[str]) -> int:
-    """Print the shortest honest path from this host to a runnable target.
-
-    Only the tools the requested target actually needs are reported, and only when
-    they are missing: a page of instructions for hardware you already have is how
-    a setup guide stops being read.
-    """
+    """Print a host- and target-specific setup recipe, without installing it."""
     host = host_platform()
     wanted = [name.strip().lower() for name in (targets or ["android"]) if name.strip()]
     exit_code = 0
     print(f"Setup plan — host {host}")
     print("=" * 62)
     for name in wanted:
+        # Some aliases also have a more precise readiness row (e.g. tauri,
+        # electron, ios-device); keep that instead of flattening everything to
+        # the provider id. Other friendly names resolve through the registry.
+        target_id = name
+        if target_id not in TARGET_REQUIREMENTS:
+            provider = registry.get_provider(name)
+            target_id = provider.id if provider else ""
+        if not target_id:
+            print(f"\n⛔ unknown target {name!r}. Known targets: {', '.join(sorted(TARGET_REQUIREMENTS))}")
+            exit_code = 2
+            continue
         try:
-            readiness = target_readiness(targets=[name]).get(name) or {}
-        except Exception as exc:  # unknown target id
+            readiness = target_readiness(targets=[target_id]).get(target_id) or {}
+        except Exception as exc:  # unknown/broken target readiness
             print(f"\n⛔ unknown target {name!r}: {exc}")
             exit_code = 2
             continue
-        missing = [str(tool_id) for tool_id in (readiness.get("missing") or ())]
-        ready = readiness.get("ready")
-        mark = "✅" if ready else "⛔"
-        reason = readiness.get("host_reason") if not readiness.get("host_supported", True) else ""
-        summary = "ready" if ready else (reason or f"missing {', '.join(missing)}" if missing else "not ready")
-        print(f"\n{mark} {name}: {summary}")
-        if ready:
-            print("   Nothing to install. Prove it:  python -m scripts.targets_doctor --require " + name)
+        if not readiness:
+            print(f"\n⛔ no readiness data for {target_id!r}")
+            exit_code = 2
             continue
-        if not readiness.get("host_supported", True):
-            print("   This host cannot run it at all — no command fixes that. See the limits section of docs/MULTI_PLATFORM_TARGETS.md.")
+
+        missing = list(dict.fromkeys(str(tool_id) for tool_id in (readiness.get("missing") or ())))
+        # `android` can build against a USB phone with adb+Java, but this
+        # workstation setup plan explicitly provisions the requested emulator
+        # path and Google's agent-facing CLI too. Neither is a runtime
+        # requirement for a phone-only build.
+        if target_id == "android":
+            for tool_id in readiness.get("optional_missing") or ():
+                tool_id = str(tool_id)
+                if tool_id in {"android-cli", "emulator", "sdkmanager", "avdmanager"} and tool_id not in missing:
+                    missing.append(tool_id)
+        ready = bool(readiness.get("ready")) and not missing
+        supported = bool(readiness.get("host_supported", True))
+        reason = str(readiness.get("host_reason") or "")
+        summary = "ready" if ready else (reason if not supported else f"missing {', '.join(missing)}" if missing else "not ready")
+        mark = "✅" if ready else "⛔"
+        print(f"\n{mark} {target_id}: {summary}")
+        if not supported:
+            print("   This host cannot run it at all — no command fixes that. See docs/MULTI_PLATFORM_TARGETS.md.")
             exit_code = 1
             continue
+        if reason:
+            print(f"   path: {reason}")
+        if ready:
+            print("   Nothing to install. Prove it:  python -m scripts.targets_doctor --require " + target_id)
+            continue
+
         exit_code = 1
         for tool_id in missing:
             spec = TOOLS_BY_ID.get(tool_id)
-            if spec is None:
-                continue
-            print(f"   missing: {tool_id:<12} {spec.hint_for(host) or spec.label}")
-        commands = _SETUP_COMMANDS.get(host, {})
+            if spec is not None:
+                print(f"   missing: {tool_id:<14} {spec.hint_for(host) or spec.label}")
+        commands = _SETUP_COMMANDS.get((host, target_id), {})
         for block in ("base", "accelerated"):
             lines = commands.get(block)
             if not lines:
                 continue
-            if block == "accelerated" and name != "android":
+            if block == "accelerated" and target_id != "android":
                 continue
             print()
             for line in lines:

@@ -1,7 +1,8 @@
 # Multi-platform delivery: mobile, desktop, and Android targets for the Crusor agent
 
-Status: **implemented in this repo** (target layer + agent surface + tests), with
-the external tooling choices and CI pipelines proposed below.
+Status: **implemented in this repo** (target layer + agent surface + hermetic tests); the
+Windows Android CLI/emulator setup still needs a native-machine run, and the
+external tooling choices and CI pipelines below remain templates.
 Audience: whoever has to make the agent box a mobile/desktop app with the same
 confidence it currently boxes a website.
 
@@ -31,9 +32,9 @@ Six things make that work, all of them deliberate:
 | Providers | `src/targets/providers/*.py` | Per-platform stage plans (build → install → launch → prove → cleanup) |
 | Runner | `src/targets/runner.py` | Sequential stages, timeouts, process reaping, cleanup always runs |
 | Evidence/probes | `src/targets/evidence.py`, `probes.py` | Screenshots, UI dumps, logs, foreground/window/CDP liveness — hashed, on disk |
-| Agent surface | `src/tools/target_tools.py` | 8 tools (`verify_target_app`, `device_*`, …) bound only to mobile/desktop postures |
+| Agent surface | `src/tools/target_tools.py` | 9 tools (`verify_target_app`, `device_*`, …) bound only to mobile/desktop postures |
 
-Two rules are enforced by tests (`src/tests/test_target_pipeline.py`, 41 tests):
+Two rules are enforced by tests (`src/tests/test_target_pipeline.py`, 45 tests):
 
 1. **A green build is not a working app.** `mode="build"` receipts are labelled
    static/typecheck evidence only.
@@ -88,7 +89,7 @@ dump).
   multi_platform_engineering`). Bare "app"/`app.py` is deliberately *not* a
   trigger.
 * `src/tools/toolsets.py` — `_TARGET_TOOLS`, `_TARGET_SCAFFOLD_TOOLS`,
-  `_MOBILE_DEVICE_TOOLS`; "build an android app" now resolves 44 tools
+  `_MOBILE_DEVICE_TOOLS`; "build an android app" now resolves 45 tools
   (vs 13 for a plain chat turn).
 * `src/graphs/chat_graph.py` — 67 bound tools, target tools included.
 * `src/graphs/gates.py` — `verify_target_app` ✅ counts as
@@ -173,58 +174,92 @@ The doctor prints the exact per-OS line; this is the same table in one place.
 
 | Target | Linux | macOS | Windows |
 |---|---|---|---|
-| Android | `apt install openjdk-21-jdk android-sdk-platform-tools android-sdk` (or Android Studio) + `/dev/kvm` | `brew install --cask android-commandlinetools` + `sdkmanager "platform-tools" "emulator"` | Android Studio, or `winget install Google.AndroidStudio` |
-| iOS simulator | — (needs macOS) | Xcode + `xcode-select --install`, `brew install cocoapods` | — |
-| iOS device from Linux/Win | `pip install pymobiledevice3` (+ Xcode.xip for the SDK, see §4.3) | — | same |
-| Flutter | Flutter SDK on PATH + Android or Xcode per target | same | same |
-| React Native | Node ≥ 22 + JDK 21 + Android SDK; Watchman optional | + Xcode + CocoaPods | + Android Studio |
-| Tauri | `cargo` (rustup) + `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev` | rustup + Xcode CLT | rustup + WebView2 (bundled on Win 11) |
+| Android | OpenJDK 21 + Android CLI SDK packages; `/dev/kvm` for a fast AVD | OpenJDK 21 + Android CLI SDK packages | OpenJDK 21 + Android CLI SDK packages — **no Android Studio required** |
+| iOS simulator/build | — (needs macOS) | Full Xcode + `xcode-select --install`, CocoaPods when the project has a Podfile | — (use macOS CI/cloud for build + Simulator) |
+| iOS physical device | Prebuilt IPA + `pymobiledevice3` (build still needs macOS) | Xcode is the supported build/test path | Prebuilt IPA + `pymobiledevice3` (build still needs macOS) |
+| Flutter | Flutter SDK + Android or Xcode toolchain per selected target | same | same |
+| React Native | Node + JDK 21 + Android SDK; Watchman optional | + Xcode + CocoaPods for iOS | + Android CLI SDK for Android; no Studio needed |
+| Tauri | `cargo` (rustup) + `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev` | rustup + Xcode CLT | rustup + Microsoft C++ Build Tools + WebView2 (bundled on Win 11) |
 | Electron | Node + `libgtk-3-0 libnss3 libasound2t64` (headless: `xvfb`) | Node | Node |
-| Emulator without a desktop | `/dev/kvm` + headless flag (`CRUSORAI_EMULATOR_HEADLESS=1`) | — | WSL2/Hyper-V |
+| Emulator without a desktop | `/dev/kvm` + headless flag (`CRUSORAI_EMULATOR_HEADLESS=1`) | — | Hyper-V/WHPX or another supported Windows hypervisor |
 
-### 3.3 Windows + Android emulator, end to end
+### 3.3 Windows + Android emulator, without Android Studio
 
-The Windows path used to have a trap worth naming: **Android Studio does not put
-`adb` or `emulator` on PATH** — they live under `%LOCALAPPDATA%\Android\Sdk`, so any
-tool that only reads PATH reports "adb missing" on a machine that is fully set up.
-The toolchain resolver now looks in, in order: `$CRUSORAI_*` override → `PATH` →
-`ANDROID_HOME` / `ANDROID_SDK_ROOT` → the installer's own default SDK roots
-(`%LOCALAPPDATA%\Android\Sdk`, `~/Library/Android/sdk`, `~/Android/Sdk`). The doctor
-and the plan resolve through the same function, so they never disagree about which
-`adb` is being used.
+Android Studio is **not required**. Google's Android CLI is the agent-facing SDK
+manager and app deployer; the normal Android SDK command-line tools still provide
+`adb`, `emulator.exe`, and `avdmanager.bat`. On Windows, Android CLI's own AVD
+subcommand is [currently disabled](https://developer.android.com/tools/agents/android-cli#known-issues),
+so this plan creates/starts the AVD using the SDK tools directly. The resolver
+looks in `ANDROID_HOME` / `ANDROID_SDK_ROOT` and `%LOCALAPPDATA%\Android\Sdk`;
+no PATH edits are required for those SDK binaries.
 
-Ask for the plan instead of a wall of docs:
+The setup follows Google's [Android CLI install guide](https://developer.android.com/tools/agents/android-cli/download),
+[`android sdk install`](https://developer.android.com/tools/agents/android-cli/commands/sdk_install),
+[`android run`](https://developer.android.com/tools/agents/android-cli/commands/run), and
+[`android layout`](https://developer.android.com/tools/agents/android-cli/commands/layout)
+reference. `android run --apks=… --device=…` consumes the APK Gradle produced; it
+is not a replacement for compiling the workspace with Gradle.
+
+> **Validation status:** command flags were checked against Google's current docs and
+> the setup planner is unit-tested, but this route has **not** yet run on a native
+> Windows machine or emulator. Treat it as unverified until `--require android`,
+> `adb devices -l`, and a real `verify_target_app` receipt succeed.
+
+Ask the doctor for the host-specific block:
 
 ```powershell
-python -m scripts.targets_doctor --setup android      # exit 1 while incomplete
+python -m scripts.targets_doctor --setup android
 ```
 
-It prints only what is actually missing, plus copy-paste PowerShell:
+The Windows route is:
 
 ```powershell
-winget install Google.AndroidStudio
+# First shell: install Java 21 and Google's agent-facing Android CLI.
+winget install --id Microsoft.OpenJDK.21 --exact
+winget install --id Google.AndroidCLI --exact
+# Close/reopen PowerShell after winget, then continue in the new shell.
+
 $sdk = "$env:LOCALAPPDATA\Android\Sdk"
+$env:ANDROID_HOME = $sdk
+$env:ANDROID_SDK_ROOT = $sdk
+[Environment]::SetEnvironmentVariable("ANDROID_HOME", $sdk, "User")
+[Environment]::SetEnvironmentVariable("ANDROID_SDK_ROOT", $sdk, "User")
+
+android "--sdk=$sdk" init
+android "--sdk=$sdk" sdk install platform-tools emulator cmdline-tools/latest platforms/android-35 build-tools/35.0.0 system-images/android-35/google_apis/x86_64
 & "$sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
-& "$sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platform-tools" "emulator" ^
-    "platforms;android-35" "system-images;android-35;google_apis;x86_64"
-& "$sdk\cmdline-tools\latest\bin\avdmanager.bat" create avd -n crusor ^
-    -k "system-images;android-35;google_apis;x86_64" -d pixel_7
-# Hardware acceleration (needs a reboot) — an x86_64 AVD without it is unusable:
-dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart
+echo no | & "$sdk\cmdline-tools\latest\bin\avdmanager.bat" create avd -n crusor -k "system-images;android-35;google_apis;x86_64" -d pixel_7
+
+# The Android CLI emulator subcommand is currently disabled on Windows.
+# The agent boots this same AVD with emulator.exe; check acceleration here:
+& "$sdk\emulator\emulator.exe" -accel-check
 python -m scripts.targets_doctor --require android
 ```
 
-Then the first real proof:
+If acceleration is unavailable, enable **one** Windows hypervisor path (WHPX is
+compatible with Hyper-V/WSL2/Docker Desktop), reboot, and re-check:
 
 ```powershell
-python -m scripts.targets_doctor -w . -t android --plan     # what will run, nothing executed
-# in the IDE: "build and verify this Android app" — or from a script:
-python -c "from src.targets import registry; from src.targets.runner import TargetRequest; print(registry.run('.', 'android', TargetRequest(mode='verify')).to_text())"
+# Run as Administrator; reboot after this finishes.
+dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart
+```
+
+Android CLI's `android run` adapter is optional: Gradle still compiles the app;
+when Android CLI is installed, the provider uses it to deploy and launch the
+already-built APK, then independently checks that the package owns the foreground
+window. Set `CRUSORAI_ANDROID_RUNNER=adb` to pin the existing direct-ADB path.
+
+Then check the plan and request the first real proof:
+
+```powershell
+python -m scripts.targets_doctor -w . -t android --plan     # plan only; nothing executed
+# In the IDE: "build and verify this Android app"
 ```
 
 The agent boots the AVD itself when none is attached (`CRUSORAI_AVD` picks a
 specific one, `CRUSORAI_EMULATOR_HEADLESS=1` for CI, `CRUSORAI_EMULATOR_EPHEMERAL=1`
-to discard it afterwards).
+to discard it afterwards). The real device receipt is the required checkpoint
+before UI-flow automation is enabled.
 
 ### 3.4 New-project scaffolding
 
@@ -376,7 +411,7 @@ when `maestro/**` exists: `maestro test --format junit --output report.xml`.
 
 | Phase | Content | Acceptance |
 |---|---|---|
-| 1 | **Done.** Target layer, 8 agent tools, capability/toolsets/gates wiring, 71 focused tests, scaffolders, doctor CLI | `pytest src/tests/test_target_pipeline.py src/tests/test_target_scaffold.py src/tests/test_toolsets.py` green; `--require` exits 1 on a bare host |
+| 1 | **Done (code-level; native host proof pending).** Target layer, 9 runtime tools, capability/toolsets/gates wiring, scaffolders, doctor CLI; 45 pipeline + 19 environment + 12 scaffold + 21 toolset tests | Those focused suites pass; `--require` refuses a bare host; Windows Android setup still needs a real emulator receipt |
 | 2 | **Done (first cut).** Device mirror in the preview proxy + `device_preview` tool: live screen, real taps, honest errors | `src/tests/test_preview_device.py` (24 tests) green; verified live against the real CLI proxy — register → pane → multipart stream → normalized tap landing as `adb shell input tap 540 1200` |
 | 3 | 30–60 fps pane: scrcpy video socket or emulator WebRTC (WASM decoder in the pane); iOS `simctl` frames; device list + restart controls in the IDE panel | Smooth mirror, < 1 s input latency |
 | 4 | Pipelines for the platform the team actually ships (start with Android; add desktop next) | A PR that breaks the app fails CI with a screenshot, not a stack trace |

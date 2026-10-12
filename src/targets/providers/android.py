@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -96,6 +97,37 @@ def _run(argv: list[str], *, timeout: int = 90) -> tuple[int, str]:
 
 def _adb(*args: str, timeout: int = 90) -> tuple[int, str]:
     return _run([tool_path("adb", fallback="adb"), *args], timeout=timeout)
+
+
+def android_cli_path() -> str:
+    """Find Google's optional Android CLI, including an explicit path override."""
+    override = os.environ.get("CRUSORAI_ANDROID_CLI", "").strip()
+    if override and Path(override).is_file():
+        return override
+    for candidate in ("android", "android.exe"):
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return ""
+
+
+def android_runner() -> str:
+    """Choose the app deployment adapter without replacing Gradle builds.
+
+    ``android run`` deploys/launches an already-built APK; Gradle remains the
+    source build. Auto mode uses Android CLI when installed, with ADB as the
+    transparent fallback. Set CRUSORAI_ANDROID_RUNNER=adb to pin the fallback.
+    """
+    selected = os.environ.get("CRUSORAI_ANDROID_RUNNER", "auto").strip().lower()
+    if selected in ("", "auto"):
+        return "android-cli" if android_cli_path() else "adb"
+    if selected in ("android-cli", "cli", "android"):
+        return "android-cli"
+    if selected in ("adb", "legacy"):
+        return "adb"
+    raise ValueError(
+        "CRUSORAI_ANDROID_RUNNER must be 'auto', 'android-cli', or 'adb'"
+    )
 
 
 def connected_devices() -> list[str]:
@@ -289,6 +321,27 @@ def launch_app(ctx: Mapping[str, Any]) -> tuple[int, str]:
     return (1 if failure else 0), f"{status} via {mode}\n{out.strip()[-1200:]}"
 
 
+def android_cli_run(ctx: Mapping[str, Any]) -> tuple[int, str]:
+    """Deploy and launch a Gradle-produced APK through Google's Android CLI."""
+    cli = android_cli_path()
+    if not cli:
+        return 127, "Android CLI is not installed (set CRUSORAI_ANDROID_CLI or install it)"
+    tokens = dict(ctx.get("tokens") or {})
+    device = str(tokens.get("device") or "").strip()
+    apk = str(tokens.get("apk") or "").strip()
+    if not device or not apk:
+        return 1, "Android CLI run needs a resolved device serial and built APK"
+    argv = [cli]
+    from src.targets.toolchain import sdk_roots
+
+    sdk_root = next((root for root in sdk_roots() if root.is_dir()), None)
+    if sdk_root is not None:
+        argv.append(f"--sdk={sdk_root}")
+    argv.extend(("run", f"--device={device}", f"--apks={apk}"))
+    code, out = _run(argv, timeout=600)
+    return code, f"android run (Gradle already built the APK) on {device}\\n{out.strip()[-1600:]}"
+
+
 def foreground_is_app(ctx: Mapping[str, Any]) -> tuple[int, str]:
     """The only honest launch check: the package owns the foreground window."""
     args = {str(k): str(v) for k, v in dict(ctx.get("args") or {}).items()}
@@ -329,9 +382,9 @@ def foreground_is_app(ctx: Mapping[str, Any]) -> tuple[int, str]:
 
 class AndroidProvider(TargetProvider):
     id = "android"
-    label = "Android app (Gradle + adb + emulator/device)"
+    label = "Android app (Gradle + Android CLI/adb + emulator/device)"
     requires = ("adb", "java")
-    recommended = ("emulator", "sdkmanager", "scrcpy", "maestro")
+    recommended = ("android-cli", "emulator", "sdkmanager", "avdmanager", "scrcpy", "maestro")
     APK_GLOBS = APK_PATTERNS
 
     #: ``{token}`` -> ``module:function`` resolvers referenced from stage argv.
@@ -388,9 +441,11 @@ class AndroidProvider(TargetProvider):
         needs = ["adb", "java"]
         if not details.get("wrapper"):
             needs.append("gradle")
+        if request.mode != "build" and android_runner() == "android-cli" and not android_cli_path():
+            needs.append("android-cli")
         if not request.device and not connected_devices():
             needs.append("emulator")
-        return tuple(needs)
+        return tuple(dict.fromkeys(needs))
 
     def build_argv(self, workspace: str | Path, request: TargetRequest) -> tuple[str, ...]:
         """Gradle argv for a debug build (shared with framework providers)."""
@@ -405,8 +460,29 @@ class AndroidProvider(TargetProvider):
 
     def device_stages(self, workspace: str | Path, request: TargetRequest,
                       *, app_id: str, apk_glob_note: str = "") -> list[Stage]:
-        """Install → launch → prove → capture, reusable by framework providers."""
-        stages: list[Stage] = [
+        """Build output → deploy/launch adapter → foreground proof → capture."""
+        try:
+            backend = android_runner()
+        except ValueError as exc:
+            raise PlanUnavailable(str(exc)) from exc
+        if backend == "android-cli":
+            # Android CLI's `run` consumes a prebuilt APK; it does not compile
+            # the workspace. The preceding provider stage remains Gradle.
+            return [
+                Stage(
+                    name="run", kind=KIND_LAUNCH, required=True, timeout_s=600,
+                    argv=("{device}", "{apk}"),
+                    handler="src.targets.providers.android:android_cli_run",
+                    note="android run deploys and launches the Gradle-produced APK",
+                    artifact_globs=("app/build/outputs/apk/**/*.apk", "*/build/outputs/apk/**/*.apk"),
+                ),
+                Stage(name="settle", kind=KIND_PROBE, argv=(), handler="src.targets.probes:sleep",
+                      env=(("seconds", "4"),)),
+                Stage(name="foreground", kind=KIND_PROBE, argv=(),
+                      handler="src.targets.providers.android:foreground_is_app", required=True,
+                      timeout_s=90, env=(("timeout_s", "25"),)),
+            ]
+        return [
             Stage(
                 name="install", kind="install",
                 argv=("{adb}", "-s", "{device}", "install", "-r", "-t", "{apk}"),
@@ -422,7 +498,6 @@ class AndroidProvider(TargetProvider):
                   handler="src.targets.providers.android:foreground_is_app", required=True,
                   timeout_s=90, env=(("timeout_s", "25"),)),
         ]
-        return stages
 
     def probe_stages(self, workspace: str | Path, request: TargetRequest) -> list[Stage]:
         return [
@@ -576,7 +651,7 @@ def render_proof(elements: list[Any], receipt: TargetReceipt) -> None:
 
 
 __all__ = [
-    "APK_PATTERNS", "AndroidProvider", "JUNIT_PATTERNS", "connected_devices",
-    "foreground_is_app", "launch_app", "resolve_activity_name", "resolve_adb",
-    "resolve_apk", "resolve_device",
+    "APK_PATTERNS", "AndroidProvider", "JUNIT_PATTERNS", "android_cli_path",
+    "android_cli_run", "android_runner", "connected_devices", "foreground_is_app",
+    "launch_app", "resolve_activity_name", "resolve_adb", "resolve_apk", "resolve_device",
 ]

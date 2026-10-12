@@ -35,7 +35,8 @@ ANDROID_TOOLS = ("adb", "emulator", "sdkmanager", "avdmanager")
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT", "CRUSORAI_ADB", "CRUSORAI_EMULATOR",
-                 "CRUSORAI_SDKMANAGER", "CRUSORAI_AVDMANAGER"):
+                 "CRUSORAI_ANDROID_CLI", "CRUSORAI_SDKMANAGER", "CRUSORAI_AVDMANAGER",
+                 "CRUSORAI_ANDROID_RUNNER"):
         monkeypatch.delenv(name, raising=False)
     yield
 
@@ -200,10 +201,12 @@ def test_setup_plan_lists_missing_tools_and_windows_commands(monkeypatch):
     )
     assert code == 1
     assert "missing adb, emulator" in output
-    assert "winget install Google.AndroidStudio" in output          # the tool hint
-    assert "sdkmanager.bat" in output and "avdmanager.bat" in output  # the copy-paste plan
-    assert "system-images;android-35;google_apis;x86_64" in output    # the AVD actually gets created
+    assert "winget install --id Google.AndroidCLI" in output        # no Android Studio dependency
+    assert "Android Studio is NOT required" in output
+    assert "sdkmanager.bat" in output and "avdmanager.bat" in output  # SDK + AVD setup
+    assert "system-images/android-35/google_apis/x86_64" in output or "system-images;android-35;google_apis;x86_64" in output
     assert "LOCALAPPDATA" in output                                   # no PATH edits promised
+    assert "winget install Google.AndroidStudio" not in output
 
 
 def test_setup_plan_is_empty_work_when_the_target_is_ready(monkeypatch):
@@ -239,8 +242,8 @@ def test_setup_plan_rejects_an_unknown_target(monkeypatch):
     monkeypatch.setattr(doctor, "host_platform", lambda *a, **k: HOST_WINDOWS)
     monkeypatch.setattr(doctor, "target_readiness", explode)
     code, output = _run_setup(monkeypatch, ["nonsense"], readiness={}, host=HOST_WINDOWS)
-    assert code == 1  # unknown target must not look like success
-    assert "not ready" in output or "unknown" in output
+    assert code == 2  # unknown target is distinct from an incomplete installation
+    assert "unknown" in output
 
 
 def test_setup_plan_defaults_to_android(monkeypatch):
@@ -251,3 +254,59 @@ def test_setup_plan_defaults_to_android(monkeypatch):
         host=HOST_LINUX,
     )
     assert code == 1 and "android" in output and "/dev/kvm" in output
+
+
+def test_setup_plan_is_target_specific_not_android_for_everything(monkeypatch):
+    code, output = _run_setup(
+        monkeypatch, ["flutter"],
+        readiness={"flutter": {"ready": False, "missing": ["flutter"], "host_supported": True,
+                               "host_reason": "", "optional_missing": []}},
+        host=HOST_WINDOWS,
+    )
+    assert code == 1
+    assert "Install Flutter for Windows" in output
+    assert "sdkmanager.bat" not in output
+    assert "AndroidStudio" not in output
+
+
+def test_windows_android_setup_has_android_cli_and_no_studio(monkeypatch):
+    code, output = _run_setup(
+        monkeypatch, ["android"],
+        readiness={"android": {"ready": False, "missing": ["adb", "java"],
+                               "optional_missing": ["android-cli", "emulator", "sdkmanager", "avdmanager"],
+                               "host_supported": True, "host_reason": ""}},
+        host=HOST_WINDOWS,
+    )
+    assert code == 1
+    assert "android-cli" in output and "emulator" in output
+    assert 'android "--sdk=$sdk" sdk install' in output
+    assert "Android Studio is NOT required" in output
+    assert "winget install Google.AndroidStudio" not in output
+    assert "emulator subcommand is currently disabled on Windows" in output
+    assert "emulator.exe" in output
+
+
+def test_setup_ios_windows_explains_prebuilt_physical_device_only(monkeypatch):
+    code, output = _run_setup(
+        monkeypatch, ["ios"],
+        readiness={"ios": {"ready": False, "missing": ["pymobiledevice3"], "host_supported": True,
+                           "host_reason": "physical-device proof only; Xcode requires macOS"}},
+        host=HOST_WINDOWS,
+    )
+    assert code == 1
+    assert "pymobiledevice3" in output
+    assert "cannot build an Xcode project" in output
+    assert "Android Studio" not in output
+
+
+def test_android_cli_tool_spec_is_optional_and_override_aware(monkeypatch, tmp_path):
+    spec = TOOLS_BY_ID["android-cli"]
+    assert spec.required is False
+    assert "Google.AndroidCLI" in spec.hint_for(HOST_WINDOWS)
+    cli = tmp_path / "android.exe"
+    cli.write_text("#!/bin/sh\necho 'Android CLI 1.0'\n", encoding="utf-8")
+    cli.chmod(0o755)
+    monkeypatch.setenv("CRUSORAI_ANDROID_CLI", str(cli))
+    path, version = _probe_binary(spec, HOST_WINDOWS)
+    assert path == str(cli)
+    assert "Android CLI" in version
