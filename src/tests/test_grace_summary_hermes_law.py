@@ -245,10 +245,13 @@ def test_grace_print_names_both_budget_legs_and_the_tripped_one(monkeypatch):
     tripped leg: the next field log diagnoses itself."""
     from src.graphs.budget import _budget_trip_reason
 
+    import pytest
+
+    # The default iteration budget is 45 (D40 raised it from 30); pin the cap
+    # so "iterations 30/…" and "tripped: iterations" are true together.
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "30")
     iters = _budget_trip_reason({"iteration_used": 30})
     assert "iterations 30/" in iters and "tripped: iterations" in iters
-
-    import pytest
 
     # env is read per call: pin a small cap so the token leg is the tripped one
     monkeypatch.setenv("AGENT_TOKEN_BUDGET", "120000")

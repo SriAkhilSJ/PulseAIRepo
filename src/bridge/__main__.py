@@ -1544,9 +1544,9 @@ class BridgeServer:
                         "type": "subagent_updated", "session_id": sid,
                         "subagent_id": f"depth-denied-{sid}",
                         "state": "failed",
-                        "error": f"Subagent depth limit reached ({_max_depth})",
+                        "error": f"Subagent depth cap reached ({_max_depth})",
                     })
-                    self.emit(error_frame(f"Subagent depth limit reached ({_max_depth})"))
+                    self.emit(error_frame(f"Subagent depth cap reached ({_max_depth})"))
                 else:
                     from src.agents.subagent_lifecycle import subagent_lifecycle
                     handle = subagent_lifecycle.launch(

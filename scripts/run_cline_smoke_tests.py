@@ -74,8 +74,15 @@ SCENARIOS = [
 
 def run_smoke_evals():
     calc = ClineMetricsCalculator()
+    # Audit 2026-10-12: this script NEVER invokes the agent. Three of its four
+    # scenarios hardcode `passed = True`; the other two exercise the D34 batch
+    # gate (`_batch_conflict` / `is_eligible`) directly. Its old header
+    # ("CLINE-STANDARD SMOKE EVALS … A+ (Elite)") read like an agent benchmark,
+    # which is how a "100% pass@1" claim reached the README with no
+    # measurement behind it. It is a gate CONTRACT self-check — labelled as
+    # one here, and the header now says so.
     print("=" * 80)
-    print(" 🧪 CLINE-STANDARD SMOKE EVALS & PERFORMANCE AUDIT")
+    print(" 🧪 D34 BATCH-GATE CONTRACT SELF-CHECK (no agent invocation)")
     print("=" * 80)
 
     tools = {
@@ -121,16 +128,17 @@ def run_smoke_evals():
         print(f"{sc_id:<20} | {name:<35} | {dur:>6.1f} ms | {status}")
 
     print("=" * 80)
-    print(" 📈 STATISTICAL AGENT METRICS (Cline/HumanEval Standard)")
+    print(" 📈 CONTRACT SELF-CHECK SUMMARY (not an agent evaluation)")
     print("=" * 80)
     p_at_1 = calc.pass_at_k(trials, 1)
     p_caret_all = calc.pass_caret_k(trials, len(trials))
     flakiness = calc.flakiness_score(trials)
 
-    print(f" • pass@1 (Capability Score)    : {p_at_1 * 100:.1f}%")
-    print(f" • pass^{len(trials)} (Reliability Score)   : {p_caret_all * 100:.1f}%")
+    print(f" • self-check pass@1            : {p_at_1 * 100:.1f}%")
+    print(f" • self-check pass^{len(trials)}            : {p_caret_all * 100:.1f}%")
     print(f" • Flakiness Entropy (0=stable)  : {flakiness:.3f}")
-    print(f" • Overall Evaluation Grade     : {'A+ (Elite)' if p_caret_all == 1.0 else 'B (Good)'}")
+    print(" • Agent-level pass@k / cost / latency: run the reliability harness")
+    print("   (benchmarks/crusor_reliability_v1) on a lane with a provider key.")
     print("=" * 80)
 
 

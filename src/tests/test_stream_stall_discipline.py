@@ -32,7 +32,9 @@ def test_streaming_custom_uses_silence_sized_timeout(_custom_creds):
     llm = _core(factory.get_llm("custom", "test-model"))
 
     assert llm.streaming is True
-    assert llm.request_timeout == 45.0, "default silence budget"
+    # Default silence budget is 35s (factory: "default 35 (was 45) ... 35s
+    # fails fast without cutting slow-but-alive generations").
+    assert llm.request_timeout == 35.0, "default silence budget"
     assert llm.max_retries == 0, "no hidden SDK retries — the proxy owns the policy"
 
 
@@ -41,7 +43,7 @@ def test_stall_budget_is_env_tunable_per_call(_custom_creds, monkeypatch):
     assert _core(factory.get_llm("custom", "m")).request_timeout == 15.0
 
     monkeypatch.setenv("CRUSORAI_LLM_STALL_TIMEOUT_S", "not-a-number")
-    assert _core(factory.get_llm("custom", "m")).request_timeout == 45.0
+    assert _core(factory.get_llm("custom", "m")).request_timeout == 35.0
 
     monkeypatch.setenv("CRUSORAI_LLM_STALL_TIMEOUT_S", "9999")
     assert _core(factory.get_llm("custom", "m")).request_timeout == 300.0, "clamped"

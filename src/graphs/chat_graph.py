@@ -470,7 +470,7 @@ def delegate_to_subagent(
         max_depth = int(os.getenv("CRUSORAI_SUBAGENT_DEPTH", "1"))
         if depth >= max_depth:
             return (
-                f"⛔ Subagent depth limit reached ({max_depth}). "
+                f"⛔ Subagent depth cap reached ({max_depth}). "
                 f"Increase CRUSORAI_SUBAGENT_DEPTH to allow nested subagents. "
                 "Complete the decomposed steps directly instead."
             )
@@ -674,7 +674,7 @@ def delegate_to_subagent_batch(
             depth = max(depth, 1)
         max_depth = int(os.getenv("CRUSORAI_SUBAGENT_DEPTH", "1"))
         if depth >= max_depth:
-            return f"⛔ Subagent depth limit reached ({max_depth}). Complete steps directly."
+            return f"⛔ Subagent depth cap reached ({max_depth}). Complete steps directly."
     except Exception:
         if str(caller_thread).startswith("sub-"):
             return (
@@ -2059,18 +2059,32 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # Honesty is independent of the bounded nudge budget. A run that exhausted
     # its continuation attempts is still unverified when required receipts are
     # absent; bounded routing must never turn missing evidence into a PASS.
-    from src.graphs.gates import _verification_ran_and_passed, _named_deliverables_exist
+    from src.graphs.gates import (
+        _any_tool_activity,
+        _named_deliverables_exist,
+        _verification_ran_and_passed,
+    )
     from src.graphs.progress_helpers import trailing_batch_failed
     unverified = (
         _looks_like_execution_task(current_task)
         and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
     )
-    # Zero Mutation / Empty Execution Check: if the user requested building or executing
-    # a task, but the turn finalized with zero files modified and no deliverable produced
-    # (e.g. model monologued without emitting mutation tools), report as incomplete/failed.
+    # Zero Mutation / Empty Execution Check: if the user requested building or
+    # executing a task, and the turn finalized with ZERO tool activity at all
+    # and no deliverable produced (the model monologued without emitting a
+    # single tool call), report as incomplete/failed.
+    #
+    # Audit 2026-10-12: the check used to fire on "no MUTATION tool ran",
+    # which stamped legitimate read-only work incomplete — "verify the test2
+    # folder" (two independent field pins) failed here even though reads and
+    # commands had run. Mutation-less turns are exactly what read/verify asks
+    # look like. The finish gate above already refuses to finalize an
+    # execution task with no real work while budget remains; this check now
+    # catches only the pure-monologue case it was written for.
     no_work_done = (
         _looks_like_execution_task(current_task)
+        and not _any_tool_activity(state)
         and not _wrote_code_files(state)
         and not _named_deliverables_exist(state, state.get("workspace", "."))
     )
@@ -2092,7 +2106,18 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # (unrecovered — the model's final act was the failure) or D9-unverified
     # code marks the turn incomplete.
     trailing_failed = trailing_batch_failed(state.get("messages") or [])
-    task_succeeded = not unverified and not trailing_failed and not budget_cut and not no_work_done
+    # Audit 2026-10-12: the verdict is computed ONCE and used for both the
+    # returned task_status and the console line. They used to disagree —
+    # `no_work_done` flipped task_completed to False while the print still
+    # said "done: completed", so the field log contradicted the verdict the
+    # UI rendered and nobody could tell which was true.
+    verdict = (
+        "budget_exhausted" if budget_cut
+        else "unverified" if unverified
+        else "failed" if (trailing_failed or no_work_done)
+        else "completed"
+    )
+    task_succeeded = verdict == "completed"
     if not task_succeeded:
         plan = finalize_plan(
             plan=list(state.get("plan", [])),
@@ -2244,23 +2269,12 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
     })
 
-    print(
-        "[turn] finalize done: "
-        + ("budget-exhausted" if budget_cut
-           else "unverified" if unverified
-           else "failed" if trailing_failed
-           else "completed"),
-        flush=True,
-    )
+    # One verdict, one voice: this line and task_status below cannot disagree.
+    print(f"[turn] finalize done: {verdict}", flush=True)
     return {
         "plan": plan,
         "task_completed": task_succeeded,
-        "task_status": (
-            "budget_exhausted" if budget_cut
-            else "unverified" if unverified
-            else "failed" if trailing_failed
-            else "completed"
-        ),
+        "task_status": verdict,
         "messages": ([AIMessage(content="\n".join(lines))] if lines else []) + _sweep,
     }
 

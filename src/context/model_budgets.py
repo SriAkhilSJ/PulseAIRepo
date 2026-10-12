@@ -924,7 +924,16 @@ def resolve_context_window(
     #    about what it serves. Asked BEFORE the static table (Hermes parity:
     #    "active endpoint metadata above hardcoded defaults"). Applies to
     #    custom, velona, and any OpenAI-compatible endpoint.
-    if allow_network and provider in ("custom", "velona"):
+    #
+    #    GATED on `endpoint_probe` (audit 2026-10-12): this rung used to fire
+    #    for every `custom`/`velona` resolution regardless of the flag, so the
+    #    slow ask (measured: 1,572 models, 503 KB, 5.1s) ran on blocking paths
+    #    — engine construction, history shaping, the pre-send guard — while
+    #    the parameter that exists to control it was ignored. The endpoint is
+    #    asked from the engine's background warm-up thread
+    #    (ContextEngine._endpoint_retry_worker, "the one place the slow ask is
+    #    allowed"); foreground callers get the flag only when they opt in.
+    if allow_network and endpoint_probe and provider in ("custom", "velona"):
         probe_base_url = ""
         if provider == "velona":
             try:

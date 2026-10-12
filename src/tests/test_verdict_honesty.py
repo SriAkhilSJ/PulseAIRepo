@@ -1,0 +1,262 @@
+"""Verdict-honesty pins — audit 2026-10-12.
+
+Four defects were found by running the suite against the shipped code. Each
+one had the same shape: a rule the runtime STATES (in a docstring, a comment,
+or a sibling test) was not actually enforced, and the only thing missing was
+an assertion that could fail. These are those assertions.
+
+1. `_looks_like_execution_task` matched markers as SUBSTRINGS, so "test"
+   matched inside "test2" and read-only verification turns were stamped
+   incomplete by finalize.
+2. `no_work_done` fired on "no mutation tool ran", which is what every
+   read-only turn looks like; it must fire only on a pure monologue.
+3. The finalize console line and the returned `task_status` could disagree.
+4. The plan-complete wrap lap (ONE closing summary call) could be routed back
+   into `finish_gate` because the no-tool Hard Gate sat above it, and a UI
+   task asking for a screenshot could pass with no screenshot receipt.
+"""
+
+from __future__ import annotations
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+import pytest
+
+
+@pytest.fixture()
+def _no_memory(monkeypatch):
+    import src.graphs.chat_graph as chat_graph
+
+    monkeypatch.setattr(chat_graph, "memory_manager", None)
+
+
+# ---------------------------------------------------------------------------
+# 1. Word-boundary task classification
+# ---------------------------------------------------------------------------
+
+def test_execution_classifier_is_word_boundary_not_substring():
+    from src.graphs.gates import _looks_like_execution_task
+
+    # The audit's failing field case: "test2" is a FOLDER NAME, not a verb.
+    # (A hyphenated "test-2" still reads as the verb — "test" there sits on a
+    # real word boundary, and separating that from "run test -2" is not
+    # lexically possible. The field bug was the glued digit.)
+    assert _looks_like_execution_task("verify the test2 folder") is False
+    assert _looks_like_execution_task("read the address from the config file") is False
+    # ...while the real verbs and their inflections still classify.
+    assert _looks_like_execution_task("build app and test it") is True
+    assert _looks_like_execution_task("run the tests") is True
+    assert _looks_like_execution_task("adding a settings page") is True
+    assert _looks_like_execution_task("write a README") is True
+    assert _looks_like_execution_task("make a landing page") is True
+    assert _looks_like_execution_task("Please fix the parser") is True
+    assert _looks_like_execution_task("") is False
+
+
+def test_rewrite_all_no_longer_reads_as_write_a():
+    """`"write a" in task` matched inside "re"write a"ll" — a second substring
+    trap in the same marker list. Phrase markers now carry real boundaries."""
+    from src.graphs.gates import _looks_like_execution_task
+
+    assert _looks_like_execution_task("rewrite all the docs") is False
+
+
+# ---------------------------------------------------------------------------
+# 2 + 3. Finalize verdicts: read-only work completes, monologue fails, and the
+#        log says exactly what the verdict says.
+# ---------------------------------------------------------------------------
+
+def _finalize(state: dict):
+    from src.graphs.chat_graph import finalize_node
+
+    return finalize_node(dict(state), {"configurable": {}})
+
+
+def test_readonly_verification_turn_is_not_stamped_incomplete(_no_memory):
+    """Field pin (test2_ws_retest): the run read the folder, succeeded, and
+    finalize still returned task_completed=False because "test" ⊂ "test2"."""
+    state = {
+        "messages": [
+            HumanMessage(content="verify the test2 folder"),
+            AIMessage(content="", tool_calls=[
+                {"name": "read_file", "args": {"path": "test2/app.css"}, "id": "t1"},
+            ]),
+            ToolMessage(content="✅ Read file: test2/app.css", tool_call_id="t1", name="read_file"),
+            AIMessage(content="test2 looks correct — globals.css is present."),
+        ],
+        "current_task": "verify the test2 folder",
+        "steps_completed": ["Read file: test2/app.css"],
+        "failed_steps": [],
+        "plan": [],
+    }
+    out = _finalize(state)
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
+    assert out["messages"] == [], "a completed run stamps nothing"
+
+
+def test_pure_monologue_on_an_execution_task_still_fails(_no_memory):
+    """The check's original purpose must survive the fix: a model that talked
+    and never called a single tool did not do the work."""
+    state = {
+        "messages": [
+            HumanMessage(content="build a landing page with a hero section"),
+            AIMessage(content="I'll start by planning the structure, then build it."),
+        ],
+        "current_task": "build a landing page with a hero section",
+        "steps_completed": [],
+        "failed_steps": [],
+        "plan": [],
+    }
+    out = _finalize(state)
+    assert out["task_completed"] is False
+    assert out["task_status"] == "failed"
+
+
+def test_recovered_tool_failures_are_never_an_incomplete_verdict(_no_memory):
+    """Hermes law: tool errors are observations. A failure that was retried
+    successfully must not fail the turn."""
+    state = {
+        "messages": [
+            HumanMessage(content="clean up the stylesheet"),
+            AIMessage(content="", tool_calls=[
+                {"name": "read_file", "args": {"path": "nope.css"}, "id": "t1"},
+            ]),
+            ToolMessage(content="❌ read_file: no such file", tool_call_id="t1", name="read_file"),
+            AIMessage(content="", tool_calls=[
+                {"name": "read_file", "args": {"path": "app/globals.css"}, "id": "t2"},
+            ]),
+            ToolMessage(content="✅ Read file: app/globals.css", tool_call_id="t2", name="read_file"),
+            AIMessage(content="All checks pass."),
+        ],
+        "current_task": "clean up the stylesheet",
+        "steps_completed": ["Read file: app/globals.css"],
+        "failed_steps": ["Command failed: npx next dev --host 0.0.0.0"],
+        "plan": [],
+    }
+    out = _finalize(state)
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
+
+
+def test_finalize_log_line_agrees_with_the_returned_verdict(_no_memory, capsys):
+    """Audit 2026-10-12: `[turn] finalize done: completed` was printed while
+    the function returned task_completed=False. One verdict, one voice."""
+    monologue = {
+        "messages": [HumanMessage(content="build the thing"), AIMessage(content="sure!")],
+        "current_task": "build the thing",
+        "steps_completed": [],
+        "failed_steps": [],
+        "plan": [],
+    }
+    out = _finalize(monologue)
+    printed = capsys.readouterr().out
+    assert out["task_status"] == "failed"
+    assert "[turn] finalize done: failed" in printed, (
+        "the console line must name the verdict the caller receives — it read "
+        f"'completed' while returning {out['task_status']!r}({out['task_completed']})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4a. The plan-complete wrap lap is terminal
+# ---------------------------------------------------------------------------
+
+def _router_state(**extra) -> dict:
+    state = {
+        "messages": [AIMessage(content="Summary of what was done.")],
+        "current_task": "build the app and test it",
+        "iteration_used": 3,
+        "finish_nudges": 0,
+        "verify_nudges": 0,
+        "grace_done": 0,
+        "workspace": "/nonexistent-ws",
+    }
+    state.update(extra)
+    return state
+
+
+def test_wrap_lap_finalizes_even_under_the_no_tool_hard_gate():
+    """The Hard Gate ("execution task, no mutation tools ran") used to sit
+    above the wrap check, so the guaranteed closing lap could be answered
+    with another 'go do work' nudge. The wrap lap owns the verdict."""
+    from src.graphs.gates import should_continue
+
+    state = _router_state(wrap_summary=1)
+    assert should_continue(state) == "finalize"
+
+
+def test_wrap_lap_still_dispatches_pending_tool_calls():
+    """A wrap lap that DID emit tool calls must have them executed (hermes
+    IterationBudget law) — the terminal wrap rule applies to text-only laps."""
+    from src.graphs.gates import should_continue
+
+    state = _router_state(wrap_summary=1)
+    state["messages"] = [
+        AIMessage(content="", tool_calls=[{"name": "read_file", "args": {"path": "a.py"}, "id": "c1"}])
+    ]
+    assert should_continue(state) == "tools"
+
+
+# ---------------------------------------------------------------------------
+# 4b. A screenshot ask requires a screenshot receipt
+# ---------------------------------------------------------------------------
+
+def _ui_receipt_state(task: str, extra: list) -> dict:
+    calls = AIMessage(content="", tool_calls=[
+        {"id": "t", "name": "typecheck_workspace", "args": {}},
+        {"id": "n", "name": "browser_navigate", "args": {"url": "http://localhost"}},
+        {"id": "s", "name": "browser_snapshot", "args": {}},
+    ])
+    return {
+        "current_task": task,
+        "messages": [
+            calls,
+            ToolMessage(name="typecheck_workspace",
+                        content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+                        tool_call_id="t"),
+            ToolMessage(name="browser_navigate", content="Navigated to http://localhost",
+                        tool_call_id="n"),
+            ToolMessage(name="browser_snapshot", content='{"title":"App","text":"Hello"}',
+                        tool_call_id="s"),
+        ] + extra,
+    }
+
+
+def test_ui_task_without_screenshot_ask_can_pass_on_a_snapshot():
+    from src.graphs.gates import _verification_ran_and_passed
+
+    assert _verification_ran_and_passed(_ui_receipt_state("build the dashboard page", [])) is True
+
+
+def test_ui_task_that_asks_for_a_screenshot_requires_the_screenshot_receipt():
+    from src.graphs.gates import _verification_ran_and_passed
+
+    state = _ui_receipt_state("build a React component and take a screenshot", [])
+    assert _verification_ran_and_passed(state) is False, (
+        "the requested visual proof is the receipt — a DOM snapshot cannot "
+        "stand in for the screenshot the user asked for"
+    )
+
+    state["messages"] = state["messages"] + [
+        ToolMessage(name="browser_screenshot",
+                    content="✅ Screenshot saved: screenshots/proof.png. VISUAL QUALITY PASSED",
+                    tool_call_id="p"),
+    ]
+    assert _verification_ran_and_passed(state) is True
+
+
+def test_composite_ui_verification_satisfies_the_screenshot_ask():
+    from src.graphs.gates import _verification_ran_and_passed
+
+    state = {
+        "current_task": "build a React component and take a screenshot proof",
+        "messages": [
+            ToolMessage(name="verify_ui_workspace", content="✅ UI VERIFICATION PASSED",
+                        tool_call_id="v"),
+        ],
+    }
+    assert _verification_ran_and_passed(state) is True, (
+        "verify_ui_workspace typechecks + navigates + snapshots + screenshots "
+        "in one call; it must satisfy the composite contract"
+    )

@@ -30,8 +30,44 @@ def _clean_env(monkeypatch):
 # ------------------------------------------------------------ on-mode
 
 def test_d35_legacy_constant_never_mutated():
-    """The frozen constant is sacred: on-mode must not edit it."""
-    assert _D35_LEGACY_BATCH_SENTENCE in CLAUDE_SYSTEM_PERSONA
+    """The frozen constant is sacred: on-mode must not edit it.
+
+    Audit 2026-10-12: this test used to assert the anti-batch sentence was
+    INSIDE the frozen constant — which had stopped being true, and the assert
+    was the only thing "proving" the replace() worked. It pinned the bug's
+    precondition, not the behaviour. The real invariant is that composing the
+    persona never mutates the constant.
+    """
+    before = CLAUDE_SYSTEM_PERSONA
+    system_persona()
+    assert CLAUDE_SYSTEM_PERSONA is before
+    assert CLAUDE_SYSTEM_PERSONA == before, "on-mode mutated the frozen constant"
+
+
+def test_d35_batch_block_cannot_silently_vanish():
+    """THE regression pin for the 2026-10-12 audit.
+
+    The batch guidance reached the model only through
+    `CLAUDE_SYSTEM_PERSONA.replace(_D35_LEGACY_BATCH_SENTENCE, ...)`; when the
+    anti-batch line left the constant the replace became a no-op and the
+    guidance silently stopped shipping, while the suite stayed green. Assert
+    the composed block by identity-of-content, not by phrase fragments that
+    could come from anywhere.
+    """
+    from src.prompts.claude_persona import _D35_BATCH_SENTENCE
+
+    p = system_persona()
+    assert _D35_BATCH_SENTENCE in p, (
+        "the composed persona lost _D35_BATCH_SENTENCE — the exact regression "
+        "the audit found; composition must append the block unconditionally"
+    )
+
+
+def test_d35_legacy_sentence_is_absent_from_the_frozen_constant():
+    """Documents the audit's root cause so it cannot be misread again: the
+    anti-batch sentence is NOT in the constant anymore, which is why a bare
+    `.replace()` was a silent no-op. Composition drops it if it ever returns."""
+    assert _D35_LEGACY_BATCH_SENTENCE not in CLAUDE_SYSTEM_PERSONA
 
 
 def test_d35_on_kills_the_anti_batch_sentence():

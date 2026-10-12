@@ -532,10 +532,21 @@ def system_persona(*, autonomous: bool = False) -> str:
         return AUTONOMOUS_SYSTEM_PERSONA
     if not _d35_guidance_enabled():
         return CLAUDE_SYSTEM_PERSONA
+    # Composition is STRUCTURAL, not a string swap (audit 2026-10-12):
+    # `CLAUDE_SYSTEM_PERSONA.replace(_D35_LEGACY_BATCH_SENTENCE, ...)` was a
+    # silent no-op the moment the anti-batch line stopped existing in the
+    # frozen constant — the batch guidance never reached the model while the
+    # only test "pinning" it asserted a string nothing composed. So: drop the
+    # legacy line IF a future persona ever carries it again, then ALWAYS
+    # append the batch block. Presence is pinned by test_prompt_guard.py
+    # (test_d35_batch_block_cannot_silently_vanish); a missing block can
+    # never be silent again.
+    legacy = CLAUDE_SYSTEM_PERSONA
+    if _D35_LEGACY_BATCH_SENTENCE in legacy:
+        legacy = legacy.replace(_D35_LEGACY_BATCH_SENTENCE, "")
     return (
-        CLAUDE_SYSTEM_PERSONA.replace(
-            _D35_LEGACY_BATCH_SENTENCE, _D35_BATCH_SENTENCE
-        )
+        legacy
+        + _D35_BATCH_SENTENCE
         + _D35_FINISH_JOB
         + _D35_LARGE_WRITE_DISCIPLINE
         + _D35_PTC_DEFAULT

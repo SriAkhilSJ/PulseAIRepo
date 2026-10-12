@@ -32,10 +32,30 @@ from src.graphs.budget import _budget_exhausted
 # Execution-flavored task markers: on these, a plain-text finish with no
 # real tool work is treated as an early stop and nudged once (hermes
 # _CODEX_INCOMPLETE_NUDGE pattern, conversation_loop.py).
-_EXECUTION_TASK_MARKERS = (
+#
+# Matching is WORD-BOUNDARED, not substring (audit 2026-10-12): the old
+# `marker in task` test matched "test" inside "test2", so a read-only ask
+# like "verify the test2 folder" classified as an execution task and
+# finalize stamped the turn incomplete (two independent field pins caught
+# it). Single verbs match whole tokens with the ordinary inflections
+# (build/builds/building/built is NOT covered — see _EXECUTION_VERB_FORMS);
+# two-word markers stay phrases with real boundaries so "rewrite all files"
+# no longer matches "write a".
+_EXECUTION_TASK_VERBS = (
     "build", "create", "implement", "integrate", "install", "fix",
     "refactor", "debug", "test", "scaffold", "develop", "deploy",
-    "configure", "write a", "make a", "add ", "migrate", "upgrade",
+    "configure", "add", "migrate", "upgrade",
+)
+_EXECUTION_TASK_PHRASES = ("write a", "make a")
+# Kept for importers/tests that read the marker tuple; the regexes below are
+# what actually match.
+_EXECUTION_TASK_MARKERS = _EXECUTION_TASK_VERBS + _EXECUTION_TASK_PHRASES
+
+_EXECUTION_VERB_RE = re.compile(
+    r"\b(?:" + "|".join(_EXECUTION_TASK_VERBS) + r")(?:s|es|ed|ing)?\b"
+)
+_EXECUTION_PHRASE_RE = re.compile(
+    r"\b(?:" + "|".join(_EXECUTION_TASK_PHRASES) + r")\b"
 )
 
 _FINISH_NUDGE_BUDGET = 2  # max early-finish nudges before finalize is allowed
@@ -171,6 +191,21 @@ _UI_TASK_WORDS = {
     "app", "browser", "dashboard", "page", "website", "screenshot", "preview",
 }
 
+# Audit 2026-10-12: when the user asks for VISUAL proof, a DOM snapshot is
+# not that proof. The gate used to accept `navigate + (snapshot OR
+# screenshot)`, so a UI task that explicitly asked for a screenshot could
+# pass with no screenshot receipt at all — the weaker evidence authorizing
+# completion on the stronger ask. These phrases make the screenshot domain
+# mandatory; the composite verify_ui_workspace tool satisfies it (it
+# typechecks, navigates, snapshots, screenshots, rejects near-blank proof).
+_VISUAL_PROOF_RE = re.compile(
+    r"\b(?:screenshot|visual proof|visual quality|capture the (?:page|screen|ui))\b"
+)
+
+
+def _task_asks_visual_proof(task: str) -> bool:
+    return bool(_VISUAL_PROOF_RE.search((task or "").lower()))
+
 _VERIFY_NUDGE = (
     "[System: You wrote code files but never verified them. You must not "
     "finish an execution task with unverified code — run a verification "
@@ -218,8 +253,16 @@ _CODE_EXT_MARKERS = (".tsx", ".ts", ".jsx", ".js", ".py", ".json", ".css", ".htm
 
 
 def _looks_like_execution_task(task: str) -> bool:
+    """True when the task asks for work, not for an answer.
+
+    Word-boundary matching only: `"test"` must never match inside `"test2"`
+    (audit 2026-10-12 — that substring trap stamped read-only verification
+    turns incomplete), and `"add"` must never match inside `"address"`.
+    """
     t = (task or "").lower()
-    return any(marker in t for marker in _EXECUTION_TASK_MARKERS)
+    if not t:
+        return False
+    return bool(_EXECUTION_VERB_RE.search(t) or _EXECUTION_PHRASE_RE.search(t))
 
 
 # Tools that produce the DELIVERABLE — the finish gate's "real work" bar.
@@ -250,6 +293,26 @@ def _tool_call_count(state: AgentState) -> int:
         if any(tc.get("name") in _WORK_TOOLS
                for tc in (getattr(m, "tool_calls", None) or []))
     )
+
+
+def _any_tool_activity(state: AgentState) -> bool:
+    """True when the turn ran ANY tool — reads/terminal/search included.
+
+    `_tool_call_count` answers "did the turn deliver work?" (mutation tools
+    only, deliberately narrow). This answers the different question the
+    finalize honesty check needs: "did the model act at all?". A read-only
+    ask ("verify the test2 folder", "what does this file do") legitimately
+    ends with zero mutations; only a turn with no tool activity whatsoever
+    is a pure monologue. An emitted tool call counts even if the result was
+    an error — the failure then rides `trailing_batch_failed`, which is the
+    honest signal, instead of being double-counted as "did nothing".
+    """
+    for m in state.get("messages", []):
+        if isinstance(m, ToolMessage):
+            return True
+        if getattr(m, "tool_calls", None):
+            return True
+    return False
 
 
 # =========================================================
@@ -474,6 +537,19 @@ def should_continue(state: AgentState):
     if state.get("execution_mode") == "ask":
         return "finalize"
 
+    # F close (wrap leg): the plan-complete wrap lap produced the closing
+    # answer — the turn ends on it (same law as the grace summary: ONE
+    # toolless summary call, then RETURN; wrap_summary stays set until the
+    # turn teardown).
+    #
+    # Audit 2026-10-12: this check used to sit BELOW the no-tool Hard Gate,
+    # so the guaranteed closing lap could be answered under the Hard Gate's
+    # "no mutation tools ran" condition and get routed back to finish_gate —
+    # burning paid laps against a law this module's own comment states. The
+    # wrap lap is terminal; it owns the verdict ABOVE the Hard Gate.
+    if state.get("wrap_summary") and not getattr(last_message, "tool_calls", None):
+        return "finalize"
+
     # ── Hermes loop law (ported, behavior-based) ─────────────────────────
     # Two mechanical guards that no intent classifier can misroute around:
     #
@@ -547,14 +623,6 @@ def should_continue(state: AgentState):
     # text answer finalizes. One bounded grace lap; the valve is intact.
     if getattr(last_message, "tool_calls", None):
         return "tools"
-
-    # F close (wrap leg): the plan-complete wrap lap produced the closing
-    # answer — the turn ends on it (same law as the grace summary: ONE
-    # toolless summary call, then RETURN; wrap_summary stays set until the
-    # turn teardown). Without this the router could re-enter the
-    # finish/verify gates after the wrap answer and pay more toolless laps.
-    if state.get("wrap_summary") and not getattr(last_message, "tool_calls", None):
-        return "finalize"
 
     # D40: once the ai iteration budget is spent, this run must conclude.
     # The grace call produced a text answer — finalize it instead of
@@ -762,6 +830,13 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         ui_rendered = bool(status.get("snapshot") or status.get("screenshot"))
         status["rendered"] = ui_rendered
         required.extend(["navigate", "rendered"])
+        # ...but when the task ASKS for a screenshot/visual proof, the
+        # snapshot cannot stand in for it (audit 2026-10-12): the requested
+        # artifact is the receipt, so the screenshot domain is required too.
+        visual_proof = _task_asks_visual_proof(state.get("current_task", ""))
+        status["visual_proof_required"] = visual_proof
+        if visual_proof:
+            required.append("screenshot")
     missing = [name for name in required if not bool(status.get(name))]
     return {
         **status,

@@ -83,14 +83,42 @@ def test_a_known_model_still_answers_from_the_table_without_network():
     assert source == "static-table" and window == mb.MODEL_WINDOWS["gpt-4"]
 
 
-def test_no_base_url_means_no_probe_and_the_old_default_still_applies(monkeypatch):
+def test_no_base_url_means_no_probe_and_the_documented_fallback_applies(monkeypatch):
+    """With no endpoint to ask, rung 7 answers — and rung 7 is the Hermes
+    256K fallback (this module's `DEFAULT_FALLBACK_CONTEXT`), NOT the static
+    table's conservative 8K. The two are deliberately different: `model_window`
+    stays conservative (an unknown model on the static path could be an old
+    8K model), while `resolve_context_window` only gets here with nothing else
+    to go on and refuses to silently cripple the budget at 8K.
+    """
     import src.config.settings as settings
 
     monkeypatch.setattr(settings, "CUSTOM_BASE_URL", None, raising=False)
     monkeypatch.delenv("CUSTOM_BASE_URL", raising=False)
     window, source = mb.resolve_context_window("brand-new-model-xyz", provider="custom", endpoint_probe=True)
     assert source == "default"
-    assert window == mb.MODEL_WINDOWS["default"]
+    assert window == mb.DEFAULT_FALLBACK_CONTEXT
+
+
+def test_endpoint_rung_is_gated_on_the_explicit_flag(monkeypatch):
+    """Audit 2026-10-12: rung 3 fired for every `custom` resolution, ignoring
+    `endpoint_probe`. The slow ask (measured 5.1s for a 1,572-model catalog)
+    must happen only where the engine's background warm-up opts in — never on
+    engine construction, history shaping, or the pre-send guard.
+    """
+    import src.config.settings as settings
+
+    monkeypatch.setattr(settings, "CUSTOM_BASE_URL", "http://127.0.0.1:8000/v1", raising=False)
+    called: list[str] = []
+    monkeypatch.setattr(mb, "_endpoint_catalog", lambda base: called.append(base) or [])
+
+    # Default call: no flag => the endpoint is never asked.
+    mb.resolve_context_window("some-unknown-model-abc", provider="custom")
+    assert called == [], "the default resolution must not touch the endpoint"
+
+    # Opt-in call: the flag reaches the endpoint rung.
+    mb.resolve_context_window("some-unknown-model-abc", provider="custom", endpoint_probe=True)
+    assert called, "endpoint_probe=True must reach the endpoint rung"
 
 
 def test_a_catalog_entry_with_no_window_field_does_not_lie(monkeypatch):
