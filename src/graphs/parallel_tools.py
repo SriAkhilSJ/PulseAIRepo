@@ -74,6 +74,11 @@ WILDCARD_TOOLS = frozenset({
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
     "read_terminal_output", "scaffold_nextjs", "clarify", "todo_list",
     "delegate_to_subagent", "delegate_to_subagent_batch",
+    # A target plan owns one machine, one device and one evidence directory:
+    # never batch these (two parallel Gradle builds or two emulator boots on the
+    # same workspace fight over the same locks, ports and AVD).
+    "detect_targets", "check_target_toolchains", "build_target", "verify_target_app",
+    "device_action", "device_screenshot", "device_ui", "device_logs",
 })
 
 _MAX_WORKERS = 4

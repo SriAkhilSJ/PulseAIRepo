@@ -303,6 +303,21 @@ except Exception as _browser_mcp_exc:  # ImportError + any transitive boot failu
     )
 from src.tools.code_exec_tool import execute_code
 from src.tools.scaffold_tools import scaffold_nextjs
+from src.tools.target_scaffold import (
+    scaffold_flutter,
+    scaffold_react_native,
+    scaffold_tauri,
+)
+from src.tools.target_tools import (
+    build_target,
+    check_target_toolchains,
+    detect_targets,
+    device_action,
+    device_logs,
+    device_screenshot,
+    device_ui,
+    verify_target_app,
+)
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.session_search_tool import session_search
 from src.tools.host_tools import HOST_TOOLS
@@ -832,6 +847,13 @@ tools = [
     # prevents create-next-app workspace/workspace nesting.
     scaffold_nextjs,
 
+    # The same transition for the non-web targets: flutter create /
+    # create-expo-app / create-tauri-app generated in a temp sibling, merged
+    # into the real workspace, installed once at the root.
+    scaffold_flutter,
+    scaffold_react_native,
+    scaffold_tauri,
+
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
 
@@ -843,6 +865,20 @@ tools = [
     typecheck_workspace,
     verify_ui_workspace,
     verify_ui_routes,
+
+    # Multi-platform receipts (src/targets/): Android/iOS/desktop/flutter/RN
+    # apps are built, installed, launched and PROVEN (foreground app, simulator
+    # install, CDP window, live process, UI dump, crash-free log slice) in one
+    # deterministic call — plus the device-interaction surface for follow-up
+    # flows and the toolchain doctor for actionable refusals.
+    detect_targets,
+    check_target_toolchains,
+    build_target,
+    verify_target_app,
+    device_action,
+    device_screenshot,
+    device_ui,
+    device_logs,
 
     # Test-2 retest (workspace_d): the agent's EYES. A real browser the
     # agent can navigate/snapshot/screenshot — the only thing that can
@@ -868,6 +904,7 @@ _TOOL_AVAILABILITY_REPORTED = False  # hermes load-line: once per process
 
 _FILE_DELIVERY_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file", "scaffold_nextjs",
+    "scaffold_flutter", "scaffold_react_native", "scaffold_tauri",
 })
 _FILE_DELIVERY_WORDS = frozenset({
     "build", "create", "implement", "write", "fix", "edit", "modify",
@@ -1066,6 +1103,8 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             "terminal", "run_terminal", "start_terminal", "check_terminal",
             "read_terminal_output", "stop_terminal", "typecheck_workspace",
             "verify_ui_workspace", "verify_ui_routes",
+            "build_target", "verify_target_app", "detect_targets",
+            "check_target_toolchains",
         }
         repair_tools = first_check_tools | {
             "read_file", "search_files", "search_code", "write_file",
@@ -4637,7 +4676,10 @@ class SafeToolNode:
             (config or {}).get("configurable", {}).get("approval_policy", "ask")
         )
         unsafe_by_id = {tc.get("id"): warning for tc, _, warning in unsafe}
-        mutation_names = {"write_file", "edit_file", "copy_file", "scaffold_nextjs"}
+        mutation_names = {
+            "write_file", "edit_file", "copy_file", "scaffold_nextjs",
+            "scaffold_flutter", "scaffold_react_native", "scaffold_tauri",
+        }
         approval_candidates = []
         if approval_channel:
             for tc in tool_calls:

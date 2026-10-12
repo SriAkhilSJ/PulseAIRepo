@@ -1,0 +1,138 @@
+# Flutter: one codebase, five real targets.
+# Copy to .github/workflows/flutter.yml
+name: flutter
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FLUTTER_CHANNEL: stable
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12', cache: pip }
+      - run: |
+          python -m pip install pytest pillow langchain-core langgraph
+          python -m pytest src/tests/test_target_pipeline.py -q
+
+  android:
+    needs: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install pytest pillow langchain-core langgraph
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            python - <<'PY'
+            import os, sys
+            os.environ["CRUSORAI_FLUTTER_TARGET"] = "android"
+            os.environ["CRUSORAI_EMULATOR_EPHEMERAL"] = "1"
+            from src.targets import registry
+            from src.targets.runner import TargetRequest
+            receipt = registry.run(".", "flutter", TargetRequest(mode="verify"))
+            print(receipt.to_text())
+            sys.exit(0 if receipt.passed else 1)
+            PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flutter-android-evidence
+          path: "**/.crusorai/target-evidence/**"
+
+  ios:
+    needs: contracts
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install pytest pillow langchain-core langgraph
+      - run: |
+          python - <<'PY'
+          import os, sys
+          os.environ["CRUSORAI_FLUTTER_TARGET"] = "ios"
+          from src.targets import registry
+          from src.targets.runner import TargetRequest
+          receipt = registry.run(".", "flutter", TargetRequest(mode="verify"))
+          print(receipt.to_text())
+          sys.exit(0 if receipt.passed else 1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flutter-ios-evidence
+          path: "**/.crusorai/target-evidence/**"
+
+  desktop:
+    needs: contracts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: windows
+          - os: macos-14
+            target: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install pytest pillow langchain-core langgraph
+      - name: Install Linux desktop deps
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev xvfb
+      - name: Build + launch + PROVE (desktop shell)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys
+          os.environ["CRUSORAI_FLUTTER_TARGET"] = os.environ["DESKTOP_TARGET"]
+          from src.targets import registry
+          from src.targets.runner import TargetRequest
+          receipt = registry.run(".", "flutter", TargetRequest(mode="verify"))
+          print(receipt.to_text())
+          sys.exit(0 if receipt.passed else 1)
+          PY
+        env:
+          DESKTOP_TARGET: ${{ matrix.target }}
+
+  widget-tests:
+    needs: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter test --reporter expanded

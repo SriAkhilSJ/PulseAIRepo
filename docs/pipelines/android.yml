@@ -1,0 +1,120 @@
+# Native Android build + emulator proof.
+# Copy to .github/workflows/android.yml
+name: android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dkotlin.incremental=false
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [34]
+        target: [google_apis]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space (Android SDK + emulator are large)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk || true
+          df -h /
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install the agent runtime (target layer + hermetic contracts)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pillow langchain-core langgraph
+          python -m pytest src/tests/test_target_pipeline.py -q
+
+      - name: AVD snapshot cache
+        id: avd-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ matrix.api-level }}-${{ matrix.target }}
+
+      # ReactiveCircus/android-emulator-runner is the de-facto standard action:
+      # https://github.com/ReactiveCircus/android-emulator-runner
+      - name: Create AVD snapshot (cache warm-up only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "snapshot generated"
+
+      - name: Build + install + launch + PROVE (one receipt)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            python -m scripts.targets_doctor --require android || true
+            python - <<'PY'
+            import os, sys
+            from src.targets import registry
+            from src.targets.runner import TargetRequest
+
+            os.environ["CRUSORAI_EMULATOR_HEADLESS"] = "1"
+            os.environ["CRUSORAI_EMULATOR_EPHEMERAL"] = "1"
+            assertions = [("text", os.environ.get("SMOKE_TEXT", ""))] if os.environ.get("SMOKE_TEXT") else []
+            receipt = registry.run(".", "android", TargetRequest(mode="verify", assertions=tuple(assertions)))
+            print(receipt.to_text())
+            sys.exit(0 if receipt.passed else 1)
+            PY
+
+      - name: Instrumented tests (optional)
+        if: always()
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            python - <<'PY'
+            import os, sys
+            from src.targets import registry
+            from src.targets.runner import TargetRequest
+            os.environ["CRUSORAI_EMULATOR_EPHEMERAL"] = "1"
+            receipt = registry.run(".", "android", TargetRequest(mode="test"))
+            print(receipt.to_text())
+            sys.exit(0 if receipt.passed else 1)
+            PY
+
+      - name: Upload evidence (screenshots, UI dumps, logs, receipts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-evidence-api${{ matrix.api-level }}
+          path: |
+            **/.crusorai/target-evidence/**
+            **/build/reports/**
+          retention-days: 14
