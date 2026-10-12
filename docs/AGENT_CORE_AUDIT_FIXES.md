@@ -29,11 +29,15 @@ old code. CI was added — the repo had none, which is *how* these shipped.
   it asserted the bug's precondition. Added
   `test_d35_batch_block_cannot_silently_vanish`, which asserts the composed
   block by content, not by fragments.
-- **CI** (`.github/workflows/agent-core.yml`): no `.github/` existed. The
-  `agent-core` job runs the hermetic runner on Python 3.11 with the full
-  dependency set (tree-sitter grammars, Pillow, pyright) — the same command as a
-  laptop. A second informational job keeps the desktop-panel parity pins
-  visible without blocking.
+- **CI** (`ci/agent-core.yml` — staged; install with the one command in
+  `ci/README.md`). No `.github/` existed before. The `agent-core` job runs the
+  hermetic runner on Python 3.11 with the full dependency set (tree-sitter
+  grammars, Pillow, pyright) — the same command as a laptop. A second
+  informational job keeps the desktop-panel parity pins visible without
+  blocking. The workflow file sits in `ci/` because Arena's GitHub App lacks
+  the `workflows` permission, so a push touching `.github/workflows/**` is
+  rejected; `cp ci/agent-core.yml .github/workflows/` + push (or reconnecting
+  GitHub with that permission) finishes the job.
 
 ## Evidence (same machine, same runner)
 
