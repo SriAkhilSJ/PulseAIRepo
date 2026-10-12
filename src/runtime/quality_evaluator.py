@@ -23,6 +23,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from src.runtime.reliability_metrics import (
+    cost_per_correct_edit,
+    detect_malformed_response,
+    parse_test_execution,
+    tool_efficiency,
+)
+
 
 # =========================================================================
 # 1. LAZINESS & STUB PATTERNS (Aider & SWE-bench Standard)
@@ -95,6 +102,7 @@ class QualityReport:
     artifacts_inspected: list[str] = field(default_factory=list)
     stub_audit: dict[str, Any] = field(default_factory=dict)
     verification_summary: dict[str, Any] = field(default_factory=dict)
+    economics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -111,6 +119,7 @@ class QualityReport:
             "artifacts_inspected": self.artifacts_inspected,
             "stub_audit": self.stub_audit,
             "verification_summary": self.verification_summary,
+            "economics": self.economics,
         }
 
 
@@ -234,6 +243,11 @@ class UserAskQualityEvaluator:
 
         stub_audit = self._scan_stubs_across_artifacts(all_artifacts)
 
+        # Economics: cost-per-correct-edit (Aider CFO-grade) + tool efficiency
+        n_deliverables = len([a for a in all_artifacts if Path(a).suffix in (".html", ".css", ".js", ".ts", ".py", ".json")])
+        cpe = cost_per_correct_edit(runtime_score / 100.0 * 0.5, n_deliverables) if n_deliverables else None
+        efficiency = tool_efficiency(tool_records)
+
         return QualityReport(
             session_id=session_id,
             user_ask=user_ask,
@@ -255,6 +269,11 @@ class UserAskQualityEvaluator:
             verification_summary={
                 "status": verification_status,
                 "receipts": verification_receipts,
+            },
+            economics={
+                "cost_per_correct_edit_usd": cpe,
+                "n_deliverables": n_deliverables,
+                "tool_efficiency": efficiency,
             },
         )
 
@@ -495,6 +514,28 @@ class UserAskQualityEvaluator:
         elif test_tools:
             details.append(f"All {len(test_tools)} executed terminal/verification command(s) exited cleanly with code 0.")
 
+        # 2b. Attributable test-execution proof (SWE-bench grading.py lesson:
+        # "Executed 0 of 0" under FAIL_ONLY eval scores every test as passing —
+        # a zero-count read as evidence turns a suite that never ran into a
+        # resolved instance). Parse the actual test output for executed counts.
+        test_outputs = " ".join(
+            str(tc.get("output") or tc.get("result") or "")
+            for tc in test_tools
+        )
+        exec_proof = parse_test_execution(test_outputs)
+        if test_tools:
+            if exec_proof["invalid"]:
+                score -= 15.0
+                deductions.append(
+                    f"Test suite never actually ran: '{exec_proof['evidence']}' — "
+                    f"zero-count execution is INVALID, not a pass (-15.0 pts)"
+                )
+            elif exec_proof["ran"] and exec_proof["executed"] > 0:
+                details.append(
+                    f"Attributable verification: {exec_proof['evidence']} "
+                    f"({exec_proof['executed']} test(s) executed)."
+                )
+
         # 3. Browser & Console Errors (for UI tasks)
         console_errors = verification_receipts.get("console_errors") or []
         if console_errors:
@@ -517,6 +558,15 @@ class UserAskQualityEvaluator:
 
         # 1. Presentation clarity check
         if msg:
+            # Malformed response detection (Aider standard): truncated JSON,
+            # unbalanced braces, leaked reasoning, trailing commas.
+            malformed = detect_malformed_response(msg)
+            if malformed:
+                penalty = min(5.0, len(malformed) * 1.5)
+                score -= penalty
+                deductions.append(
+                    f"Malformed/truncated response detected: {', '.join(malformed)} (-{penalty:.1f} pts)"
+                )
             # Check for leaked thought blocks or repetitive internal monologues
             if "<think>" in msg or "</think>" in msg:
                 score -= 3.0

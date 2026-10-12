@@ -25,6 +25,7 @@ if sys.platform == "win32":
         pass
 
 from src.runtime.step_tracker import print_step_report
+from src.runtime.reliability_metrics import evaluate_reliability, pass_at_k, pass_hat_k, wilson_ci
 
 if __name__ == "__main__":
     session_id = None
@@ -46,3 +47,28 @@ if __name__ == "__main__":
             i += 1
 
     print_step_report(session_id, user_ask)
+
+    # Multi-trial reliability footer (Cline/HumanEval standard):
+    # pass@k = capability, pass^k = reliability, Wilson CI for honest ranges.
+    trace_dir = Path.home() / ".crusorai" / "traces"
+    target = trace_dir / f"{session_id}.jsonl" if session_id else trace_dir / "latest.jsonl"
+    if target.exists():
+        import json
+        outcomes = []
+        for line in target.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                step = json.loads(line)
+            except Exception:
+                continue
+            if step.get("node_name") == "ai":
+                status = (step.get("verification_status") or "").lower()
+                outcomes.append(status in ("passed", "completed"))
+        if outcomes:
+            r = evaluate_reliability(outcomes, k=min(5, len(outcomes)))
+            print("-" * 80)
+            print("  RELIABILITY (Cline / HumanEval standard, unbiased estimators)")
+            print("-" * 80)
+            print(f"  pass@{r.k} (capability)      : {r.pass_at_k:.1%}  [{r.ci_low:.1%}, {r.ci_high:.1%}]")
+            print(f"  pass^{r.k} (reliability)      : {r.pass_hat_k:.1%}  (all {r.k} trials succeed)")
+            print(f"  ICC(1) (skill vs luck)      : {r.icc1:.2f}")
+            print(f"  Verdict                    : {r.verdict}")
