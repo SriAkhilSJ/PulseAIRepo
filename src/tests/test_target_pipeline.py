@@ -605,6 +605,8 @@ def test_agent_tools_expose_the_multiplatform_surface(tmp_path):
     assert names == {
         "detect_targets", "check_target_toolchains", "build_target", "verify_target_app",
         "device_action", "device_screenshot", "device_ui", "device_logs",
+        # Mirrors the device into the IDE's preview window (src/preview/device.py).
+        "device_preview",
     }
     for tool in TARGET_TOOLS:
         assert tool.description

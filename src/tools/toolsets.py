@@ -57,6 +57,9 @@ _TARGET_TOOLS: tuple[str, ...] = (
 )
 _MOBILE_DEVICE_TOOLS: tuple[str, ...] = (
     "device_action", "device_screenshot", "device_ui", "device_logs",
+    # Mirror the device into the IDE's preview window (src/preview/device.py):
+    # the human watches and pokes the same device the agent is driving.
+    "device_preview",
 )
 # New projects for those targets (scaffold_tools.scaffold_nextjs is the web
 # peer). Guarded by the write capability: scaffolding is a workspace mutation.

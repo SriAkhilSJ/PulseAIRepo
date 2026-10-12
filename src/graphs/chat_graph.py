@@ -313,6 +313,7 @@ from src.tools.target_tools import (
     check_target_toolchains,
     detect_targets,
     device_action,
+    device_preview,
     device_logs,
     device_screenshot,
     device_ui,
@@ -879,6 +880,7 @@ tools = [
     device_screenshot,
     device_ui,
     device_logs,
+    device_preview,
 
     # Test-2 retest (workspace_d): the agent's EYES. A real browser the
     # agent can navigate/snapshot/screenshot — the only thing that can

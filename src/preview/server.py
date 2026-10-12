@@ -60,6 +60,19 @@ from pathlib import Path
 from typing import Any, Callable, Final, NamedTuple
 
 from .autostart import ensure_stdio
+from .device import (
+    DEVICE_PATH,
+    DEVICE_PREFIX,
+    STREAM_BOUNDARY,
+    DeviceRegistry,
+    adb_binary,
+    capture_frame,
+    clamp_fps,
+    input_commands,
+    pane_document,
+    run_adb,
+    stream_frames,
+)
 from .endpoint import clear_endpoint, prune_stale, write_endpoint
 from .inject import inject_overlay, is_html
 
@@ -86,6 +99,11 @@ _HOP_BY_HOP = {
 _FRAMING_HEADERS = {"x-frame-options", "content-security-policy", "content-security-policy-report-only"}
 
 _MAX_BODY = 24 * 1024 * 1024
+#: Concurrent device mirrors across the proxy. Every stream spawns an adb child per frame,
+#: so this is a resource ceiling rather than a tunable.
+_MAX_DEVICE_STREAMS = 4
+#: A mirror nobody watches is closed by the browser; this bounds a pane left open for days.
+_MAX_DEVICE_STREAM_SECONDS = 6 * 60 * 60
 _FETCH_TIMEOUT = 20.0
 
 
@@ -175,6 +193,9 @@ class PreviewServer:
         #: loopback port); the CLI and the lab always set one.
         self.secret = secret
         self.extra_handler = extra_handler
+        #: Device panes (mobile mirrors). Same capability model as targets: the
+        #: token in the path is the capability, registration needs the secret.
+        self.devices = DeviceRegistry()
         self._targets: dict[str, TargetSpec] = {}
         self._lock = threading.Lock()
         self._httpd = _PreviewHTTPServer((host, port), PreviewRequestHandler)
@@ -385,6 +406,12 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
         if path == _TARGET_PATH:
             self._register_target()
             return
+        if path == DEVICE_PATH:
+            self._register_device()
+            return
+        if path.startswith(DEVICE_PREFIX):
+            self._device_route("POST", path, "")
+            return
         if self.preview.extra_handler and self.preview.extra_handler("POST", path, self):
             return
         self._drain_request_body()
@@ -399,7 +426,11 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
             self._json(200, {
                 "ok": True, "service": "crusor-preview", "workspace": str(self.preview.workspace),
                 "targets": len(self.preview._targets),  # noqa: SLF001 - same module family
+                "devices": len(self.preview.devices.snapshot()),
             })
+            return
+        if path.startswith(DEVICE_PREFIX):
+            self._device_route(self.command, path, split.query)
             return
         if path == _OVERLAY_PATH:
             self._serve_asset(OVERLAY_ASSET, "application/javascript; charset=utf-8")
@@ -473,6 +504,183 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
             "origin": origin,
             "serverOrigin": self.preview.origin,
         })
+
+    # -- device panes -------------------------------------------------------------------------
+
+    def _register_device(self) -> None:
+        """``POST /crusor-preview/device`` — register a mirror of an attached device."""
+        if not self._authorised():
+            self._drain_request_body()
+            self._json(403, {
+                "ok": False,
+                "error": "device pane registration requires the run secret",
+                "hint": "the secret is published in the IDE's endpoint file "
+                        "(~/.crusorai/preview/<session>.json)",
+            })
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            payload = json.loads(raw.decode("utf-8") or "{}")
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._json(400, {"ok": False, "error": f"malformed JSON body: {exc}"})
+            return
+        if not isinstance(payload, dict):
+            self._json(400, {"ok": False, "error": "body must be an object"})
+            return
+        try:
+            pane = self.preview.devices.register(
+                str(payload.get("serial") or ""),
+                label=str(payload.get("label") or ""),
+                fps=payload.get("fps", 4.0),
+            )
+        except ValueError as exc:
+            # 409, not 400: the request is well-formed, the host just has nothing to mirror.
+            self._json(409, {"ok": False, "error": str(exc)})
+            return
+        base = f"{DEVICE_PREFIX}{pane.token}"
+        self._json(200, {
+            "ok": True, "kind": "device", "token": pane.token,
+            "serial": pane.serial, "label": pane.label, "model": pane.model,
+            "width": pane.width, "height": pane.height, "fps": pane.fps,
+            "paneUrl": f"{base}/", "streamUrl": f"{base}/stream",
+            "frameUrl": f"{base}/frame", "statusUrl": f"{base}/status",
+            "inputUrl": f"{base}/input",
+        })
+
+    def _device_route(self, method: str, path: str, query: str) -> None:
+        token, _, action = path[len(DEVICE_PREFIX):].partition("/")
+        pane = self.preview.devices.pane(token)
+        if pane is None:
+            self._text(404, "unknown or released device pane")
+            return
+        action = action.strip("/")
+        if method == "POST":
+            if action == "input":
+                self._device_input(pane)
+                return
+            if action == "release":
+                self._drain_request_body()
+                self.preview.devices.forget(token)
+                self._json(200, {"ok": True, "released": pane.serial})
+                return
+            self._drain_request_body()
+            self._text(404, "not found")
+            return
+        if action in {"", "index.html"}:
+            body = pane_document(pane, bare="bare=1" in (query or "")).encode("utf-8")
+            self._send(200, body, "text/html; charset=utf-8")
+            return
+        if action == "status":
+            pane.refresh_facts()
+            self._json(200, pane.status())
+            return
+        if action in {"frame", "frame.png"}:
+            self._device_frame(pane)
+            return
+        if action == "stream":
+            self._device_stream(pane, query)
+            return
+        self._text(404, "not found")
+
+    def _device_frame(self, pane) -> None:  # noqa: ANN001 - DevicePane, kept import-light here
+        body, content_type, error = capture_frame(pane.serial)
+        if not body:
+            pane.last_error = error
+            self._json(503, {"ok": False, "error": error})
+            return
+        pane.last_error = ""
+        self._send(200, body, content_type, {"Content-Disposition": 'inline; filename="device-frame.jpg"'})
+
+    def _device_stream(self, pane, query: str) -> None:  # noqa: ANN001 - DevicePane
+        """``multipart/x-mixed-replace`` frames. The first frame decides the status code:
+
+        a stream that can start answers 200 and keeps replacing the image; one that cannot
+        answers a readable JSON error, which the pane's ``<img onerror>`` turns into the
+        explanation the user needs. Nothing is written to the socket before that decision.
+        """
+        params = urllib.parse.parse_qs(query or "")
+        pane.fps = clamp_fps((params.get("fps") or [pane.fps])[0], pane.fps)
+        if self.preview.devices.active_streams() >= _MAX_DEVICE_STREAMS and pane.viewers == 0:
+            self._json(429, {
+                "ok": False,
+                "error": f"too many device streams open ({_MAX_DEVICE_STREAMS}); close one first",
+            })
+            return
+        frames = stream_frames(pane)
+        try:
+            first = next(frames, None)
+            if not first or not first[0]:
+                reason = pane.last_error or "no frame arrived from the device"
+                self._json(503, {
+                    "ok": False, "error": reason,
+                    "hint": "check `adb devices` (the emulator or device must stay attached) and that "
+                            "adb is on PATH or $CRUSORAI_ADB",
+                })
+                return
+            pane.viewers += 1
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", f"multipart/x-mixed-replace; boundary={STREAM_BOUNDARY}")
+                self.send_header("Cache-Control", "no-store, no-transform")
+                # Length is unknown for a live stream, so the body ends with the connection.
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+                self._write_part(*first)
+                deadline = time.monotonic() + _MAX_DEVICE_STREAM_SECONDS
+                for body, content_type in frames:
+                    if time.monotonic() > deadline or not body:
+                        break
+                    self._write_part(body, content_type)
+            finally:
+                pane.viewers = max(0, pane.viewers - 1)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, OSError):
+            # The user closed the pane, reloaded, or the network stack gave up: not an error.
+            pass
+        finally:
+            frames.close()
+
+    def _write_part(self, body: bytes, content_type: str) -> None:
+        header = (
+            f"--{STREAM_BOUNDARY}\r\nContent-Type: {content_type or 'image/png'}\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n"
+        ).encode("ascii")
+        self.wfile.write(header + body + b"\r\n")
+        self.wfile.flush()
+
+    def _device_input(self, pane) -> None:  # noqa: ANN001 - DevicePane
+        """Normalized pointer/keyboard input from the pane, mapped to adb by ``input_commands``."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(min(length, _MAX_BODY)) if length else b"{}"
+            payload = json.loads(raw.decode("utf-8") or "{}")
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._json(400, {"ok": False, "error": f"malformed JSON body: {exc}"})
+            return
+        pane.refresh_facts()
+        commands, error = input_commands(payload, width=pane.width, height=pane.height, serial=pane.serial)
+        if error:
+            pane.last_error = error
+            self._json(400, {"ok": False, "error": error})
+            return
+        if not adb_binary():
+            self._json(409, {"ok": False, "error": "adb is not installed (or $CRUSORAI_ADB points nowhere)"})
+            return
+        ran: list[dict[str, Any]] = []
+        failed = ""
+        for argv in commands:
+            code, output = run_adb(pane.serial, argv, timeout=30)
+            ran.append({"argv": argv, "code": code, "output": output.strip()[:200]})
+            if code != 0:
+                failed = output.strip()[:300] or f"adb exited {code}"
+                break
+        if failed:
+            pane.last_error = failed
+            self._json(502, {"ok": False, "serial": pane.serial, "error": failed, "ran": ran})
+            return
+        pane.last_error = ""
+        self._json(200, {"ok": True, "serial": pane.serial, "ran": ran})
 
     def _serve_asset(self, rel: str, content_type: str | None) -> None:
         root = self.preview.asset_root
@@ -569,7 +777,8 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
             self._json(413, {"ok": False, "error": "preview response too large to inject"})
             return
         if is_html(content_type, body):
-            body = self._inject(body.decode("utf-8", "replace"), spec, rest).encode("utf-8")
+            if not self._is_own_device_pane(spec.url):
+                body = self._inject(body.decode("utf-8", "replace"), spec, rest).encode("utf-8")
             content_type = "text/html; charset=utf-8"
             headers.pop("Content-Security-Policy", None)
         self._send(status, body, content_type or "application/octet-stream", headers)
@@ -599,6 +808,19 @@ class PreviewRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+
+    def _is_own_device_pane(self, url: str) -> bool:
+        """Is this target our own device pane, reached back through the proxy?
+
+        The preview window frames a device pane by registering the pane URL as a URL
+        target, so the document arrives here by a self-request. Injecting the inspect
+        overlay into a mirror is wrong twice: the overlay inspects a DOM, and the
+        device's screen is not one. The pane document is already ours.
+        """
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.path.startswith(DEVICE_PREFIX) or parsed.path == DEVICE_PATH:
+            return True
+        return False
 
     def _inject(self, html: str, spec: TargetSpec, rest: str) -> str:
         # Root of THIS document, so relative and root-relative assets both stay under the prefix

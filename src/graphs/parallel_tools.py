@@ -79,6 +79,7 @@ WILDCARD_TOOLS = frozenset({
     # same workspace fight over the same locks, ports and AVD).
     "detect_targets", "check_target_toolchains", "build_target", "verify_target_app",
     "device_action", "device_screenshot", "device_ui", "device_logs",
+    "device_preview",
 })
 
 _MAX_WORKERS = 4

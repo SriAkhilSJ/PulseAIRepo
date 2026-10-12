@@ -102,19 +102,58 @@ dump).
   `python -m scripts.targets_doctor` (full report),
   `… --workspace app --target android --plan`, `… --require android` (exit 1).
 
-### 2.3 Live-preview path (IDE side)
+### 2.3 The device pane (implemented — `src/preview/device.py`)
 
-Keep the device surface in the existing preview proxy (port 8931, bridge
-protocol v2) rather than inventing a second channel:
+The web preview answers "does the page render?" by framing a dev server with the
+inspect overlay injected. A phone has no URL to frame, so the proxy now serves the
+same window a **live device mirror** — one more kind of preview target, no second
+channel, no new dependency:
 
-* **Android** → `adb exec-out screencap` for stills (already implemented), and
-  `scrcpy --no-audio --serial <s>` (or WebRTC via
-  `android.emulation.control.v2.Rtc`) for a live pane.
-* **iOS simulator** → `xcrun simctl io booted recordVideo` / `simctl io booted screenshot`.
-* **Desktop** → the window's own CDP endpoint (`--remote-debugging-port`) can be
-  embedded directly in the webview host.
-* **Physical devices** → the MCP/CLI device layer below, streamed through the
-  same preview message types.
+```
+POST /crusor-preview/device                 register a pane (secret) -> {token, paneUrl}
+GET  /crusor-preview/device/<token>/        pane document: toolbar + mirror
+GET  /crusor-preview/device/<token>/stream  multipart/x-mixed-replace frames (0.5–10 fps)
+GET  /crusor-preview/device/<token>/frame   one frame (PNG/JPEG)
+GET  /crusor-preview/device/<token>/status  serial, model, size, fps, viewers, last error
+POST /crusor-preview/device/<token>/input   normalized tap/swipe/text/key/rotate
+POST /crusor-preview/device/<token>/release tear the pane down
+```
+
+The agent's `device_preview` tool does the whole thing in one call: ensure the
+proxy (`src/preview/autostart`), register the pane, then `preview.open` the pane
+URL so the Crusor Preview window appears next to the web preview.
+
+Three properties make it honest rather than a demo:
+
+* **Real input.** Taps, swipes and typing inside the pane are `adb shell input …`
+  on the device; coordinates are normalized in the browser and mapped to real
+  device pixels server-side, so a pane scaled to a corner still hits the right
+  spot.
+* **A stream that explains itself.** The first frame decides the status code:
+  a pane that can stream answers `200` and keeps replacing the image, one that
+  cannot answers a readable `503`/`409` that the pane turns into "adb is not
+  installed", "no device attached", "device offline". No black rectangle.
+* **The overlay stays off the mirror.** The preview window frames a pane by
+  registering its URL, so the document arrives back through `/p/<token>/` — the
+  proxy detects that self-request and skips the inspect overlay (which inspects a
+  DOM, and a device screen is not one). A normal web target still gets it.
+
+**Frames, not screen casting.** `adb exec-out screencap -p` yields a few frames per
+second; they are transcoded to JPEG when Pillow is present (a tenth of the bytes).
+For a smooth 30–60 fps pane, the upgrade path is scrcpy's video socket
+(`scrcpy --no-audio --serial <s>`) or the emulator's WebRTC endpoint
+(`android.emulation.control.v2.Rtc` + `google/android-emulator-container-scripts`),
+decoded in the pane by a WASM player. That is a deliberate phase-3 decision, not a
+missing piece.
+
+### 2.4 The other surfaces the same design unlocks
+
+* **iOS simulator** → `xcrun simctl io booted screenshot` for frames;
+  `simctl io booted recordVideo` if you want motion (macOS-only, as ever).
+* **Desktop** → the window already exposes CDP (`--remote-debugging-port`), so the
+  pane can be the app's own webview instead of a screenshot stream.
+* **Physical devices / other platforms** → the MCP/CLI device layer in §4.1,
+  streamed through the same routes.
 
 ---
 
@@ -294,13 +333,38 @@ when `maestro/**` exists: `maestro test --format junit --output report.xml`.
 | Phase | Content | Acceptance |
 |---|---|---|
 | 1 | **Done.** Target layer, 8 agent tools, capability/toolsets/gates wiring, 71 focused tests, scaffolders, doctor CLI | `pytest src/tests/test_target_pipeline.py src/tests/test_target_scaffold.py src/tests/test_toolsets.py` green; `--require` exits 1 on a bare host |
-| 2 | Emulator/live-pane work in the IDE: `scrcpy` or WebRTC preview over the existing 8931 proxy; device list in the panel | An Android app's live screen visible inside the IDE, driven by `device_action` |
-| 3 | Pipelines for the platform the team actually ships (start with Android; add desktop next) | A PR that breaks the app fails CI with a screenshot, not a stack trace |
-| 4 | Device layer bake-off: `agent-device` vs `mobile-mcp` on your real app; adopt one, keep the other behind a flag | Same task solved twice; pick on flake rate and token cost |
-| 5 | iOS: macOS runners for simulator proofs; `xtool`+`pymobiledevice3` only for physical-device smoke from Linux | `⛔` on Linux for simulator jobs, honest `ios-device` path available |
-| 6 | Maestro/Playwright regression suites layered above receipts; evidence retention policy | JUnit reports attached to PRs; 14-day artifact retention |
+| 2 | **Done (first cut).** Device mirror in the preview proxy + `device_preview` tool: live screen, real taps, honest errors | `src/tests/test_preview_device.py` (24 tests) green; verified live against the real CLI proxy — register → pane → multipart stream → normalized tap landing as `adb shell input tap 540 1200` |
+| 3 | 30–60 fps pane: scrcpy video socket or emulator WebRTC (WASM decoder in the pane); iOS `simctl` frames; device list + restart controls in the IDE panel | Smooth mirror, < 1 s input latency |
+| 4 | Pipelines for the platform the team actually ships (start with Android; add desktop next) | A PR that breaks the app fails CI with a screenshot, not a stack trace |
+| 5 | Device layer bake-off: `agent-device` vs `mobile-mcp` on your real app; adopt one, keep the other behind a flag | Same task solved twice; pick on flake rate and token cost |
+| 6 | iOS: macOS runners for simulator proofs; `xtool`+`pymobiledevice3` only for physical-device smoke from Linux | `⛔` on Linux for simulator jobs, honest `ios-device` path available |
+| 7 | Maestro/Playwright regression suites layered above receipts; evidence retention policy | JUnit reports attached to PRs; 14-day artifact retention |
 
 ---
+
+### 6.1 What still needs desktop-side work (and what does not)
+
+The pane works today with **no TypeScript changes**: the agent registers the device
+and hands `preview.open` an http URL, which is exactly the path the preview window
+already supports. The desktop agent is only needed for the polish, in this order:
+
+1. **A device chip in the preview window** — show `serial · model · 1080×2400 · fps`
+   in the window's own toolbar when the framed target is a `/crusor-preview/device/`
+   URL, instead of the generic URL field. (`crusorAIPreviewService.ts`,
+   `media/crusor-preview/*`.)
+2. **Reach the pane without an agent turn** — a "Phone" entry in the Preview tab's
+   target list that calls `POST /crusor-preview/device` with the endpoint secret and
+   frames the returned `paneUrl` directly (skipping the self-proxy hop).
+3. **Pane-aware status** — map `{ok:false}` from `/status` to the window's red
+   "Preview target down" affordance, so "device offline" looks the same as "dev
+   server down" and the fix hint comes from the pane payload.
+4. **A `kind: 'device'` target** — the honest long-term shape: the pane becomes a
+   first-class target kind (`register_device`) instead of a URL the window frames
+   through `/p/<token>/`. Small, and it removes the remaining special case in
+   `_serve_upstream`.
+
+Everything in 1–4 needs `npm run compile` inside `desktop/vscode`, so it is
+desktop-agent work by definition; the Python side is already done and tested.
 
 ## 7. Honest limits
 

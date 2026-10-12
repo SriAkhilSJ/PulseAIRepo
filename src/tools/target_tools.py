@@ -22,11 +22,17 @@ Tools
     or a key (interactive exploration after a passing verify).
 ``device_screenshot`` / ``device_ui`` / ``device_logs``
     Focused evidence reads from the currently attached device.
+``device_preview``
+    Mirror the attached device into the IDE's Crusor Preview window (live pane +
+    real taps), so the human watches the same device the agent is driving.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from langchain_core.runnables import RunnableConfig
@@ -412,6 +418,88 @@ def device_logs(lines: int = 200, device: str = "", config: RunnableConfig | Non
     return f"{header}\n{body}\n\nLAST 60 LINES\n{tail}"
 
 
+@tool
+def device_preview(
+    device: str = "",
+    label: str = "",
+    fps: float = 4.0,
+    open_in_ide: bool = True,
+    config: RunnableConfig = None,
+) -> str:
+    """Mirror the attached Android device into the IDE's Crusor Preview window.
+
+    USE after the app is installed (and typically after `verify_target_app` passed) when a human
+    should watch or poke the running app: the pane streams the real device screen and taps,
+    swipes and typing inside it are real input, while `device_action` stays the way for the
+    agent to drive precisely. The pane appears as a normal preview window next to the web
+    preview. ``device`` is an adb serial (default: the single attached device);
+    ``fps`` is 0.5–10 frames per second (screen-grab mirroring, not screen casting).
+    """
+    from src.preview.autostart import DEFAULT_SESSION, ensure_proxy
+    from src.preview.endpoint import read_endpoint
+
+    workspace = _workspace(config)
+    handle = ensure_proxy(workspace)
+    if handle is None:
+        return (
+            "⛔ device_preview could not start the preview proxy for this workspace. "
+            "Check that the engine can run `python -m src.preview.server` and retry."
+        )
+    endpoint = read_endpoint(DEFAULT_SESSION) or {}
+    secret = str(endpoint.get("secret") or "")
+    origin = str(handle.origin or endpoint.get("origin") or "").rstrip("/")
+    if not origin:
+        return "⛔ device_preview has no proxy origin to register against."
+
+    body = json.dumps({"serial": device.strip(), "label": label.strip(), "fps": fps}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{origin}/crusor-preview/device", data=body, method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Crusor-Preview-Secret": secret,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 - loopback proxy
+            payload = json.loads(response.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8") or "{}").get("error", "")
+        except (ValueError, OSError):
+            detail = ""
+        reason = detail or f"the preview proxy answered {exc.code}"
+        if exc.code == 409:
+            return f"⛔ device_preview found nothing to mirror: {reason}"
+        return f"⛔ device_preview refused ({exc.code}): {reason}"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return f"⛔ device_preview could not reach the preview proxy at {origin}: {exc}"
+
+    if not payload.get("ok"):
+        return f"⛔ device_preview failed: {payload.get('error') or 'unknown error'}"
+
+    pane_url = f"{origin}{payload.get('paneUrl') or ''}"
+    size = f"{payload.get('width')}×{payload.get('height')}" if payload.get("width") else "size pending"
+    lines = [
+        f"🖥️ DEVICE PREVIEW (android) — {payload.get('serial')}  {payload.get('model') or 'unknown model'}  {size}",
+        f"FPS {payload.get('fps')} (screen-grab mirror; use `device_screenshot` for a pinned frame)",
+        f"PANE {pane_url}",
+        f"API stream {origin}{payload.get('streamUrl')} · status {origin}{payload.get('statusUrl')}",
+        "INTERACT taps, swipes and typing in the pane are real input on the device; "
+        "`device_action` remains the precise, scripted path.",
+    ]
+    if open_in_ide:
+        opened = ""
+        try:
+            from src.tools.host_tools import open_preview
+
+            opened = open_preview.func(pane_url, config)  # type: ignore[attr-defined]
+        except Exception as exc:  # the desktop is optional (CLI/headless runs)
+            opened = f"preview window not opened ({type(exc).__name__}: {exc})"
+        if opened:
+            lines.append(f"IDE {opened.strip()}")
+    return "\n".join(lines)
+
+
 TARGET_TOOLS = [
     detect_targets,
     check_target_toolchains,
@@ -421,6 +509,7 @@ TARGET_TOOLS = [
     device_screenshot,
     device_ui,
     device_logs,
+    device_preview,
 ]
 
 __all__ = [
@@ -430,6 +519,7 @@ __all__ = [
     "detect_targets",
     "device_action",
     "device_logs",
+    "device_preview",
     "device_screenshot",
     "device_ui",
     "verify_target_app",
