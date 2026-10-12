@@ -325,3 +325,118 @@ exit 0
     out = _verify(ws, run_tests=True)
     assert out.startswith("✅ PASSED"), out
     assert (ws / "tested.marker").is_file(), "run_tests did not invoke gradle test"
+
+
+# ---------------------------------------------------------------------------
+# Phase B: crash reports as first-class evidence
+# ---------------------------------------------------------------------------
+
+_JAVA_CRASH = """\
+01-01 00:00:01.000  1234  1234 E AndroidRuntime: FATAL EXCEPTION: main
+01-01 00:00:01.000  1234  1234 E AndroidRuntime: Process: com.akhil.notes, PID: 1234
+01-01 00:00:01.000  1234  1234 E AndroidRuntime: java.lang.NullPointerException: Attempt to invoke virtual method
+01-01 00:00:01.000  1234  1234 E AndroidRuntime: \tat com.akhil.notes.MainActivity.onCreate(MainActivity.kt:42)
+"""
+
+_NATIVE_CRASH = """\
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+pid: 1234, tid: 1234, name: main  >>> com.akhil.notes <<<
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0
+"""
+
+
+def _adb_crash(stubbin: Path, *, crash: str) -> None:
+    """adb whose crash buffer holds `crash` and whose main buffer is quiet."""
+    _write_exe(stubbin / "adb", f"""
+case "$*" in
+  *devices*)      printf 'List of devices attached\\nemulator-5554\\tdevice\\n' ;;
+  *install*)      echo 'Success' ;;
+  *"am start"*)   echo 'Starting: Intent' ;;
+  *pidof*)        echo '8421' ;;
+  *"-b crash"*)   printf '{crash}' ;;
+  *logcat*)       echo '01-01 00:00:00 I com.akhil.notes: started' ;;
+  *)              echo '' ;;
+esac
+""")
+
+
+def test_java_crash_fails_the_run_and_names_the_exception(tmp_path, stubbin, use_path):
+    """A crash dump is Tier-3 evidence about a specific defect, so the receipt
+    must carry the throwable rather than a count of scary lines."""
+    _adb_crash(stubbin, crash=_JAVA_CRASH)
+    use_path(stubbin)
+    ws = _project(tmp_path, build='exit 0')
+    out = _verify(ws)
+    assert out.startswith("❌ FAILED"), out
+    assert "java.lang.NullPointerException" in out
+    assert "Tier-3" in out
+    assert "do not describe the app as working" in out
+
+    manifest = _evidence(ws)
+    check = manifest["checks"]["crash_reports"]
+    assert check["status"] == "failed"
+    assert check["tier"] == 3
+    assert check["observed"]["count"] == 1
+    assert check["observed"]["signatures"] == ["java.lang.NullPointerException"]
+    assert len(check["observed"]["sha256"]) == 64, "the dump must be hash-anchored"
+
+
+def test_native_signal_crash_is_recognised(tmp_path, stubbin, use_path):
+    _adb_crash(stubbin, crash=_NATIVE_CRASH)
+    use_path(stubbin)
+    ws = _project(tmp_path, build='exit 0')
+    out = _verify(ws)
+    assert out.startswith("❌ FAILED"), out
+    assert _evidence(ws)["checks"]["crash_reports"]["observed"]["signatures"] == ["SIGSEGV"]
+
+
+def test_crash_dump_is_saved_in_full(tmp_path, stubbin, use_path):
+    _adb_crash(stubbin, crash=_JAVA_CRASH)
+    use_path(stubbin)
+    ws = _project(tmp_path, build='exit 0')
+    _verify(ws)
+    runs = sorted((ws / ".crusorai" / "android-evidence").iterdir())
+    saved = (runs[-1] / "crash.txt").read_text(encoding="utf-8")
+    assert "MainActivity.kt:42" in saved, "the stack frame is the useful part"
+
+
+def test_clean_crash_buffer_passes(tmp_path, adb_stub, use_path):
+    """The default stub has a quiet crash buffer — it must read as passed."""
+    use_path(adb_stub)
+    ws = _project(tmp_path, build='exit 0')
+    out = _verify(ws)
+    assert out.startswith("✅ PASSED"), out
+    assert _evidence(ws)["checks"]["crash_reports"]["status"] == "passed"
+
+
+def test_missing_crash_buffer_is_unavailable_not_a_pass(tmp_path, stubbin, use_path):
+    """Older devices have no crash ring. Absence of evidence must not be
+    laundered into a green tick."""
+    _write_exe(stubbin / "adb", """
+case "$*" in
+  *devices*)      printf 'List of devices attached\\nemulator-5554\\tdevice\\n' ;;
+  *install*)      echo 'Success' ;;
+  *"am start"*)   echo 'Starting: Intent' ;;
+  *pidof*)        echo '8421' ;;
+  *"-b crash"*)   echo 'logcat: bad buffer name' >&2; exit 1 ;;
+  *logcat*)       echo '01-01 00:00:00 I com.akhil.notes: started' ;;
+  *)              echo '' ;;
+esac
+""")
+    use_path(stubbin)
+    ws = _project(tmp_path, build='exit 0')
+    out = _verify(ws)
+    manifest = _evidence(ws)
+    assert manifest["checks"]["crash_reports"]["status"] == "unavailable"
+    assert manifest["tier_reached"] == 2, "no crash data must not lift the tier"
+
+
+def test_signature_extraction_deduplicates():
+    from src.tools.android_verify import _crash_signatures
+
+    assert _crash_signatures(_JAVA_CRASH * 5) == ["java.lang.NullPointerException"]
+    assert _crash_signatures(_NATIVE_CRASH) == ["SIGSEGV"]
+    assert _crash_signatures("I ok: nothing wrong here") == []
+    # both kinds in one dump, in order of appearance
+    both = _crash_signatures(_JAVA_CRASH + _NATIVE_CRASH)
+    assert both == ["java.lang.NullPointerException", "SIGSEGV"]

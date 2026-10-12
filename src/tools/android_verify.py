@@ -45,6 +45,27 @@ _STEP_TIMEOUT_S = 120
 _LAUNCH_SETTLE_S = float(os.environ.get("CRUSORAI_ANDROID_LAUNCH_SETTLE", "3"))
 
 _FATAL_RE = re.compile(r"\bFATAL EXCEPTION\b|\bANR in\b|\bAndroidRuntime\s*:\s*FATAL\b")
+# A crash signature is the throwable or signal that caused it — the part a
+# developer actually needs. Everything else in the dump is context.
+_THROWABLE_RE = re.compile(r"\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*"
+                           r"(?:Exception|Error))\b")
+_SIGNAL_RE = re.compile(r"signal\s+\d+\s+\((SIG[A-Z]+)\)")
+
+
+def _crash_signatures(crash_log: str) -> list[str]:
+    """Distinct throwables / native signals found in a crash-buffer dump.
+
+    Deduplicated and order-preserving: one bad line repeated fifty times is one
+    defect, not fifty.
+    """
+    seen: list[str] = []
+    for match in _THROWABLE_RE.findall(crash_log):
+        if match not in seen:
+            seen.append(match)
+    for match in _SIGNAL_RE.findall(crash_log):
+        if match not in seen:
+            seen.append(match)
+    return seen
 
 
 def _run(argv: list[str], cwd: Path, timeout: int, env: dict | None = None) -> tuple[int, str]:
@@ -343,6 +364,40 @@ def verify_android_app(
             f"The app is running but logcat shows {fatals} fatal error(s). "
             f"See {evidence_dir / 'logcat.txt'}."
         ))
+
+    # ---- crash reports ----------------------------------------------------
+    # The crash buffer is a separate logcat ring that holds only crashes, so it
+    # is the authoritative source: the main buffer scrolls and loses them under
+    # load. A crash dump naming the exception and stack is Tier-3 evidence about
+    # a *specific* failure, which a count of "fatal" lines never is.
+    code, out = _run([adb, "-s", serial, "logcat", "-b", "crash", "-d"],
+                     workspace, _STEP_TIMEOUT_S)
+    if code == 127 or (code != 0 and "bad buffer" in out.lower()):
+        record("crash_reports", status="unavailable", level=0,
+               observed={"reason": "crash buffer not available on this device"})
+    else:
+        write("crash.txt", out or "(crash buffer empty)")
+        crash_file = evidence_dir / "crash.txt"
+        signatures = _crash_signatures(out)
+        record("crash_reports",
+               status="failed" if signatures else "passed",
+               level=3 if signatures else 2,
+               observed={
+                   "count": len(signatures),
+                   "signatures": signatures[:5],
+                   "sha256": _sha256(crash_file) if crash_file.exists() else "",
+               },
+               artifact="crash.txt")
+        if signatures:
+            digest = _sha256(crash_file)[:16] if crash_file.exists() else "unknown"
+            top = ", ".join(signatures[:3])
+            return finish("❌ FAILED", (
+                f"The device's crash buffer holds {len(signatures)} crash(es) "
+                f"for this session: {top}. The full dump is at "
+                f"{evidence_dir / 'crash.txt'} (sha256 {digest}…). This is "
+                "Tier-3 evidence of a specific defect — name the exception when "
+                "reporting it, and do not describe the app as working."
+            ))
 
     # ---- optional: the project's own tests ------------------------------
     if run_tests:

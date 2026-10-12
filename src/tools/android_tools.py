@@ -189,8 +189,8 @@ def android_doctor(config: RunnableConfig) -> str:
 
     USE before building, installing, or UI-testing an Android app, and again
     after a toolchain failure. Probes JDK, Android SDK, adb, emulator and AVDs,
-    the Gradle wrapper in the workspace, and Node.js plus the agent-device CLI
-    used for device automation and UI testing.
+    the Gradle wrapper in the workspace, and Node.js plus the device automation
+    backends (agent-device or mobile-mcp) used for UI testing.
 
     Read-only: it never boots a device, installs anything, or runs a build.
     Returns one line per component with its version and the exact next action
@@ -210,7 +210,20 @@ def android_doctor(config: RunnableConfig) -> str:
             "agent-device (UI testing)",
             _binary_probe("agent-device", ["--version"], "agent-device (`npm i -g agent-device@latest`)"),
         ),
+        # Either backend is sufficient, so this one is reported but never on
+        # its own blocks the verdict — see the either/or check below.
+        (
+            "mobile-mcp (UI testing, alternative)",
+            _binary_probe("mcp-server-mobile", ["--version"],
+                          "@mobilenext/mobile-mcp (`npm i -g @mobilenext/mobile-mcp`, "
+                          "only needed if agent-device is absent)"),
+        ),
     ]
+
+    # A device backend is required, but not a specific one. Reporting
+    # "mobile-mcp missing" as blocking would tell a user with a perfectly good
+    # agent-device install that their toolchain is broken.
+    _OPTIONAL = {"mobile-mcp (UI testing, alternative)"}
 
     lines = [f"Android toolchain — {workspace}", ""]
     counts = {"ok": 0, "warn": 0, "missing": 0}
@@ -224,7 +237,12 @@ def android_doctor(config: RunnableConfig) -> str:
 
     # The verdict names the BLOCKING gap, not just a tally: a missing JDK makes
     # every later step fail regardless of how green the rest of the list is.
-    blocking = [label for label, (status, _d, _h) in probes if status == "missing"]
+    blocking = [label for label, (status, _d, _h) in probes
+                if status == "missing" and label not in _OPTIONAL]
+    _statuses = {label: status for label, (status, _d, _h) in probes}
+    if (_statuses.get("agent-device (UI testing)") == "missing"
+            and _statuses.get("mobile-mcp (UI testing, alternative)") == "missing"):
+        blocking.append("a device automation backend (agent-device or mobile-mcp)")
     lines.append("")
     if counts["missing"] == 0 and counts["warn"] == 0:
         lines.append(

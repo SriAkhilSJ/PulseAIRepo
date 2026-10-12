@@ -209,3 +209,38 @@ def test_android_doctor_handles_a_missing_workspace_without_raising():
     """D17: a broken probe degrades to a line, never an exception into the turn."""
     result = _doctor("/nonexistent/path/that/is/not/here")
     assert isinstance(result, str) and "Gradle wrapper" in result
+
+
+def test_android_doctor_reports_the_alternative_backend():
+    assert "mobile-mcp" in _doctor()
+
+
+def test_a_present_agent_device_means_a_missing_mobile_mcp_is_not_blocking(
+        tmp_path, monkeypatch):
+    """Either backend is enough. Telling a user with a working agent-device
+    install that their toolchain is broken would be a false alarm."""
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    script = stub / "agent-device"
+    script.write_text('#!/bin/sh\necho "agent-device 1.0.0"\n', encoding="utf-8")
+    script.chmod(0o755)
+    # keep the rest of PATH so node/java probes still resolve, but make sure the
+    # mobile-mcp binary is genuinely absent
+    monkeypatch.setenv("PATH", f"{stub}:{tmp_path}")
+
+    result = _doctor()
+    assert "agent-device" in result
+    missing_line = next(
+        (line for line in result.splitlines() if "missing:" in line), ""
+    )
+    assert "mobile-mcp" not in missing_line, (
+        f"mobile-mcp should not block on its own: {missing_line}"
+    )
+
+
+def test_no_device_backend_at_all_is_blocking(tmp_path, monkeypatch):
+    """But if NEITHER is installed, UI testing is impossible and the report must
+    say so — silence here is how a user wastes an afternoon."""
+    monkeypatch.setenv("PATH", str(tmp_path))  # empty
+    result = _doctor()
+    assert "a device automation backend (agent-device or mobile-mcp)" in result
