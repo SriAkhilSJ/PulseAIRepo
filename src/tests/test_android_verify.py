@@ -25,6 +25,22 @@ import pytest
 
 from src.tools.android_verify import verify_android_app
 
+_WINDOWS_SKIP = (
+    "the stub toolchain is a POSIX shell script; Windows cannot execute a "
+    "#!/bin/sh file. These tests are skipped there rather than reported as "
+    "failures, which is a coverage gap, not a pass."
+)
+
+def _needs_posix_stub() -> bool:
+    """True when the stub toolchain cannot be executed on this platform.
+
+    Kept as a named function rather than an inline `os.name` comparison so the
+    decision is directly testable — there is no Windows runner in CI to prove
+    the skip fires there.
+    """
+    return os.name != "posix"
+
+
 PKG = "com.akhil.notes"
 
 
@@ -48,6 +64,8 @@ def _fast_settle(monkeypatch):
 @pytest.fixture
 def stubbin(tmp_path_factory):
     """A directory of fake toolchain binaries, put first on PATH."""
+    if _needs_posix_stub():
+        pytest.skip(_WINDOWS_SKIP)
     d = tmp_path_factory.mktemp("stubbin")
     _write_exe(d / "java", 'echo \'openjdk version "17.0.11"\' >&2')
     return d
@@ -440,3 +458,16 @@ def test_signature_extraction_deduplicates():
     # both kinds in one dump, in order of appearance
     both = _crash_signatures(_JAVA_CRASH + _NATIVE_CRASH)
     assert both == ["java.lang.NullPointerException", "SIGSEGV"]
+
+
+def test_the_posix_stub_gate_is_a_real_platform_check():
+    """There is no Windows runner here, so the skip cannot be observed firing.
+    What CAN be pinned is that the gate is the canonical platform check and
+    that it does not trip on a POSIX runner — otherwise every stub test would
+    silently skip everywhere and the suite would still read green."""
+    from src.tests.test_android_device import _needs_posix_stub as device_gate
+    from src.tests.test_android_verify import _needs_posix_stub as verify_gate
+
+    assert verify_gate() == device_gate() == (os.name != "posix")
+    if os.name == "posix":
+        assert verify_gate() is False, "stubs must actually run on POSIX"

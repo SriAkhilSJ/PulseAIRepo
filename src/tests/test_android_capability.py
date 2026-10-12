@@ -18,6 +18,8 @@ keys for every unrelated profile.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from src.agents.runtime_profile import (
@@ -215,6 +217,12 @@ def test_android_doctor_reports_the_alternative_backend():
     assert "mobile-mcp" in _doctor()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="needs a runnable POSIX shell stub; Windows cannot execute #!/bin/sh. "
+           "Without it agent-device reads as missing and the either/or rule "
+           "cannot be distinguished from the both-missing case.",
+)
 def test_a_present_agent_device_means_a_missing_mobile_mcp_is_not_blocking(
         tmp_path, monkeypatch):
     """Either backend is enough. Telling a user with a working agent-device

@@ -21,6 +21,22 @@ from pathlib import Path
 import pytest
 
 from src.tools import android_device as mod
+_WINDOWS_SKIP = (
+    "the stub toolchain is a POSIX shell script; Windows cannot execute a "
+    "#!/bin/sh file. These tests are skipped there rather than reported as "
+    "failures, which is a coverage gap, not a pass."
+)
+
+def _needs_posix_stub() -> bool:
+    """True when the stub toolchain cannot be executed on this platform.
+
+    Kept as a named function rather than an inline `os.name` comparison so the
+    decision is directly testable — there is no Windows runner in CI to prove
+    the skip fires there.
+    """
+    return os.name != "posix"
+
+
 from src.tools.android_device import android_device, classify
 
 _STUB = """
@@ -46,6 +62,8 @@ exit 0
 
 @pytest.fixture
 def stubbin(tmp_path_factory):
+    if _needs_posix_stub():
+        pytest.skip(_WINDOWS_SKIP)
     d = tmp_path_factory.mktemp("adbin")
     script = d / "agent-device"
     script.write_text("#!/bin/sh\n" + _STUB, encoding="utf-8")

@@ -130,6 +130,13 @@ fi
 step "8. What this did NOT prove"
 echo "  No APK was built and no device was touched."
 echo "  For that, run android_doctor inside Crusor and fix what it lists."
+if "${PY[@]}" -c "import os,sys; sys.exit(0 if os.name != 'posix' else 1)"; then
+  echo ""
+  echo "  ALSO: 39 tests were SKIPPED above, not passed. They drive a stub"
+  echo "  toolchain written as a POSIX shell script, which Windows cannot"
+  echo "  execute. Skipped means unverified on this machine — it does not"
+  echo "  mean the Android code is broken, and it is not a pass either."
+fi
 
 printf '\n'
 if [ "$fail" -eq 0 ]; then
