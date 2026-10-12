@@ -182,7 +182,51 @@ The doctor prints the exact per-OS line; this is the same table in one place.
 | Electron | Node + `libgtk-3-0 libnss3 libasound2t64` (headless: `xvfb`) | Node | Node |
 | Emulator without a desktop | `/dev/kvm` + headless flag (`CRUSORAI_EMULATOR_HEADLESS=1`) | — | WSL2/Hyper-V |
 
-### 3.3 New-project scaffolding
+### 3.3 Windows + Android emulator, end to end
+
+The Windows path used to have a trap worth naming: **Android Studio does not put
+`adb` or `emulator` on PATH** — they live under `%LOCALAPPDATA%\Android\Sdk`, so any
+tool that only reads PATH reports "adb missing" on a machine that is fully set up.
+The toolchain resolver now looks in, in order: `$CRUSORAI_*` override → `PATH` →
+`ANDROID_HOME` / `ANDROID_SDK_ROOT` → the installer's own default SDK roots
+(`%LOCALAPPDATA%\Android\Sdk`, `~/Library/Android/sdk`, `~/Android/Sdk`). The doctor
+and the plan resolve through the same function, so they never disagree about which
+`adb` is being used.
+
+Ask for the plan instead of a wall of docs:
+
+```powershell
+python -m scripts.targets_doctor --setup android      # exit 1 while incomplete
+```
+
+It prints only what is actually missing, plus copy-paste PowerShell:
+
+```powershell
+winget install Google.AndroidStudio
+$sdk = "$env:LOCALAPPDATA\Android\Sdk"
+& "$sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
+& "$sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platform-tools" "emulator" ^
+    "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+& "$sdk\cmdline-tools\latest\bin\avdmanager.bat" create avd -n crusor ^
+    -k "system-images;android-35;google_apis;x86_64" -d pixel_7
+# Hardware acceleration (needs a reboot) — an x86_64 AVD without it is unusable:
+dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart
+python -m scripts.targets_doctor --require android
+```
+
+Then the first real proof:
+
+```powershell
+python -m scripts.targets_doctor -w . -t android --plan     # what will run, nothing executed
+# in the IDE: "build and verify this Android app" — or from a script:
+python -c "from src.targets import registry; from src.targets.runner import TargetRequest; print(registry.run('.', 'android', TargetRequest(mode='verify')).to_text())"
+```
+
+The agent boots the AVD itself when none is attached (`CRUSORAI_AVD` picks a
+specific one, `CRUSORAI_EMULATOR_HEADLESS=1` for CI, `CRUSORAI_EMULATOR_EPHEMERAL=1`
+to discard it afterwards).
+
+### 3.4 New-project scaffolding
 
 `scaffold_flutter`, `scaffold_react_native`, `scaffold_tauri` mirror
 `scaffold_nextjs`: generate into a temp sibling, merge into the real workspace

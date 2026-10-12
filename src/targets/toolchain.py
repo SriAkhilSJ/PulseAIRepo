@@ -10,11 +10,13 @@ developer when it is missing.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from src.targets.contract import HOST_LINUX, HOST_MACOS, HOST_WINDOWS
@@ -23,11 +25,19 @@ ALL_HOSTS = (HOST_WINDOWS, HOST_MACOS, HOST_LINUX)
 
 
 def host_platform(platform: str | None = None) -> str:
-    """Normalize ``sys.platform`` (or an override) into the target vocabulary."""
-    value = (platform or sys.platform).lower()
+    """Normalize ``sys.platform`` (or an override) into the target vocabulary.
+
+    Both spellings arrive here: Python's (``win32``, ``darwin``, ``linux``) and the
+    target vocabulary's own (``windows``, ``macos``, ``linux``). Accepting the
+    vocabulary form matters — ``host_platform("macos")`` used to fall through to
+    ``linux``, which silently handed every macOS caller the Linux SDK roots.
+    """
+    value = (platform or sys.platform).strip().lower()
+    if value in {HOST_WINDOWS, HOST_MACOS, HOST_LINUX}:
+        return value
     if value.startswith("win"):
         return HOST_WINDOWS
-    if value.startswith("darwin"):
+    if value.startswith(("darwin", "mac", "osx")):
         return HOST_MACOS
     return HOST_LINUX
 
@@ -44,27 +54,58 @@ class ToolSpec:
     hosts: tuple[str, ...] = ALL_HOSTS
     hint: Mapping[str, str] = field(default_factory=dict)
     required: bool = True
+    #: Relative paths inside a platform SDK root (``ANDROID_HOME``-style). This is
+    #: what makes a stock Android Studio install work on Windows: ``adb.exe`` and
+    #: ``emulator.exe`` live under the SDK, and the installer never touches PATH.
+    sdk_subpaths: tuple[str, ...] = ()
 
     def hint_for(self, host: str) -> str:
         return self.hint.get(host) or self.hint.get("any") or ""
 
 
 _ANDROID_HINT = {
-    HOST_WINDOWS: 'winget install Google.AndroidStudio  ·  or sdkmanager "platform-tools" "emulator"',
+    HOST_WINDOWS: (
+        'winget install Google.AndroidStudio (or Google.PlatformTools for adb alone) — this pipeline '
+        'also finds %LOCALAPPDATA%\\Android\\Sdk without PATH edits'
+    ),
     HOST_MACOS: 'brew install --cask android-commandlinetools  ·  or sdkmanager "platform-tools" "emulator"',
     HOST_LINUX: 'apt install android-sdk-platform-tools android-sdk  ·  or sdkmanager "platform-tools" "emulator"',
 }
 
+#: Env vars that name an Android SDK root, most explicit first.
+_SDK_ROOT_ENVS: tuple[str, ...] = ("ANDROID_HOME", "ANDROID_SDK_ROOT")
+#: Default install locations per host (Android Studio's own choices).
+_SDK_ROOT_DEFAULTS: dict[str, tuple[str, ...]] = {
+    HOST_WINDOWS: (
+        "~/AppData/Local/Android/Sdk",
+        "~/AppData/Local/Android/sdk",
+        "~/Android/Sdk",
+    ),
+    HOST_MACOS: ("~/Library/Android/sdk", "~/Android/Sdk"),
+    HOST_LINUX: ("~/Android/Sdk", "~/Android/sdk", "/usr/lib/android-sdk", "/opt/android-sdk"),
+}
+_CMD_LINE_TOOLS_BIN = re.compile(r"cmdline-tools[\\/][^\\/]+[\\/]bin[\\/]?$")
+
 TOOLS: tuple[ToolSpec, ...] = (
     # ---- Android -------------------------------------------------------- #
-    ToolSpec("adb", "Android Debug Bridge", ("adb",), "CRUSORAI_ADB",
-             ("version",), ALL_HOSTS, _ANDROID_HINT),
+    ToolSpec("adb", "Android Debug Bridge", ("adb", "adb.exe"), "CRUSORAI_ADB",
+             ("version",), ALL_HOSTS, _ANDROID_HINT,
+             sdk_subpaths=("platform-tools/adb", "platform-tools/adb.exe")),
     ToolSpec("emulator", "Android Emulator", ("emulator", "emulator.exe"), "CRUSORAI_EMULATOR",
-             ("-version",), ALL_HOSTS, _ANDROID_HINT),
+             ("-version",), ALL_HOSTS, _ANDROID_HINT,
+             sdk_subpaths=("emulator/emulator", "emulator/emulator.exe")),
     ToolSpec("sdkmanager", "Android SDK manager", ("sdkmanager", "sdkmanager.bat"), "CRUSORAI_SDKMANAGER",
-             ("--version",), ALL_HOSTS, _ANDROID_HINT),
+             ("--version",), ALL_HOSTS, _ANDROID_HINT,
+             sdk_subpaths=(
+                 "cmdline-tools/latest/bin/sdkmanager", "cmdline-tools/latest/bin/sdkmanager.bat",
+                 "tools/bin/sdkmanager", "tools/bin/sdkmanager.bat",
+             )),
     ToolSpec("avdmanager", "Android AVD manager", ("avdmanager", "avdmanager.bat"), "CRUSORAI_AVDMANAGER",
-             (), ALL_HOSTS, _ANDROID_HINT),
+             (), ALL_HOSTS, _ANDROID_HINT,
+             sdk_subpaths=(
+                 "cmdline-tools/latest/bin/avdmanager", "cmdline-tools/latest/bin/avdmanager.bat",
+                 "tools/bin/avdmanager", "tools/bin/avdmanager.bat",
+             )),
     ToolSpec("java", "JDK (Gradle)", ("java", "java.exe"), "CRUSORAI_JAVA",
              ("-version",), ALL_HOSTS, {
                  HOST_WINDOWS: "winget install Microsoft.OpenJDK.21",
@@ -194,8 +235,73 @@ class ToolStatus:
         return f"[{mark}] {self.spec.id:<16} {version[:28]:<28} {location}"
 
 
+def sdk_roots(host: str | None = None) -> list[Path]:
+    """Android SDK roots on this machine, most explicit first.
+
+    ``ANDROID_HOME``/``ANDROID_SDK_ROOT`` win; then the locations Android Studio
+    actually installs to on each host. Existence is *not* required — a caller may
+    want to report the path it looked in — but non-existent roots sort last.
+    """
+    resolved = host_platform(host)
+    roots: list[Path] = []
+    for name in _SDK_ROOT_ENVS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            roots.append(Path(value).expanduser())
+    roots.extend(Path(item).expanduser() for item in _SDK_ROOT_DEFAULTS.get(resolved, ()))
+    seen: list[Path] = []
+    for root in roots:
+        if root not in seen:
+            seen.append(root)
+    return seen
+
+
+def sdk_candidates(spec: ToolSpec, host: str | None = None) -> list[str]:
+    """Absolute paths this tool would occupy inside a discovered SDK root.
+
+    ``platform-tools/adb``, ``emulator/emulator`` and the ``cmdline-tools`` pair are
+    the three shapes Android ships; on Windows every leaf is ``.exe``/``.bat``. For
+    ``cmdline-tools`` a versioned directory (``cmdline-tools/13.0/bin/…``) is as valid
+    as ``latest``, so those are globbed — nothing else is scanned.
+    """
+    if not spec.sdk_subpaths:
+        return []
+    resolved = host_platform(host)
+    windows = resolved == HOST_WINDOWS
+    found: list[str] = []
+    for root in sdk_roots(resolved):
+        for rel in spec.sdk_subpaths:
+            candidate = root / rel
+            if not candidate.suffix:
+                if windows:
+                    # Native binaries (platform-tools, emulator) ship .exe; the Java
+                    # launchers (cmdline-tools, the legacy tools/ layout) ship .bat.
+                    native = rel.startswith(("platform-tools/", "emulator/"))
+                    candidate = candidate.with_suffix(".exe" if native else ".bat")
+            elif not windows and candidate.suffix.lower() in {".exe", ".bat"}:
+                continue
+            found.append(str(candidate))
+        # Any versioned cmdline-tools install, newest directory name first.
+        if any(rel.startswith("cmdline-tools/") for rel in spec.sdk_subpaths):
+            leaf = "sdkmanager" if spec.id == "sdkmanager" else "avdmanager"
+            suffix = ".bat" if windows else ""
+            try:
+                versions = sorted(
+                    (entry for entry in (root / "cmdline-tools").iterdir()
+                     if entry.is_dir() and entry.name != "latest"),
+                    reverse=True,
+                )
+            except OSError:
+                versions = []
+            for entry in versions:
+                candidate = entry / "bin" / f"{leaf}{suffix}"
+                if candidate.exists():
+                    found.insert(0, str(candidate))
+    return list(dict.fromkeys(found))
+
+
 def _probe_binary(spec: ToolSpec, host: str) -> tuple[str, str]:
-    """Locate the executable (env override first) and read its version."""
+    """Locate the executable (env override → PATH → SDK root) and read its version."""
     if host not in spec.hosts:
         return "", "unsupported on this host"
     override = os.environ.get(spec.env_override, "").strip() if spec.env_override else ""
@@ -223,7 +329,30 @@ def _probe_binary(spec: ToolSpec, host: str) -> tuple[str, str]:
             except (OSError, subprocess.SubprocessError):
                 version = "version probe failed"
         return path, version
-    return "", "not found on PATH" + (f" (or ${spec.env_override})" if spec.env_override else "")
+    # Not on PATH: an SDK root is the normal case for Android tooling, where the
+    # installer deliberately leaves PATH alone (Windows especially).
+    for candidate in sdk_candidates(spec, host):
+        if Path(candidate).exists():
+            version = ""
+            if spec.version_argv:
+                try:
+                    proc = subprocess.run(
+                        [candidate, *spec.version_argv], capture_output=True, text=True,
+                        timeout=15, check=False,
+                    )
+                    raw = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+                    for line in raw.splitlines():
+                        if line.strip():
+                            version = line.strip()
+                            break
+                except (OSError, subprocess.SubprocessError):
+                    version = "version probe failed"
+            located = sdk_roots(host)
+            where = next((str(root) for root in located if candidate.startswith(str(root))), "SDK")
+            return candidate, version or f"found in SDK root {where}"
+    searched = [str(root) for root in sdk_roots(host)] if spec.sdk_subpaths else []
+    tail = f" (also looked in {', '.join(searched)})" if searched else ""
+    return "", "not found on PATH" + tail + (f" (or ${spec.env_override})" if spec.env_override else "")
 
 
 def probe(host: str | None = None, *, fresh: bool = False) -> dict[str, ToolStatus]:

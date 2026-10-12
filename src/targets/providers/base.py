@@ -47,7 +47,7 @@ def tool_path(tool_id: str, fallback: str = "") -> str:
     custom SDK path, a container image or a CI cache work without a second
     configuration surface.
     """
-    from src.targets.toolchain import TOOLS_BY_ID
+    from src.targets.toolchain import TOOLS_BY_ID, sdk_candidates
 
     spec = TOOLS_BY_ID.get(tool_id)
     if spec is None:
@@ -59,6 +59,12 @@ def tool_path(tool_id: str, fallback: str = "") -> str:
         found = shutil.which(candidate)
         if found:
             return found
+    # Android tooling is routinely installed without touching PATH (Android Studio
+    # on Windows especially): resolve it out of the SDK root before giving up, so the
+    # plan runs the same binary the doctor reported.
+    for candidate in sdk_candidates(spec):
+        if Path(candidate).exists():
+            return candidate
     return fallback or (spec.commands[0] if spec.commands else tool_id)
 
 
