@@ -47,13 +47,62 @@ _turn_lock = threading.Lock()
 
 def enabled() -> bool:
     return os.environ.get("CRUSORAI_OTEL", "off").strip().lower() in {
-        "1", "true", "yes", "on", "console",
+        "1", "true", "yes", "on", "console", "file",
     }
 
 
 def _console_mode() -> bool:
     """No-Docker local mode: print spans to stdout instead of OTLP export."""
     return os.environ.get("CRUSORAI_OTEL", "off").strip().lower() == "console"
+
+
+def _file_mode() -> bool:
+    """No-Docker persistent mode: append spans as JSONL under ~/.crusorai."""
+    return os.environ.get("CRUSORAI_OTEL", "off").strip().lower() == "file"
+
+
+def _otel_file_path() -> Any:
+    from pathlib import Path
+
+    d = Path.home() / ".crusorai" / "traces"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d / "otel-spans.jsonl"
+
+
+class _FileSpanExporter:
+    """Minimal OTel SpanExporter: one JSON object per line, fail-closed."""
+
+    def export(self, spans: Any) -> Any:
+        try:
+            from opentelemetry.sdk.trace.export import SpanExportResult
+        except Exception:
+            return None
+        try:
+            import json
+
+            path = _otel_file_path()
+            with open(path, "a", encoding="utf-8") as fh:
+                for span in spans or []:
+                    try:
+                        # to_json() pretty-prints across lines; re-dump compact
+                        # so the file stays true JSONL (one span per line).
+                        fh.write(json.dumps(json.loads(span.to_json())) + "\n")
+                    except Exception:
+                        continue
+            return SpanExportResult.SUCCESS
+        except Exception:
+            try:
+                from opentelemetry.sdk.trace.export import SpanExportResult
+
+                return SpanExportResult.FAILURE
+            except Exception:
+                return None
+
+    def shutdown(self) -> None:
+        return None
 
 
 def _build_provider() -> Any:
@@ -70,6 +119,13 @@ def _build_provider() -> Any:
             resource=Resource.create({"service.name": "crusor-agent"}),
         )
         provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+        return provider
+
+    if _file_mode():
+        provider = TracerProvider(
+            resource=Resource.create({"service.name": "crusor-agent"}),
+        )
+        provider.add_span_processor(SimpleSpanProcessor(_FileSpanExporter()))
         return provider
 
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
